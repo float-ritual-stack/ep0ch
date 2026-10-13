@@ -2,6 +2,7 @@ import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import type { PageAddressMatch } from "./types";
 import { referenceEnvelopeEnd } from "@ep0ch/outline-core/addressable-resource";
 import { workIdReferences } from "./work-ids";
+import { HASHTAG_VALUE_PATTERN, isEscapedAt } from "@ep0ch/outline-core/property-grammar";
 
 export type CompletionTargetKind = "page" | "block" | "file";
 
@@ -131,6 +132,33 @@ export function completionTargetAtCursor(
   }
 
   return target;
+}
+
+/** A `#tag` being typed before the cursor (at least one character after the `#`). */
+export interface HashtagTarget {
+  start: number;
+  end: number;
+  query: string;
+}
+
+const HASHTAG_BEFORE_CURSOR = new RegExp(`#(${HASHTAG_VALUE_PATTERN.source})$`, "u");
+
+/**
+ * The `#tag` the cursor is at the end of, or null: written where the property parser takes a hashtag (it starts a word:
+ * the line's start, a space or an opening bracket or quote before it, not escaped), outside code and outside a `[[`/`((`
+ * reference (where `#` is a heading: `((note#heading`). Its letters needn't be there yet: `#20` may become `#2025-plan`.
+ */
+export function hashtagAtCursor(line: string, column: number, lines?: readonly string[], row?: number): HashtagTarget | null {
+  if (cursorInCode(lines ?? [line], row ?? 0, column)) return null;
+  const end = Math.max(0, Math.min(column, line.length));
+  const match = HASHTAG_BEFORE_CURSOR.exec(line.slice(0, end));
+  if (!match) return null;
+  const start = match.index;
+  if (isEscapedAt(line, start) || (start > 0 && !/[\s([{"'“‘]/u.test(line[start - 1]!))) return null;
+  if (completionTargetAtCursor(line, end, lines, row)) return null;
+  // The rest of the word after the cursor is the tag's too: choosing one replaces it.
+  const after = /^[\p{L}\p{M}\p{N}_\/-]*/u.exec(line.slice(end))?.[0].length ?? 0;
+  return { start, end: end + after, query: match[1]! };
 }
 
 export interface CompletionWindow {

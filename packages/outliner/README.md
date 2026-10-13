@@ -898,11 +898,28 @@ listener is untouched (below): read-only, marked notes only.
   refused with why), a highlight is the extension's passage action (`extensions.act`), a reply `annotations.reply`, a
   resolve `annotations.lifecycle`, a quote `marks.quote`. They're the person's (`author: user`), as the door writes his, so the door, Detail
   and agents see the same threads. Words that can't be placed still land, on the whole note, quoted.
-- **What guards the writes.** The routes are `<base>/_marginalia/threads` and `/find` (GET) and `<base>/_marginalia/write`
+- **What guards the writes.** The routes are `<base>/_marginalia/threads`, `/find` and `/complete` (GET) and `<base>/_marginalia/write`
   (POST) on the tailnet listener, and below a share link. A write must name this host in its `Origin` and be sent as JSON, so a page on
   another site can't post one; the `Host` rule below still applies. The page runs the publisher's own scripts only
-  (`<base>/_marginalia/reader.js` and the WebMCP polyfill, `script-src 'self'`, `connect-src 'self'`), and a note's
+  (`<base>/_marginalia/reader.js`, `search.js` and the WebMCP polyfill, `script-src 'self'`, `connect-src 'self'`), and a note's
   text can't add another: authored HTML is shown as text.
+- **Search, like the door's power bar** (PIE-789). Every page has a search box (`<base>/search?q=…`, a page that works
+  with no script): the service's one search (`tree.search`, what the power bar, Goto and the completer ask), from the
+  note the page shows, so nearer notes come first. Each result is its title, the line that matched (the words in bold)
+  and its crumbs. `/` or ctrl+k opens the box, results come as you type (up/down choose, Enter opens, Esc closes), and
+  on a phone the box is a sheet over the page. Inside a share link the search is the share's: its notes only, with no
+  crumbs above a shared note. The public listener has none.
+- **Completion in the comment and reply boxes** (PIE-789): `[[` a page, a Work ID or an alias (`pages.complete`), `((`
+  a note (`tree.search`, as `((id))`), `#` a tag the outline already has (`properties.catalog`). The page sends the line
+  being written and the cursor (`<base>/_marginalia/complete`); the outliner's own completion rules
+  (`src/completion.ts`) find the token and write what the door writes. Nothing is required: what's typed is saved as
+  typed. Through a share that takes comments, `[[` and `((` offer only notes inside it, and `#` nothing.
+- **The owner's own pages.** The tailnet listener and the signed-in one (my.ep0ch.sh) are the owner reading his own
+  outline, so nothing there is held back by `[publish::]` except the `never` lock: a `[publish::false]` note and an
+  extension's records show as any other, and a reference to an unpublished note is a link to its page. That holding
+  back is for the public listener and share links.
+- **The top level is the outline's notes.** The outline's own views (`[system-view::trash]`, `bookmarks`) aren't listed
+  or drawn as a board: Bookmarks is a link at the foot of the top level, and a note in Trash is never a page or a row.
 - **Dark and phone first:** a reading measure, targets a thumb can hit, no animation and nothing light or flashing.
 
 #### Anyone with the link

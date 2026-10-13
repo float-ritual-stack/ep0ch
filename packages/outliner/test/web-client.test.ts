@@ -404,3 +404,105 @@ test("the page says what's on screen and the service keeps it with what the read
   expect(read.view.selection?.offsets).toEqual(selected.view.selection!.offsets!);
   expect(read.journal.map((event) => event.kind)).toEqual(["selection", "fold"]);
 });
+
+// The web client as the owner's own reader (PIE-789): search like the power bar, completion in the comment box, nothing
+// held back by `[publish::]`, and the top level showing the outline rather than its system views.
+
+test("search: a box on every page, the power bar's search behind it; a body phrase finds its note with the line and crumbs; a locked note never shows", async () => {
+  const top = await page("/pub/");
+  expect(top).toContain('<form class="sx" role="search" action="/pub/search" method="get">');
+  expect(top).toMatch(/<script src="\/pub\/_marginalia\/search\.js\?v=[0-9a-f]+" defer>/);
+  // From a note's page the search asks from that note, as the bar does (nearer notes first).
+  expect(await page(`/pub/p/${survey.id}`)).toContain(`<input type="hidden" name="near" value="${survey.id}">`);
+
+  const started = performance.now();
+  const results = await page(`/pub/search?q=elephant+hawk&near=${swap.id}`);
+  expect(performance.now() - started).toBeLessThan(1_000);
+  expect(results).toContain(`<li data-block="${survey.id}"><a href="/pub/p/${survey.id}"><span class="t">Moth survey</span>`);
+  expect(results).toContain("<span class=\"s\">The night-scented stock drew <b>elephant</b> <b>hawk</b>-moths after dusk.</span>");
+  expect(results).toContain('<span class="m">Field notes</span>');
+  // The same answer for the box's script, as data.
+  const asked = await (await get("/pub/search?q=elephant+hawk&format=json", {})).json() as { hits: { id: string; line: string; crumbs: string }[] };
+  expect(asked.hits.find((hit) => hit.id === survey.id)).toMatchObject({ crumbs: "Field notes", line: "The night-scented stock drew elephant hawk-moths after dusk." });
+  // A locked note isn't found, nor anything in it.
+  const locked = await (await get("/pub/search?q=plots+cost&format=json", {})).json() as { hits: { id: string }[] };
+  expect(locked.hits.map((hit) => hit.id)).not.toContain(ledger.id);
+  expect(await page("/pub/search?q=zzqxv")).toContain("Nothing matches “zzqxv”.");
+  // The public listener has no search.
+  expect((await get("/share/search?q=moth", browser, "public")).status).toBe(404);
+});
+
+test("search inside a share is the share's: only its notes, no crumbs above the shared note", async () => {
+  await client.request({ action: "shares.start", scope: swap.id, ttl: "5m", comments: false });
+  const kept = JSON.parse(store.readMetadata("share_sessions")!) as { sessions: { token: string; state: string }[] };
+  const base = `/s/${kept.sessions.find((session) => session.state === "active")!.token}`;
+  const shared = await (await get(`${base}/`, browser, "public")).text();
+  expect(shared).toContain(`action="${base}/search"`);
+  const inside = await (await get(`${base}/search?q=marigold&format=json`, {}, "public")).json() as { hits: { title: string; crumbs: string; href: string }[] };
+  expect(inside.hits.map((hit) => hit.title)).toEqual(expect.arrayContaining(["Seed swap", "Marigold packets"]));
+  for (const hit of inside.hits) {
+    expect(hit.crumbs).toBe("");
+    expect(hit.href.startsWith(`${base}/`)).toBe(true);
+  }
+  const outside = await (await get(`${base}/search?q=elephant&format=json`, {}, "public")).json() as { hits: unknown[] };
+  expect(outside.hits).toEqual([]);
+  // A share without comments has no box to complete in.
+  expect((await get(`${base}/_marginalia/complete?text=((moth&at=6`, {}, "public")).status).toBe(403);
+  await client.request({ action: "shares.revoke", all: true });
+});
+
+test("completion in a comment box: [[, (( and # offer what the door's completer offers and insert what it writes", async () => {
+  store.create("Pollinator walk #pollinators #pollen-count\nBees on the lavender.", hub.id, "user");
+  const ask = async (text: string, at = text.length) =>
+    (await get(`/pub/_marginalia/complete?${new URLSearchParams({ text, at: String(at), page: survey.id })}`, {})).json() as Promise<{ kind: string | null; start: number; end: number; items: { label: string; insertion: string }[] }>;
+  const pages = await ask("see [[Field");
+  expect(pages).toMatchObject({ kind: "page", start: 4, end: 11 });
+  expect(pages.items[0]!.insertion).toBe("[[Field Notes]]");
+  const notes = await ask("about ((moth surv");
+  expect(notes.kind).toBe("block");
+  expect(notes.items[0]!.insertion).toBe(`((${survey.id}))`);
+  // Typed into the middle of a reference that's already closed, the whole reference is replaced.
+  expect(await ask("about ((moth))", 11)).toMatchObject({ kind: "block", start: 6, end: 14 });
+  const tags = await ask("for #poll");
+  expect(tags).toMatchObject({ kind: "tag", start: 4, end: 9 });
+  expect(tags.items.map((item) => item.insertion)).toEqual(expect.arrayContaining(["#pollinators", "#pollen-count"]));
+  // On a later line of the box, the offsets are the box's.
+  expect(await ask("Two things:\nfor #poll")).toMatchObject({ kind: "tag", start: 16, end: 21 });
+  // Not a tag: in a word, in code (a fence opened lines above too), a heading's `#`.
+  for (const text of ["mid#poll", "`#poll", "# ", "```\nsee ((moth", "```\nfor #poll"]) expect((await ask(text)).kind).toBeNull();
+  // A locked note is never offered.
+  expect((await ask("((Private ledger")).items.map((item) => item.insertion)).not.toContain(`((${ledger.id}))`);
+});
+
+test("the owner's pages hold nothing back by [publish::]: a [publish::false] child and an extension's record show, and no page says 'not published'", async () => {
+  const order = store.create("Seed order\nWhat to buy for spring.", hub.id, "user");
+  store.create("Supplier quote [publish::false]\nTwelve packets of stock.", order.id, "user");
+  const record = store.create("Ticket GARDEN-12 [type::ticket]\nFix the shed door.", order.id, "agent", { actorId: "ext:tracker" });
+  store.create(`Embedded !((${record.id}))`, order.id, "user");
+  const full = await page(`/pub/p/${order.id}?view=full`);
+  expect(full).toContain("Twelve packets of stock.");
+  expect(full).toContain("Fix the shed door.");
+  const folder = await page(`/pub/p/${order.id}`);
+  for (const body of [full, folder, await page("/pub/"), await (await get(`/pub/p/${order.id}?view=md`, {})).text()]) {
+    expect(body).not.toMatch(/not published|unpublished note/i);
+  }
+  // A note in Trash: no page, and nowhere a row.
+  const gone = store.create("Old compost plan", hub.id, "user");
+  store.delete(gone.id);
+  expect((await get(`/pub/p/${gone.id}`)).status).toBe(404);
+  expect(await (await get(`/pub/p/${gone.id}`)).text()).toBe("Not found\n");
+});
+
+test("the top level shows the outline's notes, not its system views: no Trash, no board of untitled deleted notes, Bookmarks a quiet link", async () => {
+  const gone = store.create("Rotten fence post", null, "user");
+  store.delete(gone.id);
+  const top = await page("/pub/");
+  const rows = [...top.matchAll(/<li data-block="([^"]+)">.*?<span class="t">([^<]*)<\/span>/g)].map((match) => match[2]);
+  expect(rows).toEqual(expect.arrayContaining(["Field notes", "Open letter"]));
+  expect(rows).not.toContain("Trash");
+  expect(rows).not.toContain("Bookmarks");
+  expect(top).not.toContain("untitled");
+  expect(top).not.toContain("Rotten fence post");
+  expect(top).not.toMatch(/<h2>(Board|View) /);
+  expect(top).toMatch(/<footer><a href="\/pub\/p\/[0-9a-f-]+">bookmarks<\/a> · /);
+});

@@ -34,6 +34,7 @@ import { extractAnnotationBody } from "./annotations";
 import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, MarkQuoteReceipt, ProjectedBlockCollection } from "./types";
 import { passageAt } from "@ep0ch/outline-core/passage";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
+import { SEARCH_SCRIPT, type CompletionAnswer } from "./publish-search";
 
 /** The script, read once: served at `<base>/_marginalia/reader.js`, the only script a rendered page may run. */
 export const READER_SCRIPT = readFileSync(new URL("./publish-reader.js", import.meta.url), "utf8");
@@ -170,6 +171,8 @@ export interface PageHost {
   linkable(ids: readonly string[], share?: PageShare): Promise<PageQuote[]>;
   /** The outline's notes by words (the service's search), none locked or outside the share. */
   find(query: string, near: string | undefined, share?: PageShare): Promise<{ id: string; title: string; path: string }[]>;
+  /** What completes at offset `at` of `text` in a comment box (publish-search.ts), from the note `near`, as a page here may show it. */
+  complete(text: string, at: number, near: string | undefined, share?: PageShare): Promise<CompletionAnswer>;
   log(line: string): void;
 }
 
@@ -221,7 +224,7 @@ export class PageMarginalia {
    * the rest: `/threads`, `/write`, `/view`, …).
    */
   async handle(request: Request, route: string, share?: PageShare): Promise<Response> {
-    const script = route === "/reader.js" ? READER_SCRIPT : route === "/webmcp.js" ? WEBMCP_SCRIPT : null;
+    const script = route === "/reader.js" ? READER_SCRIPT : route === "/webmcp.js" ? WEBMCP_SCRIPT : route === "/search.js" ? SEARCH_SCRIPT : null;
     if (script) {
       if (request.method !== "GET" && request.method !== "HEAD") return refused(405, "read-only");
       return new Response(script, { headers: {
@@ -241,6 +244,10 @@ export class PageMarginalia {
     if (route === "/find") {
       if (request.method !== "GET") return refused(405, "use GET");
       return this.find(request, share);
+    }
+    if (route === "/complete") {
+      if (request.method !== "GET") return refused(405, "use GET");
+      return this.complete(request, share);
     }
     if (route === "/view") {
       if (request.method !== "POST") return refused(405, "use POST");
@@ -427,6 +434,27 @@ export class PageMarginalia {
       return json(200, { notes: await this.host.find(query, near, share) });
     } catch (error) {
       return refused(502, `the search didn't answer: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Completion in a comment or reply box (PIE-789): the text being written (up to the end of the cursor's line) and where
+   * the cursor is in it, answered by
+   * the outliner's completion rules over the service's lookups, from the page's note. Below a share, only one that
+   * takes comments (nothing else there has a box), and only notes inside it.
+   */
+  private async complete(request: Request, share?: PageShare): Promise<Response> {
+    const url = new URL(request.url);
+    if (share && !share.comments) return refused(403, "this link takes no comments");
+    if (share && !(await share.active())) return ended();
+    // Never cut: an answer's offsets are the text's as the box sent it (too long is answered with nothing).
+    const text = url.searchParams.get("text") ?? "";
+    const at = Number(url.searchParams.get("at"));
+    const near = url.searchParams.get("page") ? (await this.host.view(url.searchParams.get("page")!, false, share))?.root.id : undefined;
+    try {
+      return json(200, await this.host.complete(text, at, near, share));
+    } catch (error) {
+      return refused(502, `the lookup didn't answer: ${(error as Error).message}`);
     }
   }
 

@@ -3,6 +3,9 @@
 //
 // - Select words in the note: a toolbar along the bottom (a thumb reaches it, and it never covers the phone's own
 //   selection menu) offers what the page's threads route says it can: Highlight, Comment, Ask, Copy, Explain, …
+// - In a comment or reply box, `[[`, `((` and `#` complete as in the door (PIE-789): the publisher's `complete` route
+//   answers from the service's lookups; up/down choose, Enter or Tab inserts the same Blockdown the door writes, Esc
+//   dismisses. Nothing is required: what's typed is saved as typed.
 // - Comment and Ask open a sheet to write in; what's written stays in it until the outline has it (a refusal keeps
 //   the text, says why, and Send tries again with the same request id, so a retry never writes twice).
 // - Threads are cards: beside the text when the window is wide, under their passage when it's narrow, with Reply,
@@ -329,6 +332,85 @@
     }
   }
 
+  // ---- Completion in a box (PIE-789): `[[`, `((` and `#` offer what the door's completer offers, from the service's
+  // lookups, and choosing one writes the same Blockdown. The publisher finds the token with the outliner's own
+  // completion rules: the page sends the line being written and where the cursor is in it, nothing else.
+
+  function completing(input) {
+    const pop = el("div", { class: "mg-complete", role: "listbox", hidden: "" });
+    input.after(pop);
+    // `asked` is the box as the shown list was asked for it: its text and cursor. Any change makes the list stale: it
+    // stays drawn (nothing flashes) but takes no keys and inserts nothing until the next answer.
+    let items = [], at = -1, span = null, asked = null, timer = 0, question = 0;
+    const hide = () => { question += 1; pop.hidden = true; items = []; at = -1; span = null; asked = null; };
+    const current = () => asked && input.value === asked.value && input.selectionStart === asked.cursor && input.selectionEnd === asked.cursor;
+    function draw(message) {
+      pop.replaceChildren(...items.map((item, index) => el("button", {
+        type: "button", role: "option", class: index === at ? "on" : "",
+        // Choosing keeps the box's focus (and the phone's keyboard up).
+        onpointerdown: (event) => event.preventDefault(), onclick: () => choose(index),
+      }, el("span", { class: "l", text: item.label }), item.detail ? el("span", { class: "d", text: item.detail }) : null)),
+      ...(items.length ? [] : [el("p", { class: "dim", text: message || "nothing to choose" })]));
+      pop.hidden = false;
+      pop.querySelector("button.on")?.scrollIntoView({ block: "nearest" });
+    }
+    async function look() {
+      const value = input.value, cursor = input.selectionStart;
+      if (cursor !== input.selectionEnd) return hide();
+      // The cursor's line, and the lines before it (whether it's in a code fence), from a line's start.
+      const lineEnd = value.indexOf("\n", cursor) < 0 ? value.length : value.indexOf("\n", cursor);
+      const lineStart = value.lastIndexOf("\n", cursor - 1) + 1;
+      if (!/\[\[|\(\(|#/.test(value.slice(lineStart, cursor))) return hide();
+      let from = Math.max(0, cursor - 4000);
+      if (from > 0) from = Math.min(value.indexOf("\n", from) + 1 || lineStart, lineStart);
+      const mine = ++question;
+      try {
+        const response = await fetch(`${api}/complete?${new URLSearchParams({ text: value.slice(from, lineEnd), at: String(cursor - from), page })}`, { cache: "no-store" });
+        const answer = await response.json();
+        // An older question's answer, or the box changed meanwhile: dropped.
+        if (mine !== question || input.value !== value || input.selectionStart !== cursor || input.selectionEnd !== cursor) return;
+        if (!response.ok || !answer.kind) return hide();
+        asked = { value, cursor };
+        span = { from: from + answer.start, to: from + answer.end };
+        items = answer.items || [];
+        at = items.length ? 0 : -1;
+        draw(answer.message);
+      } catch { if (mine === question) hide(); }
+    }
+    function choose(index) {
+      const item = items[index];
+      if (!item || !span || !current()) return false;
+      input.focus();
+      input.setSelectionRange(span.from, span.to);
+      // As typed: the box's own undo takes it back.
+      if (!document.execCommand || !document.execCommand("insertText", false, item.insertion)) {
+        input.setRangeText(item.insertion, span.from, span.to, "end");
+      }
+      hide();
+      return true;
+    }
+    const again = () => { clearTimeout(timer); timer = setTimeout(look, 120); };
+    input.addEventListener("input", again);
+    // The cursor moved without typing (a click, an arrow): ask again where it is now.
+    input.addEventListener("click", () => { if (!pop.hidden && !current()) again(); });
+    input.addEventListener("keyup", (event) => { if (!pop.hidden && !current() && /^(Arrow(Left|Right)|Home|End)$/.test(event.key)) again(); });
+    input.addEventListener("keydown", (event) => {
+      if (pop.hidden) return;
+      if (event.key === "Escape") { event.preventDefault(); hide(); return; }
+      // A stale list (typed since, or the cursor moved) lets every key through.
+      if (!items.length || !current()) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        at = (at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        draw();
+      } else if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        choose(at);
+      }
+    });
+    input.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== input) hide(); }, 200));
+  }
+
   /** Comment or Ask: a sheet to write in. The text stays until the outline has it. */
   function compose(action, words) {
     if (!opening()) return;
@@ -350,6 +432,7 @@
       input, why,
       el("div", { class: "mg-row" }, cancel, sendButton));
     document.body.append(sheet);
+    completing(input);
     input.focus();
   }
 
@@ -590,6 +673,7 @@
     box.append(el("div", { class: "mg-row" }, cancel, sendButton));
     row.hidden = true;
     node.append(box);
+    completing(input);
     input.focus();
   }
 
