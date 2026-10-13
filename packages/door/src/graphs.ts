@@ -68,13 +68,13 @@ function rowLinks(link: RowLink | undefined, block: unknown, lines: string[], fi
 
 /**
  * How many lines a table row's title may take: compact one (cut with …, the default, as figures always drew), cozy
- * two, comfortable three with a blank line between rows. Named for how much room each gives, as mail and list
- * views name theirs.
+ * two (cut with … past them), comfortable the whole title however many lines it takes, with a blank line between rows
+ * (PIE-815: a question's title is the question). Named for how much room each gives, as mail and list views name theirs.
  */
 export const DENSITIES = ["compact", "cozy", "comfortable"] as const;
 export type Density = (typeof DENSITIES)[number];
 export const isDensity = (s: unknown): s is Density => DENSITIES.includes(s as Density);
-const TITLE_LINES: Record<Density, number> = { compact: 1, cozy: 2, comfortable: 3 };
+const TITLE_LINES: Record<Density, number> = { compact: 1, cozy: 2, comfortable: Infinity };
 
 /** A figure's control a reader draws: one of a tabs figure's tabs, or its density (a table's too). */
 export interface FigureControl { figure: string; tab?: string; density?: true }
