@@ -11,6 +11,11 @@ import { boxStatus, CHECKLIST_MARKS, STEP_BOX, statusWord } from "@ep0ch/outline
 
 /** The status marks, as the service writes them: outline-core's grammar (checklist-marks.ts). */
 export const STEP_MARKS = CHECKLIST_MARKS;
+/**
+ * A step's box as the door draws it, by its status (whatever was typed: `[+]` is drawn `[✓]`): the marks, but rejected
+ * as ✘, whose VGA lookalike is ▬ (ansi.ts), so a rejected step never reads as done's `[x]` on a CP437 screen.
+ */
+export const STEP_BOXES: Readonly<Record<StepStatus, string>> = { ...CHECKLIST_MARKS, rejected: "[✘]" };
 export { statusWord };
 /** A step's first line up to its box: list mark, box and the space after. */
 const STEP_LEAD = new RegExp(`^\\s*(?:[-+*]|\\d+[.)])\\s+${STEP_BOX}\\s*`);
@@ -19,12 +24,12 @@ const BOX_AT = new RegExp(STEP_BOX);
 /** One choice in the status menu: Detail's CHECKLIST_CHOICES, in its order, with the door's key for each. */
 export type StepChoice = StepStatus | "copy-link" | "address";
 export const STEP_CHOICES: readonly { id: StepChoice; label: string; key: string }[] = [
-  { id: "done", label: `${STEP_MARKS.done} Mark done`, key: "x" },
-  { id: "todo", label: `${STEP_MARKS.todo} Mark to do`, key: "o" },
-  { id: "approved", label: `${STEP_MARKS.approved} Approve`, key: "+" },
-  { id: "rejected", label: `${STEP_MARKS.rejected} Reject`, key: "-" },
-  { id: "waiting", label: `${STEP_MARKS.waiting} Mark waiting`, key: "w" },
-  { id: "problem", label: `${STEP_MARKS.problem} Mark problem`, key: "!" },
+  { id: "done", label: `${STEP_BOXES.done} Mark done`, key: "x" },
+  { id: "todo", label: `${STEP_BOXES.todo} Mark to do`, key: "o" },
+  { id: "approved", label: `${STEP_BOXES.approved} Approve`, key: "+" },
+  { id: "rejected", label: `${STEP_BOXES.rejected} Reject`, key: "-" },
+  { id: "waiting", label: `${STEP_BOXES.waiting} Mark waiting`, key: "w" },
+  { id: "problem", label: `${STEP_BOXES.problem} Mark problem`, key: "!" },
   { id: "copy-link", label: "Copy step link", key: "y" },
   { id: "address", label: "Make addressable", key: "a" },
 ];

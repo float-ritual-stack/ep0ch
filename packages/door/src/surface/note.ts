@@ -31,8 +31,8 @@ import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, page
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
-import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
+import { changeOf, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
@@ -1769,7 +1769,9 @@ export class NoteSurface {
         const line = noteLines[i] ?? -1, st = stepAt.get(line);
         // A read of an earlier revision (the note is being read again) offers a step only where it still stands.
         if (st && steps && steps.revision !== m.revision && !stepStillOn(st, m.text, line)) return null;
-        return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, box) + LINK_OFF : null;
+        // Drawn by its status (`[+]` as `[✓]`, rejected as ✘), where the box still reads as the step's status.
+        const shown = boxStatus(box) === st?.status ? STEP_BOXES[st.status] : box;
+        return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, shown) + LINK_OFF : null;
       },
     };
   }
@@ -3649,7 +3651,7 @@ export class NoteSurface {
       else if (kind === "task" && l.task?.via) ruler = [top + r.line, top + r.line + 1];
       // An extension's control is its own row.
       else if (kind === "control" && l.ext) ruler = [top + r.line, top + r.line + 1];
-      const label = kind === "task" && l.task ? `${STEP_MARKS[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
+      const label = kind === "task" && l.task ? `${STEP_BOXES[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
@@ -5772,7 +5774,7 @@ interface LineUndo { block: string; edits: LineEdit[]; by: string; context: stri
  */
 function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
   const edge = fg(C.yellow), inner = Math.max(8, W - 2);
-  const title = ` ${STEP_MARKS[ref.step.status]} ${printable(stepTitle(ref.step))} `;
+  const title = ` ${STEP_BOXES[ref.step.status]} ${printable(stepTitle(ref.step))} `;
   const room = Math.max(0, W - 2);
   const lines = [edge + "┌─" + fg(C.white) + (width(title) > room ? pad(title, room) : title + edge + "─".repeat(Math.max(0, room - width(title)))) + RESET];
   const rows: number[] = [];

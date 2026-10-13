@@ -189,12 +189,13 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     // `[+]` is the keyboard's approved: the service reads it so.
     await untilAsync(async () => { draw(); return ((await s.act("tasks", {}, host, { kind: "user" })) as any).steps.length === 3; }, "the steps");
     expect(((await s.act("tasks", {}, host, { kind: "user" })) as any).steps.map((t: any) => t.status)).toEqual(["todo", "todo", "approved"]);
+    expect(draw().join("\n")).toContain("[✓] paint it green");        // drawn by its status, not as typed
     // By keys: [ ] to the felt, ⏎, and the choice lists Approve and Reject with their keys; + approves it.
     for (let i = 0; i < 20 && !(s.describe().elements?.current?.label ?? "").includes("felt from"); i++) { s.key(char("]"), host); draw(); }
     s.key({ kind: "enter" }, host);
     const menu = draw().join("\n");
     expect(menu).toContain("[✓] Approve");
-    expect(menu).toContain("[✗] Reject");
+    expect(menu).toContain("[✘] Reject");          // drawn ✘: a VGA screen shows ▬, never done's x
     s.key(char("+"), host);
     await until(() => s.picker === null, "the approval to land");
     expect(await textOf(note.id)).toContain("- [✓] felt from the merchant ^t-felt01");
@@ -205,7 +206,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     const y = lines.findIndex(l => l.includes("patch the gutter"));
     click(lines[y]!.indexOf("[ ]") + 1, y);
     lines = draw();
-    const reject = lines.findIndex(l => l.includes("[✗] Reject"));
+    const reject = lines.findIndex(l => l.includes("[✘] Reject"));
     expect(lines[reject]).toContain(" - ");
     click(4, reject);
     await untilAsync(async () => (await textOf(note.id)).includes("[✗] patch the gutter"), "the rejection to land");

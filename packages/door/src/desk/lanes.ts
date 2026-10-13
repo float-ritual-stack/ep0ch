@@ -32,7 +32,7 @@ import type { TileSpec } from "./tiles";
 import { ReaderPane, type Pane } from "./panes";
 import type { ColumnsHost, SourceModel, TileSource } from "./tile-kinds";
 import { CHECKLIST_STATUSES, isChecklistStatus, stepClosed, stepDone } from "@ep0ch/outline-core/checklist-marks";
-import { STEP_MARKS, statusWord, stepTitle } from "../steps";
+import { STEP_BOXES, statusWord, stepTitle } from "../steps";
 
 /** A lane: a query tile of the board's hub (its view, cards, cursor and read). */
 type Lane = QueryPane;
@@ -1067,7 +1067,7 @@ export class Lanes implements SourceModel {
     };
     const S: Steps = Object.assign(new ListPicker<ChecklistStep, Lanes>({
       name: "steps", items: () => S.read?.items ?? [], closers: "qs", stays: true,
-      row: (it, _i, on, w) => [pickRow(` ${"  ".repeat(it.depth)}${STEP_MARKS[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
+      row: (it, _i, on, w) => [pickRow(` ${"  ".repeat(it.depth)}${STEP_BOXES[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
       choose: () => set(),
       keys: k => { const c = ch(k), to = ({ " ": undefined, x: "done", w: "waiting", "!": "problem", "+": "approved", "-": "rejected" } as Record<string, StepStatus | undefined>)[c]; if (!(c in { " ": 1, x: 1, w: 1, "!": 1, "+": 1, "-": 1 })) return false; set(to); return true; },
       frame: (a, n) => {
