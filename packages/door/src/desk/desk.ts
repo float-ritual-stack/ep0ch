@@ -2766,7 +2766,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private drawSpineTile(canvas: Canvas, id: number, r: Rect, focused: boolean): Placement[] {
     const p = this.panes.get(id)!;
     canvas.clear(r);
-    const sp = p.spine?.() ?? { title: this.nameOf(id) };
+    const own = p.spine?.() ?? { title: this.nameOf(id) };
+    // A spine always names what it holds: a tile with no title yet (an empty reader, a note whose first line is blank)
+    // falls back to its number and name, as its header says them ("4 detail").
+    const sp = visibleText(own.title).trim() ? own : { ...own, title: `${this.numLabel(id)}${this.nameOf(id)}` };
     // A spine of a tile that closes has its × (PIE-794): a click closes it without opening it (tile.close, as ^W x).
     const closes = this.closesByMouse(id) && (this.collapsed.get(id)?.dir === "h" ? r.cols >= 6 : r.rows >= 3);
     const x = (col: number, row: number) => { canvas.text(col, row, `${fg(focused ? C.grey : C.dark)}×${RESET}`, 1); this.closeButtons.push({ id, row, from: col, to: col + 1 }); };
