@@ -38,7 +38,8 @@ export interface PlacedColumn { i: number; cover: Cover; rect: Rect; box: Rect }
 export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean): { i: number; cover: Cover; width: number; natural: number }[] {
   const n = f.kids.length;
   if (!n) return [];
-  const FULL = fullWidth(width);
+  // Growth by room (PIE-794): the flow's `readable` is a full column's width, when it says one.
+  const FULL = f.policy?.readable ? Math.min(width, f.policy.readable) : fullWidth(width);
   const anchor = Math.max(0, columnOf(f, f.anchor));
   const keepAt = columnOf(f, f.keep);
   const keep = keepAt === anchor ? -1 : keepAt;

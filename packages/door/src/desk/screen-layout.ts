@@ -185,6 +185,8 @@ export type Op<I = number> =
   | { op: "pin"; tile: I; on?: boolean; edge?: Dir; container?: string }
   | { op: "slide"; tile: I; open?: boolean; container?: string }
   | { op: "collapse"; tile: I; on?: boolean; dir?: "v" | "h" }
+  /** Growth by room (PIE-794): tile `tile` was just opened beside others; earlier readers in its row fold until it's readable. */
+  | { op: "room"; tile: I }
   | { op: "resize"; split?: string; path?: string; border: number; share: number }
   | { op: "shares"; split: string; shares: number[] }
   | { op: "grow"; tile: I; axis: Axis; by: number }
@@ -646,6 +648,7 @@ class Step<I> {
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
       case "slide": return this.slide(op.tile, op.open, op.container);
       case "collapse": return this.collapse(op.tile, op.on, op.dir);
+      case "room": return this.room(op.tile);
       case "resize": return this.keepsSize(() => this.resizeBorder(op));
       case "shares": return this.keepsSize(() => this.shares(op.split, op.shares));
       case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
@@ -699,6 +702,7 @@ class Step<I> {
         return each(under(nd?.t === "dock" ? nd : dockOf(this.d.tree, op.tile)), "sliding its dock", undefined);
       }
       case "collapse": return no(op.tile, "folding it");
+      case "room": return;   // it folds only tiles an agent may fold (room checks each)
       case "grow": return no(op.tile, "resizing it", "off");
       case "resize": { const n = op.split !== undefined ? nodeById(this.d.tree, op.split) : nodeAt(this.d.tree, op.path ?? ""); return isLine(n as LNode<I>) ? each([...under((n as Line<I>).kids[op.border]), ...under((n as Line<I>).kids[op.border + 1])], "resizing it", "off") : undefined; }
       case "shares": return each(under(nodeById(this.d.tree, op.split)), "resizing it", "off");
@@ -1244,6 +1248,36 @@ class Step<I> {
     const by = byOf(this.ctx.actor);
     for (const t of this.foldSet(id)) this.d.collapsed.set(t, { ...by, ...fold });
     this.d.answer = { collapsed: true, dir: fold.dir === "h" ? "h" : "v" };
+  }
+
+  /**
+   * Growth by room (PIE-794): tile `id` was just opened beside others. While it would be narrower than its `readable`
+   * cells in the screen's area, the earliest tile before it in its row that reads notes folds to a spine: never the
+   * row's first, never `id`, never the tile the person types in, and for an agent never the person's or a limited one.
+   * One policy for every screen: the desk's splits, the board's readers row; a flow squeezes its own columns by it.
+   * The answer names what folded.
+   */
+  private room(id: I) {
+    this.present(id);
+    this.d.changed = false;
+    const folded: string[] = [];
+    this.d.answer = { folded };
+    const p = parentOf(this.d.tree, id), want = this.policyAt(id).readable;
+    if (!p || p.parent.t !== "split" || p.parent.dir !== "row" || want <= 0) return;
+    const width = () => rects({ ...this.d, zoom: null }, this.ctx.area).get(id)?.cols ?? 0;
+    // The row's tiles that read notes, left to right (a tab set by the tab it shows).
+    const readers = p.parent.kids.map(k => (k.t === "leaf" ? k.id : k.t === "tabs" ? k.ids[k.active] : undefined)).filter((t): t is I => t !== undefined && !!this.facts(t).notes);
+    const before = readers.slice(0, Math.max(0, readers.indexOf(id)));
+    const may = (t: I) => before.includes(t) && t !== readers[0] && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
+      && !(this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free"));
+    const by = byOf(this.ctx.actor);
+    while (width() < want) {
+      const t = readers.find(may);
+      if (t === undefined) break;
+      for (const f of this.foldSet(t)) this.d.collapsed.set(f, { ...by });
+      folded.push(this.name(t));
+      this.d.changed = true;
+    }
   }
 
   private resizeBorder(op: Extract<Op<I>, { op: "resize" }>) {

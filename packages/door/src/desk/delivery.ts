@@ -28,7 +28,7 @@ function boardTree(hub: string): SavedTree {
           // The lanes stay where they are and take only query tiles; a lane closes when its view goes.
           { t: "columns", key: "lanes", source: `hub:${hub}`, kids: [], weights: [], policy: { draggable: false, accepts: ["query"] } },
           // Where the lanes' opens land: the preview (its own place: it stays, takes no tabs, folds) and two details.
-          { t: "split", dir: "row", key: "readers", weights: [4], policy: { keep: 2 }, kids: [{ t: "tabs", tabs: [T("preview", "preview", { source: "tile:lanes", label: "preview · follows the board" })], active: 0, policy: { draggable: false, droppable: false, closable: false } }] },
+          { t: "split", dir: "row", key: "readers", weights: [4], policy: { readable: 48 }, kids: [{ t: "tabs", tabs: [T("preview", "preview", { source: "tile:lanes", label: "preview · follows the board" })], active: 0, policy: { draggable: false, droppable: false, closable: false } }] },
           // The backlinks stay open while a source is read in a detail.
           { t: "dock", edge: "down", open: false, policy: { stays: true }, kid: { t: "split", dir: "row", key: "links", weights: [0.5, 0.5], policy: { ...DOCK }, kids: [T("backlinks", "backlinks", { source: "tile:preview" }), T("preview", "backlinks-preview", { source: "tile:backlinks", label: "follows the backlinks" })] } },
         ],

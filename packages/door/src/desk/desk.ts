@@ -1196,8 +1196,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.commit(r);
     this.startTile(id);
     (this.panes.get(id) as ReaderPane).hold(m, this);
+    this.makeRoom(id, actor);
     this.save();
     return true;
+  }
+  /**
+   * Growth by room (PIE-794): tile `id` just opened beside others; the layout folds the earliest readers in its row
+   * (never the first) to spines while it would be narrower than its `readable` width, said once.
+   */
+  private makeRoom(id: number, actor: Actor) {
+    const r = this.ask({ op: "room", tile: id }, actor);
+    if (!r.ok || !r.changed) return;
+    this.commit(r);
+    const folded = (r.answer.folded as string[] | undefined) ?? [];
+    if (folded.length) this.ctx.flash(`folded ${folded.join(", ")} to ${folded.length === 1 ? "a spine" : "spines"} to give ${this.nameOf(id)} room · a click on a spine opens it, its × closes it`);
   }
   /**
    * An open from tile `from` in a flow: a column after its own holding `m` (a detail: it keeps its note, saved with
@@ -1244,8 +1256,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /**
    * Show `m` in a tile opened into container `key`, for `actor` (PIE-515: the board's readers row): the one an open
    * lands in now, unless it holds an edit, a comment or the panel, or `fresh` (alt+⏎) asks for another; a tile opened
-   * there opens its own links in place. Past the container's `keep`, the oldest free one gives way (never the one the
-   * person is in, nor, for an agent, the one they have). A locked or gone container takes none: the note opens in a
+   * there opens its own links in place. A new one makes room as any does (`makeRoom`, PIE-794): the earlier details
+   * fold to spines (never the first tile there, nor the one the person types in). A locked or gone container takes none: the note opens in a
    * free one there, else the first tile there that takes notes, said. The person's keys follow the note there, unless
    * they're in an edit (it keeps them); an agent's never move. Answers the tile that shows it now, if one does.
    */
@@ -1280,15 +1292,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (free !== undefined) rec.active = free;
         return p instanceof ReaderPane ? take : undefined;
       }
-      const keep = c.policy?.keep ?? Infinity;
-      if (ids.length >= keep) {
-        // An agent's open never replaces the tile the person has: it's refused instead.
-        const drop = ids.find(id => !busy(id) && !(agent && this.panes.get(id) === mine));
-        if (drop === undefined) { this.openWhy = agent && ids.some(id => !busy(id)) ? `not opened: the other tiles in ${key} hold edits, comments or properties, and the person has this one` : `not opened: every tile in ${key} holds an edit, a comment or properties · save or close one first`; this.ctx.flash(this.openWhy); return undefined; }
-        this.closeId(drop);
-      }
       to = this.openNewIn(key, actor);
       if (to === undefined) return undefined;
+      this.makeRoom(to, actor);
       ids = this.openedTiles(key);
     }
     const p = this.panes.get(to!) as ReaderPane;
@@ -2753,12 +2759,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!;
     canvas.clear(r);
     const sp = p.spine?.() ?? { title: this.nameOf(id) };
+    // A spine of a tile that closes has its × (PIE-794): a click closes it without opening it (tile.close, as ^W x).
+    const closes = this.closesByMouse(id) && (this.collapsed.get(id)?.dir === "h" ? r.cols >= 6 : r.rows >= 3);
+    const x = (col: number, row: number) => { canvas.text(col, row, `${fg(focused ? C.grey : C.dark)}×${RESET}`, 1); this.closeButtons.push({ id, row, from: col, to: col + 1 }); };
     if (this.collapsed.get(id)?.dir === "h") {
-      drawHSpine(canvas, r, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined });
+      const at = closes ? { ...r, cols: r.cols - 2 } : r;
+      drawHSpine(canvas, at, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined });
+      if (closes) x(r.col + r.cols - 2, r.row);
       this.spines.push([id, r]);
       return [];
     }
-    const out = drawSpine(canvas, r, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined }, this.ctx);
+    const at = closes ? { ...r, row: r.row + 1, rows: r.rows - 1 } : r;
+    const out = drawSpine(canvas, at, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined }, this.ctx);
+    if (closes) x(r.col, r.row);
     this.spines.push([id, r]);
     return out ? [out] : [];
   }
@@ -3198,7 +3211,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // c too: it folded the tile (the board's c, ^W c), so it opens it again, as the spine's hint says.
       // - + = too (PIE-699): on a spine either one opens it.
       if (k.kind === "enter" || c0 === " " || c0 === "c" || FOLD_KEYS.has(c0)) return this.expandSpine(this.focus);
-      if (k.kind === "char" && !k.ctrl && !/^[1-9q/V]$/.test(c0)) { refused(this.ctx, `${this.readerLabel(this.focus)} is collapsed to a spine · c, - or ⏎ or a click opens it`); return; }
+      if (k.kind === "char" && !k.ctrl && !/^[1-9q/V]$/.test(c0)) { refused(this.ctx, `${this.readerLabel(this.focus)} is collapsed to a spine · c, - or ⏎ or a click opens it · its × or ^W x closes it`); return; }
     }
     // A float has the keys: H J K L move it (float.place), as dragging its title does.
     if (this.isFloat(this.focus) && "HJKL".includes(c0) && c0 && !focused?.holdsKeys) return this.run("float.place", { dx: c0 === "H" ? -4 : c0 === "L" ? 4 : 0, dy: c0 === "K" ? -2 : c0 === "J" ? 2 : 0 }, this.nameOf(this.focus));
@@ -4613,13 +4626,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const at: At<number> = { kind: "in", key, weight: this.weightIn(key) };
       const asked = this.ask({ op: "float", tile: t.id, at }, actor);
       if (!asked.ok) throw new ActionRefused(asked.refused);
-      const pinned = this.openedTiles(key).filter(id => !this.isFloat(id));
-      if (pinned.length >= (c.policy?.keep ?? Infinity)) {
-        const out = pinned.find(id => { const q = this.panes.get(id); return !(q instanceof ReaderPane && q.editing) && !this.dispatch.rule("tile", actor, this.nameOf(id)); });
-        if (out === undefined) throw new ActionRefused(`not put back: the other tiles in ${key} hold edits or comments${actor.kind === "agent" ? ", or the person has them" : ""} · save or close one first`);
-        this.closeId(out);
-      }
       this.apply({ op: "float", tile: t.id, at }, actor);
+      this.makeRoom(t.id, actor);
       if (actor.kind !== "agent") { this.focus = t.id; this.noteFocus(); }
       this.save(); this.redraw();
       return { tile: t.name, pane: t.name, floated: false, now: t.name };

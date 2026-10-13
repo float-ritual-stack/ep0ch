@@ -323,6 +323,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
     "links-open": ["Bike shed", "links · Bike shed", "preview"],
+    // The outline, the shed held in a detail with its own ::links, a preview of the detail's selection.
+    "lists-open": ["Bike shed", "detail", "preview · detail", "[ LINKS ]"],
     // The swap thread, its links with every group, and the same tile with Children alone (its replies).
     children: ["Seed swap thread", "links · Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
     // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
@@ -1022,11 +1024,69 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => tiles().length === before + 1, "a new detail", 5000);
     expect(tiles().find(t => t.kind === "reader" && t.mode === "held" && t.name !== "detail")?.showing?.id).toBe(first.id);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
-    // ⏎ opens it in the detail the links came from, and the links tile lists that note's links now.
+    // ⏎ opens it in the list's home, the detail; the list keeps the shed's links (PIE-794).
     await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
     await until(() => shows("detail") === first.id, "⏎: the detail holds it", 5000);
+    expect(links().target.id).toBe(seeded.notes.shed.id);
     expect(S().focus).toBe("index");
   }, 20_000);
+
+  test("lists-open (PIE-794): an inline row selects and previews; a double click replaces the held detail's note, and only it; alt+r shows it in the outline; alt+click opens a detail beside", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "lists-open" }, as: "test-agent" })).toMatchObject({ key: "lists-open" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "lists-open")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const shows = (name: string) => tiles().find(t => t.name === name)?.showing?.id;
+    const detail = () => stage().pane("detail") as any;
+    const tree = () => stage().pane("tree") as any;
+    const person = (action: string, args: Record<string, unknown> = {}, tile = "detail") => stage().dispatch.act({ action, tile, args }, { kind: "user" });
+    const rows = () => (detail()?.surface.linkBlocksDrawn[0]?.rows ?? []).filter((r: any) => r.id && r.id !== seeded.notes.shed.id);
+    await until(() => shows("detail") === seeded.notes.shed.id && rows().length > 0, "the shed held, its own ::links drawn", 8000);
+    const row = rows()[0], n = detail().surface.linkBlocksDrawn[0].rows.findIndex((r: any) => r.key === row.key) + 1;
+    const treeWas = tree().selected()?.id ?? null;
+    // A pick (a click, j k inside it) selects the row, and the preview of the detail's selection follows; nothing else moves.
+    await person("links.pick", { n });
+    await until(() => shows("preview") === row.id, "the preview following the row", 5000);
+    expect(shows("detail")).toBe(seeded.notes.shed.id);
+    // ⏎ (a double click) replaces the held detail's note, kept in its history; the outline and the current note stay.
+    await person("links.open", { n });
+    await until(() => shows("detail") === row.id, "the detail holds the row's note", 5000);
+    expect(tiles().find(t => t.name === "detail").mode).toBe("held");
+    expect(tree().selected()?.id ?? null).toBe(treeWas);
+    expect(stage().current?.id ?? null).not.toBe(row.id);
+    // alt+r, or a click on the crumbs: the outline's cursor goes to it. An agent's is refused: the cursor is the person's.
+    await expect(app.act({ action: "reader.reveal", tile: "detail", as: "test-agent" })).rejects.toThrow(/person/);
+    await person("reader.reveal");
+    await until(() => tree().selected()?.id === row.id, "the outline on the detail's note", 5000);
+    expect(shows("detail")).toBe(row.id);
+    // Back to the shed; alt+⏎ on the row opens a new held detail beside it, which keeps its own note.
+    await person("back");
+    await until(() => shows("detail") === seeded.notes.shed.id, "back on the shed", 5000);
+    const before = tiles().length;
+    await until(() => rows().length > 0, "the shed's rows again", 5000);
+    await person("links.open", { n, where: "new" });
+    await until(() => tiles().length === before + 1, "a new detail beside", 5000);
+    expect(tiles().find(t => t.kind === "reader" && t.mode === "held" && t.name !== "detail")?.showing?.id).toBe(row.id);
+    expect(shows("detail")).toBe(seeded.notes.shed.id);
+    // Growth by room: another detail beside the new one, and another; past a readable width the earlier ones (never the
+    // first) fold to spines, said; nothing closes.
+    const made = () => tiles().filter(t => t.kind === "reader" && t.mode === "held").map(t => t.name as string);
+    for (let i = 0; i < 2; i++) {
+      const last = made().at(-1)!;
+      stage().setCurrent(seeded.notes.notebook, { from: stage().pane(last), link: true, fresh: true });
+    }
+    await until(() => made().length === 4, "four details", 5000);
+    const spines = () => tiles().filter(t => t.collapsed).map(t => t.name as string);
+    expect(spines().length).toBeGreaterThan(0);
+    expect(spines()).not.toContain("detail");
+    // A spine's × closes it without opening it (tile.close, as ^W x).
+    const gone = spines()[0]!;
+    const closes = () => { screen(); const st = stage() as any; return st.closeButtons.find((c: any) => c.id === st.idNamed(gone)); };
+    await until(() => !!closes(), "the spine's ×", 5000);
+    await stage().dispatch.act({ action: "tile.close", tile: gone }, { kind: "user" });
+    expect(made()).not.toContain(gone);
+    expect(S().focus).toBe("index");
+  }, 30_000);
 
   test("children (PIE-693): a thread's replies are a group of its links, narrowed by Stage; a tile's groups are chosen by act and saved; ⏎ opens a reply in the reader", async () => {
     (app as any).lastInput = 0;
