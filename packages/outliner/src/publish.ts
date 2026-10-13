@@ -466,6 +466,7 @@ textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 
 .mg-card .rich{white-space:normal}
 .mg-card .rich>:first-child{margin-top:0}.mg-card .rich>:last-child{margin-bottom:0}
 .mg-card .rich p{margin:.3rem 0}
+.mg-card .q .rich,.mg-card .q .rich>p{display:inline;margin:0}
 .mg-card .rich blockquote{margin:.3rem 0;padding-left:.5rem;border-left:2px solid var(--rule);color:var(--dim)}
 .mg-setting{display:flex;gap:.25rem;align-items:center;margin:.5rem 0 .25rem}
 .mg-setting .who{margin-right:.35rem}

@@ -98,6 +98,8 @@ export interface PageThread {
   body: string;
   /** Its words drawn as the page draws a note, when the page could. */
   html?: string;
+  /** The words it's on, drawn the same way (a card shows them where they aren't marked on the page). */
+  quoteHtml?: string;
   /** How present it is (PIE-791): open and kept are in the margin; seen and resolved on the Earlier shelf. */
   lifecycle: string;
   /** Its newest TL;DR reply's id: the thread's face. */
@@ -442,6 +444,7 @@ export class PageMarginalia {
       quotedIn: quotes(thread),
     };
     raws.push({ into: face, text: thread.body });
+    if (face.quote) raws.push({ into: { set html(value: string) { face.quoteHtml = value; } }, text: face.quote });
     return face;
   }
 

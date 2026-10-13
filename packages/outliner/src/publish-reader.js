@@ -524,7 +524,14 @@
     const earlier = isEarlier(thread), kept = thread.lifecycle === "kept";
     const node = el("div", { class: `mg-card mg-ui${top ? " top" : ""}${bare ? " bare" : ""}${earlier ? " earlier" : ""}${kept ? " kept" : ""}${picked.has(thread.id) ? " picked" : ""}`, "data-thread": thread.id });
     node.append(el("div", { class: "who", text: [thread.kind, thread.by, when(thread.at), kept ? "kept" : "", earlier ? "seen" : ""].filter(Boolean).join(" · ") }));
-    if (thread.quote && !markOf(thread.id)) node.append(el("div", { class: "q", text: `“${thread.quote}”` }));
+    if (thread.quote && !markOf(thread.id)) {
+      // Drawn as the note's words are (a reference by its title, a link), from the server's renderer; else as typed.
+      const said = el("div", { class: "q" }, "“");
+      if (thread.quoteHtml) { const words = el("span", { class: "rich" }); words.innerHTML = thread.quoteHtml; said.append(words); }
+      else said.append(thread.quote);
+      said.append("”");
+      node.append(said);
+    }
     const marks = thread.marks || [];
     const face = thread.tldr ? thread.replies.find((reply) => reply.id === thread.tldr) : null;
     // A TL;DR is the thread's face; what it's about is folded behind it.
