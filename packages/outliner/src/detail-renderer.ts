@@ -1,3 +1,4 @@
+import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope } from "./work-ids";
 import type {DetailReadPreviewDocument} from './detail-pi-preview';
 import {getMarkdownTheme} from "@earendil-works/pi-coding-agent";
@@ -366,7 +367,7 @@ export function buildDetailAnsiPreview(
         index += 1;
         threadRows.set(thread.block.id, sourceLines.length + annotationLines.length);
         append(`${thread.block.id === state.selectedAnnotationId ? "▶" : " "} ${annotationThreadTitle(thread, index)} · ${thread.lifecycle}`);
-        append(`C reply · D ${thread.lifecycle === "open" ? "resolve" : "reopen"}`);
+        append(`C reply · D ${markCurrent(thread.lifecycle) ? "seen" : "bring back"}`);
         append(annotationScopeLabel(thread, state));
         append(`${group.placement} · ${thread.currentResolution.status}`);
         if (group.placement === "unpositioned" || thread.resolvedTarget?.anchor.kind === "list-item") {
