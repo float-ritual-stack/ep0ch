@@ -9,6 +9,8 @@
 //   draft.patch  a block under such a subscription (a newer version proposed beside a copy)
 //
 // Marks (netmail, seen-by) need only `propose` already. Nothing else is written; a named list (`@page`) doesn't count.
+// Nothing it writes may carry `[subscribe::]` (a copy carries `[source-subscribe::]`): a subscription inside one would
+// widen what this outline reads. A subscription is only ever changed in its `since`, wherever it sits.
 import { glob, parseMask, prop, type Block as ShapeBlock, values } from "../extensions/echonet/shapes";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { Block } from "./types";
@@ -37,7 +39,9 @@ export function echonetCallMayWrite(action: string, request: Record<string, unkn
     }
     return undefined;
   };
+  const subscribes = (text: unknown) => typeof text === "string" && /\[subscribe::/i.test(text);
   if (action === "create") {
+    if (subscribes(request.text)) return false;
     if (underSubscription(request.parentId, true)) return true;
     const parent = typeof request.parentId === "string" ? get(request.parentId) : undefined;
     const head = typeof request.text === "string" ? request.text.split("\n", 1)[0]! : "";
@@ -46,10 +50,18 @@ export function echonetCallMayWrite(action: string, request: Record<string, unkn
   if (action === "update" || action === "draft.patch") {
     const block = typeof request.blockId === "string" ? get(request.blockId) : undefined;
     if (!block) return false;
-    if (action === "update" && prop(asShape(block), "type") === "echo-ledger") return true;
-    if (underSubscription(block.id, false)) return true;
-    // The subscription itself: its `since`, written on its first toss, and nothing else.
-    return action === "update" && isSubscription(block) && subscriptionNames(block, node) && typeof request.text === "string" && withoutSince(request.text) === withoutSince(block.text);
+    // A subscription itself (one naming it): its `since`, written on its first toss, and nothing else.
+    if (isSubscription(block)) {
+      return action === "update" && subscriptionNames(block, node) && typeof request.text === "string" && withoutSince(request.text) === withoutSince(block.text);
+    }
+    if (action === "update") {
+      if (subscribes(request.text)) return false;
+      return prop(asShape(block), "type") === "echo-ledger" || !!underSubscription(block.id, false);
+    }
+    // A proposal beside one block, in the one form a call sends (`blockId` and `patches`, no `edits` reaching others).
+    const patches = request.patches;
+    if (request.edits !== undefined || !Array.isArray(patches) || patches.some((patch) => subscribes((patch as { replacement?: unknown })?.replacement))) return false;
+    return !!underSubscription(block.id, false);
   }
   return false;
 }

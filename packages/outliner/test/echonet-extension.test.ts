@@ -575,6 +575,8 @@ test("a machine that dials in: never called, it delivers into the subscriptions 
   await expect(send(socket(outlines), { outline: "cafe", action: "create", text: "Field: a note of its own", relayed })).rejects.toThrow("needs full");
   const subNow = await get("cafe", sub.id);
   await expect(send(socket(outlines), { outline: "cafe", action: "update", blockId: sub.id, expectedRevision: subNow.revision, text: subNow.text.replace("field@box-b", "*@*"), relayed })).rejects.toThrow("needs full");
+  // Nor a subscription of its own inside the one that names it.
+  await expect(send(socket(outlines), { outline: "cafe", action: "create", parentId: sub.id, text: "More [subscribe::*@*] [echo::*]", relayed })).rejects.toThrow("needs full");
   // The call's own log is under the cafe's nodelist.
   const list = (await where("cafe", "type=nodelist"))[0]!;
   const logs = (await send<Block[]>(socket(outlines), { outline: "cafe", action: "children", parentId: list.id })).filter((block) => block.text.startsWith("Call from field@box-b"));
