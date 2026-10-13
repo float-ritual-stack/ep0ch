@@ -1,5 +1,5 @@
 // Text helpers shared by the BBS screens and the desk panes.
-import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { pageLinkRanges, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { balanceStyles, balanceTags, C, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
 import { theme } from "./theme";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
@@ -129,6 +129,13 @@ export function wrap(text: string, w: number, { code = false, joins }: { code?: 
   return balanceStyles(balanceTags(out));
 }
 
+/** Each `[[page link]]` of `line` in the link colour, its brackets counted (a page link may hold another, PIE-592). */
+function colourPageLinks(line: string): string {
+  let out = "", at = 0;
+  for (const r of pageLinkRanges(line)) { out += line.slice(at, r.start) + fg(C.lcyan) + line.slice(r.start, r.end) + fg(C.grey); at = r.end; }
+  return out + line.slice(at);
+}
+
 /** Colour one body line the way a BBS message reader would: quotes, headings, links, properties. */
 /** `literal`: the line is in a literal region (PIE-422), where `[key::value]` is text, not a property. */
 export function colourBody(line: string, literal = false): string {
@@ -137,8 +144,7 @@ export function colourBody(line: string, literal = false): string {
   if (/^\s*[-*] /.test(line)) line = line.replace(/^(\s*)([-*]) /, `$1${fg(C.lcyan)}∙${fg(C.grey)} `);
   // Property tokens first, on the plain line: their values hold links and brackets the escapes below would confuse.
   if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(C.grey)}`);
-  return fg(C.grey) + line
-    .replace(/\[\[([^\]]+)\]\]/g, `${fg(C.lcyan)}[[$1]]${fg(C.grey)}`)
+  return fg(C.grey) + colourPageLinks(line)
     .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.

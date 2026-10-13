@@ -4,7 +4,7 @@ import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { isMediaLine } from "@ep0ch/outline-core/media-line";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
-import { blockReferenceEnvelopeRanges } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceEnvelopeRanges, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
 import type {
   BlockProperty,
   PropertyFilter,
@@ -119,8 +119,8 @@ function hashtagCandidates(
   // already have an owner; a hash inside one must not create another property.
   const excluded = [...literalRanges, ...protectedCodeRanges(text), ...properties, ...blockReferenceEnvelopeRanges(text)];
   for (const token of propertyTokenMatches(text)) excluded.push({ start: token.start, end: token.end });
+  excluded.push(...pageLinkRanges(text));
   for (const pattern of [
-    /\[\[[^\]\r\n]*\]\]/g,
     /!?\[[^\]\r\n]*\]\((?:\\.|[^\\)\r\n])*\)/g,
     /^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*/gm,
     /\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+/gi,

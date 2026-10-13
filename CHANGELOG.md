@@ -12,16 +12,6 @@ are its record. The outliner's entries from then are kept below, under
 
 ### Writing papercuts from sysops-log (PIE-592)
 
-- **Added:** `@` at the start of a line offers the agents the outline's extensions serve (`@tidy`), with what each
-  does and when it runs, so a request is found by typing `@`.
-- **Added:** pictures into a draft. `Ctrl+V` puts in the clipboard's picture (read on the door's machine); on the path
-  an image file dropped on the terminal pasted, it puts in that file instead. Either is copied into the outline's
-  folder (`media/`) and written as `[img::<path>]` on its own line.
-- **Checked, not reproduced:** the Oct 4 "a blank version after a save" (save, follow a link, back; save and reopen):
-  the reader reads the note again on back and after a save. Say the steps if it comes back.
-
-### Writing papercuts from sysops-log (PIE-592)
-
 - **Added:** links work from an edit. `Ctrl+L` (or an alt- or ctrl-click) on a `[[page]]`, `((reference))` or
   `[text](url)` in an edit or a comment opens it in a detail beside the draft; a click on a link in the draft's preview
   (`Ctrl+P`) does the same. The draft stays open and keeps your keys, and the next link opens in the same detail.
@@ -29,6 +19,18 @@ are its record. The outliner's entries from then are kept below, under
   ("the note opened as the current one instead"); it opens beside the edit now.
 - **Added:** `[[` and a name no page has yet offers `new page · <name>` last: choosing it makes the page and links it.
 - **Fixed:** a `` `[[` `` quoted in a code span earlier on the line no longer opens the completion popup as you type.
+- **Fixed:** a page link can hold another: `[[[[2026-10-06]] - editor thoughts]]` is one link to the page
+  "[[2026-10-06]] - editor thoughts", read as "2026-10-06 - editor thoughts", and the 2026-10-06 page lists the note
+  among its backlinks too. Brackets are counted (outline-core's `pageLinkSpans`), never matched by the first `]]`,
+  which made a page called "[[2026-10-06" before.
+- **Added:** `@` at the start of a line offers the agents the outline's extensions serve (`@tidy`), with what each
+  does and when it runs, so a request is found by typing `@`.
+- **Added:** pictures into a draft. `Ctrl+V` puts in the clipboard's picture (read on the door's machine); on the path
+  an image file dropped on the terminal pasted, it puts in that file instead. Either is copied into the outline's
+  folder (`media/`) and written as `[img::<path>]` on its own line.
+- **Checked, not reproduced:** the Oct 4 "a blank version after a save" (save, follow a link, back; save and reopen):
+  the reader reads the note again on back and after a save. Say the steps if it comes back.
+- **Run:** the protocol changed (159): `ep0ch install --apply` on each machine (the outline host and the doors together).
 
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 

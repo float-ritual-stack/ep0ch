@@ -14,7 +14,7 @@ import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } 
 import { resourceProviderKeys } from "./resource-providers";
 import { noteStructure } from "@ep0ch/outline-core/component-block";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
-import { blockReferenceOccurrences, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, linkOccurrences, pageAddressText } from "@ep0ch/outline-core/link-syntax";
 
 /** Markers around a resolved link / an unlinked missing one in prepared text; colourBody styles them. */
 export const LINK_ON = "", MISSING_ON = "", LINK_OFF = "";
@@ -251,7 +251,7 @@ export function refView(id: string, fragment: string | undefined, label: string 
 
 /** How a `[[address]]` reads: its label or address, followed by MISSING_MARK when no page has it yet. */
 export function pageView(address: string, label: string | undefined, r: PageResolution | null): LinkView {
-  const text = (label ?? address).trim();
+  const text = (label ?? pageAddressText(address)).trim();
   if (r?.status === "missing") return { text: `${text} ${MISSING_MARK}`, missing: true };
   return { text: text + (r?.status === "deleted" ? " · Trash" : ""), missing: false };
 }

@@ -10,7 +10,7 @@
 // says so instead of guessing. Mapping a drawn selection to source offsets stays the door's (ADR 0004); the passage it
 // becomes is outline-core's.
 
-import { fragmentAnchorMatch, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { fragmentAnchorMatch, labelBar, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 
 /** For each source character: drawn (true) or hidden by the reader (false); and the tokens a passage takes whole. */
 function visibility(span: string): { shown: boolean[]; tokens: { start: number; end: number }[] } {
@@ -25,10 +25,11 @@ function visibility(span: string): { shown: boolean[]; tokens: { start: number; 
       hide(l.start, l.start + 1);
       hide(l.start + 1 + l.text.length, l.end);
     } else if (l.kind === "page") {
-      // `[[address|label]]`: the label, else the address.
-      const bar = raw.indexOf("|");
+      // `[[address|label]]`: the label, else the address, without the brackets of the page links it holds (PIE-592).
       hide(l.start, l.start + 2); hide(l.end - 2, l.end);
-      if (bar >= 0) hide(l.start + 2, l.start + bar + 1);
+      const bar = labelBar(raw.slice(2, -2));
+      if (bar >= 0) hide(l.start + 2, l.start + bar + 3);
+      else for (const m of raw.slice(2, -2).matchAll(/\[\[|\]\]/g)) hide(l.start + 2 + m.index!, l.start + 4 + m.index!);
     } else {
       // `((id|label))`: the label; `((id))` draws its target's title, which isn't in the source at all.
       const bar = raw.indexOf("|");
