@@ -200,6 +200,17 @@ export function alignComments<C extends { start: number | null; end: number | nu
   return comments.map(c => ({ ...c, start: r.sourceAt !== null && c.start !== null ? c.start + r.sourceAt : null, end: r.sourceAt !== null && c.end !== null ? c.end + r.sourceAt : null }));
 }
 
+/**
+ * Comments whose place isn't their own words in `text` (PIE-805) have none: drawn on other words, a mark would be wrong,
+ * so it reads "couldn't place" until the service places it again. The words are compared as the quote is kept (white
+ * space as one space).
+ */
+export function onTheirWords<C extends { quote: string; start: number | null; end: number | null }>(comments: C[], text: string | undefined): C[] {
+  if (text === undefined) return comments;
+  const words = (s: string) => s.replace(/\s+/g, " ").trim();
+  return comments.map(c => c.start === null || c.end === null || !c.quote || words(text.slice(c.start, c.end)) === c.quote ? c : { ...c, start: null, end: null });
+}
+
 /** The same Resource's note read again (its text may have changed), still opened from the note it was opened from. */
 export function rereadResource(fresh: Msg, was: Msg): Msg {
   return fresh.resource && was.resource?.from ? { ...fresh, resource: { ...fresh.resource, from: was.resource.from } } : fresh;

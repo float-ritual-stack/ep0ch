@@ -28,7 +28,7 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
-import { alignComments, isOutlineNote, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
+import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
@@ -2315,7 +2315,7 @@ export class NoteSurface {
     if (!id) return;
     try {
       let stale = false;
-      const c = alignComments(await host.ctx.board.comments(id, this.msg?.resource ? { revision: this.msg.revision, stale: () => { stale = true; } } : undefined), this.msg);
+      const c = onTheirWords(alignComments(await host.ctx.board.comments(id, this.msg?.resource ? { revision: this.msg.revision, stale: () => { stale = true; } } : undefined), this.msg), this.msg?.text);
       // A Resource whose file changed since it was drawn: read again (the quotes were placed in the new text), once.
       if (stale && this.msg?.id === id && !retry) {
         const now = await host.ctx.board.get(id);

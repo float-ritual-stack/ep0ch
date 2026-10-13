@@ -2451,9 +2451,8 @@ export class OutlinerStore {
       return block.id;
     }
     if (block.text !== text) {
-      const updated = this.update(block.id, text, block.revision, actor);
+      this.update(block.id, text, block.revision, actor);
       changed.push(block.id);
-      this.annotations.reconcile({ subject: { kind: "block", blockId: block.id }, newRepresentation: blockAnnotationRepresentation(updated) });
     }
     this.database.query("UPDATE extension_records SET synced_at = ?, resource_id = ?, label = ? WHERE block_id = ?")
       .run(now, input.resourceId, input.label, block.id);
@@ -2522,6 +2521,10 @@ export class OutlinerStore {
       // without a row, so a cut by revision number would drop real history.
       this.database.query("DELETE FROM block_revisions WHERE block_id = ? AND revision NOT IN (SELECT revision FROM block_revisions WHERE block_id = ? ORDER BY revision DESC LIMIT ?)")
         .run(id, id, REVISIONS_KEEP);
+      // The marks on it follow their words in the new text (PIE-805), in the same write: by their quote, else where they
+      // were when the same words are still there, else they can't be placed. Never left on the old offsets, which in
+      // the new text are other words.
+      this.annotations.reconcile({ subject: { kind: "block", blockId: id }, newRepresentation: blockAnnotationRepresentation(this.require(id)), content: text }, current.text);
     }
     return editedAt;
   }

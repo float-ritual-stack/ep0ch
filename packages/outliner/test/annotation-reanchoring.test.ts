@@ -41,6 +41,34 @@ function reconcile(oldContent: string, selected: string, newContent: string) {
 }
 
 describe("deterministic annotation reanchoring", () => {
+  // PIE-805: given the text the mark was placed in, words that were already there are another passage.
+  test("with the text it was placed in: an edited quote still follows, but never onto words that were already there", () => {
+    const before = "Intro\nBring the twine for the bean poles.\nBring the twine for the pea poles.\nOutro";
+    const quote = "Bring the twine for the bean poles.";
+    const after = (content: string) => reanchorAnnotationTarget(target(before, quote), representation("new", content), content, [], before);
+    // Its own words, edited: still found by their likeness.
+    expect(after("Intro changed\nBring the twine for the bean canes.\nBring the twine for the pea poles.\nOutro")).toMatchObject({
+      status: "resolved", resolvedTarget: { anchor: { exact: "Bring the twine for the bean canes." } },
+    });
+    // Its words gone: the near twin was already there, so it's not taken.
+    const gone = after("Intro\nBring the twine for the pea poles.\nOutro");
+    expect(gone.resolvedTarget).toBeNull();
+    expect(gone.status).not.toBe("resolved");
+    // Without the earlier text (an old record), the old likeness rule stands.
+    expect(reconcile(before, quote, "Intro\nBring the twine for the pea poles.\nOutro").status).toBe("resolved");
+  });
+
+  test("with the text it was placed in: the one occurrence left of a repeated quote needs its own context", () => {
+    const before = "Dawn: Okay.\nNoon: water the beds.\nDusk: Okay.\nNight";
+    const start = before.indexOf("Okay.");
+    const marked: AnnotationTarget = { representation: representation("old", before), anchor: createTextQuoteAnchor(before, start, start + 5) };
+    const after = (content: string) => reanchorAnnotationTarget(marked, representation("new", content), content, [], before);
+    // Its line deleted: the other "Okay." is someone else's.
+    expect(after("Noon: water the beds.\nDusk: Okay.\nNight")).toMatchObject({ status: "ambiguous", resolvedTarget: null });
+    // The other deleted instead: its own, with its words around it, stays.
+    expect(after("Dawn: Okay.\nNoon: water the beds.\nNight")).toMatchObject({ status: "resolved", resolvedTarget: { anchor: { start } } });
+  });
+
   test("duplicate item addresses remain ambiguous even when the old quote has one match", () => {
     const originalText = "- [ ] Prepare ^prepare";
     const duplicated = "- [ ] Prepare ^prepare\n- [x] Different words ^prepare";

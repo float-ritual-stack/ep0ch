@@ -18,6 +18,8 @@ const HIGH_CONFIDENCE = 0.8;
 const MEDIUM_CONFIDENCE = 0.65;
 const MINIMUM_CANDIDATE = 0.25;
 const MINIMUM_MARGIN = 0.05;
+/** The one occurrence left of a quote that was repeated is taken only with most of its context (0.7 + 0.3 × 0.8). */
+const REPEATED_QUOTE_CONFIDENCE = 0.94;
 const MAX_CANDIDATES = 8;
 const MAX_SEGMENTS = 512;
 const MAX_FUZZY_UNITS = 512;
@@ -394,6 +396,7 @@ function fuzzyCandidates(
   anchor: Extract<AnnotationAnchor, { kind: "text-quote" }>,
   representation: AnnotationRepresentation,
   content: string,
+  previous?: string | null,
 ): FuzzyCandidates {
   if (words(anchor.exact).size < 2) return { candidates: [], exhaustive: true };
   const fuzzyMethod = method(TEXT_CODEC, "local-fuzzy");
@@ -407,6 +410,8 @@ function fuzzyCandidates(
       return candidate(textTarget(representation, content, start, end), fuzzyMethod, confidence);
     })
     .filter((entry) => entry.confidence >= MINIMUM_CANDIDATE)
+    // Words that were already there, word for word, are another passage: not this mark's own words, edited.
+    .filter((entry) => !previous || entry.target.anchor.kind !== "text-quote" || !previous.includes(entry.target.anchor.exact))
     .sort((left, right) =>
       right.confidence - left.confidence ||
       ((left.target.anchor.kind === "text-quote" ? left.target.anchor.start : 0) ?? 0) -
@@ -440,11 +445,18 @@ function sameBlock(left: AnnotationRepresentation, right: AnnotationRepresentati
   return left.subject.kind === "block" && right.subject.kind === "block" && left.subject.blockId === right.subject.blockId;
 }
 
+/**
+ * Where a mark goes in `content`. `previous`, when the caller has it, is the text the mark was placed in just before
+ * (the write that changed it, PIE-805): words that were already in it are another passage, never this mark's own words
+ * moved or edited, so they're never where it lands: a quote that was there more than once and is now there once proves
+ * nothing by itself, and a near match that was already there word for word isn't taken.
+ */
 export function reanchorAnnotationTarget(
   target: AnnotationTarget,
   representation: AnnotationRepresentation,
   content: string | null,
   pdfPages: readonly PdfPageText[] = [],
+  previous?: string | null,
 ): AnnotationReanchorResult {
   const anchor = target.anchor;
   if (target.listItemId) {
@@ -543,13 +555,25 @@ export function reanchorAnnotationTarget(
     ));
   }
   const exact = exactOccurrences(content, anchor);
-  if (exact.count === 1) {
+  // Once now, but more than once in the text it was placed in: the one left may be another passage's. Its context
+  // decides (as for a quote that is there more than once).
+  const wasRepeated = !!previous && anchor.exact.length > 0 && previous.indexOf(anchor.exact) !== previous.lastIndexOf(anchor.exact);
+  if (exact.count === 1 && !wasRepeated) {
     const start = exact.ranked[0]!.start;
     return resolved(candidate(
       textTarget(representation, content, start, start + anchor.exact.length),
       method(TEXT_CODEC, "unique-exact-quote"),
       1,
     ));
+  }
+  if (exact.count === 1) {
+    // The one left of a quote that was repeated: its own only when the words around it are still the mark's.
+    const contextMethod = method(TEXT_CODEC, "quote-context");
+    const only = exact.ranked[0]!;
+    const found = candidate(textTarget(representation, content, only.start, only.start + anchor.exact.length), contextMethod, only.confidence);
+    return only.confidence >= REPEATED_QUOTE_CONFIDENCE
+      ? resolved(found)
+      : { resolvedTarget: null, method: contextMethod, confidence: only.confidence, status: "ambiguous", candidates: [found] };
   }
   if (exact.count > 1) {
     const contextMethod = method(TEXT_CODEC, "quote-context");
@@ -560,7 +584,7 @@ export function reanchorAnnotationTarget(
     ));
     return unresolved(contextMethod, candidates, "ambiguous");
   }
-  const fuzzy = fuzzyCandidates(anchor, representation, content);
+  const fuzzy = fuzzyCandidates(anchor, representation, content, previous);
   return unresolved(
     method(TEXT_CODEC, "local-fuzzy"),
     fuzzy.candidates,

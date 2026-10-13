@@ -91,6 +91,9 @@ export interface PageThread {
   id: string;
   /** The words it's on (empty for a whole-note comment). */
   quote: string;
+  /** The service couldn't place its words in the note as it is now (PIE-805): its card says so, and the page never looks
+   * for them by itself (another passage with the same words isn't its own). */
+  unplaced?: true;
   kind: string;
   tone: string;
   tags: string[];
@@ -430,7 +433,8 @@ export class PageMarginalia {
     const tldr = replies.filter((reply) => reply.tldr).at(-1);
     const face: PageThread = {
       id: thread.block.id,
-      quote: anchor?.kind === "text-quote" ? anchor.exact : "",
+      quote: anchor?.kind === "text-quote" ? anchor.exact : thread.originalTarget.anchor.kind === "text-quote" ? thread.originalTarget.anchor.exact : "",
+      ...(!thread.resolvedTarget && thread.originalTarget.anchor.kind === "text-quote" ? { unplaced: true as const } : {}),
       kind: annotationKind(properties, thread.body),
       tone: annotationTone(properties),
       tags: [...new Set((properties.tags ?? []).flatMap((tag) => tag.split(",")).map((tag) => tag.trim()).filter(Boolean))],
