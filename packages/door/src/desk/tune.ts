@@ -609,6 +609,11 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       const list = t.list?.target ?? null, ownLists = new Set((t.list?.layers ?? []).flatMap(l => (l.block && l.line !== undefined ? [listTarget(l.block, l.line)] : [])));
       const reads = new Set([...SAVE_LEVELS.map(l => tuneTarget(l, place, list)), named, ...ownLists].filter((x): x is string => !!x));
       const targets = lv === "auto" ? tuning.unsaved().map(u => u.target).filter(x => reads.has(x)) : [tuneTarget(lv, place, list)].filter((x): x is string => !!x);
+      // This list's: also a nudge made on another line of the same note, as when an edit since moved the list (the
+      // reader's [ ] is on its new line): saved against the revision it was tuned at, so it's refused, never dropped
+      // as "nothing to save".
+      const on = lv === "list" && list ? parseListTarget(list)?.note : undefined;
+      if (on) for (const u of tuning.unsaved()) if (!targets.includes(u.target) && parseListTarget(u.target)?.note === on) targets.push(u.target);
       if (lv !== "auto" && !targets.length) throw new ActionRefused(`${pane.source} has no ${lv} level`);
       const done: { at: string; fields: string[]; created: boolean; note: string }[] = [], writes: NoteWrite[] = [];
       const before = tuning.snapshot();

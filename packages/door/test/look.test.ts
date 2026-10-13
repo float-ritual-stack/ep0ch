@@ -572,7 +572,10 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       await expect(act("tune.set", { row: "margin.x", value: "4", level: "list" })).rejects.toThrow(/this list sets only a list's values/);
       await act("tune.set", { row: "list.gap", value: "1", level: "list" });
       const g = (await b4.get(garden.id))!;
-      await b4.update(garden.id, g.text.replace("Garden lists\n", "Garden lists\nA new first line.\n"), g.revision!);
+      const moved = await b4.update(garden.id, g.text.replace("Garden lists\n", "Garden lists\nA new first line.\n"), g.revision!);
+      // The reader has read the edit before the save (the order CI met under load): its [ ] list is on another line
+      // now, and the nudge made on the old one is still refused, never "nothing to save".
+      await until(() => { d.lines(); return reader().msg?.revision === moved.revision; }, "the reader read the edit");
       await expect(act("tune.save", { level: "list" })).rejects.toThrow(/changed since/);
       expect((await b4.get(garden.id))!.text).not.toContain("[style.list.gap::");
     } finally { d.close(); b4.close(); }
