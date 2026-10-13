@@ -1131,6 +1131,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const sel = list().selected?.id;
     const out = await app.act({ action: "element.open", tile: "detail", args: { n: tagElem("frost-jobs").n }, as: "test-agent" }).catch((e: Error) => ({ refused: e.message })) as any;
     expect(out.refused).toBeUndefined();
+    // Its answer is the notes carrying the tag.
+    expect(out).toMatchObject({ query: "#frost-jobs" });
+    expect(out.notes.map((x: any) => x.title)).toContain("Lag the standpipe");
     expect(list().query).toBe("#compost");
     expect(list().selected?.id).toBe(sel);
     // The list saves with the screen as written: its query and its home.

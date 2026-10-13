@@ -14,7 +14,7 @@ import { USER, type Activity, type Actor } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
@@ -61,7 +61,7 @@ export interface DeskApi {
    */
   leave?(): void;
   /** A `#tag` opened in reader `r` (PIE-800): the notes carrying it, in a query tile whose home is `r`. */
-  openTag?(r: Pane, tag: string, actor: Actor): Promise<Record<string, unknown>>;
+  openTag?(r: Pane, tag: string, actor: Actor): Promise<TagList>;
   /** Reader `p`'s note in the outline: its cursor moves there (its dock opening); nothing else moves (PIE-794). */
   revealInOutline?(p: Pane): Promise<{ revealed: string; outline: string }>;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): the tree's ⏎ doesn't take the keys to a reader then. */

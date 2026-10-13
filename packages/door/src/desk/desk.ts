@@ -23,7 +23,7 @@ import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyNam
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
-import { armsEdit, leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
+import { armsEdit, leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
@@ -1461,7 +1461,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * so). The person's keys go to the list; an agent's stay where they are, and an agent never retargets the person's list
    * (it is answered the notes instead).
    */
-  async openTag(r: Pane, tag: string, actor: Actor): Promise<Record<string, unknown>> {
+  async openTag(r: Pane, tag: string, actor: Actor): Promise<TagList> {
     const rid = this.idOf(r);
     if (rid === undefined) throw new ActionRefused("that reader isn't on this screen");
     const home = this.nameOf(rid), query = `#${tag}`;
@@ -1470,7 +1470,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The person's list stays as it is (its tag, its selection): an agent reads the notes carrying the tag instead.
     if (!opened && actor.kind === "agent") {
       const r = await this.ctx.board.queryNotes(query, 200);
-      return { tile: this.nameOf(id!), query, opened: false, notes: r.notes.map(m => ({ id: m.id, title: subject(m) })), ...(r.truncated ? { truncated: true } : {}) };
+      return { tag, tile: this.nameOf(id!), query, notes: r.notes.map(m => ({ id: m.id, title: subject(m) })) };
     }
     if (id === undefined) {
       const list = await this.openTile({ kind: "query", query, source: `tile:${home}` }, home, "down", actor);
@@ -1480,9 +1480,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const q = this.panes.get(id);
     if (!(q instanceof QueryPane)) throw new ActionRefused(`no list opened for #${tag}: the screen made ${this.nameOf(id)} instead`);
     await q.retarget(query, this);
+    // A query the service refused is said, never answered as no notes (the tile shows it too).
+    if (q.read?.status === "failed") throw new ActionRefused(`#${tag}: ${q.read.errors.join("; ") || "the service couldn't answer"}`);
     if (actor.kind !== "agent") { this.keysTo(id); q.focused(this); }
     this.save(); this.redraw();
-    return { tile: this.nameOf(id), query, opened, notes: (q.items ?? []).map((m: Msg) => ({ id: m.id, title: subject(m) })) };
+    return { tag, tile: this.nameOf(id), query, notes: (q.items ?? []).map((m: Msg) => ({ id: m.id, title: subject(m) })) };
   }
 
   /** DeskApi.hasFocus: tile `p` has the person's focus (a whole screen in it sees them through it). */
