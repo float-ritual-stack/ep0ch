@@ -200,6 +200,9 @@ function dialsInFrom(node: Node): { lastCall?: string } | undefined {
   return at ? { lastCall: at } : {};
 }
 
+/** How recently a node must have called for this node's toss to leave its sources to the call. */
+const RECENT_CALL_MS = 10 * 60_000;
+
 /** A time as a nodelist line says it: `2026-10-12 14:02 UTC`. */
 const when = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} UTC`;
 
@@ -537,6 +540,9 @@ async function tossSubscription(home: Home, sub: Block): Promise<Link[]> {
     // A mask reaches many nodes: only a node with a board, or the one node named outright, is worth a line.
     const say = (line: string) => { if (board || exact) log.push(`- ${line}`); };
     if (link.dialsIn) { say(`${node.id} (${name}): ${link.why}; its call brings the new messages`); if (board) read.push(link); continue; }
+    // It called a moment ago and tosses this itself: two at once would each make the same copy.
+    const lastCall = [...calls].find(([id]) => id.toLowerCase() === node.id.toLowerCase())?.[1];
+    if (lastCall && Date.parse(now) - Date.parse(lastCall) < RECENT_CALL_MS) { say(`${node.id} (${name}): it called at ${when(lastCall)} and tosses this itself; left to its call`); continue; }
     if (!link.reachable) { say(`${node.id} (${name}): unreachable (${link.why}); its copies stay as they are`); if (board) read.push(link); continue; }
     if (link.level === "none") { say(`${node.id} (${name}): refused (${node.id} grants none; its owner runs \`ep0ch mcp access read --ws ${node.outline}\`)`); if (board) read.push(link); continue; }
     if (await tossSource(home, sub, link, board, wanted, name)) read.push(link);
@@ -877,8 +883,9 @@ async function callNode(link: Link, origin: Link): Promise<void> {
   }
   if (!wanting.length && !ours) { log.push(`- ${there.id}: reads nothing of ${self.id}`); return; }
   // Its toss would write its copies, ledger and log: so does the call, and it needs what that needs.
-  if (link.level !== "full") {
-    log.push(`- ${there.id}: grants ${link.level}, and a call delivers only with full (its owner runs \`ep0ch mcp access full --ws ${there.outline}\` on ${there.machine})`);
+  // At propose, its host lets a call write what that node's own toss would and nothing else (src/echonet-scope.ts).
+  if (!canMark(link.level)) {
+    log.push(`- ${there.id}: grants ${link.level}, and a call needs propose (its owner runs \`ep0ch mcp access propose --ws ${there.outline}\` on ${there.machine})`);
     return;
   }
   const nodelist = await nodelistBlock(link.call, there);
@@ -1041,8 +1048,43 @@ async function homeHere(): Promise<Home> {
 const counts = noCounts();
 const log: string[] = [];
 
+/**
+ * When this node's last toss ended (its newest log was written last; a call's log left out): what landed after it is
+ * new, and what that toss wrote itself is before it.
+ */
+async function lastTossEnd(nodelist: Block): Promise<string | undefined> {
+  const logs = (await mine<Block[]>({ action: "children", parentId: nodelist.id }))
+    .filter((block) => prop(block, "type") === "toss" && isSelf(prop(block, "node")) && prop(block, "call") === undefined);
+  return logs.map((block) => block.createdAt ?? "").filter(Boolean).sort().at(-1);
+}
+
+/**
+ * Netmail and seen-by marks that other nodes' tosses (or calls) left here since this node's last toss: whoever carried
+ * them, they are this node's mail in. This toss's own are counted where it wrote them.
+ */
+async function landedHere(home: Home, since: string | undefined): Promise<void> {
+  if (!since) return;
+  const after = (block: Block) => (block.createdAt ?? "") > since && !trashed(block);
+  // This toss's own: the `in` lines it added to the ledger.
+  const ownIn = new Set([...home.ledger.lines.keys()].filter((key) => key.startsWith("in ") && !home.ledger.before.has(key)).map((key) => key.slice(3)));
+  const netmail = (await query(mine, "netmail-from")).filter((block) => after(block) && !ownIn.has(block.id));
+  const seen = (await query(mine, "kind=echo-seen-by")).filter(after);
+  if (!netmail.length && !seen.length) return;
+  log.push("## delivered here by other nodes");
+  for (const mark of netmail) {
+    // A reply's note is its comment's.
+    let on = mark.parentId ? await mine<Block>({ action: "get", blockId: mark.parentId }).catch(() => undefined) : undefined;
+    if (on && isMark(on) && on.parentId) on = await mine<Block>({ action: "get", blockId: on.parentId }).catch(() => undefined);
+    const from = prop(mark, "netmail-from")?.split("/")[0] ?? "another node";
+    log.push(`- netmail from ${from}${prop(mark, "netmail-author") ? ` (${prop(mark, "netmail-author")})` : ""} on ${on ? `((${on.id}|${firstLine(on.text).replace(/[|)]/g, "") || "a note"}))` : "a note gone since"}`);
+  }
+  home.counts.netmailIn += netmail.length;
+  if (seen.length) log.push(`- seen-by: ${seen.length} (${[...new Set(seen.flatMap((mark) => values(mark, "echo.node")))].join(", ")})`);
+}
+
 async function toss(): Promise<string> {
   const nodelist = await nodelistBlock();
+  const since = await lastTossEnd(nodelist);
   const home = await homeHere();
   const subs = (await query(mine, "subscribe")).filter((block) => kindOf(block) === "subscription" && !trashed(block));
   log.push("## echomail");
@@ -1051,6 +1093,7 @@ async function toss(): Promise<string> {
   log.push("## netmail");
   await netmailFor(home, read.values());
   await saveLedger(home);
+  await landedHere(home, since);
   const subscribers = await subscribersHere();
   if (address.dialsIn) await callIn(subscribers);
   await writeNodelist(nodelist, subscribers, true);
