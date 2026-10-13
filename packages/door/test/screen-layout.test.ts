@@ -672,6 +672,16 @@ describe("growth by room: readers opened beside fold the earlier ones, never the
     for (const id of [5, 6, 7]) NAMES.delete(id);
   });
 
+  test("each opened beside the same reader (a row's alt+clicks): the ones opened before fold, wherever they sit", () => {
+    extra = {};
+    const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));
+    const b = grow(grow(s0, 5, 2).state, 6, 2);
+    expect(treeNames(b.state)).toEqual(["tree", "reader", "detail6", "detail5"]);
+    expect(folded(b.state)).toEqual(["detail5"]);
+    expect(b.answer.folded).toEqual(["detail5"]);
+    for (const id of [5, 6]) NAMES.delete(id);
+  });
+
   test("readable=0 never folds; an agent's never folds the tile the person has or types in", () => {
     extra = {};
     const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));

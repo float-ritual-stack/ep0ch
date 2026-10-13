@@ -344,8 +344,10 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     await other.comment(crypto.randomUUID(), m.id, m.revision!, "Mulch around them first.", { quote: m.text.slice(0, 10), start: 0 }, { kind: "agent", id: "someone-else" });
     await until(() => (d.comments?.length ?? 0) > 0, "the new comment", 5000);
     expect((app.describe() as any).state.readers.find((r: any) => r.name === "detail1").newComments).toBe(1);
+    // Under its × (PIE-794: a spine that closes has one on its top row), its marks: what it holds, then ■.
     const s = spine("detail0");
-    expect(frame()[s.row + 1]![s.col]).toBe("■");
+    expect(frame()[s.row]![s.col]).toBe("×");
+    expect(frame()[s.row + 2]![s.col]).toBe("■");
     await act("tile.collapse", { on: false }, "detail1");
   });
 

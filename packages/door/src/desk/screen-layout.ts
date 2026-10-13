@@ -1252,8 +1252,8 @@ class Step<I> {
 
   /**
    * Growth by room (PIE-794): tile `id` was just opened beside others. While it would be narrower than its `readable`
-   * cells in the screen's area, the earliest tile before it in its row that reads notes folds to a spine: never the
-   * row's first, never `id`, never the tile the person types in, and for an agent never the person's or a limited one.
+   * cells in the screen's area, the leftmost other tile in its row that reads notes folds to a spine: never the row's
+   * first, never a preview (it follows another tile), never `id`, never the tile the person types in, and for an agent never the person's or a limited one.
    * One policy for every screen: the desk's splits, the board's readers row; a flow squeezes its own columns by it.
    * The answer names what folded.
    */
@@ -1267,8 +1267,9 @@ class Step<I> {
     const width = () => rects({ ...this.d, zoom: null }, this.ctx.area).get(id)?.cols ?? 0;
     // The row's tiles that read notes, left to right (a tab set by the tab it shows).
     const readers = p.parent.kids.map(k => (k.t === "leaf" ? k.id : k.t === "tabs" ? k.ids[k.active] : undefined)).filter((t): t is I => t !== undefined && !!this.facts(t).notes);
-    const before = readers.slice(0, Math.max(0, readers.indexOf(id)));
-    const may = (t: I) => before.includes(t) && t !== readers[0] && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
+    // Readers opened before it, wherever they are in the row (a new one opens right beside the one it came from), but a
+    // preview, which follows another tile: it isn't one of the readers that grew.
+    const may = (t: I) => t !== id && t !== readers[0] && !this.facts(t).follower && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
       && !(this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free"));
     const by = byOf(this.ctx.actor);
     while (width() < want) {
