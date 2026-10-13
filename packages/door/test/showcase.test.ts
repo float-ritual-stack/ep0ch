@@ -2869,7 +2869,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await untilAsync(async () => (await statuses()).startsWith("approved todo"), "the agent to see the approval");
     expect(await app.act({ action: "task.status", tile: "build log", args: { n: "2", to: "rejected" }, as: "test-agent" })).toMatchObject({ status: "rejected" });
     await untilAsync(async () => (await board.get(id))!.text.includes("- [✗] patch the gutter until spring"), "the agent's rejection");
-    // Put back as it was seeded.
+    // Back to the index, and the note put back as it was seeded.
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
     const text = (await board.get(id))!;
     await board.update(id, text.text.replace("- [✓] felt", "- [ ] felt").replace("- [✗] patch", "- [ ] patch"), text.revision!);
   }, 30_000);
