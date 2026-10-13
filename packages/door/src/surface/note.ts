@@ -296,7 +296,7 @@ interface HeaderBlock {
   rows: string[]; summary: string; summaryRow: number;
   summaryLinks: { from: number; to: number; link: Link; key: string }[];
   /** The title's row and style (null: a host's own header stands in for it); `big`: it takes the row under it too, drawn at double height. */
-  title: { row: number; text: string; ink: string; big: boolean; col: number } | null;
+  title: { row: number; rows: number; text: string; ink: string; big: boolean; col: number } | null;
   /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
   crumbsRow?: number;
 }
@@ -1106,11 +1106,15 @@ export class NoteSurface {
     const apart = !!summary && width(`${before}${summary}`) > w;
     const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
     const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
-    const first = this.printed ? 1 : big ? 3 : 2;
+    // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
+    // here was the bug). The Work ID keeps the accent at the start of the first line.
+    const lines = big || width(title) <= w ? [title] : wrap(title, w);
+    const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
+    const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
-    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, titled = (named.workId ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${named.title}`, w) : ink + pad(title, w)) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
-    const rows = this.printed ? [titled, ...metas, crumbs] : [crumbs, titled, ...(big ? [pad("", w)] : []), ...metas];
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0 };
+    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
+    const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...(big ? [pad("", w)] : []), ...metas];
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0 };
   }
 
   /**
@@ -1125,7 +1129,7 @@ export class NoteSurface {
     const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
-    this.headerSurface(lines, lines.length, w, shade, title ? [title.row] : []);
+    this.headerSurface(lines, lines.length, w, shade, title ? Array.from({ length: title.rows }, (_, i) => title.row + i) : []);
     return { lines, links: summaryLinks.map(l => ({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link })), placements: shade.placements };
   }
 
@@ -1466,7 +1470,7 @@ export class NoteSurface {
     // goes under them.
     const headerRows = Math.min(lines.length, headerBlock.length);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
-    this.headerSurface(lines, headerRows, w, shade, title ? (title.big ? [title.row, title.row + 1] : [title.row]) : []);
+    this.headerSurface(lines, headerRows, w, shade, title ? Array.from({ length: title.big ? 2 : title.rows }, (_, i) => title.row + i) : []);
     placements.unshift(...shade.placements);
     // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
     // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.
