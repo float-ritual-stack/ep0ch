@@ -1970,6 +1970,21 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (const t of await board.comments(guide)) await board.trash(t.id);
   }, 60_000);
 
+  test("deep links (PIE-592): !((Gree lists the meeting's callout, quote and headings with no anchor yet; the callout's embed carries every line of it", async () => {
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+    await app.act({ action: "section", args: { name: "deep-links" }, as: "test-agent" });
+    await until(() => screen().includes("Greenhouse meeting, October"), "the deep links section");
+    const r = await app.act({ action: "complete", args: { text: "!((Greenhouse meeting" }, tile: "guide", as: "test-agent" }) as any;
+    const labels: string[] = (r.candidates ?? r.items ?? []).map((c: any) => (c.label ?? c).toString().trim());
+    expect(labels, labels.join("\n")).toContain("[!] What Cy said · adds ^what-cy-said");
+    const meeting = seeded.notes.meeting.id;
+    // The callout embedded whole, once it has its anchor.
+    const text = (await board.get(meeting))!.text;
+    const at = text.split("\n").findIndex(l => l.startsWith("> They mind the draught"));
+    await board.ensureFragment(meeting, at, (await board.get(meeting))!.revision!, { kind: "agent", id: "test-agent" });
+    expect(JSON.stringify(await board.readTransclusions([{ blockId: meeting, fragmentId: "what-cy-said" }]))).toContain("> [!quote] What Cy said\\n> The seedlings don't mind the cold.\\n> They mind the draught from the door.");
+  });
+
   test("undo (PIE-621): a big paste is one step, ctrl+z and ctrl+y by keys; copy by a drag's release and by shift+arrows then alt+c; an agent's undo and redo through act, its own only", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "undo" }, as: "test-agent" });

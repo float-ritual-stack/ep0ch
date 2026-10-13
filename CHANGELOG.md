@@ -30,7 +30,11 @@ are its record. The outliner's entries from then are kept below, under
   folder (`media/`) and written as `[img::<path>]` on its own line.
 - **Checked, not reproduced:** the Oct 4 "a blank version after a save" (save, follow a link, back; save and reopen):
   the reader reads the note again on back and after a save. Say the steps if it comes back.
-- **Run:** the protocol changed (159): `ep0ch install --apply` on each machine (the outline host and the doors together).
+- **Added:** embed a part without visiting it. `((Gree` or `!((Gree` lists the first note's headings, quotes and
+  callouts with no anchor yet under it; choosing one adds its anchor there (attributed) and links it.
+- **Fixed:** a quote or a callout is one passage: offered by its words or its callout title, anchored on its last line,
+  and `!((id^anchor))` on it carries every line of it, not the lines down from a blank one.
+- **Run:** the protocol changed (159: the page link grammar, and quotes and callouts as fragment kinds on the wire): `ep0ch install --apply` on each machine (the outline host and the doors together).
 
 ### The web client and the MCP gateway answer on a second domain (PIE-813)
 

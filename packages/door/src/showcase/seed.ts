@@ -644,6 +644,10 @@ export const MEETING = [
   "## Actions",
   "- Ana mends the vent hinge",
   "- Bo orders the shade netting",
+  "",
+  "> [!quote] What Cy said",
+  "> The seedlings don't mind the cold.",
+  "> They mind the draught from the door.",
 ].join("\n");
 const DEEP_LINKS = [
   SEED.deepLinks,
@@ -653,6 +657,7 @@ const DEEP_LINKS = [
   "- **Refine a reference:** choose the meeting itself, then type `^` straight after its `))`: the popup searches inside the meeting, its anchors first. Choose `^a10`.",
   "- **A passage with no anchor:** type `^` after another reference and choose a line that says `adds ^…`: the anchor is added to the meeting (the reader beside shows it) and the reference points at it, in one choice.",
   "- **Reopen one later:** click inside a finished `((…))` and type `^` (every passage) or `#` (headings).",
+  "- **Embed a part without visiting it:** type `!((Gree`: under the meeting are its headings, quotes and callouts with no anchor yet (`[!] What Cy said`). Choose one: it gets its anchor in the meeting, and `!((…^what-cy-said))` embeds the whole callout, every line of it.",
   "- **Mistakes land:** an unclosed `((` or a title in place of an id is sent as written, with a warning and a did-you-mean.",
   "- **The mouse:** drag across words and press backspace; ctrl+z undoes.",
 ].join("\n");
