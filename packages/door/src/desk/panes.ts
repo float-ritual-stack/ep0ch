@@ -324,7 +324,9 @@ export class ReaderPane implements Pane {
     } else {
       this.pinPage = null; this.pageNote = null;
       this.held = next === "held";
-      if (!this.held) this.show(desk.current, desk);
+      // Held to follows keeps the note on screen: it becomes the current note (the others follow it), never a jump to
+      // the current note the hold left behind. Follows to held keeps it too.
+      if (!this.held) { if (this.msg && this.msg.id !== desk.current?.id) desk.setCurrent(this.msg, { from: this }); else if (!this.msg) this.show(desk.current, desk); }
     }
     desk.redraw();
     return { mode: this.followMode, ...(this.pinPage ? { page: this.pinPage } : {}), held: this.holding };
