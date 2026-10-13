@@ -253,7 +253,7 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(message()).toContain("✦q isn't bound");
   });
 
-  test("on, ✦- works while typing in a draft (the draft is kept on the spine), and ✦l leaves the edit as a click elsewhere does", async () => {
+  test("on, ✦- works while typing in a draft (the draft is kept on the spine), and ✦h moves away with the edit kept open (PIE-812)", async () => {
     useHyper(true);
     const { id, rd, name } = await editing("Mend the cold frame\nlid");
     for (const c of " today") key(char(c));
@@ -263,9 +263,14 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(rd.draft!.lines.join("\n")).toContain("today");
     key({ kind: "hyper", ch: "=" });
     expect(tile(name).collapsed).toBeUndefined();
-    key({ kind: "hyper", ch: "h" });                                                     // the tile to its left: the edit is left first, saved, as a click elsewhere leaves it
+    key({ kind: "hyper", ch: "h" });                                                     // the tile to its left: the edit stays open in its own, unsaved
     expect(get().focus).not.toBe(name);
-    await until(() => !rd.draft, "the edit left and saved");
+    await Bun.sleep(100);
+    expect(rd.draft!.lines.join("\n")).toContain("today");
+    expect((await board.get(id))!.text).not.toContain("today");
+    focus(name);                                                                         // back: the keys are in it, ctrl+s saves
+    key({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !rd.draft, "the save");
     expect((await board.get(id))!.text).toContain("today");
   }, 30_000);
 

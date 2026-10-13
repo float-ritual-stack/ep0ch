@@ -1658,15 +1658,17 @@ The board's new-card composer is the same control too.
   first `Esc`, says `dropped 2 stray characters · ctrl+z brings them back` and leaves no kept line (its copy
   still goes to `drafts/`). `ctrl+z` within a minute opens the edit again with them. Anything more is a real edit
   and keeps the `Esc` twice (src/stray.ts).
-- **Click away, as in any editor.** A click inside the draft places the cursor; a click anywhere else
-  leaves the edit and does what that click does (focuses a tile, opens a row or a link, opens a dock).
-  An unchanged edit just closes; a changed one is saved against the revision it started from; a save that's
-  refused (it changed elsewhere, offline, refused) keeps the text, and the status bar says
-  `not saved: … · the edit to “…” is kept here · e brings it back`. An edit brought back and not
-  typed in since isn't saved by a click away: it's kept again, and said. A comment, a reply or a new card
-  is kept, never sent or created: sending is `Ctrl+S`. On the desk `^W` does the same by keys:
-  the window key after it leaves the edit and runs (`Esc` after it stays in; `Tab` indents). An agent never
-  saves or closes your draft this way (`session.leave`, `composer.leave` are yours).
+- **Going elsewhere keeps it open** (PIE-785, PIE-812). A click inside the draft places the cursor; a click
+  anywhere else does what that click does (focuses a tile, opens a row or a link, opens a dock), and your edit
+  or comment stays open in its tile as it was: its cursor, selection and undo, drawn dim and without its
+  cursor, its title saying `(kept open)`, nothing saved or sent. On the desk `^W` then a window key, the hyper
+  layer's moves and `ctrl+n` leave it the same way (`Esc` after `^W` stays in; `Tab` indents). A click on its
+  tile, or the keys coming back by any way, puts you straight back in it at the same place: no `e`. Leaving it
+  is yours: `Ctrl+S` saves (a refused save keeps the text, and says why), `Esc` closes (twice when typed in: put
+  aside as unsent, `e` brings it back), and opening another note in that tile goes by the draft session's rules.
+  An edit an agent opened that you're in is left by a click away as before (`session.leave`: an unchanged one
+  closes, a changed one saves). A board's new card is kept as unsent by a click outside its composer
+  (`composer.leave`). An agent never saves, closes or moves your draft.
 - **One draft session behind every draft** (PIE-516). The edit, the comment and reply, and the board's
   new card or note go through the same lifecycle (`src/draft-session.ts`), so put aside, restore, click
   away and a stale revision behave the same everywhere. While you have a note open in a draft, an agent
@@ -1710,10 +1712,11 @@ The board's new-card composer is the same control too.
 - **Keys follow the editor** (board and desk): only the focused reader's edit, comment or property panel
   takes keys, and only one you are in. One you open by key (`e`, `C`, `m`, `i`, from the lanes too) is
   yours as it opens, and focus moves to it; if you press `Esc` or move away before the note has been
-  read, it doesn't open. One an agent opened, or yours after you moved to another area, doesn't take
+  read, it doesn't open. One an agent opened doesn't take
   your keys: `Tab`, `Esc`, the lanes and window keys keep working, `j k PgDn Space` scroll the reader,
   `x` refuses to close one holding an edit or a comment, and `e` or `⏎` enters it. The frame title
-  and the hint row say which it is (`editing (e enters)`). The mouse wheel always scrolls whatever is
+  and the hint row say which it is (`editing (e enters)`). One of yours you moved away from stays open, says
+  `(kept open)`, and takes your keys again the moment they're back on its tile (PIE-812). The mouse wheel always scrolls whatever is
   under the pointer.
 - **Scroll indicators:** a reader whose note is longer than its frame shows a thumb on the frame's right
   border and how far down it is in the title (`· 42%`): board readers, floats and the desk's reader.
@@ -1763,13 +1766,13 @@ door only says which note you were in; it never works out where the Inbox is.
 
 **Where it opens (PIE-591).** On the desk and every screen built on it, a new note **floats** over the screen, a
 draft of its own, a little lower and to the right of the last, with your keys. Press `ctrl+n` as often as you like:
-each is another float, and the one you were in stays open where it was. It works from an edit too: what you typed
-there is saved first, as a click away saves it. A float's title drags it; dropped on a tile's header it docks into
+each is another float, and the one you were in stays open where it was. It works from an edit too: that edit stays open
+where it was, as a click away leaves it (PIE-812). A float's title drags it; dropped on a tile's header it docks into
 that tile's tabs, on the screen's outer edge as a column, on a dock's handle into the dock (the hint row says which
 before you let go). Its `×` (or `^W x`) closes it: written, it's saved first; still empty, it goes to the trash.
-`Esc` on it with nothing typed does the same. A draft that loses your keys is never lost: a float you left with
-nothing typed stays open, empty, until you come back to it (`e` or a click enters it); one you typed in is saved as
-you leave it.
+`Esc` on it with nothing typed does the same. A draft that loses your keys is never lost: a float you leave stays
+open as it was, typed in or not, until you come back to it (a click on it or the keys back put you in it, PIE-812);
+`ctrl+s` saves it.
 
 - **Elsewhere, or your way.** `note.opens opens=tab` makes them a new tab on the tile you're in, `drawer` a tab in
   your drawer (pulled up, your keys in it), `lands` where the screen's opens land (a reader beside it, the board's
@@ -2547,7 +2550,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `keys.probe` | `on` | describe the next keys (bytes, modifiers, the key read) instead of running them; the person's, esc ends it |
 | `reader.overscroll` | `rows=half\|none\|<n>` | how far readers (detail, preview, the desk's, a river column, the BBS reader) and drafts scroll past their last line (PIE-622): `half` (the default) lets it come up to the middle, `none` stops it on the bottom edge, a number of rows that far; kept in the state dir (`reader-overscroll.json`) |
 | `reader.hero` | `on`, `mode=first\|follow` | whether a reader's sticky header takes the note's hero image as a dimmed background as it scrolls under (PIE-598), or (`follow`) each picture in turn; kept in the state dir (`reader-hero.json`) |
-| `session.leave` | none: leave the edit or comment as a click elsewhere does (an unchanged edit closes, a changed one saves, a refused save or a comment is kept as unsent). An agent: only a session it opened | a click outside the draft; desk `^W` then a window key |
+| `session.leave` | none: leave the edit or comment (an unchanged edit closes, a changed one saves, a refused save or a comment is kept as unsent). Your own stay open when you go elsewhere (PIE-812); a click away does this to an agent's edit you're in. An agent: only a session it opened | a click outside an agent's edit you're in |
 | `composer.leave` | none: the board's new card or note is kept as unsent, never created. The person's only | a click outside the composer |
 | `composer.close` | `discard=true` with typed text: the board's new card or note closes, typed text put aside as unsent. The person's only | `Esc` (twice with typed text) |
 | `draft.newline`, `draft.indent`, `draft.outdent`, `draft.place`, `draft.scroll`, `draft.preview` | `plain=true`; `from`, `to` (lines from 1; default the cursor's or the selection's); `line`, `col`, `extend=true`; `by` (rows); `on`. On the reader's edit or the comment being written, and only a draft the agent opened and alone has typed in: the person's draft, typed in or not, is theirs (an agent's change lands there as a `draft.patch`) | `Enter` (`Alt+Enter` plain), `Tab`, `Shift+Tab`, a click or a drag, the wheel, `Ctrl+P` |

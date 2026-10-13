@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An open edit stays open when you go elsewhere (PIE-812)
+
+- **Changed:** clicking another tile, `^W` then a window key, the hyper layer's moves or `ctrl+n` no longer save and
+  close your edit: it stays open in its tile as it was (cursor, selection, undo), dim and titled `(kept open)`, nothing
+  saved. A click on it or the keys coming back put you straight in it at the same place: no `e`, never twice. `Ctrl+S`
+  saves, `Esc` closes, and opening another note in that tile goes by the draft session's rules.
+
 ### Rewriting a note's lines keeps each mark on its own words (PIE-805)
 
 - **Fixed:** an edit that changed many lines (renaming a speaker through a transcript) left comments and highlights on

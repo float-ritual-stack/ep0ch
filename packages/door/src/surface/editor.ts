@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { DRAFT_ACTIONS, keepCopy, patchLabel, type Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
-import { C, fg, pad, RESET } from "../style";
+import { C, fg, pad, RESET, visible } from "../style";
 import { rule, words } from "../text";
 import { ownTerminal, type Handover, type TileProgram } from "../term";
 import { agentLabel } from "./actions";
@@ -31,6 +31,11 @@ export interface EditFrame {
   pick?: boolean;
   /** Where a comment's composer sits (PIE-770, src/surface/composer.ts): a chip that switches it (ctrl+o), its name the label. */
   place?: string;
+  /**
+   * The keys are on another tile (PIE-812): the draft is left open as it was, its text drawn dim and without its cursor
+   * or selection, so the tile that has the keys is the one that looks like it.
+   */
+  away?: boolean;
 }
 
 /**
@@ -66,6 +71,10 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   const below = ph ? previewRows(d, f.preview!, w, ph) : [];
   const pop = completionOf(d), c = completerOf(d);
   if (c) c.drawn = null;
+  if (f.away) {
+    const text = d.render(Math.max(1, w - 2), room).map(l => " " + fg(C.dark) + visible(l) + RESET);
+    return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
+  }
   if (!pop || !c) {
     const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
     return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];

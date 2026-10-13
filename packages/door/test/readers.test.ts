@@ -229,12 +229,12 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(B().treeOpen).toBe(false);
     // An agent doesn't move the keys of a person in an edit (PIE-506, as the desk's tile.focus).
     await expect(act("tile.focus", {}, "lanes")).rejects.toThrow("typing");
-    // The person focusing somewhere else and back does leave it: e enters it again.
+    // The person focusing somewhere else keeps it open, and focusing back puts their keys straight in it (PIE-812).
     await b.dispatch.act({ action: "tile.focus", tile: "lanes" }, { kind: "user" });
     await b.dispatch.act({ action: "tile.focus", tile: "detail1" }, { kind: "user" });
     key(char("x"));
-    expect(d.draft!.text.length).toBe(text.length + 1);
-    key(char("e")); key({ kind: "esc" }); key({ kind: "esc" });
+    expect(d.draft!.text.length).toBe(text.length + 2);
+    for (let i = 0; i < 3 && d.draft; i++) key({ kind: "esc" });
     expect(d.draft).toBeNull();
   });
 
@@ -353,11 +353,16 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(scrollOf(B().preview)).toBe(SCROLL_ROWS);
     expect(BV.where(b)).toBe("detail0");
     expect(d.draft).not.toBeNull();
-    // A click elsewhere leaves the edit (unchanged: it just closes) and focuses what was clicked.
+    // A click elsewhere focuses what was clicked; the edit stays open in its tile (PIE-812), and esc there closes it.
     const r = rect("preview");
     key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 3 });
     key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 3 });
     expect(BV.where(b)).toBe("preview");
+    expect(d.draft).not.toBeNull();
+    const back = rect("detail0");
+    key({ kind: "mouse", action: "down", button: 0, x: back.col + 3, y: back.row + 3 });
+    key({ kind: "mouse", action: "up", button: 0, x: back.col + 3, y: back.row + 3 });
+    key({ kind: "esc" });
     expect(d.draft).toBeNull();
   });
 

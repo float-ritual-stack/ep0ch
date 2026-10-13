@@ -54,6 +54,8 @@ export interface DeskApi {
   press?(p: Pane, set: ActionSet<any, any>, name: string, args?: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: unknown): Promise<unknown>;
   /** Tile `p` has the person's focus here (a whole screen in a tile sees the person through it). */
   hasFocus?(p: Pane): boolean;
+  /** The person is in tile `p`'s edit, comment or panel (they opened it, or the keys came back to it). */
+  isIn?(p: Pane): boolean;
   /** Esc found nothing left to close in a tile's own screen (a screen tile's): the desk's next step out, or nothing to close. */
   escaped?(): void;
   /**
@@ -375,6 +377,8 @@ export class ReaderPane implements Pane {
       ctx: desk.ctx,
       // Whether the person's keys are here: an agent's fragment link is revealed only in a reader they aren't in.
       get focused() { return desk.hasFocus ? desk.hasFocus(pane) : undefined; },
+      // Whether the person types in it: an edit left open while they're elsewhere (a preview they read through) is drawn away.
+      get entered() { return desk.isIn ? desk.isIn(pane) : undefined; },
       redraw: () => desk.redraw(),
       ...(desk.keepLayout ? { navChanged: () => desk.keepLayout!() } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
@@ -533,7 +537,7 @@ export class ReaderPane implements Pane {
    * above (with `open` as there); a drag selects text instead, and never copies it.
    */
   ownsRightClick(x: number, y: number): boolean { return this.surface.ownsRightClick(x, y); }
-  press(x: number, y: number, desk: DeskApi, shift = false) { this.surface.press(x, y, this.host(desk), shift); }
+  press(x: number, y: number, desk: DeskApi, shift = false, keepCursor = false) { this.surface.press(x, y, this.host(desk), shift, keepCursor); }
   drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
   release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void, focusing = false): boolean {
     const h = this.host(desk);

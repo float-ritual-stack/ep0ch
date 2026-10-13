@@ -159,6 +159,11 @@ export interface SurfaceHost {
   gone?(id: string): void;
   /** This is the reader the person has focused (for the reader on its own, `NoteSurface.alone`); false: it isn't. */
   focused?: boolean;
+  /**
+   * The person is in this reader's edit, comment or panel: their keys type into it (the desk's entered session). False:
+   * one open here is left as it was (PIE-812), drawn away. Undefined: the host doesn't say (a reader on its own).
+   */
+  entered?: boolean;
   /** Whose action runs through this host: an agent's (NoteSurface.run sets it), else the person's. */
   actor?: Actor;
   /**
@@ -681,6 +686,8 @@ export class NoteSurface {
   private frameDrag: { zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
   /** Where the person asked to go while their comment is unsent (PIE-785): it waits on their answer in the power bar. */
   private leaving: LeaveAsk | null = null;
+  /** The cursor and selection of a draft the keys came back to by a press (PIE-812), put back after that press and its release. */
+  private keptCursor: { d: Draft; row: number; col: number; anchor: Draft["anchor"] } | null = null;
   /** A double or triple click's word or line being selected in a draft (two draft.place): its release copies it after. */
   private draftSelecting: Promise<void> | null = null;
   /** The last press in a draft was a shift+click (it extended the selection). */
@@ -2075,10 +2082,10 @@ export class NoteSurface {
     return true;
   }
 
-  private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null): string[] {
+  private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null, away = false): string[] {
     const by = writtenBy(d, "save");
     return renderEditor(d, {
-      preview: (t, pw) => draftPreview(t, pw, src), pick: true,
+      preview: (t, pw) => draftPreview(t, pw, src), pick: true, ...(away ? { away } : {}),
       title: `editing · ${subject(m)}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
@@ -2427,7 +2434,7 @@ export class NoteSurface {
       click: (x, y, host) => this.writeClick(d, x, y, host),
       press: (x, y, _host, drag) => this.writePress(d, x, y, drag),
       wheel: dir => this.writeWheel(d, dir),
-      rows: (w, h, host) => (this.msg ? this.renderDraft(d, this.msg, w, h, this.use(host)) : null),
+      rows: (w, h, host) => (this.msg ? this.renderDraft(d, this.msg, w, h, this.use(host), (host?.entered ?? host?.focused) === false && this.keepsOnFocusAway()) : null),
       leave: async (host, actor) => {
         const r = await s.leave(actor);
         host.redraw();
@@ -2723,12 +2730,17 @@ export class NoteSurface {
   }
 
   /**
-   * A comment the person is writing here, left open when their keys move to another tile (PIE-785): it stays on screen
-   * as it was, and is theirs again the moment this reader has the keys back. Only the person's own, while it's written.
+   * An edit or a comment the person is writing here, left open when their keys move to another tile (PIE-785 for a
+   * comment, PIE-812 for an edit): it stays on screen as it was (its cursor, selection and undo: the same draft session),
+   * and is theirs again the moment this reader has the keys back. Only the person's own, and not while it's landing.
+   * Save, esc or another open in this reader still end it, by the draft session's rules.
    */
   keepsOnFocusAway(): boolean {
+    if (this.modes.leaveRefusal()) return false;
+    const d = this.drafting;
+    if (d) return d.openedBy.kind === "user" && !d.busy;
     const cs = this.session, w = cs?.writing;
-    return !!cs && cs.mode === "compose" && !!w && w.openedBy.kind === "user" && !cs.busy && !this.modes.leaveRefusal();
+    return !!cs && cs.mode === "compose" && !!w && w.openedBy.kind === "user" && !cs.busy;
   }
 
   /**
@@ -5021,7 +5033,7 @@ export class NoteSurface {
    * The mouse button went down at `x`, `y`. Nothing happens yet (release decides: a click, or a drag that
    * selected), except a second or third press on the same cell: it selects the word, then the row.
    */
-  press(x: number, y: number, host: SurfaceHost, shift = false): void {
+  press(x: number, y: number, host: SurfaceHost, shift = false, keepCursor = false): void {
     this.use(host);
     this.dragging = false;
     const n = this.gesture.press(x, y);
@@ -5030,7 +5042,12 @@ export class NoteSurface {
     if (this.editing) {
       // The composer is drawn in the note (PIE-770), under its header image: its cells are the note's, as a click's are.
       y -= this.drawn?.heroRows ?? 0;
+      // `keepCursor`: the press that brought the keys back to a draft left open here (PIE-812). It still presses (a
+      // frame control runs on its release), but the cursor and selection stay where the person left them.
+      const d0 = keepCursor ? this.writingDraft : null;
+      this.keptCursor = d0 ? { d: d0, row: d0.row, col: d0.col, anchor: d0.anchor } : null;
       this.editPress = this.modes.press(x, y, host, shift);
+      this.restoreCursor(false);
       this.shiftPress = shift && this.editPress;
       const d = this.writingDraft;
       this.draftSelecting = this.editPress && d && n > 1 && !shift ? this.selectInDraft(d, n, host) : null;
@@ -5067,7 +5084,18 @@ export class NoteSurface {
    * click keeps what it selected and copies it (copy on select, selection.ts): `select.copy`, as `y` runs
    * it. A selection of blanks, or none, copies nothing. True when the release did something.
    */
+  /** Put back the cursor a press that brought the keys back kept (PIE-812); `done` at its release, which ends it. */
+  private restoreCursor(done: boolean) {
+    const k = this.keptCursor;
+    if (k) { k.d.row = k.row; k.d.col = k.col; k.d.anchor = k.anchor; }
+    if (done) this.keptCursor = null;
+  }
+
   release(x: number, y: number, host: SurfaceHost): boolean {
+    try { return this.releaseNow(x, y, host); } finally { this.restoreCursor(true); }
+  }
+
+  private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
     const r = this.gesture.release(x, y);
     this.dragging = false;
     // The end of a drag that moved or sized the floating composer: nothing else (not a click in it).
@@ -6451,8 +6479,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "session.leave": def({
-    summary: "leave the edit or comment as a click elsewhere does: an unchanged edit closes; a changed one is saved against its revision, or kept as unsent (e brings it back) when the save is refused; a comment or reply is kept as unsent, never sent. The person's gesture: an agent leaves only a session it opened",
-    keys: "a click outside it, ^W then a window key (desk)",
+    summary: "leave the edit or comment: an unchanged edit closes; a changed one is saved against its revision, or kept as unsent (e brings it back) when the save is refused; a comment or reply is kept as unsent, never sent. The person's own edit or comment stays open when they click or move elsewhere (PIE-785, PIE-812); this is what going elsewhere does to an agent's edit they're in. An agent leaves only a session it opened",
+    keys: "a click outside an agent's edit you're in, or ^W then a window key (desk)",
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.leave(host, actor),
