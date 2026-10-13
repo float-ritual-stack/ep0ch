@@ -2933,7 +2933,8 @@ export class OutlinerStore {
     const desired = tryNormalizePageAddress(tokens[0]!.value);
     if (!desired) return null;
     const owner = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
-    if (!owner || owner.block_id === blockId) return null;
+    // Free, its own, or held by another note in Trash (which gives it up to this one, as to any live note): kept.
+    if (!owner || owner.block_id === blockId || (owner.kind !== "work-id" && this.inTrashFromCurrentRead(owner.block_id))) return null;
     let free = "";
     for (let n = 2; ; n++) {
       free = `${desired.displayAddress}-${n}`;
@@ -5262,7 +5263,8 @@ export class OutlinerStore {
       if (current && current.normalized_address !== desired?.normalizedAddress) return false;
       if (!desired) continue;
       const owner = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
-      if (owner && owner.block_id !== blockId) return false;
+      // A page or alias of a note in Trash is no claim (PIE-312): syncing takes it.
+      if (owner && owner.block_id !== blockId && (kind !== "page" || owner.kind === "work-id" || !this.inTrashFromCurrentRead(owner.block_id))) return false;
     }
     return true;
   }

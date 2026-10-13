@@ -2297,6 +2297,17 @@ Second paragraph`;
     expect(store.resolvePageAddress("beacon").block?.id).toBe(page.id);
   });
 
+  test("a restore takes back a name another note in Trash holds now, with no rename", () => {
+    const store = makeStore();
+    const first = store.create("Harbor log [page::Harbor]");
+    store.delete(first.id);
+    const second = store.create("Harbor notes [page::Harbor]");
+    store.delete(second.id);
+    const restored = store.restore(first.id);
+    expect(restored.renamedPages).toBeUndefined();
+    expect(store.resolvePageAddress("harbor")).toMatchObject({status: "resolved", block: {id: first.id}});
+  });
+
   test("a restore renames a taken page name in the subtree too, past every name already used", () => {
     const store = makeStore();
     const root = store.create("Archive root");
