@@ -7,7 +7,7 @@
 import { codeBlocks } from "./code-fence";
 import { COMPONENT_OPEN, componentBlocks } from "./component-block";
 import { LINK_BLOCK_KINDS } from "./link-blocks";
-import { pageAddressReferences } from "./link-syntax";
+import { pageLinkSpans } from "./link-syntax";
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges } from "./code-ranges";
 import { isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
 
@@ -45,17 +45,13 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
   const code = protectedCodeRanges(text);
   const literal = scanPropertyLiteralRanges(text);
 
-  // `[[` its line never closes: text.
-  const links = pageAddressReferences(text, []);
-  for (let at = text.indexOf("[["); at >= 0; at = text.indexOf("[[", at + 2)) {
-    const link = links.find(l => at >= l.start && at < l.end);
-    if (link) { at = link.end - 2; continue; }
-    if (offsetInRanges(at, code)) continue;
+  // `[[` its line never closes (pageLinkSpans: the bracket count, so a nested link is no unclosed one): text.
+  const opened = new Set(pageLinkSpans(text, code).map(span => span.start));
+  for (let at = text.indexOf("[["); at >= 0; at = text.indexOf("[[", at + 1)) {
+    if (opened.has(at) || offsetInRanges(at, code)) continue;
+    // `[[[` opens its link at the last two brackets; `[[ ` and a blank is prose about the syntax, not a link begun.
+    if (text[at + 2] === "[" || text[at + 2] === " " || opened.has(at + 1)) continue;
     const lineEnd = text.indexOf("\n", at) < 0 ? text.length : text.indexOf("\n", at);
-    // `[[[` reads its link from the last two brackets; `[[ ` and a blank is prose about the syntax, not a link begun.
-    if (text[at + 2] === "[" || text[at + 2] === " ") continue;
-    const close = text.indexOf("]]", at);
-    if (close >= 0 && close < lineEnd && !text.slice(at + 2, close).includes("[[")) continue; // a link no page can have: not unclosed
     const line = lineOf(at), next = text.indexOf("[[", at + 2);
     out.push({ kind: "page-link", line, message: `the ${shown(text.slice(at, next >= 0 && next < lineEnd ? next : lineEnd).trimEnd())} on line ${line + 1} isn't closed with ]]: it's text` });
   }
