@@ -134,7 +134,7 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
   const slug = sessionSlug(args.session);
   const pane = scoped(env.EP0CH_HERDR_PANE || (args.session ? slug : "door-claude"));
   const link = linkFor(pane);
-  const vars = agentVars(env, { tile: env.EP0CH_TILE || "claude", control: link, tileId: env.EP0CH_TILE_ID, nest: appendNest(env.EP0CH_NEST, `herdr:${pane}`) });
+  const vars = { ...agentVars(env, { tile: env.EP0CH_TILE || "claude", control: link, tileId: env.EP0CH_TILE_ID, nest: appendNest(env.EP0CH_NEST, `herdr:${pane}`) }), ...clipVars(env) };
   return {
     pane,
     scope,
@@ -157,6 +157,20 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     lock: `${link}.lock`,
     record: recordFor(pane),
   };
+}
+
+/** The door's `wl-copy` (scripts/clip/wl-copy): Claude Code's copy in the pane reaches the door as well as Herdr. */
+export const CLIP_DIR = resolve(import.meta.dir, "../../scripts/clip");
+/**
+ * PIE-797: Herdr doesn't pass a pane's OSC 52 on to a `herdr terminal attach` client (herdrdev/herdr#4612), so Claude
+ * Code's copies in the pane never reached the person through the door's tile. Where the machine has no display of its own
+ * (a server reached over ssh, float-2), the pane says it has one (WAYLAND_DISPLAY) and puts the door's `wl-copy` first on
+ * PATH: Claude copies through it, and it hands the text to the door (and writes the OSC 52 as before). A machine with a
+ * real display keeps its own clipboard tools. Drop this once Herdr's attach passes OSC 52 on.
+ */
+export function clipVars(env: Record<string, string | undefined>): Record<string, string> {
+  if (env.WAYLAND_DISPLAY || env.DISPLAY) return {};
+  return { WAYLAND_DISPLAY: "ep0ch-clip", PATH: [CLIP_DIR, env.PATH].filter(Boolean).join(":") };
 }
 
 const json = (s: string): any => { try { return JSON.parse(s); } catch { return null; } };
