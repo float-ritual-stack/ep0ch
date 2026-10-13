@@ -113,10 +113,11 @@ function matchesStage(source: BacklinkSource, stage: BacklinkStageFilter): boole
 
 /** Whether a stage (its value as written and its family) passes the Stage filter: a family's name, open, or the value itself. */
 export function stageMatches(stage: { value: string; bucket?: BacklinkStageBucket } | undefined, filter: BacklinkStageFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "open") return isOpenBacklinkStage(stage?.bucket);
-  if ((BACKLINK_STAGE_BUCKETS as readonly string[]).includes(filter)) return stage?.bucket === filter;
-  return !!stage && stage.value.trim().toLowerCase() === filter.trim().toLowerCase();
+  const f = filter.trim().toLowerCase();
+  if (f === "all") return true;
+  if (f === "open") return isOpenBacklinkStage(stage?.bucket);
+  if ((BACKLINK_STAGE_BUCKETS as readonly string[]).includes(f)) return stage?.bucket === f;
+  return !!stage && stage.value.trim().toLowerCase() === f;
 }
 
 /** Stage values in their families' order (waiting, draft, active, done, then unplaced), most first, then by name. */
@@ -258,7 +259,7 @@ export function nextBacklinkSort(
  */
 export function nextBacklinkStageFilter(stage: BacklinkStageFilter, stages?: readonly { value: string }[]): BacklinkStageFilter {
   // A value spelled as a keyword (a status `open`) is that keyword: each step once.
-  const list = stages ? [...new Map(["all", "open", ...stages.map((s) => s.value)].map((x) => [x.toLowerCase(), x])).values()] : BACKLINK_STAGE_FILTERS;
+  const list = stages ? ["all", "open", ...stages.map((s) => s.value)].filter((x, i, all) => all.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i) : BACKLINK_STAGE_FILTERS;
   const index = list.findIndex((x) => x.toLowerCase() === stage.toLowerCase());
   return list[(index + 1) % list.length]!;
 }

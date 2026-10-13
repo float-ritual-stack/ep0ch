@@ -94,6 +94,10 @@ describe("stages as the notes write them (PIE-819)", () => {
     const answered = backlinkView(c, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "ANSWERED" });   // matched however it's spelled
     expect(answered.matching.map(s => s.blockId).sort()).toEqual(["2", "3"]);
     expect(nextBacklinkStageFilter("answered", v.stages)).toBe("all");
+    // A value spelled like a keyword in capitals (`Open`, `All`) never takes the keyword's place.
+    expect(nextBacklinkStageFilter("all", [{ value: "Open" }, { value: "All" }])).toBe("open");
+    expect(nextBacklinkStageFilter("open", [{ value: "Open" }, { value: "All" }])).toBe("all");
+    expect(backlinkView(c, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "ALL" }).matching).toHaveLength(3);
   });
 });
 
