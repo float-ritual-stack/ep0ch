@@ -298,8 +298,9 @@ export function startGateway(opts: {
     if (pathname === mcpPath) return { path: mcpPath };
     const match = /^\/([^/]+)(\/.*)$/.exec(pathname);
     if (!match || match[2] !== mcpPath || mcpPath === "/") return null;
-    const name = decodeURIComponent(match[1]!);
-    return PERSONA_PATTERN.test(name) && name.length ? { path: pathname, persona: name } : null;
+    // The segment as sent: a name is letters, digits, . _ -, so anything escaped is no name (and never decoded).
+    const name = match[1]!;
+    return PERSONA_PATTERN.test(name) ? { path: pathname, persona: name } : null;
   };
   /** What a named path may do at most: `EP0CH_MCP_PATH_ACCESS` (`gpty=full,warp=read`), else `propose`, read per request. */
   const capOf = (persona: string): McpAccessLevel => {

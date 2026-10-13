@@ -79,9 +79,9 @@ export interface WriteActor { actorId: string; sessionId?: string }
  * with the persona list: a dynamically registered client's id says nothing, `chatgpt` does), else a URL client id (a CIMD
  * client) by its host, anything else as it is.
  */
-export function clientName(clientId: string | undefined, env: Record<string, string | undefined> = process.env): string {
+export function clientName(clientId: string | undefined, env: Record<string, string | undefined> | null = process.env): string {
   if (!clientId) return "client";
-  const named = (mcpSetting(env, "EP0CH_MCP_CLIENT_NAMES") ?? "").split(",").map(e => e.split("=").map(x => x.trim())).find(([id]) => id === clientId)?.[1];
+  const named = env && (mcpSetting(env, "EP0CH_MCP_CLIENT_NAMES") ?? "").split(",").map(e => e.split("=").map(x => x.trim())).find(([id]) => id === clientId)?.[1];
   if (named && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(named)) return named;
   try { const url = new URL(clientId); if (url.hostname) return url.hostname; } catch { /* not a URL */ }
   return clientId.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 64) || "client";
@@ -97,7 +97,8 @@ export const STDIO_SUBJECT = "stdio";
  * owner's own, so the machine is what tells two of the same client apart.
  */
 export function principalOf(caller: McpCaller, machine: string = canonicalLocalMachineName(), env: Record<string, string | undefined> = process.env): string {
-  if (caller.sub === STDIO_SUBJECT) return `${clientName(caller.clientId, env)}@${machine}`;
+  // A stdio client names itself in its initialize: the gateway's registered-name list is for OAuth clients only.
+  if (caller.sub === STDIO_SUBJECT) return `${clientName(caller.clientId, null)}@${machine}`;
   return clientName(caller.clientId ?? caller.sub, env);
 }
 

@@ -175,7 +175,8 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     // A token for /mcp isn't one for /gpty/mcp.
     const crossed = await fetch(`${origin}/gpty/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
     expect(crossed.status).toBe(401);
-    expect((await fetch(`${origin}/not a name/mcp`, { method: "POST" })).status).toBe(404);
+    for (const path of ["/not a name/mcp", "/%FF/mcp", "/%/mcp", "/.hidden/mcp", "/gpty/mcp/", "/a/b/mcp"]) expect((await fetch(`${origin}${path}`, { method: "POST" })).status).toBe(404);
+    expect((await fetch(`${origin}/.well-known/oauth-protected-resource/%FF/mcp`)).status).toBe(404);
 
     // garden-notes takes full writes; through /gpty/mcp, a property is a proposal and a comment is gpty's.
     const uri = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });
@@ -627,6 +628,8 @@ describe("personas: who a connection writes as", () => {
     expect(actorOf(dcr, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt" }).actorId).toBe("mcp:chatgpt");
     expect(actorOf({ ...dcr, persona: "gpty" }, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt", EP0CH_MCP_PERSONAS: "chatgpt=daddy" }).actorId).toBe("mcp:gpty/chatgpt");
     expect(actorOf(dcr, {}).actorId).toBe("mcp:qFictionalDcr01");
+    // A stdio client names itself: the registered-name list is the gateway's, for OAuth clients.
+    expect(actorOf({ sub: STDIO_SUBJECT, clientId: "qFictionalDcr01" }, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt" }, "box-a").actorId).toBe("mcp:qFictionalDcr01@box-a");
     const home = scratchDir("ep0ch-persona-");
     try {
       mkdirSync(join(home, ".config", "ep0ch"), { recursive: true });
