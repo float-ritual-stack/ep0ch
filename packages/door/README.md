@@ -2155,7 +2155,7 @@ Bodies render with `src/doc.ts`:
   No script runs in the terminal: the reader draws it as a card, its kind on the frame, its title (`[alt::]`, an HTML
   file's `<title>`, else its file's name) and `[open ↗]`. `⏎` on the card, a click on it or on `[open ↗]` opens it
   running on the note's web page, in the browser (`artifact.open`; an agent is given the address). That needs the
-  publisher to know where it is opened (`publish serve --url https://<machine>.<tailnet>.ts.net/pub`). On the note's web
+  publisher to know where it is opened: `EP0CH_WEB_URL` (the signed-in web client, `https://my.ep0ch.sh`) when set, else `OUTLINER_PUBLISH_URL` (its tailnet listener). On the note's web
   page it runs inline, as on claude.ai: React compiled against claude.ai's packages, Tailwind's classes, any script
   from a CDN, in a sandboxed frame with an origin of its own, dark until it draws, with a link to it on a page of
   its own (the outliner's README, "Artifacts").
