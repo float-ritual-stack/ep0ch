@@ -118,8 +118,8 @@ export interface TileFacts {
   follower?: boolean;
   /** The role its kind gives a new link from it (the links tile: `target`, a selection previews and only ⏎ opens); absent, `preview`. */
   linkRole?: LinkRole;
-  /** The tile its opens land in when no link or container says (the links tile's origin reader): a name. */
-  origin?: string;
+  /** Its home (PIE-794): the reader its opens land in when no link or container says (the links tile's): a name. */
+  home?: string;
   /** It only holds a place (the blank tile): an agent may replace it under the person's keys. */
   placeholder?: boolean;
   /** It holds work (a draft): in a flow, its column resists compression. */
@@ -379,9 +379,10 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string): str
 }
 
 /**
- * Where tile `id`'s opens land: its own link (when that tile is here), else the opens-into of the nearest container
- * that names a tile here (not itself), else the open rule: the next column of its flow (`next`), or none (the
- * current note).
+ * Where tile `id`'s opens land (PIE-794: every open from a tile asks this, and only this): its own link (when that tile
+ * is here), else the opens-into of the nearest container that names a tile here (not itself), else its home (a list's
+ * reader), else the open rule: the next column of its flow (`next`), or none (a reader is its own home: the note
+ * replaces its own; anything else moves the current note).
  */
 export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "links" | "names">, id: I, facts?: TileFacts): { to: I } | { into: string } | { next: true } | null {
   const own = s.links.get(id);
@@ -391,9 +392,9 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "links" |
   if (into !== undefined && into !== id) return { to: into };
   // A container by its key (the board's readers row): a tile opened into it holds the note.
   if (into === undefined && e.opensInto && node(s.tree, e.opensInto)) return { into: e.opensInto };
-  // A list about a tile's note (the links tile) opens in the tile it lists the links of, when no link or container says otherwise (PIE-646).
-  const origin = facts?.origin !== undefined ? named(s, facts.origin) : undefined;
-  if (origin !== undefined && origin !== id) return { to: origin };
+  // A list (the links tile) opens in its home, the reader it belongs to, when no link or container says otherwise (PIE-794).
+  const home = facts?.home !== undefined ? named(s, facts.home) : undefined;
+  if (home !== undefined && home !== id) return { to: home };
   if (e.opens === "next" && flowHolding(s.tree, id)) return { next: true };
   return null;
 }

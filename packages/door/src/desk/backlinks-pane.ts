@@ -1,15 +1,19 @@
-// The links tile (kind `backlinks`, PIE-432, PIE-442): the links of what another tile shows (its `source`, a
-// tile's name) in the shared links model (src/links.ts): its Outlinks, its Resources, its Backlinks and its
+// The links tile (kind `backlinks`, PIE-432, PIE-442): the links of a note, its *subject*, in the shared links model
+// (src/links.ts): its Outlinks, its Resources, its Backlinks and its
 // Children (PIE-693: the notes under it, a thread's replies), the backlinks grouped, filtered and sorted as Detail
 // does through src/backlinks.ts, and Kind, Stage and Sort on every group. Which groups it lists is the tile's own
 // (`groups`, saved with the layout, `backlinks.groups`): the thread tile is this tile with Children alone. Moving the selection, or giving
 // the tile the keys, shows the selected row where this tile's selection goes (a preview following it, or its
-// link) without moving the current note (so the tile it lists the links of stays put): a note, a ticket's block,
-// a Resource's stored content (read only: nothing is registered or fetched by showing it). ⏎ opens it for real
-// (`backlinks.open`, PIE-646): in the tile its opens land in, the tile linked to this one as a target, else the
-// reader it lists the links of (the layout's `landing`, its origin); alt+⏎ in a new detail beside that reader. The
-// mouse escalates the same way (RowView.press): a click selects and previews, a double click is ⏎, an alt-, ctrl- or
+// link) without moving the current note (so its home stays put): a note, a ticket's block, a Resource's stored content
+// (read only: nothing is registered or fetched by showing it). ⏎ opens it for real (`backlinks.open`, PIE-646): in the
+// tile its opens land in, the tile linked to this one as a target, else its *home* (its `source`, a tile's name: the
+// reader it was opened beside), whose note it replaces (the layout's `landing`); alt+⏎ in a new detail beside its home.
+// The mouse escalates the same way (RowView.press): a click selects and previews, a double click is ⏎, an alt-, ctrl- or
 // middle-click is alt+⏎, and the click that gives the tile the keys only selects.
+//
+// One list model (PIE-794): the subject changes when the person says so (`b`, in a reader or here), never because an
+// open from the list landed in its home. A list whose subject follows its home (`subject=follows`: the welcome's, the
+// desk's replies) takes what its home shows as it changes, but not a note it opened there itself.
 //
 // The rows are drawn by `linkRowLine`, as the tree's links and the inline `::links` component are; the status
 // line by `layoutLinksStatus`. One model and one drawing, not three.
@@ -105,7 +109,7 @@ export type PickHow = "show" | "open" | "fresh";
 
 export class BacklinksPane implements Pane {
   readonly kind = "backlinks" as const;
-  /** The note whose links are listed (what the source tile shows), and what the service sent for it: its backlinks, its authored links. */
+  /** The note whose links are listed (its subject), and what the service sent for it: its backlinks, its authored links. */
   target: Msg | null = null;
   data: BacklinkCollection | null = null;
   authored: Load<AuthoredLinksSnapshot> = { kind: "loading" };
@@ -142,13 +146,18 @@ export class BacklinksPane implements Pane {
   private named: { m: Msg; over: string | null } | null = null;
 
   /**
-   * `source`: the tile whose note's backlinks this lists. `openGroups`: every kind group starts open (a screen
-   * with room for only a few rows, where a folded "+ Note 2" would hide the only links); Detail's default,
-   * folded, otherwise.
+   * `source`: its home, the tile it belongs to (a reader), whose note it lists until it holds one of its own.
+   * `openGroups`: every kind group starts open (a screen with room for only a few rows, where a folded "+ Note 2"
+   * would hide the only links); Detail's default, folded, otherwise. `follows`: its subject follows what its home shows
+   * (`subject=follows`); otherwise it keeps its subject until `b`.
    */
-  constructor(public source: string, readonly openGroups = false, groups: readonly LinkGroupName[] | null = null) {
+  constructor(public source: string, readonly openGroups = false, groups: readonly LinkGroupName[] | null = null, readonly follows = false) {
     if (groups?.length) this.groups = ALL_LINK_GROUPS.filter(g => groups.includes(g));
   }
+  /** Its home (PIE-794): the reader it belongs to, where ⏎ lands unless a link says otherwise. */
+  get home() { return this.source; }
+  /** The note its last open put in its home: a following list doesn't take it as its subject. */
+  private landed: string | null = null;
 
   /** Every group listed (the tile's default), or only some. */
   private get every() { return this.groups.length === ALL_LINK_GROUPS.length; }
@@ -165,8 +174,8 @@ export class BacklinksPane implements Pane {
     const n = this.data ? ` · ${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : " · …";
     return `${word} · ${subject(this.target).slice(0, 50)}${n}`;
   }
-  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : "j k preview · ⏎ open in the reader · alt+⏎ new detail · . fold · s K w h n view · v groups"; }
-  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }) }; }
+  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.source} · alt+⏎ new detail · b ${this.follows ? "aim" : "re-aim"} at ${this.source}'s note · . fold · s K w h n view · v groups`; }
+  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const }; }
 
   /**
    * List these groups (at least one), in the model's order; the selection stays on its row where it still shows.
@@ -199,11 +208,18 @@ export class BacklinksPane implements Pane {
 
   init(desk: DeskApi) { this.sync(desk); }
 
-  /** The source tile shows another note: its backlinks are asked for. */
+  /**
+   * Its home shows another note: a list whose subject follows it lists that one's links; one holding its subject keeps
+   * it (only `b` aims it again), and takes its home's note only while it has none.
+   */
   private sync(desk: DeskApi) {
-    // A Resource or a file shown in the source tile isn't a block: nothing links to it, so the list stays on the note
-    // it listed (one of its resources opened from here: the list is still there to go on from).
+    if (this.target && !this.follows) { const now = desk.tileShowing?.(this.source); if (now?.id === this.target.id) this.target = now; return; }
+    // A Resource or a file shown in its home isn't a block: nothing links to it, so the list stays on the note it
+    // listed (one of its resources opened from here: the list is still there to go on from).
     const shown = desk.tileShowing?.(this.source) ?? null;
+    // A note this list opened in its home is its row, not its subject: it stays where it was.
+    if (this.target && shown && shown.id === this.landed) return;
+    this.landed = null;
     let m = isOutlineNote(shown) ? shown : shown ? this.target : null;
     // A note named outright stays until the source moves on from what it showed then.
     if (this.named && (m?.id ?? null) === this.named.over) m = this.named.m;
@@ -380,6 +396,8 @@ export class BacklinksPane implements Pane {
     else {
       // The person's open moves their selection there too: the preview following this tile shows it as well.
       if (!agent && desk.showFrom) desk.showFrom(this, m);
+      // Opened in its home, it's a row of this list, never its subject (PIE-794).
+      if (how === "open") this.landed = m.id;
       desk.setCurrent(m, { from: this, ...(how !== "show" ? { link: true } : {}), ...(how === "fresh" ? { fresh: true } : {}), by: actor });
     }
     // A Resource just registered: the list asks again, so its row says so.
@@ -441,7 +459,7 @@ export class BacklinksPane implements Pane {
     return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, undefined, this.across(o)), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], linkGroups: [...this.groups], typing: this.draft?.text ?? null };
   }
 
-  run(desk: DeskApi, name: "backlinks.pick" | "backlinks.open" | "backlinks.view" | "backlinks.fold" | "backlinks.groups", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
+  run(desk: DeskApi, name: "backlinks" | "backlinks.pick" | "backlinks.open" | "backlinks.view" | "backlinks.fold" | "backlinks.groups", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
 
   /** Typing a filter: letters go into it and the list follows; ⏎ keeps it (`backlinks.view filter=`), esc goes back to what it was. */
   private filterKey(k: Key, desk: DeskApi): boolean {
@@ -465,7 +483,9 @@ export class BacklinksPane implements Pane {
     if (isUp(k)) return by(-1);
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
-    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.run(desk, "backlinks.open", { n: this.sel + 1, where: k.kind === "alt-enter" ? "new" : "origin" }); return true; }
+    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.run(desk, "backlinks.open", { n: this.sel + 1, where: k.kind === "alt-enter" ? "new" : "home" }); return true; }
+    // b: the list aims at its home's note now (PIE-794), as b in that reader does.
+    if (c === "b") { this.run(desk, "backlinks", {}); return true; }
     if (c === "." || c === " ") { this.run(desk, "backlinks.fold", {}); return true; }
     const control: Record<string, BacklinkControl> = { s: "sort", K: "kind", w: "stage", h: "resolved", n: "related" };
     if (control[c]) { this.run(desk, "backlinks.view", { step: control[c]! }); return true; }
@@ -493,7 +513,7 @@ export class BacklinksPane implements Pane {
     const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
     const header = row.kind === "group" || row.kind === "kind";
     if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.run(desk, "backlinks.open", { n: i + 1 }); return true; }
-    if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.open", { n: i + 1, where: gesture === "fresh" && !header ? "new" : "origin" });
+    if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.open", { n: i + 1, where: gesture === "fresh" && !header ? "new" : "home" });
     else if (i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 });
     return true;
   }
@@ -503,7 +523,7 @@ export class BacklinksPane implements Pane {
 export interface BacklinksOn { pane: BacklinksPane; desk: DeskApi }
 export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   "backlinks": def({
-    summary: "a backlinks tile's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (b, as=you) lists the backlinks of id (else of the note in the reader they read through), following the reader that shows it, its dock sliding open, and sets their options; its rows and controls are backlinks.pick, backlinks.view and backlinks.fold",
+    summary: "a backlinks tile's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (b, as=you) aims the list: it lists the links of id (else of the note in the reader they read through; in the list itself, its home's), and that reader becomes its home, its dock sliding open, and sets their options; its rows and controls are backlinks.pick, backlinks.view and backlinks.fold",
     keys: "b",
     touches: "nothing", replay: "safe",
     args: {
@@ -595,16 +615,16 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
     },
   }),
   "backlinks.open": def({
-    summary: "open a row of a links tile for real, not as a preview (n= its row from 1, as peek lists them; id= a block's or a resource's; default the selected one): where=origin (default) in the tile its opens land in: the tile linked to it as a target, else the reader it lists the links of (a detail keeps it in its history); where=new in a new detail beside that reader (the person's keys stay in the list). A group opens or folds. The same open as `open from=<this tile>` (fresh for new)",
-    keys: "⏎ double click (origin) · alt+⏎ alt-click ctrl-click middle-click (new); the click that gives the tile the keys only selects",
+    summary: "open a row of a links tile for real, not as a preview (n= its row from 1, as peek lists them; id= a block's or a resource's; default the selected one): where=home (default) in the tile its opens land in: the tile linked to it as a target, else its home, the reader it belongs to, whose note it replaces (kept in that reader's history; a reader following the current note moves the current note, a held one only itself); where=new in a new detail beside its home (the person's keys stay in the list). The list keeps its subject either way (only b aims it). A group opens or folds. The same open as `open from=<this tile>` (fresh for new)",
+    keys: "⏎ double click (home) · alt+⏎ alt-click ctrl-click middle-click (new); the click that gives the tile the keys only selects",
     touches: "nothing", replay: "safe", says: r => `opened a link (row ${r.row})`,
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them; default the selected one" },
       id: { type: "string", optional: true, about: "a linked block's id or a resource's (or its start)" },
-      where: { type: "string", optional: true, about: "origin (default): the tile its opens land in; new: a new detail beside the reader it lists the links of" },
+      where: { type: "string", optional: true, about: "home (default): the tile its opens land in; new: a new detail beside its home" },
     },
     async run({ n, id, where }, { pane, desk }, actor) {
-      if (where !== undefined && where !== "origin" && where !== "new") throw new ActionRefused(`backlinks.open: where is origin or new, not ${where}`);
+      if (where !== undefined && where !== "home" && where !== "new") throw new ActionRefused(`backlinks.open: where is home or new, not ${where}`);
       if (n !== undefined && id !== undefined) throw new ActionRefused("backlinks.open takes one of n or id");
       const rows = pane.rows();
       const idOf = (r: LinkRow) => linkBlock(r) ?? (r.kind === "resource" ? r.link.recordBlockId ?? r.link.resourceId ?? (r.link.resolution.kind === "ready" ? r.link.resolution.target.resourceId : null) : null);

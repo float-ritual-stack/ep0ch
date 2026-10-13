@@ -97,10 +97,11 @@ export interface TileKind {
   /** In the drawer its picks open notes on the screen shown (it has no reader of its own): alt+l links it to one, else its header says which reader an open lands in now (PIE-700). */
   readonly opensOnScreen?: true;
   /**
-   * Its opens land in the tile it lists (`origin`: the links tile's source) when that tile keeps its note and no link or
-   * container says otherwise: ⏎ on a link opens it in the reader it came from, alt+⏎ in a new detail beside it (PIE-646).
+   * Its home (PIE-794): the reader it belongs to (the links tile's: the reader it was opened beside). Its opens land
+   * there when no link or container says otherwise: ⏎ on a row replaces that reader's note, alt+⏎ opens a new detail
+   * beside it (PIE-646).
    */
-  origin?(p: Pane): string | null;
+  home?(p: Pane): string | null;
   /**
    * A list about a note that `b` aims (the links tile: a reader's note's Outlinks, Resources and Backlinks): the
    * tile as the desk aims it, and the kind of tile opened beside it to follow its selection when a screen has

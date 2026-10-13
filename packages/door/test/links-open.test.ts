@@ -1,6 +1,6 @@
-// PIE-646: the links tile's workflow. A detail, `b`, a preview following the selection; ⏎ opens the picked note in the
-// reader it came from (the tile linked to the list as a target, else the origin reader), alt+⏎ in a new detail beside
-// it. A link between tiles has a role: preview (follows the selection) or target (takes only what is opened into it),
+// PIE-646, PIE-794: the links tile's workflow. A detail, `b`, a preview following the selection; ⏎ replaces the note
+// of the list's home with the pick (the tile linked to the list as a target, else its home reader) and the list keeps
+// its subject (only b aims it again), alt+⏎ opens a new detail beside the home. A link between tiles has a role: preview (follows the selection) or target (takes only what is opened into it),
 // said on the header and in layout.get. Scratch outline, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ import { outliner, Scratch, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
 
-describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin reader, alt+⏎ in a new detail", () => {
+describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reader, alt+⏎ in a new detail", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk;
   let lamp: Msg, porch: Msg, hall: Msg;
@@ -59,18 +59,28 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
     await act("tile.focus", {}, "links");
   };
 
-  test("moving the selection previews; the origin detail stays; ⏎ opens the pick in the detail and the list follows the new note", async () => {
+  test("moving the selection previews; the home detail stays; ⏎ replaces the detail's note, the list keeps its subject until b", async () => {
     await setup();
-    expect(tile("links")).toMatchObject({ link: "reader", linkFrom: "origin" });
+    expect(tile("links")).toMatchObject({ link: "reader", linkFrom: "home" });
     await pickRow(porch.id);
     await until(() => (desk.pane("peek") as ReaderPane).msg?.id === porch.id, "the preview following the pick");
     expect(reader("reader").msg?.id).toBe(lamp.id);
     key({ kind: "enter" });
-    await until(() => reader("reader").msg?.id === porch.id, "⏎: the origin detail holds the pick");
-    await until(() => links().target?.id === porch.id, "the list now lists the opened note's links");
+    await until(() => reader("reader").msg?.id === porch.id, "⏎: the home detail holds the pick");
     expect(get().tiles.find((t: any) => t.name === "reader").showing.id).toBe(porch.id);
-    // The person's keys stayed in the list.
+    // Held means local: the current note didn't move. The list stays on the lamp, its selection on the row.
+    render();
+    expect(D().current?.id).not.toBe(porch.id);
+    expect(links().target?.id).toBe(lamp.id);
+    await pickRow(hall.id);
+    key({ kind: "enter" });
+    await until(() => reader("reader").msg?.id === hall.id, "⏎ again: the next row, from the same list");
+    render();
+    expect(links().target?.id).toBe(lamp.id);
+    // The person's keys stayed in the list; b there aims it at its home's note now.
     expect((desk as any).describe().focus ?? "links").toBe("links");
+    key({ kind: "char", ch: "b" } as Key);
+    await until(() => links().target?.id === hall.id, "b: the list lists what its home shows now");
   }, 20_000);
 
   test("alt+⏎ opens it in a new detail beside the origin: the origin keeps its note, the list keeps the keys", async () => {
@@ -86,7 +96,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
     expect(links().target?.id).toBe(lamp.id);
   }, 20_000);
 
-  test("a reader that follows the current note: ⏎ is the current note as ever, alt+⏎ is still a new detail beside it", async () => {
+  test("a home that follows the current note: ⏎ moves the current note and the reader stays following; alt+⏎ is a new detail beside it", async () => {
     await setup("reader");
     await until(() => reader("reader").msg?.id === lamp.id, "the reader on the lamp");
     const before = get().tiles.length;
@@ -95,9 +105,14 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
     await until(() => get().tiles.length === before + 1, "a new detail");
     expect(get().tiles.find((t: any) => t.kind === "reader" && t.mode === "held")?.showing.id).toBe(porch.id);
     expect(reader("reader").msg?.id).toBe(lamp.id);
-    expect(tile("links").linkFrom).toBeUndefined();
+    expect(tile("links").linkFrom).toBe("home");
     key({ kind: "enter" });
     await until(() => reader("reader").msg?.id === porch.id, "⏎: the current note, which the reader follows");
+    // Opening never changes its mode: it still follows, and back returns to the lamp.
+    expect(reader("reader").followMode).toBe("follows");
+    expect(D().current?.id).toBe(porch.id);
+    render();
+    expect(links().target?.id).toBe(lamp.id);
   }, 20_000);
 
   test("a tile linked to the list is a target by default: the selection moves without it, ⏎ and open from= land in it", async () => {
@@ -156,16 +171,16 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
     expect(tile("links")).toMatchObject({ link: "side", linkRole: "preview" });
   }, 20_000);
 
-  test("an agent's open from the list lands in the origin and never takes the person's keys; a group row opens or folds", async () => {
+  test("an agent's open from the list lands in its home and never takes the person's keys; a group row opens or folds", async () => {
     await setup();
     const out = await act("backlinks.open", { id: hall.id }, "links", "walker-2");
     await until(() => reader("reader").msg?.id === hall.id, "the agent's open");
     expect(out.id).toBe(hall.id);
     expect(D().layoutGet().focus).toBe("links");
-    await expect(act("backlinks.open", { where: "sideways" }, "links")).rejects.toThrow(/origin or new/);
+    await expect(act("backlinks.open", { where: "sideways" }, "links")).rejects.toThrow(/home or new/);
   }, 20_000);
 
-  test("by mouse: a click selects and previews, a double click opens in the origin, an alt+click in a new detail", async () => {
+  test("by mouse: a click selects and previews, a double click opens in its home, an alt+click in a new detail", async () => {
     await setup();
     render();
     const r = tile("links").rect as { col: number; row: number; cols: number; rows: number };
@@ -182,6 +197,6 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in the origin rea
     expect(reader("reader").msg?.id).toBe(lamp.id);
     const q = at(porch.id);
     mouse("down", q.x, q.y); mouse("up", q.x, q.y); mouse("down", q.x, q.y); mouse("up", q.x, q.y);
-    await until(() => reader("reader").msg?.id === porch.id, "a double click opens in the origin");
+    await until(() => reader("reader").msg?.id === porch.id, "a double click opens in its home");
   }, 20_000);
 });

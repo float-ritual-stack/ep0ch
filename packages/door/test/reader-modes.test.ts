@@ -291,7 +291,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     await mine("passage.select", {}, "follower");
     await mine("comment.write", { body: "Two to a hole, or three?" }, "follower");
     expect(pane("follower").editing).toBe(true);
-    D().setCurrent(notes.shed, { from: pane("keeps"), reveal: true });
+    D().setCurrent(notes.shed, { reveal: true });
     expect(pane("follower").msg?.id).toBe(notes.beans.id);
     expect(message()).toContain("keeps the comment on “Sow the beans”");
     await act("open", { id: notes.plan.id }).catch(() => null);
