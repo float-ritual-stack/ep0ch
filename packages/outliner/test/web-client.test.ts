@@ -565,3 +565,14 @@ test("the page's verbs: Seen puts a thread on the Earlier shelf and Back brings 
   const asked = await until("the define's answer", async () => (await threads(note.id)).threads.find((t) => t.kind === "define" && t.replies.some((reply) => reply.by === "marginalia")));
   expect(asked.body).toContain("@margin what does “hawthorn” mean here?");
 });
+
+test("a card's quote is drawn as the note's words: a reference by its title, linked (an unplaced card shows it)", async () => {
+  const text = `Bat walk\nWe followed ((${survey.id}|the moth survey)) route at dusk.`;
+  const note = store.create(text, hub.id, "user");
+  const quote = `((${survey.id}|the moth survey)) route`;
+  store.annotations.batch("quote-render-1", [{ type: "block-comment", operationId: "q", input: { blockId: note.id, expectedRevision: note.revision, body: "Same route next year?", source: "user", passage: { quote, start: text.indexOf(quote) } } }]);
+  const listed = (await threads(note.id)).threads as unknown as { quote: string; quoteHtml?: string }[];
+  expect(listed[0]!.quote).toBe(quote);
+  expect(listed[0]!.quoteHtml).toContain(`>the moth survey</a> route`);
+  expect(listed[0]!.quoteHtml).not.toContain("((");
+});
