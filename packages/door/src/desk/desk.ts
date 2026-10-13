@@ -4395,8 +4395,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private madeHere(): boolean { return this.madeAs !== null || !!madeScreen(this.spec.name) || (!!this.spec.layouts && !this.spec.saves); }
   /** The layout as last saved or loaded by name, to say on the hint row when it's changed since. */
   private savedAs: string | null = null;
-  /** The screen's shape as saving it would write it, but not what its tiles show now (a detail's note) nor their ids. */
-  private shapeNow(): string { return JSON.stringify({ ...this.saved(), rule: this.rule }, (k, v) => (k === "note" || k === "id" ? undefined : v)); }
+  /** The screen's shape as saving it would write it, but not what its tiles show now (a detail's note nor where their histories are) nor their ids. */
+  private shapeNow(): string { return JSON.stringify({ ...this.saved(), rule: this.rule }, (k, v) => (k === "note" || k === "nav" || k === "id" ? undefined : v)); }
 
   /**
    * `layout.load`: lay this screen out as the screen named `name` (a screen note) or a built-in layout. Tiles with the same

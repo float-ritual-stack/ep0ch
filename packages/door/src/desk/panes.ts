@@ -792,7 +792,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
   }),
   "reader.follow": def({
     summary: "what a reader (tile=<its name>) follows: source=current (the current note, as it changes), source=<tile> (a tile with a selection: the tree, a links tile, another reader; a link with the preview role, alt+l's, saved with the layout) or source=none (held on its note). Left out, the person picks from a list. Its mode chip names it: follows · current, follows · tree (docked), held",
-    keys: "P, a click on the mode chip on the frame (a picker of sources)",
+    keys: "P then ⏎ or a click (a row of the picker of sources); a click on the mode chip on the frame opens the picker too",
     touches: "tile", replay: "safe", way: "an agent sets what a reader follows when the person isn't in it", says: r => (r.asked ? null : r.source === "current" ? "let the reader follow the current note" : r.source === "none" ? "held the reader on its note" : `let the reader follow ${r.source}`),
     menu: { label: "follow…", group: "Reader", key: "P", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : null) },
     args: { source: { type: "string", optional: true, about: "current, none, or a tile's name (a tree, a links tile, a reader); left out, a picker (the person's)" } },
