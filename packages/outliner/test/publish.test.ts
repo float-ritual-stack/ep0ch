@@ -1138,3 +1138,18 @@ test("a block's anchor never changes how its text draws: callouts, fences, table
   expect(html).toContain('<span class="callout-title">Tip</span>');
   expect(html).not.toMatch(/[\uE000-\uF8FF]/);
 });
+
+test("a step's sentinel is drawn once, in text only; a note that already holds its character keeps its boxes as Markdown (PIE-811)", async () => {
+  const { placeStepSentinels, drawSteps } = await import("../src/publish-steps");
+  const steps: import("../src/publish-steps").PublishedStep[] = [];
+  const text = placeStepSentinels("Plan\n- [✓] felt\n- [ ] gutter", { id: "note-1", revision: 3 }, steps);
+  expect(steps.map((step) => step.status)).toEqual(["approved", "todo"]);
+  expect(text.length).toBe("Plan\n- [✓] felt\n- [ ] gutter".length);
+  const sentinel = text.slice(text.indexOf("felt") - 4, text.indexOf("felt") - 1);
+  const html = drawSteps(`<a title="${sentinel}">x</a><p>${sentinel} felt ${sentinel}</p>`, steps, false);
+  expect(html.match(/class="step s-approved"/g)).toHaveLength(1);
+  expect(html.startsWith(`<a title="${sentinel}">`)).toBe(true);
+  const held: import("../src/publish-steps").PublishedStep[] = [];
+  expect(placeStepSentinels(`Pasted ${sentinel}\n- [ ] gutter`, { id: "note-2", revision: 1 }, held)).toBe(`Pasted ${sentinel}\n- [ ] gutter`);
+  expect(held).toEqual([]);
+});

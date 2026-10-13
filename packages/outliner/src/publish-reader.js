@@ -1058,23 +1058,30 @@
     (items.find((item) => item.dataset.status !== box.dataset.stepStatus) || items[0]).focus();
   }
   async function setStep(box, status) {
+    // Where the reader was: the step by its id (a first change gives it one), else by its place among the page's steps.
+    const at = [...document.querySelectorAll("button.step[data-step-block]")].indexOf(box);
+    let id = box.dataset.stepId || "";
     sending += 1;
     try {
       const answer = await send({
         action: "step", status, block: box.dataset.stepBlock, evidence: box.dataset.stepEvidence,
         ...(box.dataset.stepId ? { itemId: box.dataset.stepId } : { start: Number(box.dataset.stepStart), revision: Number(box.dataset.stepRevision) }),
       });
-      closeStepMenu(false);
+      id = answer.itemId || id;
       say(answer.said);
     } catch (error) {
       // Said, and the note drawn again: the reader chooses again on the step as it is now.
-      closeStepMenu(false);
       say(error.message);
     } finally {
+      closeStepMenu(false);
       sending -= 1;
-      behind = true;
-      doneWriting();
     }
+    // The note drawn again, and the reader's place kept: focus back on the step's new box.
+    await refresh().catch(() => {});
+    draw();
+    const again = (id && document.querySelector(`button.step[data-step-id="${CSS.escape(id)}"]`)) || document.querySelectorAll("button.step[data-step-block]")[at];
+    if (again instanceof HTMLElement) again.focus({ preventScroll: true });
+    wake();
   }
   document.addEventListener("click", (event) => {
     const box = event.target instanceof Element ? event.target.closest("button.step[data-step-block]") : null;

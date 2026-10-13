@@ -27,6 +27,8 @@ export const STEP_GLYPHS: Readonly<Record<ChecklistStatus, string>> = {
  * numbered page-wide. Only the block's own steps: a step an embed brings stays Markdown.
  */
 export function placeStepSentinels(text: string, block: { id: string; revision: number }, steps: PublishedStep[]): string {
+  // A note that holds the sentinel's own character already (pasted from somewhere) keeps its boxes as Markdown.
+  if (text.includes(MARK)) return text;
   const items = checklistItems(text);
   if (!items.length) return text;
   let out = text;
@@ -48,10 +50,13 @@ const attr = (text: string) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", 
 /** The page's HTML with each step's sentinel as its box: a button on a page that may write (`writable`), else a glyph. */
 export function drawSteps(html: string, steps: readonly PublishedStep[], writable: boolean): string {
   if (!steps.length) return html;
-  return html.replace(SENTINEL, (_, high: string, low: string) => {
+  // Each step once, and only in text (never inside a tag's attribute): anything else is left as it was.
+  const drawn = new Set<number>();
+  return html.replace(SENTINEL, (whole: string, high: string, low: string, at: number) => {
     const index = ((high.charCodeAt(0) - BASE) << 8) + low.charCodeAt(0) - BASE;
     const step = steps[index];
-    if (!step) return "";
+    if (!step || drawn.has(index) || html.lastIndexOf("<", at) > html.lastIndexOf(">", at)) return whole;
+    drawn.add(index);
     const said = `${statusWord(step.status)}${stepClosed(step.status) ? "" : " (open)"}`;
     const glyph = STEP_GLYPHS[step.status];
     // The glyph is drawn by the style (`data-glyph`), so it's never part of words selected across the step.

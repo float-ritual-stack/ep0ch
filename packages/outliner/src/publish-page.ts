@@ -344,7 +344,7 @@ export class PageMarginalia {
         action: "checklist.update", blockId: block, mutation: { author: "user" },
         input: { target: itemId ? { itemId } : { start, expectedRevision: revision }, expectedEvidence: evidence, change: { kind: "status", status } },
       });
-      return [200, { ok: true, block, status: receipt.item.status, changed: receipt.changed, said: receipt.changed ? `marked ${statusWord(status)}` : `already ${statusWord(status)}` }];
+      return [200, { ok: true, block, status: receipt.item.status, itemId: receipt.item.itemId ?? null, changed: receipt.changed, said: receipt.changed ? `marked ${statusWord(status)}` : `already ${statusWord(status)}` }];
     } catch (error) {
       // The step moved on since the page drew it: the page reads the note again and the reader chooses again.
       const why = error instanceof Error ? error.message : String(error);

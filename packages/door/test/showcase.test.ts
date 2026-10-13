@@ -2850,7 +2850,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 
-  test("steps (PIE-811): the person approves a step by keys and rejects one by a click; an agent reads the answers and changes one, attributed", async () => {
+  test("steps (PIE-811): the person approves a step by keys; an agent reads the answer and rejects another (the mouse path is tasks.test's)", async () => {
     const id = seeded.notes.buildLog.id;
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "steps" }, as: "test-agent" })).toMatchObject({ key: "steps" });
