@@ -102,13 +102,16 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     D().setCurrent(notes.shed, {});
     expect(pane("keeps").msg?.id).toBe(notes.beans.id);     // held: the current note does not move it
     expect(pane("follower").msg?.id).toBe(notes.shed.id);
-    key(char("p"));                                          // follow
+    key(char("p"));                                          // follow: it keeps its note, which becomes the current note
     await until(() => tile("keeps").mode === "follows", "keeps follows");
-    expect(pane("keeps").msg?.id).toBe(notes.shed.id);
+    expect(pane("keeps").msg?.id).toBe(notes.beans.id);     // no jump to the current note the hold left behind
+    expect(D().current?.id).toBe(notes.beans.id);
+    expect(pane("follower").msg?.id).toBe(notes.beans.id);
     D().setCurrent(notes.plan, {});
     expect(pane("keeps").msg?.id).toBe(notes.plan.id);      // it follows now: a detail used to stay on its note after being let go
-    key(char("p"));                                          // hold
+    key(char("p"));                                          // hold: it keeps the note it shows
     await until(() => tile("keeps").mode === "held", "keeps is held again");
+    expect(pane("keeps").msg?.id).toBe(notes.plan.id);
     D().setCurrent(notes.shed, {});
     expect(pane("keeps").msg?.id).toBe(notes.plan.id);
     expect(pane("keeps").hint()).toContain("p follow");
@@ -242,9 +245,13 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     expect(c).toBeDefined();
     mouse("down", c.from, c.row); mouse("up", c.from, c.row);
     await until(() => tile("follower").mode === "held", "a click on follows holds");
+    expect(pane("follower").msg?.id).toBe(notes.plan.id);
+    D().setCurrent(notes.shed, {});                          // the current note moves on while it's held
     const h = chipOf("follower");
     mouse("down", h.from, h.row); mouse("up", h.from, h.row);
     await until(() => tile("follower").mode === "follows", "a click on held follows (the note has no page to pin)");
+    expect(pane("follower").msg?.id).toBe(notes.plan.id);  // it keeps its note, now the current one: nothing jumps
+    expect(D().current?.id).toBe(notes.plan.id);
     // A held reader on a note with a page goes on to pinned.
     await act("open", { id: notes.now.id }, "follower");
     const p1 = chipOf("follower");
