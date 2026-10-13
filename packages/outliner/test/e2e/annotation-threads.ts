@@ -62,28 +62,28 @@ const result = await runHerdrScenario({
         await s.waitFor("Detail region focused", current, c => c.focusedRegion === "detail");
       }
     };
-    // `o` asks which reference while the note's references are still being read ("not ready"): asked again until
-    // they are, as a person would.
-    const chooseReference = async (pane: string) => {
-      for (let tries = 0; ; tries++) {
-        await s.keys(pane, "o");
-        const frame = await s.waitFor("o answered", () => s.visible(pane), f => f.includes("Choose a reference") || f.includes("References are not ready"));
-        if (frame.includes("Choose a reference")) return;
-        if (tries > 20) throw new Error("the note's references never became ready");
-        // Never press again while the last press's answer may still be drawing: a second `o` in the chooser opens.
-        await Bun.sleep(700);
-        if ((await s.visible(pane)).includes("Choose a reference")) return;
-      }
-    };
-    // A comment's marker is drawn before Detail has read the threads (`]` then says there are none): `]` until it's read.
-    const firstThread = async (pane: string) => {
-      for (let tries = 0; ; tries++) {
-        await s.keys(pane, "]");
+    // Detail reads a note's references and a document's threads after drawing it: a key pressed before then is answered
+    // "not ready" / "no comment threads". Press, wait until that press is answered (the pane changes), and press again
+    // only after an answer that says it wasn't ready, so one press never lands on another's chooser or thread.
+    const pressUntil = async (pane: string, key: string, done: string, notReady: string) => {
+      for (let tries = 0; tries <= 20; tries++) {
+        const stale = (await s.visible(pane)).includes(notReady);
+        await s.keys(pane, key);
+        // Answered: what it was for, or "not ready" newly said; a "not ready" already on screen is waited out (2 s).
+        let frame = "";
+        for (const end = Date.now() + (stale ? 2000 : 5000); Date.now() < end; ) {
+          frame = await s.visible(pane);
+          if (frame.includes(done) || (!stale && frame.includes(notReady))) break;
+          await Bun.sleep(100);
+        }
+        if (frame.includes(done)) return;
+        if (!frame.includes(notReady)) throw new Error(`${key} answered neither "${done}" nor "${notReady}"`);
         await Bun.sleep(500);
-        if ((await s.visible(pane)).includes("▶ Comment 1")) return;
-        if (tries > 20) throw new Error("Detail never read the document's threads");
       }
+      throw new Error(`${key} never reached "${done}"`);
     };
+    const chooseReference = (pane: string) => pressUntil(pane, "o", "Choose a reference", "References are not ready");
+    const firstThread = (pane: string) => pressUntil(pane, "]", "▶ Comment 1", "No comment threads");
     // A file reference opens in Detail's own Preview, the note kept Current; Keep makes the file Current here.
     const openFileHere = async (pane: string, ansiReader: boolean) => {
       await s.keys(pane, "tab", "o"); await s.waitVisible(pane, "File opened in Preview");
