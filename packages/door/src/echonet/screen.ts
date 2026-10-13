@@ -15,7 +15,7 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { RowView, wheelRows, type RowPress } from "../scroll";
-import { hostRequest, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
+import { authorName, hostRequest, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selected, width } from "../style";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
@@ -515,7 +515,7 @@ export class EchoReader extends ReaderPane {
       header: (m: Msg, _w: number, info: HeaderInfo) => {
         const found = this.list.find(x => x.msg.id === m.id);
         const comments = info.comments?.total ? [`|08■ ${info.comments.open ? `${info.comments.open} open` : `${info.comments.total} earlier`} repl${info.comments.total === 1 ? "y" : "ies"} on this copy · m lists them`] : [];
-        return (found ? [...headerOf(found, this.list.length, a), ...comments] : [`|15${subject(m)}`, `|08${m.author ?? "?"} · ${bbsDate(m.updatedAt)} · not a message of ${a.tag.toUpperCase()} · ] [ back to the list`]).map(paint);
+        return (found ? [...headerOf(found, this.list.length, a), ...comments] : [`|15${subject(m)}`, `|08${authorName(m.author)} · ${bbsDate(m.updatedAt)} · not a message of ${a.tag.toUpperCase()} · ] [ back to the list`]).map(paint);
       },
       // SEEN-BY names the nodes the tosser's seen-by marks on it name, once its threads are read.
       footer: (m: Msg, w: number) => (this.list.some(x => x.msg.id === m.id) ? footerOf(m, a, w, this.msg?.id === m.id ? this.seen(m, desk) : []).map(paint) : []),

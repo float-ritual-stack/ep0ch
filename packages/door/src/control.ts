@@ -11,7 +11,9 @@
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
 import { referenceConflict, type ToolArgsSpec } from "@ep0ch/outline-core/tool-args";
 import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { composeActor } from "@ep0ch/outline-core/attribution";
+import { sessionPersona } from "@ep0ch/outline-core/outline-location";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { App } from "./app";
@@ -286,8 +288,8 @@ export async function controlClient(args: string[]): Promise<number> {
       : cmd === "open" ? { cmd: "act", ...(openTarget!.address ? { address: openTarget!.address } : {}), ...(await parseActArgs(["open", `id=${openTarget!.blockId}`, ...(openTarget!.fragment ? [`fragment=${openTarget!.fragment}`] : []), ...commandArgs.slice(2)])) }
       : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd };
   } catch (e) { console.error((e as Error).message); return 1; }
-  // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open).
-  if (req.cmd === "act" && !req.as && process.env.EP0CH_AGENT) req.as = process.env.EP0CH_AGENT;
+  // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open), or its folder's .ep0ch does.
+  if (req.cmd === "act") { const as = actAs(req.as, process.env, process.cwd()); if (as) req.as = as; }
   const path = controlSocket();
   const target = controlTarget(path);
   const r = await ask(target, req);
@@ -346,4 +348,17 @@ export function formatClients(rows: readonly ClientRow[]): string {
   const w = cols.map(k => Math.max(k.length, ...rows.map(r => r[k].length)));
   const line = (vals: string[]) => vals.map((v, i) => v.padEnd(w[i]!)).join("  ").trimEnd();
   return [line(cols.map(String)), ...rows.map(r => line(cols.map(k => r[k])))].join("\n");
+}
+
+/**
+ * Who an `ep0ch act` or `open` acts as (ADR 0003): `--as` as given, else the session's persona (OUTLINER_ACTOR,
+ * EP0CH_AGENT, the folder's `.ep0ch` `agent`: outline-core's `sessionPersona`). Run by Claude Code (`CLAUDECODE=1`), that
+ * persona rides on its principal as the mod's and the MCP server's writes do, `kitty/claude-code@<machine>`, so one
+ * agent's door writes and outline writes carry one actor id. Undefined: the door's own default.
+ */
+export function actAs(as: unknown, env: Record<string, string | undefined>, folder: string, machine: () => string = canonicalLocalMachineName): string | undefined {
+  if (typeof as === "string" && as.trim()) return as.trim();
+  const persona = sessionPersona({ env, folder, fs: { readFile: p => { try { return readFileSync(p, "utf8"); } catch { return undefined; } }, exists: existsSync } })?.name;
+  if (!persona) return undefined;
+  return env.CLAUDECODE === "1" ? composeActor({ persona, principal: `claude-code@${machine()}` }) : persona;
 }

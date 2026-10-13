@@ -35,7 +35,7 @@ export interface OutlineToolDefinition {
 
 const ACTOR = {
   type: 'string',
-  description: 'Who this is attributed to. Leave it out: it defaults to OUTLINER_ACTOR or EP0CH_AGENT. It names a persona; the write is recorded as `<persona>/claude-code@<machine>`, so the machine and client are always shown.',
+  description: 'Who this is attributed to. Leave it out: it defaults to OUTLINER_ACTOR, EP0CH_AGENT, else the agent the folder\'s .ep0ch names. It names a persona; the write is recorded as `<persona>/claude-code@<machine>`, so the machine and client are always shown.',
 }
 const REF = {
   type: 'string',
@@ -516,26 +516,17 @@ export function machineNameOf(raw: string): string | undefined {
 }
 
 /**
- * Who a write is attributed to (PIE-679): the principal, which is this client on this machine (`claude-code@float-2`),
- * and the persona the caller declared on top: the caller's `actor`, else OUTLINER_ACTOR, else EP0CH_AGENT (the door's own
- * name for the agent). `loki/claude-code@float-2`; with no persona, the principal alone. A persona only labels the principal
- * it is declared under, so two machines' `claude-code` are told apart even when both say `loki`. Without a machine
- * (it couldn't be read) the principal is the bare client, as it was.
+ * Who a write is attributed to (PIE-679, ADR 0003): the principal, which is this client on this machine
+ * (`claude-code@float-2`), and the persona on top, first match wins: the caller's `actor`, else OUTLINER_ACTOR, else
+ * EP0CH_AGENT (the door's own name for the agent), else `folder`, the `agent` the session folder's `.ep0ch` names (as
+ * `ep0ch where` reads it). `loki/claude-code@float-2`; with no persona, the principal alone. The door tools act as the
+ * same id, so one agent's door writes and outline writes are one actor. A persona is a recorded name, never a
+ * permission. Without a machine (it couldn't be read) the principal is the bare client, as it was.
  */
-export function actorOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }, machine?: string): string {
+export function actorOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }, machine?: string, folder?: string): string {
   const principal = machine ? `claude-code@${machine}` : 'claude-code'
-  return personaOf(input, env) ? `${personaOf(input, env)}/${principal}` : principal
-}
-
-/**
- * The persona alone, as the door's tools take it (`--as`, door-open's `--actor`): those name an agent on screen and write
- * no note, so they keep the short name. The caller's `actor`, else OUTLINER_ACTOR, else EP0CH_AGENT, else claude-code.
- */
-export function doorActorOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }): string {
-  for (const candidate of [input.actor, env.OUTLINER_ACTOR, env.EP0CH_AGENT]) {
-    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
-  }
-  return 'claude-code'
+  const persona = personaOf(input, env) ?? personaOf({}, { OUTLINER_ACTOR: folder })
+  return persona ? `${persona}/${principal}` : principal
 }
 
 function personaOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }): string | undefined {

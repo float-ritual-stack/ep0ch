@@ -22,7 +22,7 @@ const boundTo = (outline: string | null, machine?: string) => (folder: string) =
 function whereJson(door: null | { outline: string; machine?: string; host: string; drawer?: boolean; tile?: string }, herdr: null | { pane: string; label?: string; agent?: boolean } = null): string {
   return JSON.stringify({
     inDoor: !!door,
-    here: { machine: 'near-box', folder: FOLDER },
+    here: { machine: 'near-box', folder: FOLDER, persona: null },
     herdr: herdr ? { pane: herdr.pane, label: herdr.label ?? null, agent: !!herdr.agent } : null,
     door: door ? {
       pid: 4242, control: '/run/door.sock', answers: true, screen: 'Daily', outline: door.outline, workspace: '/outlines/x',
@@ -327,7 +327,7 @@ describe('binding helpers', () => {
 
   test('where --json is read for its facts; anything else is not one', () => {
     expect(where).toEqual({
-      inDoor: true, here: { machine: 'near-box', folder: FOLDER }, herdr: { pane: 'door-claude', label: 'door-claude', agent: true },
+      inDoor: true, here: { machine: 'near-box', folder: FOLDER, persona: null }, herdr: { pane: 'door-claude', label: 'door-claude', agent: true },
       door: { answers: true, outline: 'harbor', machine: 'far', host: 'far-box', drawer: true, tile: 'claude', stale: false },
     })
     expect(whereFactsOf('usage: ep0ch …')).toBeNull()
@@ -338,6 +338,17 @@ describe('binding helpers', () => {
     expect(mismatchOf(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'harbor', pinned: true } })))
       .toBe("this folder names harbor on near-box; the door you're in shows harbor on far. The outline tools write to harbor on near-box; the door tools act in that door.")
     expect(mismatchOf(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'harbor', machine: 'far', pinned: true } }))).toBeNull()
+  })
+
+  test("the card says who the session writes as: the folder's persona and its .ep0ch, or the principal alone and how to name one", () => {
+    const json = JSON.parse(whereJson(null))
+    json.here.persona = { name: 'testbot', source: 'file', file: `${FOLDER}/.ep0ch` }
+    const named = cardLines(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'garden', pinned: true } }, whereFactsOf(JSON.stringify(json))!)).find(l => l.label === 'writes as')!
+    expect(named.text).toBe('testbot (claude-code@near-box) · from agent in ~/garden/.ep0ch')
+    const none = cardLines(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'garden', pinned: true } })).find(l => l.label === 'writes as')!
+    expect(none.text).toBe('claude-code@near-box, no persona · agent = "<name>" in the folder\'s .ep0ch names one')
+    json.here.persona = { name: 'not a name!', source: 'file', file: null }
+    expect(whereFactsOf(JSON.stringify(json))!.here.persona).toBeNull()
   })
 
   test('plain words: no tile ids, pids or sockets on the card', () => {

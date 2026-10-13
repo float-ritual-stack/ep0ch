@@ -85,7 +85,8 @@ comment on the passage to change (`outline_comment` with the `quote`); the other
 changes only the thread, so a `propose` outline allows it. Check the thread's last comment before answering: nothing
 records whether a comment wants an answer. `outline_threads` with no note is the inbox (open threads anywhere,
 `lastFrom`, `mentions`, `since`): a scheduled check calls that. Each agent writes under its own name (the gateway's
-persona, the mod's `OUTLINER_ACTOR` or `EP0CH_AGENT`), so a thread shows who said what.
+persona, `OUTLINER_ACTOR` or `EP0CH_AGENT`, else the folder's `.ep0ch` `agent = "<name>"`), so a thread shows who said
+what: the persona first, its principal (`claude-code@<machine>`) one step away.
 
 On a page two agents work on, put the items that change (steps, outbox items) in child blocks, each with its own
 revision, so concurrent edits rarely collide.

@@ -60,8 +60,25 @@ export function parseActor(actorId: string | undefined | null): Attribution {
   return { handle: rest, label: rest, mcp };
 }
 
-/** How an actor id is shown: `loki (claude-code@float-2)`. */
-export const actorLabel = (actorId: string | undefined | null): string => parseActor(actorId).label;
+/**
+ * How an actor id is shown in full: `loki (claude-code@float-2)`. A write several people and agents typed into
+ * (`<saver>+<co-writer>`, the door's co-written drafts) shows each one: `you + loki (claude-code@float-2)`.
+ */
+export const actorLabel = (actorId: string | undefined | null): string => eachWriter(actorId, id => parseActor(id).label);
+
+/**
+ * The name a byline, a list column or a status line shows first: the persona when there is one (`loki`), else the
+ * principal as it is (`claude-code@float-2`, `claude.ai`), else the id. The principal stays one step away, in
+ * `actorLabel` (a note's revisions, its receipts). Co-writers are joined with ` + `.
+ */
+export const actorName = (actorId: string | undefined | null): string => eachWriter(actorId, id => { const a = parseActor(id); return a.persona ?? a.label; });
+
+/** `fn` over each writer of a `+`-joined actor id (one writer: `fn` of it). */
+function eachWriter(actorId: string | undefined | null, fn: (id: string) => string): string {
+  const id = (actorId ?? "").trim();
+  const parts = id.includes("+") ? id.split("+").map(p => p.trim()).filter(Boolean) : [];
+  return parts.length > 1 ? parts.map(fn).join(" + ") : fn(id);
+}
 
 /** The name a filter or mention compares: `loki` for `mcp:loki/claude-code@float-2`, `daddy` for the old `mcp:daddy`. */
 export const actorHandle = (actorId: string | undefined | null): string => parseActor(actorId).handle.toLowerCase();
