@@ -287,6 +287,11 @@ describe("two clients on one session", () => {
     const third = fakeLink(60, 20);
     term.attach(third.link, hello(60, 20));
     expect(term.list().find(c => c.id === cf.id)!.active).toBe(true);
+    // Nor does a terminal running a program the session handed it, however long since it typed here.
+    (cf as unknown as { lastInput: number }).lastInput = Date.now() - 60_000;
+    cf.away = "vim";
+    term.attach(fakeLink(60, 20).link, hello(60, 20));
+    expect(term.list().find(c => c.id === cf.id)!.active).toBe(true);
   });
 
   test("a click from the other client only takes the session: it was aimed at a frame of another size", () => {
