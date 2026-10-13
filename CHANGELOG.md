@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Rewriting a note's lines keeps each mark on its own words (PIE-805)
+
+- **Fixed:** an edit that changed many lines (renaming a speaker through a transcript) left comments and highlights on
+  their old offsets, which were then other people's lines. The service now places a note's marks again in the same
+  write that changes its text: on their quote's words wherever they are now, or "couldn't place".
+- **Fixed:** a mark is never moved onto words that were already in the note (a near twin of a deleted line, or the
+  other copy of a repeated phrase). The web page no longer looks for an unplaced mark's words by itself, and the door
+  draws a mark only where its own words are.
+
 ### Tags on the web open the notes carrying them; the margin setting stays in reach (PIE-800, web)
 
 - **Added:** a `#tag` on a tailnet or share page is a link to the notes tagged with it (nested tags too). Each row has

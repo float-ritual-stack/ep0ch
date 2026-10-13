@@ -187,8 +187,9 @@ test("one rendered comment retains discontiguous sources and repeated occurrence
       text: "New words", mutation: {author: "user"}});
     const reconcile = () => client.request<AnnotationReconcileReceipt>({action: "annotations.reconcile",
       input: {subject: {kind: "block", blockId: note.id}, newRepresentation: blockAnnotationRepresentation(updated)}});
+    // The write itself followed the thread into the new text (PIE-805): asking again changes nothing.
     const changed = await reconcile();
-    expect(changed.changed).toBe(true);
+    expect(changed.changed).toBe(false);
     expect(changed.threads[0]!.currentResolution.status).toBe("unresolved");
     expect(changed.threads[0]!.currentResolution.passageResolution?.fragments.slice(0, 2).every(fragment =>
       fragment.sources.every(source => source.resolvedTarget === null))).toBe(true);

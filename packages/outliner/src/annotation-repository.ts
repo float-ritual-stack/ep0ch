@@ -503,7 +503,8 @@ export class AnnotationRepository {
     });
   }
 
-  reconcile(input: AnnotationReconcileInput | ResourceReconcileInput): AnnotationReconcileReceipt {
+  /** `previous`: the text the block's marks were placed in, from the write that just changed it (the store's, PIE-805). */
+  reconcile(input: AnnotationReconcileInput | ResourceReconcileInput, previous?: string): AnnotationReconcileReceipt {
     if (!input || typeof input !== "object") throw new Error("Annotation reconcile input must be an object");
     const subject = normalizeAnnotationSubject(input.subject, false);
     if (subject.kind === "legacy-file") throw new Error("legacy-file subjects are migration-only");
@@ -540,7 +541,7 @@ export class AnnotationRepository {
     let changed = false;
     this.database.transaction(() => {
       for (const thread of threads) {
-        changed = this.reconcileOne(thread, representation, content, pdfPages) || changed;
+        changed = this.reconcileOne(thread, representation, content, pdfPages, previous) || changed;
       }
       if (changed) this.blocks.markMutation({ kind: "annotate" });
     })();
@@ -1330,6 +1331,7 @@ export class AnnotationRepository {
     representation: AnnotationRepresentation,
     content: string | null,
     pdfPages: readonly PdfPageText[],
+    previous?: string,
   ): boolean {
     if (record.originalTarget.passage) {
       const passageResolution = this.resolvePassage(record.originalTarget, record.resolutionHistory[0]?.passageResolution);
@@ -1353,6 +1355,9 @@ export class AnnotationRepository {
       return true;
     }
     if (record.originalTarget.referenceContext) return this.reconcileContextual(record, representation, content, pdfPages);
+    // Placed in other text than `previous` (a mark that wasn't followed through the last write): that text says nothing.
+    const placedIn = record.currentResolution.targetRepresentation.contentHash;
+    const before = previous !== undefined && placedIn !== null && placedIn === annotationSourceHash(previous) ? previous : undefined;
     const sourceRepresentation = record.currentResolution.targetRepresentation;
     if (sameRepresentation(sourceRepresentation, representation)) return false;
     if (
@@ -1372,6 +1377,7 @@ export class AnnotationRepository {
       representation,
       content,
       pdfPages,
+      before,
     );
     this.appendEvent({
       annotationId: record.block.id,

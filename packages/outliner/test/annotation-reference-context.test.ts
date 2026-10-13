@@ -132,8 +132,9 @@ test("moving identifiable reference lines reconciles host anchors without changi
   const annotation = entry.store.createAnnotation("moving-use", { target, body: "Second use", source: "user" }).annotations[0]!;
   const moved = entry.store.update(host.id, "Added heading\nSecond use [file::same.txt].\nReferences\n\nFirst use [file::same.txt].", host.revision,
     { author: "user", actorId: "test" });
+  // The write followed the host's line itself (PIE-805): asking again changes nothing.
   const receipt = entry.store.reconcileAnnotationThreads({ subject: { kind: "block", blockId: host.id }, newRepresentation: hostRepresentation(moved) });
-  expect(receipt.changed).toBe(true);
+  expect(receipt.changed).toBe(false);
   const after = entry.store.getAnnotation(annotation.block.id);
   expect(after.resolvedTarget?.representation).toEqual(passage.representation);
   expect(after.resolvedTarget?.anchor).toEqual(passage.anchor);
@@ -153,7 +154,8 @@ test("context approval cannot erase scope or substitute stale evidence", () => {
   entry.store.update(host.id, `${host.text}\nChanged`, host.revision, { author: "user", actorId: "test" });
   expect(() => entry.store.approveAnnotationResolution({ annotationId: record.block.id, target }))
     .toThrow("Reference context block snapshot is stale");
-  expect(entry.store.getAnnotation(record.block.id).resolutionHistory).toHaveLength(1);
+  // The host's edit followed the thread (PIE-805, one event); the refused approval added none.
+  expect(entry.store.getAnnotation(record.block.id).resolutionHistory).toHaveLength(2);
 });
 
 test("an occurrence-only comment works without file content and a deleted identical mention cannot inherit it", () => {
@@ -245,13 +247,16 @@ test("Resource candidate acceptance rechecks its host context before automatic o
   };
   const proposal = entry.store.proposeAnnotationAgentResolution("context-review", proposalInput);
   const deleted = entry.store.update(host.id, "References\n\nSecond use [file::same.txt].", host.revision, { author: "user", actorId: "test" });
+  expect(entry.store.getAnnotation(record.block.id).currentResolution.status).toBe("orphaned");
+  // The host's edit followed the thread itself (PIE-805): its use is gone, so it's orphaned (never the other use), and
+  // the proposal made before no longer answers its latest resolution.
   expect(() => entry.store.proposeAnnotationAgentResolution("context-automatic", {
     ...proposalInput, result: { ...proposalInput.result, confidence: 0.99 },
-  })).toThrow("Reference context block snapshot is stale");
+  })).toThrow("Only failed deterministic reconciliations can be sent to an agent");
   expect(() => entry.store.reviewAnnotationAgentResolution({ annotationId: record.block.id,
     proposalEventId: proposal.proposal.id, decision: "accept" }))
-    .toThrow("Reference context block snapshot is stale");
-  entry.store.reconcileAnnotationThreads({ subject: { kind: "block", blockId: host.id }, newRepresentation: hostRepresentation(deleted) });
+    .toThrow("Agent proposal is stale because the annotation resolution changed");
+  expect(entry.store.reconcileAnnotationThreads({ subject: { kind: "block", blockId: host.id }, newRepresentation: hostRepresentation(deleted) }).changed).toBe(false);
   entry.store.update(host.id, host.text, deleted.revision, { author: "user", actorId: "test" });
   expect(() => entry.store.reviewAnnotationAgentResolution({ annotationId: record.block.id,
     proposalEventId: proposal.proposal.id, decision: "accept" }))

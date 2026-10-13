@@ -126,3 +126,37 @@ test("a comment on a passage cut inside a code span lands, with references and a
   const reply=await c.request<AnnotationBatchReceipt>({action:"annotations.reply",requestId:"pie-761-reply",input:{annotationId:annotation.block.id,body:"a reply with `((Meeting` too",source:"user"},author:"user"});
   expect(reply.annotations[0]!.parentAnnotationId).toBe(annotation.block.id);
 }));
+
+// PIE-805: an edit that rewrites every line (names changed throughout a transcript) moved each mark's offsets onto other
+// words. The service follows each quote in the same write: to its own words wherever they are now; a quote whose words
+// are gone has no place ("couldn't place"), never someone else's line, even a line that reads almost the same.
+test("rewriting every line of a note keeps each mark on its own words; one whose words were deleted can't be placed",()=>fixture(async c=>{
+  const lines=["Allotment meeting"];
+  for(let m=0;m<40;m++) lines.push(`08:${String(m).padStart(2,"0")} Robin Ashgrove: item ${m}, nothing decided.`);
+  lines[8]="08:07 Robin Ashgrove: So, yeah, let's do the north bed first. Okay.";
+  lines[21]="08:20 Robin Ashgrove: Higher priority than the shed roof.";
+  lines[30]="08:29 Robin Ashgrove: Bring the twine for the bean poles.";
+  lines[31]="08:30 Robin Ashgrove: Bring the twine for the pea poles.";
+  const note=await c.request<Block>({action:"create",text:lines.join("\n")});
+  const quotes=["let's do the north bed first. Okay.","Higher priority than the shed roof.","Bring the twine for the bean poles."];
+  const ids:string[]=[];
+  for(const [n,quote] of quotes.entries()){
+    const at=await c.request<Block>({action:"get",blockId:note.id});
+    const receipt=await createBlockComment(c,{requestId:`transcript-${n}`,author:"user",input:{blockId:note.id,expectedRevision:at.revision,body:`mark ${n}`,source:"user",passage:{quote}}});
+    ids.push(receipt.annotations[0]!.block.id);
+  }
+  // One write: every speaker renamed (each line a little shorter), and the bean-poles line taken out.
+  const before=await c.request<Block>({action:"get",blockId:note.id});
+  const rewritten=before.text.replaceAll("Robin Ashgrove:","Jo Bell:").split("\n").filter(line=>!line.includes("bean poles")).join("\n");
+  await c.request({action:"update",blockId:note.id,expectedRevision:before.revision,text:rewritten,mutation:{author:"user"}});
+  const after=await c.request<Block>({action:"get",blockId:note.id});
+  // Read as the door and the web read them: no reconcile asked for.
+  const threads=await c.request<AnnotationThread[]>({action:"annotations.list",query:{subject:{kind:"block",blockId:note.id},includeResolved:true}});
+  const placed=(id:string)=>{const t=threads.find(thread=>thread.block.id===id)!;const a=t.resolvedTarget?.anchor;
+    return {status:t.currentResolution.status,words:a?.kind==="text-quote"&&a.start!==null&&a.end!==null?after.text.slice(a.start,a.end):null};};
+  expect(placed(ids[0]!)).toEqual({status:"resolved",words:quotes[0]});
+  expect(placed(ids[1]!)).toEqual({status:"resolved",words:quotes[1]});
+  const gone=placed(ids[2]!);
+  expect(gone.words).toBeNull();
+  expect(gone.status).not.toBe("resolved");
+}));

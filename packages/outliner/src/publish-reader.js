@@ -906,7 +906,8 @@
     main.dataset.margin = marginSetting;
     const whole = [], lost = [], rows = [], shelf = [];
     for (const thread of threads) {
-      const placed = !!markOf(thread.id) || placeByWords(thread);
+      // The service's place, drawn by the page or found by its words here; one it couldn't place isn't looked for (PIE-805).
+      const placed = !!markOf(thread.id) || (!thread.unplaced && placeByWords(thread));
       // Put away: on the Earlier shelf, unless the margin shows all.
       if (isEarlier(thread) && marginSetting !== "all") { shelf.push(shelfRow(thread)); continue; }
       // Off: no cards; each thread opens in place from the foot's index, as the shelf's do.

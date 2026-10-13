@@ -2,7 +2,7 @@
 // is the file's own source, and its offset is the file's. No service: the board is a stub, and the real
 // SocketBoard.commentOnResource shapes the request. Fictional file.
 import { describe, expect, test } from "bun:test";
-import { alignComments, resourceNote, type ResourceDescription } from "../src/authored";
+import { alignComments, onTheirWords, resourceNote, type ResourceDescription } from "../src/authored";
 import type { Msg } from "../src/board";
 import { SocketBoard } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -139,4 +139,19 @@ describe("C on a selection in a Resource, against the source", () => {
     select("step one", "step one");
     expect((await comment()).input.passage).toMatchObject({ quote: "step one", start: RAW.indexOf("step one") });
   });
+});
+
+// PIE-805: a mark is drawn only on its own words. Offsets that point at other words (the note changed since they were
+// placed) leave it unplaced: "couldn't place", never someone else's line.
+test("a comment whose offsets aren't its quote's words in the note has no place", () => {
+  const text = "08:29 Jo Bell: Bring the twine for the pea poles.\n08:30 Jo Bell: Mulch the rhubarb.";
+  const at = (quote: string, start: number) => ({ quote, start, end: start + quote.length });
+  const own = at("Bring the twine for the pea poles.", text.indexOf("Bring"));
+  const stale = at("Bring the twine for the bean poles.", text.indexOf("Bring"));
+  const across = { quote: "pea poles. 08:30", start: text.indexOf("pea poles."), end: text.indexOf("08:30") + 5 };
+  expect(onTheirWords([own, stale, across], text)).toEqual([own, { ...stale, start: null, end: null }, across]);
+  expect(onTheirWords([stale], undefined)).toEqual([stale]);
+  // A quote kept as written, across a line: its own words still.
+  const written = { quote: "pea poles.\n08:30", start: text.indexOf("pea poles."), end: text.indexOf("08:30") + 5 };
+  expect(onTheirWords([written], text)).toEqual([written]);
 });
