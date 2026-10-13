@@ -128,6 +128,23 @@ describe("a terminal that lost its images (PIE-795)", () => {
     expect(sent.match(/a=t,/g)).toHaveLength(1);
     expect(sent.match(/a=p,/g)).toHaveLength(2);
     expect(sent).not.toContain(`i=${id},`);
+    // An image the terminal keeps refusing is sent again three times a minute at most, never in a loop.
+    let again = Number(/a=p,i=(\d+)/.exec(sent)![1]);
+    let uploads = 0;
+    for (let round = 0; round < 5; round += 1) {
+      out.length = 0;
+      decoder.feed(`\x1b_Gi=${again},p=9;ENOENT:no such image\x1b\\`);
+      await Bun.sleep(5);
+      const now = out.join("");
+      uploads += now.match(/a=t,/g)?.length ?? 0;
+      again = Number(/a=p,i=(\d+)/.exec(now)?.[1] ?? again);
+    }
+    expect(uploads).toBe(2);
+    // Any other refusal (too big for it) isn't a lost image: nothing is sent again.
+    out.length = 0;
+    decoder.feed(`\x1b_Gi=${again};EFBIG:too big\x1b\\`);
+    await Bun.sleep(5);
+    expect(out.join("")).toBe("");
     // An error for an id this layer never uploaded (another program's) changes nothing.
     out.length = 0;
     decoder.feed("\x1b_Gi=12;ENOENT:no such image\x1b\\");

@@ -322,7 +322,8 @@ export class KeyDecoder {
         const [keys = "", message = ""] = m[1]!.split(";");
         const id = Number(/(?:^|,)i=(\d+)/.exec(keys)?.[1]);
         if (this.probing && id === 31) { this.probing.kitty = /OK/.test(message); this.info.kitty = this.probing.kitty; }
-        else if (message && message !== "OK" && Number.isFinite(id)) this.kittyError?.(id, message);
+        // Only a missing image is drawn again: any other refusal (too big, a bad parameter) would fail the same way.
+        else if (/^ENOENT\b/.test(message) && Number.isFinite(id)) this.kittyError?.(id, message);
         continue;
       }
       m = p.match(/^\x1b\[6;(\d+);(\d+)t/);

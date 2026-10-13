@@ -136,12 +136,20 @@ export class KittyLayer {
    * The terminal no longer has image `id` (it answered ENOENT): forget its upload and its placements, so the next
    * `sync` uploads it again and places it afresh. False when the id isn't one this layer uploaded (another layer's).
    */
-  forget(id: number): boolean {
-    let known = false;
-    for (const [hash, at] of this.uploaded) if (at === id) { this.uploaded.delete(hash); known = true; }
+  forget(id: number, now = Date.now()): boolean {
+    const hash = [...this.uploaded].find(([, at]) => at === id)?.[0];
+    if (hash === undefined) return false;
+    // An image the terminal keeps refusing (too big for it, or it never takes the upload) isn't sent again and again:
+    // three times a minute at most, then left as it is until a minute has passed.
+    const lost = (this.lost.get(hash) ?? []).filter(at => now - at < 60_000);
+    if (lost.length >= 3) return false;
+    this.lost.set(hash, [...lost, now]);
+    this.uploaded.delete(hash);
     for (const [key, placed] of this.placed) if (placed.id === id) this.placed.delete(key);
-    return known;
+    return true;
   }
+  /** When each image was last found lost, by content: the bound on uploading it again. */
+  private lost = new Map<string, number[]>();
 
   /** Remove every placement but keep uploaded pixels for reuse. */
   clear(): void { this.sync([]); }
