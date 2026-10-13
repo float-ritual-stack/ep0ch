@@ -669,7 +669,10 @@
     const node = document.querySelector(`.mg-card[data-thread="${CSS.escape(wanted)}"]`);
     if (!node) return;
     arrived = true;
-    activate(wanted);
+    // A mark on a card's words is a card in that card's nest: it and the cards around it open too.
+    for (let inner = node; inner && !inner.classList.contains("top"); inner = inner.parentElement?.closest(".mg-card")) inner.classList.add("open");
+    activate(node.closest(".mg-card.top")?.dataset.thread || wanted);
+    markRead(wanted);
     node.scrollIntoView({ block: "center" });
   }
   window.addEventListener("hashchange", () => { arrived = false; arrive(); });
@@ -737,7 +740,7 @@
   const fold = (text) => text.replace(/[*_`\[\]]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
   function readable() {
     const walker = document.createTreeWalker(article(), NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => node.parentElement?.closest(".mg-card, .mg-whole, aside.margin-note, mark[data-placed]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+      acceptNode: (node) => node.parentElement?.closest(".mg-card, .mg-whole, aside.margin-note") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
     });
     let text = "";
     const at = [];
@@ -747,8 +750,8 @@
         let character = value[offset];
         if (/[*_`\[\]]/.test(character)) continue;
         if (/\s/.test(character)) { if (!text || text.endsWith(" ")) continue; character = " "; }
-        text += character.toLowerCase();
-        at.push([node, offset]);
+        // One entry per character written: a letter that lower-cases to two (İ) maps both to where it's drawn.
+        for (const unit of character.toLowerCase()) { text += unit; at.push([node, offset]); }
       }
     }
     return { text, at };
