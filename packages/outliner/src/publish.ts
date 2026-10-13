@@ -690,7 +690,7 @@ export class Publisher {
       linkable: (ids, share) => this.linkableNotes(ids, share),
       find: (query, near, share) => this.findNotes(query, near, share),
       // A share's tags are the outline's, so `#` completes on the tailnet only.
-      complete: async (line, column, near, share) => completeAt(this.searchHost(share ? await this.shareIndex(share) : await this.readIndex(), share), line, column, near, !share),
+      complete: async (text, at, near, share) => completeAt(this.searchHost(share ? await this.shareIndex(share) : await this.readIndex(), share), text, at, near, !share),
       log: this.log,
     });
   }

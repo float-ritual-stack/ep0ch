@@ -218,7 +218,7 @@ test("signed in, it is the owner's reader (PIE-789): search in every outline and
   expect(orchard).toContain("Pruning plan");
   expect(orchard).toContain('action="/pub/o/orchard/search"');
   const line = "see [[Field";
-  const completed = await (await at(gate, `/pub/_marginalia/complete?${new URLSearchParams({ line, col: String(line.length), page: survey.id })}`, { cookie, headers: { accept: "application/json" } })).json() as { items: { insertion: string }[] };
+  const completed = await (await at(gate, `/pub/_marginalia/complete?${new URLSearchParams({ text: line, at: String(line.length), page: survey.id })}`, { cookie, headers: { accept: "application/json" } })).json() as { items: { insertion: string }[] };
   expect(completed.items[0]!.insertion).toBe("[[Field Notes]]");
   for (const path of ["/pub/", `/pub/p/${survey.id}`, `/pub/p/${survey.id}?view=full`]) expect(await (await at(gate, path, { cookie })).text()).not.toMatch(/not published/i);
 });

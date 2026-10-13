@@ -28,6 +28,8 @@ export function searchScriptPath(basePath: string): string {
 
 /** At most this many candidates in a completion list, as in the door. */
 const COMPLETION_LIMIT = 20;
+/** A box sends at most about this much of its text (the lines before the cursor, for code fences): more is answered with nothing. */
+export const MAX_COMPLETION_TEXT = 8_000;
 
 /** What a search and a completion ask of the page's publisher. */
 export interface SearchHost {
@@ -164,7 +166,7 @@ export interface CompletionChoice {
   insertion: string;
 }
 
-/** What completes at the cursor: the span choosing a candidate replaces, and the candidates (none: nothing to offer). */
+/** What completes at the cursor: the span (offsets in the text sent) choosing a candidate replaces, and the candidates (none: nothing to offer). */
 export interface CompletionAnswer {
   kind: "page" | "block" | "tag" | null;
   start: number;
@@ -177,13 +179,24 @@ export interface CompletionAnswer {
 const NOTHING: CompletionAnswer = { kind: null, start: 0, end: 0, items: [] };
 
 /**
- * The candidates for the token at `column` of `line`, as the door's completer finds and writes them: `[[` a named
+ * The candidates for the token at offset `at` of `text` (the box's text from a line's start to the end of the cursor's
+ * line: the lines before it say whether it's in a code fence), as the door's completer finds and writes them: `[[` a named
  * address (`pages.complete`, a Work ID as `[[PIE-1|title]]`), `((` a note (`tree.search` from `near`, `((id))`), `#` a
  * tag the outline already has (`properties.catalog`, `#tag`; `tags` false inside a share, whose tags are the outline's).
  * A `[file::` and a `((note#heading` aren't offered here: the reference stays as typed.
  */
-export async function completeAt(host: SearchHost, line: string, column: number, near: string | undefined, tags: boolean): Promise<CompletionAnswer> {
-  const target = completionTargetAtCursor(line, column);
+export async function completeAt(host: SearchHost, text: string, at: number, near: string | undefined, tags: boolean): Promise<CompletionAnswer> {
+  if (text.length > MAX_COMPLETION_TEXT || !Number.isInteger(at) || at < 0 || at > text.length) return NOTHING;
+  const lines = text.split("\n");
+  let row = 0, from = 0;
+  while (row < lines.length - 1 && from + lines[row]!.length < at) { from += lines[row]!.length + 1; row += 1; }
+  const answer = await completeLine(host, lines, row, at - from, near, tags);
+  return answer.kind ? { ...answer, start: answer.start + from, end: answer.end + from } : answer;
+}
+
+async function completeLine(host: SearchHost, lines: readonly string[], row: number, column: number, near: string | undefined, tags: boolean): Promise<CompletionAnswer> {
+  const line = lines[row] ?? "";
+  const target = completionTargetAtCursor(line, column, lines, row);
   const context = near ? { contextBlockId: near } : {};
   if (target?.kind === "page") {
     const prefix = (await host.request<{ workIdPrefix?: string }>({ action: "references.resolve", text: "" })).workIdPrefix ?? null;
@@ -205,7 +218,7 @@ export async function completeAt(host: SearchHost, line: string, column: number,
     return { kind: "block", start: target.start, end: target.end, items, ...(items.length ? {} : { message: "no matching notes" }) };
   }
   if (target) return NOTHING;
-  const tag = tags ? hashtagAtCursor(line, column) : null;
+  const tag = tags ? hashtagAtCursor(line, column, lines, row) : null;
   if (!tag) return NOTHING;
   const found = await host.request<PropertyCatalogItem[]>({ action: "properties.catalog", key: "tag", prefix: tag.query, limit: COMPLETION_LIMIT, propertyScope: "all" });
   const items = found.map((item) => ({ label: `#${item.value}`, detail: `${item.count} ${item.count === 1 ? "note" : "notes"}`, insertion: `#${item.value}` }));

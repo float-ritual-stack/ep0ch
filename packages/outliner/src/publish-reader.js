@@ -339,8 +339,11 @@
   function completing(input) {
     const pop = el("div", { class: "mg-complete", role: "listbox", hidden: "" });
     input.after(pop);
-    let items = [], at = -1, span = null, timer = 0, asked = 0;
-    const hide = () => { pop.hidden = true; items = []; at = -1; span = null; };
+    // `asked` is the box as the shown list was asked for it: its text and cursor. Any change makes the list stale: it
+    // stays drawn (nothing flashes) but takes no keys and inserts nothing until the next answer.
+    let items = [], at = -1, span = null, asked = null, timer = 0, question = 0;
+    const hide = () => { question += 1; pop.hidden = true; items = []; at = -1; span = null; asked = null; };
+    const current = () => asked && input.value === asked.value && input.selectionStart === asked.cursor && input.selectionEnd === asked.cursor;
     function draw(message) {
       pop.replaceChildren(...items.map((item, index) => el("button", {
         type: "button", role: "option", class: index === at ? "on" : "",
@@ -352,28 +355,31 @@
       pop.querySelector("button.on")?.scrollIntoView({ block: "nearest" });
     }
     async function look() {
-      if (input.selectionStart !== input.selectionEnd) return hide();
       const value = input.value, cursor = input.selectionStart;
-      const from = value.lastIndexOf("\n", cursor - 1) + 1;
-      const to = value.indexOf("\n", cursor) < 0 ? value.length : value.indexOf("\n", cursor);
-      const line = value.slice(from, to);
-      if (!/\[\[|\(\(|#/.test(line.slice(0, cursor - from))) return hide();
-      const mine = ++asked;
+      if (cursor !== input.selectionEnd) return hide();
+      // The cursor's line, and the lines before it (whether it's in a code fence), from a line's start.
+      const lineEnd = value.indexOf("\n", cursor) < 0 ? value.length : value.indexOf("\n", cursor);
+      const lineStart = value.lastIndexOf("\n", cursor - 1) + 1;
+      if (!/\[\[|\(\(|#/.test(value.slice(lineStart, cursor))) return hide();
+      let from = Math.max(0, cursor - 4000);
+      if (from > 0) from = Math.min(value.indexOf("\n", from) + 1 || lineStart, lineStart);
+      const mine = ++question;
       try {
-        const response = await fetch(`${api}/complete?${new URLSearchParams({ line, col: String(cursor - from), page })}`, { cache: "no-store" });
+        const response = await fetch(`${api}/complete?${new URLSearchParams({ text: value.slice(from, lineEnd), at: String(cursor - from), page })}`, { cache: "no-store" });
         const answer = await response.json();
         // An older question's answer, or the box changed meanwhile: dropped.
-        if (mine !== asked || input.value !== value) return;
+        if (mine !== question || input.value !== value || input.selectionStart !== cursor || input.selectionEnd !== cursor) return;
         if (!response.ok || !answer.kind) return hide();
+        asked = { value, cursor };
         span = { from: from + answer.start, to: from + answer.end };
         items = answer.items || [];
         at = items.length ? 0 : -1;
         draw(answer.message);
-      } catch { hide(); }
+      } catch { if (mine === question) hide(); }
     }
     function choose(index) {
       const item = items[index];
-      if (!item || !span) return;
+      if (!item || !span || !current()) return false;
       input.focus();
       input.setSelectionRange(span.from, span.to);
       // As typed: the box's own undo takes it back.
@@ -381,17 +387,23 @@
         input.setRangeText(item.insertion, span.from, span.to, "end");
       }
       hide();
+      return true;
     }
-    input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(look, 120); });
+    const again = () => { clearTimeout(timer); timer = setTimeout(look, 120); };
+    input.addEventListener("input", again);
+    // The cursor moved without typing (a click, an arrow): ask again where it is now.
+    input.addEventListener("click", () => { if (!pop.hidden && !current()) again(); });
+    input.addEventListener("keyup", (event) => { if (!pop.hidden && !current() && /^(Arrow(Left|Right)|Home|End)$/.test(event.key)) again(); });
     input.addEventListener("keydown", (event) => {
       if (pop.hidden) return;
       if (event.key === "Escape") { event.preventDefault(); hide(); return; }
-      if (!items.length) return;
+      // A stale list (typed since, or the cursor moved) lets every key through.
+      if (!items.length || !current()) return;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         at = (at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
         draw();
-      } else if (event.key === "Enter" || event.key === "Tab") {
+      } else if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
         choose(at);
       }

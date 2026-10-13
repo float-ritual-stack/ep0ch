@@ -171,8 +171,8 @@ export interface PageHost {
   linkable(ids: readonly string[], share?: PageShare): Promise<PageQuote[]>;
   /** The outline's notes by words (the service's search), none locked or outside the share. */
   find(query: string, near: string | undefined, share?: PageShare): Promise<{ id: string; title: string; path: string }[]>;
-  /** What completes at `column` of `line` in a comment box (publish-search.ts), from the note `near`, as a page here may show it. */
-  complete(line: string, column: number, near: string | undefined, share?: PageShare): Promise<CompletionAnswer>;
+  /** What completes at offset `at` of `text` in a comment box (publish-search.ts), from the note `near`, as a page here may show it. */
+  complete(text: string, at: number, near: string | undefined, share?: PageShare): Promise<CompletionAnswer>;
   log(line: string): void;
 }
 
@@ -438,7 +438,8 @@ export class PageMarginalia {
   }
 
   /**
-   * Completion in a comment or reply box (PIE-789): the line being written and where the cursor is in it, answered by
+   * Completion in a comment or reply box (PIE-789): the text being written (up to the end of the cursor's line) and where
+   * the cursor is in it, answered by
    * the outliner's completion rules over the service's lookups, from the page's note. Below a share, only one that
    * takes comments (nothing else there has a box), and only notes inside it.
    */
@@ -446,11 +447,12 @@ export class PageMarginalia {
     const url = new URL(request.url);
     if (share && !share.comments) return refused(403, "this link takes no comments");
     if (share && !(await share.active())) return ended();
-    const line = (url.searchParams.get("line") ?? "").slice(0, 2000);
-    const column = Math.max(0, Math.min(Number(url.searchParams.get("col")) || 0, line.length));
+    // Never cut: an answer's offsets are the text's as the box sent it (too long is answered with nothing).
+    const text = url.searchParams.get("text") ?? "";
+    const at = Number(url.searchParams.get("at"));
     const near = url.searchParams.get("page") ? (await this.host.view(url.searchParams.get("page")!, false, share))?.root.id : undefined;
     try {
-      return json(200, await this.host.complete(line, column, near, share));
+      return json(200, await this.host.complete(text, at, near, share));
     } catch (error) {
       return refused(502, `the lookup didn't answer: ${(error as Error).message}`);
     }

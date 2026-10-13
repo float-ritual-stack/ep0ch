@@ -447,14 +447,14 @@ test("search inside a share is the share's: only its notes, no crumbs above the 
   const outside = await (await get(`${base}/search?q=elephant&format=json`, {}, "public")).json() as { hits: unknown[] };
   expect(outside.hits).toEqual([]);
   // A share without comments has no box to complete in.
-  expect((await get(`${base}/_marginalia/complete?line=((moth&col=6`, {}, "public")).status).toBe(403);
+  expect((await get(`${base}/_marginalia/complete?text=((moth&at=6`, {}, "public")).status).toBe(403);
   await client.request({ action: "shares.revoke", all: true });
 });
 
 test("completion in a comment box: [[, (( and # offer what the door's completer offers and insert what it writes", async () => {
   store.create("Pollinator walk #pollinators #pollen-count\nBees on the lavender.", hub.id, "user");
-  const ask = async (line: string, col = line.length) =>
-    (await get(`/pub/_marginalia/complete?${new URLSearchParams({ line, col: String(col), page: survey.id })}`, {})).json() as Promise<{ kind: string | null; start: number; end: number; items: { label: string; insertion: string }[] }>;
+  const ask = async (text: string, at = text.length) =>
+    (await get(`/pub/_marginalia/complete?${new URLSearchParams({ text, at: String(at), page: survey.id })}`, {})).json() as Promise<{ kind: string | null; start: number; end: number; items: { label: string; insertion: string }[] }>;
   const pages = await ask("see [[Field");
   expect(pages).toMatchObject({ kind: "page", start: 4, end: 11 });
   expect(pages.items[0]!.insertion).toBe("[[Field Notes]]");
@@ -466,8 +466,10 @@ test("completion in a comment box: [[, (( and # offer what the door's completer 
   const tags = await ask("for #poll");
   expect(tags).toMatchObject({ kind: "tag", start: 4, end: 9 });
   expect(tags.items.map((item) => item.insertion)).toEqual(expect.arrayContaining(["#pollinators", "#pollen-count"]));
-  // Not a tag: in a word, in code, a heading's `#`.
-  for (const line of ["mid#poll", "`#poll", "# "]) expect((await ask(line)).kind).toBeNull();
+  // On a later line of the box, the offsets are the box's.
+  expect(await ask("Two things:\nfor #poll")).toMatchObject({ kind: "tag", start: 16, end: 21 });
+  // Not a tag: in a word, in code (a fence opened lines above too), a heading's `#`.
+  for (const text of ["mid#poll", "`#poll", "# ", "```\nsee ((moth", "```\nfor #poll"]) expect((await ask(text)).kind).toBeNull();
   // A locked note is never offered.
   expect((await ask("((Private ledger")).items.map((item) => item.insertion)).not.toContain(`((${ledger.id}))`);
 });
