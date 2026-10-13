@@ -529,7 +529,7 @@
     const face = thread.tldr ? thread.replies.find((reply) => reply.id === thread.tldr) : null;
     // A TL;DR is the thread's face; what it's about is folded behind it.
     const discussion = face ? el("details", { class: "disc" }, el("summary", { text: `the discussion · ${(thread.body ? 1 : 0) + thread.replies.length - 1} more` })) : node;
-    if (face) node.append(el("div", { class: "tldr" }, el("span", { class: "k", text: "TL;DR" }), words(face)), discussion);
+    if (face) node.append(el("div", { class: "tldr" }, el("span", { class: "k", text: "TL;DR" }), words(face, face.marks), nest(face.marks || [])), discussion);
     if (thread.body) discussion.append(words(thread, marks));
     if (top && thread.replies.length && !face) node.append(el("div", { class: "sum", text: `${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"} · ${thread.replies[thread.replies.length - 1].by}` }));
     const nested = nest(marks);
@@ -568,7 +568,7 @@
       el("button", { type: "button", text: "Reply", onclick: () => replyIn(node, thread, row) }),
       verb(earlier ? "back" : "seen", earlier ? "Back" : "Seen"),
       verb(kept ? "unkeep" : "keep", kept ? "Unkeep" : "Keep"),
-      el("button", { type: "button", text: "TL;DR", title: face ? "edit the TL;DR" : "ask @margin for a TL;DR", onclick: () => (face ? editTldr(node, thread, face, row) : act("tldr", { thread: thread.id })) }),
+      el("button", { type: "button", text: "TL;DR", title: face ? "edit the TL;DR" : "ask @margin for a TL;DR", onclick: () => (face || !agent ? editTldr(node, thread, face || { body: "" }, row) : act("tldr", { thread: thread.id })) }),
     ];
     // ⋯: the rest (Quote, and Pick for several), in the same row instead, so the row never wraps.
     const rest = quoteButtons(thread.id).slice(0, bare ? 1 : undefined);
@@ -870,12 +870,14 @@
     };
     const line = el("button", { type: "button", class: "quiet", "aria-expanded": "false", onclick: () => {
       const open = item.querySelector(".mg-card");
+      // Something being written in it stays until it's sent or cancelled.
+      if (open && editor && open.contains(editor)) { say("finish or cancel what you're writing first"); editor.focus(); return; }
       if (open) { open.remove(); shelfOpen.delete(thread.id); line.setAttribute("aria-expanded", "false"); return; }
       shelfOpen.add(thread.id);
       show();
       markRead(thread.id);
     } },
-    el("span", { class: "k", text: `${thread.kind} · ${thread.lifecycle}${thread.replies.length ? ` · ${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}` : ""}` }),
+    el("span", { class: "k", text: `${thread.kind}${isEarlier(thread) ? ` · ${thread.lifecycle}` : ""}${thread.replies.length ? ` · ${thread.replies.length} ${thread.replies.length === 1 ? "reply" : "replies"}` : ""}` }),
     el("span", { class: "x", text: said.length > 140 ? `${said.slice(0, 139)}…` : said }));
     item.append(line);
     // Opened, it stays open while the page is drawn again (an answer landing, another card's action).
@@ -900,8 +902,9 @@
       const placed = !!markOf(thread.id) || placeByWords(thread);
       // Put away: on the Earlier shelf, unless the margin shows all.
       if (isEarlier(thread) && marginSetting !== "all") { shelf.push(shelfRow(thread)); continue; }
+      // Off: no cards; each thread opens in place from the foot's index, as the shelf's do.
+      if (marginSetting === "off") { rows.push(shelfRow(thread)); continue; }
       rows.push(indexRow(thread, placed || !thread.quote));
-      if (marginSetting === "off") continue;
       const node = card(thread, true);
       if (thread.id === active) node.classList.add("on");
       if (!placed) { (thread.quote ? lost : whole).push(node); continue; }
