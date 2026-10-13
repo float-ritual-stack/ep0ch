@@ -34,7 +34,7 @@ are its record. The outliner's entries from then are kept below, under
   callouts with no anchor yet under it; choosing one adds its anchor there (attributed) and links it.
 - **Fixed:** a quote or a callout is one passage: offered by its words or its callout title, anchored on its last line,
   and `!((id^anchor))` on it carries every line of it, not the lines down from a blank one.
-- **Run:** the protocol changed (159: the page link grammar, and quotes and callouts as fragment kinds on the wire): `ep0ch install --apply` on each machine (the outline host and the doors together).
+- **Run:** the protocol changed (160: the page link grammar, and quotes and callouts as fragment kinds on the wire): `ep0ch install --apply` on each machine (the outline host and the doors together).
 
 ### A folder names who works in it: `agent` in `.ep0ch` (PIE-718)
 
