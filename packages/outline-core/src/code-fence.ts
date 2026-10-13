@@ -46,6 +46,24 @@ export function closesCodeFence(line: string, fence: CodeFence, contentIndent = 
   return !!closing && closing.char === fence.char && closing.length >= fence.length && closing.info === "";
 }
 
+/**
+ * The last line of the fence `fence` opened on line `start` (a fence outside any list item): its closing line, or, never
+ * closed, the line before the first blank line or fence opener after it (PIE-669), or the last line (`codeBlocks` says when it is
+ * known never closed). The one bound for a reader that
+ * walks a note's lines itself and meets a fence (`codeBlocks` is the whole-note scan).
+ */
+export function fenceEnd(lines: readonly string[], start: number, fence: CodeFence): { end: number; closed: boolean } {
+  let stop = -1;
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (closesCodeFence(line, fence)) return { end: i, closed: true };
+    const other = codeFenceOpen(line);
+    if (stop < 0 && (/^[ \t]*\r?$/.test(line) || other)) stop = i;
+    if (other && other.char === fence.char && other.length >= fence.length && other.info !== "") return { end: stop - 1, closed: false };
+  }
+  return { end: stop >= 0 ? stop - 1 : lines.length - 1, closed: false };
+}
+
 /** A fenced code block in a note's lines: its first and last line (inclusive), whether a closing line ends it, its fence. */
 export interface CodeFenceBlock { start: number; end: number; closed: boolean; fence: CodeFence }
 
@@ -63,13 +81,19 @@ function listMarker(line: string): ListContainer | null {
 /**
  * The code blocks of a note's lines as CommonMark's block structure reads them: its fenced code (a fence in a list
  * item counts from the item's content column, so a fence nested under a bullet is code) and its indented code lines
- * (four columns past their container, after a blank line). An unclosed fence runs to the end, or to the end of the
- * list item it is in.
+ * (four columns past their container, after a blank line).
+ *
+ * One deviation (Blockdown, PIE-669): an unclosed fence ends at its paragraph, the line before the first blank line or
+ * fence opener after it (or at the end of the list item it is in, if that comes first), never at the end of the note. What follows
+ * is read as it would be without the fence, so a half-typed or half-streamed fence can't turn the rest of a note into
+ * code. Only a fence with no blank line before the note's end runs to the end. A line that opens another fence like it
+ * with an info string (```` ```ts ```` in a ```` ``` ```` fence) also says it was never closed: typed above a code
+ * block, a fence doesn't pair with that block's closing line.
  */
 export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]; indented: number[] } {
   const fences: CodeFenceBlock[] = [], indented: number[] = [];
-  const listContainers: ListContainer[] = [];
-  let active: { block: CodeFenceBlock; contentIndent: number } | null = null;
+  let listContainers: ListContainer[] = [];
+  let active: { block: CodeFenceBlock; contentIndent: number; resume: { listContainers: ListContainer[] } } | null = null;
   let activeIndentedCode = false;
   let canStartIndentedCode = true;
   for (let i = 0; i < lines.length; i++) {
@@ -79,10 +103,33 @@ export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]
     if (active && active.contentIndent > 0 && line.trim() && leadingColumns(line).columns < active.contentIndent) active = null;
     if (active) {
       active.block.end = i;
-      if (closesCodeFence(line, active.block.fence, active.contentIndent)) {
+      const fence = active.block.fence;
+      if (closesCodeFence(line, fence, active.contentIndent)) {
         active.block.closed = true;
         active = null;
         canStartIndentedCode = true;
+        continue;
+      }
+      // Never closed: it ends at its paragraph, and the scan goes on from there as if it weren't there. A fence is
+      // known never closed at the note's end, or at a line that opens another fence like it with an info string
+      // (```` ```ts ````): in a fence that line would close it and leave its own code outside.
+      const reopens = i < lines.length - 1 && (() => {
+        const other = codeFenceOpen(line, active!.contentIndent);
+        return !!other && other.char === fence.char && other.length >= fence.length && other.info !== "";
+      })();
+      if (reopens || i === lines.length - 1) {
+        // Its paragraph: up to the first blank line, or the first line that opens a fence of its own (a code block it
+        // was typed above keeps its opening line).
+        const contentIndent = active.contentIndent;
+        const stop = lines.findIndex((candidate, at) => at > active!.block.start && at <= i &&
+          (/^[ \t]*\r?$/.test(candidate) || !!codeFenceOpen(candidate, contentIndent)));
+        const end = stop >= 0 ? stop - 1 : i;
+        if (end < i) {
+          active.block.end = end;
+          listContainers = active.resume.listContainers;
+          active = null;
+          i = end;
+        }
       }
       continue;
     }
@@ -109,7 +156,7 @@ export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]
     if (fence) {
       const block = { start: i, end: i, closed: false, fence };
       fences.push(block);
-      active = { block, contentIndent };
+      active = { block, contentIndent, resume: { listContainers: [...listContainers] } };
       activeIndentedCode = false;
     } else if (!startsListItem) {
       const isIndented = indent - contentIndent >= 4;

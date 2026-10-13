@@ -120,7 +120,8 @@ function hashtagCandidates(
   const excluded = [...literalRanges, ...protectedCodeRanges(text), ...properties, ...blockReferenceEnvelopeRanges(text)];
   for (const token of propertyTokenMatches(text)) excluded.push({ start: token.start, end: token.end });
   for (const pattern of [
-    /\[\[[^\]\r\n]*\]\]/g,
+    // A page link as link-syntax reads one: an unclosed `[[` before it is text (PIE-669).
+    /\[\[(?:(?!\[\[)[^\]\r\n])*\]\]/g,
     /!?\[[^\]\r\n]*\]\((?:\\.|[^\\)\r\n])*\)/g,
     /^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*/gm,
     /\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+/gi,

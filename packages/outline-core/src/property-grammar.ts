@@ -41,7 +41,8 @@ export interface RawPropertyToken {
  * its line. The link grammar is balanced inside a value: a `((id|label))` reference or embed is skipped whole (its label
  * may hold `]`), and brackets nest (`[[page]]`, `[[page|label]]`). A value whose brackets don't balance on its line
  * (`[note::a [ b]`) ends at the first `]`, as it always did, and never reaches the next line: an unbalanced bracket
- * costs that one value its tail, never the rest of the note.
+ * costs that one value its tail, never the rest of the note. One that another `[key::` opens inside before that `]`
+ * is no property at all, so it never swallows the next one.
  */
 export function propertyValueEnd(text: string, from: number): number {
   let lineEnd = from;
@@ -64,6 +65,11 @@ export function propertyValueEnd(text: string, from: number): number {
     if (character === "[") depth += 1;
     else if (character === "]" && --depth === 0) return at > 0 ? from + at : -1;
   }
+  // Unbalanced. When another `[key::` opens before that first `]`, this one was never closed (`[status:: [due::Fri]`):
+  // it is text, and the next one is read (PIE-669).
+  // So was one whose first `]` would cut a `[[page]]` in two (`[status:: see [[Beds]]`, its own `]` not typed yet).
+  const head = new RegExp(PROPERTY_HEAD_SOURCE, "g").exec(line);
+  if ((head && head.index < first) || line.slice(0, first).includes("[[")) return -1;
   return from + first;
 }
 

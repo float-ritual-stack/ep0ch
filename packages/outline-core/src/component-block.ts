@@ -4,7 +4,7 @@
 // folds asks this rule, so a section that holds a figure ends where Detail, the door and replaceSection all
 // agree. Pure: no I/O.
 
-import { closesCodeFence, codeBlocks, codeFenceOpen, type CodeFence, type CodeFenceBlock } from "./code-fence";
+import { closesCodeFence, codeBlocks, codeFenceOpen, fenceEnd, type CodeFence, type CodeFenceBlock } from "./code-fence";
 
 /**
  * The opening line: `::` and a component name, indented at most three spaces (four is code), with or without
@@ -84,10 +84,8 @@ export function componentBlocks(lines: readonly string[]): ComponentBlock[] {
   const out: ComponentBlock[] = [];
   const text = lines.join("\n"), offsets: number[] = [];
   for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) offsets.push(at);
-  let fence: CodeFence | null = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!.replace(/\r$/, "");
-    if (fence !== null) { if (closesCodeFence(line, fence)) fence = null; continue; }
     const open = COMPONENT_OPEN.exec(line);
     const block = open && componentBlockAt(text.slice(offsets[i]));
     if (open && block) {
@@ -96,7 +94,9 @@ export function componentBlocks(lines: readonly string[]): ComponentBlock[] {
       i = end;
       continue;
     }
-    fence = codeFenceOpen(line);
+    // A fence's lines are code, to its close or, unclosed, to its paragraph's end (fenceEnd).
+    const fence = codeFenceOpen(line);
+    if (fence) i = fenceEnd(lines, i, fence).end;
   }
   return out;
 }
@@ -117,4 +117,16 @@ export function noteCodeFences(lines: readonly string[]): CodeFenceBlock[] {
   const masked = [...lines];
   for (const c of componentBlocks(lines)) for (let j = c.start; j <= c.end; j++) masked[j] = "";
   return codeBlocks(masked).fences;
+}
+
+/**
+ * `text` with a closing line after each fence it leaves open, where `codeBlocks` ends it (PIE-669: at its paragraph):
+ * for a Markdown renderer, which would run an unclosed fence to the end, so the note draws as the service reads it.
+ */
+export function closeOpenFences(text: string): string {
+  const lines = text.split("\n");
+  const open = noteCodeFences(lines).filter(block => !block.closed);
+  if (!open.length) return text;
+  for (const block of [...open].reverse()) lines.splice(block.end + 1, 0, " ".repeat(block.fence.indent) + block.fence.char.repeat(block.fence.length));
+  return lines.join("\n");
 }
