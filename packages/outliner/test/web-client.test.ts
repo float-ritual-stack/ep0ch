@@ -474,13 +474,19 @@ test("a #tag on a page opens the notes carrying it: title, the tag's line and cr
   expect(asked.hits.find((hit) => hit.id === compost.id)).toMatchObject({ line: "Turn the second bay. #north-star", crumbs: "Field notes › Seed swap" });
   expect((await page("/pub/search?q=%23no-such-tag")).match(/<p class="dim">[^<]*<\/p>/)?.[0]).toBe('<p class="dim">No note here is tagged #no-such-tag.</p>');
 
-  // Inside a share of the seed swap: only its note carrying the tag, no crumbs, links that stay in the share.
+  // Inside a share of the seed swap: only its note carrying the tag, no crumbs, links that stay in the share. More notes
+  // outside it carry the tag than one answer lists: the share's is still found.
+  // (Under the moth survey, which comes before the seed swap in the outline, so first in the service's answer.)
+  const elsewhere = store.create("Tagged elsewhere", survey.id, "user");
+  for (let n = 0; n < 205; n++) store.create(`Bed ${n} #north-star`, elsewhere.id, "user");
+  const late = store.create("Late sowing\nBroad beans in November. #north-star", swap.id, "user");
   await client.request({ action: "shares.start", scope: swap.id, ttl: "5m", comments: false });
   const kept = JSON.parse(store.readMetadata("share_sessions")!) as { sessions: { token: string; state: string }[] };
   const base = `/s/${kept.sessions.find((session) => session.state === "active")!.token}`;
   expect(hrefs(await (await get(`${base}/p/${compost.id}`, browser, "public")).text())).toContain(`${base}/search?q=%23north-star`);
   const inside = await (await get(`${base}/search?q=%23north-star&format=json`, {}, "public")).json() as { hits: { id: string; title: string; line: string; crumbs: string; href: string }[] };
-  expect(inside.hits).toEqual([{ id: compost.id, title: "Compost bays", line: "Turn the second bay. #north-star", crumbs: "", href: expect.stringMatching(new RegExp(`^${base}/`)) }]);
+  expect(inside.hits.map((hit) => hit.id).sort()).toEqual([compost.id, late.id].sort());
+  expect(inside.hits.find((hit) => hit.id === compost.id)).toEqual({ id: compost.id, title: "Compost bays", line: "Turn the second bay. #north-star", crumbs: "", href: expect.stringMatching(new RegExp(`^${base}/`)) });
   await client.request({ action: "shares.revoke", all: true });
 
   // A public page has no search, so its tags are words.

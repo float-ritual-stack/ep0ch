@@ -1234,6 +1234,7 @@ export class Publisher {
       shown: (ids) => this.openIds(ids, share),
       href: (blockId) => `${base}${index.entries.find((entry) => entry.blockId === blockId)?.path ?? `/p/${encodeURIComponent(blockId)}`}`,
       crumbs: !share || share.scope.kind === "outline",
+      ...(share?.scope.kind === "note" ? { under: share.scope.blockId } : {}),
       crumbsOf: (ids) => this.crumbWords(ids),
     };
   }

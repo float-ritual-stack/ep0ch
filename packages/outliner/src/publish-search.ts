@@ -42,6 +42,8 @@ export interface SearchHost {
   href(blockId: string): string;
   /** Whether a hit's crumbs may be said: inside a share of one note they'd name what's above it. */
   crumbs: boolean;
+  /** The note a share of one note shares: a tag's notes are asked for under it, so the share's are never cut off by others. */
+  under?: string;
   /** Each note's crumbs (its ancestors' titles, `A › B`), as `tree.search` says them: for a tag's notes (PIE-800). */
   crumbsOf(ids: readonly string[]): Promise<Map<string, string>>;
 }
@@ -110,7 +112,7 @@ const TAG_LIMIT = 200;
 async function tagNotes(host: SearchHost, tag: string): Promise<SearchAnswer> {
   const query = `#${tag}`;
   const found = await host.request<{ blocks: { id: string; title?: string; text?: string }[]; completeness: { kind: string } }>({
-    action: "blocks.query", query: { where: query, limit: TAG_LIMIT }, fields: ["title", "text"],
+    action: "blocks.query", query: { where: query, limit: TAG_LIMIT, ...(host.under ? { subtreeRootId: host.under } : {}) }, fields: ["title", "text"],
   });
   const shown = await host.shown(found.blocks.map((block) => block.id));
   const blocks = found.blocks.filter((block) => shown.has(block.id));
