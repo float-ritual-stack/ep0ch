@@ -56,8 +56,11 @@ export interface McpCaller {
    * like any persona, is recorded and never checked (ADR 0003 §2).
    */
   persona?: string;
-  /** The most this connection may do, whatever an outline's setting lets it (a named path's, `propose` by default). */
-  cap?: McpAccessLevel;
+  /**
+   * The most this connection may do in an outline, whatever the outline's setting lets it (a named path's, `propose` by
+   * default; `pathCap`). Asked with the outline, or with none for the connection's own default.
+   */
+  cap?: (where?: BoardAddress) => McpAccessLevel;
 }
 
 /** The `call` argument a request may carry: an id the agent keeps across its requests ("daddy-2026-10-09-0103-k7f"). */
@@ -154,11 +157,29 @@ export const sessionIdOf = (caller: McpCaller): string => composeSessionId({ sub
  * What an outline's access setting means for this caller (PIE-679): the principal that made a scratch outline writes to it with
  * `full`, whatever the setting lets the others (`read`). A setting of `none` is a person's denial and holds for everyone.
  */
-export const levelFor = (status: { level: McpAccessLevel; owner?: string }, caller: McpCaller | undefined, machine?: string): McpAccessLevel => {
+export const levelFor = (status: { level: McpAccessLevel; owner?: string }, caller: McpCaller | undefined, machine?: string, where?: BoardAddress): McpAccessLevel => {
   const level = caller && status.owner && status.level !== "none" && status.owner === principalOf(caller, machine) ? "full" : status.level;
-  // A connection capped lower (a named path's `propose`) gets no more than its cap, whatever the outline allows.
-  return caller?.cap && LEVELS.indexOf(caller.cap) < LEVELS.indexOf(level) ? caller.cap : level;
+  // A connection capped lower (a named path's `propose`) gets no more than its cap in this outline, whatever it allows.
+  const cap = caller?.cap?.(where);
+  return cap && LEVELS.indexOf(cap) < LEVELS.indexOf(level) ? cap : level;
 };
+
+/**
+ * What a named path may do at most, in each outline (PIE-804): `EP0CH_MCP_PATH_ACCESS`, a comma list of
+ * `<persona>[@<outline>[@<machine>]]=<level>` (`gpty@gurgle=full,gpty=propose`). The most specific entry for the outline
+ * wins (with its machine, then the outline alone, then the persona alone), else `propose`. An outline is named as with
+ * `--ws`, a mirror as `<outline>@<machine>`. It is a cap: the outline's own level still bounds it.
+ */
+export function pathCap(spec: string, persona: string): (where?: BoardAddress) => McpAccessLevel {
+  const entries = new Map<string, McpAccessLevel>();
+  for (const entry of spec.split(",")) {
+    const [who = "", level = ""] = entry.split("=").map(x => x.trim());
+    if ((LEVELS as readonly string[]).includes(level)) entries.set(who.toLowerCase(), level as McpAccessLevel);
+  }
+  const name = persona.toLowerCase();
+  return where => (where ? entries.get(`${name}@${where.outline}@${where.machine}`.toLowerCase()) ?? entries.get(`${name}@${where.outline}`.toLowerCase()) : undefined)
+    ?? entries.get(name) ?? "propose";
+}
 const LEVELS: readonly McpAccessLevel[] = ["none", "read", "propose", "full"];
 
 /** Why a work id isn't stamped at this level (it is no proposal), or null when it may be. */
