@@ -499,7 +499,7 @@ test("one node, one name: a machine given a name keeps its marks made under its 
 }, 90_000);
 
 test("a machine that dials in: never called, it delivers into the subscriptions that read it and carries their netmail both ways", async () => {
-  const { root, outlines, toss, create, threads, where, comment, board, access } = await setup(["cafe"]);
+  const { root, outlines, toss, act, create, get, threads, where, comment, board, access } = await setup(["cafe"]);
   const far = await farMachine(root, outlines);
   const farOutlines = join(root, "far", "outlines");
   // box-b's inbound ssh is off; it still calls out, to box-a, where it reads the cafe's outlines folder.
@@ -571,6 +571,15 @@ test("a machine that dials in: never called, it delivers into the subscriptions 
     "Call from field@box-b [type::toss] [node::field@box-b] [call::cafe@box-a] [copies::0] [netmail-out::1] [netmail-in::0]",
     "Call from field@box-b [type::toss] [node::field@box-b] [call::cafe@box-a] [copies::0] [netmail-out::0] [netmail-in::1]",
   ]);
+
+  // The newer version, asked for here: the cafe can't ask box-b, so its next call brings it.
+  await far.edit("field", hedge.id, (text) => `${text}\nIt flowered on the 20th.`);
+  await farToss();
+  expect((await get("cafe", copy.id)).text).toContain("[upstream-newer::2]");
+  expect((await act("cafe", "take-newer", copy.id)).message).toContain("its next call brings the newer version");
+  await farToss();
+  expect((await get("cafe", copy.id)).text).toEndWith("It flowered on the 20th.");
+  expect((await get("cafe", copy.id)).text).not.toContain("echo-take");
 
   // Said outright on this side, the cafe calls it again (and finds it refused).
   writeFileSync(join(outlines, ".remote", "box-b.json"), JSON.stringify({ outlines: farOutlines, dialsIn: false }));

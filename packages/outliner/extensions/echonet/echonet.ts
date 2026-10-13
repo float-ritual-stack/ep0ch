@@ -425,14 +425,20 @@ const isHome = (home: Home, id: string | undefined) => id !== undefined && home.
 /** Whether a `netmail-from` (`<node>/<mark>`) is the home's, under any name it went by. */
 const sentFrom = (home: Home, key: string | undefined, markId: string) => key !== undefined && key.endsWith(`/${markId}`) && isHome(home, key.slice(0, -markId.length - 1));
 
+/**
+ * The oldest live one: a node's toss and a call can each make a nodelist or ledger at once, and every later run then
+ * keeps to the same one.
+ */
+const oldest = (blocks: Block[]) => blocks.filter((block) => !trashed(block)).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id))[0];
+
 async function nodelistBlock(call: Link["call"] = mine, node: Node = self): Promise<Block> {
-  const found = (await query(call, "type=nodelist")).find((block) => !trashed(block));
+  const found = oldest(await query(call, "type=nodelist"));
   if (found) return found;
   return call<Block>({ action: "create", text: `Nodelist [type::nodelist] [node::${node.id}]\n\nWritten by EchoNet's tosser; the next toss writes it again.` });
 }
 
 async function ledgerBlock(nodelist: Block, call: Link["call"] = mine): Promise<Block> {
-  const found = (await query(call, "type=echo-ledger")).find((block) => !trashed(block));
+  const found = oldest(await query(call, "type=echo-ledger"));
   if (found) return found;
   return call<Block>({ action: "create", parentId: nodelist.id, text: LEDGER_TITLE });
 }
@@ -573,6 +579,9 @@ async function tossSource(home: Home, sub: Block, link: Link, existing: Block | 
       newer += 1;
     }
     if (prop(copy, "upstream-gone") !== undefined) await setOn(copy.id, (text) => setHeaderProperty(text, "upstream-gone", undefined), home.call);
+    // The newer version asked for while its node couldn't be called (it dials in): taken or proposed now.
+    const take = prop(copy, "echo-take");
+    if (take !== undefined) home.log.push(`- ${firstLine(copy.text)}: ${(await newerFor(home.call, copy.id, link, message.id, take === "compare")).message}`);
     if (canMark(link.level) && !isMark(message)) await seenBy(home, link, message, copy, name);
   }
   // Oldest first, `cap` a toss: a broad area's first toss doesn't flood, and what waits is said on the board.
@@ -950,8 +959,8 @@ function nodelistText(facts: NodeFacts[], lastToss: string | undefined): string 
     }
     const state = link.node.id === self.id ? "this node" : link.reachable ? "reachable" : `unreachable: ${link.why}`;
     const open = link.reachable && link.level !== "none";
-    lines.push(`- ${state} · access ${link.reachable ? link.level : "unknown"}${roles}`);
-    if (link.node.id === self.id && address.dialsIn) lines.push("- dials in: it calls the nodes that read it, and is never called");
+    const dialing = link.node.id === self.id && address.dialsIn ? " · dials in" : "";
+    lines.push(`- ${state} · access ${link.reachable ? link.level : "unknown"}${dialing}${roles}`);
     if (aka.length) lines.push(`- also known as: ${aka.join(", ")}`);
     lines.push(`- last toss: ${f.lastToss ?? (link.reachable ? "never" : "unknown")}`);
     lines.push(`- areas: ${f.areas.length ? f.areas.join("; ") : open ? "none" : "unknown"}`);
@@ -1068,31 +1077,45 @@ async function takeNewer(propose: boolean): Promise<{ message: string; open?: st
   if (!block || !from) return { message: "This note isn't an EchoNet copy: a copy carries [from::<outline>@<machine>/<id>]" };
   const node = parseNode(from[1])!;
   const link = await linkTo(node);
-  if (link.dialsIn) return { message: `${node.id} dials in and is never called from here (${link.why}): its newer text can be taken where it is read without a call` };
+  // A node that dials in can't be asked: the copy says what the person wants, and its next call does it.
+  if (link.dialsIn) {
+    await setOn(block.id, (text) => setHeaderProperty(text, "echo-take", propose ? "compare" : "newer"));
+    return { message: `${node.id} dials in and is never called from here (${link.why}): its next call ${propose ? "proposes" : "brings"} the newer version` };
+  }
   if (!link.reachable) return { message: `${node.id} is unreachable (${link.why}); try again once it answers` };
   if (link.level === "none") return { message: `${node.id} grants none; its owner runs \`ep0ch mcp access read --ws ${node.outline}\`` };
-  const original = await link.call<Block>({ action: "get", blockId: from[2]! }).catch(() => undefined);
+  return newerFor(mine, block.id, link, from[2]!, propose);
+}
+
+/**
+ * The original's current text for a copy (in the outline `call` reaches), taken or proposed beside it. A take asked
+ * of a copy of a node that dials in (`[echo-take::newer|compare]`) is done by its call, with this.
+ */
+async function newerFor(call: Link["call"], copyId: string, link: Link, originalId: string, propose: boolean): Promise<{ message: string; open?: string }> {
+  const node = link.node;
+  const original = await link.call<Block>({ action: "get", blockId: originalId }).catch(() => undefined);
+  if (prop(await call<Block>({ action: "get", blockId: copyId }), "echo-take") !== undefined) await setOn(copyId, (text) => setHeaderProperty(text, "echo-take", undefined), call);
   if (!original || trashed(original)) return { message: `The original is gone from ${node.id}: this copy is all there is now` };
-  const current = await mine<Block>({ action: "get", blockId: block.id });
+  const current = await call<Block>({ action: "get", blockId: copyId });
   const area = prop(current, "echo") ?? "?";
   const tossed = prop(current, "tossed");
   // A copy kept off the web here stays off, whatever the original says.
   const text = await copyText(link, original, area, tossed, prop(current, "publish") === "never");
   if (text === current.text) return { message: `This copy already has ${node.id}'s revision ${original.revision}` };
   if (propose) {
-    const result = await mine<{ outcome: string; proposalId?: string }>({
+    const result = await call<{ outcome: string; proposalId?: string }>({
       action: "draft.patch", blockId: current.id, revision: current.revision, propose: "always",
       patches: [{ observed: current.text, replacement: text }], mutation: { author: "agent", actorId: "ext:echonet" },
     });
     return { message: `${node.id}'s revision ${original.revision} is proposed beside the copy: apply or dismiss it there`, ...(result.proposalId ? { open: result.proposalId } : {}) };
   }
-  await mine({ action: "update", blockId: current.id, expectedRevision: current.revision, text });
+  await call({ action: "update", blockId: current.id, expectedRevision: current.revision, text });
   return { message: `This copy now has ${node.id}'s revision ${original.revision} (its own edits are in its history)`, open: current.id };
 }
 
 try {
   // Which nodes have called (they dial in, and are never called from here): the ledger says, before any node is linked.
-  calls = callsIn(readLedger((await query(mine, "type=echo-ledger")).find((block) => !trashed(block))));
+  calls = callsIn(readLedger(oldest(await query(mine, "type=echo-ledger"))));
   if (input.action === "nodelist") {
     const nodelist = await nodelistBlock();
     await writeNodelist(nodelist, await subscribersHere(), false);
