@@ -217,7 +217,7 @@ CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the r
 
 ## Branches, PRs, merging
 
-- Work in a worktree (`git worktree add -b <branch> ../ep0ch-<slug> origin/main`). Never switch branches, pull or
+- Work in a worktree (`git worktree add -b <branch> ~/wt/ep0ch-wt-<slug> origin/main`). Never switch branches, pull or
   commit in the live checkout: it is what runs, and it may hold the person's uncommitted files. It moves only on
   `ep0ch install --apply`, which fast-forwards it, restarts the outline host when it needs to and hands this
   machine's door sessions to the new code (a door on another machine is restarted there).

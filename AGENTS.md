@@ -255,7 +255,8 @@ MacBook). It does not support every version a client ever connected with.
 - A local bun may rewrite `bun.lock`. Don't commit lockfile churn; commit it only when dependencies change.
 - **The live checkout is what runs.** `~/projects/ep0ch` on float-2 (and the laptop's checkout) is what `ep0ch`,
   the Herdr plugin and the outline host run from, and it may hold the owner's uncommitted files. Work, pull and
-  commit in a worktree of your own (`git worktree add ~/projects/ep0ch-wt-<topic> -b <branch> origin/main`),
+  commit in a worktree of your own (`git worktree add ~/wt/ep0ch-wt-<topic> -b <branch> origin/main`; on float-2 `~/wt` is
+  the 20 GB volume, beside bun's cache, so `bun install` hard-links instead of copying ~350 MB per worktree),
   never there. It moves only through `ep0ch install --apply`, which backs up the outlines, fast-forwards it and
   hands everything to the new code together. Run that only when the person (or the agent they made the deployer)
   asks: a merged protocol bump with the host not yet restarted makes every client refuse it.

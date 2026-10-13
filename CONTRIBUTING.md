@@ -248,7 +248,7 @@ timestamps.
 
 ## Branches, commits and pull requests
 
-- Work in a worktree (`git worktree add -b <branch> ../ep0ch-<slug> origin/main`). Never switch branches in the
+- Work in a worktree (`git worktree add -b <branch> ~/wt/ep0ch-wt-<slug> origin/main`). Never switch branches in the
   live checkout: it is what runs.
 - One focused branch per roadmap item (`feature/<behavior>`, `fix/<bug>`, `docs/<topic>`), and one coherent PR per
   change. A feature split across agents uses a feature branch: slices branch from it (`<feature>/<slice>`) and open
