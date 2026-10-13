@@ -65,6 +65,16 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
       return { copied: [...text].length, text, clipboard: true };
     },
   }),
+  "terminal.clip": def({
+    summary: "the program in terminal tile=<tile> copied text=<text> (PIE-797): passed on to the person's clipboard as its own OSC 52 would be, if they typed or clicked in the tile in the last 2 min, with the \"copied from <tile>\" toast. Said by the door's wl-copy (scripts/clip) for Claude Code in a Herdr pane, whose OSC 52 Herdr's direct attach doesn't pass on (herdrdev/herdr#4612). It comes over the control socket like any program's request, so the rule is the tile's: nothing reaches the clipboard unless the person used that tile lately",
+    touches: "nothing", replay: "safe",
+    args: { text: { type: "string", about: "what the program copied" } },
+    run({ text }, { pane, tile }) {
+      if (!text) throw new ActionRefused("nothing to copy");
+      pane.programCopied(text);
+      return { tile, copied: [...text].length };
+    },
+  }),
   "tile.herdr": def({
     summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
     // Flagged, quitting the door doesn't warn that it ends the program: never set by an agent on the terminal the

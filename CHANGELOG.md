@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Copying from the drawer's Claude reaches your clipboard (PIE-797)
+
+- **Fixed:** a copy in Claude Code in the drawer (an agent in Herdr) said "sent via OSC 52" and nothing arrived, because
+  Herdr's direct attach doesn't pass a pane's OSC 52 on (herdrdev/herdr#4612). The agent's pane now copies through the
+  door's own `wl-copy`, and the door puts the text on your clipboard with a "copied from claude" toast.
+- **Run:** after deploying, restart the drawer's agent (`agent.restart`, or quit and start Claude again in it): a pane
+  started before this keeps its old environment.
+
 ### claude.ai artifacts in a note (PIE-793)
 
 - **New:** a line that is only `[artifact::path]` (or floatty's `artifact:: path`) runs that artifact in the note on its

@@ -478,6 +478,13 @@ export class PtyPane implements Pane {
    * program in a tile they haven't used lately (an agent's shell, `tile.type`) can't fill their clipboard; the toast
    * says it didn't, and to click in it and copy again.
    */
+  /**
+   * The program copied `text` some other way than OSC 52 in its own output (PIE-797: Claude Code in a Herdr pane, which
+   * Herdr's direct attach doesn't pass OSC 52 on from, copies through the door's `wl-copy`, scripts/clip): the same as
+   * an OSC 52 it wrote, with the same rule (the person used the tile lately) and toast.
+   */
+  programCopied(text: string) { this.copied({ text }); }
+
   /** Named as its header names it (claude, sh), not by its layout name. */
   private copyName(): string { return this.run.shows ?? (basename(this.run.cmd[0] ?? "") || this.tileName || "a terminal tile"); }
   private copied(c: Clip) {

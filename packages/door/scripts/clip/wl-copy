@@ -1,0 +1,23 @@
+#!/usr/bin/env bun
+// The door's `wl-copy` (PIE-797), on PATH in the drawer agent's Herdr pane (src/desk/herdr-agent.ts, clipVars). Claude
+// Code copies with wl-copy when it sees WAYLAND_DISPLAY, else with OSC 52, and Herdr doesn't pass a pane's OSC 52 on to
+// a `herdr terminal attach` client like the door's tile (herdrdev/herdr#4612). So the copy goes two ways: as OSC 52 on
+// the pane's own terminal (Herdr gives it to its foreground client, as before) and to the door showing the pane
+// (`terminal.clip`, over the pane's EP0CH_CONTROL), which puts it on the person's clipboard if they use that tile.
+// `--primary` (the selection clipboard Claude also fills) is left alone. Never fails the copy: it always exits 0.
+import { openSync, writeSync, closeSync } from "node:fs";
+import { ask } from "../../src/jsonl";
+
+const args = process.argv.slice(2);
+if (args.includes("--primary") || args.includes("-p") || args.includes("--clear") || args.includes("-c")) process.exit(0);
+const text = await new Response(Bun.stdin.stream()).text();
+if (text) {
+  try {
+    const tty = openSync("/dev/tty", "w");
+    writeSync(tty, `\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`);
+    closeSync(tty);
+  } catch { /* no terminal: the door's way is enough */ }
+  const control = process.env.EP0CH_CONTROL, tile = process.env.EP0CH_TILE_ID || process.env.EP0CH_TILE;
+  if (control && tile) await ask(control, { cmd: "act", action: "terminal.clip", args: { text }, tile }, 1500).catch(() => null);
+}
+process.exit(0);
