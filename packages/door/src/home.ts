@@ -442,13 +442,13 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     run({ outline, machine, write }, { pane, desk }, actor) { return open(pane as HomePane, desk, outline, machine, write, actor); },
   }),
   "home.new": def({
-    summary: "make an outline and open it: name=, on machine= (left out, this one), write= as home.open. The person's without a name types one", keys: "n click",
+    summary: "make an outline and open it: name=, on machine= (left out, this one), write= as home.open. The person's without a name types one", keys: "n, ⏎ or a click on its row",
     touches: "screen", replay: "ask",
     args: { name: { type: "string", about: "the new outline's name", optional: true }, machine: { type: "string", about: "an ssh config name", optional: true }, write: WRITE },
     run({ name, machine, write }, { pane, desk }, actor) { return make(pane as HomePane, desk, name, machine, write, actor); },
   }),
   "home.import": def({
-    summary: "import a database (.sqlite on this machine) as a new outline and open it: path=, name=, write= as home.open. The person's types them", keys: "i click",
+    summary: "import a database (.sqlite on this machine) as a new outline and open it: path=, name=, write= as home.open. The person's types them", keys: "i, ⏎ or a click on its row",
     touches: "screen", replay: "ask",
     args: { path: { type: "string", about: "the database file", optional: true }, name: { type: "string", about: "the new outline's name", optional: true }, write: WRITE },
     run({ path, name, write }, { pane, desk }, actor) { return importDb(pane as HomePane, desk, path, name, write, actor); },
@@ -460,7 +460,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     run({ machine }, { pane, desk }) { return connect(pane as HomePane, desk, machine); },
   }),
   "home.add": def({
-    summary: "add a machine to the home base (and connect to it): machine=. The person's picks one from ~/.ssh/config", keys: "a click",
+    summary: "add a machine to the home base (and connect to it): machine=. The person's picks one from ~/.ssh/config", keys: "a, ⏎ or a click on its row",
     touches: "nothing", replay: "ask",
     args: { machine: { type: "string", about: "an ssh config name", optional: true } },
     async run({ machine }, { pane, desk }, actor) {

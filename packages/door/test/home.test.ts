@@ -5,7 +5,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { HOME_ACTIONS } from "../src/home";
 import { hostRequest } from "../src/socket";
+import { declaredKeys } from "../src/surface/actions";
 import { outliner, ScratchHost, scratchDir, until } from "./scratch";
 
 const DOOR = resolve(import.meta.dir, "..");
@@ -71,6 +73,15 @@ class Home {
   }
   async end() { if (this.code === null) { this.proc.kill("SIGTERM"); await until(() => this.code !== null, "the door to end", 10_000); } }
 }
+
+// ⏎ chooses the row under the cursor, whichever it is: an outline, new, import, a machine, add, an offer. Which row the
+// cursor is on depends on when each host answers, so the agent parity probe met each in turn (its ⏎ once ran home.new,
+// whose keys didn't name it): every action a row's ⏎ runs says ⏎, checked here without the timing.
+test("the home base: every action ⏎ on a row runs names ⏎ in its keys", () => {
+  for (const a of ["home.open", "home.new", "home.import", "home.connect", "home.add", "home.cancel"]) {
+    expect([a, declaredKeys(HOME_ACTIONS.def(a)?.keys).has("enter")]).toEqual([a, true]);
+  }
+});
 
 describe.skipIf(!outliner)("the home base", () => {
   test("by keys: n names a new outline, ⏎ makes it, the offer to write .ep0ch is declined, and the door opens on it", async () => {
