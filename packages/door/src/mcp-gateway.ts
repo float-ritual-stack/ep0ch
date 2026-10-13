@@ -14,7 +14,7 @@
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
-import { allowedSubjects, issuerFromPublishableKey } from "@ep0ch/outline-core/signin";
+import { allowedSubjects, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
 import type { HostedOutlineList, HostedOutlineSummary, McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
 import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
@@ -107,6 +107,7 @@ export async function verifyBearer(authorization: string | null, policy: BearerP
 export { issuerFromPublishableKey };
 
 const loopback = (url: URL) => url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+
 
 /**
  * The gateway's settings from its environment, or what's missing, said with what to set. EP0CH_MCP_RESOURCE is one
@@ -365,7 +366,7 @@ export function startGateway(opts: {
       const url = new URL(req.url);
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       if (url.pathname === "/healthz" && req.method === "GET") return json(200, { ok: true });
-      const origin = origins.get((req.headers.get("host") ?? "").toLowerCase());
+      const origin = originOfHost(origins, req.headers.get("host"));
       if (!origin) return json(421, { error: "misdirected", error_description: `this gateway answers ${[...origins.keys()].join(", ")}` });
       // Each MCP path's resource metadata at its own well-known URL (RFC 9728), the bare one the gateway's own.
       const wellKnown = "/.well-known/oauth-protected-resource";

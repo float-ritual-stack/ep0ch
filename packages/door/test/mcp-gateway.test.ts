@@ -125,6 +125,9 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
       expect((await list("mcp.example.test", await token())).status).toBe(200);
       expect((await list("mcp.second.example.test", await token())).status).toBe(401);
       expect((await list("mcp.example.test", await token({ aud: SECOND }))).status).toBe(401);
+      // The https port said outright is the same name; another port isn't.
+      expect((await list("MCP.Second.Example.Test:443", await token({ aud: SECOND }))).status).toBe(200);
+      expect((await list("mcp.second.example.test:8443", await token({ aud: SECOND }))).status).toBe(421);
       // A name it wasn't given: nothing, but its health.
       expect((await list("mcp.elsewhere.example.test", await token())).status).toBe(421);
       expect((await at("/.well-known/oauth-protected-resource", "127.0.0.1")).status).toBe(421);

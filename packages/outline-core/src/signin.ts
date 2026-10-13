@@ -19,3 +19,17 @@ export function issuerFromPublishableKey(key: string): string | undefined {
     return /^[a-z0-9.-]+$/i.test(host) ? `https://${host}` : undefined;
   } catch { return undefined; }
 }
+
+/**
+ * The origin a request's Host header names (PIE-813: one listener, several public names), from origins kept by their
+ * `URL.host` (no default port), or undefined: `name:443` is `name` over https. The web sign-in and the MCP gateway both
+ * pick their origin with it.
+ */
+export function originOfHost(origins: ReadonlyMap<string, string>, header: string | null): string | undefined {
+  const host = (header ?? "").trim().toLowerCase();
+  const exact = origins.get(host);
+  if (exact) return exact;
+  const bare = /^(.*):(443|80)$/.exec(host);
+  const origin = bare ? origins.get(bare[1]!) : undefined;
+  return origin && origin.startsWith(bare![2] === "443" ? "https:" : "http:") ? origin : undefined;
+}

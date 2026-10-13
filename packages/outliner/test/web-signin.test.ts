@@ -192,6 +192,10 @@ test("a second origin signs in as itself: its own callback and cookie, its pages
   // Names it wasn't given: refused before anything else.
   for (const host of ["my.third.example.test", "127.0.0.1:8795"]) expect((await gate.handle(new Request(`${SECOND}/pub/`, { headers: { host } }))).status).toBe(421);
   expect(signInSettings({ EP0CH_WEB_CLIENT_ID: CLIENT_ID, EP0CH_WEB_ISSUER: issuer }, `${ORIGIN},${ORIGIN}/`, "/pub/")).toMatchObject({ error: expect.stringContaining("twice") });
+  // Cookies don't tell ports apart: one name on two ports would share a sign-in, so it's refused.
+  expect(signInSettings({ EP0CH_WEB_CLIENT_ID: CLIENT_ID, EP0CH_WEB_ISSUER: issuer }, `${ORIGIN},${ORIGIN}:8443`, "/pub/")).toMatchObject({ error: expect.stringContaining("twice") });
+  // The https port said outright is the same name.
+  expect((await at(gate, "/pub/o/orchard/", { origin: SECOND, cookie, headers: { host: "my.second.example.test:443" } })).status).toBe(200);
   expect(signInSettings({ EP0CH_WEB_CLIENT_ID: CLIENT_ID, EP0CH_WEB_ISSUER: issuer }, `${ORIGIN},http://my.second.example.test`, "/pub/")).toMatchObject({ error: expect.stringContaining("https") });
 });
 

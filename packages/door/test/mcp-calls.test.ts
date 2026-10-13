@@ -63,7 +63,7 @@ describe.skipIf(!outliner)("calls: a write records its call, call: finds it, a c
       let session: string | null = null;
       const post = async (method: string, params: unknown) => {
         const res = await fetch(gateway.url, { method: "POST", headers: {
-          "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${await jwt()}`,
+          Host: new URL(RESOURCE).host, "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${await jwt()}`,
           ...(session ? { "Mcp-Session-Id": session } : {}),
         }, body: JSON.stringify({ jsonrpc: "2.0", id: rpcId++, method, params }) });
         return { res, body: await res.json() as any };
@@ -185,7 +185,7 @@ describe.skipIf(!outliner)("calls: a write records its call, call: finds it, a c
     const jwt = await new SignJWT({ client_id: CLIENT, scope: "profile" }).setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" })
       .setIssuer(ISSUER).setSubject(PERSON).setAudience(RESOURCE).setIssuedAt().setExpirationTime("5m").sign(signing);
     const bare = async (name: string, args: Record<string, unknown>) => {
-      const res = await fetch(gateway.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` }, body: JSON.stringify({ jsonrpc: "2.0", id: rpcId++, method: "tools/call", params: { name, arguments: args } }) });
+      const res = await fetch(gateway.url, { method: "POST", headers: { Host: new URL(RESOURCE).host, "Content-Type": "application/json", Authorization: `Bearer ${jwt}` }, body: JSON.stringify({ jsonrpc: "2.0", id: rpcId++, method: "tools/call", params: { name, arguments: args } }) });
       return parse(((await res.json()) as any).result);
     };
     expect((await bare("list_outlines", {})).json.call).toBeUndefined();

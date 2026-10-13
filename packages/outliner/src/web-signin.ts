@@ -16,7 +16,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { WEB_SESSION_TTL_MS, type WebSession } from "@ep0ch/outline-core/protocol";
-import { allowedSubjects, ALLOWED_SUBJECTS_ENV, issuerFromPublishableKey } from "@ep0ch/outline-core/signin";
+import { allowedSubjects, ALLOWED_SUBJECTS_ENV, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
 import { escapeHtml, plainPage, type SignedIn } from "./publish";
 
 export const SESSION_COOKIE = "__Host-ep0ch_session";
@@ -45,6 +45,7 @@ export interface SignInSettings {
 
 const loopback = (url: URL) => url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
 
+
 /** The origins in `--signin-url` / EP0CH_WEB_URL: one, or several comma-separated (PIE-813). */
 export const signInOrigins = (value: string) => value.split(",").map((origin) => origin.trim()).filter(Boolean);
 
@@ -56,7 +57,8 @@ export function signInSettings(env: Record<string, string | undefined>, originLi
     try { url = new URL(origin); } catch { return { error: `--signin-url ${origin} isn't a URL (e.g. --signin-url https://my.ep0ch.sh, or several comma-separated)` }; }
     if (url.protocol !== "https:" && !loopback(url)) return { error: `--signin-url must be https (got ${origin})` };
     if (url.pathname !== "/" || url.search || url.hash) return { error: `--signin-url is an origin, with no path (e.g. https://my.ep0ch.sh; got ${origin})` };
-    if (origins.some((known) => new URL(known).host === url.host)) return { error: `--signin-url names ${url.host} twice` };
+    // Cookies are kept by host name, whatever the port: two origins on one name would share a sign-in.
+    if (origins.some((known) => new URL(known).hostname === url.hostname)) return { error: `--signin-url names ${url.hostname} twice (cookies don't tell ports apart)` };
     origins.push(url.origin);
   }
   if (!origins.length) return { error: "--signin-url (or EP0CH_WEB_URL) names no origin (e.g. https://my.ep0ch.sh)" };
@@ -158,7 +160,7 @@ export class SignInGate {
 
   async handle(request: Request): Promise<Response> {
     // Only its own origins' names: a page that rebinds its own name to this listener gets nothing.
-    const origin = this.origins.get((request.headers.get("host") ?? "").toLowerCase());
+    const origin = originOfHost(this.origins, request.headers.get("host"));
     if (!origin) return withGateHeaders(new Response("Host not allowed\n", { status: 421 }));
     const url = new URL(request.url);
     const path = url.pathname;

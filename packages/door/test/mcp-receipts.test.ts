@@ -53,7 +53,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(sub).setAudience(RESOURCE)
     .setIssuedAt().setExpirationTime("5m").sign(signing);
   const callAs = async (sub: string, name: string, args: Record<string, unknown>) => {
-    const res = await fetch(gateway.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token(sub)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }) });
+    const res = await fetch(gateway.url, { method: "POST", headers: { Host: new URL(RESOURCE).host, "Content-Type": "application/json", Authorization: `Bearer ${await token(sub)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }) });
     const r = await res.json() as { result?: any; error?: { message: string } };
     if (r.error) return { isError: true, text: r.error.message, json: null as any };
     const text = (r.result as { content: { text: string }[] }).content[0]!.text;
