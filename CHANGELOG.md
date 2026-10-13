@@ -23,7 +23,8 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** who wrote something is shown persona first everywhere a byline is drawn: the door's message lists,
   readers, river, comments and margin, activity and what-changed, agent flashes (`an agent (kitty · claude-code@float-2)`),
   the web inbox, proposal headers and MCP comment bodies. The principal stays one step away (revisions, receipts).
-- **Run:** nothing. To name a folder's agent, add the line, for example `agent = "loki"` under `ws = "pie"`.
+- **Run:** `ep0ch install --apply` on each machine first (older code refuses an `agent` line in `.ep0ch`), then add the
+  line where you want one, for example `agent = "loki"` under `ws = "pie"`.
 
 ### The mod's text-replacing tools need the revision you read (PIE-631)
 

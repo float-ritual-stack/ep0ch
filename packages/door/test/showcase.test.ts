@@ -81,7 +81,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     const now = (await board.get(note.id))!;
     expect(now.text).toContain(REMOTE_LINE);
     const proposal = (await board.children(note.id)).find(m => m.props.type === "draft-proposal");
-    expect(proposal?.text).toContain("from @mcp:chat.example.test: not applied, because its writer may propose changes here, not make them");
+    expect(proposal?.text).toContain("from @chat.example.test: not applied, because its writer may propose changes here, not make them");
     // Beside the note (PIE-725): its text names no proposal.
     expect(now.text).not.toContain(proposal!.id);
     expect((await board.comments(note.id))).toEqual([expect.objectContaining({ body: "Was that the peat-free kind?", quote: "two bags of compost", open: true })]);
