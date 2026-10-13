@@ -303,7 +303,7 @@ export class EchoAreas implements Pane {
       node: this.desk ? nodeName(ownName(this.desk.ctx), this.machine) : null,
       picked: this.at >= 0 ? this.at + 1 : null,
       areas: this.areas?.map((a, i) => ({ n: i + 1, tag: a.tag, name: a.name, kind: a.kind, at: a.node, from: a.origin, id: a.block?.id ?? null, messages: a.total, new: a.fresh, ...(a.waiting ? { waiting: a.waiting } : {}), lastToss: a.lastToss ? new Date(a.lastToss).toISOString() : null, ...(a.problem ? { problem: a.problem } : {}) })) ?? null,
-      nodelists: this.nodelists.map(l => ({ at: l.node, title: l.title, nodes: l.nodes.map(n => ({ node: n.node, reachable: n.reachable, access: n.access, lastToss: n.lastToss ? new Date(n.lastToss).toISOString() : null, areas: n.areas })), tosses: l.tosses.length })),
+      nodelists: this.nodelists.map(l => ({ at: l.node, title: l.title, nodes: l.nodes.map(n => ({ node: n.node, reachable: n.reachable, dialsIn: n.dialsIn, held: n.held, lastToss: n.lastToss ? new Date(n.lastToss).toISOString() : null, areas: n.areas })), tosses: l.tosses.length })),
       problem: this.problem || undefined,
     };
   }

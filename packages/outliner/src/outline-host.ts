@@ -12,6 +12,7 @@ import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
 import { DOT_EP0CH, formatDotEp0ch, isMachineName, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { grantOf } from "./extension-grants";
 import { forwardFor } from "./machine-forward";
+import { publishes } from "./echonet-mail";
 import { localMachineName } from "./machine-name";
 import { scrubCredentials } from "./resource-extensions";
 import { OutlinerServer } from "./server";
@@ -78,7 +79,7 @@ export interface OutlineHostOptions {
 }
 
 // `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
-const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS]);
+const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS]);
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
 const RELAY_WAIT_MS = 60_000;
 const RELAY_MAX_ANSWER = 64 * 2 ** 20;
@@ -335,6 +336,14 @@ export class OutlineHost {
         return level && level !== "none" ? [{ name, level }] : [];
       }),
     };
+  }
+
+  /**
+   * The outlines here that publish an EchoNet bulletin (ADR 0005): what a `*` mask on another machine may read. Areas
+   * are opt-in by their notes, so this asks nothing of the MCP access level.
+   */
+  private echonetList(): { outlines: Array<{ name: string }> } {
+    return { outlines: this.names().filter(name => publishes(this.layout.folder(name))).map(name => ({ name })) };
   }
 
   /** The access level an outline's owner set (`ep0ch mcp access`), from the open store, else its file read-only. */
@@ -729,7 +738,7 @@ export class OutlineHost {
     if (!grant) throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
     const { machine, outline } = request;
     if (!isMachineName(machine)) throw new Error(`machine must be an ssh config name; got ${JSON.stringify(machine)}`);
-    if (request.action !== "outlines.list" && !isOutlineName(outline)) throw new Error(`a request for another machine names its outline there; got ${JSON.stringify(outline)}`);
+    if (request.action !== "outlines.list" && request.action !== "echonet.list" && !isOutlineName(outline)) throw new Error(`a request for another machine names its outline there; got ${JSON.stringify(outline)}`);
     const { grant: _grant, machine: _machine, ...unscrubbed } = request;
     // Neither its secrets nor its grant leave this machine, wherever in the request they were put.
     const rest = scrubCredentials(unscrubbed, [...grant.secrets, String(request.grant)]) as typeof unscrubbed;
@@ -791,8 +800,10 @@ export class OutlineHost {
     }
     if (request && HOST_ACTIONS.has(String(request.action)) && (request.relayed !== undefined || request.machine !== undefined)) {
       // Which outlines here another machine's extensions may ask: the list, through the relay, and nothing else of the host's.
-      if (request.action === "outlines.list" && request.machine !== undefined && request.grant !== undefined) await this.relay(socket, request).catch(fail);
+      const listing = request.action === "outlines.list" || request.action === "echonet.list";
+      if (listing && request.machine !== undefined && request.grant !== undefined) await this.relay(socket, request).catch(fail);
       else if (request.action === "outlines.list" && request.relayed !== undefined) this.reply(socket, { id, ok: true, result: this.listForRelay(), sequence: 0 });
+      else if (request.action === "echonet.list" && request.relayed !== undefined) this.reply(socket, { id, ok: true, result: this.echonetList(), sequence: 0 });
       else fail(new Error(`${String(request.action)} is the host's, not an outline's: another machine's extension doesn't ask it`));
       return;
     }
@@ -850,6 +861,7 @@ export class OutlineHost {
   private handleHostAction(request: Record<string, unknown>): Promise<unknown> | unknown {
     switch (request.action) {
       case "outlines.list": return this.list();
+      case "echonet.list": return this.echonetList();
       case "outlines.create": return this.create(request.name, request.about);
       case "outlines.import": return this.importDatabase(request.path, request.name);
       case "outlines.attach": return this.attach(request.name, request.create === true);

@@ -8,6 +8,7 @@ import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
 import { PROTOCOL, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
 import { DraftPatchRouter, type DraftHolderAsk } from "./draft-patch-router";
@@ -138,7 +139,7 @@ import {
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
 import { ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { dialsIn, localMachineAliases, localMachineName } from "./machine-name";
-import { echonetCallMayWrite } from "./echonet-scope";
+import { ECHONET_MAIL_ACTIONS, putPacket, readBulletin, takePackets } from "./echonet-mail";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
 const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
@@ -1959,6 +1960,22 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action === "echonet.bulletin" || request.action === "echonet.put" || request.action === "echonet.take") {
+      try {
+        if (!this.outlinesFolder || !this.outline?.name) throw new Error(`${request.action} is served by an outline host, for a named outline`);
+        const folder = outlineLayout(this.outlinesFolder).folder(this.outline.name);
+        let result: unknown;
+        if (request.action === "echonet.bulletin") result = { bulletin: readBulletin(folder) };
+        else if (request.action === "echonet.take") result = takePackets(folder, request.for, request.ack);
+        else {
+          result = putPacket(folder, request.from, request.packet);
+          this.tossOnArrival();
+        }
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     if (request.action === "notes.address" || request.action === "notes.render") {
       try {
         let result: NoteAddress | RenderedNote;
@@ -2403,6 +2420,9 @@ export class OutlinerServer {
         case "extensions.uninstall":
         case "extensions.undo":
         case "extensions.args":
+        case "echonet.bulletin":
+        case "echonet.put":
+        case "echonet.take":
         case "notes.address":
         case "notes.render":
         case "shares.start":
@@ -3731,6 +3751,18 @@ export class OutlinerServer {
     this.broadcast({ id: crypto.randomUUID(), domain: "shares", action: "shares.changed", sequence: this.store.sequence });
   }
 
+  /**
+   * A packet arrived: this outline's tosser imports it now, as its scheduled toss would (one toss at a time; one that is
+   * running finishes first, and the packet waits for the toss after it).
+   */
+  private tossOnArrival(attempt = 0): void {
+    // Tests toss by hand, so what each toss carried is theirs to check.
+    if (process.env.EP0CH_ECHONET_ARRIVAL_TOSS === "0") return;
+    void this.extensionSchedules.runNow("echonet", "action:toss").catch((error: unknown) => {
+      if (attempt < 3 && /running now/.test(error instanceof Error ? error.message : String(error))) setTimeout(() => this.tossOnArrival(attempt + 1), 20_000).unref?.();
+    });
+  }
+
   /** A note's address (PIE-767): the outline, this machine, its `ep0ch://` URI and where it is published. */
   private async noteAddress(blockId: string | undefined): Promise<NoteAddress> {
     const outline = this.outline?.name;
@@ -3763,7 +3795,9 @@ export class OutlinerServer {
     // Secrets are this machine's, for its own extensions: another machine's never asks for them.
     if (grant.relayed && action === "secrets.group") throw new Error(`${actor.actorId} runs on another machine: secrets.group is for this machine's own extensions`);
     // Asking an outline's access level is what finds out what it allows.
-    if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant, rest as Record<string, unknown>);
+    // EchoNet's mail is a node's, never an agent's (ADR 0005): it writes no block, and the access level doesn't hold it.
+    if (ECHONET_MAIL_ACTIONS.has(action)) return rest as OutlinerRequest;
+    if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant);
     if (!EXTENSION_WRITES.has(action)) {
       if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
@@ -3820,7 +3854,7 @@ export class OutlinerServer {
    * owner never set one stays open to the host's extensions, as before (readwise's board outline, for one). It holds
    * the grant, not the process: a request without one is any client's, and the socket has no per-client access.
    */
-  private crossOutlineAccess(action: string, grant: ExtensionGrant, request: Record<string, unknown> = {}): void {
+  private crossOutlineAccess(action: string, grant: ExtensionGrant): void {
     const level = this.grantedLevel(grant);
     if (level === "full") return;
     const here = this.outline!.name;
@@ -3829,9 +3863,7 @@ export class OutlinerServer {
     const need = !writes ? "read" : marks ? "propose" : "full";
     const allowed = (level === "propose" && need !== "full") || (level === "read" && need === "read");
     if (allowed) return;
-    // A node that dials in does this outline's EchoNet toss for it (PIE-562): at propose, only what that toss writes.
-    if (level === "propose" && grant.relayed && grant.extensionId === `echonet@${grant.outline}` && grant.outline
-      && echonetCallMayWrite(action, request, grant.outline, (id) => this.store.get(id) ?? undefined)) return;
+
     throw new Error(`${extensionActorId(grant.extensionId)} runs for ${grant.outline}, and ${here} grants other outlines ${level}: ` +
       `${action} needs ${need} (its owner runs \`ep0ch mcp access ${need} --ws ${here}\`)`);
   }

@@ -2403,6 +2403,14 @@ export type OutlinerRequestAction =
     }
   /** Compare-and-swap on spans of notes' text (capability `draft.patch`). */
   | ({ id: string; action: "draft.patch" } & DraftPatchInput)
+  /**
+   * EchoNet's mail (ADR 0005, src/echonet-mail.ts): the outline's bulletin (what its areas publish, or null), a packet
+   * handed to it for its own tosser to import, and the packets it holds for a node that dials in (taken, then `ack`ed).
+   * They write no block and read no access level.
+   */
+  | { id: string; action: "echonet.bulletin" }
+  | { id: string; action: "echonet.put"; from: string; packet: unknown }
+  | { id: string; action: "echonet.take"; for: string; ack?: string[] }
   /** "Apply anyway": a proposal block's patch as an ordinary edit (capability `draft.proposal.apply`). */
   | { id: string; action: "draft.proposal.apply"; proposalId: string; mutation: MutationProvenance }
   /** Dismiss a proposal without applying it (capability `draft.proposal.dismiss`). */

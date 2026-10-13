@@ -1,6 +1,6 @@
 ---
 name: echonet
-description: Use when someone wants notes from one ep0ch outline to show up in another (on this machine or another), when setting up, checking or fixing EchoNet - areas, subscriptions, node masks, the nodelist, netmail, a toss that copied nothing, an unreachable or refused node, a protocol mismatch, undeliverable netmail - or when they say "echo", "subscribe to", "carry X into pie", "recon from every outline". Covers what EchoNet is (copies that drift, named views as areas), the exact properties, masks and dotted names, access levels, installing it, checking a toss, the common setups, troubleshooting, and a worked setup from the outline tools alone.
+description: Use when someone wants notes from one ep0ch outline to show up in another (on this machine or another), when setting up, checking or fixing EchoNet - areas, subscriptions, node masks, the nodelist, netmail, a toss that copied nothing, an unreachable or refused node, a protocol mismatch, undeliverable netmail - or when they say "echo", "subscribe to", "carry X into pie", "recon from every outline". Covers what EchoNet is (copies that drift, named views as areas), the exact properties, masks and dotted names, what consents (the notes, never the MCP access level), installing it, checking a toss, the common setups, troubleshooting, and a worked setup from the outline tools alone.
 ---
 
 # echonet: outlines as nodes, copies that drift
@@ -52,32 +52,26 @@ What the tosser writes (never edit these by hand; they're rewritten or read back
   `ext.echonet.take-newer` / `ext.echonet.compare-newer` on the copy; from a shell `ep0ch ext act echonet take-newer --block <id>`.
 - On the original: one **seen-by** mark per node ("also in: cafe@float-2 (…)"), never a text change.
 - **Netmail**: a comment, highlight or reply on a copy goes to the original as a comment (`via=echonet:<node>`); a
-  reply there comes back into the copy's thread. Netmail to an original that's gone is tried 3 tosses (config
+  reply there comes back into the copy's thread from that node's next bulletin. Netmail to an original that's gone is tried 3 tosses (config
   `undeliverableAfter`), then becomes an **undeliverable** note beside the copy (`[type::echo-undeliverable]`), and
   that mark is never sent, even if the original comes back.
 - **Nodelist** `[type::nodelist]`: this node, the nodes it reads (a board each) and the ones that read it (their
-  seen-by marks), reachable or not and why, access, areas, subscriptions, last toss. Under it, a **toss log** per run (`[type::toss]`, counts as properties, the why in its
+  seen-by marks), reachable or not and why, netmail held for it, areas, subscriptions, last toss. Under it, a **toss log** per run (`[type::toss]`, counts as properties, the why in its
   text) and the **ledger** (`[type::echo-ledger]`).
 
 Copies never post: a note with an EchoNet `from` is never a message, so two outlines reading each other don't bounce,
 and a mark that came over the network never goes out again.
 
-## Access: one rule, the origin's own
+## How it moves, and what consents
 
-`ep0ch mcp access none|read|propose|full --ws <outline>` (add `--machine <ssh-name>` for another machine's outline).
-It's the same level the MCP gateway and shares use: raising it for EchoNet raises it for MCP clients too, so say so
-before suggesting a change.
+Nodes mail; they never write each other's notes (ADR 0005, `docs/adr/0005-agents-act-nodes-mail.md`):
 
-| Level | A subscriber may |
-|---|---|
-| `none` | nothing (refused) |
-| `read` | copy (no seen-by, netmail queues saying it needs propose) |
-| `propose` | copy, seen-by, netmail (comments only, never a change to a note) |
-| `full` | the same, plus any write (EchoNet never needs it) |
-
-On the **same machine**, an outline whose owner never set a level is open to the host's extensions. From **another
-machine** an unset level is `none`, and `*@<machine>` lists only the outlines there that set one. So an outline
-offered across machines needs a level set; `propose` is the usual one.
+- Each tosser writes its node's **bulletin** (`<outlines>/<name>/echonet/bulletin.json`): its areas' messages and what
+  copies elsewhere need. A subscriber copies from it, so a new note reaches readers after its own outline has tossed.
+- Seen-by and netmail travel as **packets** to the origin's `echonet/inbound/`; the origin's own tosser imports them
+  (at its next toss, which a packet's arrival sets off), only onto notes it publishes.
+- What consents is the notes: an area offers, a subscription asks. **EchoNet never reads `ep0ch mcp access`**: that
+  level is for agents, and changing it for EchoNet would be the collapse ADR 0005 forbids. Don't suggest it.
 
 ## Installing and running
 
@@ -92,11 +86,11 @@ offered across machines needs a level set; `propose` is the usual one.
   own `ep0ch status` isn't the host to reach (an old `ep0ch` on its login PATH, a second host), name its outlines
   folder: `<outlines>/.remote/<ssh-name>.json` with `{ "outlines": "/abs/path/to/outlines" }`.
 - **A machine that dials in** (a laptop whose inbound ssh is off or gated, which can still ssh out): on it,
-  `ep0ch install --apply --machine-name <ssh-name> --dials-in`. Its toss then calls each node on another machine that
-  reads it and does that node's toss for it (its areas into their subscriptions, netmail both ways), and needs that
-  node to grant `propose`, at which its host lets the call write only what that node's own toss would. The other machine never ssh's to it once
-  it has called; to say so before the first call, `"dialsIn": true` in its `<outlines>/.remote/<ssh-name>.json`
-  (`false` calls it again). Its `ep0ch ext add echonet --outline-folder …` copy must be this version on both machines.
+  `ep0ch install --apply --machine-name <ssh-name> --dials-in`. Its toss then calls each node on another machine it
+  knows: it takes the packets held there for it and leaves its bulletin. The other machine never ssh's to it once it
+  has called, copies from the bulletin it left, and holds what it packs for it (`echonet/outbound/<node>/`) until the
+  next call; to say so before the first call, `"dialsIn": true` in its `<outlines>/.remote/<ssh-name>.json` (`false`
+  calls it again). Its `ep0ch ext add echonet --outline-folder …` copy must be this version on both machines.
 
 ## Checking a toss
 
@@ -104,9 +98,11 @@ offered across machines needs a level set; `propose` is the usual one.
 2. The last toss log (`outline_find` with `query: "type=toss"`; its `[at::]` says when): each node with a board, or
    named outright, has a line saying what it saw, copied, held back, refused or couldn't reach; the netmail lines say
    what went out, came in or queued and why. A `*` mask's nodes without a matching area aren't said.
-3. The nodelist: `## <node>` sections, `- reachable · access <level>`, `- unreachable: <why>`, or `- dials in · last
-   call <when>` with `- netmail held: n` (a node that calls; never down).
-4. In the offering outline: `ep0ch echo areas --ws <origin>` lists its areas; a seen-by mark on an original says it
+3. The nodelist: `## <node>` sections, `- reachable`, `- unreachable: <why>`, or `- dials in · last call <when>` with
+   `- netmail held: n` (a node that calls; never down).
+4. On the receiving side, the toss log's `## imported` lists each packet item with the note it landed on, and what was
+   `dropped` and why (an item about a note it doesn't publish, a bulletin no subscription reads).
+5. In the offering outline: `ep0ch echo areas --ws <origin>` lists its areas; a seen-by mark on an original says it
    reached a node.
 
 ## Troubleshooting
@@ -115,14 +111,12 @@ offered across machines needs a level set; `propose` is the usual one.
 |---|---|---|
 | `copies 0` on the first toss of a new subscription, and `[since::…]` appeared on it | it reads from now | `[since::all]` on the subscription, toss again |
 | `no area there named X` | the origin offers no view or posting with that name | tag the view `[echo::X]` there, or fix the mask |
-| `matches no node` | the mask found nothing (another machine lists only outlines with a level) | set a level there, check the machine name |
-| `refused (… grants none …)` | the origin's level is none (or unset across machines) | the owner runs the command it names |
-| `grants read; netmail needs propose` | copies come, marks queue | `ep0ch mcp access propose --ws <origin>` if they want marks to travel |
-| `unreachable: …` (ssh, no host answers, a timeout) | that machine is off, asleep or its host is down | nothing: netmail queues and the next toss delivers. Check `ssh <machine> ep0ch status` |
+| `matches no node` | the mask found nothing (another machine lists only the outlines that publish a bulletin) | toss that outline once there (`ep0ch echo toss --ws <it>`), check the machine name |
+| `publishes no bulletin` | EchoNet isn't installed there, or it hasn't tossed yet | install it there, or toss it once |
+| `unreachable: …` (ssh, no host answers, a timeout) | that machine is off, asleep or its host is down | nothing: its packets wait here and the next toss hands them over. Check `ssh <machine> ep0ch status` |
 | `protocol mismatch: … update <machine> (…)` | the two hosts run different versions | run the command it names on that machine (`ep0ch install --apply`) |
-| `waiting for <node> to call in (last call …)`, `held n` | that machine dials in: it's never called from here | nothing: its next toss calls and carries both ways. No call for long: on that machine, `ep0ch echo toss --ws <its outline>` and read its log's `## calls` |
-| on the machine that dials in, `grants read, and a call needs propose` | the node it calls lets it read only | there: `ep0ch mcp access propose --ws <outline>` |
-| `## delivered here by other nodes` in a toss log | netmail and seen-by that other nodes' tosses or calls left here since the last toss | nothing: it's counted in `netmail-in` |
+| `it dials in: last call …`, `held n` | that machine dials in: it's never called from here | nothing: its next toss calls, takes what is held and leaves its bulletin. No call for long: on that machine, `ep0ch echo toss --ws <its outline>` and read its log's `## calls` |
+| `dropped` in a toss log | a packet item about a note this outline doesn't publish, or a bulletin no subscription here reads | nothing, unless it should land: tag the note into an area, or subscribe to that node |
 | `couldn't be listed` for a machine | a `*` mask couldn't ask that machine | as unreachable; or name the outline outright |
 | `[waiting::n]` on a board | the cap held back n | wait for the next tosses, or raise `[cap::]` |
 | an undeliverable note | the original was trashed or deleted upstream | read it; the comment stays on the copy. Restore the original there if it was a mistake (new comments go; that one stays) |
@@ -133,8 +127,7 @@ offered across machines needs a level set; `propose` is the usual one.
 ## Common setups
 
 - **ep0ch requests into pie** (from the gurgle on float-2 and float-hub on the laptop): in each source, tag the view or
-  the notes that hold the requests `[echo::ep0ch.requests]` (in the gurgle a view `[query::#pie-request]` does it);
-  float-hub sets `ep0ch mcp access propose --ws float-hub` on the laptop. In pie: `ep0ch echo subscribe '*@*'
+  the notes that hold the requests `[echo::ep0ch.requests]` (in the gurgle a view `[query::#pie-request]` does it). In pie: `ep0ch echo subscribe '*@*'
   ep0ch.requests --ws pie --title "ep0ch requests"`.
 - **Recon from every outline**: each outline tags its recon view `[echo::recon]` (or `ep0ch.recon.<topic>`); the
   reader writes `[subscribe::*@*] [echo::recon]` (or `ep0ch.recon.*`). Each source gets its own board.

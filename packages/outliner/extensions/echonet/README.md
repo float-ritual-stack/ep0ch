@@ -3,17 +3,20 @@
 Each outline is a node, named `outline@machine`, on a FidoNet-style network. Nothing is synced. A node copies the
 messages of the areas it subscribes to, carries marks back to where they came from as netmail, and keeps a nodelist.
 A copy is a photocopy sent to a friend: it takes on a life of its own here, and replies still find their way home.
-Built only from what any extension has: a scheduled action and a connection to the outline host, which reaches the
-outlines it serves and, through the shared ssh forward, outlines on other machines.
+Nodes mail, they never write each other's notes ([ADR 0005](../../../../docs/adr/0005-agents-act-nodes-mail.md)): each
+node's tosser publishes a **bulletin** (what its areas offer) and hands **packets** (netmail, seen-by) to the nodes
+whose notes they are about; each outline's own tosser writes its own notes, from the bulletins it reads and the packets
+it was handed, and only where its own notes ask. The host carries the mail (`src/echonet-mail.ts`), to the outlines it
+serves and, through the shared ssh forward, to other machines.
 
 ```text
 shack@float-2 (origin)                                cafe@float-2 (subscriber)
 Recon [type::virtual-branch] [query::type=recon]      Recon from the shack [subscribe::shack@float-2] [echo::recon]
       [echo::recon]                                     └─ shack@float-2 [echo-source::shack@float-2]
-Recon: flaky cron on larder [type::recon]  ── toss ─▶        └─ Recon: flaky cron on larder [type::recon]
-  ◀── seen-by mark: "also in: cafe@float-2"                       [from::shack@float-2/<id>] [echo::recon] [from-rev::3] [tossed::…]
-  ◀── netmail: the cafe's comment, via echonet:…                  a comment here, and the shack's reply under it
-  ── a reply written here ─────────────────────────▶
+Recon: flaky cron on larder [type::recon]  ── bulletin ─▶     └─ Recon: flaky cron on larder [type::recon]
+  ◀── packet: seen-by "also in: cafe@float-2"                    [from::shack@float-2/<id>] [echo::recon] [from-rev::3] [tossed::…]
+  ◀── packet: netmail, the cafe's comment                        a comment here, and the shack's reply under it
+  ── a reply written here, in the next bulletin ─▶
 ```
 
 ## The shapes
@@ -59,33 +62,48 @@ Recon: flaky cron on larder [type::recon]  ── toss ─▶        └─ Reco
   (cleared if it comes back). The copy's text is never written by a toss. Two actions on a copy take the newer
   version when the person asks: **take-newer** replaces its text (its own edits stay in its history), and
   **compare-newer** proposes the original's text beside it, the difference drawn, to apply or dismiss.
+- **A bulletin** is what a node publishes, written by its tosser at every toss (`<outlines>/<name>/echonet/
+  bulletin.json`): its areas' messages and the notes under them, the originals other nodes hold copies of (so they can
+  tell newer from gone), the netmail threads on those, and who left seen-by. A subscriber copies from it, never from
+  the node's notes, so what it sees is the node as of its last toss.
+- **A packet** is what one node hands another (`echonet/inbound/` there): seen-by marks and netmail for that node's
+  originals, and, from a node that dials in, its bulletin. The receiving tosser imports it as its own write: an item
+  about a note it doesn't publish is logged and dropped (`dropped` in the toss log), and a bulletin no subscription
+  there reads is dropped too. The subscription and area notes are the whole consent.
 - **Seen-by**: one whole-note mark on the original per node it reached (`kind=echo-seen-by`, `echo.node`), "also in:
-  cafe@float-2 (Recon from the shack)". The original's text is never touched.
-- **Netmail**: a highlight, comment or reply on a copy is carried to the original as a comment (at the same words
-  when they're still there; else on the whole note, quoting them) with `via=echonet:<node>`,
+  cafe@float-2 (Recon from the shack)", written by the origin's tosser from the packet. The original's text is never
+  touched.
+- **Netmail**: a highlight, comment or reply on a copy goes in a packet and lands on the original as a comment (at the
+  same words when they're still there; else on the whole note, quoting them) with `via=echonet:<node>`,
   `netmail-from=<node>/<mark id>` and `netmail-author`. A reply written on that thread in the origin comes back into
-  the copy's thread the same way. Netmail to an original that's gone is tried for 3 tosses (config
+  the copy's thread from the origin's next bulletin. Netmail to an original that's gone is tried for 3 tosses (config
   `undeliverableAfter`), then left as an **undeliverable** note beside the copy (`[type::echo-undeliverable]
   [netmail::<mark>]`), never a queue that grows forever.
 - **Nodelist**: `Nodelist [type::nodelist] [node::…] [last-toss::…]`, written again at every toss: each known node
   (this one, the ones it reads, the ones that read it), reachable or not and why (another protocol says which machine
-  to update and how), its access, areas and subscriptions, its last toss. Under it, a **toss log** per run
-  (`[type::toss]` with `copies`, `waiting`, `updated`, `gone`, `skipped`, `netmail-out`, `netmail-in`, `queued`,
-  `held`, `undeliverable`) and the **ledger** (`[type::echo-ledger]`): each mark carried and where it went, and the
-  last call of each node that dials in.
+  to update and how), the netmail held for it, its areas and subscriptions and its last toss (from its bulletin).
+  Under it, a **toss log** per run (`[type::toss]` with `copies`, `waiting`, `updated`, `gone`, `skipped`,
+  `netmail-out` (packed here), `netmail-in` (imported or carried in here, whoever handed it over), `seen-by-in`,
+  `queued`, `held`, `undeliverable`, `dropped`; an `## imported` section lists each item with the note it landed on)
+  and the **ledger** (`[type::echo-ledger]`): each mark packed or carried, and the last call of each node that dials
+  in.
 
-## Offline, access and conflicts
+## Offline, consent and conflicts
 
-- **Offline is normal.** A node on another machine is asked through this node's host, which sends the request
-  through the ssh forward the clients share. A machine or host that doesn't answer is unreachable for this toss: its
-  copies stay as they are, and netmail for it stays here, counted as queued, until a toss reaches it. `config.json`'s
-  `offline` shuts a lid on purpose. A machine whose outlines aren't where its login `ep0ch status` says gets a file
-  beside its forward, `<outlines>/.remote/<machine>.json`: `{ "outlines": "/abs/folder/there" }`.
-- **One access rule**: the origin's own (`ep0ch mcp access none|read|propose|full --ws <outline>`). `none` refuses,
-  `read` lets a node copy, `propose` and `full` also let it leave marks there (seen-by and netmail). On this machine
-  an outline whose owner never set a level is open to the host's extensions; on another machine it is `none`, and only
-  outlines that set a level are listed to a `*` mask. What a node writes on another machine reads
-  `ext:echonet@<its node>`.
+- **Offline is normal.** A node's bulletin and its packets go through this node's host, and through the ssh forward
+  the clients share to another machine. A machine or host that doesn't answer is unreachable for this toss: its copies
+  stay as they are, and the packets for it wait in `echonet/outbound/<node>/`, counted as queued, until a toss reaches
+  it. `config.json`'s `offline` shuts a lid on purpose. A machine whose outlines aren't where its login `ep0ch status`
+  says gets a file beside its forward, `<outlines>/.remote/<machine>.json`: `{ "outlines": "/abs/folder/there" }`.
+- **Consent is the notes, not the MCP access level** ([ADR 0005](../../../../docs/adr/0005-agents-act-nodes-mail.md)).
+  An area offers (it is in the bulletin only because a view or note says `[echo::]`), a subscription asks (a packet's
+  bulletin is kept, and copies made, only under one that names the node), and a packet lands only on a note its
+  receiver publishes. `ep0ch mcp access` is for agents: EchoNet never reads it, so an outline at `none` for agents
+  still mails. A `*` mask on another machine reads the outlines there that publish a bulletin (`echonet.list`).
+  Everything a tosser writes is its own outline's, as `ext:echonet`, with its source in `from`, `via` and
+  `netmail-from`.
+- **One toss at a time** per outline: the schedule, a packet's arrival (the host starts the receiver's toss) and `ep0ch
+  echo toss` share a lock beside the bulletin, and a second waits for the first.
 - **One name per machine.** A node's machine is the name its person gave it: `<outlines>/.host/machine-name`
   (`ep0ch install --apply` asks once, or `--machine-name <name>`; `EP0CH_MACHINE_NAME` overrides it), else its host
   name. Give it the ssh name other machines reach it by. A machine named after its marks were made under its host
@@ -111,41 +129,26 @@ In the door, the EchoNet screen (`ep0ch --screen echonet`) reads the areas as me
 
 A laptop whose inbound ssh is off (a work policy, or gated by hand) can still ssh out. Mark it as the one that calls,
 on it: `ep0ch install --apply --machine-name laptop --dials-in` (`<outlines>/.host/dials-in`; `--no-dials-in` undoes
-it). Then its toss, after its own subscriptions, **calls** each node on another machine that reads it or holds its
-copies (`float-hub@laptop` calls `pie@float-2`), through the relay and held to that node's access level, and does that
-node's toss for it:
+it). Nothing can hand it anything, so each of its tosses **calls** every node on another machine it knows (the ones
+that read it, the ones it reads, the ones that publish there): it **takes** the packets that node holds for it
+(netmail and seen-by on its originals, `echonet.take`, kept here before they are acknowledged), imports them as any
+packet, and at the end **leaves its bulletin** there (`echonet.put`), with what it packed for that node.
 
-- its areas' new messages go into that node's subscriptions that name it (`[subscribe::float-hub@laptop]`, or a mask
-  that matches it), on the same source board, with the same `since`, `cap`, seen-by and markers that node's own toss
-  would write; they read `ext:echonet@float-hub@laptop`;
-- netmail both ways: comments written there on its copies come down to the originals here, and replies written here
-  go back up into their threads. (Its own comments on its copies of pie's notes go up by its own subscription, as
-  before.)
-- `call float-hub@laptop -> <time>` in that node's ledger, with `aka <old name> -> float-hub@laptop` for each name it
-  went by (it is never reached to be asked, so its old-name marks there stay one node's), and a toss log `Call from float-hub@laptop …
-  [call::pie@float-2]` under its nodelist.
-
-A call needs that node to grant `propose` (`ep0ch mcp access propose --ws pie` on float-2), and at `propose` its host
-lets a call write only what that node's own toss would (`src/echonet-scope.ts`): under the subscriptions that name the
-caller (or a mask that matches it; a `@page` list doesn't count), the subscription's own `since`, the ledger, and a
-`[type::toss] [node::<caller>]` log under the nodelist; netmail and seen-by are marks. Anything else needs `full`.
-A node that called in the last 10 minutes has its sources left to it by this node's toss (two at once would each
-copy), and each toss log lists the netmail and seen-by others delivered since the last one (`## delivered here by
-other nodes`), whoever carried them.
-
-The node it calls learns from the `call` line that the machine dials in, and never ssh's to it again: its toss says
-`waiting for float-hub@laptop to call in (last call …)` as status, never an error, and the nodelist shows
-`- dials in · last call 2026-10-12 14:02 UTC` with `- netmail held: n`, the comments waiting there for the next call
-(the door's nodelist says `DIAL`, never `DOWN`). Nothing queues beyond those marks. `<outlines>/.remote/laptop.json`
-on float-2 can say it outright: `{ "dialsIn": true }` before the first call, `false` to call it again whatever the
-ledger learned. Both hosts need protocol 153, and each outline's echonet copy this version (`ep0ch ext add echonet
---outline-folder <outlines>/<name>` again updates it).
+The node it calls (`pie@float-2`) learns from that packet that the machine dials in (`call float-hub@laptop -> <time>`
+in its ledger, with `aka <old name> -> float-hub@laptop` for each name it went by) and never ssh's to it again. Its own
+toss copies from the bulletin the laptop left, into its own subscriptions that name the laptop, exactly as from any
+bulletin; what it packs for the laptop waits in `echonet/outbound/float-hub@laptop/` until the next call takes it.
+The nodelist shows `- dials in · last call 2026-10-12 14:02 UTC` with `- netmail held: n` (the door's nodelist says
+`DIAL`, never `DOWN`). Nothing grows beyond those packets. `<outlines>/.remote/laptop.json` on float-2 can say it
+outright: `{ "dialsIn": true }` before the first call, `false` to call it again whatever the ledger learned. Both hosts
+need protocol 154, and each outline's echonet copy this version (`ep0ch ext add echonet --outline-folder
+<outlines>/<name>` again updates it).
 
 ### Troubleshooting: a node shows under two names
 
 The nodelist has `## float-hub@laptop` and `## float-hub@evans-MacBook-Pro.local`, or an original has two seen-by
 marks from one outline: that machine signs with its host name while this one reaches it as `laptop`. Name it as the
 others reach it, on that machine: `ep0ch install --apply --machine-name laptop` (from here, `ssh laptop ep0ch install
---apply --machine-name laptop`). Both hosts need the same version (protocol 152 or later, the same on both). The next toss there signs as
+--apply --machine-name laptop`). Both hosts need the same protocol. The next toss there signs as
 `float-hub@laptop`; the next toss here learns the old name from it, lists it under `## float-hub@laptop` as
 `- also known as:`, and counts the old marks as that node's.
