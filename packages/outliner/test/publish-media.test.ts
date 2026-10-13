@@ -170,6 +170,13 @@ test("an artifact runs only where its note is shown: never under [publish::never
   expect((await get(`/p/${open.id}/artifact/1`)).status).toBe(200);
   expect((await get(`/p/${locked.id}/artifact/1`)).status).toBe(404);
   expect((await get(`/share/p/${open.id}/artifact/1`, "public")).status).toBe(404);
+  // A React one this publisher can't compile (it has no artifact cache) says so in its frame: a page its note may frame.
+  writeFileSync(join(workspace, "pad.jsx"), "export default () => null;");
+  const pad = store.create("Pad [publish::pad]\n[artifact::pad.jsx]");
+  const failed = await get(`/p/${pad.id}/artifact/1`);
+  expect(failed.status).toBe(503);
+  expect(failed.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
+  expect(await failed.text()).toContain("Not compiled");
   // An image route never runs an artifact, nor an artifact route an image.
   expect((await get(`/p/${open.id}/media/1`)).status).toBe(404);
 });

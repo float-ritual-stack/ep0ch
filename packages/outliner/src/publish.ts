@@ -566,6 +566,8 @@ const SHARES_CSP = READER_CSP;
  * this publisher's index with the viewer's credentials.
  */
 const ATTACHED_HTML_CSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads";
+/** An artifact line's page that can't run (a compile error, no compiler): the publisher's own words, framed in its note (PIE-793). */
+const ARTIFACT_FAILED_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox";
 
 function respond(body: string, contentType: string, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(body, { status, headers: { ...COMMON_HEADERS, "content-type": contentType, ...extra } });
@@ -1737,7 +1739,7 @@ export class Publisher {
     const read = await this.readArtifact(spec, policy);
     if (!read) return notFound();
     const title = artifactTitle(spec, read.text);
-    const failed = (body: string, status: number) => renderedHtml(htmlPage(title, `<article>\n${body}</article>\n`, escapeHtml(title)), status);
+    const failed = (body: string, status: number) => renderedHtml(htmlPage(title, `<article>\n${body}</article>\n`, escapeHtml(title)), status, ARTIFACT_FAILED_CSP);
     const sourceHref = `${share?.base ?? this.basePathFor(audience)}${artifactPagePath(blockId, line)}?view=source`;
     return this.artifactResponse(title, read.type, read.path, read.text, view, sourceHref, failed);
   }
@@ -1748,7 +1750,8 @@ export class Publisher {
     const check = checkAttachment(spec.path, policy);
     if (!check.ok || (check.type !== "html" && check.type !== "react" && check.type !== "svg" && check.type !== "mermaid")) return null;
     const contents = await this.client.request<FileContents>({ action: "files.read", path: check.path }).catch(() => null);
-    if (!contents || contents.absolutePath !== check.path) return null;
+    // The file read is the one checked: a file changed or swapped since (a link put in its place) is not served.
+    if (!contents || contents.absolutePath !== check.path || contents.revision.size !== String(check.size) || contents.revision.mtimeNs !== check.mtimeNs) return null;
     return { type: check.type, path: check.path, text: contents.text };
   }
 

@@ -1622,7 +1622,7 @@ export class NoteSurface {
       callout: this.calloutHook(m, lines, points, drawn),
       image: this.imageHook(m, lines, drawn),
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
-      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, path => src.board.readFile(path), () => src.redraw()) } : {}),
+      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: path => src.board.readFile(path), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.folded, selected: this.foldSel },
       link: (block, x, figure) => tagged(drawn, { block, role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
