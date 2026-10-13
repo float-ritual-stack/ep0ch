@@ -81,19 +81,30 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     // The other tile has the keys: j there doesn't type into the edit.
     key(char("j"));
     expect(d.text).toBe("Plant the leeks today\nin the far bed");
-    // A click back on the edit's tile: in it again, typing where the cursor was, with no e.
-    D().render(D().ctx);
-    const [, r] = (D().hits as [number, { col: number; row: number; cols: number; rows: number }][]).find(([t]) => D().nameOf(t) === name)!;
-    key({ kind: "mouse", action: "down", button: 0, x: r.col + 1, y: r.row });
-    key({ kind: "mouse", action: "up", button: 0, x: r.col + 1, y: r.row });
+    // A click back in the edit's text (on its second line, away from the cursor): in it again, typing where the cursor
+    // was, with no e.
+    const screen = () => (app as any).stack.at(-1).render(app).lines.map((l: string) => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")) as string[];
+    const at = (text: string) => { const rows = screen(), y = rows.findIndex(l => l.includes(text)); return { x: rows[y]!.indexOf(text) + 2, y }; };
+    const far = at("in the far bed");
+    key({ kind: "mouse", action: "down", button: 0, ...far });
+    key({ kind: "mouse", action: "up", button: 0, ...far });
+    await Bun.sleep(50);
     expect(D().nameOf(D().focus)).toBe(name);
     expect(D().isIn(rd)).toBe(true);
     type(" now");
     expect(d.text).toBe("Plant the leeks today now\nin the far bed");
+    // Away again, then back by a click on the frame's [preview]: the control runs, and the cursor is still kept.
+    clickElsewhere();
+    const pv = at("[preview]");
+    key({ kind: "mouse", action: "down", button: 0, ...pv });
+    key({ kind: "mouse", action: "up", button: 0, ...pv });
+    await until(() => !!d.preview, "the preview on");
+    type("!");
+    expect(d.text).toBe("Plant the leeks today now!\nin the far bed");
     // Saving is the person's own step.
     key(ctrl("s"));
     await until(() => !rd.draft, "the save");
-    expect((await current(id)).text).toBe("Plant the leeks today now\nin the far bed");
+    expect((await current(id)).text).toBe("Plant the leeks today now!\nin the far bed");
     expect(unsent(`edit:${id}`)).toBeNull();
     expect(board.heldDraft(id)).toBeNull();              // the hold (drafts.hold) went with the draft
   }, 30_000);

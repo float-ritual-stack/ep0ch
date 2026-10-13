@@ -681,6 +681,8 @@ export class NoteSurface {
   private frameDrag: { zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
   /** Where the person asked to go while their comment is unsent (PIE-785): it waits on their answer in the power bar. */
   private leaving: LeaveAsk | null = null;
+  /** The cursor and selection of a draft the keys came back to by a press (PIE-812), put back after that press and its release. */
+  private keptCursor: { d: Draft; row: number; col: number; anchor: Draft["anchor"] } | null = null;
   /** A double or triple click's word or line being selected in a draft (two draft.place): its release copies it after. */
   private draftSelecting: Promise<void> | null = null;
   /** The last press in a draft was a shift+click (it extended the selection). */
@@ -5026,7 +5028,7 @@ export class NoteSurface {
    * The mouse button went down at `x`, `y`. Nothing happens yet (release decides: a click, or a drag that
    * selected), except a second or third press on the same cell: it selects the word, then the row.
    */
-  press(x: number, y: number, host: SurfaceHost, shift = false): void {
+  press(x: number, y: number, host: SurfaceHost, shift = false, keepCursor = false): void {
     this.use(host);
     this.dragging = false;
     const n = this.gesture.press(x, y);
@@ -5035,7 +5037,12 @@ export class NoteSurface {
     if (this.editing) {
       // The composer is drawn in the note (PIE-770), under its header image: its cells are the note's, as a click's are.
       y -= this.drawn?.heroRows ?? 0;
+      // `keepCursor`: the press that brought the keys back to a draft left open here (PIE-812). It still presses (a
+      // frame control runs on its release), but the cursor and selection stay where the person left them.
+      const d0 = keepCursor ? this.writingDraft : null;
+      this.keptCursor = d0 ? { d: d0, row: d0.row, col: d0.col, anchor: d0.anchor } : null;
       this.editPress = this.modes.press(x, y, host, shift);
+      this.restoreCursor(false);
       this.shiftPress = shift && this.editPress;
       const d = this.writingDraft;
       this.draftSelecting = this.editPress && d && n > 1 && !shift ? this.selectInDraft(d, n, host) : null;
@@ -5072,7 +5079,18 @@ export class NoteSurface {
    * click keeps what it selected and copies it (copy on select, selection.ts): `select.copy`, as `y` runs
    * it. A selection of blanks, or none, copies nothing. True when the release did something.
    */
+  /** Put back the cursor a press that brought the keys back kept (PIE-812); `done` at its release, which ends it. */
+  private restoreCursor(done: boolean) {
+    const k = this.keptCursor;
+    if (k) { k.d.row = k.row; k.d.col = k.col; k.d.anchor = k.anchor; }
+    if (done) this.keptCursor = null;
+  }
+
   release(x: number, y: number, host: SurfaceHost): boolean {
+    try { return this.releaseNow(x, y, host); } finally { this.restoreCursor(true); }
+  }
+
+  private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
     const r = this.gesture.release(x, y);
     this.dragging = false;
     // The end of a drag that moved or sized the floating composer: nothing else (not a click in it).

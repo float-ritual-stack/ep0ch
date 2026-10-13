@@ -5546,9 +5546,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         } else if (pane?.mouse) { this.mouseTile = { id, r: this.origin(id, r) }; pane.mouse(k, x, y, this, how); }
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
         else if (pane instanceof ReaderPane) {
-          // The press that gives the keys back to an edit of theirs left open there (PIE-812) only does that: the cursor,
-          // the selection and the scroll stay where they were, as the keys coming back by ^W or Tab leave them.
-          if (focusing && pane.editing && this.entered.in(pane)) return this.redraw();
+          // The press that gives the keys back to an edit of theirs left open there (PIE-812) keeps its cursor and
+          // selection where they were, as the keys coming back by ^W leave them; a control in its frame still runs (its
+          // release is the edit's, as any press in it: clickIn).
+          if (focusing && pane.editing && this.entered.in(pane)) { this.editPressed = pane; pane.press(x, y, this, false, true); return this.redraw(); }
           const o = this.origin(id, r);
           this.pressed = { pane, col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing };
           pane.press(x, y, this, !!((k.mods ?? 0) & 4));

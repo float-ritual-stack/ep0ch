@@ -533,7 +533,7 @@ export class ReaderPane implements Pane {
    * above (with `open` as there); a drag selects text instead, and never copies it.
    */
   ownsRightClick(x: number, y: number): boolean { return this.surface.ownsRightClick(x, y); }
-  press(x: number, y: number, desk: DeskApi, shift = false) { this.surface.press(x, y, this.host(desk), shift); }
+  press(x: number, y: number, desk: DeskApi, shift = false, keepCursor = false) { this.surface.press(x, y, this.host(desk), shift, keepCursor); }
   drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
   release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void, focusing = false): boolean {
     const h = this.host(desk);
