@@ -654,6 +654,12 @@ export class SocketBoard implements Board {
     return (await this.request<{ references: ReferenceResolution[] }>("references.resolve", { text })).references;
   }
 
+  /** Which prefixes make a bare key a Work ID here (#429): the configured one and every prefix in use. */
+  async ticketPrefixes(): Promise<{ prefix: string | null; prefixesInUse: string[] }> {
+    const r = await this.request<{ workIdPrefix?: string; ticketPrefixes?: string[] }>("references.resolve", { text: "" });
+    return { prefix: r.workIdPrefix ?? null, prefixesInUse: r.ticketPrefixes ?? [] };
+  }
+
   /** The workspace's configured Work-ID prefix (`PIE`), or null when none is configured. */
   async workIdPrefix(): Promise<string | null> {
     return (await this.request<{ workIdPrefix?: string }>("references.resolve", { text: "" })).workIdPrefix ?? null;
