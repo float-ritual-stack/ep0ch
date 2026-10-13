@@ -275,7 +275,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     // Where the owner opens the web client: the signed-in origin when there is one (EP0CH_WEB_URL, the address used on every
     // device, PIE-793), else the tailnet listener's (--url, OUTLINER_PUBLISH_URL). The service builds notes' web links from it.
     const rawPublishUrl = signinUrl
-      ? `${signinUrl.replace(/\/+$/, "")}${normalizeBasePath(values["base-path"])}`
+      ? `${URL.canParse(signinUrl) ? new URL(signinUrl).origin : signinUrl}${normalizeBasePath(values["base-path"])}`
       : values.url ?? process.env.OUTLINER_PUBLISH_URL;
     const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, signinUrl ? (values["signin-url"] ? "--signin-url" : "EP0CH_WEB_URL") : values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");
