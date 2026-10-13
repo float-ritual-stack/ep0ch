@@ -3785,10 +3785,11 @@ export class OutlinerServer {
     const block = this.store.require(blockId);
     if (block.effectiveDeletedRootId) throw new Error(`Block ${block.id} is in Trash`);
     const published = await this.inServicePublisher().published(block.id);
+    const page = await this.inServicePublisher().pageUrl(block.id);
     return {
       ...(outline ? { outline } : {}), machine, ...(aliases.length ? { aliases } : {}), blockId: block.id,
       ...(outline ? { uri: formatEp0chBlockUri({ outline, machine, blockId: block.id }) } : {}),
-      ...(published ? { published } : {}),
+      ...(published ? { published } : {}), ...(page ? { page } : {}),
     };
   }
 

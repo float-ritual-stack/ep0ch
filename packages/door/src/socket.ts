@@ -468,6 +468,19 @@ export class SocketBoard implements Board {
     });
   }
 
+  /** A file's text, read by the service (`files.read`): a relative path is the outline's own folder (an artifact's card, PIE-793). */
+  async readFile(path: string): Promise<string> {
+    return (await this.request<{ text: string }>("files.read", { path })).text;
+  }
+
+  /**
+   * A note's address (`notes.address`, PIE-767): its `ep0ch://` URI, and its web page on the tailnet (`page`) when the
+   * publisher said where it is opened; an artifact line's page is below that (PIE-793).
+   */
+  noteAddress(blockId: string): Promise<{ uri?: string; page?: string }> {
+    return this.request("notes.address", { blockId });
+  }
+
   /**
    * A note's resource projections (PIE-445): the stored details of each Resource its provider lines and
    * its own provider property name. A read only: the service never registers or fetches for it.

@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### claude.ai artifacts in a note (PIE-793)
+
+- **New:** a line that is only `[artifact::path]` (or floatty's `artifact:: path`) runs that artifact in the note on its
+  web page, as claude.ai does: a React `.jsx`/`.tsx` (Tailwind, Tone, three and the rest of claude.ai's packages), an
+  `.html` page (its CDN scripts too), an `.svg` or a `.mermaid` diagram, in a sandboxed frame, dark until it draws, with
+  "open full page" under it. `[height::N]`, `[size::]`, `[align::]` and `[alt::]` go beside it. Drop a downloaded
+  artifact in `~/outlines/<name>/artifacts/` and point at it (`[artifact::artifacts/fidget.jsx]`).
+- **New:** in the door the line is a card (its kind, its title, `[open ↗]`); ⏎ or a click opens it running in the
+  browser. That needs the publisher started with `--url` (or `OUTLINER_PUBLISH_URL`): where its tailnet listener is opened.
+- **Changed:** a React artifact's page is dark until it draws, and its error box is dark.
+- **Run:** `ep0ch install --apply` (PROTOCOL 156; every block's properties are parsed again on the host's next open).
+
 ### Seen, Keep and TL;DR instead of Resolve (PIE-791)
 
 - **Changed:** a margin thread is seen (put away, on an Earlier shelf; a new reply brings it back), kept (it stays), or

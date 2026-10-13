@@ -1178,6 +1178,23 @@ artifact as `.html` (HTML), `.jsx` or `.tsx` (React), `.svg`, `.mermaid`, `.md`
 (documents) or its language's extension (code), and each of those is served
 above.
 
+**Inline in a note** (PIE-793). A line of a note that is only `[artifact::path]`
+(or `artifact:: path`, floatty's form), with `[height::N]` (rows), `[size::…]`,
+`[align::…]` and `[alt::…]` beside it as an image line takes, runs the artifact
+in the note itself: no `[publish::]` or `[file::]` needed on the tailnet, and on
+a share or the public listener wherever that note is shown there. The page frames
+`/p/<id>/artifact/<line>`, which the publisher answers by reading the line again
+and serving its file as below; the frame is sandboxed (no `allow-same-origin`),
+`[height::N]` tall (`min(36rem, 75vh)` when not said), dark behind until the
+artifact draws, with its kind, its title (`[alt::]`, an HTML file's `<title>`,
+else its file's name) and an "open full page" link under it. The path is checked
+as an attachment's: a relative one is the outline's own folder
+(`~/outlines/<name>/`, a publish root whenever the host runs on this machine), so
+dropping a downloaded artifact in `~/outlines/<name>/artifacts/` and pointing at
+it works; one outside the roots, hidden, missing or climbing out with `..` is a
+card with its file's name, never its path. The door draws the line as a card that
+opens this page (`notes.address` gives it once the publisher is told `--url`).
+
 - **HTML** runs as authored in the sandbox; scripts and styles from CDNs such as
   cdnjs load as they do on claude.ai.
 - **React** (`.jsx`/`.tsx`: one file whose default export is a component) is

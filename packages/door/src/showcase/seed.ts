@@ -6,7 +6,8 @@
 //
 // Deterministic: the same blocks, text and order every run. Ids and timestamps are the service's, so
 // everything that reads the seed finds it by title under the root, never by id.
-import { writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
 import { USER, type Actor, type SocketBoard } from "../socket";
@@ -45,6 +46,7 @@ export const SEED = {
   calloutType: "Recipe callouts",
   images: "Pictures of the plot",
   hero: "An evening on the plot",
+  artifacts: "Toys on the desk",
   title: "A title you can find",
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
@@ -311,6 +313,38 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
   "The notice board is paper white: it's dimmed as it's drawn, as every bright image is, so no image is brighter than the door. [dim::0.5] on its line would set how much.",
   "",
   `[img::${dir}/allotment-notice.png] [size::50%] [alt::the notice board, dimmed]`,
+].join("\n");
+
+/** The artifacts section's files (PIE-793): fictional, made for it, a React one (Tone and Tailwind) and an HTML one (three r128). */
+export const SHOWCASE_ARTIFACTS = ["pulse-pad.jsx", "orbit-lamp.html"] as const;
+
+/**
+ * Where the artifacts section's note names its files: `artifacts/` in the outline's own folder, where they're copied
+ * when its host runs on this machine (as a downloaded claude.ai artifact is dropped there), else the showcase's assets.
+ */
+export async function placeArtifacts(board: SocketBoard): Promise<string> {
+  const info = await board.info().catch(() => null);
+  if (!info?.workspace || info.host !== hostname()) return join(SHOWCASE_ASSETS, "artifacts");
+  const dir = join(info.workspace, "artifacts");
+  mkdirSync(dir, { recursive: true });
+  for (const f of SHOWCASE_ARTIFACTS) copyFileSync(join(SHOWCASE_ASSETS, "artifacts", f), join(dir, f));
+  return "artifacts";
+}
+
+/**
+ * The artifacts section's note (PIE-793): two artifact lines, one in each form (`[artifact::path]` and floatty's
+ * `artifact:: path`). Its web page runs them inline; the reader draws each as a card that opens it there.
+ */
+export const artifactsText = (dir = "artifacts") => [
+  SEED.artifacts,
+  "",
+  "Two artifacts as claude.ai makes them, dropped in this outline's own folder (artifacts/) and pointed at. On the note's web page each runs inline, in a sandbox; here each is a card. ⏎ on one, or a click on its [open ↗], opens it running in the browser.",
+  "",
+  `[artifact::${dir}/pulse-pad.jsx] [height::22] [alt::Pulse pad]`,
+  "",
+  "The lamp below names its file the way floatty did; its title is the file's own <title>:",
+  "",
+  `artifact:: ${dir}/orbit-lamp.html`,
 ].join("\n");
 
 /**
@@ -1126,6 +1160,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.callouts = await make(notes.root.id, CALLOUTS);
   notes.images = await make(notes.root.id, imagesText());
   notes.hero = await make(notes.root.id, heroText());
+  notes.artifacts = await make(notes.root.id, artifactsText(await placeArtifacts(board)));
   notes.title = await make(notes.root.id, titleText(notes.whiteboard.id));
   // The Markdown figures: the note first (its children need it), then its text once the figure block it transcludes is there.
   notes.markdownFigures = await make(notes.root.id, SEED.markdownFigures);

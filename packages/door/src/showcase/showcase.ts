@@ -685,6 +685,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "artifacts", need: "run a claude.ai artifact (a .jsx, .html, .svg or .mermaid file) from a note by pointing at it", part: "the media line's artifact kind (PIE-793, outline-core media-line.ts: [artifact::path] and floatty's artifact:: path, with [size::] [height::] [align::] [alt::]; artifactKind, artifactTitle, artifactPagePath): the publisher runs it inline in a sandboxed frame through the [file::] artifact pipeline (publish-artifacts.ts), the path checked as an attachment's (the outline's own folder is a root); renderDoc draws it as a card (src/artifacts.ts reads its title through files.read); artifact.open opens its page (notes.address's page)", files: "outline-core/src/media-line.ts, src/artifacts.ts, src/doc.ts, src/surface/note.ts, outliner/src/publish-media.ts, outliner/src/publish.ts",
+    aside: "[ ] to a card, then ⏎, or a click on it or its [open ↗]: it opens running in the browser, on the note's web page · an agent: images lists them (kind artifact), artifact.open n=1 gives the address · + - and ← → size and place it as an image's (its frame on the web page) · no script runs in the terminal",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · artifacts", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.artifacts]]);
+    },
+  },
+  {
     key: "title", need: "make a note's title the first thing the eye finds when it is open", part: "the reader's header (PIE-657, NoteSurface.headerBlock, one builder for every reader): the crumbs as a dim eyebrow, the title bold and bright (the theme's brightest in the focused tile, a step down in the others; twice the height through text sizing, OSC 66, src/text-sizing.ts, where the terminal answered the start-up query), one dim line under it for the byline, the property count and the summary values (links), one blank row; the tile's frame bar says the title only when the header is not on screen (NoteSurface.titleShown)", files: "src/surface/note.ts, src/text-sizing.ts, src/display.ts, src/desk/desk.ts",
     aside: "the left reader has the keys, the right one doesn't: compare the titles · a click on a value in the dim line still opens what it names · `peek` and `layout.get` keep the title as data (the tile's `title`, the reader's `showing`), and the reader's rows start with the breadcrumb, then the title · EP0CH_SIZED=0 turns the double height off, =1 forces it where the door doesn't ask (inside Herdr, tmux or screen it is off, and the title is bold on one row) · the narrow reader beside holds links that wrap: each keeps its colour and its click on every row · a copy over the title copies its text; a selection on it draws in cells",
     stage(n, show) {

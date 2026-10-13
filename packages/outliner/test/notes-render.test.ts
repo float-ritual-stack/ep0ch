@@ -60,6 +60,10 @@ test("notes.address: the outline and this machine, a note's ep0ch:// URI, and it
     slug: "pond", public: true, url: "https://pub.example.invalid/pub/p/pond", publicUrl: "https://share.example.invalid/share/p/pond",
     permalink: `https://share.example.invalid/share/p/${pond.id}`,
   });
+  // Every note but a locked one is a page on the tailnet by its id (PIE-782), published or not: an artifact's opens below it.
+  expect((await client.request<NoteAddress>({ action: "notes.address", blockId: draft.id })).page).toBe(`https://pub.example.invalid/pub/p/${draft.id}`);
+  const locked = await create("Private [publish::never]");
+  expect((await client.request<NoteAddress>({ action: "notes.address", blockId: locked.id })).page).toBeUndefined();
   await expect(client.request({ action: "notes.address", blockId: "00000000-0000-4000-8000-000000000000" })).rejects.toThrow();
 });
 
