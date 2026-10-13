@@ -164,13 +164,22 @@ export const CLIP_DIR = resolve(import.meta.dir, "../../scripts/clip");
 /**
  * PIE-797: Herdr doesn't pass a pane's OSC 52 on to a `herdr terminal attach` client (herdrdev/herdr#4612), so Claude
  * Code's copies in the pane never reached the person through the door's tile. Where the machine has no display of its own
- * (a server reached over ssh, float-2), the pane says it has one (WAYLAND_DISPLAY) and puts the door's `wl-copy` first on
- * PATH: Claude copies through it, and it hands the text to the door (and writes the OSC 52 as before). A machine with a
- * real display keeps its own clipboard tools. Drop this once Herdr's attach passes OSC 52 on.
+ * and the door was reached over ssh (float-2), the pane says it has one (WAYLAND_DISPLAY) and puts the door's `wl-copy`
+ * first on PATH: Claude copies through it, and it hands the text to the door (and writes the OSC 52 as before). A machine
+ * with a real display keeps its own clipboard tools.
+ *
+ * What else reads WAYLAND_DISPLAY there (PIE-799, measured with Claude Code 2.1.296): Claude's image paste and clipboard
+ * reads run `wl-paste`, which isn't there (nothing in scripts/clip stands in for it, so they fail as before: a stand-in
+ * would also make nvim pick wl-copy/wl-paste as its clipboard); `xdg-open` isn't installed on float-2; vim has no
+ * clipboard support and nvim's provider is unchanged. Claude decides it's headless (print the login or OAuth URL, don't
+ * open a browser) from "no display" OR an ssh session, so the pane carries the door's own SSH_CONNECTION: without it the
+ * fake display would make Claude try a browser. With no ssh session to carry, there's no workaround.
+ *
+ * Remove once herdrdev/herdr#4612 ships: drop clipVars and scripts/clip, and Claude's own OSC 52 reaches the door's tile.
  */
 export function clipVars(env: Record<string, string | undefined>): Record<string, string> {
-  if (env.WAYLAND_DISPLAY || env.DISPLAY) return {};
-  return { WAYLAND_DISPLAY: "ep0ch-clip", PATH: [CLIP_DIR, env.PATH].filter(Boolean).join(":") };
+  if (env.WAYLAND_DISPLAY || env.DISPLAY || !env.SSH_CONNECTION) return {};
+  return { WAYLAND_DISPLAY: "ep0ch-clip", SSH_CONNECTION: env.SSH_CONNECTION, PATH: [CLIP_DIR, env.PATH].filter(Boolean).join(":") };
 }
 
 const json = (s: string): any => { try { return JSON.parse(s); } catch { return null; } };

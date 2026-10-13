@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The drawer agent's clipboard workaround changes nothing else (PIE-799)
+
+- **Checked:** under the pane's env, with Claude Code 2.1.296, nothing behaves differently: image paste (ctrl+v, a pasted
+  screenshot path), clipboard reads, `xdg-open`, vim and nvim (same start time, same clipboard provider).
+- **Fixed:** Claude decides it's headless (print the login link, don't open a browser) from "no display" or an ssh
+  session, and the fake display undid the first. The pane now carries the door's own `SSH_CONNECTION`, and the
+  workaround applies only when there is one.
+
 ### Copying from the drawer's Claude reaches your clipboard (PIE-797)
 
 - **Fixed:** a copy in Claude Code in the drawer (an agent in Herdr) said "sent via OSC 52" and nothing arrived, because

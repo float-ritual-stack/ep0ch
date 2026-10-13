@@ -1180,12 +1180,15 @@ agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it kee
   - While attached, the tile's size is the pane's size: Herdr locks the pane to the attached client, so a
     Herdr client viewing the same pane sees it at the tile's size.
   - **Copying** (PIE-797): Herdr's attach doesn't pass a pane's OSC 52 on (herdrdev/herdr#4612), so Claude Code's copy
-    would never reach you through the tile. On a machine with no display of its own the pane gets the door's
+    would never reach you through the tile. On a machine with no display of its own, reached over ssh, the pane gets the door's
     `wl-copy` (`scripts/clip/wl-copy`) first on `PATH` and `WAYLAND_DISPLAY=ep0ch-clip`: Claude copies through it,
     and it sends the text to the door showing the pane (`terminal.clip`, over the pane's `EP0CH_CONTROL`), which copies
     it as the tile's own OSC 52 would be, only if you typed or clicked in the tile in the last 2 minutes. It also
     writes the OSC 52 to the pane, so a Herdr client in the foreground gets it as before. A pane started before this
-    gets it when its agent is started again (`agent.restart`). Remove it once Herdr's attach passes OSC 52 on.
+    gets it when its agent is started again (`agent.restart`). Nothing else in the pane changes (PIE-799): there's
+    no `wl-paste`, so Claude's image paste and clipboard reads fail over as before; the pane carries the door's
+    `SSH_CONNECTION`, so Claude still prints login and OAuth links instead of trying a browser. Remove it once Herdr's
+    attach passes OSC 52 on (`clipVars` in `src/desk/herdr-agent.ts` and `scripts/clip`).
 - **Quitting the door** ends only the attach. The agent keeps running in its pane, so quitting doesn't ask
   twice for it (it still does for other programs running in tiles).
   - The next door's daily tile attaches to it again.

@@ -5,6 +5,7 @@
 // the pane's own terminal (Herdr gives it to its foreground client, as before) and to the door showing the pane
 // (`terminal.clip`, over the pane's EP0CH_CONTROL), which puts it on the person's clipboard if they use that tile.
 // `--primary` (the selection clipboard Claude also fills) is left alone. Never fails the copy: it always exits 0.
+// Remove once herdrdev/herdr#4612 ships, with clipVars in src/desk/herdr-agent.ts.
 import { openSync, writeSync, closeSync } from "node:fs";
 import { ask } from "../../src/jsonl";
 import { COPY_MAX as CAP } from "../../src/surface/selection";
