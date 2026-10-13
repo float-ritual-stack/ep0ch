@@ -108,6 +108,9 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
 
   beforeAll(async () => {
     await host.start();
+    // The machine named as in the fixtures (shack@box-b), never the host's own name: a long one (a CI runner's
+    // ip-172-31-73-130) widens the From column and cuts the area names the tests read.
+    process.env.EP0CH_MACHINE_NAME = "box-b";
     await host.create("shack");
     await host.create("cafe");
     shack = new SocketBoard(host.sock, undefined, "shack");
@@ -138,7 +141,7 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
     app.outline = "shack";
     shack.subscribe(e => app.event(e));
   }, 60_000);
-  afterAll(async () => { shack?.close(); cafe?.close(); await host.dispose(); delete process.env.EP0CH_STATE; });
+  afterAll(async () => { shack?.close(); cafe?.close(); await host.dispose(); delete process.env.EP0CH_STATE; delete process.env.EP0CH_MACHINE_NAME; });
 
   test("the areas of both outlines, the door's own first: counts, new, where each comes from; the band and the nodelist", async () => {
     app.push(openScreen("echonet"));
