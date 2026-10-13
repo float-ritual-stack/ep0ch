@@ -2755,16 +2755,27 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     } else if (this.noteOf(id)) {
       // A reader showing a note (PIE-809): its border is the note's title, Work ID first in the accent, the place the eye
       // lands; what the tile is (its number, its kind or name, its mode, its links, how far down) follows, dim, and gives
-      // way first where the border is short. The title keeps most of the room, but never all of it.
+      // way first where the border is short. The title leaves room for the kind and the mode chip (a click).
       const m = this.noteOf(id)!, named = workIdTitle(subject(m), m.props["work-id"]);
       if (this.numbered) put(`${this.numberOf(id)} `, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
       this.putStatus(id, put);
-      const room = Math.max(12, Math.floor((max - xNow()) * 0.7));
+      // Its kind's word as its title says it (detail, `preview · board`), after its own name when it has one.
+      const p = this.panes.get(id)!, word = p.title(), name = this.nameOf(id);
+      const kind = ` · ${this.plainName(id) || word === name ? word : `${name} · ${word}`}`;
+      // What must still follow it: its kind or name, its mode chip (a click), and the border's own glyphs.
+      // Room, after the border's own glyphs: the title first (at least a dozen cells), then the mode chip (a click; a long
+      // one has a short form, `pinned` for `pinned [[page]]`), then the kind's word, which is the first to give way.
+      const avail = max - xNow() - 10, full = (named.workId ? named.workId.length + 3 : 0) + named.title.length;
+      const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, c.text.length), 0);
+      // The kind whole (`card · preview · board`), else its first word (`card`), else none.
+      const short = ` · ${kind.slice(3).split(" · ")[0]}`;
+      const said = full + chips + kind.length <= avail ? kind : full + chips + short.length <= avail ? short : "";
+      const withKind = said !== "";
+      const room = withKind ? full : Math.max(12, avail - chips);
       if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
       put(headOf(named.title, Math.max(4, room - (named.workId ? named.workId.length + 3 : 0))), (focused ? fgRgb(theme().edge.focus) : fg(C.white)) + BOLD, id);
-      const p = this.panes.get(id)!;
-      put(` · ${this.plainName(id) ? p.title() : this.nameOf(id)}`, fg(C.dark), id);
+      if (withKind) put(said, fg(C.dark), id);
       return this.headerEnd(id, put, xNow, max, r.row);
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as its number, then its title.
