@@ -10,6 +10,7 @@
 import { nothingToClose, refused, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { subject, type Msg } from "../board";
 import { BORDER_BOXES, Canvas, DOTTED_BOX, NO_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
@@ -2736,8 +2737,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.headOut = "";
     const xNow = () => x;
     const put = (text: string, sgr: string, hit?: number) => {
-      if (hit !== undefined && x < max) this.heads.push({ id: hit, from: x, to: Math.min(max, x + text.length), row: r.row });
-      this.headOut += sgr + text + RESET; x += text.length;
+      // In cells: a wide glyph in a title takes two (PIE-809).
+      const cells = width(text);
+      if (hit !== undefined && x < max) this.heads.push({ id: hit, from: x, to: Math.min(max, x + cells), row: r.row });
+      this.headOut += sgr + text + RESET; x += cells;
     };
     // A held column of a flow (the river's p): it resists compression, and says so.
     const flow = chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
@@ -2751,6 +2754,36 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (st) put(` ${st.glyph}`, on ? selected(focused, "idleRow") + st.sgr : st.sgr, t);
         put(` ${this.numLabel(t)}${this.panes.get(t)?.headName?.() ?? this.nameOf(t)} `, on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
+    } else if (this.noteOf(id)) {
+      // A reader showing a note (PIE-809): its border is the note's title, Work ID first in the accent, the place the eye
+      // lands; what the tile is (its number, its kind or name, its mode, its links, how far down) follows, dim, and gives
+      // way first where the border is short. The title leaves room for the kind and the mode chip (a click).
+      const m = this.noteOf(id)!, named = workIdTitle(subject(m), m.props["work-id"]);
+      if (this.numbered) put(`${this.numberOf(id)} `, fg(focused ? C.white : C.dark), id);
+      this.putMarks(id, put, xNow, r.row);
+      this.putStatus(id, put);
+      // Its kind's word as its title says it (detail, `preview · board`), after its own name when it has one.
+      // (A title that starts with the note's own, a river column's or a pinned page's, says what follows it, `pinned
+      // [[claude-now]]`, else the kind's word: `column`.)
+      const p = this.panes.get(id)!, name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
+      const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
+      const kindWord = kindOf(p)?.word ?? p.kind;
+      const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
+      const kind = ` · ${this.plainName(id) || word === name ? word : `${name} · ${word}`}`;
+      // What must still follow it: its kind or name, its mode chip (a click), and the border's own glyphs.
+      // Room, after the border's own glyphs: the title first (at least a dozen cells), then the mode chip (a click; a long
+      // one has a short form, `pinned` for `pinned [[page]]`), then the kind's word, which is the first to give way.
+      const avail = max - xNow() - 10, full = (named.workId ? width(named.workId) + 3 : 0) + width(named.title);
+      const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
+      // The kind whole (`card · preview · board`), else its first word (`card`), else none.
+      const short = ` · ${kind.slice(3).split(" · ")[0]}`;
+      const said = full + chips + width(kind) <= avail ? kind : full + chips + width(short) <= avail ? short : "";
+      const withKind = said !== "";
+      const room = withKind ? full : Math.max(12, avail - chips);
+      if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
+      put(headOf(named.title, Math.max(4, room - (named.workId ? width(named.workId) + 3 : 0))), (focused ? fgRgb(theme().edge.focus) : fg(C.white)) + BOLD, id);
+      if (withKind) put(said, fg(C.dark), id);
+      return this.headerEnd(id, put, xNow, max, r.row);
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as its number, then its title.
       if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
@@ -2826,6 +2859,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Tiles are numbered in their headers (what 1-9 focus), unless the view keeps the digits for itself. */
   private get numbered() { return this.spec.digits !== false; }
   private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
+  /** The note a reader tile shows, when its border is that note's title (PIE-809): a block, not a file or a Resource. */
+  private noteOf(id: number): Msg | null {
+    const p = this.panes.get(id);
+    // Not a list that only has a note selected (the river's Library, a #tag column): its border names the list.
+    return p instanceof ReaderPane && p.msg && isOutlineNote(p.msg) && !p.msg.id.startsWith("file:") && !kindOf(p)?.lists?.(p) ? p.msg : null;
+  }
   private plainName(id: number) {
     const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id);
     // A held reader the desk named a detail (detail, detail2: the glossary's word, PIE-705) is named for what it is too.

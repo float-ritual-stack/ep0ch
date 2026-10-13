@@ -355,7 +355,7 @@ export const artifactsText = (dir = "artifacts") => [
 export const titleText = (whiteboardId = "00000000-0000-4000-8000-000000000000") => [
   `${SEED.title} [type::roadmap-item] [work-id::${WORK_PREFIX}-042] [work-stage::doing] [priority::high] [track::allotment]`,
   "",
-  "The header leads with the title: the note's breadcrumb is a dim eyebrow above it, the title is the one bold line in the heading colour (twice the height where the terminal has Kitty's text sizing and the title fits that wide), and its Work ID first in the accent (PIE-809), and one dim line under it holds the author, the day, the property count and the summary values, which are still links. The tile's frame bar says only `detail`: the title is not written twice.",
+  "The header leads with the title: the note's breadcrumb is a dim eyebrow above it, the title is the one bold line in the heading colour (twice the height where the terminal has Kitty's text sizing and the title fits that wide), and its Work ID first in the accent (PIE-809), and one dim line under it holds the author, the day, the property count and the summary values, which are still links. The tile's top border says the title too, Work ID first, then what the tile is (`detail`, `held`), dim: the border is where the eye lands.",
   "",
   "Before:",
   "",

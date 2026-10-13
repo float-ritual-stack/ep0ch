@@ -282,7 +282,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-    detail: ["─ detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
+    detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -319,7 +319,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
     preview: ["preview · tree", "outline"],
     "reader-modes": ["outline", "· held", "· pinned"],
-    screen: ["board ·", "· lanes", "preview · board"],
+    screen: ["board ·", "· lanes", "HOME-003 · True the front wheel · card"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
     "links-open": ["Bike shed", "links · Bike shed", "preview"],
@@ -1045,6 +1045,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const rows = () => (detail()?.surface.linkBlocksDrawn[0]?.rows ?? []).filter((r: any) => r.id && r.id !== seeded.notes.shed.id);
     await until(() => shows("detail") === seeded.notes.shed.id && rows().length > 0, "the shed held, its own ::links drawn", 8000);
     const row = rows()[0], n = detail().surface.linkBlocksDrawn[0].rows.findIndex((r: any) => r.key === row.key) + 1;
+    await tree().loaded;
     const treeWas = tree().selected()?.id ?? null;
     // A pick (a click, j k inside it) selects the row, and the preview of the detail's selection follows; nothing else moves.
     await person("links.pick", { n });
@@ -2970,12 +2971,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Where the terminal does not scale text (this one, like Herdr or tmux), the title is one bold row and the byline is the very next: no blank row.
     expect(rows[at + 1]).toMatch(/i \d+ properties/);
     expect(readers().map((p: any) => p.showing?.title ?? p.title)).toContain("A title you can find");
-    // The frame bar of a reader that shows its header says the tile, not the title again.
-    const frames = rows.filter(l => /[╔┌].*(reader|detail)/.test(l));
-    expect(frames.length).toBeGreaterThan(0);
-    for (const f of frames) expect(f).not.toContain("A title you can find");
+    // The frame bar is the note's title, Work ID first (PIE-809: where the eye lands), then what the tile is, dim.
+    const frames = rows.flatMap(l => [...l.matchAll(/[╔┌][─═] \d+ HOME-042 · [^─═]*/g)].map(x => x[0]));
+    expect(frames.length).toBe(2);
+    for (const f of frames) expect(f).toMatch(/[╔┌][─═] \d HOME-042 · A title you can find · (reader|detail)/);
     // The tile with the keys has the brighter title: the same title, the same row, two shades.
-    const row = raw().find(l => (plain(l).match(/A title you can find/g) ?? []).length === 2)!;
+    // (The note's own header row, not the borders, which say the title too: PIE-809.)
+    const row = raw().find(l => (plain(l).match(/A title you can find/g) ?? []).length === 2 && !/[┌╔]/.test(plain(l)))!;
     expect(row).toBeDefined();
     const shades = [...row.matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m(?:\x1b\[1m)?A title you can find/g)].map(x => +x[1]! + +x[2]! + +x[3]!);
     expect(shades.length).toBe(2);
@@ -3234,12 +3236,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const rows = () => sc.render(app).lines.map(plain);
     const titleRow = rows().findIndex(l => l.includes(`⧉ `) && l.includes(` ${first.tile} `));
     const fx = rows()[titleRow]!.indexOf(` ${first.tile} `) + 2;
-    const head = rows().findIndex(l => /┌─ \d+ reader /.test(l));
+    const head = rows().findIndex(l => /┌─ \d+ [^─]*· reader/.test(l));
     expect(titleRow).toBeGreaterThan(head);
     expect(head).toBeGreaterThan(0);
-    // The reader's own header, not a " reader " in the index's words on the same row.
-    const at = /┌─ \d+ reader /.exec(rows()[head]!)!;
-    const hx = at.index + at[0].indexOf(" reader ") + 2;
+    // The reader's own header (its note's title, then `· reader`, PIE-809), not a " reader " in the index's words on the same row.
+    const at = /┌─ \d+ [^─]*· reader/.exec(rows()[head]!)!;
+    const hx = at.index + at[0].indexOf("· reader") + 3;
     press({ kind: "mouse", action: "down", button: 0, x: fx, y: titleRow });
     press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head + 1 });
     press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head });

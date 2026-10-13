@@ -6,6 +6,7 @@
 // column, with the same keys and the same actions as every reader. What the column adds is its own: picking a card,
 // replies in place, a filter, a column of the same property, a column stacked under it, its text selected and copied.
 // The layout (widen, hold, close, back and forward) is the engine's tile actions.
+import { headedTitle } from "../board";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
@@ -226,7 +227,7 @@ export class RiverColumn extends ReaderPane {
   }
   override spine() {
     const hold = this.surface.draft ? "✎" : this.surface.session ? "¶" : "";
-    return { title: this.titleOf(), marks: [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET] };
+    return { title: this.root && this.source.kind !== "roots" && this.source.kind !== "tag" ? headedTitle(this.root) : this.titleOf(), marks: [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET] };
   }
   /** The desk's current note moved: a column keeps its own. */
   override select() {}

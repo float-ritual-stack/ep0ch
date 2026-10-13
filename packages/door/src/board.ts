@@ -1,4 +1,5 @@
 // What the door needs from the outline, independent of the wire protocol.
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { printable } from "./text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
@@ -112,3 +113,8 @@ export const noteLabel = (m: Msg) => withWorkId(m.props["work-id"], subject(m));
 /** What a list filter matches a note by (outline-core's matcher, as every bar scope): its work id, its page name and its title. */
 export const identityFields = (workId: string | undefined, page: string | undefined, title: string): string[] => [withWorkId(workId, title), workId ?? "", page ?? ""].filter(Boolean);
 
+/** A note's title with its Work ID first (PIE-809: `HOME-042 · <title>`), said once: as its tile's border and spine say it. */
+export function headedTitle(m: Msg): string {
+  const named = workIdTitle(subject(m), m.props["work-id"]);
+  return named.workId ? `${named.workId} · ${named.title}` : named.title;
+}

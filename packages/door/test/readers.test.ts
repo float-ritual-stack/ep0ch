@@ -278,7 +278,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     const line = fr[R.row]!.slice(R.col, R.col + R.cols);
     expect(line).toMatch(/ · \d+%/);
     expect(line).toContain("Rebuild the potting bench");
-    expect(line).toContain("…");
+    // (The border is the note's title now, PIE-809: it is cut only where it doesn't fit.)
   });
 
   test("a pane too short for any body row reports no scroll (PR #11 review)", async () => {
