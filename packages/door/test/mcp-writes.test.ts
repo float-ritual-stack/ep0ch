@@ -58,15 +58,17 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const source = new Database(join(far.outlines, `${name}.sqlite`), { readonly: true });
     try { source.run("VACUUM INTO ?", [target]); } finally { source.close(); }
   };
-  const token = async () => new SignJWT({ client_id: CLIENT, scope: "profile" })
-    .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(PERSON).setAudience(RESOURCE)
+  const token = async (aud = RESOURCE) => new SignJWT({ client_id: CLIENT, scope: "profile" })
+    .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(PERSON).setAudience(aud)
     .setIssuedAt().setExpirationTime("5m").sign(signing);
-  const rpc = async (method: string, params?: unknown) => {
-    const res = await fetch(gateway.url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }) });
+  /** A request at the gateway's `/mcp`, or at `/<persona>/mcp` (`at`), with a token for that path's resource. */
+  const rpc = async (method: string, params?: unknown, at?: string) => {
+    const url = at ? `${new URL(gateway.url).origin}/${at}/mcp` : gateway.url;
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token(at ? `https://mcp.example.test/${at}/mcp` : RESOURCE)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }) });
     return await res.json() as { result?: any; error?: { message: string } };
   };
-  const tool = async (name: string, args: Record<string, unknown>) => {
-    const r = await rpc("tools/call", { name, arguments: args });
+  const tool = async (name: string, args: Record<string, unknown>, at?: string) => {
+    const r = await rpc("tools/call", { name, arguments: args }, at);
     if (r.error) return { isError: true, text: r.error.message, json: null as any };
     const text = (r.result as { content: { text: string }[] }).content[0]!.text;
     let json: any = null;
@@ -160,6 +162,38 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await tool("reader_view", { outline: "pond-notes" })).json.view).toBeNull();
     expect((await tool("share_revoke", { all: true, outline: "pond-notes" })).json.revoked).toEqual([started.json.share.id]);
     expect((await tool("share_list", { outline: "pond-notes" })).json.shares).toEqual([]);
+  });
+
+  test("a named path writes as that persona, and at propose whatever the outline allows; /mcp writes as before (PIE-804)", async () => {
+    const origin = new URL(gateway.url).origin;
+    // Discovery per path: each its own resource, and its 401 names its own metadata.
+    const meta = await (await fetch(`${origin}/.well-known/oauth-protected-resource/gpty/mcp`)).json() as { resource: string; authorization_servers: string[] };
+    expect(meta).toMatchObject({ resource: "https://mcp.example.test/gpty/mcp", authorization_servers: [ISSUER] });
+    const bare = await fetch(`${origin}/gpty/mcp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    expect(bare.status).toBe(401);
+    expect(bare.headers.get("www-authenticate")).toContain(`resource_metadata="https://mcp.example.test/.well-known/oauth-protected-resource/gpty/mcp"`);
+    // A token for /mcp isn't one for /gpty/mcp.
+    const crossed = await fetch(`${origin}/gpty/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+    expect(crossed.status).toBe(401);
+    expect((await fetch(`${origin}/not a name/mcp`, { method: "POST" })).status).toBe(404);
+
+    // garden-notes takes full writes; through /gpty/mcp, a property is a proposal and a comment is gpty's.
+    const uri = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });
+    const listed = (await tool("list_outlines", {}, "gpty")).json.outlines.find((o: { outline: string }) => o.outline === "garden-notes");
+    expect(listed).toMatchObject({ access: "propose", writes: "proposals" });
+    const read = (await tool("outline_read", { uri }, "gpty")).json;
+    const set = await tool("outline_set_property", { uri, key: "keeper", value: "gpty", revision: read.revision }, "gpty");
+    expect(set.json.outcome).toBe("proposed");
+    expect((await textOf(here, "garden-notes", HERE, ids.seeds!)).text).not.toContain("keeper::gpty");
+    const said = await tool("outline_comment", { uri, whole: true, body: "A date for the swap, from gpty?" }, "gpty");
+    const thread = (await tool("outline_threads", { uri })).json.threads.find((t: { thread: string }) => t.thread === said.json.detail.thread);
+    expect(thread.comments[0]).toMatchObject({ author: "mcp:gpty/chat.example.test", by: "gpty (chat.example.test)" });
+    // A path's cap can be set: EP0CH_MCP_PATH_ACCESS, read at each request.
+    process.env.EP0CH_MCP_PATH_ACCESS = "warp=read";
+    try { expect((await tool("list_outlines", {}, "warp")).json.outlines.find((o: { outline: string }) => o.outline === "garden-notes")).toMatchObject({ access: "read" }); }
+    finally { delete process.env.EP0CH_MCP_PATH_ACCESS; }
+    // /mcp: as before, the full outline's writes apply.
+    expect((await tool("list_outlines", {})).json.outlines.find((o: { outline: string }) => o.outline === "garden-notes")).toMatchObject({ access: "full", writes: "applied" });
   });
 
   test("full: a patch, a property, a new block and a comment apply, attributed to the client and subject", async () => {
@@ -588,6 +622,11 @@ describe("personas: who a connection writes as", () => {
     expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy" })).toEqual({ actorId: "mcp:daddy/chat.example.test", sessionId: "user_fictional_a" });
     expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy, user_fictional_a=sysop" }).actorId).toBe("mcp:sysop/chat.example.test");
     expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=not a name!" }).actorId).toBe("mcp:chat.example.test");
+    // A dynamically registered client goes by the name it was given here, and a path's persona wins over the list (PIE-804).
+    const dcr = { sub: PERSON, clientId: "qFictionalDcr01" };
+    expect(actorOf(dcr, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt" }).actorId).toBe("mcp:chatgpt");
+    expect(actorOf({ ...dcr, persona: "gpty" }, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt", EP0CH_MCP_PERSONAS: "chatgpt=daddy" }).actorId).toBe("mcp:gpty/chatgpt");
+    expect(actorOf(dcr, {}).actorId).toBe("mcp:qFictionalDcr01");
     const home = scratchDir("ep0ch-persona-");
     try {
       mkdirSync(join(home, ".config", "ep0ch"), { recursive: true });

@@ -51,6 +51,13 @@ export interface McpCaller {
   call?: string;
   /** The call id was made for this one request (the caller sent none): the answer tells it to send `call` next time. */
   freshCall?: boolean;
+  /**
+   * The persona the connection names (PIE-804): the gateway's `/<name>/mcp` path. It wins over every other source, and,
+   * like any persona, is recorded and never checked (ADR 0003 §2).
+   */
+  persona?: string;
+  /** The most this connection may do, whatever an outline's setting lets it (a named path's, `propose` by default). */
+  cap?: McpAccessLevel;
 }
 
 /** The `call` argument a request may carry: an id the agent keeps across its requests ("daddy-2026-10-09-0103-k7f"). */
@@ -67,9 +74,15 @@ export function withCall(caller: McpCaller, named: unknown): McpCaller {
 /** The agent a write is attributed to (the outliner's AgentActor). */
 export interface WriteActor { actorId: string; sessionId?: string }
 
-/** A client's short name: a URL client id (a CIMD client) by its host, anything else as it is. */
-export function clientName(clientId: string | undefined): string {
+/**
+ * A client's short name: the name its registration was given here (`EP0CH_MCP_CLIENT_NAMES`, `<client_id>=<name>`, read
+ * with the persona list: a dynamically registered client's id says nothing, `chatgpt` does), else a URL client id (a CIMD
+ * client) by its host, anything else as it is.
+ */
+export function clientName(clientId: string | undefined, env: Record<string, string | undefined> = process.env): string {
   if (!clientId) return "client";
+  const named = (mcpSetting(env, "EP0CH_MCP_CLIENT_NAMES") ?? "").split(",").map(e => e.split("=").map(x => x.trim())).find(([id]) => id === clientId)?.[1];
+  if (named && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(named)) return named;
   try { const url = new URL(clientId); if (url.hostname) return url.hostname; } catch { /* not a URL */ }
   return clientId.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 64) || "client";
 }
@@ -83,9 +96,9 @@ export const STDIO_SUBJECT = "stdio";
  * Stdio and the mod: the client the connection names, on this machine (`claude-code@float-2`): a process of the
  * owner's own, so the machine is what tells two of the same client apart.
  */
-export function principalOf(caller: McpCaller, machine: string = canonicalLocalMachineName()): string {
-  if (caller.sub === STDIO_SUBJECT) return `${clientName(caller.clientId)}@${machine}`;
-  return clientName(caller.clientId ?? caller.sub);
+export function principalOf(caller: McpCaller, machine: string = canonicalLocalMachineName(), env: Record<string, string | undefined> = process.env): string {
+  if (caller.sub === STDIO_SUBJECT) return `${clientName(caller.clientId, env)}@${machine}`;
+  return clientName(caller.clientId ?? caller.sub, env);
 }
 
 /** An MCP setting: the environment's, else `~/.config/ep0ch/mcp.env`'s (EP0CH_MCP_PERSONAS, EP0CH_MCP_SCRATCH_CAP). */
@@ -109,7 +122,9 @@ export function mcpSetting(env: Record<string, string | undefined>, key: string)
  * write, so a change takes effect without a restart. A subject wins over a principal, a list over a claim.
  */
 export function personaClaim(caller: McpCaller, env: Record<string, string | undefined> = process.env, machine?: string): { persona?: string; refused?: string } {
-  const principal = principalOf(caller, machine);
+  // The connection's own name for itself (the gateway's path): what this caller writes as.
+  if (caller.persona && PERSONAS.test(caller.persona)) return { persona: caller.persona };
+  const principal = principalOf(caller, machine, env);
   const entries = (mcpSetting(env, "EP0CH_MCP_PERSONAS") ?? "").split(",").map(e => e.split("=").map(x => x.trim()) as [string, string]).filter(([k, v]) => k && v && PERSONAS.test(v));
   const map = new Map(entries);
   const listed = map.get(caller.sub) ?? map.get(principal);
@@ -128,7 +143,7 @@ export const personaOf = (caller: McpCaller, env?: Record<string, string | undef
 /** The attribution of a caller's write: `mcp:<persona>/<principal>` (outline-core's attribution.ts), its sessionId the subject and call. */
 export const actorOf = (caller: McpCaller, env?: Record<string, string | undefined>, machine?: string): WriteActor => {
   const persona = personaOf(caller, env, machine);
-  return { actorId: composeActor({ ...(persona ? { persona } : {}), principal: principalOf(caller, machine), mcp: true }), sessionId: sessionIdOf(caller) };
+  return { actorId: composeActor({ ...(persona ? { persona } : {}), principal: principalOf(caller, machine, env), mcp: true }), sessionId: sessionIdOf(caller) };
 };
 
 /** A write's sessionId: the subject, and `#<call>` when the caller has one (outline-core attribution.ts). */
@@ -138,8 +153,12 @@ export const sessionIdOf = (caller: McpCaller): string => composeSessionId({ sub
  * What an outline's access setting means for this caller (PIE-679): the principal that made a scratch outline writes to it with
  * `full`, whatever the setting lets the others (`read`). A setting of `none` is a person's denial and holds for everyone.
  */
-export const levelFor = (status: { level: McpAccessLevel; owner?: string }, caller: McpCaller | undefined, machine?: string): McpAccessLevel =>
-  caller && status.owner && status.level !== "none" && status.owner === principalOf(caller, machine) ? "full" : status.level;
+export const levelFor = (status: { level: McpAccessLevel; owner?: string }, caller: McpCaller | undefined, machine?: string): McpAccessLevel => {
+  const level = caller && status.owner && status.level !== "none" && status.owner === principalOf(caller, machine) ? "full" : status.level;
+  // A connection capped lower (a named path's `propose`) gets no more than its cap, whatever the outline allows.
+  return caller?.cap && LEVELS.indexOf(caller.cap) < LEVELS.indexOf(level) ? caller.cap : level;
+};
+const LEVELS: readonly McpAccessLevel[] = ["none", "read", "propose", "full"];
 
 /** Why a work id isn't stamped at this level (it is no proposal), or null when it may be. */
 export const assignIdRefusal = (level: McpAccessLevel): string | null => level === "full" ? null

@@ -8,7 +8,8 @@
 // the list allows no one: every valid token is refused 403 and its subject is logged, so it can be pinned. There is
 // no anonymous mode and no switch that turns the check off. Past the token, each outline's own `ep0ch mcp access`
 // setting decides, as it does for stdio: `propose` and `full` add the write tools (src/mcp-writes.ts), attributed to the
-// token's subject and client. A mirror is never written: a write to its outline queues in the netmail store beside the
+// token's subject and client. `/<name>/mcp` beside the resource path is a connection that writes as persona <name>, its
+// own OAuth resource, capped at `propose` (PIE-804; EP0CH_MCP_PATH_ACCESS). A mirror is never written: a write to its outline queues in the netmail store beside the
 // mirrors (src/mcp-netmail.ts) until its home machine pulls it.
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { existsSync, readdirSync } from "node:fs";
@@ -21,7 +22,8 @@ import { liveFromEnv, type LiveMachines } from "./mcp-live";
 import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
 import { Netmail, netmailFile, readSummaries } from "./mcp-netmail";
 import { CALL_PATTERN, mintCallId } from "@ep0ch/outline-core/attribution";
-import { levelFor, writesAt } from "./mcp-writes";
+import { levelFor, mcpSetting, writesAt } from "./mcp-writes";
+import { PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { localAdmin, type McpOutlineAdmin } from "./mcp-outlines";
 import { boardFor, canonicalLocalMachineName, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME } from "./socket";
@@ -286,8 +288,24 @@ export function startGateway(opts: {
   const log = opts.log ?? console.error;
   const resource = config.resource.href;
   const mcpPath = config.resource.pathname;
-  const metadataPath = `/.well-known/oauth-protected-resource${mcpPath === "/" ? "" : mcpPath}`;
-  const metadataUrl = `${config.resource.origin}${metadataPath}`;
+  const metadataPathOf = (path: string) => `/.well-known/oauth-protected-resource${path === "/" ? "" : path}`;
+  /**
+   * Where the gateway speaks MCP (PIE-804): its resource path (`/mcp`), and beside it `/<name>/mcp`, a connection that
+   * writes as that persona (ADR 0003 §2: any name, a recorded label, nothing registered). Each is its own OAuth resource:
+   * its own URL in a token's `aud`, its own metadata, so a client signs in at the path it was given.
+   */
+  const routeOf = (pathname: string): { path: string; persona?: string } | null => {
+    if (pathname === mcpPath) return { path: mcpPath };
+    const match = /^\/([^/]+)(\/.*)$/.exec(pathname);
+    if (!match || match[2] !== mcpPath || mcpPath === "/") return null;
+    const name = decodeURIComponent(match[1]!);
+    return PERSONA_PATTERN.test(name) && name.length ? { path: pathname, persona: name } : null;
+  };
+  /** What a named path may do at most: `EP0CH_MCP_PATH_ACCESS` (`gpty=full,warp=read`), else `propose`, read per request. */
+  const capOf = (persona: string): McpAccessLevel => {
+    const listed = (mcpSetting(process.env, "EP0CH_MCP_PATH_ACCESS") ?? "").split(",").map(e => e.split("=").map(x => x.trim())).find(([who]) => who === persona)?.[1];
+    return listed === "none" || listed === "read" || listed === "propose" || listed === "full" ? listed : "propose";
+  };
   const policy: BearerPolicy = {
     issuer: config.issuer,
     resource,
@@ -305,13 +323,13 @@ export function startGateway(opts: {
   const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store", ...headers } });
   const quoted = (s: string) => `"${s.replace(/["\\]/g, "")}"`;
-  const metadata = {
-    resource,
+  const metadataFor = (path: string) => ({
+    resource: `${config.resource.origin}${path}`,
     authorization_servers: [config.issuer],
     bearer_methods_supported: ["header"],
     scopes_supported: ["profile", "offline_access"],
     resource_name: "ep0ch",
-  };
+  });
 
   let inflight = 0;
   const waiting: (() => void)[] = [];
@@ -332,17 +350,21 @@ export function startGateway(opts: {
     async fetch(req) {
       const url = new URL(req.url);
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-      if (url.pathname === "/.well-known/oauth-protected-resource" || url.pathname === metadataPath) {
-        return req.method === "GET" ? json(200, metadata) : json(405, { error: "method not allowed" }, { Allow: "GET" });
+      // Each MCP path's resource metadata at its own well-known URL (RFC 9728), the bare one the gateway's own.
+      const wellKnown = "/.well-known/oauth-protected-resource";
+      const described = url.pathname === wellKnown ? { path: mcpPath } : url.pathname.startsWith(`${wellKnown}/`) ? routeOf(url.pathname.slice(wellKnown.length)) : null;
+      if (described) {
+        return req.method === "GET" ? json(200, metadataFor(described.path)) : json(405, { error: "method not allowed" }, { Allow: "GET" });
       }
       if (url.pathname === "/healthz" && req.method === "GET") return json(200, { ok: true });
-      if (url.pathname !== mcpPath) return json(404, { error: "not found" });
+      const route = routeOf(url.pathname);
+      if (!route) return json(404, { error: "not found" });
 
-      // Every request to the endpoint, whatever its method, shows its token first.
-      const verdict = await verifyBearer(req.headers.get("authorization"), policy, log);
+      // Every request to the endpoint, whatever its method, shows its token first, for this path's resource.
+      const verdict = await verifyBearer(req.headers.get("authorization"), { ...policy, resource: `${config.resource.origin}${route.path}` }, log);
       if (!verdict.ok) {
         if (verdict.status === 401) {
-          const challenge = [`Bearer resource_metadata=${quoted(metadataUrl)}`, ...(verdict.error ? [`error=${quoted(verdict.error)}`, `error_description=${quoted(verdict.description)}`] : [])].join(", ");
+          const challenge = [`Bearer resource_metadata=${quoted(`${config.resource.origin}${metadataPathOf(route.path)}`)}`, ...(verdict.error ? [`error=${quoted(verdict.error)}`, `error_description=${quoted(verdict.description)}`] : [])].join(", ");
           return json(401, { error: verdict.error ?? "unauthorized", error_description: verdict.description }, { "WWW-Authenticate": challenge });
         }
         return json(verdict.status, { error: verdict.status === 403 ? "forbidden" : "unavailable", error_description: verdict.description });
@@ -361,10 +383,11 @@ export function startGateway(opts: {
       const given = sent && CALL_PATTERN.test(sent) ? sent : undefined;
       const minted = !given && isInitialize(body) ? mintCallId() : undefined;
       const call = given ?? minted;
-      try { answer = await answerMcp(outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}) }); }
+      const named = route.persona ? { persona: route.persona, cap: capOf(route.persona) } : {};
+      try { answer = await answerMcp(outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}), ...named }); }
       finally { slot.release(); }
       // Read this to see whether a client opens a session per chat or reuses one: mcp-session-id= is what the client sent (- on its first request), call= the call it is served as, client= the OAuth client; new marks an id minted for an initialize.
-      if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} client=${verdict.clientId ?? "-"} mcp-session-id=${sent ?? "-"} call=${call ?? "-"}${minted ? " (new)" : ""} ${answer.methods.join(", ")}`);
+      if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} client=${verdict.clientId ?? "-"}${route.persona ? ` path=/${route.persona}${mcpPath} cap=${named.cap}` : ""} mcp-session-id=${sent ?? "-"} call=${call ?? "-"}${minted ? " (new)" : ""} ${answer.methods.join(", ")}`);
       if (!answer) return json(400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "empty request" } });
       const sessionHeader: Record<string, string> = minted && answer.methods.includes("initialize") ? { "Mcp-Session-Id": minted } : {};
       if (answer.malformed) return json(400, answer.reply, sessionHeader);
