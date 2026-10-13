@@ -76,6 +76,22 @@ export const KITTY_QUERY = APC("i=31,s=1,v=1,a=q,t=d,f=24", "AAAA") + "\x1b[c";
  * terminal reader hands that to `forget` (PIE-795), and the next frame uploads it again. Deletions stay `q=2`: one of
  * an image the terminal no longer has needs no answer.
  */
+/**
+ * Placement `p` with what `r` (a dock sliding over, your drawer, the power bar, a tile drawn later) covers taken away: whole when `r`
+ * misses it; cut short when `r` covers only its lower rows across its width (a spine's rotated title running down
+ * under your drawer, PIE-794: it was dropped whole, so a long title's spine showed blank); else gone.
+ */
+export function uncovered(p: Placement, r: { col: number; row: number; cols: number; rows: number }): Placement | null {
+  const overlaps = p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row;
+  if (!overlaps) return p;
+  const across = r.col <= p.col && r.col + r.cols >= p.col + p.cols, below = r.row > p.row && r.row + r.rows >= p.row + p.rows;
+  if (!across || !below || p.sized || !("data" in p.image)) return null;
+  const rows = r.row - p.row, from = p.crop ?? { x: 0, y: 0, w: p.image.width, h: p.image.height };
+  return { ...p, rows, crop: { ...from, h: Math.max(1, Math.floor((from.h * rows) / p.rows)) } };
+}
+/** `ps` with what `r` covers taken away (uncovered). */
+export const uncover = (ps: Placement[], r: { col: number; row: number; cols: number; rows: number }): Placement[] => ps.flatMap(p => { const q = uncovered(p, r); return q ? [q] : []; });
+
 export class KittyLayer {
   private uploaded = new Map<string, number>();   // content hash → image id
   private placed = new Map<string, { id: number; pid: number; sig: string }>();

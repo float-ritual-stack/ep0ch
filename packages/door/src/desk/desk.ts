@@ -16,7 +16,7 @@ import { TONE } from "../callouts";
 import { MOUSE_RIGHT, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
-import type { Placement } from "../kitty";
+import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizing } from "../resize";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
@@ -2434,14 +2434,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // drawTile paints every cell of its box.
     const lay = (id: number, r: Rect, dock = false, float = false) => {
       const box = this.boxOf(id, r);
-      placements = placements.filter(p => !overlaps(p, box));
+      placements = uncover(placements, box);
       this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, box));
       placements.push(...this.drawTile(canvas, id, r, dock, float));
     };
     for (const [id, r] of pinned) lay(id, r);
     for (const d of this.slid) {
       canvas.clear(d.rect, bg(C.black));
-      placements = placements.filter(p => !overlaps(p, d.rect));
+      placements = uncover(placements, d.rect);
       this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, d.rect));
       for (const [id, r] of d.placed.rects) lay(id, r, true);
     }
