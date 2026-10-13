@@ -18,7 +18,9 @@ import { join } from "node:path";
 export const ECHONET_MAIL_ACTIONS: ReadonlySet<string> = new Set(["echonet.bulletin", "echonet.put", "echonet.take"]);
 const NODE = /^[a-z0-9][a-z0-9-]*@[A-Za-z0-9][\w.-]*$/;
 /** A packet's size, at most: a bulletin of a few thousand notes fits well under it. */
-const MAX_PACKET = 32 * 1024 * 1024;
+const MAX_PACKET = 24 * 1024 * 1024;
+/** What one take answers, at most (the relay carries an answer of up to 64 MB). */
+const MAX_TAKE = 24 * 1024 * 1024;
 
 /** An outline's EchoNet folder (`<outlines>/<name>/echonet`). */
 export const mailFolder = (outlineFolder: string) => join(outlineFolder, "echonet");
@@ -55,7 +57,7 @@ export function putPacket(outlineFolder: string, from: unknown, packet: unknown)
  * in two steps, so none is lost on the way: the caller keeps them, then asks again with `ack` (the files it kept),
  * and only those are removed.
  */
-export function takePackets(outlineFolder: string, forNode: unknown, ack: unknown): { packets: Array<{ file: string; packet: unknown }>; removed?: number } {
+export function takePackets(outlineFolder: string, forNode: unknown, ack: unknown): { packets: Array<{ file: string; packet: unknown }>; more?: boolean; removed?: number } {
   if (typeof forNode !== "string" || !NODE.test(forNode)) throw new Error(`echonet.take needs for: the calling node (<outline>@<machine>); got ${JSON.stringify(forNode)}`);
   const held = join(mailFolder(outlineFolder), "outbound", forNode);
   if (ack !== undefined) {
@@ -65,9 +67,14 @@ export function takePackets(outlineFolder: string, forNode: unknown, ack: unknow
   }
   let files: string[] = [];
   try { files = readdirSync(held).filter((file) => file.endsWith(".json") && !file.startsWith(".")).sort(); } catch { /* none held */ }
+  // Oldest first, as many as fit one answer (well under the relay's limit); `more` when the rest wait for the next take.
   const packets: Array<{ file: string; packet: unknown }> = [];
+  let size = 0;
   for (const file of files) {
-    try { packets.push({ file, packet: JSON.parse(readFileSync(join(held, file), "utf8")) }); } catch { /* being written */ }
+    let text: string;
+    try { text = readFileSync(join(held, file), "utf8"); } catch { continue; }
+    if (packets.length && size + text.length > MAX_TAKE) return { packets, more: true };
+    try { packets.push({ file, packet: JSON.parse(text) }); size += text.length; } catch { /* being written */ }
   }
   return { packets };
 }

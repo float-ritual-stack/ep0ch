@@ -157,7 +157,7 @@ interface Bulletin {
 }
 
 /** What a node hands another: items about the receiver's own notes, and, from a node that dials in, its bulletin. */
-interface Packet { from: string; at: string; aliases?: string[]; dialsIn?: boolean; bulletin?: Bulletin; items: Item[] }
+interface Packet { from: string; at: string; aliases?: string[]; dialsIn?: boolean; bulletin?: Bulletin; items: Item[]; tries?: number }
 type Item =
   /** A copy of the original was made there: one whole-note mark "also in: <from>". */
   | { kind: "seen-by"; original: string; copy: string; area: string }
@@ -835,10 +835,17 @@ async function callOut(subscribers: Set<string>, leave: boolean): Promise<void> 
     if (!link.reachable || !link.route) { if (!leave) log.push(`- ${node.id}: unreachable (${link.why}); the next toss calls again`); continue; }
     try {
       if (!leave) {
-        const { packets } = await outline<{ packets: Array<{ file: string; packet: Packet }> }>({ action: "echonet.take", for: self.id }, link.route);
-        for (const { file, packet } of packets) writeWhole(boxPath("inbound", `${stamp()}-${file}`), packet);
-        if (packets.length) await outline({ action: "echonet.take", for: self.id, ack: packets.map((p) => p.file) }, link.route);
-        log.push(`- ${node.id}: called; took ${packets.length} packet${packets.length === 1 ? "" : "s"}`);
+        // Kept in the order they were held (their names begin with when), then acknowledged; a long backlog comes in
+        // several takes.
+        let taken = 0;
+        for (let round = 0; round < 50; round += 1) {
+          const { packets, more } = await outline<{ packets: Array<{ file: string; packet: Packet }>; more?: boolean }>({ action: "echonet.take", for: self.id }, link.route);
+          for (const { file, packet } of packets) writeWhole(boxPath("inbound", `${file.replace(/\.json$/, "")}-from-${node.id}.json`), packet);
+          if (packets.length) await outline({ action: "echonet.take", for: self.id, ack: packets.map((p) => p.file) }, link.route);
+          taken += packets.length;
+          if (!more) break;
+        }
+        log.push(`- ${node.id}: called; took ${taken} packet${taken === 1 ? "" : "s"}`);
       } else {
         await outline({ action: "echonet.put", from: self.id, packet: { from: self.id, at: now, aliases: address.aliases ?? [], dialsIn: true, bulletin: built!, items: [] } satisfies Packet }, link.route);
         log.push(`- ${node.id}: left our bulletin`);
@@ -875,12 +882,55 @@ async function importInbound(ledger: Ledger, published: Bulletin, subs: Block[])
       if (masks.some((list) => masksName(list, from))) writeWhole(boxPath("bulletins", `${from.id}.json`), packet.bulletin);
       else { log.push(`- ${from.id}: its bulletin, which no subscription here reads; dropped`); counts.dropped += 1; }
     }
-    for (const item of packet.items ?? []) await importItem(from, item, offered);
+    // Each item alone: one that can't be read is dropped, one that waits on a thread not there yet is tried again at
+    // the next toss (three times), and one that fails on the way keeps its packet for the next toss (three times, then
+    // it is set aside in inbound/failed/ for a look). Nothing in one packet stops the next.
+    const again: Item[] = [];
+    let failed: unknown;
+    for (const item of Array.isArray(packet.items) ? packet.items : []) {
+      if (!wellFormed(item)) { log.push(`- an item from ${from.id} that isn't one EchoNet knows; dropped`); counts.dropped += 1; continue; }
+      try {
+        if ((await importItem(from, item, offered)) === "later") again.push(item);
+      } catch (error) {
+        failed = error;
+        break;
+      }
+    }
+    const tries = (packet.tries ?? 0) + 1;
+    if (failed !== undefined) {
+      const why = failed instanceof Error ? failed.message.split("\n")[0] : String(failed);
+      if (tries >= 3) {
+        mkdirSync(boxPath("inbound", "failed"), { recursive: true });
+        renameSync(boxPath("inbound", file), boxPath("inbound", "failed", file));
+        log.push(`- a packet from ${from.id} failed three tosses (${why}); set aside in echonet/inbound/failed/${file}`);
+      } else {
+        writeWhole(boxPath("inbound", file), { ...packet, tries });
+        log.push(`- a packet from ${from.id} stopped (${why}); the next toss tries it again`);
+      }
+      continue;
+    }
     rmSync(boxPath("inbound", file), { force: true });
+    if (again.length && tries < 3) writeWhole(boxPath("inbound", file), { from: packet.from, at: packet.at, items: again, tries } satisfies Packet);
+    else for (const item of again) { log.push(`- ${item.kind} from ${from.id}: its thread never came; dropped`); counts.dropped += 1; }
   }
 }
 
-async function importItem(from: Node, item: Item, offered: (id: string) => boolean): Promise<void> {
+/** An item EchoNet knows, in its shape: anything else in a packet is dropped, never a reason to stop. */
+function wellFormed(item: unknown): item is Item {
+  if (!item || typeof item !== "object") return false;
+  const it = item as Record<string, unknown>;
+  const text = (key: string) => typeof it[key] === "string";
+  if (!text("original") || !/^[0-9a-f-]{36}$/.test(it.original as string)) return false;
+  switch (it.kind) {
+    case "seen-by": return text("copy") && text("area");
+    case "netmail": return text("key") && text("body") && text("author") && (it.quote === undefined || text("quote")) && !!it.properties && typeof it.properties === "object";
+    case "reply": return text("thread") && text("key") && text("body") && text("author");
+    case "thread-reply": return text("root") && text("key") && text("body") && text("author");
+    default: return false;
+  }
+}
+
+async function importItem(from: Node, item: Item, offered: (id: string) => boolean): Promise<void | "later"> {
   const drop = (why: string) => { log.push(`- ${item.kind} from ${from.id}: ${why}; dropped`); counts.dropped += 1; };
   if (!offered(item.original)) return drop(`((${item.original})) isn't a note this node publishes`);
   const original = await mine<Block>({ action: "get", blockId: item.original }).catch(() => undefined);
@@ -914,9 +964,15 @@ async function importItem(from: Node, item: Item, offered: (id: string) => boole
     });
   } else {
     let annotationId: string | undefined;
-    if (item.kind === "reply") annotationId = (await threadsOn(original.id)).find((thread) => netmailFrom(thread) === item.thread)?.block.id;
-    else annotationId = item.root;
-    if (!annotationId) return drop(`no thread ${item.kind === "reply" ? item.thread : item.root} on ((${original.id}))`);
+    if (item.kind === "reply") {
+      annotationId = (await threadsOn(original.id)).find((thread) => netmailFrom(thread) === item.thread)?.block.id;
+      // Its thread is in a packet not imported yet: tried again.
+      if (!annotationId) return "later";
+    } else {
+      // A copy of a comment: its root is that comment, or the one it replies to; nothing else.
+      if (!isMark(original) || (item.root !== original.id && item.root !== original.parentId)) return drop(`((${item.root})) isn't the thread of ((${original.id}))`);
+      annotationId = item.root;
+    }
     await mine({ action: "annotations.reply", requestId: `echonet-out-${item.key}`, input: { annotationId, body: item.body, source: "agent", properties: props } });
   }
   counts.netmailIn += 1;
@@ -935,7 +991,8 @@ let built: Bulletin | undefined;
 async function buildBulletin(lastToss: string | undefined): Promise<Bulletin> {
   const blocks: Record<string, Block> = {};
   const keep = (block: Block) => { if (!trashed(block)) blocks[block.id] = block; };
-  const tagged = (await query(mine, "echo", { sort: "updated desc" })).filter((block) => !trashed(block));
+  // Only what offers: area views and postings. A subscription, a source board or a copy carries `echo` too, and is never published.
+  const tagged = (await query(mine, "echo", { sort: "updated desc" })).filter((block) => !trashed(block) && ["area", "posting"].includes(kindOf(block)));
   tagged.forEach(keep);
   const areaResults: Record<string, string[]> = {};
   const messages = new Set<string>();

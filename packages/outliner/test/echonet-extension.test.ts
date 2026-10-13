@@ -384,6 +384,12 @@ test("a packet is imported only onto what the receiver publishes; a bulletin onl
   const said = await lastLog("shack");
   expect(said).toContain(`- netmail from cafe@${machine}: ((${kept.id})) isn't a note this node publishes; dropped`);
   expect(said).toContain(`- cafe@${machine}: its bulletin, which no subscription here reads; dropped`);
+  // An item it can't read, or one aiming past the note it names (a reply into a thread that isn't that note's): dropped,
+  // and nothing in it stops the toss.
+  await send(sock, { outline: "shack", action: "echonet.put", from: `cafe@${machine}`, packet: { from: `cafe@${machine}`, at: new Date().toISOString(), items: [
+    null, { kind: "thread-reply", original: offered.id, root: kept.id, key: `cafe@${machine}/00000000-0000-4000-8000-0000000000dd`, body: "sneaking in", author: "user" },
+  ] } });
+  expect(await toss("shack")).toContain("dropped 2");
   // A packet's arrival sets the receiver's own tosser off: no one tosses by hand.
   process.env.EP0CH_ECHONET_ARRIVAL_TOSS = "1";
   try {
