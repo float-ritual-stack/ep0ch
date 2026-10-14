@@ -432,7 +432,7 @@ deeper, to any depth:
   violet, amber, coral or neutral; `callout-title::` too). The door and Detail draw it, and the door offers it after
   `> [!` and in its type choice. `callout.list` (an `act` on a reader) lists the types and says what's wrong with a
   declaration.
-- **Folding is the reader's**, never the text's: `fold`/`unfold text=<title>` open one in a door for someone. Change
+- **Folding is the reader's**, never the text's: `fold`/`unfold text=<title>` open one in a door for someone (a reader the person isn't typing in; their selection and scroll stay). A links list's folded groups are the person's view alone: an agent's `backlinks.fold` and `column.link` on a group are refused, and it reads every row with `backlinks.view` or `peek`. Change
   what's written only to change where it starts: `callout.start n= folded=true|false` writes the `-`/`+`, and
   `callout.type n= to=<type>` rewrites the type. Both are an attributed edit of one line, revision-checked, refused
   under a draft the person has open; `callout.undo` takes yours back.
