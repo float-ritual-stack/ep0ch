@@ -19,6 +19,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Added:** an embed whose anchor its note doesn't have says so wherever it's drawn (the preview and the reader):
   `MISSING FRAGMENT in "<note>"`, then `did you mean ^<anchor>?` with the nearest anchor that note has (the save
   warning's rule); a click on it opens that passage beside the edit.
+
 ### A link selected before a note is drawn is its current element
 
 - **Fixed:** `link.select` (or the surface's `selectLink`) on a note just shown again (back, a reread) and not yet
