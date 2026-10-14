@@ -70,6 +70,8 @@ export function parseFormField(value: string): FormField | FormFieldProblem {
   const [name, type, ...rest] = words;
   if (!name) return bad(`it names no field: write [${FORM_FIELD_KEY}::<name> <type>], a type one of ${FORM_FIELD_TYPES.join(", ")}`);
   if (!FORM_FIELD_NAME.test(name)) return bad(`${name} isn't a field name (lowercase letters, digits, - and _, starting with a letter)`);
+  // `constructor` and the like: every answers object a client builds already has one, so it could never be asked.
+  if (name in Object.prototype) return bad(`${name} is a name every object already has; call the field something else`);
   if (RESERVED_ARG_NAMES.has(name)) return bad(`${name} is a name the action's request already uses (${[...RESERVED_ARG_NAMES].join(", ")}); call the field something else`);
   if (!type) return bad(`it says no type: add one of ${FORM_FIELD_TYPES.join(", ")} after ${name}`);
   if (!(FORM_FIELD_TYPES as readonly string[]).includes(type)) {
@@ -96,31 +98,28 @@ export const isFormFieldProblem = (x: FormField | FormFieldProblem): x is FormFi
 
 /**
  * The fields a note's values declare (each `form-field` property's value, in the note's order), and the chips that
- * couldn't be read. A name written twice is a problem the second time; past MAX_FORM_FIELDS the rest are one.
+ * couldn't be read, each with its index in `values`. A name written twice is a problem the second time; past
+ * MAX_FORM_FIELDS the rest are one.
  */
-export function formFields(values: readonly string[]): { fields: FormField[]; problems: FormFieldProblem[] } {
-  const fields: FormField[] = [], problems: FormFieldProblem[] = [];
-  for (const value of values) {
-    const read = parseFormField(value);
-    if (isFormFieldProblem(read)) problems.push(read);
-    else if (fields.some(f => f.name === read.name)) problems.push({ written: value.trim(), message: `[${FORM_FIELD_KEY}::${value.trim()}]: the note already has a field ${read.name}` });
-    else if (fields.length >= MAX_FORM_FIELDS) problems.push({ written: value.trim(), message: `[${FORM_FIELD_KEY}::${value.trim()}]: a note's form holds at most ${MAX_FORM_FIELDS} fields` });
+export function formFields(values: readonly string[]): { fields: FormField[]; problems: (FormFieldProblem & { index: number })[] } {
+  const fields: FormField[] = [], problems: (FormFieldProblem & { index: number })[] = [];
+  values.forEach((value, index) => {
+    const read = parseFormField(value), written = value.trim();
+    if (isFormFieldProblem(read)) problems.push({ ...read, index });
+    else if (fields.some(f => f.name === read.name)) problems.push({ written, index, message: `[${FORM_FIELD_KEY}::${written}]: the note already has a field ${read.name}; rename one or remove it` });
+    else if (fields.length >= MAX_FORM_FIELDS) problems.push({ written, index, message: `[${FORM_FIELD_KEY}::${written}]: a note's form holds at most ${MAX_FORM_FIELDS} fields; remove one` });
     else fields.push(read);
-  }
+  });
   return { fields, problems };
 }
 
 /**
  * The `[form-field::…]` chips of `text` that can't be read, each at its offset: what a save says about the note
- * (syntax-warnings.ts). Chips in code and literal regions aren't properties, so they aren't read.
+ * (syntax-warnings.ts), as the action that reads the form would (`formFields`: a name twice, too many). Chips in code
+ * and literal regions aren't properties, so they aren't read.
  */
 export function formFieldChipProblems(text: string): { start: number; problem: FormFieldProblem }[] {
   const literal = scanPropertyLiteralRanges(text);
-  const out: { start: number; problem: FormFieldProblem }[] = [];
-  for (const token of propertyTokenMatches(text)) {
-    if (token.key.toLowerCase() !== FORM_FIELD_KEY || isEscapedAt(text, token.start) || codeHides(token, literal)) continue;
-    const read = parseFormField(token.value);
-    if (isFormFieldProblem(read)) out.push({ start: token.start, problem: read });
-  }
-  return out;
+  const chips = propertyTokenMatches(text).filter(token => token.key.toLowerCase() === FORM_FIELD_KEY && !isEscapedAt(text, token.start) && !codeHides(token, literal));
+  return formFields(chips.map(chip => chip.value)).problems.map(({ index, ...problem }) => ({ start: chips[index]!.start, problem }));
 }

@@ -88,6 +88,8 @@ const ASK_SOURCE: BarSource = {
     const rows: BarRow[] = choices.filter(c => !words || c.toLowerCase().includes(words) || q.says?.[c]?.toLowerCase().includes(words))
       .map(c => ({ key: `answer:${c}`, label: q.says?.[c] ?? c, detail: c === q.value ? "now" : undefined, group: head, data: c }));
     if (q.free && typed && !choices.includes(typed)) rows.unshift({ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed });
+    // One that isn't needed and has no default (a note's form, PIE-828) can be left out.
+    if (q.required === false && q.value === undefined && !words) rows.push({ key: "answer:", label: "leave it empty", detail: "no answer", group: head, data: "" });
     // A note: any the outline's search finds by the words typed, nearer the note in front first. The rest answer at once.
     if (q.type !== "note" || typed.length < 2) return rows;
     return host.ctx.board.search(typed, 20, { near: host.near() ?? undefined }).then(found => [

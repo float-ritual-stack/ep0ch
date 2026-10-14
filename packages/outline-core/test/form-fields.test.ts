@@ -11,10 +11,13 @@ test("a field chip reads as a declared argument does; one it can't read says wha
   expect(parseFormField("block text")).toMatchObject({ message: expect.stringContaining("the action's request already uses") });
   expect(parseFormField("mood choice")).toMatchObject({ message: expect.stringContaining("a choice needs its options") });
   expect(formFields(["a text", "a number"]).problems[0]!.message).toContain("already has a field a");
+  expect(parseFormField("constructor text")).toMatchObject({ message: expect.stringContaining("every object already has") });
 });
 
 test("a save warns on the chip it can't read, on its line, and none in code", () => {
   const warned = syntaxWarnings("Reading log\n[form-field::book txt]\n`[form-field::x nope]`\n[form-field::pages number]");
   expect(warned.map(w => [w.kind, w.line])).toEqual([["form-field", 1]]);
   expect(warned[0]!.message).toContain("did you mean text?");
+  // A name twice is said on the second chip's line, as the action would refuse it.
+  expect(syntaxWarnings("Log\n[form-field::book text]\n[form-field::book number]").map(w => [w.line, w.message.includes("already has a field book")])).toEqual([[2, true]]);
 });
