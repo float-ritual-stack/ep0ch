@@ -14,11 +14,11 @@ import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
-import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
+import { builtinChecks, doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
 import { claudeModIn, databases, depsState, fetchRace, herdrHyperChords, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
 import { configuredMachineName, dialsIn, hostMachineName, isLocalMachine, localMachineAliases, writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
-import { backupName, buildPlan, checkoutStep, nameStep, dialsStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
+import { backupName, buildPlan, builtinsStep, checkoutStep, nameStep, dialsStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -1066,6 +1066,42 @@ describe("the agent skills: their links where Claude Code (and ~/.agents) finds 
     expect(readlinkSync(join(m.claude, "kept-old"))).toBe(join(m.old, "ep0ch"));
     expect(JSON.parse(readFileSync(m.record, "utf8")).links).not.toContain(join(m.claude, "ep0ch-core"));
     expect(skillsStep(withSkills(look(m)))).toMatchObject({ status: "skip" });
+  });
+});
+
+describe("the installed copies of the built-in extensions (PIE-861)", () => {
+  type Copy = NonNullable<Facts["builtins"]>["copies"][number];
+  const copy = (id: string, state: Copy["state"], o: Partial<Copy> = {}): Copy => ({
+    id, dir: `${HOME}/.config/pi-herdr-outliner/extensions/${id}`, where: "user", state, recorded: false, news: [], differs: [],
+    version: { builtIn: 1, copy: 1 }, ...o });
+  const withCopies = (copies: Copy[], f = current()): Facts => ({ ...f, builtins: { dir: `${REPO}/packages/outliner/extensions`, copies } });
+  const tarot = copy("tarot", "stale", { base: "e686c82c", news: ["e3e59390 tarot's client can't hang"], differs: ["request.ts"] });
+  const tidy = copy("tidy", "forked", { where: "pie", dir: `${HOME}/outlines/pie/extensions/tidy`, differs: ["tidy.ts"] });
+
+  test("an unchanged copy behind the built-in is refreshed by install; one changed here is said and left", () => {
+    const step = builtinsStep(withCopies([tarot, tidy, copy("moon", "current")]), false)!;
+    expect(step.status).toBe("do");
+    expect(step.why).toContain("tarot: unchanged copy behind the built-in, refreshed in place (config.json kept)");
+    expect(step.why).toContain("left as it is: tidy (pie)");
+    expect(step.commands).toEqual([expect.stringMatching(/ep0ch ext update --all --keep-forked$/)]);
+    // The last of the steps, beside the links: one that fails stops nothing else.
+    expect(statuses(withCopies([tarot])).at(-1)).toBe("builtins:do");
+  });
+
+  test("all current: nothing to do, unless the checkout updates (the new built-ins may change them)", () => {
+    expect(builtinsStep(withCopies([copy("moon", "current")]), false)).toMatchObject({ status: "skip", why: "1 current" });
+    expect(builtinsStep(withCopies([copy("moon", "current")]), true)).toMatchObject({ status: "do" });
+    expect(builtinsStep(withCopies([]), true)).toMatchObject({ status: "skip", why: "no installed copies of the built-ins" });
+    expect(builtinsStep(withCopies([tidy]), false)!.status).toBe("skip");
+  });
+
+  test("doctor: a stale copy is behind with its fix, a forked one is said with what's new, the rest one line", () => {
+    const checks = builtinChecks(withCopies([tarot, tidy, copy("moon", "current")]));
+    expect(checks.map(c => `${MARK[c.status]} ${c.name}`)).toEqual(["! tarot", "· tidy", "✓ built-ins"]);
+    expect(checks[0]!.detail).toContain("new since: tarot's client can't hang");
+    expect(checks[0]!.fix).toContain("ep0ch ext update tarot");
+    expect(checks[1]!.detail).toContain("the built-in differs in tidy.ts");
+    expect(checks[1]!.fix).toContain("shows the diff and asks");
   });
 });
 

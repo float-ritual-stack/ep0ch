@@ -600,7 +600,8 @@ service host's user folder (`~/.config/pi-herdr-outliner/extensions/<id>/`, ever
 the code, `config.json` (secrets as references, never literals). `outliner ext ls` lists them, `outliner ext add
 <id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira, meeting-card, done-stamp, shout) into the user folder, or with
 `--outline-folder <outline root>` into the outline's, `outliner ext remove <id>` takes it away (both apply
-without a restart), and `outliner ext act <id> <action> --block <id>` runs an action. The contract and worked examples are packages/outliner
+without a restart), `ep0ch install --apply` refreshes a copy nobody changed when the built-in moves on (`outliner ext
+update <id>` shows a changed copy's diff and asks), and `outliner ext act <id> <action> --block <id>` runs an action. The contract and worked examples are packages/outliner
 `docs/extensions/README.md`. Test one against a scratch host, never their live folder. For a need, pick the
 smallest kind that serves it, copy the nearest built-in, and say what it runs and what it costs (`effects: read | spend | write`).
 

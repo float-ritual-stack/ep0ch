@@ -25,7 +25,8 @@ The canonical examples ship in [`extensions/`](../../extensions): [moon](../../e
 [done-stamp](../../extensions/done-stamp) (a rule that runs), [intake](../../extensions/intake) (an action a rule
 note runs, whose note asks its own agent), [shout](../../extensions/shout) (a rule on a
 text pattern) and [runbook](../../extensions/runbook) (actions that run a note's command blocks with a secrets group and record each run). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
-is yours to edit.
+is yours to edit. A copy you haven't edited follows the built-in: `ep0ch install --apply` refreshes it
+([Following the built-ins](#following-the-built-ins)).
 
 Extensions are **trusted code, not a sandbox**, like nvim or Claude Code plugins. They run as the
 service user. What keeps the outline safe is the contract below: a call gets a bounded, read-only
@@ -85,12 +86,37 @@ outliner ext ls                                   # every folder, its state, its
 outliner ext add horoscope                        # a built-in, into the user folder
 outliner ext add ./my-extension                   # any folder (checked first; a broken one is refused)
 outliner ext add moon --outline-folder ~/outlines/pie   # into that outline's own extensions/
+outliner ext update --all                         # refreshes each copy of a built-in nobody changed; a changed one shows its diff and asks
+outliner ext update tarot --yes                   # takes the built-in's over your changes (yours kept in extensions-forks/ first)
 outliner ext remove horoscope                     # deletes the folder; the service drops it at once (its demo notes stay)
 outliner ext remove notify --demo remove          # and its demo notes, the ones you didn't change, to Trash
 outliner ext act fancy-horror ward --block <id>   # runs an action, attributed to the extension
 ```
 
 They are conveniences: copying a folder in or deleting it does the same.
+
+### Following the built-ins
+
+`ext add <name>` writes `.installed.json` beside the copy's `config.json`: the built-in it came from, its version, the
+commit and a hash of its files (each file's git blob id, so a version in git history hashes the same as the files on
+disk). From that, each installed copy of a built-in is one of:
+
+| State | What it means | What happens |
+|---|---|---|
+| current | its files are the built-in's now | nothing |
+| stale | unchanged since it was installed, and the built-in has moved on | `ep0ch install --apply` and `ext update` refresh it in place |
+| forked | someone changed it | left alone; listed with what's new, and `ext update <name>` shows the diff and asks |
+
+- A copy made before the record has none. When its files match some earlier version of the built-in in the
+  checkout's git history, it counts as unchanged (and the commits since are what's new); otherwise as forked.
+- A refresh keeps `config.json`, `node_modules` and the dotfiles at the copy's top (your `.env`, its record), and takes
+  away a file the new version no longer has, as `ext add` over an install does.
+- Taking the built-in's over a forked copy (`--yes`, or yes when asked) first copies yours to
+  `extensions-forks/<id>-<time>/` beside the extensions folder (`~/.config/pi-herdr-outliner/extensions-forks/`, or
+  `<outline root>/extensions-forks/`), which no service reads.
+- Without `--outline-folder`, `ext update` looks in the user folder and every outline's own folder under the outlines
+  folder (`EP0CH_OUTLINES`, else `~/outlines`). `ep0ch doctor` lists the stale and forked copies under `extensions`.
+- `ext add <path>` of your own folder over a built-in's id writes no record: it is your extension, not a copy.
 
 ## The folder
 

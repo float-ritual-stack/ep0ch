@@ -12,6 +12,7 @@
     "./agent-tools": "./src/agent-tools.ts",
     "./draft-patch": "./src/draft-patch.ts",
     "./echo-health": "./src/echo-health.ts",
+    "./extension-update": "./src/extension-update.ts",
     "./litestream-guard": "./src/litestream-guard.ts",
     "./litestream-units": "./src/litestream-units.ts",
     "./machine-forward": "./src/machine-forward.ts",

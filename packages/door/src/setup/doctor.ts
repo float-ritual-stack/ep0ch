@@ -178,6 +178,28 @@ export function doctorChecks(f: Facts): Check[] {
   if (f.claude.forceHyperlink !== undefined) add("claude", "FORCE_HYPERLINK", "info", `set to ${f.claude.forceHyperlink}: a known issue (PIE-486)`);
   for (const c of doorAgentChecks(f)) out.push(c);
   for (const c of skillChecks(f)) out.push(c);
+  for (const c of builtinChecks(f)) out.push(c);
+  return out;
+}
+
+/**
+ * The installed copies of the built-in extensions (PIE-861): ! an unchanged copy behind the built-in (install, or
+ * `ext update`, refreshes it), · one changed here with what the built-in has since, ✓ the rest, one line.
+ */
+export function builtinChecks(f: Facts): Check[] {
+  const b = f.builtins;
+  if (!b) return [];
+  const out: Check[] = [];
+  const add = (name: string, status: CheckStatus, detail: string, fix?: string) => out.push({ group: "extensions", name, status, detail, ...(fix ? { fix } : {}) });
+  if (b.error) { add("built-ins", "unknown", `couldn't read the installed copies: ${b.error}`); return out; }
+  const where = (w: string) => (w === "user" ? "the user folder" : `${w}'s folder`);
+  const news = (n: string[]) => (n.length ? `; new since: ${n.map(x => x.slice(9)).join("; ")}` : "");
+  for (const c of b.copies) {
+    if (c.state === "stale") add(c.id, "behind", `${c.dir} (${where(c.where)}) is an unchanged copy, behind the built-in${news(c.news)}`, `${ep0ch()}ext update ${c.id}   (or ep0ch install --apply)`);
+    else if (c.state === "forked") add(c.id, "info", `${c.dir} (${where(c.where)}) was changed here, so install leaves it; the built-in differs in ${c.differs.join(", ")}${news(c.news)}`, `${ep0ch()}ext update ${c.id}   (shows the diff and asks)`);
+  }
+  const current = b.copies.filter(c => c.state === "current");
+  if (current.length) add("built-ins", "ok", `${current.length} installed ${current.length === 1 ? "copy" : "copies"} current: ${current.map(c => (c.where === "user" ? c.id : `${c.id} (${c.where})`)).join(" · ")}`);
   return out;
 }
 

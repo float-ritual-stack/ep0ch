@@ -13,7 +13,7 @@ import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Fac
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "host" | "mcp" | "session" | "backups";
+export type StepId = "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "session" | "backups";
 
 export interface Step {
   id: StepId;
@@ -181,6 +181,29 @@ export function extStep(f: Facts): Step {
   const skipped = exts.filter(e => e.problem).map(e => `${e.name}: ${e.problem}`);
   return linksStep("ext", "Link the door's extensions (packages/door/ext)", exts.flatMap(e => e.links), f.ext?.stale ?? [], f.ext ? [f.ext.root] : [], f.ext?.record,
     skipped.map(x => `not linked: ${x}`));
+}
+
+/**
+ * The installed copies of the built-in extensions (PIE-861): each unchanged one behind the built-in (or, with the
+ * update, any the new code changes) is refreshed in place, config.json kept, by the new checkout's `ext update`; a copy
+ * changed here (forked) is left as it is and said, with the command that shows the diff and asks. Null when not looked for.
+ */
+export function builtinsStep(f: Facts, updates: boolean): Step | null {
+  const b = f.builtins;
+  if (!b) return null;
+  const title = "Refresh the installed built-in extensions";
+  const named = (cs: typeof b.copies) => cs.map(c => (c.where === "user" ? c.id : `${c.id} (${c.where})`)).join(", ");
+  if (b.error) return { id: "builtins", title, status: "skip", why: `couldn't read the installed copies: ${b.error}`, commands: [] };
+  if (!b.copies.length) return { id: "builtins", title, status: "skip", why: "no installed copies of the built-ins", commands: [] };
+  const stale = b.copies.filter(c => c.state === "stale"), forked = b.copies.filter(c => c.state === "forked");
+  const kept = forked.length ? `; changed here, so left as ${forked.length === 1 ? "it is" : "they are"}: ${named(forked)} (\`${ep0ch()}ext update <name>\` shows the diff and asks)` : "";
+  if (stale.length || updates) {
+    const why = stale.length
+      ? `${named(stale)}: unchanged ${stale.length === 1 ? "copy" : "copies"} behind the built-in, refreshed in place (config.json kept)`
+      : `${b.copies.length} installed: any unchanged one the update changes is refreshed in place (config.json kept)`;
+    return { id: "builtins", title, status: "do", why: `${why}${kept}`, commands: [`${ep0ch()}ext update --all --keep-forked`] };
+  }
+  return { id: "builtins", title, status: "skip", why: `${b.copies.length - forked.length} current${kept}`, commands: [] };
 }
 
 /** The shipped agent skills' links where Claude Code (and ~/.agents) finds them (src/setup/skill-links.ts). */
@@ -539,6 +562,8 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   if (schema?.status === "manual" && host.status === "do") host = { ...host, status: "manual", why: `held back: not every outline can be migrated to the schema the code opens, and started it would serve only some; see "${schema.title}"`, commands: [] };
   // The MCP gateway after the host it talks to.
   const mcp = f.mcp ? [mcpStep(f, updates)] : [];
+  // After the update (it reads the new built-ins), with the optional steps at the end: one that fails stops nothing else.
+  const builtins = builtinsStep(f, updates);
   const session = sessionStep(f, repo);
   const backups = backupsStep(f);
   const backup = backupStep(f, o, [repo, plugin, link, ...(schema ? [schema] : []), host].some(s => s.status === "do"));
@@ -549,5 +574,5 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
     schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${from}.sqlite`) }));
   }
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
 }
