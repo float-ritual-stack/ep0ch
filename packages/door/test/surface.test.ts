@@ -18,7 +18,7 @@ import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
 import { ACTOR_ID, SocketBoard, type Actor } from "../src/socket";
 import { width } from "../src/style";
-import { ActionRefused, ActionSet, asActor, parseActArgs, traceActions, type ActionRun } from "../src/surface/actions";
+import { ActionRefused, ActionSet, asActor, lineWords, parseActArgs, traceActions, type ActionRun } from "../src/surface/actions";
 import { editHint } from "../src/surface/editor";
 import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -128,6 +128,11 @@ describe("the surface without a service", () => {
       // reader= is no request field: it's an argument like any other, which the action refuses.
       expect(await parseActArgs(["tile.close", "reader=3"])).toEqual({ action: "tile.close", args: { reader: "3" } });
       await expect(parseActArgs(["edit.text", "oops"])).rejects.toThrow("key=value");
+      // The word after --as is a name, never a file to read.
+      expect(await parseActArgs(["tile.close", "--as", "@wren", "reader=3"])).toEqual({ action: "tile.close", as: "@wren", args: { reader: "3" } });
+      // A line typed or pasted in the power bar splits as a shell would (PIE-856).
+      expect(lineWords(`tile.open kind=query query="#build report" note='a "b"' text=say\\ \\"hi\\" path="C:\\x"`))
+        .toEqual(["tile.open", "kind=query", "query=#build report", 'note=a "b"', 'text=say "hi"', "path=C:\\x"]);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 

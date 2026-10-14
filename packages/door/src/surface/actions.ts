@@ -484,12 +484,16 @@ export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: A
  * arguments. A value `@path` is read from that file and `@-` from stdin, so long text needn't be quoted.
  */
 export async function parseActArgs(words: string[], stdin: () => Promise<string> = () => Bun.stdin.text()): Promise<ActRequest> {
-  const req = actRequestOf(words);
-  const read = async (v: string) => (v === "@-" ? (await stdin()).replace(/\n$/, "") : v.startsWith("@") && v.length > 1 ? (await Bun.file(v.slice(1)).text()).replace(/\n$/, "") : v);
-  for (const [k, v] of Object.entries(req.args!)) req.args![k] = await read(v as string);
-  if (req.tile !== undefined) req.tile = await read(req.tile);
-  if (req.as !== undefined) req.as = await read(req.as);
-  return req;
+  // A `key=@…` value is read first; the word after `--as` or `--tile` is taken as written.
+  const read: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!, eq = w.indexOf("="), v = eq > 0 ? w.slice(eq + 1) : "";
+    if (i > 0 && (w === "--as" || w === "--tile")) { read.push(w); if (i + 1 < words.length) read.push(words[++i]!); continue; }
+    if (i === 0 || !v.startsWith("@") || v.length < 2) { read.push(w); continue; }
+    const text = v === "@-" ? await stdin() : await Bun.file(v.slice(1)).text();
+    read.push(`${w.slice(0, eq)}=${text.replace(/\n$/, "")}`);
+  }
+  return actRequestOf(read);
 }
 
 /** An action and its `key=value` words (`--as` and `--tile` too), every value as written: the CLI's and the power bar's. */
@@ -515,13 +519,16 @@ const QUOTES: Record<string, string> = { '"': '"', "'": "'", "\u201c": "\u201d",
 
 /**
  * A line split into words as a shell splits a command: spaces between words, and a quote, anywhere in a word, keeps
- * what's inside it in that word without the quotes (`query="#build report"` is `query=#build report`). An unclosed
- * quote runs to the end.
+ * what's inside it in that word without the quotes (`query="#build report"` is `query=#build report`). A backslash
+ * keeps the next character as it is (`\ `, `\"`; inside double quotes only `\"` and `\\`, as a shell's), never inside single
+ * quotes. An unclosed quote runs to the end.
  */
 export function lineWords(line: string): string[] {
   const out: string[] = [];
-  let word = "", inWord = false, close: string | null = null;
+  let word = "", inWord = false, close: string | null = null, escaped = false;
   for (const c of line) {
+    if (escaped) { word += close && c !== close && c !== "\\" ? `\\${c}` : c; escaped = false; continue; }
+    if (c === "\\" && close !== "'" && close !== "\u2019") { escaped = true; inWord = true; continue; }
     if (close) { if (c === close) close = null; else word += c; continue; }
     if (QUOTES[c]) { close = QUOTES[c]!; inWord = true; continue; }
     if (/\s/.test(c)) { if (inWord) out.push(word); word = ""; inWord = false; continue; }
