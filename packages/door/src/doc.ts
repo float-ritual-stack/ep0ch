@@ -567,22 +567,15 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const entry = media(spec.path, spec.kind);
       const ref: DocMedia = { path: entry.path, kind: spec.kind, row: out.length, line: i, spec };
       mediaRefs.push(ref);
-      const isHero = spec.layout === "hero";
-      if (isHero && env.hero) {
+      if (spec.layout === "hero" && env.hero) {
         hero = { ...ref, media: entry };
         out.push(caption(entry, spec, W, env, i, true));
         continue;
       }
-      // Its rows from its size, which its header gives before it's decoded: kept dark while it loads, so the note
-      // doesn't move when it arrives.
-      const size = entry.state === "ready" ? entry : entry.state === "loading" && entry.width && entry.height ? { width: entry.width, height: entry.height } : null;
-      if (size && env.graphics) {
-        const box = isHero ? heroBox(size, spec, W, Math.min(spec.height ?? Infinity, env.maxImageRows), env.cellW, env.cellH) : imageBox(size, spec, W, env);
-        if (entry.state === "ready") ref.image = images.push({ line: out.length, media: entry, ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box }) - 1;
-        for (let r = 0; r < box.rows; r++) out.push("");
-        ref.row = out.length;
-      }
-      out.push(caption(entry, spec, W, env, i, isHero));
+      const drawn = mediaRows(spec, W, env, i, entry);
+      if (drawn.image) ref.image = images.push({ ...drawn.image, line: out.length + drawn.image.line }) - 1;
+      ref.row = out.length + drawn.caption;
+      out.push(...drawn.lines);
       continue;
     }
 
@@ -758,6 +751,26 @@ const colsFor = (m: { width: number; height: number }, rows: number, env: DocEnv
  * from `[height::…]`, else about half its own pixels (a small image isn't blown up to the full width); its aspect
  * kept, inside both when both are written, at most `maxImageRows` tall; then placed by `[align::…]`.
  */
+/**
+ * A media line's rows `W` wide (PIE-532): the picture's box, kept dark while it loads (its rows come from its header, so
+ * nothing moves when it arrives), then its caption (row `caption`). `image`: the picture to place, at `line` of these
+ * rows, once it's decoded. A note's image line is drawn with it, and so is an extension view's `image` primitive
+ * (PIE-827, the reader's `PrimitiveDraw.image`). `line`: the body line the caption's controls change.
+ */
+export function mediaRows(spec: MediaSpec, W: number, env: DocEnv, line: number, entry: Media = media(spec.path, spec.kind === "video" ? "video" : "img")): { lines: string[]; caption: number; entry: Media; image?: DocImage } {
+  const lines: string[] = [];
+  const isHero = spec.layout === "hero";
+  const size = entry.state === "ready" ? entry : entry.state === "loading" && entry.width && entry.height ? { width: entry.width, height: entry.height } : null;
+  let image: DocImage | undefined;
+  if (size && env.graphics) {
+    const box = isHero ? heroBox(size, spec, W, Math.min(spec.height ?? Infinity, env.maxImageRows), env.cellW, env.cellH) : imageBox(size, spec, W, env);
+    if (entry.state === "ready") image = { line: 0, media: entry, ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box };
+    for (let r = 0; r < box.rows; r++) lines.push("");
+  }
+  lines.push(caption(entry, spec, W, env, line, isHero));
+  return { lines, caption: lines.length - 1, entry, ...(image ? { image } : {}) };
+}
+
 export function imageBox(m: { width: number; height: number }, spec: MediaSpec, W: number, env: DocEnv): { col: number; cols: number; rows: number } {
   const s = spec.size;
   let cols = s === "full" ? W : s && "percent" in s ? Math.round((W * s.percent) / 100) : s ? s.cells

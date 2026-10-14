@@ -13,10 +13,13 @@ import { ARTIFACT_KIND_LABELS, artifactKind, fileName, parseMediaLine, type Medi
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
 import type { DrawnComponent } from "./publish-live";
 
-/** Where line `line` of note `blockId` serves its image, below the page's base. */
-export const mediaPath = (blockId: string, line: number) => `/p/${blockId}/media/${line}`;
-/** `/p/<id>/media/<line>`: the block and the line, or null. */
-export const MEDIA_PATH = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/media\/(\d{1,6})$/;
+/**
+ * Where line `line` of note `blockId` serves its image, below the page's base; with `image`, the `image`th image
+ * primitive of the component that line draws (PIE-827).
+ */
+export const mediaPath = (blockId: string, line: number, image?: number) => `/p/${blockId}/media/${line}${image === undefined ? "" : `/${image}`}`;
+/** `/p/<id>/media/<line>` or `/p/<id>/media/<line>/<image>`: the block, the line and the component's image, or null. */
+export const MEDIA_PATH = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/media\/(\d{1,6})(?:\/(\d{1,3}))?$/;
 /** `/p/<id>/artifact/<line>` (outline-core's artifactPagePath): the block and the line, or null. */
 export const ARTIFACT_PATH = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/artifact\/(\d{1,6})$/;
 

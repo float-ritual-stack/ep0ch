@@ -3,7 +3,7 @@
 // it); the reader lays them out here and draws them through the same primitives a component uses
 // (src/components.ts primitiveLines). The note's text is never changed: `R` (decor.raw) shows it as written.
 import { calloutBlocks } from "@ep0ch/outline-core/callouts";
-import { primitiveHeadRow, primitiveLines } from "./components";
+import { primitiveHeadRow, primitiveLines, type PrimitiveDraw } from "./components";
 import type { HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import type { Decoration } from "./projection";
 import { C, fg, RESET } from "./style";
@@ -17,6 +17,8 @@ export interface DecorationDraw {
   markdown: (text: string, width: number) => string[];
   /** A `blockdown` primitive drawn as the note's body is (src/components.ts PrimitiveDraw). */
   blockdown?: (text: string, width: number) => string[];
+  /** An `image` primitive drawn as the note's image lines are (src/components.ts PrimitiveDraw). */
+  image?: PrimitiveDraw["image"];
 }
 
 /** Where a note's decorations go, by body line (the reader's `after` and `decorate` hooks, src/doc.ts). */
@@ -29,7 +31,7 @@ export interface DecorationPlan {
 
 /** A decoration's rows, `width` wide: its view's primitives, else its Markdown, else what's wrong, dim. */
 export function decorationRows(d: Decoration, width: number, draw: DecorationDraw): string[] {
-  if (d.view) { try { return primitiveLines(d.view, width, { link: draw.row, headings: draw.headings, blockdown: draw.blockdown }); } catch { /* the next step of the chain */ } }
+  if (d.view) { try { return primitiveLines(d.view, width, { link: draw.row, headings: draw.headings, blockdown: draw.blockdown, image: draw.image }); } catch { /* the next step of the chain */ } }
   if (d.markdown?.trim()) return draw.markdown(d.markdown, width);
   // Not drawn yet, or failed: said in one dim line, so a rule's author sees why.
   const why = d.status === "not-run" ? `${d.name} · drawing…` : `${d.name} · ${d.reason ?? d.status}`;

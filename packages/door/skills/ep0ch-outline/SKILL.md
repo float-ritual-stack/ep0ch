@@ -532,9 +532,12 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
 2. **Inline output** (`horoscope:: virgo`): Markdown the service runs and keeps per line, shown under it and
    never written into the note unless someone **keeps** it (`[keep]`, `ext.<id>.keep`). `r` runs it again.
 3. **Rich component** (`fancy-horror:: virgo`): data plus a view built from the shared primitives (card, box,
-   row, stack, text, badge, stat, bar, table, checklist, sparkline) that every client draws, with actions
+   row, stack, text, badge, stat, bar, table, checklist, sparkline, image) that every client draws, with actions
    (`[w ward]` in the door: its key, a click, or `act ext.fancy-horror.ward block=<id>`). Its state lives in
-   the outline as blocks its actions write.
+   the outline as blocks its actions write. A picture in a view is an `image` (`{ type: "image", src, alt?, size?,
+   fit?, height? }`, PIE-827): drawn as a note's `[img::]` line is (the door's graphics, a page's served image inside
+   the publish roots, elsewhere its alt text and file), so a gallery or a card's cover writes nothing to the outline.
+   The `gallery` example: `gallery::` draws the notes under it as cards with their `[cover::path]`, `pic:: path` one.
 4. **Tile** (`tarot.reading`): a program in a door terminal tile of its own kind (`^W o T`, or
    `act tile.open kind=tarot.reading note=<id>`). It reaches the outline only through the service's
    actions, so what it writes is the extension's.

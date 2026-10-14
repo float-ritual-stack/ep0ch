@@ -54,7 +54,7 @@ test("the fallback chain: the component's own rendering, then primitives, then w
 });
 
 test("views are checked against the catalogue with a path to what is wrong", () => {
-  expect(() => validatePrimitive({ type: "chart" })).toThrow("view.type must be one of text, blockdown, badge, stat, bar, table, checklist, sparkline, card, box, stack, row");
+  expect(() => validatePrimitive({ type: "chart" })).toThrow("view.type must be one of text, blockdown, badge, stat, bar, table, checklist, sparkline, card, box, stack, row, band, track, image");
   expect(() => validatePrimitive({ type: "row", minWidth: 2, children: [] })).toThrow("view.minWidth must be a whole number from 4 to 200");
   expect(() => validatePrimitive({ type: "box", children: [{ type: "bar", label: "x", value: 1, max: 0 }] })).toThrow("view.children[0].max must be more than 0");
   expect(() => validatePrimitive({ type: "table", columns: ["a"], rows: [["1", "2"]] })).toThrow("view.rows[0] must have 1 cells");
@@ -83,6 +83,24 @@ test("a blockdown primitive is the reader's to draw: its source in every text ta
   expect(renderComponent(view, "markdown").body).toBe("**Left**\n\n## Plan\n- one <b>\n- [[A page]]");
   expect(renderComponent(view, "html").body).toBe('<div class="ext-component"><div class="ext-row" style="--ext-min:24ch"><section class="ext-box"><h4>Left</h4>' +
     '<div class="ext-blockdown">## Plan\n- one &lt;b&gt;\n- [[A page]]</div></section></div></div>');
+});
+
+test("an image primitive (PIE-827): a file the outline names, said as its words and file where it can't be drawn, a numbered place on a page", () => {
+  const view = validateComponent({ data: null, view: { type: "card", title: "Beetroot", children: [
+    { type: "image", src: "/plot/pics/seed packet.webp", alt: "a packet of <seed>", size: "50%", fit: "cover", height: 6 },
+    { type: "image", src: "file:/plot/pics/dusk.jpg" },
+  ] } });
+  expect(renderComponent(view, "terminal").body).toBe("▌ Beetroot\n  [image: a packet of <seed>] /plot/pics/seed packet.webp\n  [image] /plot/pics/dusk.jpg");
+  // Markdown names the file, never its folders, and never asks a reader to fetch a path it can't reach.
+  expect(renderComponent(view, "markdown").body).toBe("**Beetroot**\n\n*image: a packet of \\<seed\\>* `seed packet.webp`\n\n*image* `dusk.jpg`");
+  const html = renderComponent(view, "html").body;
+  expect(html).toContain('<figure class="media media-missing ext-image" data-ext-image="0"><span class="media-what">image</span> a packet of &lt;seed&gt; <code>seed packet.webp</code></figure>');
+  expect(html).toContain('data-ext-image="1"');
+  expect(html).not.toContain("/plot/pics");
+  expect(() => validatePrimitive({ type: "image", src: "web:https://example.com/a.png" })).toThrow("view.src must be a file's path or a file: Resource ref");
+  expect(() => validatePrimitive({ type: "image", src: "a.png", size: "huge" })).toThrow("view.size must be a size as [size::] writes it");
+  expect(() => validatePrimitive({ type: "image", src: "a.png", height: 0 })).toThrow("view.height must be a whole number of rows from 1 to 60");
+  expect(() => validatePrimitive({ type: "image", src: "a.png", fit: "stretch" })).toThrow("view.fit must be cover or contain");
 });
 
 function table(handlers: ExtensionHandler[]): HandlerTable {

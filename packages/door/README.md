@@ -2034,8 +2034,10 @@ draws a ticket (PIE-512):
   how old it is (`r refresh`, or a click on it), its body. ⏎ on its title opens the block.
 - **An inline output** (`horoscope::`) is its Markdown, drawn as the reader draws a note's body, inert.
 - **A rich component** (`fancy-horror::`) is drawn from the service's shared primitives (card, box, row,
-  stack, text, badge, stat, bar, table, checklist, sparkline) with their tone as colour
-  (`src/components.ts`). A primitive this door doesn't know falls back to the line's Markdown, then its data.
+  stack, text, badge, stat, bar, table, checklist, sparkline, band, track, blockdown, image) with their tone as
+  colour (`src/components.ts`). An `image` (PIE-827, the gallery extension's covers) is drawn as a note's `[img::]`
+  line is: the picture under Kitty graphics, dimmed dark-first, with its caption, which `[ ]` stops on and ⏎ opens.
+  A primitive this door doesn't know falls back to the line's Markdown, then its data.
 - **An `@name` request** shows its state (`queued`, `running`, `applied`, `proposed`, `replied`, `failed`…),
   what the agent said, its reply, and who asked. Its edit lands in the note attributed to the extension
   (`ext:tidy`); one that would overwrite what you're typing becomes a proposal under the line.

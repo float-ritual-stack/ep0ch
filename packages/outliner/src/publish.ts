@@ -1,11 +1,12 @@
 import { closeOpenFences } from "@ep0ch/outline-core/component-block";
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
-import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown } from "./publish-components";
+import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
 import { boardHtml, FIGURE_STYLE, viewRowsHtml } from "./publish-figures";
 import { drawNoteComponents, drawViewLane, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
-import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
-import { artifactKind, artifactPagePath, artifactTitle, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
+import { artifactKind, artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
@@ -1158,7 +1159,7 @@ export class Publisher {
       if (path === "/index.json") return respond(`${JSON.stringify(readerIndex(await this.readIndex()), null, 2)}\n`, "application/json; charset=utf-8");
       if (!path.startsWith("/p/")) return notFound();
       const media = MEDIA_PATH.exec(path);
-      if (media) return await this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), audience);
+      if (media) return await this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), audience, undefined, media[3] === undefined ? undefined : Number(media[3]));
       const artifact = ARTIFACT_PATH.exec(path);
       if (artifact) return await this.serveArtifact(artifact[1]!.toLowerCase(), Number(artifact[2]), url.searchParams.get("view"), audience);
       let slug: string;
@@ -1200,7 +1201,7 @@ export class Publisher {
     if (rest.startsWith(`${PAGE_ROUTE}/`)) return this.marginalia.handle(request, rest.slice(PAGE_ROUTE.length), share);
     if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     const media = MEDIA_PATH.exec(rest);
-    if (media) return this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), "tailnet", share);
+    if (media) return this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), "tailnet", share, media[3] === undefined ? undefined : Number(media[3]));
     const artifact = ARTIFACT_PATH.exec(rest);
     if (artifact) return this.serveArtifact(artifact[1]!.toLowerCase(), Number(artifact[2]), new URL(request.url).searchParams.get("view"), "tailnet", share);
     if (rest === "/search" || rest === "/search/") return this.serveSearch(request, share);
@@ -1817,16 +1818,16 @@ export class Publisher {
    * The image line `line` of note `blockId` names (`/p/<id>/media/<line>`), when a page here shows that note: not locked;
    * inside a share's scope; on the public listener, under a note that is public now with nothing between them left out.
    * The path is the note's, read again now, and checked as an attachment is (the publish roots, nothing hidden, image
-   * types only); the URL never carries one.
+   * types only); the URL never carries one. With `image`, it is the `image`th image primitive of the component line
+   * `line` draws (PIE-827), read again from its kept view.
    */
-  private async serveMedia(request: Request, blockId: string, line: number, audience: PublishAudience, share?: PageShare): Promise<Response> {
+  private async serveMedia(request: Request, blockId: string, line: number, audience: PublishAudience, share?: PageShare, image?: number): Promise<Response> {
     const policy = this.requirePolicy();
     if (policy.remoteService) return notFound();
     if ((await this.lockedIds([blockId])).size) return notFound();
     if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
     if (audience === "public" && !share && !(await this.reachedFromPublic(blockId))) return notFound();
-    const block = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["text"] })).blocks[0];
-    const spec = block ? noteMediaLines(block.text ?? "").get(line) : undefined;
+    const spec = image === undefined ? await this.mediaLineAt(blockId, line) : await this.componentImageAt(blockId, line, image);
     if (!spec || spec.kind !== "img") return notFound();
     const check = checkImage(spec.path, policy);
     if (!check.ok) return notFound();
@@ -1839,6 +1840,24 @@ export class Publisher {
         ...(check.mime === "image/svg+xml" ? { "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {}),
       },
     });
+  }
+
+  /** The media line `line` of note `blockId` is, read now. */
+  private async mediaLineAt(blockId: string, line: number): Promise<MediaSpec | undefined> {
+    const block = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["text"] })).blocks[0];
+    return block ? noteMediaLines(block.text ?? "").get(line) : undefined;
+  }
+
+  /** The `image`th image primitive of the component line `line` of note `blockId` draws (PIE-827), as its kept view says now. */
+  private async componentImageAt(blockId: string, line: number, image: number): Promise<MediaSpec | undefined> {
+    try {
+      const read = await this.client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId });
+      const view = read.projections.find((projection) => projection.kind === "component" && projection.anchor.line === line)?.output?.component?.view;
+      const node = view === undefined ? undefined : viewImages(validatePrimitive(view))[image];
+      return node ? imagePrimitiveSpec(node) : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Whether a public page shows `blockId`: it is a public note now, or under one with nothing between them left out. */
@@ -2227,7 +2246,15 @@ export class Publisher {
         const line = projection.anchor.line, output = hasResult(projection) ? projection.output : undefined;
         const body = projection.kind === "component" ? html.find((result) => result.line === line)?.rendered.body : undefined;
         if (body !== undefined && components.length < MAX_PUBLISHED_COMPONENTS) {
-          components.push(readBlockdown(body, (source) => renderMarkdownHtml(publishedText(source, context), callouts)));
+          // Its pictures as the page's own images (PIE-827): served from here when the file may leave the machine.
+          const images = this.componentImages(projection);
+          const policy = this.policy;
+          components.push(readImages(readBlockdown(body, (source) => renderMarkdownHtml(publishedText(source, context), callouts)), (n) => {
+            const node = images[n];
+            if (!node) return null;
+            const spec = imagePrimitiveSpec(node);
+            return mediaHtml(spec, !context.index.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${context.basePath}${mediaPath(blockId, line, n)}` : null);
+          }));
           shown.set(line, componentSentinel(components.length - 1));
         } else if (output?.markdown.trim()) shown.set(line, output.markdown);
         else shown.set(line, lineSource(text[line] ?? projection.propertyKey));
@@ -2235,6 +2262,16 @@ export class Publisher {
       out.set(blockId, shown);
     }
     return out;
+  }
+
+  /** A component line's image primitives, in the order its HTML numbers them; none when its view can't be read. */
+  private componentImages(projection: ResourceProjection) {
+    try {
+      const view = projection.output?.component?.view;
+      return view === undefined ? [] : viewImages(validatePrimitive(view));
+    } catch {
+      return [];
+    }
   }
 
   /**

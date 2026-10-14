@@ -218,11 +218,22 @@ if (scenario === "showcase") {
   // section, then a few interactions: a section's own keys, a click on the index, an agent's act.
   const { seedShowcase } = await import("../src/showcase/seed");
   const { Showcase, SECTIONS } = await import("../src/showcase/showcase");
-  await seedShowcase(board, { ticketsConfig: join(scratch!.root, "config") });   // made-up tickets, as try-it installs them
+  // Made-up tickets, as try-it installs them, and the outliner's example rules and extensions, as the tests seed them.
+  const { outliner } = await import("../test/scratch");
+  await seedShowcase(board, { ticketsConfig: join(scratch!.root, "config"), ...(outliner ? { rulesFrom: outliner } : {}) });
+  await app.loadExtensions(true);
   board.subscribe(e => app.event(e));
   const sc = new Showcase();
   app.push(new MainMenu()); app.push(sc);
   await Bun.sleep(800);
+  // `bun scripts/snap.ts showcase <key>`: that section alone, by an agent's act, its part given the keys.
+  const only = process.argv[3];
+  if (only) {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: only }, as: "snap-agent" });
+    await snap(`showcase-${only}`, 4000);
+    board.close(); await scratch!.dispose(); process.exit(0);
+  }
   for (let i = 0; i < SECTIONS.length; i++) {
     if (i < 10) ch(i === 9 ? "0" : String(i + 1)); else press({ kind: "down" });
     await snap(`${String(i + 1).padStart(2, "0")}-${SECTIONS[i]!.key}`, i === 4 || i === 7 ? 2500 : 1200);

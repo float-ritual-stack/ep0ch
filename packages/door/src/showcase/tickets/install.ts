@@ -75,6 +75,8 @@ export const PROGRAM_EXAMPLES = ["almanac"] as const;
 export const CARD_EXAMPLES = ["echonet"] as const;
 /** The outliner's example form (PIE-828): one action that asks each note for the fields it writes. Installed with the rules. */
 export const FORM_EXAMPLES = ["form"] as const;
+/** The outliner's example of pictures in a view (PIE-827): gallery:: cards with covers, pic:: one picture. Installed with the rules. */
+export const VIEW_EXAMPLES = ["gallery"] as const;
 
 /**
  * Copy the outliner's example extensions (its checkout's `extensions/`) into the scratch service's user

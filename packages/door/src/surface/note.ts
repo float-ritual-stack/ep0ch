@@ -21,7 +21,7 @@ import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
-import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
+import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
@@ -42,7 +42,7 @@ import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-c
 import { inWindow, type Placement } from "../kitty";
 import { sizedPlacement } from "../text-sizing";
 import { theme, type Rgb } from "../theme";
-import { ALIGNS, artifactPagePath, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, artifactPagePath, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
@@ -486,6 +486,31 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
 const printableBlock = (s: string) => printable(s, "", { lines: true });
 /** A link drawn: its text, tagged with its place in `drawn` (what [ ], ⏎ and a click find it by). */
 const tagged = (drawn: Link[], to: Link, text: string) => linkTag(drawn.push(to) - 1) + text + LINK_END;
+
+/**
+ * An extension view's picture (PIE-827) as rows `width` wide, laid out as a note's image line is (doc.ts mediaRows: its
+ * box kept dark while it loads, dimmed dark-first, its caption; graphics off, the caption says why). Its first row
+ * carries a zero-width tag naming the picture, so wherever the view puts it (a card, a box, one side of a row)
+ * placePictures finds it; its caption is a link to the file, so `[ ]` stops on it and ⏎ opens it, as on a note's image.
+ */
+function pictureRows(spec: MediaSpec, width: number, env: DocEnv, drawn: Link[]): string[] {
+  const r = mediaRows(spec, width, { ...env, image: undefined }, -1);
+  const lines = [...r.lines];
+  if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "image", picture: r.image }, " ".repeat(r.image.cols));
+  lines[r.caption] = tagged(drawn, { media: r.entry.path }, lines[r.caption]!);
+  return lines;
+}
+
+/** The pictures extension views drew in `doc` (pictureRows), each placed where its tag landed. */
+function placePictures(doc: Doc, drawn: readonly Link[]): void {
+  const seen = new Set<number>();
+  for (const r of doc.links) {
+    const picture = drawn[r.n]?.picture;
+    if (!picture || seen.has(r.n)) continue;
+    seen.add(r.n);
+    doc.images.push({ ...picture, line: r.line, col: r.from });
+  }
+}
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
 const sessionKey = (s: CommentSession, k: Key, c: string) => s.mode === "compose" && !!s.composer && !s.busy && !s.composer.busy && k.kind === "char" && !!k.ctrl && k.ch === c && !completerOf(s.composer)?.shown;
 const sessionSend = (s: CommentSession, k: Key) => sessionKey(s, k, "s");
@@ -1560,6 +1585,8 @@ export class NoteSurface {
         ...env, width, nested: true, keepTags: true, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined,
         task: undefined, link: undefined, literal: undefined, decorate: undefined, callout: undefined,
       }).lines,
+      // A view's picture (PIE-827), laid out as the body's image lines are.
+      image: (node: ImagePrimitive, width: number) => pictureRows(imagePrimitiveSpec(node), width, env, drawn),
       // A view's link names a block, or (PIE-754) a Resource the extension wants opened.
       row: (block: string, text: string) => tagged(drawn, isResourceRef(block) ? { resourceRef: block, label: block, role: "row" } : { block, role: "row" }, text),
       hostKeys: host?.ownKeys ?? "",
@@ -1570,7 +1597,7 @@ export class NoteSurface {
       const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn) : null;
       const view = !!results && (m.props.type ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
-      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, blockdown: extDraw.blockdown, headings: headingStylesOf(src) }, bodyText);
+      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
       return regions.size || view || plan.after.size || plan.place.size ? {
         ...(plan.place.size ? {
           decorate: (line: number, width: number) => {
@@ -1596,6 +1623,7 @@ export class NoteSurface {
         },
       } : {};
     });
+    placePictures(rendered, drawn);
     // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body; an open status
     // choice (PIE-472) under its step.
     // The comment being written inline (PIE-770) is a box of rows under its passage, after an expanded thread's.
@@ -3706,7 +3734,9 @@ export class NoteSurface {
       // An extension's control is its own row.
       else if (kind === "control" && l.ext) ruler = [top + r.line, top + r.line + 1];
       const label = kind === "task" && l.task ? `${STEP_BOXES[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
-        : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
+        : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}`
+        // A view's picture (PIE-827) is named by its file, as a note's image is.
+        : l.media && !l.role ? l.media.split("/").pop() ?? l.media : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
     for (const x of doc.media) {

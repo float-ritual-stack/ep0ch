@@ -40,6 +40,17 @@ are its record. The outliner's entries from then are kept below, under
 - **Added:** an EchoNet copy that links to a moved anchor is never written (ADR 0005): it gets a comment saying where the
   anchor went, which the tosser carries to the origin as netmail.
 
+### Pictures in an extension's view (PIE-827)
+
+- **Added:** an `image` primitive for extension views: `{ type: "image", src, alt?, size?, fit?, height? }`, `src` a
+  path as a note's `[img::]` line names one (or `file:/path`). Each reader draws it the way it draws a note's image
+  line: the door with Kitty graphics, dimmed dark-first, its caption a `[ ]` stop that ⏎ opens; a web page with the
+  image it serves (`/p/<id>/media/<line>/<n>`) when the publish roots allow the file; the `terminal` target as alt
+  text and path, Markdown (Detail, exports, MCP) as alt text and the file's name. Nothing is written to the outline.
+- **Added:** the `gallery` example extension: `gallery::` draws the notes under it as cards with their `[cover::]`
+  pictures, `pic:: path` one picture. The kitchen sink's gallery section shows it.
+- **Needs:** the new primitive is a wire change: the door and the service update together (`PROTOCOL`).
+
 ### Dates and numbers on any property (PIE-769)
 
 - **Added:** a query compares any property, not only `created` and `updated`: `due <= +3d` (overdue too),
