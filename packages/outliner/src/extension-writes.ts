@@ -80,6 +80,8 @@ const ANCHOR_REF = new RegExp(String.raw`^([A-Za-z0-9_-]{8,64})\^(${FRAGMENT_ID_
  */
 const ECHO_COPY = /^[a-z0-9][a-z0-9-]*@[\w.-]+\/[0-9a-f-]{36}$/;
 const MAX_REPOINT = 200;
+const isEchoCopy = (block: { properties: readonly { key: string; value: string }[] }) =>
+  block.properties.some((property) => property.key === "from" && ECHO_COPY.test(property.value));
 
 /** One block write of an action's answer, its shape checked (`writes[index]`); what it names is checked when applied. */
 export function parseBlockWrite(write: Record<string, unknown>, index: number): BlockWrite {
@@ -148,6 +150,8 @@ export interface ExtensionWritesDeps {
   patchGroup?: (input: DraftGroupInput) => Promise<DraftPatchResult>;
   /** Whether a door holds a live draft of the block. */
   held?: (blockId: string) => boolean;
+  /** This outline's names in `ep0ch://<outline>@<machine>` addresses: only those are repointed by a `move-anchor`. */
+  here?: () => { outline?: string; machines: readonly string[] };
 }
 
 interface Plan {
@@ -374,9 +378,10 @@ export class ExtensionWrites {
     const target = made ? null : this.store.get(toId);
     if (!made && (!target || target.effectiveDeletedRootId)) throw new Error(`${action} moves ^${anchor} to ${move.to}, which is gone or in the Trash; ${nothing}`);
     if (target && fragmentAnchors(target.text).some((found) => found.id === anchor)) throw new Error(`${action} moves ^${anchor} to "${blockDisplayTitle(target)}", which has a ^${anchor} already; ${nothing}`);
-    for (const blockId of [from.id, ...(target ? [target.id] : [])]) {
-      const owner = this.store.extensionOwner(blockId);
-      if (owner) throw new Error(`${action} moves ^${anchor} in ${blockId}, a record ${owner.extensionId} keeps; ${nothing}`);
+    for (const block of [from, ...(target ? [target] : [])]) {
+      const owner = this.store.extensionOwner(block.id);
+      if (owner) throw new Error(`${action} moves ^${anchor} in ${block.id}, a record ${owner.extensionId} keeps; ${nothing}`);
+      if (isEchoCopy(block)) throw new Error(`${action} moves ^${anchor} in "${blockDisplayTitle(block)}", an EchoNet copy: its text is its origin's (${nothing})`);
     }
     // A block's text as the group leaves it, and a change to it: an update the group has, or one the move adds.
     const textOf = (blockId: string) => updates.get(blockId)?.after ?? this.store.get(blockId)!.text;
@@ -393,10 +398,15 @@ export class ExtensionWrites {
     const toText = made ? made.text : textOf(toId);
     if (!fragmentAnchors(toText).some((found) => found.id === anchor)) {
       const placed = withAnchorAtEnd(toText, anchor);
-      if (!fragmentAnchors(placed).some((found) => found.id === anchor)) throw new Error(`${action} can't put ^${anchor} at the end of ${move.to} (its last line is code, or it's empty): write ^${anchor} on the line it belongs to (${nothing})`);
+      // Placed where it is an anchor, and every anchor there still one (a line ending in ^t1 would lose it).
+      const kept = new Set(fragmentAnchors(placed).map((found) => found.id));
+      if (!kept.has(anchor) || fragmentAnchors(toText).some((found) => !kept.has(found.id))) {
+        throw new Error(`${action} can't put ^${anchor} at the end of ${move.to} (its last line is code, empty or has an anchor of its own): write ^${anchor} on the line it belongs to (${nothing})`);
+      }
       if (made) made.text = placed;
       else write(toId, placed);
     }
+    const here = this.deps.here?.();
     // Every link to it: the notes the backlink index knows, and the group's own (the blocks it writes and makes).
     const backlinks = this.store.queryBacklinks({ targetBlockId: from.id, limit: 1000 });
     if (backlinks.completeness.kind !== "complete") throw new Error(`${action} moves ^${anchor}, but more notes link to "${fromTitle}" than can be repointed in one step; ${nothing}`);
@@ -406,19 +416,19 @@ export class ExtensionWrites {
       const block = this.store.get(blockId);
       if (!block || block.effectiveDeletedRootId) continue;
       const before = textOf(blockId);
-      const after = repointAnchor(before, from.id, anchor, toId);
+      const after = repointAnchor(before, from.id, anchor, toId, here);
       if (after === before) continue;
       if (++repointed > MAX_REPOINT) throw new Error(`${action} moves ^${anchor}, but more than ${MAX_REPOINT} notes link to it; ${nothing}`);
-      if (block.properties.some((property) => property.key === "from" && ECHO_COPY.test(property.value))) {
+      if (isEchoCopy(block)) {
         const where = made ? `the new "${labelOf(made.text)}"` : `"${blockDisplayTitle(target!)}"`;
-        structure.push({ op: "netmail", blockId, body: `^${anchor} moved from "${fromTitle}" to ${where} here. This copy links to it as ^${anchor} of "${fromTitle}"; its original's link needs the same change, and the next toss brings it here.` });
+        structure.push({ op: "netmail", blockId, about: { blockId: from.id, anchor }, body: `^${anchor} moved from "${fromTitle}" to ${where} here. This copy links to it as ^${anchor} of "${fromTitle}"; its original's link needs the same change, and the next toss brings it here.` });
         continue;
       }
       const owner = this.store.extensionOwner(blockId);
       if (owner) throw new Error(`${action} moves ^${anchor}, but ${blockId}, a record ${owner.extensionId} keeps, links to it; ${nothing}`);
       write(blockId, after);
     }
-    for (const write of structure) if (write.op === "create") write.text = repointAnchor(write.text, from.id, anchor, toId);
+    for (const write of structure) if (write.op === "create") write.text = repointAnchor(write.text, from.id, anchor, toId, here);
   }
 
   /** What writes the group's blocks in the transaction it runs in, and the undo steps it took. */
@@ -564,15 +574,19 @@ export function withAnchorAtEnd(text: string, anchor: string): string {
  * and embedded forms (outline-core's reference grammar, so a link in code stays text), and an `ep0ch://…/b/<from>#anchor`
  * address outside code. Everything else as written.
  */
-export function repointAnchor(text: string, from: string, anchor: string, to: string): string {
+export function repointAnchor(text: string, from: string, anchor: string, to: string, here?: { outline?: string; machines: readonly string[] }): string {
   const spans: { start: number; end: number }[] = [];
   for (const reference of blockReferenceOccurrences(text)) {
     if (reference.fragmentId !== anchor || !(reference.blockId === from || from.startsWith(reference.blockId))) continue;
     spans.push({ start: reference.start + 2, end: reference.start + 2 + reference.blockId.length });
   }
+  // An address is repointed only when it names this outline (`ep0ch://<outline>@<machine>`, under any name it goes by).
   const code = codeRangesOf(text);
-  const uri = new RegExp(String.raw`ep0ch://[^\s/()\[\]]+/b/(${from})#${anchor}(?![A-Za-z0-9_-])`, "g");
-  for (const match of text.matchAll(uri)) {
+  const uri = new RegExp(String.raw`ep0ch://([^\s/()\[\]@]+)@([^\s/()\[\]]+)/b/${from}#${anchor}(?![A-Za-z0-9_-])`, "g");
+  for (const match of here?.outline ? text.matchAll(uri) : []) {
+    let outline: string, machine: string;
+    try { outline = decodeURIComponent(match[1]!); machine = decodeURIComponent(match[2]!); } catch { continue; }
+    if (outline !== here!.outline || !here!.machines.includes(machine)) continue;
     const start = match.index + match[0].indexOf(`/b/${from}`) + 3;
     if (!code.some((range) => range.start <= start && start < range.end)) spans.push({ start, end: start + from.length });
   }

@@ -78,6 +78,8 @@ export interface ExtensionCallsOptions {
   readonly patchGroup?: (input: DraftGroupInput) => Promise<DraftPatchResult>;
   /** Whether a door holds a live draft of the block (an undo of an edit waits for it). */
   readonly held?: (blockId: string) => boolean;
+  /** This outline's address (`ep0ch://<outline>@<machine>`): the names a `move-anchor` repoints addresses under. */
+  readonly here?: () => { outline?: string; machines: readonly string[] };
   /**
    * A trigger's action made a block that asks the extension's own agent (`@name`, PIE-786): ask it now, as `requestedBy`
    * (the agent-requests' `r`). The rule the person wrote is what asked; its guards (cap, batch, skip) are the limit.
@@ -389,7 +391,7 @@ export class ExtensionCalls {
     private readonly runtime: ResourceExtensionRuntime,
     private readonly options: ExtensionCallsOptions = {},
   ) {
-    this.writes = new ExtensionWrites(store, { ...(options.patch ? { patch: options.patch } : {}), ...(options.patchGroup ? { patchGroup: options.patchGroup } : {}), ...(options.held ? { held: options.held } : {}) });
+    this.writes = new ExtensionWrites(store, { ...(options.patch ? { patch: options.patch } : {}), ...(options.patchGroup ? { patchGroup: options.patchGroup } : {}), ...(options.held ? { held: options.held } : {}), ...(options.here ? { here: options.here } : {}) });
   }
 
   /** An action's writes as one group, and the undo steps of the groups that landed (src/extension-writes.ts). */

@@ -724,6 +724,10 @@ export async function setDeliveryStage(
  */
 export interface GroupLinks {
   text(blockId: string): string | undefined;
+  /** The blocks the group writes (each with `text`) and the texts of those it makes: a link it adds counts too. */
+  written?: Iterable<string>;
+  made?: readonly string[];
+  /** `<copy>:<target>^<anchor>`: a copy whose link to that anchor stays, its origin told by netmail. */
   told?: ReadonlySet<string>;
 }
 
@@ -741,13 +745,18 @@ export async function droppedLinkedStructure(client: WorkToolsClient, blockId: s
   const lost = [...dropped.pages];
   if (dropped.anchors.length) {
     const backlinks = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: blockId, limit: 1000 } });
-    const ids = backlinks.sources.filter(source => !source.deletedRootId && source.blockId !== blockId && !group?.told?.has(source.blockId)).map(source => source.blockId);
-    const texts = ids.length
-      ? (await client.request<BlockReadCollection>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["text"] })).blocks
-      : [];
+    const ids = backlinks.sources.filter(source => !source.deletedRootId && source.blockId !== blockId).map(source => source.blockId);
+    // The group's own notes too: a link it adds to an anchor it drops is a link left dangling.
+    const written = [...(group?.written ?? [])].filter(id => id !== blockId && group?.text(id) !== undefined);
+    const read = [...new Set(ids)].filter(id => !written.includes(id));
+    const texts: { id: string; text?: string }[] = [
+      ...(read.length ? (await client.request<BlockReadCollection>({ action: "blocks.read", ids: read, fields: ["text"] })).blocks : []),
+      ...written.map(id => ({ id, text: group!.text(id)! })),
+      ...(group?.made ?? []).map(text => ({ id: "", text })),
+    ];
     const unchecked = backlinks.completeness.kind !== "complete";
     for (const anchor of dropped.anchors) {
-      const count = texts.filter(row => blockReferenceOccurrences(group?.text(row.id) ?? row.text ?? "")
+      const count = texts.filter(row => !group?.told?.has(`${row.id}:${blockId}^${anchor}`) && blockReferenceOccurrences(group?.text(row.id) ?? row.text ?? "")
         .some(reference => reference.blockId === blockId && reference.fragmentId === anchor)).length;
       if (count) lost.push(`^${anchor} (${count} ${count === 1 ? "note links" : "notes link"} to it)`);
       else if (unchecked) lost.push(`^${anchor} (too many notes link here to check it)`);

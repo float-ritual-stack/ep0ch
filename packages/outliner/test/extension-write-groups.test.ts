@@ -12,6 +12,7 @@ import type { ExtensionsListResult } from "../src/extension-registry";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, OutlinerEvent } from "../src/types";
+import { repointAnchor } from "../src/extension-writes";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -340,4 +341,42 @@ test("an EchoNet copy that links to the anchor isn't written: its origin is told
   await client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } });
   expect((await client.request<unknown[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: copy.id } } }))).toEqual([]);
   expect(store.get(plot.id)!.text).toBe(plot.text);
+});
+
+test("what the guard and move-anchor still refuse: a link the group adds to the anchor it drops, a copy as either end, a last line with its own anchor", async () => {
+  const { store, write, note } = await setup();
+  const plot = await note("Plot notes\nStake the peas ^s5");
+  const diary = await note("Diary\nNothing linked yet.");
+  // The group itself adds the link it leaves dangling.
+  await expect(write(plot.id, [
+    { op: "update", blockId: plot.id, expectedRevision: plot.revision, text: "Plot notes\nStake the peas" },
+    { op: "update", blockId: diary.id, expectedRevision: diary.revision, text: `Diary\nSee ((${plot.id}^s5)).` },
+  ])).rejects.toThrow(/would drop \^s5 \(1 note links to it\)/);
+  const copy = await note("Copied [from::cafe@example-box/0f3c2a91-5b7e-4c1d-9a8e-2b6f4d1c7e30]\nA line");
+  await expect(write(plot.id, [{ op: "move-anchor", from: `${plot.id}^s5`, to: copy.id }])).rejects.toThrow(/an EchoNet copy/);
+  const tagged = await note("Keeper\nThe rules ^t1");
+  await expect(write(plot.id, [{ op: "move-anchor", from: `${plot.id}^s5`, to: tagged.id }])).rejects.toThrow(/has an anchor of its own/);
+  expect(store.get(plot.id)!.text).toBe(plot.text);
+  expect(store.get(tagged.id)!.text).toBe(tagged.text);
+});
+
+test("a copy's netmail excuses only the link to the anchor it tells about", async () => {
+  const { store, write, note } = await setup();
+  const plot = await note("Plot notes\nStake the peas ^s5\nMulch the leeks ^s6");
+  const copy = await note(`Shared [from::cafe@example-box/0f3c2a91-5b7e-4c1d-9a8e-2b6f4d1c7e30]\nSee ((${plot.id}^s5)) and ((${plot.id}^s6)).`);
+  await expect(write(plot.id, [
+    { op: "create", parentId: plot.id, text: "Stake the peas", as: "c1" },
+    { op: "update", blockId: plot.id, expectedRevision: plot.revision, text: "Plot notes" },
+    { op: "move-anchor", from: `${plot.id}^s5`, to: "c1" },
+  ])).rejects.toThrow(/would drop \^s6 \(1 note links to it\)/);
+  expect(store.get(plot.id)!.text).toBe(plot.text);
+  expect(store.get(copy.id)!.text).toBe(copy.text);
+});
+
+test("an ep0ch:// address is repointed only when it names this outline", () => {
+  const from = "11111111-2222-4333-8444-555555555555", to = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+  const text = `ep0ch://garden@box-one/b/${from}#s5 and ep0ch://other@box-one/b/${from}#s5 and ep0ch://garden@box-one/b/${from}#s50`;
+  expect(repointAnchor(text, from, "s5", to, { outline: "garden", machines: ["box-one"] }))
+    .toBe(`ep0ch://garden@box-one/b/${to}#s5 and ep0ch://other@box-one/b/${from}#s5 and ep0ch://garden@box-one/b/${from}#s50`);
+  expect(repointAnchor(text, from, "s5", to)).toBe(text);
 });

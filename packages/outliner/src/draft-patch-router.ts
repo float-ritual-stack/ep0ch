@@ -124,7 +124,7 @@ interface RunOptions {
   proposal?: DraftHolderProposal;
   /** Writes that land with the saved notes, in their transaction (a write group's blocks made, moved and ordered). */
   alongside?: () => void;
-  /** Copies a write group's netmail tells (PIE-829): their links to an anchor it moves stay, and don't hold the move back. */
+  /** `<copy>:<target>^<anchor>`, what a write group's netmail tells (PIE-829): that copy's link to that anchor stays. */
   told?: ReadonlySet<string>;
   /** The texts the whole patch leaves its saved notes with, which the guard judges links by (set by `run`). */
   leaves?: Map<string, string>;
@@ -133,7 +133,8 @@ interface RunOptions {
 }
 
 /** The copies a write group tells by netmail (its `netmail` writes). */
-const toldBy = (group: DraftGroup | undefined) => new Set((group?.writes ?? []).flatMap(write => write.op === "netmail" ? [write.blockId] : []));
+const toldBy = (group: DraftGroup | undefined) => new Set((group?.writes ?? []).flatMap(write =>
+  write.op === "netmail" && write.about ? [`${write.blockId}:${write.about.blockId}^${write.about.anchor}`] : []));
 /** The texts of the blocks a write group makes. */
 const madeBy = (group: DraftGroup | undefined) => (group?.writes ?? []).flatMap(write => write.op === "create" ? [write.text] : []);
 
@@ -653,7 +654,7 @@ export class DraftPatchRouter {
         if (!located.ok) throw new Error(located.reason);
         const rebased = this.rebasedFrom(edit, block.revision, options);
         const after = applyLocated(block.text, located.spans);
-        return { block: store.update(edit.blockId, after, block.revision, options.mutation, "text", movedListItems(edit.blockId, block.text, after, options)), rebased };
+        return { block: store.update(edit.blockId, after, block.revision, options.mutation, "text", movedListItems(store, edit.blockId, block.text, after, options)), rebased };
       }))();
       for (const { block, rebased } of written) applied.push({ blockId: block.id, route: "saved", revision: block.revision, ...(rebased ? { rebasedFrom: rebased } : {}) });
     } catch (error) {
@@ -743,7 +744,9 @@ export class DraftPatchRouter {
       return { ok: false, reason: blamed(reason, blame(edits, edit, text, next => draftPatchTextPolicy(text, next) !== null, locate), total) };
     }
     if (options.allowStructural) return null;
-    const lost = await droppedLinkedStructure(this.deps.client, edit.blockId, text, after, { text: blockId => options.leaves?.get(blockId), ...(options.told ? { told: options.told } : {}) });
+    const lost = await droppedLinkedStructure(this.deps.client, edit.blockId, text, after, {
+      text: blockId => options.leaves?.get(blockId), written: options.leaves?.keys() ?? [], made: options.made ?? [], ...(options.told ? { told: options.told } : {}),
+    });
     if (!lost.length) return null;
     // Which change drops one of them: the first whose application loses a page or an anchor named here.
     const named = (token: string) => lost.some(entry => entry === token || entry.startsWith(`${token} (`));
@@ -886,10 +889,15 @@ export type { DraftHolderRequest };
  * moving `^s5` with its line): declared to the store as moved out of this note, which it otherwise refuses as an ID
  * dropped by accident. Only for an ID the same patch writes elsewhere; one that just goes is still refused.
  */
-function movedListItems(blockId: string, before: string, after: string, options: RunOptions): ChecklistIdentityChange[] {
+function movedListItems(store: OutlinerStore, blockId: string, before: string, after: string, options: RunOptions): ChecklistIdentityChange[] {
   const gone = removedListItemIds(before, after);
   if (!gone.length) return [];
-  const elsewhere = new Set([...(options.made ?? []), ...[...(options.leaves ?? new Map<string, string>())].flatMap(([id, text]) => id === blockId ? [] : [text])]
-    .flatMap(text => fragmentAnchors(text).map(anchor => anchor.id)));
-  return gone.filter(itemId => elsewhere.has(itemId)).map(itemId => ({ kind: "remove" as const, itemId }));
+  const ids = (text: string) => fragmentAnchors(text).map(anchor => anchor.id);
+  // Where it went: a block the patch makes, or one it writes that didn't have it before.
+  const arrived = new Set([...(options.made ?? []).flatMap(ids), ...[...(options.leaves ?? new Map<string, string>())].flatMap(([id, text]) => {
+    if (id === blockId) return [];
+    const had = new Set(ids(store.get(id)?.text ?? ""));
+    return ids(text).filter(anchor => !had.has(anchor));
+  })]);
+  return gone.filter(itemId => arrived.has(itemId)).map(itemId => ({ kind: "remove" as const, itemId }));
 }

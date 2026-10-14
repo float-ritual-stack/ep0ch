@@ -374,7 +374,7 @@ export type DraftGroupWrite =
    * A comment on an EchoNet copy, which the tosser carries to the copy's origin as netmail (PIE-829): what a
    * `move-anchor` says to a note it may not write, since a copy's text is its origin's (ADR 0005).
    */
-  | { op: "netmail"; blockId: string; body: string };
+  | { op: "netmail"; blockId: string; body: string; about?: { blockId: string; anchor: string } };
 
 /** How many changes a proposal holds: its spans across its notes, and its group's writes. */
 export function proposalChanges(proposal: Pick<DraftProposal, "edits"> & { group?: DraftGroup }): number {
