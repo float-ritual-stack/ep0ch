@@ -4,19 +4,18 @@ import { join } from "node:path";
 import type { Block } from "../../src/types";
 import { runHerdrScenario } from "./herdr-runner";
 
-const renderer = process.argv.includes("--ansi") ? "ansi" : "pi-tui";
 const title = "S5 service-owned reference";
 const text = `${title} [file::authority.txt] [line-start::2] [line-end::2]`;
 const selected = "SERVICE SELECTED LINE";
 const result = await runHerdrScenario({
-  name: `file-authority-${renderer}`,
+  name: "file-authority",
   async prepare(root) {
     await writeFile(join(root, "authority.txt"), `SERVICE FIRST\n${selected}\nSERVICE LAST`);
     await writeFile(join(root, "server-only.txt"), "Service completion target");
   },
   async run(session) {
     await session.attachClient();
-    const remote = await session.openRemoteBrowsingContext({ renderer });
+    const remote = await session.openRemoteBrowsingContext();
     await writeFile(join(remote.workspaceRoot, "authority.txt"), "CLIENT FIRST\nCLIENT WRONG LINE\nCLIENT LAST");
     await writeFile(join(remote.workspaceRoot, "client-only.txt"), "Wrong completion target");
     const identities = () => ({
@@ -85,7 +84,7 @@ const result = await runHerdrScenario({
     assert.deepEqual(identities(), baseline);
     await session.waitFor("cancel returned focus to remote Tree", () => session.registrations(), clients =>
       clients.some(client => client.clientId === tree.clientId && client.runtime?.focused === true));
-    await session.record("file-authority", { serviceRoot: session.projectRoot, clientRoot: remote.workspaceRoot, renderer, blockId, baseline, after: identities() });
+    await session.record("file-authority", { serviceRoot: session.projectRoot, clientRoot: remote.workspaceRoot, blockId, baseline, after: identities() });
 
     await session.focus(remote.tree);
     await session.keys(remote.tree, "?");

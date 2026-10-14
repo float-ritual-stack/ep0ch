@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {runHerdrScenario} from './herdr-runner';
-const result=await runHerdrScenario({name:'tree-only',detailRenderer:process.argv.includes('--ansi')?'ansi':'pi-tui',commandKeys:[{key:'prefix+shift+u',command:'float.pi-outliner.open-tree'}],async prepare(){},async run(s){
+const result=await runHerdrScenario({name:'tree-only',commandKeys:[{key:'prefix+shift+u',command:'float.pi-outliner.open-tree'}],async prepare(){},async run(s){
  const terminal=await s.attachClient();await s.waitFor('attached',terminal.visible,t=>t.includes('Outliner'));
  const initial=await s.registrations();const detailCount=initial.filter(c=>c.role==='detail').length;
  for(const origin of ['shell','tree','detail'] as const){
@@ -12,7 +12,7 @@ const result=await runHerdrScenario({name:'tree-only',detailRenderer:process.arg
    const column=frame.split('\n')[row-1]!.indexOf('TREE_ONLY_SHELL')+2;
    await terminal.write(`\x1b[<0;${column};${row}M\x1b[<0;${column};${row}m`);
    await terminal.write('\x02');await s.waitFor('prefix',terminal.visible,t=>t.includes('PREFIX'));await terminal.write('U');
-  }else {await s.keys(s.panes[origin],'?');await s.waitVisible(s.panes[origin],process.argv.includes('--ansi')&&origin==='detail'?'Actions':'Find:');await s.text(s.panes[origin],'New Tree');await s.waitVisible(s.panes[origin],'New Tree');await s.keys(s.panes[origin],'enter');}
+  }else {await s.keys(s.panes[origin],'?');await s.waitVisible(s.panes[origin],'Find:');await s.text(s.panes[origin],'New Tree');await s.waitVisible(s.panes[origin],'New Tree');await s.keys(s.panes[origin],'enter');}
   const clients=await s.waitFor('new Tree registration',s.registrations,cs=>cs.some(c=>c.role==='tree'&&!before.has(c.clientId)));
   const added=clients.filter(c=>c.role==='tree'&&!before.has(c.clientId));assert.equal(added.length,1);assert.equal(clients.filter(c=>c.role==='detail').length,detailCount);
   const pane=await s.adoptDetached(added[0]!.clientId,'tree');await s.waitVisible(pane,'Outliner');

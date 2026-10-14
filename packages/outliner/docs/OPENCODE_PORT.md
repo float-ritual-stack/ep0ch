@@ -17,7 +17,7 @@ The pi version already separates concerns correctly, so the port is mostly mecha
 | `src/server.ts` + `server-main.ts` (unix-socket JSON-lines RPC) | No | Reuse unchanged |
 | `src/types.ts`, `properties.ts`, `files.ts`, `annotations.ts`, `terminal.ts`, `text-buffer.ts`, `client.ts`, `paths.ts` | No | Reuse unchanged |
 | `src/outliner.ts` (outliner TUI pane) | No (raw ANSI, standalone bun process) | Reuse unchanged |
-| `src/detail.ts` (detail TUI pane) | No | Reuse unchanged |
+| `src/detail-pi.ts` (detail TUI pane) | No | Reuse unchanged |
 | `src/herdr-open.ts` (pane orchestration via herdr CLI) | herdr only, not pi | Reuse unchanged |
 | `herdr-plugin.toml` | herdr only, not pi | Reuse — point commands at same entrypoints |
 | `pi-extension/index.ts` | **pi-only** | **Rewrite as OpenCode V2 plugin** |

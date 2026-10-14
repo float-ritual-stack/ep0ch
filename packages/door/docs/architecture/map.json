@@ -252,9 +252,9 @@
     {
       "id": "cli.detail", "name": "Detail", "group": "clients", "chapter": "feed", "ladder": "shared", "dependsOn": ["cli.client", "svc.keymap"],
       "does": "The outliner's reader and editor for one block, in a Herdr pane: properties, comments, backlinks, resources.",
-      "built": "detail-controller and two renderers (pi-tui, ansi); its keys resolve through the outliner keymap by scope.",
+      "built": "detail-controller and one host (detail-pi, on pi-tui); its keys resolve through the outliner keymap by scope.",
       "refs": [
-        { "r": "outliner", "p": "src/detail-main.ts", "l": 7, "m": "import(\"./detail-pi\")" },
+        { "r": "outliner", "p": "src/detail-pi.ts", "l": 800, "m": "const controller = createDetailController(" },
         { "r": "outliner", "p": "src/detail-keymap.ts", "l": 62, "m": "export function detailActionScopes" }
       ]
     },

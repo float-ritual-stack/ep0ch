@@ -23,9 +23,9 @@ const result = await runHerdrScenario({
     await s.revealTree(s.panes.tree, doc.id); await s.keys(s.panes.tree, "enter");
     await s.waitVisible(s.panes.detail, "Ordinary keys must not edit this body.");
     const context = () => s.client.request<BrowsingContextState>({action: "browsing-context.get", contextId: tree.contextId!});
-    let ansiInput: {focus(): Promise<void>; visible(): Promise<string>; keys(...keys: string[]): Promise<void>} | undefined;
+    let startupInput: {focus(): Promise<void>; visible(): Promise<string>; keys(...keys: string[]): Promise<void>} | undefined;
     const inspect = async (pane: string, clientId: string, label: string, startup = false) => {
-      const input = startup ? ansiInput! : {focus: () => s.focus(pane), visible: () => s.visible(pane), keys: (...keys: string[]) => s.keys(pane, ...keys)};
+      const input = startup ? startupInput! : {focus: () => s.focus(pane), visible: () => s.visible(pane), keys: (...keys: string[]) => s.keys(pane, ...keys)};
       const visibleText = (text: string) => s.waitFor(`${label} shows ${text}`, input.visible, frame => frame.includes(text));
       await input.focus();
       if (composed) {
@@ -72,15 +72,16 @@ const result = await runHerdrScenario({
       assert.deepEqual(await context(), beforeContext, "Arrow keys in the inspector must not change Tree selection");
       assert.equal((await s.client.request<Block>({action: "get", blockId: doc.id})).text, doc.text);
       const restored = await input.visible();
-      assert.ok(!restored.includes("Link destination ·"), "Alt+L is inspected without executing its action");
+      // The hint row names the action (⌥L Link destination); only the picker's own title means it ran.
+      assert.ok(!restored.split("\n").some(line => line.includes("Link destination ·") && !line.includes("⌥L Link destination")), "Alt+L is inspected without executing its action");
       await s.record(`${label}-closed-with-state-preserved`, {before, after, beforeContext, frame: restored});
       await s.checkpoint(`${label}-closed-app-still-live`);
     };
     await inspect(s.panes.tree, tree.clientId, "tree");
     await inspect(s.panes.detail, detail.clientId, "detail-pi");
     if (!composed) {
-      // ANSI has no action-menu adapter. Exercise its documented startup flag
-      // through a fresh pane on the verified private Herdr session instead.
+      // OUTLINER_DEBUG_KEYS=1 opens the inspector on startup, before any menu can.
+      // Exercise it through a fresh pane on the verified private Herdr session.
       const isolation = JSON.parse(await readFile(join(s.artifactDirectory, "isolation.json"), "utf8")) as {runRoot: string; sessionName: string; effectiveEnvironment: Record<string, string>};
       const execute = promisify(execFile);
       const nativeText = async (args: string[]): Promise<string> => {
@@ -90,25 +91,24 @@ const result = await runHerdrScenario({
       const native = async (args: string[]): Promise<unknown> => { const output = await nativeText(args); return output.trim() ? JSON.parse(output) : undefined; };
       const status = await native(["status", "server", "--json"]) as {session: string; socket: string};
       assert.equal(status.session, isolation.sessionName); assert.ok(status.socket.startsWith(`${isolation.runRoot}/`));
-      await s.record("ansi-private-session", status);
+      await s.record("startup-private-session", status);
       const before = await s.registrations();
       await native(["plugin", "pane", "open", "--plugin", "float.pi-outliner", "--entrypoint", "detail", "--placement", "split", "--target-pane", s.panes.detail, "--direction", "right", "--focus",
-        "--env", "OUTLINER_DETAIL_RENDERER=ansi", "--env", "OUTLINER_DEBUG_KEYS=1", "--env", `OUTLINER_WORKSPACE_ROOT=${s.projectRoot}`,
+        "--env", "OUTLINER_DEBUG_KEYS=1", "--env", `OUTLINER_WORKSPACE_ROOT=${s.projectRoot}`,
         "--env", `OUTLINER_BROWSING_CONTEXT_ID=${crypto.randomUUID()}`, "--env", `OUTLINER_DETAIL_TARGET=${encodeURIComponent(JSON.stringify({kind: "block", blockId: doc.id}))}`]);
-      const added = await s.waitFor("ANSI inspector pane registered", s.registrations, values => values.some(c => c.role === "detail" && !!c.runtime?.paneId && !before.some(old => old.clientId === c.clientId)));
-      const ansi = added.find(c => c.role === "detail" && !before.some(old => old.clientId === c.clientId))!;
-      const pane = ansi.runtime!.paneId!;
-      await s.waitFor("ANSI initial Current loaded", s.registrations, values => { const target = values.find(c => c.clientId === ansi.clientId)?.currentTarget; return target?.kind === "block" && target.blockId === doc.id; });
-      // adoptDetached verifies the default Pi renderer. Keep this ANSI-only
-      // startup diagnostic bounded here, with explicit process/environment proof.
+      const added = await s.waitFor("startup inspector pane registered", s.registrations, values => values.some(c => c.role === "detail" && !!c.runtime?.paneId && !before.some(old => old.clientId === c.clientId)));
+      const startup = added.find(c => c.role === "detail" && !before.some(old => old.clientId === c.clientId))!;
+      const pane = startup.runtime!.paneId!;
+      await s.waitFor("startup initial Current loaded", s.registrations, values => { const target = values.find(c => c.clientId === startup.clientId)?.currentTarget; return target?.kind === "block" && target.blockId === doc.id; });
+      // Prove the flag reached this pane's process, not only that a panel opened.
       try {
         const processInfo = await native(["pane", "process-info", "--pane", pane]) as {result: {process_info: {pane_id: string; foreground_processes: Array<{pid: number}>}}};
         assert.equal(processInfo.result.process_info.pane_id, pane);
-        const proof = await s.waitFor("ANSI startup environment", async () => {
+        const proof = await s.waitFor("startup environment", async () => {
           for (const {pid} of processInfo.result.process_info.foreground_processes) {
             try {
               const entries = new Map((await readFile(`/proc/${pid}/environ`, "utf8")).split("\0").map(entry => {const at = entry.indexOf("="); return [entry.slice(0, at), entry.slice(at + 1)];}));
-              const expected = {HERDR_SOCKET_PATH: status.socket, HERDR_PANE_ID: pane, OUTLINER_DETAIL_RENDERER: "ansi", OUTLINER_DEBUG_KEYS: "1", EP0CH_OUTLINES: isolation.effectiveEnvironment.EP0CH_OUTLINES!};
+              const expected = {HERDR_SOCKET_PATH: status.socket, HERDR_PANE_ID: pane, OUTLINER_DEBUG_KEYS: "1", EP0CH_OUTLINES: isolation.effectiveEnvironment.EP0CH_OUTLINES!};
               if (Object.entries(expected).every(([key, value]) => entries.get(key) === value)) return {pid, cwd: await realpath(`/proc/${pid}/cwd`), environment: expected};
             } catch { /* The shell can be replaced by the actual pane process. */ }
           }
@@ -116,13 +116,13 @@ const result = await runHerdrScenario({
         }, value => value !== null);
         const provenance = JSON.parse(await readFile(join(s.artifactDirectory, "provenance.json"), "utf8")) as {pluginRoot: string};
         assert.equal(proof!.cwd, provenance.pluginRoot);
-        await s.record("ansi-inspector-process", proof);
-        ansiInput = {
+        await s.record("startup-inspector-process", proof);
+        startupInput = {
           async focus() { await native(["plugin", "pane", "focus", pane]); },
           visible: () => nativeText(["pane", "read", pane, "--source", "visible", "--format", "text"]),
           async keys(...keys) { await native(["pane", "send-keys", pane, ...keys]); },
         };
-        await inspect(pane, ansi.clientId, "detail-ansi", true);
+        await inspect(pane, startup.clientId, "detail-startup", true);
       } finally { await native(["pane", "close", pane]); }
     }
   },

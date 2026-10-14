@@ -137,7 +137,7 @@ right-click on a menu item pins it.
 
 ### Detail client
 
-[`src/detail-main.ts`](../src/detail-main.ts) selects the Pi TUI Detail implementation, which separates:
+Detail has one host, [`src/detail-pi.ts`](../src/detail-pi.ts), on pi-tui; the Herdr manifest starts it. It separates:
 
 - [`DetailController`](../src/detail-controller.ts) — modes, effects, optimistic saves, unified typed annotation capture/reconciliation/reveal, PreviewRegion actions, property-inspector state, lazy backlink state, file behavior, and cursor visibility;
 - [`detail-pi.ts`](../src/detail-pi.ts) — terminal lifecycle, input, Pi layout switching, and dedicated-inspector startup;
@@ -147,8 +147,6 @@ right-click on a menu item pins it.
 - [`detail-editor-layout.ts`](../src/detail-editor-layout.ts) — grapheme-safe wrapped visual rows, cursor mapping, and selection spans;
 - [`detail-renderer.ts`](../src/detail-renderer.ts) — fixed custom frames for edit, source selection, comment, file, and annotation modes; and
 - [`text-buffer.ts`](../src/text-buffer.ts) — raw text, grapheme/word movement, and selections.
-
-The legacy ANSI Detail entrypoint remains available in [`src/detail.ts`](../src/detail.ts), but the Herdr manifest starts [`src/detail-main.ts`](../src/detail-main.ts).
 
 [`detail-keymap.ts`](../src/detail-keymap.ts) is the scoped Detail command
 router. It computes one ordered context list from controller and projection
@@ -1813,7 +1811,7 @@ src/outliner.ts               Tree terminal process
 src/tree-controller.ts        Tree behavior
 src/tree-renderer.ts          Tree ANSI rendering
 src/virtual-branches.ts       projection configuration and rows
-src/detail-main.ts            Detail implementation selector
+src/detail-pi.ts              Detail terminal process
 src/outliner-links.ts          private URI codec and safe Tree/Markdown link generation
 src/context-resolution.ts     context-scoped "nearest key" resolution (PIE-408, first slice)
 src/resource-projection.ts    resource projections: stored details for provider lines (`resources.projection.read`)

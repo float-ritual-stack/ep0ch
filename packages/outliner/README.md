@@ -1820,11 +1820,9 @@ viewport; explicit thread navigation scrolls its controls into view.
 Comments identify **Resource-wide**, **This reference**, or **Other reference**
 scope. Other occurrences and lost/ambiguous anchors stay reachable, with their
 original evidence. Failed saves remain in the composer with a visible status;
-`Esc` cancels the reply without returning focus to Tree. The ANSI reader shares
-thread actions and appends complete, wrapped threads to the source preview.
+`Esc` cancels the reply without returning focus to Tree.
 `[` and `]` reveal the selected thread; scrolling reaches unpositioned quotes,
-bodies and replies. Appended evidence is not selectable as source text. The
-annotation document also scrolls through its full evidence and history with `G`.
+bodies and replies. The annotation document also scrolls through its full evidence and history with `G`.
 
 ### Detail edit and comment modes
 
@@ -2866,8 +2864,8 @@ metadata-preserving external file replacement, and explicit cancellation/reload
 before a fresh save. The file journey does not claim to close the separate
 validation/rename race.
 
-`bun run test:e2e:file-authority` runs the file ownership journey for both Pi and
-ANSI Detail. The fixture opens one additional remote-mode Tree/Detail pair with
+`bun run test:e2e:file-authority` runs the file ownership journey for Detail.
+The fixture opens one additional remote-mode Tree/Detail pair with
 its own workspace root, deliberately writes different contents at the same path,
 and checks service-owned previews, path completion, preserved line ranges, and
 explicit Resource activation. Passive reads leave catalog identities unchanged.
@@ -2897,8 +2895,7 @@ behavior; emitted hyperlinks have separate renderer regressions.
 `bun run test:e2e:annotation-threads` uses real keys in a private Herdr session
 for contextual/Resource-wide thread navigation, multiline replies, visible save
 validation, resolve/reopen and cancellation. It verifies preserved target and
-viewport, other-occurrence and orphan reachability, a narrow Detail, and ANSI
-ordinary-thread/evidence scrolling and operations. One real Pi Reply control
+viewport, other-occurrence and orphan reachability, and a narrow Detail. One real Reply control
 click and cancellation runs through the attached Herdr client's mouse input.
 Existing threads and an agent reply are seeded through public APIs.
 
@@ -2967,7 +2964,7 @@ representation and retains its revision; it does not intern or refresh a Resourc
 
 ### Inspecting received keys
 
-Use **? → Inspect received keys** in Tree or Pi Detail. The in-place panel shows
+Use **? → Inspect received keys** in Tree or Detail. The in-place panel shows
 received bytes, Unicode code points, decoded keys/modifiers, and matching reading-mode
 shortcuts. It observes the input reaching that pane, with its existing terminal
 protocol settings. Escape is displayed for inspection; **Ctrl+Q closes only the
@@ -2975,8 +2972,7 @@ inspector**. Inspected keys do not edit documents or execute shortcuts. No key l
 is written to disk or sent to the service. Raw chunks are bounded and are not assumed
 to be individual physical keypresses.
 
-For the ANSI Detail runtime, launch with `OUTLINER_DEBUG_KEYS=1` to open the same
-inspector on startup. This is useful when the host intercepts a shortcut: injected
+Launch Detail with `OUTLINER_DEBUG_KEYS=1` to open the same inspector on startup. This is useful when the host intercepts a shortcut: injected
 Herdr keys test the application, while pressing the physical keys in this panel
 also tests the terminal input path.
 

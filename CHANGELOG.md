@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One Detail host (PIE-833)
+
+- **Removed:** the second, ANSI Detail host (`src/detail.ts`) and its selector (`detail-main.ts`,
+  `OUTLINER_DETAIL_RENDERER`). Herdr has started the pi-tui Detail (`src/detail-pi.ts`) by default for months; the
+  ANSI one only ran in tests, and most Detail changes had to be made twice. Nothing a person sees changes.
+- **Fixed:** Detail in Herdr now draws what a rule decorates (a card, a band, a text mark, PIE-600) and reads a
+  resource provider's lines, and learns a rule written while it is open. Only the ANSI host ever asked the outline for
+  its rules, so the Detail people use never showed them.
+- **Changed:** `OUTLINER_DEBUG_KEYS=1` (open the key inspector on startup, for keys the host intercepts) now works in
+  the Detail Herdr opens; it only worked in the ANSI host before.
 ### A form written in the note it's for (PIE-828)
 
 - **Added:** an extension action can ask for the fields of the note it runs on: `"fieldsFrom": "block"` in its

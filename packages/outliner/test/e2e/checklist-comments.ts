@@ -3,8 +3,7 @@ import {visibleWidth} from '@earendil-works/pi-tui';
 import type {AnnotationThread,Block,ChecklistCollection} from '../../src/types';
 import {runHerdrScenario} from './herdr-runner';
 
-const ansi=process.argv.includes('--ansi');
-const result=await runHerdrScenario({name:`checklist-comments-${ansi?'ansi':'pi'}`,detailRenderer:ansi?'ansi':'pi-tui',async prepare(){},async run(s){
+const result=await runHerdrScenario({name:'checklist-comments',async prepare(){},async run(s){
   const terminal=await s.attachClient();await terminal.resize(190,70);
   const note=await s.client.request<Block>({action:'create',text:'# CHECKLIST COMMENTS\n\n1. [ ] Prepare release\n2. [ ] Verify results'});
   const read=()=>s.client.request<Block>({action:'get',blockId:note.id});
@@ -22,13 +21,13 @@ const result=await runHerdrScenario({name:`checklist-comments-${ansi?'ansi':'pi'
     await terminal.write(`\x1b[<0;${point.column+1};${point.row+1}M\x1b[<0;${point.column+1};${point.row+1}m`);
   };
   await s.revealTree(s.panes.tree,note.id);await s.keys(s.panes.tree,'alt+enter');await s.waitVisible(s.panes.detail,'Prepare release');
-  await click(s.panes.detail,ansi?'Current [Note]':'● Current','[ ]');
+  await click(s.panes.detail,'● Current','[ ]');
   await s.waitVisible(s.panes.detail,'Checklist step');await s.keys(s.panes.detail,'escape');
   await s.waitFor('status picker closed',()=>s.visible(s.panes.detail),frame=>frame.includes('Prepare release')&&!frame.includes('Checklist step'));
-  await s.keys(s.panes.detail,'c');await s.waitVisible(s.panes.detail,ansi?'⌃S save':'Ctrl+S');await s.keys(s.panes.detail,'escape');
-  await s.waitFor('comment cancellation painted',()=>s.visible(s.panes.detail),frame=>frame.includes('Comment cancelled')&&!frame.includes(ansi?'⌃S save':'Ctrl+S'));
+  await s.keys(s.panes.detail,'c');await s.waitVisible(s.panes.detail,'Ctrl+S');await s.keys(s.panes.detail,'escape');
+  await s.waitFor('comment cancellation painted',()=>s.visible(s.panes.detail),frame=>frame.includes('Comment cancelled')&&!frame.includes('Ctrl+S'));
   assert.equal((await read()).revision,note.revision,'Cancelling a comment must not assign an ID');
-  await s.keys(s.panes.detail,'c');await s.waitVisible(s.panes.detail,ansi?'⌃S save':'Ctrl+S');
+  await s.keys(s.panes.detail,'c');await s.waitVisible(s.panes.detail,'Ctrl+S');
   await s.text(s.panes.detail,'CHECKLIST COMMENT EVIDENCE');await s.keys(s.panes.detail,'ctrl+s');
   const created=await s.waitFor('item comment saved',comments,threads=>threads.length===1);
   assert.ok(created[0]!.originalTarget.listItemId,'Focused checkbox comment must attach to that item');

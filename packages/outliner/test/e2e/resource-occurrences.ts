@@ -4,16 +4,14 @@ import { join } from "node:path";
 import type { Block } from "../../src/types";
 import { runHerdrScenario } from "./herdr-runner";
 
-const renderer = process.argv.includes("--ansi") ? "ansi" : "pi-tui";
 const result = await runHerdrScenario({
-  name: `resource-occurrences-${renderer}`,
+  name: "resource-occurrences",
   async prepare(root) {
     await writeFile(join(root, "same.md"), "# Shared Resource\nFIRST FILE LINE\nSECOND FILE LINE\n");
   },
   async run(session) {
     await session.attachClient();
-    const panes = renderer === "ansi"
-      ? await session.openRemoteBrowsingContext({ renderer }) : session.panes;
+    const panes = session.panes;
     const sourceText = "Occurrence choices\n\nFirst use [file::same.md].\nSecond use [file::same.md].";
     const source = await session.client.request<Block>({ action: "create", parentId: null, text: sourceText });
     const resourceCount = () => (session.database.query("SELECT count(*) AS count FROM resources").get() as { count: number }).count;
@@ -28,7 +26,7 @@ const result = await runHerdrScenario({
         client?.currentTarget?.kind === "block" && client.currentTarget.blockId === source.id);
       const frame = await session.waitVisible(panes.detail, "Occurrence choices");
       await session.focus(panes.detail);
-      if (renderer === "ansi" ? frame.includes("Properties ·") : frame.includes("▾ Properties")) {
+      if (frame.includes("▾ Properties")) {
         await session.keys(panes.detail, "p");
       }
       await session.waitVisible(panes.detail, "First use");
@@ -75,7 +73,7 @@ const result = await runHerdrScenario({
     assert.notEqual(firstTarget.referenceContext.anchor.start, resourceTarget.referenceContext.anchor.start);
     assert.equal(resourceCount(), baseline + 1);
     assert.equal((await session.client.request<Block>({ action: "get", blockId: source.id })).text, sourceText);
-    await session.record("occurrence-result", { renderer, sourceId: source.id, sourceText,
+    await session.record("occurrence-result", { sourceId: source.id, sourceText,
       baselineResourceCount: baseline, finalResourceCount: resourceCount(), resourceTarget, firstTarget,
       input: "RPC remote Tree link and Tree reveal setup; real Detail o/Tab/o/Escape cancels without interning; o/R opens here, repeat first occurrence",
       limits: "Keyboard activation; native pointer activation has renderer/controller coverage only." });

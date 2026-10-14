@@ -344,7 +344,7 @@ and rendering local. Passive previews must remain passive, without silently
 interning a Resource or refreshing its provider.
 
 Scenario: `bun run test:e2e:file-authority` (`test/e2e/file-authority.ts`) runs
-both Pi and ANSI Detail with a remote-mode client context and a separate fixture
+Detail with a remote-mode client context and a separate fixture
 root. Give client and service different bytes at the same relative path. Follow each supported preview/open route and
 verify service-owned content; verify passive reads leave catalog identities and
 counts unchanged. Exercise service-owned completion. Retain the existing
@@ -449,7 +449,7 @@ this section is not an unfinished implementation queue.
 At baseline `e728c35`, `src/detail-controller.ts:applyReadyDocument()` awaits projection and
 reference resolution before applying an uncached block, then awaits optional
 work in the same load path. Split that concrete path using its existing target
-generation checks and the existing `src/detail.ts` / `src/detail-pi.ts` effects.
+generation checks and the existing `src/detail-pi.ts` effects.
 Paint the exact primary document first; apply each enrichment only to its
 matching target and revision. Enrichment failure must not erase readable primary
 content or pretend its actions are ready.

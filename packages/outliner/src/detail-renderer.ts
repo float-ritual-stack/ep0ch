@@ -1,20 +1,11 @@
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { getProperty } from "./properties";
-import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
-import { ticketScope } from "./work-ids";
-import type {DetailReadPreviewDocument} from './detail-pi-preview';
-import {getMarkdownTheme} from "@earendil-works/pi-coding-agent";
-import {renderDetailReadPreview} from "./detail-pi-preview";
-import {measureRenderedLinks, withInternalLinks} from "./rendered-links";
-import {parsePreviewRegionActionUri, type PreviewRegion} from "./detail-preview-regions";
 import {renderHintRow, renderPaneBar, type ChromeLevel, type PaneBarButton} from "./reader-chrome";
 import type {OutlinerActionHint} from "./outliner-actions";
 import {
   hyperlink,
-  sliceByColumn,
   truncateToWidth,
   visibleWidth,
-  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import {
   attentionBanner,
@@ -23,7 +14,7 @@ import {
   decorateAttentionLines,
 } from "./attention-render";
 import { currentAttentionMark } from "./attention";
-import { annotationScopeLabel, annotationTags, annotationTargetText, annotationThreadTitle, buildDetailAnnotationView, placementWords, detailAnnotationGroups } from "./detail-annotations";
+import { buildDetailAnnotationView } from "./detail-annotations";
 import { renderReferenceCompletion } from "./reference-completion-renderer";
 import { outlinerLinkUri } from "./outliner-links";
 import { filterPropertyInspectorEntries, findPropertyInspectorEntry } from "./property-inspector";
@@ -48,7 +39,6 @@ import {
 import { renderTextBufferEditorRow } from "./text-buffer-editor";
 import { renderMarkdownLine, sanitizeDynamicText } from "./terminal";
 
-const ESC = "\x1b[";
 
 function fitToWidth(value: string, width: number): string {
   const fitted = truncateToWidth(value, Math.max(0, width), "…");
@@ -314,86 +304,6 @@ export interface DetailRenderOptions {
   chooserHelpText?: string;
 }
 
-// Keep the read document alive across ANSI redraws, just as Preview does.
-const ansiReadDocuments = new WeakMap<object,DetailReadPreviewDocument>();
-
-/** Ordinary ANSI reader rows. Appended comment evidence has no source position. */
-export function buildDetailAnsiPreview(
-  state: Readonly<DetailState>,
-  width: number,
-): NonNullable<DetailViewport["preview"]> {
-  let rich: Partial<NonNullable<DetailViewport["preview"]>> = {};
-  let sourceLines = state.resolvedSelectedText.split(/\r?\n/);
-  if (state.context.selected && state.readStatus === "ready" && state.projectedSelectedText) {
-    const previewRegions = {...state.previewRegions};
-    const current:DetailReadPreviewDocument = {
-      canonicalText: state.context.selected!.text,
-      sourceBlock: state.context.selected!, resolvedText: state.resolvedSelectedText,
-      projectedText: state.projectedSelectedText, embedRanges: state.embedRanges,
-      workIdPrefix: ticketScope(state.workIdPrefix, state.ticketPrefixes), previewRegions,
-    };
-    let document=ansiReadDocuments.get(state.context.selected);
-    if(document)Object.assign(document,current);
-    else {document=current;ansiReadDocuments.set(state.context.selected,document);}
-    const rendered = withInternalLinks(() => renderDetailReadPreview(document!, width, getMarkdownTheme(), undefined, true, state.previewSourceLine));
-    const links = measureRenderedLinks(rendered.lines);
-    const regions: PreviewRegion[] = [];
-    const rows = new Map<string, number>();
-    const columns = new Map<string, {column: number; width: number}>();
-    const projectedResources = new Set(state.embedRanges.flatMap(range =>
-      range.resource?.resourceId ? [outlinerLinkUri("resource", range.resource.resourceId)] : []));
-    for (const link of links) {
-      const action = parsePreviewRegionActionUri(link.uri);
-      const existing = action && "regionId" in action
-        ? previewRegions.regions.find(region => region.id === action.regionId) : undefined;
-      const id = existing?.id ?? `ansi-link:${link.row}:${link.column}:${link.uri}`;
-      if (!rows.has(id)) {
-        regions.push(existing ?? {id,kind:projectedResources.has(link.uri) ? "resource" : "body-link",sourceSpan:null,parentId:null,childIds:[],
-          focusable:true,disclosure:null,activation:action ?? {type:"link.open",uri:link.uri}});
-        rows.set(id, link.row);
-        columns.set(id, {column: link.column, width: link.width});
-      }
-    }
-    sourceLines = rendered.lines;
-    rich = {rendered: true, regions, regionRows: rows, regionColumns: columns,
-      sourceLineRow: line => withInternalLinks(() => rendered.sourceLineRow(line))};
-  }
-  const annotationLines: string[] = [];
-  const threadRows = new Map<string, number>();
-  const groups = detailAnnotationGroups(state);
-  const append = (text: string, prefix = "") => {
-    for (const line of wrapTextWithAnsi(sanitizeDynamicText(text, true), Math.max(1, width - visibleWidth(prefix)))) {
-      annotationLines.push(`${prefix}${line}`);
-    }
-  };
-  if (groups.length > 0) {
-    annotationLines.push("", fitDynamicText(`Comments · ${state.annotationThreads.length} threads · [ previous · ] next`, width));
-    let index = 0;
-    for (const group of groups) {
-      for (const thread of group.threads) {
-        index += 1;
-        threadRows.set(thread.block.id, sourceLines.length + annotationLines.length);
-        append(`${thread.block.id === state.selectedAnnotationId ? "▶" : " "} ${annotationThreadTitle(thread, index)} · ${thread.lifecycle}`);
-        append(`C reply · D ${markCurrent(thread.lifecycle) ? "seen" : "bring back"}`);
-        append(annotationScopeLabel(thread, state));
-        append([group.placement, placementWords(thread.currentResolution.status)].filter(Boolean).join(" · "));
-        if (group.placement === "unpositioned" || thread.resolvedTarget?.anchor.kind === "list-item") {
-          append("Original quote:");
-          append(annotationTargetText(thread.originalTarget), "│ ");
-        }
-        // A highlight (no body) reads as one, with its tags, not as an empty comment.
-        append(thread.body || `Highlight${annotationTags(thread).length ? ` · ${annotationTags(thread).map(tag => `#${tag}`).join(" ")}` : ""}`);
-        for (const reply of thread.replies) {
-          append(`${reply.source} reply:`);
-          append(reply.body);
-        }
-        annotationLines.push("");
-      }
-    }
-  }
-  return { ...rich, sourceLines, annotationLines, threadRows };
-}
-
 export function renderDetailLines(
   state: Readonly<DetailState>,
   viewport: DetailViewport,
@@ -506,22 +416,14 @@ export function renderDetailLines(
       );
     });
   } else {
-    const preview = viewport.preview ?? buildDetailAnsiPreview(state, width);
-    const lineCount = preview.sourceLines.length + preview.annotationLines.length;
-    for (let row = state.previewOffset; row < Math.min(lineCount, state.previewOffset + bodyHeight); row += 1) {
-      if (row < preview.sourceLines.length) {
-        const rendered = preview.rendered ? preview.sourceLines[row]! : renderMarkdownLine(fitDynamicText(preview.sourceLines[row]!, width));
-        const focused = preview.regionRows?.get(state.previewRegions.focusedRegionId ?? "") === row;
-        const mark = focused ? preview.regionColumns?.get(state.previewRegions.focusedRegionId!) : undefined;
-        output.push(mark ? sliceByColumn(rendered, 0, mark.column, true) +
-          `\x1b[7m${sliceByColumn(rendered, mark.column, mark.width, true).replaceAll("\x1b[0m", "\x1b[0;7m")}\x1b[0m` +
-          sliceByColumn(rendered, mark.column + mark.width, Math.max(0, width - mark.column - mark.width), true) + "\x1b[0m"
-          : !preview.rendered && isEmbeddedLine(state, row) ? renderEmbedBackground(rendered, width) : rendered);
-      } else {
-        output.push(preview.annotationLines[row - preview.sourceLines.length]!);
-      }
+    // Reading is DetailPiPreviewLayout's; this frame only shows the text when a
+    // mode it draws has nothing of its own (a file mode with no file read yet).
+    const sourceLines = state.resolvedSelectedText.split(/\r?\n/);
+    for (let row = state.previewOffset; row < Math.min(sourceLines.length, state.previewOffset + bodyHeight); row += 1) {
+      const rendered = renderMarkdownLine(fitDynamicText(sourceLines[row]!, width));
+      output.push(isEmbeddedLine(state, row) ? renderEmbedBackground(rendered, width) : rendered);
     }
-    sourceRowsInViewport = Math.max(0, Math.min(bodyHeight, preview.sourceLines.length - state.previewOffset));
+    sourceRowsInViewport = Math.max(0, Math.min(bodyHeight, sourceLines.length - state.previewOffset));
   }
 
   while (output.length < height - footer.length) output.push("");
@@ -542,14 +444,4 @@ export function renderDetailLines(
   const footerCount = Math.min(footer.length, height - 1);
   if (!footerCount) return output.slice(0,height);
   return [...output.slice(0, height - footerCount), ...output.slice(-footerCount)];
-}
-
-export function renderDetailAnsi(
-  state: Readonly<DetailState>,
-  viewport: DetailViewport,
-  options: DetailRenderOptions = {},
-): string {
-  const lines = renderDetailLines(state, viewport, options);
-  lines[0] = `${ESC}H${ESC}2J${lines[0] ?? ""}`;
-  return lines.join("\n");
 }

@@ -6,16 +6,15 @@ import type {NavigationLinkState, Block, InternResourceReceipt, OutlinerClientRe
 import {runHerdrScenario} from "./herdr-runner";
 
 const composed = process.argv.includes("--composed");
-const ansi = process.argv.includes("--ansi");
 const heldReads = process.argv.includes("--held");
 const result = await runHerdrScenario({
-  name: `local-preview${composed ? "-composed" : ansi ? "-ansi" : ""}`,
+  name: `local-preview${composed ? "-composed" : ""}`,
   layout: composed ? "composed" : "separate",
   async prepare(root) { await writeFile(join(root, "preview-resource.md"), "RESOURCE PREVIEW EXACT BYTES\n"); },
   async run(session) {
     const terminal = await session.attachClient();
     await terminal.resize(340, 60);
-    const panes = ansi || heldReads ? await session.openRemoteBrowsingContext({renderer: ansi ? "ansi" : "pi-tui", detailTransport: heldReads ? "forwarded" : "direct"}) : session.panes;
+    const panes = heldReads ? await session.openRemoteBrowsingContext({detailTransport: "forwarded"}) : session.panes;
     if (composed) await session.enableComposedResponseBarriers();
     const clients = await session.registrations();
     const tree = clients.find(c => c.runtime?.paneId === panes.tree && c.role === (composed ? "composed" : "tree"))!;
@@ -50,12 +49,12 @@ const result = await runHerdrScenario({
     }
     await session.checkpoint("01-current-draft-plus-preview");
     await focusDetail();
-    const sizes = composed ? [[340, 35], [240, 38], [200, 22]] : ansi || heldReads ? [[140, 50], [80, 74], [80, 42]] : [[270, 50], [180, 74], [180, 42]];
+    const sizes = composed ? [[340, 35], [240, 38], [200, 22]] : heldReads ? [[140, 50], [80, 74], [80, 42]] : [[270, 50], [180, 74], [180, 42]];
     for (const [index, size] of sizes.entries()) {
       await terminal.resize(size[0]!, size[1]!);
       const frame = await session.waitFor(`responsive Detail ${index}`, () => session.visible(panes.detail), frame => {
         const lines = frame.split("\n");
-        if (index === 0) return lines.some(line => line.includes("Current") && line.includes("Preview") && line.includes("INSPECTION GAMMA")) && frame.includes("DRAFT") && Math.max(...lines.map(visibleWidth)) < (composed ? 160 : ansi || heldReads ? 140 : 130);
+        if (index === 0) return lines.some(line => line.includes("Current") && line.includes("Preview") && line.includes("INSPECTION GAMMA")) && frame.includes("DRAFT") && Math.max(...lines.map(visibleWidth)) < (composed ? 160 : heldReads ? 140 : 130);
         if (index === 1) return frame.includes("DRAFT") && frame.includes("INSPECTION GAMMA") && lines.some(line => (composed ? /[●○] Preview ·/.test(line) : /^[●○]? ?Preview ·/.test(line)) && !line.includes("Current"));
         return frame.includes("Preview ready") && frame.includes("DRAFT");
       });
@@ -71,17 +70,8 @@ const result = await runHerdrScenario({
     await inspectDetail(docs[3]!.id);
     await session.waitFor("Preview can reopen after Escape", state, c => preview(c, docs[3]!.id));
     await focusDetail(); await terminal.resize(110, 38);
-    await session.keys(panes.detail, "alt+p"); await session.waitFor("Preview visibly focused", () => session.visible(panes.detail), frame => frame.includes(ansi ? "Preview ·" : "● Preview"));
-    const keepPreview = async () => {
-      if (!ansi) return terminal.write("\x1b[13;3u");
-      // The legacy reader's menu must use the same draft protection and
-      // Current/Preview actions as its keyboard path.
-      await session.keys(panes.detail, "?");
-      await session.waitVisible(panes.detail, "Actions ·");
-      await session.text(panes.detail, "Keep Preview here");
-      await session.waitVisible(panes.detail, "Actions · Keep Preview here");
-      await session.keys(panes.detail, "enter");
-    };
+    await session.keys(panes.detail, "alt+p"); await session.waitFor("Preview visibly focused", () => session.visible(panes.detail), frame => frame.includes("● Preview"));
+    const keepPreview = () => terminal.write("\x1b[13;3u");
     await keepPreview();
     await session.waitVisible(panes.detail, "Finish or cancel");
     assert.ok(current(await state(), docs[0]!.id));
@@ -148,8 +138,7 @@ const result = await runHerdrScenario({
     assert.equal(cancelled.destination, null);
     await session.keys(panes.detail, "alt+l"); await session.waitVisible(panes.detail, "Link destination");
     await session.text(panes.detail, "HUMAN DESTINATION");
-    if (ansi) await session.keys(panes.detail, "enter");
-    else {
+    {
       const menuFrame = await session.waitFor("native destination row", terminal.visible, frame => frame.includes("→ HUMAN DESTINATION"));
       const rows = menuFrame.split("\n");
       const row = rows.findIndex(line => line.includes("→ HUMAN DESTINATION"));
@@ -159,9 +148,9 @@ const result = await runHerdrScenario({
     }
     await session.waitFor("human destination selected", () => session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: detail.clientId, region: "detail"}}), link => link.destination?.clientId === destination.clientId);
     await session.waitVisible(panes.detail, "Open → HUMAN DESTINATION");
-    await session.waitVisible(panes.detail, ansi ? "Preview ·" : "● Preview");
+    await session.waitVisible(panes.detail, "● Preview");
     await session.closeDetached(destinationPane);
-    if (!ansi && !heldReads) {
+    if (!heldReads) {
       await session.setKeybindings({"tree.root.right": ["Alt+T"]});
       await session.focus(panes.tree);
       if (composed) await session.client.request({action: "ui.command.send", command: {command: "focus", targetRegion: "tree", targetClientId: tree.clientId}});
@@ -215,7 +204,7 @@ const result = await runHerdrScenario({
       await session.closeDetached(pane);
       assert.equal((await session.client.request<Block>({action: "get", blockId: docs[2]!.id})).text, docs[2]!.text);
     }
-    await session.record("preview-evidence", {current: docs[1]!.id, resourceTarget: target, canonicalUnchanged: true, composed, ansi});
+    await session.record("preview-evidence", {current: docs[1]!.id, resourceTarget: target, canonicalUnchanged: true, composed});
   },
 });
 console.log(JSON.stringify(result, null, 2));

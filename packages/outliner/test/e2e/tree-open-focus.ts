@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import {runHerdrScenario} from './herdr-runner';
 import type {Block} from '../../src/types';
 const composed=process.argv.includes('--composed');
-const ansi=process.argv.includes('--ansi');
 const result=await runHerdrScenario({
- name:`tree-open-focus${composed?'-composed':ansi?'-ansi':''}`,
- layout:composed?'composed':'separate',detailRenderer:ansi?'ansi':'pi-tui',
+ name:`tree-open-focus${composed?'-composed':''}`,
+ layout:composed?'composed':'separate',
  async prepare(){},
  async run(s){
   const terminal=await s.attachClient();

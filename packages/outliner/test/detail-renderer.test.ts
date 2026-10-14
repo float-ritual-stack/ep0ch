@@ -12,7 +12,6 @@ import { createAnnotationAnchor } from "../src/annotations";
 import { DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
 import type { DetailState } from "../src/detail-controller";
 import {
-  renderDetailAnsi,
   renderDetailFooter,
   renderDetailHeader,
   renderDetailLines,
@@ -198,11 +197,11 @@ describe("detail ANSI renderer", () => {
   });
   test("renders the fixed no-selection frame", () => {
     const width = 64;
-    const rendered = renderDetailAnsi(state(), { width, height: 8 });
+    const rendered = renderDetailLines(state(), { width, height: 8 }).join("\n");
 
     const [header, metadata, rule] = detailHeader("No block selected", width);
     expect(rendered).toBe([
-      `\x1b[H\x1b[2J${header}`,
+      header,
       metadata,
       rule,
       "Select a block or resource in the outliner pane.",
@@ -245,7 +244,7 @@ describe("detail ANSI renderer", () => {
       createdAt: "created",
       updatedAt: "updated",
     };
-    const rendered = renderDetailAnsi(state({
+    const rendered = renderDetailLines(state({
       target: { kind: "resource", resourceId: resource.id },
       resource,
       resolvedBreadcrumb: resource.address.path,
@@ -255,7 +254,7 @@ describe("detail ANSI renderer", () => {
         `- Resource ID: \`${resource.id}\``,
         `- Source ID: \`${resource.sourceId}\``,
       ].join("\n"),
-    }), { width: 80, height: 10 });
+    }), { width: 80, height: 10 }).join("\n");
 
     expect(stripTerminalSequences(rendered)).toContain("notes/example.md");
     expect(stripTerminalSequences(rendered)).toContain(resource.id);
@@ -305,7 +304,7 @@ describe("detail ANSI renderer", () => {
 
   test("renders resolved preview text while retaining the fixed viewport height", () => {
     const selected = block("raw one\nraw two\nraw three\nraw four");
-    const rendered = renderDetailAnsi(state({
+    const rendered = renderDetailLines(state({
       context: { selected, ancestors: [], children: [] },
       resolvedSelectedText: "resolved one\nresolved two\nresolved three\nresolved four",
       resolvedBreadcrumb: "Resolved title",
@@ -316,14 +315,14 @@ describe("detail ANSI renderer", () => {
       },
       previewOffset: 1,
       status: "Ready",
-    }), { width: 64, height: 8 });
+    }), { width: 64, height: 8 }).join("\n");
 
     const [header, metadata, rule] = detailHeader(
       "Resolved title · ^resolved-section",
       64,
     );
     expect(rendered).toBe([
-      `\x1b[H\x1b[2J${header}`,
+      header,
       metadata,
       rule,
       "resolved two",
@@ -383,7 +382,7 @@ describe("detail ANSI renderer", () => {
       completionIndex: detail.completion?.index,
     };
 
-    const rendered = renderDetailAnsi(detail, { width: 32, height: 9 });
+    const rendered = renderDetailLines(detail, { width: 32, height: 9 }).join("\n");
 
     expect(rendered).toContain("   4 four▏");
     expect(rendered).toContain("References 2/2");
@@ -403,7 +402,7 @@ describe("detail ANSI renderer", () => {
     const buffer = new TextBuffer(selected.text);
     buffer.column = 5;
 
-    const rendered = renderDetailAnsi(state({
+    const rendered = renderDetailLines(state({
       context: { selected, ancestors: [], children: [] },
       resolvedBreadcrumb: "Block",
       mode: "edit",
@@ -414,11 +413,11 @@ describe("detail ANSI renderer", () => {
         index: 0,
         items: [{ label: "First", insertion: "first" }],
       },
-    }), { width: 32, height: 6 });
+    }), { width: 32, height: 6 }).join("\n");
 
     const [header, metadata, rule] = detailHeader("Block", 32);
     expect(rendered).toBe([
-      `\x1b[H\x1b[2J${header}`,
+      header,
       metadata,
       rule,
       "   1 alpha▏",
@@ -447,7 +446,7 @@ describe("detail ANSI renderer", () => {
       selectionAnchor: 0,
     });
 
-    const fileFrame = renderDetailAnsi(fileState, { width: 48, height: 9 });
+    const fileFrame = renderDetailLines(fileState, { width: 48, height: 9 }).join("\n");
     expect(fileFrame).toContain(" 10 │ const one = 1;");
     expect(fileFrame).toContain("\x1b[48;5;238m>12 │ return one + two;\x1b[0m");
 
@@ -544,7 +543,7 @@ describe("detail ANSI renderer", () => {
     });
     const beforeOffset = annotationState.previewOffset;
 
-    const annotationFrame = renderDetailAnsi(annotationState, { width: 100, height: 24 });
+    const annotationFrame = renderDetailLines(annotationState, { width: 100, height: 24 }).join("\n");
     expect(annotationFrame).toContain("Original target: resource 30000000-0000-4000-8000-000000000001 @0-14");
     expect(annotationFrame).toContain("Stored resolution: orphaned");
     expect(annotationFrame).toContain("#1 orphaned · current · text-quote@1:unique-exact");

@@ -172,19 +172,8 @@ export type DetailMode = "preview" | "file" | "annotation" | "edit" | "select" |
 export interface DetailViewport {
   width: number;
   editorWidth?: number;
-  previewBodyHeight?: number;
   height: number;
   editorBody?: Readonly<{ contentWidth: number; height: number }>;
-  preview?: Readonly<{
-    rendered?: boolean;
-    regions?: readonly PreviewRegion[];
-    regionRows?: ReadonlyMap<string, number>;
-    regionColumns?: ReadonlyMap<string, {column: number; width: number}>;
-    sourceLineRow?: (line: number) => number;
-    sourceLines: readonly string[];
-    annotationLines: readonly string[];
-    threadRows: ReadonlyMap<string, number>;
-  }>;
 }
 
 export type DetailCompletionState = ReferenceCompletionState;
@@ -574,7 +563,6 @@ export interface DetailState {
   buffer: TextBuffer;
   referencedFile: ReferencedFile | null;
   previewOffset: number;
-  previewSourceLine?: number;
   editorVisualOffset: number;
   editorViewportManual?: boolean;
   draftPreviewLinked?: boolean;
@@ -859,7 +847,7 @@ export interface DetailController {
     snapshotText: string,
     renderRevision: number,
   ): DetailResourceSelectionCapture | null;
-  setPreviewRegions(regions: readonly PreviewRegion[], viewport?: DetailViewport): void;
+  setPreviewRegions(regions: readonly PreviewRegion[]): void;
   handleUiCommand(command: OutlinerUiCommand, viewport: DetailViewport): Promise<void>;
   onServiceEvent(event: OutlinerEvent, viewport: DetailViewport): Promise<void>;
   supersedePassivePreview(): void;
@@ -1940,13 +1928,12 @@ export function createDetailController(
       clearDocumentPresentation();
     }
     refreshBreadcrumb();
-    if (!preserveAnnotationViewport) { state.previewOffset = 0; state.previewSourceLine = undefined; }
+    if (!preserveAnnotationViewport) state.previewOffset = 0;
     const fragmentId = document.target.fragmentId;
     if (!preserveAnnotationViewport && fragmentId && next.selected) {
       const fragment = resolveFragment(next.selected.text, fragmentId);
       if (fragment.status === "resolved") {
         state.previewOffset = fragment.anchor.lineIndex;
-        state.previewSourceLine = fragment.anchor.lineIndex;
       } else {
         state.status = fragment.status === "duplicate"
           ? `Duplicate fragment · ^${fragmentId}`
@@ -2861,7 +2848,7 @@ export function createDetailController(
 
   const annotationGroups = () => detailAnnotationGroups(state);
 
-  const selectAnnotationThread = (annotationId: string, reveal: boolean, viewport?: DetailViewport): boolean => {
+  const selectAnnotationThread = (annotationId: string, reveal: boolean): boolean => {
     const groups = annotationGroups();
     const group = groups.find(group => group.threads.some(thread => thread.block.id === annotationId));
     const threads = groups.flatMap(group => group.threads);
@@ -2876,13 +2863,6 @@ export function createDetailController(
       const region = state.previewRegions.regions.find(region => region.id === group.regionId);
       if (region?.disclosure) region.disclosure.expanded = true;
       state.previewRegions.focusedRegionId = `annotation-thread:${annotationId}`;
-      const preview = viewport?.preview;
-      const row = preview?.threadRows.get(annotationId);
-      if (viewport && preview && row !== undefined) {
-        const lineCount = preview.sourceLines.length + preview.annotationLines.length;
-        state.previewOffset = Math.min(row, Math.max(0, lineCount - (viewport.previewBodyHeight ?? Math.max(1, viewport.height - 5))));
-        state.propertyInspector.expanded = false;
-      }
     }
     state.status = `Comment ${index + 1} of ${threads.length} · ${group.placement} · ${threads[index]!.lifecycle}`;
     return true;
@@ -3176,16 +3156,14 @@ export function createDetailController(
     if(await completions.accept())state.status=item?.anchor?`Created fragment · ^${item.anchor.fragmentId}`:"";
   };
 
-  let measuredPreviewFocus = "";
   const navigatePreview = (
     direction: "up" | "down" | "pageup" | "pagedown" | "top" | "bottom",
     viewport: DetailViewport,
   ): void => {
     const lineCount = state.mode === "annotation"
       ? buildDetailAnnotationView(state, viewport.width).length
-      : viewport.preview ? viewport.preview.sourceLines.length + viewport.preview.annotationLines.length
       : state.resolvedSelectedText.split(/\r?\n/).length;
-    const maximum = Math.max(0, lineCount - (state.mode === "annotation" || viewport.preview ? (viewport.previewBodyHeight ?? Math.max(1, viewport.height - 5)) : 1));
+    const maximum = Math.max(0, lineCount - (state.mode === "annotation" ? Math.max(1, viewport.height - 5) : 1));
     if (direction === "top") state.previewOffset = 0;
     else if (direction === "bottom") state.previewOffset = maximum;
     else {
@@ -3254,11 +3232,7 @@ export function createDetailController(
         await editExternalDraft(viewport);
         break;
       case "annotation.selection.begin":
-        if (state.mode === "preview" && viewport.preview && state.previewOffset >= viewport.preview.sourceLines.length) {
-          state.status = "Scroll to source text before starting a selection";
-        } else {
-          await beginAnnotationSelection(intent.sourceLine, intent.sourceColumn);
-        }
+        await beginAnnotationSelection(intent.sourceLine, intent.sourceColumn);
         break;
       case "annotation.comment.direct": {
         const property = state.propertyInspector.expanded
@@ -3283,12 +3257,12 @@ export function createDetailController(
         const current = threads.findIndex(thread => thread.block.id === selectedAnnotationThread(state)?.block.id);
         const next = current < 0 ? (intent.delta > 0 ? 0 : threads.length - 1)
           : (current + intent.delta + threads.length) % threads.length;
-        selectAnnotationThread(threads[next]!.block.id, true, viewport);
+        selectAnnotationThread(threads[next]!.block.id, true);
         if (current >= 0 && (intent.delta > 0 ? next <= current : next >= current)) state.status += " · wrapped";
         break;
       }
       case "annotation.thread.select":
-        selectAnnotationThread(intent.annotationId, true, viewport);
+        selectAnnotationThread(intent.annotationId, true);
         break;
       case "annotation.thread.reply":
         if (intent.annotationId && !state.annotationThreads.some(thread => thread.block.id === intent.annotationId)) await loadAnnotations(loadGeneration, "current-turn");
@@ -4541,24 +4515,8 @@ export function createDetailController(
     handleUiCommand,
     dispatch,
     captureResourceSelection,
-    setPreviewRegions(regions, viewport) {
+    setPreviewRegions(regions) {
       reconcilePreviewRegions(state.previewRegions, regions, state.document.kind === 'loading' || (state.document.kind === 'ready' && state.readStatus === 'pending'));
-      if (viewport?.preview?.regionRows) {
-        const focused = state.previewRegions.focusedRegionId;
-        const key = `${focused}:${viewport.width}:${viewport.previewBodyHeight}`;
-        if (state.previewSourceLine !== undefined && viewport.preview.sourceLineRow) {
-          state.previewOffset = viewport.preview.sourceLineRow(state.previewSourceLine);
-          state.previewSourceLine = undefined;
-          measuredPreviewFocus = key;
-        } else if (key !== measuredPreviewFocus) {
-          const row = viewport.preview.regionRows.get(focused ?? "");
-          const height = viewport.previewBodyHeight ?? Math.max(1, viewport.height - 5);
-          if (row !== undefined && (row < state.previewOffset || row >= state.previewOffset + height)) {
-            state.previewOffset = Math.max(0, row - Math.floor(height / 2));
-          }
-          measuredPreviewFocus = key;
-        }
-      }
     },
     releaseDocument() {
       openGeneration++;destinationChooser!.dispose();
@@ -4620,7 +4578,6 @@ export function createDetailController(
               ? attentionSourceLine(selected.text, mark)
               : 0;
             state.previewOffset = state.attentionRevealSourceLine;
-            state.previewSourceLine = state.attentionRevealSourceLine;
             state.status = mark.target.anchor
               ? `Attention · source range ${mark.target.anchor.start}-${mark.target.anchor.end}`
               : `Attention · ${mark.target.sourceBlockId.slice(0, 8)}`;

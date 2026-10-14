@@ -192,7 +192,7 @@ tmux kill-session -t try; ../../scripts/agent-env me --clean   # then check no h
 - Check results with `peek`, `layout.get` or `view.get` on *your* control socket, and with your eyes on
   `capture-pane` or `snap`. Injected keys don't prove a physical keyboard, ssh or macOS path: say so.
 - For an outliner Tree/Detail change, packages/outliner `CONTRIBUTING.md`'s "Live smoke test" and
-  "User-workflow walkthrough" are the equivalent. Tree (`src/outliner.ts`) and Detail (`src/detail-main.ts`)
+  "User-workflow walkthrough" are the equivalent. Tree (`src/outliner.ts`) and Detail (`src/detail-pi.ts`)
   also run in a plain tmux pane against a scratch host (`EP0CH_OUTLINES`, `EP0CH_WS`); the Herdr journeys
   (`bun run test:e2e:*`) run a private Herdr session of their own.
 
