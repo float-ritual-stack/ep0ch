@@ -84,7 +84,9 @@ short and they are the contract.
   door has no terminal. A terminal tile's program starts through the `PtyBackend` (`src/desk/pty-backend.ts`), never
   `Bun.Terminal` directly: in a session it runs in the terminal host, so a daemon upgrade adopts it. State that must
   come back after an upgrade comes back through an action that declares `replay: "safe"` (the session's checkpoint) or a
-  screen's saved state, never a restore of its own.
+  screen's saved state, never a restore of its own. The person's open edit or comment comes back by the actions that
+  open it (`Screen.reopen`, a reader's `NoteSurface.reopenSteps`: the comment's place, size and cursor too); a new
+  kind of open draft adds its steps there.
 - **Two clients, one outline.** Tree/Detail in Herdr is the sysop console (find any block, edit it); the door
   is the everyday board. Both are maintained. A service feature added for one stays usable by the other.
   Don't call the Herdr UI legacy.

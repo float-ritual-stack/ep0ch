@@ -33,6 +33,8 @@ import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions
 import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { SHELL_IDLE_MS } from "./whereabouts";
 import { authorName, type Actor, type OutlineEvent } from "./socket";
+import { parseFieldKey, parseStyleValue, type FieldKey } from "@ep0ch/outline-core/style-cascade";
+import { tuningOf, UNSET, type TuneTarget } from "./look";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -794,6 +796,25 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
         // What's wrong with a screen note that kept it from being opened (a built-in's name, two notes with one name).
         ...(screenNoteProblems().length ? { problems: [...screenNoteProblems()] } : {}),
       };
+    },
+  }),
+  "look.nudge": def({
+    summary: "put one look nudge in memory, unsaved, as the tune inspector's nudges are (PIE-673): target= where it applies (global, kind:<kind>, screen:<name>, page:<id>, instance:<tile id>, list:<note>:<line>), field= the token or its width variant (measure, wide.measure), value= as a style note writes it. Nothing is written; s in the inspector saves it. What a handover keeps of the inspector's unsaved nudges comes back this way (PIE-847)",
+    keys: "none: the tune inspector's + − and tune.set nudge with the inspector open",
+    touches: "nothing", replay: "safe",
+    args: {
+      target: { type: "string", about: "the tune target" },
+      field: { type: "string", about: "a look token, or <width>.<token>" },
+      value: { type: "string", about: "its value" },
+      from: { type: "string", optional: true, about: "a value taken away: the note it's taken from" },
+    },
+    run({ target, field, value, from }, { ctx }, actor) {
+      const f = parseFieldKey(field);
+      if (!f) throw new ActionRefused(`field is a look token (measure, pad.x, …) or <width>.<token>, not ${JSON.stringify(field)}`);
+      if (value !== UNSET) { const ok = parseStyleValue(f.token, value); if ("problem" in ok) throw new ActionRefused(ok.problem); }
+      tuningOf(ctx.board).set(target as TuneTarget, field as FieldKey, value, actor, from);
+      ctx.redraw();
+      return { target, field, value, unsaved: tuningOf(ctx.board).unsavedCount() };
     },
   }),
 });

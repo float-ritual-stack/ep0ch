@@ -643,7 +643,7 @@ export class CommentSession {
       replyTo: this.target?.kind === "reply" ? this.target.thread.id : undefined,
       editing: this.target?.kind === "edit" ? this.target.mark.id : undefined,
       dirty: this.dirty, busy: this.busy, error: this.error, requestId: this.requestId, threads: this.threads.length,
-      ...(this.mode === "compose" ? { place: this.place } : {}),
+      ...(this.mode === "compose" ? { place: this.place, ...(this.float ? { float: this.float } : {}), ...(this.composer ? { cursor: { line: this.composer.row + 1, col: this.composer.col + 1 } } : {}) } : {}),
     };
   }
 }

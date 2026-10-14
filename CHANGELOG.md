@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A handover keeps the comment you were writing (PIE-847)
+
+- **Fixed:** when the door is handed to new code (a deploy, `ep0ch session restart`) while you're writing a comment,
+  it comes back as you left it: its words, where it sat (inline, floating, split or popup), a floating box's place and
+  size, the cursor and the preview. A reply or an edit of a posted comment comes back the same way. The status line
+  says "your comment is as you left it". Before, the comment was put aside and you had to select the passage again.
+- **Fixed:** look nudges made in the tune inspector and not saved yet (a measure widened for a split) survive a
+  handover too, still unsaved.
+- **Added:** `ep0ch act reply thread=…` without `body=` opens your reply on the thread to write, as the [Reply]
+  control does; an agent's reply still needs `body=`.
+
 ### The edit's preview expands embeds (PIE-852)
 
 - **Changed:** ctrl+p's preview under an edit (and under a comment being written in the reader's comment mode) draws

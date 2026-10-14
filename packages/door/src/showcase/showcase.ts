@@ -77,6 +77,9 @@ export const STATUS_DEMO = [
   `exec sh`,
 ].join("\n");
 
+/** The words the session section's half-written comment is on (the notebook's). */
+export const SESSION_QUOTE = "The water butt is half full";
+
 /** One reuse-map row: what a feature needs, the part to use and where it lives, and how it's shown. */
 export interface Section {
   /** The act name: `ep0ch-door act section name=<key>`. */
@@ -692,8 +695,8 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const p = new ServicePane(n); return deskOf({ title: "showcase · service", panes: [p] }, show, []); },
   },
   {
-    key: "session", need: "keep the door running without a terminal: quit detaches, attach again, several terminals at once", part: "the door session: one daemon per outline (its folder of the state dir, src/session/place.ts) holds the App (screens, layouts, the dispatcher, drafts, terminal tiles, the service connection); clients attach over session.sock and are only terminals; SessionTerm is the App's terminal, a Painter per client (its size, video mode and Kitty images), the keys wherever the person last typed", files: "src/session/place.ts, src/session/daemon.ts, src/session/client.ts, src/session/session-term.ts, src/session/protocol.ts, src/display.ts",
-    aside: "G and ctrl+c detach the terminal you're on, and everything goes on; E on the main menu (or `ep0ch session end`) ends the session; `ep0ch session attach --watch` shows it read-only; `ep0ch session list` says who's attached · `ep0ch --remote <ssh-name>` is this terminal on the session running on that machine; `--machine <ssh-name>` keeps the door here and its outline there, over one shared ssh forward",
+    key: "session", need: "keep the door running without a terminal: quit detaches, attach again, several terminals at once", part: "the door session: one daemon per outline (its folder of the state dir, src/session/place.ts) holds the App (screens, layouts, the dispatcher, drafts, terminal tiles, the service connection); clients attach over session.sock and are only terminals; SessionTerm is the App's terminal, a Painter per client (its size, video mode and Kitty images), the keys wherever the person last typed. A handover to new code (`ep0ch session restart`, a deploy) restores from the checkpoint (src/session/restore.ts): the screens, the edits, and a comment being written as it sat (PIE-847: NoteSurface.reopenSteps, the actions that open it, place it, size it and put its cursor back, run by restore's reopen; its text the draft session's put-aside), and the tune inspector's unsaved nudges (look.nudge)", files: "src/session/place.ts, src/session/daemon.ts, src/session/client.ts, src/session/session-term.ts, src/session/protocol.ts, src/session/restore.ts, src/display.ts",
+    aside: "G and ctrl+c detach the terminal you're on, and everything goes on; E on the main menu (or `ep0ch session end`) ends the session; `ep0ch session attach --watch` shows it read-only; `ep0ch session list` says who's attached · `ep0ch --remote <ssh-name>` is this terminal on the session running on that machine; `--machine <ssh-name>` keeps the door here and its outline there, over one shared ssh forward · the reader has a comment half written, floating: drag it, size it, type on, then `ep0ch session restart` in another terminal hands the session to new code and it comes back as you left it, the status line says so (a door run with --no-daemon has no handover)",
     stage(n, show) {
       // The session's terminals as they are, drawn the way a service tile is.
       const list = serviceKind({
@@ -707,7 +710,12 @@ export const SECTIONS: Section[] = [
         },
       }).make({ kind: "showcase.session" });
       const r = new ReaderPane();
-      return deskOf({ title: "showcase · session", panes: [r, list], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.notebook]]);
+      return deskOf({ title: "showcase · session", panes: [r, list], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.notebook]], d => {
+        // The person's own keys would do these: a comment half written on a line, floating, for a handover to keep (PIE-847).
+        void d.press(r, NOTE_ACTIONS, "passage.select", { quote: SESSION_QUOTE })
+          .then(() => d.press(r, NOTE_ACTIONS, "comment.write", { body: "Fill it from the tap by the gate" }))
+          .then(() => d.press(r, NOTE_ACTIONS, "comment.place", { place: "floating" }));
+      });
     },
   },
   {

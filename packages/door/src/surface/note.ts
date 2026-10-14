@@ -21,6 +21,7 @@ import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
+import type { Step } from "../session/restore";
 import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
@@ -137,7 +138,7 @@ export interface SurfaceHost {
    * Start a session as the person's key does, where the host keeps track of which session the person is in: the
    * thread list (⏎ or a click on a comment mark), an armed edit confirmed (edit.arm). Without it the surface opens it itself.
    */
-  startSession?(kind: SessionKind): void;
+  startSession?(kind: SessionKind): void | Promise<unknown>;
   /**
    * A view's own header rows for the note (the BBS message header: Date, To, From, Subj, Conf), drawn in
    * place of the surface's title, byline and crumb rows. The summary line, notices, an agent's line, a
@@ -870,6 +871,28 @@ export class NoteSurface {
   unsaved() { return this.modes.unsaved(); }
   /** Copy unsaved text to disk (the screen is closing anyway); kept where it was written too, so opening it again brings it back. */
   keepDrafts(): string[] { return this.modes.keep(); }
+
+  /**
+   * What opens the person's edit or comment here again after a handover (src/session/restore.ts), as the actions that
+   * open it: the edit; or the comment on its passage (a reply on its thread, an edit of a posted one), then where it
+   * sits, its size, its cursor and its preview (PIE-847). Its text is what the handover put aside for it.
+   */
+  reopenSteps(): Omit<Step, "tile">[] {
+    if (this.draft) return [{ action: "edit", opens: "edit" }];
+    const cs = this.session, d = cs?.mode === "compose" ? cs.composer : null, t = cs?.target;
+    if (!cs || !d || !t || cs.startedBy.kind !== "user") return [];
+    // words: something was typed, so its text was put aside and must come back (an empty comment has nothing to bring).
+    const open: Omit<Step, "tile"> = { opens: "comment", ...(d.text.trim() ? { words: true } : {}), ...(t.kind === "quote" ? { action: "passage.act", args: { action: cs.props?.kind === "question" ? "ask" : "comment", quote: t.passage.quote, near: t.passage.start } }
+      : t.kind === "reply" ? { action: "reply", args: { thread: t.thread.id } }
+      : { action: "comment.edit", args: { thread: t.thread.id, ...(t.mark.reply ? { reply: t.mark.id } : {}) } }) };
+    return [
+      open,
+      { action: "comment.place", args: { place: cs.place } },
+      ...(cs.place === "floating" && cs.float ? [{ action: "comment.move", args: { ...cs.float } }] : []),
+      { action: "draft.place", args: { line: d.row + 1, col: d.col + 1 } },
+      ...(d.preview ? [{ action: "draft.preview", args: { on: true } }] : []),
+    ];
+  }
 
   /** "editing · unsaved", "writing", "quoting", "comments", "properties", or null while reading. For the host's title. */
   state(): string | null {
@@ -2496,7 +2519,8 @@ export class NoteSurface {
       this.session.props = ask?.props ?? null;
       // Sent (or esc'd), the person is back reading, the thread where the composer was: as a reply from an expanded thread.
       this.session.fromReader = true;
-      if (!this.session.write(USER) && ask?.text) {
+      // A comment put aside here comes back as it was (its @name already in it): the toolbar's start isn't put over it.
+      if (!this.session.write(USER) && ask?.text && this.session.composer?.restored === null) {
         this.session.writing?.replace(ask.text, USER);
         const d = this.session.composer;
         if (d) d.place(d.lines.length - 1, d.lines.at(-1)!.length);
@@ -2933,7 +2957,13 @@ export class NoteSurface {
     if (cs.place !== "floating") throw new ActionRefused(`the comment is ${cs.place}, not floating · comment.place place=floating (ctrl+o) floats it, ctrl+g floats and moves it`);
     if (a.reset) { cs.float = null; this.revealComposer = true; host.redraw(); return null; }
     const was = cs.float ?? this.boxRect, room = this.boxRoom;
-    if (!was || !room) throw new ActionRefused("the comment isn't drawn yet; try again once it is");
+    // Not drawn yet (opened again after a handover, PIE-847): a whole rect is taken as it is, kept on the reader as it's drawn.
+    if ((!was || !room) && a.row !== undefined && a.col !== undefined && a.cols !== undefined && a.rows !== undefined) {
+      cs.float = { row: a.row, col: a.col, cols: a.cols, rows: a.rows };
+      host.redraw();
+      return cs.float;
+    }
+    if (!was || !room) throw new ActionRefused("the comment isn't drawn yet; say col, row, cols and rows, or try again once it is");
     const row = a.row ?? was.row + (a.dy ?? 0), col = a.col ?? was.col + (a.dx ?? 0);
     const cols = a.cols ?? was.cols + (a.dcols ?? 0), rows = a.rows ?? was.rows + (a.drows ?? 0);
     // Sized, it grows from where it is (its top left stays) up to the reader's edge; moved, it keeps its size (clampFloat
@@ -7006,10 +7036,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (actor.kind !== "user") throw new ActionRefused(action === "ask" ? "say question=: an agent's question is sent at once" : "say body=: an agent's comment is sent at once");
         // As the person's C opens it (their session, entered as it opens), straight to writing on the selected words.
         surface.writeNext = { props: props ?? null, text: `${agent ? `@${agent.name} ` : ""}${start ?? ""}`, ...(quote !== undefined ? { at: { from: p.note.start, to: p.note.start + p.note.quote.length } } : {}) };
-        if (host.startSession) host.startSession("select");
+        if (host.startSession) await host.startSession("select");
         else await personComments(surface, host, "select");
+        if (!surface.session) throw new ActionRefused("the comment didn't open: the note couldn't be read for commenting");
         host.redraw();
-        return { writing: action, passage: p.target };
+        // restored: what was put aside on this note came back into it (a handover's restore checks it did).
+        return { writing: action, passage: p.target, restored: !!surface.session.composer?.restored };
       }
       const named = /^ext\.([a-z][a-z0-9-]{0,31})\.([a-z][a-z0-9-]{0,31})$/.exec(action);
       const choice = passageActions().find(x => x.action.name === action);
@@ -7145,13 +7177,16 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "reply": def({
-    summary: "reply to a comment thread and send it", keys: "m, j k, r, typing, ctrl+s",
+    summary: "reply to a comment thread and send it. Left out body=, the person's reply opens on the thread to be written (a reply put aside there comes back); an agent's is sent at once", keys: "m, j k, r, typing, ctrl+s; [Reply] on an expanded thread",
     touches: "draft", draft: "type", replay: "ask",
-    args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", about: "the reply's text" } },
+    args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the reply's text, sent at once; left out, the person writes it" } },
     async run({ thread, body }, on, actor) {
+      if (body === undefined && actor.kind === "agent") throw new ActionRefused("say body=: an agent's reply is sent at once");
       const s = await on.surface.ensureSession(on.host, "threads");
       const why = s.replyTo(findThread(s, thread), actor);
       if (why) throw new ActionRefused(why);
+      // Written by hand: as the Reply control opens it, back to reading once it's sent.
+      if (body === undefined) { s.fromReader = true; on.host.redraw(); return { replying: s.target?.kind === "reply" ? s.target.thread.id : thread, restored: !!s.composer?.restored }; }
       s.writing!.replace(body, actor);
       return sendComment(on.surface, on.host, actor);
     },
@@ -7179,7 +7214,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const why = s.editMark(i, reply, actor);
       if (why) throw new ActionRefused(why);
       const t = s.target as Extract<NonNullable<typeof s.target>, { kind: "edit" }>;
-      if (body === undefined) { on.host.redraw(); return { editing: t.mark.id, revision: t.mark.revision, words: t.mark.body }; }
+      if (body === undefined) { on.host.redraw(); return { editing: t.mark.id, revision: t.mark.revision, words: t.mark.body, restored: !!s.composer?.restored }; }
       s.writing!.replace(body, actor);
       return sendComment(on.surface, on.host, actor);
     },

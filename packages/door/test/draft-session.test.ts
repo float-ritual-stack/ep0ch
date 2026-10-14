@@ -82,7 +82,7 @@ describe("the lifecycle, on a fake target", () => {
     // Opened again at the same place: it comes back, said; esc twice on it unchanged drops it, its copy kept.
     const again = DraftSession.open(t, {});
     expect(again.draft.text).toBe("- keep the brass ones");
-    expect(again.draft.note).toContain("brought back your edit");
+    expect(again.draft.note).toContain("brought back your words");
     expect(unsent("comment:note-lantern")).toBeNull();
     expect(keys(again, [ESC, ESC])).toEqual(["discard"]);
     expect(again.close(true).said).toContain("let go of the kept draft · a copy stays at");

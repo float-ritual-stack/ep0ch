@@ -381,7 +381,7 @@ export class DraftSession {
     d.restored = u.text;
     // Whoever wrote it then wrote it now: a save names them all (recordAs).
     for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w, "bringing back the unsent draft");
-    d.note = `brought back your edit from ${dayOf(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
+    d.note = `brought back your ${this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit"} from ${dayOf(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
     return true;
   }
 
