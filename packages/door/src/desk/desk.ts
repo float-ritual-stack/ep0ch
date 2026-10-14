@@ -122,7 +122,7 @@ interface HeadPress { id: number; x: number; y: number }
 /** A row of the policy panel (^W P): what it is, its value, what ⏎ or a click does, + and -; `wide` rows say it all in the label. */
 interface PanelRow { label: string; value: string; run?: () => void; adjust?: (by: number) => void; wide?: boolean; wire?: "follows" | "opens" }
 /** One of a tile's links as its panel and header say it (PIE-855): plain words, and what changes or cuts it (an action each). */
-export interface Wire { says: string; change?: { label: string; run: () => void }; unlink?: { label: string; run: () => void } }
+export interface Wire { says: string; change?: { label: string; short?: string; run: () => void }; unlink?: { label: string; run: () => void } }
 
 /**
  * The only screen host (PIE-515), and final: every screen is a spec (src/desk/screen-spec.ts) on it, never a
@@ -1169,7 +1169,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   opensOf(id: number): Wire {
     const p = this.panes.get(id), name = this.nameOf(id);
-    const change = { label: "change: link it to another tile", run: () => this.askLink(id) };
+    const change = { label: "change: link it to another tile", short: "change", run: () => this.askLink(id) };
     const unlink = { label: "unlink: its opens go by the screen's rule", run: () => this.run("tile.link", {}, name) };
     const ext = this.extTarget(id);
     if (ext) return { says: `${this.plainPath(this.pathTo(ext.pane))} (its link, across the drawer)`, change, unlink };
@@ -1187,11 +1187,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The person picks the tile tile `id`'s opens land in (the panel's change): a list of tiles, each tile.link to= (the tile itself unlinks), as alt+l then a click. */
   askLink(id: number): void {
-    const name = this.nameOf(id), now = this.layout.links.get(id);
-    const rows = [
-      ...this.all().filter(z => z !== id && kindOf(this.panes.get(z))?.accepts?.notes).map(z => ({ label: `${this.nameOf(z)} · ${kindOf(this.panes.get(z))?.kind ?? "tile"}${z === now ? "  ·  now" : ""}`, args: { to: this.nameOf(z) } as Record<string, unknown> })),
-      ...(now !== undefined ? [{ label: "nothing: unlink it", args: {} }] : []),
-    ];
+    const name = this.nameOf(id), now = this.layout.links.get(id), ext = this.extTarget(id)?.pane;
+    const takes = (d: Desk) => d.all().map(z => d.panes.get(z)!).filter(q => q !== this.panes.get(id) && kindOf(q)?.accepts?.notes);
+    // In the drawer, the tiles of the screen shown too (alt+l's numbers there), by their path from here.
+    const rows = [...takes(this), ...(this.otherDesk() ? takes(this.otherDesk()!) : [])].flatMap(q => {
+      const path = this.pathTo(q);
+      return path === undefined ? [] : [{ label: `${this.plainPath(path)} · ${kindOf(q)?.kind ?? "tile"}${q === (now !== undefined ? this.panes.get(now) : ext) ? "  ·  now" : ""}`, args: { to: path } as Record<string, unknown> }];
+    });
+    if (now !== undefined || ext) rows.push({ label: "nothing: unlink it", args: {} });
     this.overlay(new ListPicker<{ label: string; args: Record<string, unknown> }, Desk>({
       name: "link", items: () => rows, clickChooses: true,
       row: (it, _i, on, w) => [pickRow(` ${it.label}`, on, w)],
@@ -3713,7 +3716,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const name = this.nameOf(tile), f = this.followsOf(tile), o = this.opensOf(tile);
     const rows: PanelRow[] = [{ label: `${name} follows: ${f.says}${f.change ? ` · ⏎ ${f.change.label}` : ""}`, value: "", wide: true, wire: "follows", ...(f.change ? { run: f.change.run } : {}) }];
     if (f.unlink) rows.push({ label: `  ${f.unlink.label}`, value: "", wide: true, run: f.unlink.run });
-    rows.push({ label: `${name} opens into: ${o.says}${o.change ? ` · ⏎ ${o.change.label.replace(/:.*/, "")}` : ""}`, value: "", wide: true, wire: "opens", ...(o.change ? { run: o.change.run } : {}) });
+    rows.push({ label: `${name} opens into: ${o.says}${o.change ? ` · ⏎ ${o.change.short ?? o.change.label}` : ""}`, value: "", wide: true, wire: "opens", ...(o.change ? { run: o.change.run } : {}) });
     if (o.unlink) rows.push({ label: `  ${o.unlink.label}`, value: "", wide: true, run: o.unlink.run });
     return rows;
   }
