@@ -29,8 +29,12 @@ import "./sources";
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
 
-/** How long typing must pause before a source that asks the service is asked. */
-const ASK_MS = 150;
+/**
+ * How long typing must pause before a source that asks the service is asked: EP0CH_BAR_ASK_MS when set (the parity
+ * probes set 0: they wait for every ask to be answered before the next key, and 150 ms on each typed key was most of
+ * their time in the bar).
+ */
+const askMs = () => { const v = process.env.EP0CH_BAR_ASK_MS?.trim(); return v && Number(v) >= 0 ? Number(v) : 150; };
 /** Below this many columns the bar draws no preview. */
 export const PREVIEW_COLS = 90;
 
@@ -189,7 +193,7 @@ export class PowerBar {
     this.build();
     // A source that asks the service (the notes search, an extension's) waits for typing to pause.
     if (later.length && this.quick) for (const s of later) ask(s);
-    else if (later.length) this.timer = setTimeout(() => { this.timer = null; for (const s of later) ask(s); }, ASK_MS);
+    else if (later.length) this.timer = setTimeout(() => { this.timer = null; for (const s of later) ask(s); }, askMs());
   }
 
   /** Resolves once every source asked has answered (or `ms` passed); the sources still out, if any (an agent's rows aren't whole). */

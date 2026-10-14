@@ -288,3 +288,30 @@ describe("a links tile with Children alone (PIE-693)", () => {
     expect(p.title()).toContain("1 reply");
   });
 });
+
+describe("a links tile that opens its groups, read again on the way back (PIE-822)", () => {
+  // The welcome screen's tile: every kind group opens on a note's first read. A read cut short (the person moved on to
+  // another note before its backlinks came) once left a note opened before with its groups shut on the way back: no
+  // backlink rows to pick, the welcome tests' "undefined is not an object" on a loaded runner.
+  const note = (id: string) => ({ id, text: id, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "ana", props: {} }) as Msg;
+  const kettle = note("kettle"), start = note("start");
+  test("going back to a note before the other's backlinks come opens its groups again", async () => {
+    const { BacklinksPane } = await import("../src/desk/backlinks-pane");
+    const board = {
+      children: async () => [], facets: async () => ({ facets: {}, missing: [] }),
+      authoredLinks: async (id: string) => ({ kind: "ready", ownerId: id, ownerTextDigest: "x", outlinks: group([]), resources: group([]) }),
+      // The kettle's answer at once; the start note's never comes (still on the way when the person goes back).
+      backlinks: (id: string) => (id === kettle.id
+        ? Promise.resolve({ targetBlockId: id, completeness: { kind: "complete" }, sources: [source("Tea shelf", "note", "Note", undefined, "2026-03-05T00:00:00Z")] } as BacklinkCollection)
+        : new Promise(() => {})),
+    };
+    const desk = { ctx: { board, flash() {} }, redraw() {} } as any;
+    const p = new BacklinksPane("detail", true);
+    const backlinkRows = () => p.rows().filter(r => r.kind === "backlink").length;
+    await p.load(kettle, desk);
+    expect(backlinkRows()).toBe(1);
+    void p.load(start, desk);
+    await p.load(kettle, desk);
+    expect(backlinkRows()).toBe(1);
+  });
+});

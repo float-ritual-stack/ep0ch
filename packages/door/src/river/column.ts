@@ -256,7 +256,7 @@ export class RiverColumn extends ReaderPane {
     // The replies shown under a note are read again with it, so a reply edited elsewhere never reads as it was.
     const ask = ++this.loads;
     const done = (items: Msg[]) => void this.fold.reread(id => b.children(id)).then(() => took(items));
-    const took = (items: Msg[]) => { if (this.loads !== ask) return; this.keepSelected(() => { this.items = items; }); this.error = undefined; this.showSelected(desk); void this.match(desk); desk.redraw(); };
+    const took = (items: Msg[]) => { if (this.loads !== ask) return; this.items = items; this.error = undefined; this.sel = Math.min(this.sel, Math.max(0, items.length - 1)); this.showSelected(desk); void this.match(desk); desk.redraw(); };
     const fail = (e: Error) => { this.error = e.message; desk.redraw(); };
     if (this.source.kind === "roots") b.roots().then(done, fail);
     else if (this.source.kind === "tag") b.byProp(this.source.key, this.source.value).then(done, fail);
@@ -273,19 +273,6 @@ export class RiverColumn extends ReaderPane {
     if (this.surface.editing) return;
     const m = this.source.kind === "block" ? this.rootOf() : this.flat()[this.sel]?.m;
     if (m && this.surface.msg?.id !== m.id) this.surface.show(m, this.host(desk));
-  }
-
-  /**
-   * The list changes under the cursor (a reload from the change feed, the filter's answer): the cursor stays on its
-   * note (or links row) wherever that lands, not on the row number, which may now be another; one gone leaves it in place.
-   */
-  private keepSelected(change: () => void) {
-    // Before the first answer nothing is selected yet: row 0 then is the first card that comes, not a links row.
-    const before = this.flat(), note = before[this.sel]?.m.id, link = note === undefined && this.items ? this.linkList()[this.sel - before.length]?.key : undefined;
-    change();
-    const rows = this.flat(), links = this.linkList();
-    const at = note !== undefined ? rows.findIndex(r => r.m.id === note) : link !== undefined ? (i => (i < 0 ? -1 : rows.length + i))(links.findIndex(r => r.key === link)) : -1;
-    this.sel = at >= 0 ? at : Math.min(this.sel, Math.max(0, rows.length + links.length - 1));
   }
 
   /** The rows the column lists: its notes (the filter applied), with replies shown in place under theirs. */
@@ -334,7 +321,7 @@ export class RiverColumn extends ReaderPane {
   private async match(desk: DeskApi): Promise<void> {
     const q = filterQuery(this.filter), items = this.items, asked = ++this.asked;
     if (!q || !items) { this.matched = null; return; }
-    try { const ids = await desk.ctx.board.matchQuery(q, items.map(m => m.id)); if (asked === this.asked) { this.keepSelected(() => { this.matched = ids; }); this.showSelected(desk); } }
+    try { const ids = await desk.ctx.board.matchQuery(q, items.map(m => m.id)); if (asked === this.asked) { this.matched = ids; this.showSelected(desk); } }
     catch (e) { if (asked === this.asked) this.error = `filter: ${(e as Error).message}`; }
     desk.redraw();
   }

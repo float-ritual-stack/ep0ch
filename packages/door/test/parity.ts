@@ -29,6 +29,7 @@ import { SEED } from "../src/showcase/seed";
 import { external } from "../src/open";
 import { DEFAULT_THEME, setTheme } from "../src/theme";
 import { outliner, Scratch } from "./scratch";
+import { watchHosts } from "./settle";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -63,10 +64,10 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const scratch = new Scratch();
   let board: SocketBoard, app: App;
   let press: (k: Key) => void = () => {};
-  // Requests to the service waiting for their answer (and how many were asked); settle() waits on the last.
-  let inflight = 0, asked = 0;
-  let idle: (() => void)[] = [];
-  const wake = () => { if (inflight === 0) { const w = idle; idle = []; for (const f of w) f(); } };
+  // Settled means no answer from the host is awaited, whichever way the screen asked (test/settle.ts).
+  // The power bar (ctrl+k) still asking its sources is not settled either: its rows land after.
+  const hosts = watchHosts(() => { const bar = (app as any)?.bar; return !!bar && (bar.asking.size > 0 || !!bar.timer); });
+  const settle = hosts.settle;
   /** A terminal tile drew since this was last cleared: its program may still be printing. */
   let ptyDrew = false;
   let notes: Msg[] = [];
@@ -82,13 +83,15 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
 
   beforeAll(async () => {
     const env = { ...process.env };
-    restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR", "EP0CH_EDIT_ARM"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
+    restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR", "EP0CH_EDIT_ARM", "EP0CH_BAR_ASK_MS"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
     process.env.EP0CH_STATE = join(scratch.root, "door");
     mkdirSync(process.env.EP0CH_STATE, { recursive: true, mode: 0o700 });
     // The daily layout's agent: a program that prints nothing, so no prompt arrives between two looks.
     process.env.EP0CH_DAILY_AGENT = "sleep 3600";
     // e arms the edit (edit.arm): a window longer than any probe, so an arm never runs out between a key and the next.
     process.env.EP0CH_EDIT_ARM = "600000";
+    // The power bar asks its searching sources at once, not after typing pauses: settle() waits for the answer anyway.
+    process.env.EP0CH_BAR_ASK_MS = "0";
     // ctrl+e hands the note to $EDITOR: one that exits at once, so the probe goes on.
     process.env.VISUAL = process.env.EDITOR = "true";
     // Over the whole door, as on a screen without tiles, not in a tile beside the note (PIE-417): whether that
@@ -108,14 +111,6 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     await board.info();
     await scratch.seedShowcase();
     notes = await board.changedSince(0, 20);
-    // Settled means no request to the service is waiting for its answer.
-    // Every connection's: the river's index reads on a lane of its own (SocketBoard.index).
-    const request = SocketBoard.prototype.request;
-    SocketBoard.prototype.request = function (this: SocketBoard, action: string, params?: Record<string, unknown>) {
-      inflight++; asked++;
-      return request.call(this, action, params).finally(() => { inflight--; wake(); });
-    } as typeof request;
-    restore.push(() => { SocketBoard.prototype.request = request; });
     // The door's clock two days on: the seeded notes it lists then read "2d" old, not "9s", "10s" … as they did for the
     // first minute and a half, when the activity tile's ages ticked under the probes (a wider age shifts its row and
     // cuts its title one cell shorter, so masking the digits wasn't enough): a key took the blame for a tick.
@@ -140,17 +135,6 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     await scratch.dispose();
     for (const f of restore.splice(0).reverse()) f();
   });
-
-  /** Until no answer is awaited, at most 3 s: woken when the last one comes, waiting again while new ones start. */
-  const settle = async () => {
-    for (let i = 0; i < 3; i++) await Bun.sleep(0);
-    const end = Date.now() + 3000;
-    while (inflight > 0 && Date.now() < end) {
-      await new Promise<void>(r => { const t = setTimeout(r, end - Date.now()); idle.push(() => { clearTimeout(t); r(); }); });
-      await Bun.sleep(0);
-    }
-    for (let i = 0; i < 3; i++) await Bun.sleep(0);
-  };
 
   /**
    * What the door shows: the screen's rows, and the status bar under them (its `+N ext` and the agent chip
@@ -229,7 +213,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // ⏎ does), and settled after: a paint asks for what it draws (a reply count, a title).
     for (const k of setup) { snap(new Set()); await settle(); press(k); await settle(); }
     // A second look only when the first asked the service for something (what it draws once that comes).
-    for (let i = 0; i < 2; i++) { const n = asked; snap(new Set()); await settle(); if (asked === n) break; }
+    for (let i = 0; i < 2; i++) { const n = hosts.asked(); snap(new Set()); await settle(); if (hosts.asked() === n) break; }
     // Until it holds still (a terminal's prompt arriving), at most a second. Only a terminal draws by itself
     // (in a tile, or the drawer's): without one, a settle and one more look is enough.
     ptyDrew = false;
@@ -249,8 +233,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
 
   /**
    * A run a key can be said to have run. A read no key names (touches nothing, declares no keys) is a part asking for
-   * what it draws, such as the power bar's screens source calling screen.list for its rows: it can land in any key's
-   * window, as the answer to an earlier one, so it's never that key's action.
+   * what it draws, such as the power bar's screens source calling screen.list for its rows as the person types: the
+   * typing is the bar's, and the read is never that key's action.
    */
   const keyed = (r: ActionRun) => r.touches !== "nothing" || !!r.keys;
   const tokens = (runs: ActionRun[]) => new Set(runs.flatMap(r => [...declaredKeys(r.keys)]));
