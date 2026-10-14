@@ -2,6 +2,7 @@ import { cleanExtensionText, inertBlockdown } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, type Align, type BandPattern } from "@ep0ch/outline-core/rules";
 import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
+import { fileName, imageSource, parseSize } from "@ep0ch/outline-core/media-line";
 import { safeExtensionHtml } from "./extension-html";
 
 /**
@@ -10,7 +11,7 @@ import { safeExtensionHtml } from "./extension-html";
  *
  * A component is headless: its **data** is the truth, and its **view** is a
  * tree of primitives every client already knows how to draw (box, card,
- * table, stat, bar, checklist, sparkline, badge, text, with stack and row to
+ * table, stat, bar, checklist, sparkline, badge, text, image, with stack and row to
  * arrange them, and band and track for headings and dividers, PIE-600). So a new component needs no client code. The service renders
  * the text targets here (markdown, blockdown, html, json, csv and a plain
  * `terminal` text); a client that draws primitives natively (the door) takes
@@ -23,7 +24,7 @@ import { safeExtensionHtml } from "./extension-html";
  * An unknown primitive never breaks a reader: it degrades to its text.
  */
 
-export const PRIMITIVE_TYPES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"] as const;
+export const PRIMITIVE_TYPES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"] as const;
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
 export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;
@@ -57,7 +58,13 @@ export type Primitive =
    */
   | { type: "band"; text?: string; level?: 1 | 2 | 3; style?: string; pattern?: BandPattern; align?: Align; row?: "top" | "middle" | "bottom"; tone?: Tone }
   /** One row of glyph track: a hard divider. `style`: a heading style by name (PIE-599), drawn with it where a client can. */
-  | { type: "track"; style?: string; pattern?: BandPattern; tone?: Tone };
+  | { type: "track"; style?: string; pattern?: BandPattern; tone?: Tone }
+  /**
+   * A picture (PIE-827), drawn as each client draws a note's `[img::]` line (outline-core's imagePrimitiveSpec): the
+   * door's graphics, dimmed dark-first; a page's served image, when the publish roots allow the file; elsewhere its alt
+   * text and file. `src`: a path or a `file:` Resource ref; `size` as `[size::]` (cells, `N%`, `full`); `height` in rows.
+   */
+  | { type: "image"; src: string; alt?: string; size?: string; fit?: "cover" | "contain"; height?: number };
 
 export interface ComponentOutput {
   /** The truth: what `json` (and `csv`, for rows) returns. */
@@ -86,6 +93,8 @@ const MAX_ROWS = 200;
 const MAX_COLUMNS = 12;
 const MAX_VALUES = 200;
 const MAX_DATA_BYTES = 256 * 1024;
+/** The tallest an image primitive is drawn, in rows. */
+const MAX_IMAGE_ROWS = 60;
 const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** What a link in a view may name: a block, or a Resource (PIE-754) the client opens the way the links tile does. */
 const linkable = (link: string) => BLOCK_ID.test(link) || (isResourceRef(link) && !("problem" in parseResourceRef(link)));
@@ -252,6 +261,19 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
       return { type: "track", ...(node.style !== undefined ? { style: node.style as string } : {}), ...(node.pattern !== undefined ? { pattern: node.pattern as BandPattern } : {}),
         ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     }
+    case "image": {
+      only(node, ["type", "src", "alt", "size", "fit", "height"], path);
+      const src = text(node.src, `${path}.src`)!;
+      // A file the outline names, as a note's image line does: never a page on the web or a stored Resource.
+      if (!src.trim() || src.includes("\0") || (isResourceRef(src) && !src.startsWith("file:")) || (src.startsWith("file:") && "problem" in parseResourceRef(src)))
+        fail(`${path}.src`, "must be a file's path or a file: Resource ref (file:/path)");
+      if (node.size !== undefined && (typeof node.size !== "string" || !parseSize(node.size))) fail(`${path}.size`, "must be a size as [size::] writes it: cells (24), N% (50%) or full");
+      if (node.fit !== undefined && node.fit !== "cover" && node.fit !== "contain") fail(`${path}.fit`, "must be cover or contain");
+      if (node.height !== undefined && (!Number.isInteger(node.height) || (node.height as number) < 1 || (node.height as number) > MAX_IMAGE_ROWS)) fail(`${path}.height`, `must be a whole number of rows from 1 to ${MAX_IMAGE_ROWS}`);
+      return { type: "image", src: src.trim(), ...(node.alt !== undefined ? { alt: text(node.alt, `${path}.alt`)! } : {}),
+        ...(node.size !== undefined ? { size: node.size as string } : {}), ...(node.fit !== undefined ? { fit: node.fit as "cover" | "contain" } : {}),
+        ...(node.height !== undefined ? { height: node.height as number } : {}) };
+    }
     default:
       fail(`${path}.type`, `must be one of ${PRIMITIVE_TYPES.join(", ")}`);
   }
@@ -342,6 +364,7 @@ function terminalLines(node: Primitive): string[] {
       return [0, 1, 2].map((r) => (r === at && words ? placed.trimEnd() : trackText(node.pattern, width)));
     }
     case "track": return [trackText(node.pattern)];
+    case "image": return [`[image${node.alt ? `: ${oneLine(node.alt)}` : ""}] ${oneLine(imageSource(node.src))}`];
     case "row": {
       const columns = node.children.map(terminalLines);
       const widths = columns.map((lines) => Math.max(0, ...lines.map((line) => line.length)));
@@ -390,6 +413,8 @@ function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
     // A band is its heading wherever a target can't draw tracks; a track is a thematic break.
     case "band": return node.text ? [`${"#".repeat(node.level ?? 2)} ${mdInline(node.text)}`, ""] : ["---", ""];
     case "track": return ["---", ""];
+    // Its words and its file's name: a Markdown reader can't reach the outline's files, and a page never shows a path.
+    case "image": return [`*image${node.alt ? `: ${mdInline(node.alt)}` : ""}* \`${fileName(imageSource(node.src)).replace(/`/g, "'")}\``, ""];
   }
 }
 
@@ -407,7 +432,7 @@ const html = (value: string | number) => String(value).replace(/[&<>"']/g, (char
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 const toneClass = (value: Tone | undefined) => value && value !== "default" ? ` ext-${value}` : "";
 
-function htmlOf(node: Primitive): string {
+function htmlOf(node: Primitive, count = { images: 0 }): string {
   switch (node.type) {
     case "text": return `<p class="ext-text${toneClass(node.tone)}">${node.strong ? `<strong>${html(node.text)}</strong>` : html(node.text)}</p>`;
     // The source, escaped: a reader with a Blockdown renderer draws it (the publisher, BLOCKDOWN_HTML), any other
@@ -421,17 +446,28 @@ function htmlOf(node: Primitive): string {
     case "table": return `<table class="ext-table"><thead><tr>${node.columns.map((column) => `<th>${html(column)}</th>`).join("")}</tr></thead><tbody>${
       node.rows.map((row) => `<tr>${row.map((value) => `<td>${html(cell(value))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
     case "card": return `<section class="ext-card"><header><strong>${html(node.title)}</strong>${node.badge ? ` <span class="ext-badge${toneClass(node.badge.tone)}">${html(node.badge.label)}</span>` : ""}${
-      node.subtitle ? `<div class="ext-subtitle">${html(node.subtitle)}</div>` : ""}</header>${(node.children ?? []).map(htmlOf).join("")}</section>`;
-    case "box": return `<section class="ext-box">${node.title ? `<h4>${html(node.title)}</h4>` : ""}${node.children.map(htmlOf).join("")}</section>`;
-    case "stack": return `<div class="ext-stack">${node.children.map(htmlOf).join("")}</div>`;
-    case "row": return `<div class="ext-row"${node.minWidth !== undefined ? ` style="--ext-min:${node.minWidth}ch"` : ""}>${node.children.map(htmlOf).join("")}</div>`;
+      node.subtitle ? `<div class="ext-subtitle">${html(node.subtitle)}</div>` : ""}</header>${(node.children ?? []).map((child) => htmlOf(child, count)).join("")}</section>`;
+    case "box": return `<section class="ext-box">${node.title ? `<h4>${html(node.title)}</h4>` : ""}${node.children.map((child) => htmlOf(child, count)).join("")}</section>`;
+    case "stack": return `<div class="ext-stack">${node.children.map((child) => htmlOf(child, count)).join("")}</div>`;
+    case "row": return `<div class="ext-row"${node.minWidth !== undefined ? ` style="--ext-min:${node.minWidth}ch"` : ""}>${node.children.map((child) => htmlOf(child, count)).join("")}</div>`;
     case "band": {
       const level = node.level ?? 2;
       return `<div class="ext-band ext-${node.pattern ?? "rule"}${toneClass(node.tone)}" data-align="${node.align ?? "left"}" data-row="${node.row ?? "middle"}">${
         node.text ? `<h${level}>${html(node.text)}</h${level}>` : ""}</div>`;
     }
+    // A place the publisher fills with the image it serves (src/publish-components.ts readImages), by its order in the
+    // view; any other reader shows what a page shows for an image it can't serve: its words and its file's name.
+    case "image": return `<figure class="media media-missing ext-image" data-ext-image="${count.images++}"><span class="media-what">image</span> ${
+      node.alt ? `${html(node.alt)} ` : ""}<code>${html(fileName(imageSource(node.src)))}</code></figure>`;
     case "track": return `<hr class="ext-track ext-${node.pattern ?? "rule"}${toneClass(node.tone)}">`;
   }
+}
+
+/** A view's image primitives in reading order: what `data-ext-image` counts, so the publisher finds the one a page asks for. */
+export function viewImages(node: Primitive): Extract<Primitive, { type: "image" }>[] {
+  if (node.type === "image") return [node];
+  const children = node.type === "box" || node.type === "stack" || node.type === "row" ? node.children : node.type === "card" ? node.children ?? [] : [];
+  return children.flatMap(viewImages);
 }
 
 function firstTable(node: Primitive): Extract<Primitive, { type: "table" }> | null {

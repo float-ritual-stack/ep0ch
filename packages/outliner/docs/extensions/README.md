@@ -14,7 +14,7 @@ several of them.
 |---|---|---|---|---|
 | 1. **Data** | A record put into a block, as if you copied it in | `moon:: 2026-10-26`, `jira:: PC-12` | A real block the extension owns, with namespaced properties (`[moon.phase::Full Moon]`) | As any block. Under the line, a projection says what it is and when it was fetched |
 | 2. **Inline output** | Markdown rendered inside a block | `horoscope:: virgo` | Kept by the service per line (`extension_outputs`); never written into the note unless you **keep** it | The projection's `output.markdown`, under the line |
-| 3. **Rich component** | Data plus a view, with its own behaviour (actions) | `fancy-horror:: virgo` | Kept like an output: `{ data, view }` | The view's primitives (box, card, table, stat, bar, checklist, sparkline, badge, text, row, stack), or a rendered target |
+| 3. **Rich component** | Data plus a view, with its own behaviour (actions) | `fancy-horror:: virgo` | Kept like an output: `{ data, view }` | The view's primitives (box, card, table, stat, bar, checklist, sparkline, badge, text, image, row, stack), or a rendered target |
 | 4. **A whole tile** | A program in a tile of its own kind | opened from the door | Whatever its actions write | The door's tile-kind registry runs it in a terminal tile |
 | **Rules** (`decorate`, `on`) | "When a block matches this, draw this on it, or run this": `match` by a property, a saved-view query, a text pattern or a construct kind | `rules[]` in `extension.json`, or a rule note (`[rule-name::name]`, no code) | Nothing in the note: a built-in decoration is computed on read; a code rule's view is kept like an output until the block's revision changes; a trigger's writes are the extension's | `decorations` in `resources.projection.read`: view primitives (plus `band` and `track`) above, below, in place of or around what matched; Detail and the publisher as text |
 
@@ -506,10 +506,28 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | `row` | `children` side by side; `minWidth?` (4–200, default 12): the narrowest a child may be, in characters (terminal cells; `ch` on the web). Where a reader can't give each child that much, it stacks them: the door, Detail and the web alike |
 | `band` | `text?`, `level?` (1–3), `pattern?`, `align?`, `row?`, `tone?`: a heading in glyph tracks (rules) |
 | `track` | `pattern?`, `tone?`: one row of glyph track, a divider (rules) |
+| `image` | `src` (a path, as a note's `[img::]` line names one, or a `file:/path` Resource ref; never a web page or a stored Resource), `alt?`, `size?` (as `[size::]`: cells, `N%` or `full`), `fit?` (`cover` or `contain`), `height?` (1–60 rows): a picture, drawn the way each reader draws a note's image line (PIE-827; see [Pictures in a view](#pictures-in-a-view)) |
 
 `tone` is `default`, `good`, `warn`, `bad`, `dim` or `accent`. Limits: depth 8, 400 primitives, 200
 rows, 12 columns, 2 000 characters of text each, 256 KiB of data. A view that breaks one is refused
 with a path to the problem (`view.children[0].max must be more than 0`), and the line shows it.
+
+#### Pictures in a view
+
+An `image` is the media line's spec (outline-core's `imagePrimitiveSpec`), so it is drawn as a note's `[img::]` line
+is, and nothing is written to the outline to show it:
+
+- **The door** lays it out as the body's image lines (`mediaRows`): the picture under Kitty graphics, scaled down and
+  dimmed dark-first, its rows kept while it loads, and its caption under it, which `[ ]` stops on and ⏎ opens. Without
+  graphics the caption says what it is and why it isn't drawn.
+- **A web page** serves it as a note's image (`/p/<id>/media/<line>/<n>`, the `n`th image of the view that line draws,
+  read again from the kept view): only a file inside the publish roots, never by its path. One it may not serve is its
+  alt text and its file's name.
+- **The `terminal` target** says `[image: alt] path`; **`markdown`** (and `blockdown`, Detail, an export, MCP) say the alt
+  text and the file's name, never its folders: a Markdown reader can't reach the outline's files.
+
+The outliner's `gallery` extension is the example: `gallery::` draws the notes under it as cards with their
+`[cover::]` pictures, `pic:: path` one picture.
 
 ### Targets and fallbacks
 
@@ -1895,7 +1913,7 @@ Both built with no core change, working around these. Wave 2 closed them:
   "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{key}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
-  "primitives": ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"],
+  "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"],
   "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
   "ruleProblems": [],
   "targets": ["terminal", "markdown", "blockdown", "html", "json", "csv"],

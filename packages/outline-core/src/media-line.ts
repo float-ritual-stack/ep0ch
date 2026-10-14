@@ -120,6 +120,32 @@ export function parseMediaLine(line: string): MediaSpec | null {
   return spec;
 }
 
+/**
+ * An extension view's `image` primitive (PIE-827): `{ type: "image", src, alt?, size?, fit?, height? }`. `src` is a path,
+ * as an `[img::]` line names one, or a `file:` Resource ref; `size` is written as `[size::]` is (cells, `N%` or `full`).
+ */
+export interface ImagePrimitive { src: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number }
+
+/** The path an image primitive's `src` names: a `file:` ref's path, else the path as written. */
+export const imageSource = (src: string) => (src.startsWith("file:") ? src.slice(5) : src);
+
+/**
+ * An image primitive as the media line it stands for (PIE-827): one spec, so every client lays it out, dims it and
+ * serves it as it does a note's `[img::]` line (the door's graphics, the publisher's served image, alt text and path
+ * where neither can be drawn). What isn't a value of the line's grammar is a problem, said on its caption.
+ */
+export function imagePrimitiveSpec(node: ImagePrimitive): MediaSpec {
+  const spec: MediaSpec = { kind: "img", path: imageSource(node.src), problems: [] };
+  if (node.size !== undefined) {
+    const size = parseSize(String(node.size));
+    if (size) spec.size = size; else spec.problems.push(`size ${node.size} isn't a size (cells, N% or full)`);
+  }
+  if (node.height !== undefined) spec.height = node.height;
+  if (node.fit !== undefined) spec.fit = node.fit;
+  if (node.alt?.trim()) spec.alt = node.alt.trim();
+  return spec;
+}
+
 /** The layout an artifact takes: the rest are an image's. */
 const ARTIFACT_ATTRS = new Set<string>(["size", "height", "align", "alt"]);
 

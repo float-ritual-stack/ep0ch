@@ -52,6 +52,15 @@ export function readBlockdown(html: string, read: (source: string) => string): s
   return html.replace(/<div class="ext-blockdown">([^<]*)<\/div>/g, (_, source: string) => `<div class="ext-blockdown ext-read">${read(unescape(source))}</div>`);
 }
 
+/**
+ * A component's `image` primitives (PIE-827), each a placeholder in the service's HTML (`data-ext-image="<n>"`, n its
+ * order in the view), as `draw(n)` draws it: the page's image where it may serve the file, else its words. A
+ * placeholder `draw` has nothing for stays as it is: the words and the file's name.
+ */
+export function readImages(html: string, draw: (image: number) => string | null): string {
+  return html.replace(/<figure class="media media-missing ext-image" data-ext-image="(\d+)">[\s\S]*?<\/figure>/g, (whole, n: string) => draw(Number(n)) ?? whole);
+}
+
 /** A handler line's projection that a page draws: an output or a component, not a data record (a block of its own). */
 export const drawnLine = (projection: ResourceProjection) => projection.kind === "output" || projection.kind === "component";
 

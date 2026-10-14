@@ -9,7 +9,7 @@ import { ADORN, LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 import type { StepRef } from "./steps";
 import type { FigureControl } from "./graphs";
-import type { ImageControl } from "./doc";
+import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
 import { noteStructure } from "@ep0ch/outline-core/component-block";
@@ -222,6 +222,11 @@ export type LinkTarget = {
    * (role "image", with `control`), what a click on it changes.
    */
   image?: ImageRef;
+  /**
+   * An extension view's picture (PIE-827, role "image"): the tag on its first row, where the reader places it once the
+   * view is laid out (its row and column are where the tag landed).
+   */
+  picture?: DocImage;
 };
 
 /**

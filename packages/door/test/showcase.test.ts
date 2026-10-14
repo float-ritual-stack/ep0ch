@@ -367,6 +367,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
+    // The gallery extension's cards with their covers, and pic::'s one picture (PIE-827); no Kitty graphics here, so captions.
+    gallery: ["Seed packet gallery", "Beetroot, Boltardy", "▣ seed-packet.webp", "▣ evening-beds.jpg · no Kitty graphics in this terminal"],
     // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
     "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
     // Two notes, each writing its own form: the reading log and the shed repairs, side by side.
@@ -450,6 +452,30 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       .rejects.toThrow(`the note has ${links.length}`);
     expect(S().focus).toBe("index");
   }, 20_000);
+
+  test("the gallery section (PIE-827): an extension's cards draw their covers as a note's images are; [ ] stops on a cover's caption, by act and by keys", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "gallery" }, as: "test-agent" })).toMatchObject({ key: "gallery" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "gallery")).top; };
+    const reader = () => (stage().layoutGet().tiles as any[]).find(t => t.showing?.id === seeded.notes.gallery.id);
+    await until(() => !!reader() && marks.gallery!.every(m => screen().includes(m)), "the gallery's cards and picture", 15_000);
+    const cover = join(SHOWCASE_ASSETS, "seed-packet.webp");
+    const { elements } = await app.act({ action: "elements", tile: reader().name, as: "test-agent" }) as { elements: { n: number; kind: string; target?: string }[] };
+    // Each cover's caption is a link to its file; each card's title opens its note.
+    expect(elements.filter(e => e.target === cover)).toEqual([expect.objectContaining({ kind: "link" })]);
+    expect(elements.some(e => e.target === join(SHOWCASE_ASSETS, "evening-beds.jpg"))).toBe(true);
+    expect(elements.filter(e => e.kind === "row").length).toBeGreaterThanOrEqual(3);
+    // The person's ] reaches it.
+    press({ kind: "enter" });
+    const current = () => (stage().pane(reader().name) as any).describe().elements?.current?.target;
+    for (let i = 0; i < 30 && current() !== cover; i++) ch("]");
+    expect(current()).toBe(cover);
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+    ch("1");   // the index back at its top, for the tests after
+    // Nothing was written to draw them.
+    expect((await board.get(seeded.notes.gallery.id))!.text).toBe(seeded.notes.gallery.text);
+  }, 30_000);
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
     const spine = SECTIONS.findIndex(s => s.key === "spine");

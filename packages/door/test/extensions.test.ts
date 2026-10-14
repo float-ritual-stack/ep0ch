@@ -31,7 +31,7 @@ import { outliner, Scratch, until } from "./scratch";
 const plain = (s: string) => s.replace(/\x1b\[[\d;:]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
-const EXAMPLES = ["moon", "horoscope", "fancy-horror", "tarot", "tidy"];
+const EXAMPLES = ["moon", "horoscope", "fancy-horror", "tarot", "tidy", "gallery"];
 
 describe("a component's view in the terminal", () => {
   test("the shared primitives draw with their tone, a row sits side by side, a table fits, a link is tagged", () => {
@@ -90,6 +90,7 @@ describe.skipIf(!outliner)("the door draws what the service's terminal target dr
       { type: "sparkline", label: "Rides", values: [1, 4, 2] },
       { type: "checklist", items: [{ label: "oil the chain", done: false }] },
       { type: "table", columns: ["Bike", "Tyre"], rows: [["red", "flat"], ["blue", 32]] },
+      { type: "image", src: "/shed/pics/red-bike.png", alt: "the red bike, leaning" },
     ] };
     const words = (t: string) => new Set(t.split(/[\s│┌┐└┘─▌\[\]]+/).filter(w => w && !/^[█░▒▓_▄▁▂▃▅▆▇]+$/.test(w)));
     const theirs = words(renderComponent({ data: {}, view }, "terminal").body);
@@ -234,6 +235,35 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const changes = await board.request<any>("changes.since", { sequence: 0, limit: 200 });
     expect(changes.changes.some((c: any) => c.blockId === note.id && c.actor?.actorId === "ext:tidy")).toBe(true);
   }, 30_000);
+
+  test("a view's image primitive (PIE-827) is drawn as a note's image line: its caption, and under Kitty graphics the picture where the view put it", async () => {
+    const pics = join(scratch.root, "pics");
+    mkdirSync(pics, { recursive: true });
+    const sharp = (await import("sharp")).default;
+    await sharp({ create: { width: 800, height: 400, channels: 3, background: { r: 30, g: 50, b: 40 } } }).png().toFile(join(pics, "bean-row.png"));
+    const cards = await board.createBlock(null, "Seed cards\ngallery:: 4");
+    await board.createBlock(cards.id, `Runner beans [cover::${join(pics, "bean-row.png")}]\nUp the canes by June.`);
+    const s = new NoteSurface();
+    s.show((await board.get(cards.id))!, host);
+    const drawn = () => s.render(120, 60, host).lines.map(plain).join("\n");
+    // This door has no Kitty graphics: the caption says what the picture is and why it isn't drawn.
+    await until(() => drawn().includes("▣ bean-row.png · no Kitty graphics in this terminal"), "the cover's caption", 20_000);
+    expect(drawn()).toContain("▌ Runner beans");
+    // [ ] stops on the caption, a link to the file (⏎ opens it, as a note's image).
+    expect(s.describeElements().filter(e => e.target === join(pics, "bean-row.png"))).toEqual([expect.objectContaining({ kind: "link", label: expect.stringContaining("bean-row.png") })]);
+    // With graphics: the picture is placed in the card, under its title, four rows tall, and the caption under it.
+    const graphic: SurfaceHost = { ctx: Object.create(app, { graphics: { value: true }, t: { value: { cols: 120, rows: 60, cellW: 10, cellH: 20, kitty: true } } }), redraw() {}, navigate() {} };
+    const g = new NoteSurface();
+    g.show((await board.get(cards.id))!, graphic);
+    await until(() => !!g.render(120, 60, graphic).placements?.length, "the picture placed", 15_000);
+    const v = g.render(120, 60, graphic), at = v.placements![0]!, rows = v.lines.map(plain);
+    expect(at.rows).toBe(4);
+    expect(rows[at.row - 1]).toContain("Runner beans");
+    expect(rows[at.row + at.rows]).toContain("bean-row.png");
+    expect(rows.slice(at.row, at.row + at.rows).every(l => !l.slice(at.col, at.col + at.cols).trim())).toBe(true);
+    // Nothing was written for it: the note is as it was.
+    expect((await board.get(cards.id))!.text).toBe("Seed cards\ngallery:: 4");
+  }, 40_000);
 
   test("[ ] reach the component's line and its controls; w wards it, a click on [keep] keeps it, both as ext:fancy-horror", async () => {
     let tries = 0;

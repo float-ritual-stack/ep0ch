@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -7,6 +7,7 @@ import { Publisher } from "../src/publish";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { scratchOutline } from "./scratch-outline";
+import type { ResourceProjectionReadResult } from "../src/resource-projection";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -17,7 +18,7 @@ afterEach(async () => {
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
 
 /** A throwaway service over a fictional outline whose folder holds a moth photo, and a publisher reading it. */
-async function setup() {
+async function setup(options: { extensions?: string[] } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-publish-media-")));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const workspace = join(root, "garden");
@@ -26,6 +27,8 @@ async function setup() {
   const elsewhere = join(root, "elsewhere");
   mkdirSync(elsewhere);
   writeFileSync(join(elsewhere, "private.png"), PNG);
+  // The outliner's own example extensions, in the outline's folder, as an install puts them.
+  for (const id of options.extensions ?? []) cpSync(join(import.meta.dir, "..", "extensions", id), join(workspace, "extensions", id), { recursive: true });
   const paths = scratchOutline(root, { folder: workspace });
   const store = new OutlinerStore(paths.database, { workspaceRoot: workspace });
   const server = new OutlinerServer(store, paths.socket);
@@ -71,6 +74,36 @@ test("an image line on a published page is the image: served from the outline's 
   const markdown = await (await get("/p/moth-night?view=md")).text();
   expect(markdown).toContain(`![a luna moth on the sheet](/p/${note.id}/media/2)`);
 });
+
+test("an extension view's image primitive (PIE-827) is the page's image: served by its line and its place in the view, never by a path", async () => {
+  const { store, client, get, elsewhere } = await setup({ extensions: ["gallery"] });
+  const note = store.create("Moth cards [publish::public:moth-cards]\ngallery::");
+  store.create("Luna [cover::images/luna-moth.png]\nOn the sheet at midnight.", note.id);
+  store.create(`Stray [cover::${join(elsewhere, "private.png")}]`, note.id);
+  const end = Date.now() + 10_000;
+  for (;;) {
+    const read = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId: note.id });
+    const view = JSON.stringify(read.projections.find((p) => p.kind === "component")?.output?.component?.view ?? null);
+    if (view.includes("luna-moth") && view.includes("private.png")) break;
+    if (Date.now() > end) throw new Error(`the gallery never drew both cards: ${view}`);
+    await Bun.sleep(50);
+  }
+  const html = await (await get("/p/moth-cards?view=html")).text();
+  expect(html).toContain(`<img src="/p/${note.id}/media/1/0" alt="Luna" loading="lazy"`);
+  expect(html).toContain("object-fit:cover");
+  // A file outside the publish roots is its words and its file's name, never its path, never served.
+  expect(html).toContain('<span class="media-what">image</span> Stray <code>private.png</code>');
+  const component = html.slice(html.indexOf('<div class="ext-component">'), html.indexOf("Stray <code>private.png</code>"));
+  expect(component).toContain("Luna");
+  expect(component).not.toContain(elsewhere);
+  const image = await get(`/p/${note.id}/media/1/0`);
+  expect(image.status).toBe(200);
+  expect(new Uint8Array(await image.arrayBuffer())).toEqual(PNG);
+  expect((await get(`/p/${note.id}/media/1/1`)).status).toBe(404);
+  expect((await get(`/p/${note.id}/media/1/9`)).status).toBe(404);
+  // The note says nothing of the pictures: they are the view's.
+  expect(store.get(note.id)?.text).toBe("Moth cards [publish::public:moth-cards]\ngallery::");
+}, 30_000);
 
 test("an image the page may not serve shows its alt text and its file's name, never its path or an empty bullet", async () => {
   const { store, get, elsewhere } = await setup();

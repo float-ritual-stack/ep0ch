@@ -14,7 +14,7 @@ import { USER, type Actor, type SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { recentRepliesView } from "@ep0ch/outline-core/recent-replies";
-import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource, VIEW_EXAMPLES } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -47,6 +47,7 @@ export const SEED = {
   images: "Pictures of the plot",
   hero: "An evening on the plot",
   artifacts: "Toys on the desk",
+  gallery: "Seed packet gallery",
   title: "A title you can find",
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
@@ -336,6 +337,27 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
   "",
   `[img::${dir}/allotment-notice.png] [size::50%] [alt::the notice board, dimmed]`,
 ].join("\n");
+
+/**
+ * The gallery section's note (PIE-827): the outliner's gallery extension draws its child notes as cards with their
+ * `[cover::]` pictures, and `pic::` one picture, each through the `image` primitive. Nothing is written for them.
+ */
+export const galleryText = (dir = SHOWCASE_ASSETS) => [
+  SEED.gallery,
+  "",
+  "The cards below are the gallery extension's view: each child note is a card with its [cover::] picture, drawn as a note's image is. The picture under them is pic::.",
+  "",
+  "gallery::",
+  "",
+  `pic:: ${dir}/evening-beds.jpg`,
+].join("\n");
+
+/** The gallery's cards: made-up notes, each naming its cover picture. */
+export const galleryCards = (dir = SHOWCASE_ASSETS) => [
+  `Beetroot, Boltardy [cover::${dir}/seed-packet.webp]\nSow March to July, thin to a hand apart.`,
+  `The plot at dusk [cover::${dir}/allotment-dusk.jpg]\nFrom the gate, after the watering.`,
+  `Notice board [cover::${dir}/allotment-notice.png]\nPaper white: dimmed as it's drawn.`,
+];
 
 /** The artifacts section's files (PIE-793): fictional, made for it, a React one (Tone and Tailwind) and an HTML one (three r128). */
 export const SHOWCASE_ARTIFACTS = ["pulse-pad.jsx", "orbit-lamp.html"] as const;
@@ -1354,13 +1376,20 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
   // The example rules, last: a trigger starts from what matches when it's installed, so nothing seeded before is stamped.
   const rulesFrom = opts.outliner ?? opts.rulesFrom;
-  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES, ...FORM_EXAMPLES]).length) {
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES, ...FORM_EXAMPLES, ...VIEW_EXAMPLES]).length) {
     const end = Date.now() + 10_000;
-    while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.rules?.some(r => r.key === "ext:done-stamp/stamp")) await Bun.sleep(100);
+    while (Date.now() < end) {
+      const listed = await board.listExtensions(true).catch(() => null);
+      if (listed?.rules?.some(r => r.key === "ext:done-stamp/stamp") && listed.extensions.some(e => e.id === "gallery" && e.state === "active")) break;
+      await Bun.sleep(100);
+    }
   }
   // A form written in each note it's used on (PIE-828): one action, ext.form.fill, asks each note for its own fields.
   notes.formReading = await make(notes.root.id, FORM_READING);
   notes.formRepairs = await make(notes.root.id, FORM_REPAIRS);
+  // The gallery (PIE-827): its cards first, so the line's first run draws them.
+  notes.gallery = await make(notes.root.id, galleryText());
+  for (const card of galleryCards()) await make(notes.gallery.id, card);
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia"]).length) {
     const end = Date.now() + 10_000;
