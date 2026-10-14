@@ -72,6 +72,18 @@ describe("the surface without a service", () => {
     }
   });
 
+  test("a link selected before the note is first drawn becomes its current element once it is (link.select, then a paint)", () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note("Seed swap\nFirst [[Seed swap ledger]], then [[Trays and labels]]."), h);
+    s.render(60, 12, h);
+    // Shown again (back, a reread): its elements are laid out at the next paint, and an agent selects before it.
+    s.show(note("Seed swap\nFirst [[Seed swap ledger]], then [[Trays and labels]]."), h);
+    s.selectLink(1);
+    s.render(60, 12, h);
+    expect(s.hint()).toContain("link Trays and labels");
+    expect(s.hint()).toStartWith("[ ] 2/2");
+  });
+
   test("one edit control: a note edit and a comment say the same keys the same way", () => {
     const s = new NoteSurface();
     s.show(note("A\nb"), host());

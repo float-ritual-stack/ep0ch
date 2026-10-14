@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A link selected before a note is drawn is its current element
+
+- **Fixed:** `link.select` (or the surface's `selectLink`) on a note just shown again (back, a reread) and not yet
+  drawn left the hint on the bare "link 2/3 …" form, with no `[ ]` element current, until the next `[ ]`. It now
+  becomes the current element at the note's next layout, unless the selection moved meanwhile. Seen as the showcase
+  test "new notes (PIE-544)" failing in CI (6 of 64 runs under load on float-box; 0 of 96 with the fix).
+
 ### CI: a slow run is told from a hung one (PIE-831)
 
 - **Changed:** the door's agent-parity probe runs in five files, not three, and the shell's input states (ctrl+n, the
