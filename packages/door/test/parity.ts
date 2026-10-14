@@ -307,7 +307,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     try { push(k); await settle(); } finally { stop(); }
     const after = snap(mask);
     if (same(base, after) || runs.length || (after.holds && after.top === base.top)) return null;
-    return changes(base, after);
+    return changes(base, after) || "the screen";
   }
   /** What differs between two looks: the stack, the description, the rows (cut short). */
   const changes = (a: Snap, b: Snap) => {
@@ -321,7 +321,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // The words that changed; or, the same words drawn differently (a colour, a weight), the escapes that did.
     const row = (l: string, m: string) => (plain(l) !== plain(m) ? from(plain(l), plain(m)) : `same text, drawn differently ${from(l, m)}`);
     const rows = a.lines.flatMap((l, i) => (l === b.lines[i] ? [] : [`row ${i}: ${row(l, b.lines[i] ?? "")}`]));
-    return [a.top !== b.top || a.depth !== b.depth ? "the stack" : "", a.about !== b.about ? "its description" : "", ...rows.slice(0, 3), rows.length > 3 ? `${rows.length - 3} more rows` : ""].filter(Boolean).join("; ");
+    return [a.top !== b.top || a.depth !== b.depth ? "the stack" : "", a.video !== b.video ? `video ${a.video} → ${b.video}` : "", a.drawer !== b.drawer ? `the drawer ${a.drawer} → ${b.drawer}` : "", a.about !== b.about ? "its description" : "", ...rows.slice(0, 3), rows.length > 3 ? `${rows.length - 3} more rows` : ""].filter(Boolean).join("; ");
   };
 
   /**

@@ -277,13 +277,15 @@ export class RiverColumn extends ReaderPane {
 
   /**
    * The list changes under the cursor (a reload from the change feed, the filter's answer): the cursor stays on its
-   * note wherever that lands, not on the row number, which may now be another note; a note gone leaves it in place.
+   * note (or links row) wherever that lands, not on the row number, which may now be another; one gone leaves it in place.
    */
   private keepSelected(change: () => void) {
-    const was = this.flat()[this.sel]?.m.id;
+    // Before the first answer nothing is selected yet: row 0 then is the first card that comes, not a links row.
+    const before = this.flat(), note = before[this.sel]?.m.id, link = note === undefined && this.items ? this.linkList()[this.sel - before.length]?.key : undefined;
     change();
-    const rows = this.flat(), at = was === undefined ? -1 : rows.findIndex(r => r.m.id === was);
-    this.sel = at >= 0 ? at : Math.min(this.sel, Math.max(0, rows.length - 1));
+    const rows = this.flat(), links = this.linkList();
+    const at = note !== undefined ? rows.findIndex(r => r.m.id === note) : link !== undefined ? (i => (i < 0 ? -1 : rows.length + i))(links.findIndex(r => r.key === link)) : -1;
+    this.sel = at >= 0 ? at : Math.min(this.sel, Math.max(0, rows.length + links.length - 1));
   }
 
   /** The rows the column lists: its notes (the filter applied), with replies shown in place under theirs. */
