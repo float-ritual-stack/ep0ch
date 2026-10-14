@@ -3114,7 +3114,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A list a #tag opened (PIE-855) follows its reader's tags until held: ◄ and the reader, a click opens ^W P's follows row.
     const p = this.panes.get(id)!, home = kindOf(p)?.home?.(p);
     if (home && kindOf(p)?.hold?.held(p) === false) { const from = xNow(); put(` ◄ ${home}`, fg(C.lmagenta)); this.wireChips.push({ id, row, from: from + 1, to: xNow(), wire: "follows" }); }
-    const opensMark = (text: string) => { const from = xNow(); put(text, fg(C.lmagenta)); this.wireChips.push({ id, row, from: from + 1, to: xNow(), wire: "opens" }); };
+    const opensMark = (text: string) => { const from = xNow() + (text.startsWith(" ") ? 1 : 0); put(text, fg(C.lmagenta)); this.wireChips.push({ id, row, from, to: xNow(), wire: "opens" }); };
     // A tile whose opens land in itself (the welcome's preview) says nothing about where they go.
     const link = this.layout.links.get(id);
     if (link !== undefined && link !== id && this.panes.has(link)) {
@@ -3132,7 +3132,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       } else opensMark(` → ${to}`);
     } else if (this.extTarget(id)) {
       const x = this.extTarget(id)!;
-      put(` → ${this.plainPath(this.pathTo(x.pane))}`, fg(C.lmagenta));
+      opensMark(` → ${this.plainPath(this.pathTo(x.pane))}`);
       if (this.linkChoice(id)) put(x.role === "target" ? " ⏎ target" : " ◌ preview", fg(C.lmagenta));
     } else if (this.linkVia(id) === "home") opensMark(` ⏎ ${this.nameOf(this.homeId(id)!)}`);
     // The chain it is in (PIE-700): the tiles whose links end here, and, for the reader an open from outside (the drawer's
