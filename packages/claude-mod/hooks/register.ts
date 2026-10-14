@@ -116,6 +116,20 @@ import {
   type WhereFacts,
   whereFactsOf,
 } from './binding'
+import {
+  ANY_ITEM_QUERY,
+  BOARD_QUERY,
+  BUILD_LOG_QUERY,
+  LIST_LIMIT,
+  listArgs,
+  listedOf,
+  openPrsOf,
+  PRS_ARGV,
+  PRS_TIMEOUT_MS,
+  WORKBOARD_BLOCK,
+  WORKBOARD_TIMEOUT_MS,
+  workboardText,
+} from './workboard-now'
 
 type AbovePromptRender = RenderInput<'AbovePrompt'>
 /** The binding card's state: written here, in this file, as the engine lists what a module reads and writes. */
@@ -178,6 +192,14 @@ function reportStatus($: EngineInterface, r: StatusInput): void {
     statusSent = ran.exitCode === 0 ? seq : ''
   }).catch(() => {})
 }
+
+/**
+ * "Workboard now" (hooks/workboard-now.ts): the read in flight or done (its text, null: no workboard or no answer),
+ * its generation (a newer read wins), and what the model's context carried (undefined: not asked yet).
+ */
+let workboardLoad: Promise<string | null> | undefined
+let workboardGeneration = 0
+let workboardGiven: string | null | undefined
 
 /** A turn reads the binding again at most this often, so a door upgrade or reconnect shows within a turn or two. */
 const BINDING_REFRESH_MS = 30_000
@@ -297,6 +319,8 @@ export function register(on: On, options: PluginOptions): void {
     })
     bindingLoad = undefined
     bindingGiven = undefined
+    workboardGiven = undefined
+    $.clock.after(0, () => void readWorkboard($, option))
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     $.ui.status(statusLine(null))
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
@@ -325,11 +349,14 @@ export function register(on: On, options: PluginOptions): void {
       // Before session.start's work is queued (or after a reload): start it once, here.
       const load = (whereLoad ??= runWhere($).catch(() => ({ summary: null, facts: null })))
       const facts = (bindingLoad ?? readBinding($, option, false)).catch(() => null)
-      const [ran, bound] = await Promise.all([
+      const board = workboardLoad ?? readWorkboard($, option)
+      const [ran, bound, workboard] = await Promise.all([
         inDoorEnv(env) ? Promise.race([load, $.clock.sleep(WHERE_WAIT_MS).then(() => null)]) : null,
         Promise.race([facts, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
+        // Not waited for longer than the binding: one that lands later makes the context again (readWorkboard).
+        Promise.race([board, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
       ])
-      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK)
+      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK && b.name !== WORKBOARD_BLOCK)
       if (inDoorEnv(env)) blocks.push({ name: WHERE_BLOCK, text: whereText(ran?.summary ?? envSummaryOf(env)) })
       else if (bound?.where?.reach?.control && bound.where.reach.rule !== 'control') blocks.push({ name: WHERE_BLOCK, text: reachText(bound.where.reach) })
       bindingGiven = bound ? bindingText(bound) : null
@@ -338,10 +365,21 @@ export function register(on: On, options: PluginOptions): void {
         // Still looking: the context is made again when it lands (readBinding).
         text: bindingGiven ?? 'Which outline this Claude session is bound to is still being looked up.',
       })
+      workboardGiven = workboard
+      if (workboard) blocks.push({ name: WORKBOARD_BLOCK, text: workboard })
+      // A newer read (a compaction, a /clear) started while this one was awaited: when it lands, the context follows it.
+      const newer = workboardLoad
+      if (newer && newer !== board) void newer.then(text => { if (newer === workboardLoad && text !== workboardGiven) $.ui.invalidate('prompt.context') })
       return { ...result, blocks }
     } catch {
       return result
     }
+  })
+
+  // A compaction makes the first prompt's context again: the workboard is read anew for it, while the summary is made.
+  on('session.compact', async ($, e, next) => {
+    if (e.agentId === undefined) void readWorkboard($, option)
+    return next(e)
   })
 
   // /clear starts the conversation afresh: the card shows again, read anew, and the next first prompt carries it.
@@ -353,6 +391,8 @@ export function register(on: On, options: PluginOptions): void {
     // The next conversation's first prompt reads this one, never the read before the /clear.
     bindingGiven = undefined
     void readBinding($, option, true).catch(() => {})
+    workboardGiven = undefined
+    void readWorkboard($, option)
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     return result
   })
@@ -775,6 +815,49 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
     return facts
   })()
   bindingLoad = load
+  return load
+}
+
+/**
+ * Reads "workboard now" (hooks/workboard-now.ts) for the session's outline: the items in flight and waiting on the
+ * person, the build logs (one `list --query` each, the service's own grammar) and open PRs (`gh`, when it answers in
+ * time). Null: no outline, no workboard, or no answer within WORKBOARD_TIMEOUT_MS. Never throws. When it lands after
+ * the context was made without it (or with an older read), the context is made again.
+ */
+function readWorkboard($: EngineInterface, option: PluginOptions): Promise<string | null> {
+  const generation = ++workboardGeneration
+  // The outline's half: null when there is no outline, no workboard, or no answer.
+  const board = async () => {
+    if (!references?.workspace) await loadReferences($, option)
+    const workspace = references?.workspace
+    if (!workspace) return null
+    const root = await outlinerRootOf($)
+    if (!root) return null
+    const list = async (args: string[]) => {
+      const ran = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: workspace.root, env: envFor(workspace), timeoutMs: WORKBOARD_TIMEOUT_MS })
+      return ran.exitCode === 0 ? listedOf(ran.stdout) : null
+    }
+    const [items, logs] = await Promise.all([list(listArgs(BOARD_QUERY, LIST_LIMIT)), list(listArgs(BUILD_LOG_QUERY, LIST_LIMIT, 'id,title,timestamps'))])
+    if (!items || !logs) return null
+    const hasItems = items.blocks.length > 0 || !!(await list(listArgs(ANY_ITEM_QUERY, 1, 'id')))?.blocks.length
+    if (!hasItems && !logs.blocks.length) return null
+    return { workspace, items, logs, hasItems }
+  }
+  const read = async (): Promise<string | null> => {
+    const found = await Promise.race([board().catch(() => null), $.clock.sleep(WORKBOARD_TIMEOUT_MS).then(() => null)])
+    if (!found) return null
+    // Open PRs only for an outline with a workboard, from the folder the session works in, on a budget of their own.
+    const prs = await Promise.race([
+      $.process.run([...PRS_ARGV], { cwd: found.workspace.root, timeoutMs: PRS_TIMEOUT_MS }).then(ran => ran.exitCode === 0 ? openPrsOf(ran.stdout) : null, () => null),
+      $.clock.sleep(PRS_TIMEOUT_MS).then(() => null),
+    ])
+    return workboardText({ outline: found.workspace.outline ?? 'outline', items: found.items.blocks, itemsComplete: found.items.complete, logs: found.logs.blocks, prs }, found.hasItems)
+  }
+  const load = read().catch(() => null).then(text => {
+    if (generation === workboardGeneration && workboardGiven !== undefined && workboardGiven !== text) $.ui.invalidate('prompt.context')
+    return text
+  })
+  workboardLoad = load
   return load
 }
 

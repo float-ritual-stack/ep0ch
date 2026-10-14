@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Sessions start oriented: the workboard now (PIE-843)
+
+- **Added:** a Claude session bound to an outline with a workboard gets "the workboard now" in its first prompt, and
+  again after a compaction or `/clear`: the latest build log, the items in doing, review and validate, what waits on
+  you (`needs::sysop`) and the folder's open PRs. Read from the outline each time; nothing to configure, and nothing
+  shown for an outline without a workboard.
+
 ### Done has a date, requests name their ticket, waves are recorded (PIE-844)
 
 - **Added:** moving a roadmap item into done stamps `[done-at::<day>]` and takes `[needs::sysop]` off; a reopen takes

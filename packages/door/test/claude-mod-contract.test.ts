@@ -133,6 +133,39 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(rows.some((row: { unavailable?: string }) => row.unavailable)).toBe(false);
   });
 
+  test("workboard now: the mod's queries run on the real CLI and its readers take what list prints (PIE-843)", async () => {
+    const { ANY_ITEM_QUERY, BOARD_QUERY, BUILD_LOG_QUERY, LIST_LIMIT, listArgs, listedOf, workboardText } = await mod("workboard-now.ts");
+    const sock = env.EP0CH_SOCKET!;
+    const board = new SocketBoard(sock, undefined, scratch.name);
+    try {
+      for (const text of [
+        "GAR-1 — Water the tomatoes on a timer [type::roadmap-item] [work-stage::doing] [work-id::GAR-1]",
+        "GAR-2 — Compost bin sensor [type::roadmap-item] [work-stage::done] [work-id::GAR-2] [needs::sysop: lid alarm volume]",
+        "GAR-3 — Seed swap shelf [type::roadmap-item] [work-stage::queued] [work-id::GAR-3] [needs::sysop: which shelf]",
+        "Build log, Mar 3 [type::build-log]",
+      ]) await board.request("create", { parentId: null, text, author: "agent" });
+    } finally { board.close(); }
+    const outliner = async (args: string[]) => {
+      const p = Bun.spawn(["bun", OUTLINER_CLI, ...args], { cwd: scratch.workspace, stdout: "pipe", stderr: "pipe", env: { ...clean, ...env, FORCE_COLOR: "3" } });
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
+      return stdout;
+    };
+    const items = listedOf(await outliner(listArgs(BOARD_QUERY, LIST_LIMIT)));
+    const logs = listedOf(await outliner(listArgs(BUILD_LOG_QUERY, LIST_LIMIT, "id,title,timestamps")));
+    const any = listedOf(await outliner(listArgs(ANY_ITEM_QUERY, 1, "id")));
+    // The done item's needs::sysop is history, not a wait; the queued one waits.
+    expect(items.blocks.map((b: { properties: Record<string, string> }) => b.properties["work-id"]).sort()).toEqual(["GAR-1", "GAR-3"]);
+    expect(items.complete).toBe(true);
+    expect(logs.blocks[0].createdAt).toEqual(expect.any(String));
+    expect(any.blocks).toHaveLength(1);
+    const text = workboardText({ outline: scratch.name, items: items.blocks, itemsComplete: items.complete, logs: logs.blocks, prs: null }, true);
+    expect(text).toContain("- doing (1):\n  - GAR-1 — Water the tomatoes on a timer");
+    expect(text).toContain("- waiting on the person (needs::sysop) (1):\n  - GAR-3: which shelf");
+    expect(text).toContain("- latest build log: Build log, Mar 3");
+  });
+
   test("a refusal reaches the mod plain, with its reason, even under FORCE_COLOR", async () => {
     const { failureReasonOf } = await mod("mention-message.ts");
     const { loadBlockView, forgetEp0chHelp } = await mod("block-view.ts");
