@@ -1826,19 +1826,15 @@ in the lanes comments in the preview.
 
 | Keys | Action |
 |---|---|
-| words selected (a drag, a double click, `v`), then `C` | write a comment on them where you are reading (PIE-770): a box opens right under their line, in the note, which still reads and scrolls around it (the wheel scrolls the note; typing brings the box back). `ctrl+s` saves and the thread sits where the box was; `Esc` closes it (twice with text: put aside). The passage toolbar's Comment, Ask and Explain, and an open thread's `[Reply]`, open the same box |
-| `ctrl+o`, or a click on the box's `[inline ▸]` chip | move the box being written: **inline** (under the passage) → **floating** (over the note, beside the passage) → **split** (the reader shared: the note beside the composer, or over it when narrow) → **popup** (a box in the middle, the passage quoted) (`comment.place`). Where new ones open is yours to set: `ep0ch act composer.place place=floating`, kept for the next start |
+| words selected (a drag, a double click, `v`), then `C` | write a comment on them where you are reading (PIE-770): a box opens right under their line, in the note, which still reads and scrolls around it (the wheel scrolls the note, or over the box its text and over its preview the preview, PIE-846; typing brings an inline box back). `ctrl+s` saves and the thread sits where the box was; `Esc` closes it (twice with text: put aside). The passage toolbar's Comment, Ask and Explain, and an open thread's `[Reply]`, open the same box |
+| `ctrl+o`, or a click on the box's `[inline ▸]` chip | move the box being written: **inline** (under the passage) → **floating** (over the note, beside the passage) → **split** (the reader shared: the note beside the composer, or over it when narrow) → **popup** (a box in the middle, the passage quoted) → **tile** (PIE-846: a tile of its own beside the reader, the note whole; it moves, sizes and docks to an edge as any tile, `^W p`; `ctrl+o` there puts it back; split where a reader has no tiles round it) (`comment.place`). Where new ones open is yours to set: `ep0ch act composer.place place=floating`, kept for the next start |
 | drag a floating box's top edge (`≡ move`) or its `◢` corner; `ctrl+g` then arrows or `h j k l` (shift or `H J K L`: size), `0`, `⏎` | move or size the floating box (`comment.move`; `ctrl+g` is `comment.grip`), for this sitting only: opened again, it's in its usual place. The passage it's on never moves (PIE-785) |
 | a click on another tile, then back | the box stays as it was, unsent text and all; the keys are in it again when the reader has them (PIE-785) |
 | a link, a comment mark, back or forward while the comment is unsent | asks in the power bar: save and continue (kept as unsent), keep writing, discard (a copy stays on disk); `⏎` or a click on a row, esc keeps writing (`comment.leaving`). An agent's action never asks |
-| `C`, nothing selected | pick a passage to quote; the reader switches to the note's source text with the passage highlighted |
-| `j k` | move to the next / previous line with text (the whole line, without its indent) |
-| `J K` | extend / shrink the passage by a line |
-| `h l`, `H L` | move where the quote starts (`h l`) or ends (`H L`) by a word |
-| `Enter` | write the comment under the quote, in the note (as above); `Ctrl+S` sends, `Ctrl+X Ctrl+E` hands it to `$EDITOR` |
+| `C`, nothing selected; or a click on `[comment]` after the note's date | write a comment on the whole note (PIE-846, `comment.note`): the box opens at the top of the note, where whole-note threads sit (their card on the margin's first row); everything else is as above |
 | `m` | the note's comment threads: `j k` pick, `r` reply, `e` edit the comment's words, `s` seen, `p` keep, `t` TL;DR, `C` a new comment |
 | `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it; its `[Edit]` (and each reply's) edits those words |
-| `Esc` | back a step; with unsent text it asks for a second `Esc`, which puts the comment aside (`C` and a passage bring it back) |
+| `Esc` | back a step; with unsent text it asks for a second `Esc`, which puts the comment aside (`C` brings it back, on selected words or the whole note) |
 
 - **Edit after posting (PIE-763):** `e` on a thread in the list, or `[Edit]` on an expanded thread or one of its replies,
   opens its words in the same box. `Ctrl+S` saves, `Esc` leaves it as it was, and a click away saves it as an edit does.

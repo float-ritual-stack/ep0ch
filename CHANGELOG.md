@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The comment editor: the whole note, a tile of its own, scrolling, pictures (PIE-846)
+
+From Evan's comments written in the floating editor while using it.
+- **Added:** a comment on the whole note. `C` with nothing selected, or a click on `[comment]` after the note's date,
+  opens the box at the top of the note; its thread sits there (its card on the margin's first row). `act comment.note`
+  does the same (`body=` sends it at once). `C` in the thread list does too.
+- **Changed:** one way in. `C` on selected words opens the same box as `a` then `c`; the passage picker that `C` with
+  nothing selected used to open is gone for the person (an agent still names its words with `passage.select quote=`).
+- **Added:** a fifth place for the box, **tile**: `ctrl+o` (or `comment.place place=tile`) puts the comment in a tile of
+  its own beside the reader, so the whole note stays in view. It's a tile like any other: drag it, size it, dock it to an
+  edge with `^W p`. `ctrl+s` sends and the tile closes; `ctrl+o` puts it back in the reader.
+- **Fixed:** the wheel over a comment's box scrolls the comment (and over its preview, the preview); elsewhere it
+  scrolls the note. Typing in a floating, split or popup comment no longer scrolls the note back to the passage.
+- **Fixed:** `img::` in a comment draws the picture (under Kitty graphics) in its preview and in the posted thread, as
+  in a note, instead of only its name. A margin card names it (`▣ <alt or file>`) instead of showing its path.
+
 ### A tile says what it follows and where it opens, and you can cut either (PIE-855)
 
 - **Added:** `^W P` starts with two plain rows for the tile it's opened on. **Follows:** "the #tags opened in

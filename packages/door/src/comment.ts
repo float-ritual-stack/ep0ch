@@ -248,7 +248,7 @@ export class CommentSession {
     if (this.busy) return this.busy;
     if (this.mode === "select") return "j k line · J K extend · h l start · H L end · enter write · esc back";
     if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true, follow: true });
-    return `j k thread · PgUp PgDn or wheel scroll · r reply · e edit · s seen · p keep · t TL;DR · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on a passage · esc done`;
+    return `j k thread · PgUp PgDn or wheel scroll · r reply · e edit · s seen · p keep · t TL;DR · q quote${this.picked.size ? ` ${this.picked.size} picked` : ""} · space pick · C comment on the whole note · esc done`;
   }
 
   /** The wheel over the thread list scrolls it (a long comment reads whole); j or k follows the selection again. */
@@ -301,7 +301,8 @@ export class CommentSession {
     if (isDown(k)) { this.sel = Math.min(Math.max(0, n - 1), this.sel + 1); this.view.reveal(); }
     else if (isUp(k)) { this.sel = Math.max(0, this.sel - 1); this.view.reveal(); }
     else if ((c === "r" || k.kind === "enter") && this.threads[this.sel]) this.replyTo(this.sel);
-    else if (c === "C") void this.pick(env);
+    // C in the list writes on the whole note (PIE-846): words are chosen by selecting them in the reader.
+    else if (c === "C") { const why = this.writeNote(); if (why) this.error = why; }
     return "keep";
   }
 
