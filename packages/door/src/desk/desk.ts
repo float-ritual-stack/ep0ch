@@ -39,7 +39,7 @@ import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop"
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, defaultLinkRole, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
-  FLOAT_MIN, shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
+  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   type Fold, type Grab, type HostMode, type LayoutState, type LinkRole, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
@@ -266,53 +266,66 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   dismiss(p: Pane) {
     const id = [...this.panes].find(([, q]) => q === p)?.[0];
     if (id === undefined) return;
+    // A comment's tile closing: the next opens the size this one was.
+    if (p instanceof CommentTilePane) this.commentShare = this.shareOf(id) ?? this.commentShare;
     try { this.closeTile(this.nameOf(id), USER); } catch { /* the screen keeps it (a locked one): it says it has no comment */ }
   }
   /**
-   * Reader `r`'s comment in a tile of its own beside it (PIE-846, comment.place place=tile): the one already open for it,
-   * else one opened on its right, given the person's keys (they were typing in the comment); `on` false closes it, and
-   * the keys go back to the reader.
+   * Reader `r`'s comment in a tile of its own beside it (PIE-846, comment.place place=tile): in the reader's own place, a
+   * pair of the two (Split.pair), on the side last chosen, so the tiles around keep their room and the reader has its own
+   * back whole when the comment ends (closing restores the layout as it was). `side` moves an open one to that side of
+   * the reader, keeping its share. The person's keys go to it when `keys` (their comment); `on` false closes it, the keys
+   * back to the reader.
    */
-  hasComposerTile(r: ReaderPane): boolean {
-    const at = [...this.panes].find(([, p]) => p === r)?.[0];
-    return at !== undefined && [...this.panes.values()].some(p => p instanceof CommentTilePane && p.source === this.nameOf(at));
-  }
-  async composerTile(r: ReaderPane, on: boolean, keys = true): Promise<unknown> {
+  async composerTile(r: ReaderPane, on: boolean, keys = true, side?: Dir): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
     const reader = this.nameOf(at);
     const mine = [...this.panes].filter(([, p]) => p instanceof CommentTilePane && p.source === reader).map(([id]) => id);
-    if (!on) { for (const id of mine) { try { this.closeTile(this.nameOf(id), USER); } catch { /* kept by the screen */ } } return { closed: mine.length }; }
+    if (!on) { for (const id of mine) { this.commentShare = this.shareOf(id) ?? this.commentShare; try { this.closeTile(this.nameOf(id), USER); } catch { /* kept by the screen */ } } return { closed: mine.length }; }
+    if (side) this.commentSide = side;
     let id = mine[0];
-    // Where the reader isn't one of several along a row (a screen of one reader), beside it: a pair of the two, which
-    // gives the reader its room back whole when the comment ends.
-    const p = parentOf(this.root, at);
-    if (id === undefined && !(p && p.parent.t === "split" && p.parent.dir === "row")) {
-      const made = await this.openTile({ kind: COMMENT_TILE_KIND, source: `tile:${reader}` }, reader, "right", USER, keys ? {} : { keys: false });
-      id = this.idNamed(made.tile);
-      if (id !== undefined) this.openedFrom.set(id, at);
-    }
     if (id === undefined) {
-      // Beside others along a row it would take room from all of them and hand it back to all of them: a float beside
-      // the reader instead, so nothing in the layout moves; ^W p docks it to an edge, ^W f puts it in the layout. On
-      // the wider side of the reader, as wide as that side (up to 72); with no room either side, over the reader's edge.
-      const rr = this.rectsNow().get(at), A = this.area;
-      const right = rr ? A.col + A.cols - (rr.col + rr.cols) : 0, left = rr ? rr.col - A.col : 0, side = Math.max(right, left);
-      const fits = side >= FLOAT_MIN.cols * 2;
-      const cols = fits ? Math.min(72, side) : Math.min(72, Math.max(FLOAT_MIN.cols * 2, Math.floor(A.cols * 0.4)));
-      const col = !rr ? A.col + A.cols - cols : right >= left ? (fits ? rr.col + rr.cols : A.col + A.cols - cols) : (fits ? rr.col - cols : A.col);
-      const rect = { col, row: rr?.row ?? A.row, cols, rows: rr?.rows ?? A.rows };
       id = this.nextId;
-      const ok = this.ask({ op: "open", tile: id, kind: COMMENT_TILE_KIND, name: this.autoName("comment"), at: { kind: "float", rect, near: at }, ...(keys ? {} : { keys: false as const }) }, USER);
+      const ok = this.ask({ op: "open", tile: id, kind: COMMENT_TILE_KIND, name: this.autoName("comment"), at: { kind: "split", target: at, dir: this.commentSide, pair: true, weight: this.commentShare }, ...(keys ? {} : { keys: false as const }) }, USER);
       if (!ok.ok) throw new ActionRefused(ok.refused);
       this.put(makeTile({ t: "leaf", kind: COMMENT_TILE_KIND, source: `tile:${reader}` }));
       this.commit(ok);
       this.startTile(id);
       this.openedFrom.set(id, at);
+    } else if (side) {
+      // To another side of the reader, its share kept (sized by its border, it stays that size).
+      const share = this.shareOf(id) ?? this.commentShare;
+      const ok = this.ask({ op: "move", tile: id, to: { kind: "split", target: at, dir: side, pair: true, weight: share } }, USER);
+      if (!ok.ok) throw new ActionRefused(ok.refused);
+      this.commit(ok);
     }
     if (keys) this.keysTo(id);
     this.save(); this.redraw();
-    return { tile: this.nameOf(id) };
+    return { tile: this.nameOf(id), side: this.commentSide };
+  }
+  /** Reader `r`'s comment tile is open. */
+  hasComposerTile(r: ReaderPane): boolean {
+    const at = [...this.panes].find(([, p]) => p === r)?.[0];
+    return at !== undefined && [...this.panes.values()].some(p => p instanceof CommentTilePane && p.source === this.nameOf(at));
+  }
+  /** The side of reader `at` its comment's own tile is on now, from the pair they make; null with no tile. */
+  private commentSideOf(at: number): Dir | null {
+    const reader = this.nameOf(at);
+    const id = [...this.panes].find(([, p]) => p instanceof CommentTilePane && p.source === reader)?.[0];
+    const p = id === undefined ? null : parentOf(this.root, id);
+    if (!p || p.parent.t !== "split" || !p.parent.pair) return null;
+    const first = p.i === 0;
+    return p.parent.dir === "row" ? (first ? "left" : "right") : (first ? "up" : "down");
+  }
+  /** The side of its reader a comment's own tile opens on (PIE-846): the one last chosen. */
+  private commentSide: Dir = "right";
+  /** Its share of the pair it opens in: the last one's, as it was sized when it closed. */
+  private commentShare = 0.45;
+  /** The share comment tile `id` has of the pair it's in, when it's in one. */
+  private shareOf(id: number): number | null {
+    const p = parentOf(this.root, id);
+    return p && p.parent.t === "split" && p.parent.pair ? p.parent.weights[p.i]! / p.parent.weights.reduce((a, w) => a + w, 0) : null;
   }
   /**
    * The tune inspector (PIE-673) on tile `tile` (default the focused one): the one on this screen turns to it, else one
@@ -2552,7 +2565,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const steps = [...this.panes].flatMap(([id, p]): (Step & { tile: string })[] => {
       if (!(p instanceof ReaderPane) || !p.msg) return [];
       const opening = p.surface.reopenSteps();
-      return opening.length ? [{ action: "open", tile: this.nameOf(id), args: { id: p.msg.id } }, ...opening.map(s => ({ ...s, tile: this.nameOf(id) }))] : [];
+      // A comment in its own tile comes back on the side of its note it was on (PIE-846).
+      const side = this.commentSideOf(id);
+      const sided = opening.map(s => (s.action === "comment.place" && s.args?.place === "tile" && side ? { ...s, args: { ...s.args, side } } : s));
+      return sided.length ? [{ action: "open", tile: this.nameOf(id), args: { id: p.msg.id } }, ...sided.map(s => ({ ...s, tile: this.nameOf(id) }))] : [];
     });
     // Opening one gives it the keys: they go back to the tile that had them (the tune inspector beside a comment). A
     // comment's own tile isn't kept: the comment opening in it again gives it the keys (PIE-846).

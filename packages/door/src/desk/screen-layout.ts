@@ -754,7 +754,7 @@ class Step<I> {
     const t = this.d.tree;
     if (at.kind === "edge") this.d.tree = edge(t, id, at.dir);
     else if (at.kind === "tabs") this.d.tree = tabInto(t, at.target, id, at.index);
-    else if (at.kind === "split") this.d.tree = besideSlot(t, at.target, leaf(id), at.dir);
+    else if (at.kind === "split") this.d.tree = besideSlot(t, at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair);
     else if (at.kind === "in") this.d.tree = insert(t, at.key, leaf(id), at.weight ?? 1, at.index);
     else if (at.kind === "next") {
       const f = flowHolding(t, at.from)!;

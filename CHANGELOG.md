@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The comment's tile sits beside its note on any side (PIE-846)
+
+- **Changed:** the comment's own tile (`ctrl+o` to **tile**) now opens in the note's place, beside it, instead of floating:
+  the tiles round them never move, and closing it gives the note its room back, the layout exactly as it was.
+  `ctrl+g` then an arrow (or a click on the tile's last row, or `comment.place side=left|right|up|down`) puts it on that
+  side of the note; drag the border between them (or `^W < >`) to size it, and it keeps that size as it moves round.
+- **Added:** reading comments there too: in the thread list (`m`), `ctrl+o` puts the list in that tile beside the note;
+  `r` writes a reply in it.
+- **Fixed:** a comment sent from the reader shows its thread open at once (it could be drawn closed for a moment).
+
 ### The comment editor: the whole note, a tile of its own, scrolling, pictures (PIE-846)
 
 From Evan's comments written in the floating editor while using it.

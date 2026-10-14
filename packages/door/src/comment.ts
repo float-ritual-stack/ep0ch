@@ -425,15 +425,14 @@ export class CommentSession {
     const env = this.env!;
     this.writing = null; this.target = null; this.passage = null; this.stale = false; this.note = "";
     this.mode = "threads"; this.busy = "loading the thread...";
-    // From the reader: straight back to reading (the reader shows the reloaded thread there).
-    if (this.fromReader) this.finished = true;
-    const comment = t.kind !== "reply";
+    const comment = t.kind !== "reply", root = comment ? r.id : t.thread.id;
+    // From the reader: straight back to reading, its thread shown open where the composer was (the reader draws it as
+    // the reload brings it). Said open before the session ends, so it's never drawn closed for a moment.
+    if (this.fromReader) { env.posted?.(root); this.finished = true; }
     env.flash(r.deduplicated ? `already saved: the service returned the ${comment ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "note" ? "comment added on the whole note" : comment ? "comment added" : "reply added");
     this.threads = await env.reloadComments();
     this.busy = null;
-    const root = comment ? r.id : t.thread.id;
     this.sel = Math.max(0, this.threads.findIndex(x => x.id === root)); this.view.reveal();
-    if (this.fromReader) env.posted?.(root);
     // A comment on a checklist step gives the step a stable id, which changes the note.
     if (t.kind === "quote") { const fresh = await env.fetch(t.blockId).catch(() => null); if (fresh) { this.msg = fresh; env.setMsg(fresh); } }
     // Sent first; then a reference in it that leads nowhere is said, with what it may have meant (PIE-761).

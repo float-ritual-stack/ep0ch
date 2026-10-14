@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rect } from "../src/canvas";
 import {
-  columnsOf, dividerAt, dragShare, dockOf, docks, dockToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDock, visible, wrapDock, wrapNodeDock,
+  besideSlot, columnsOf, dividerAt, dragShare, dockOf, docks, dockToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   type Grab, type LNode,
 } from "../src/desk/layout";
 
@@ -382,5 +382,44 @@ describe("containers keep their rules and every tile its room (PIE-510)", () => 
     expect(t.weights[0]).toBeCloseTo(0.3);
     expect(t.weights[1]).toBeCloseTo(0.35);
     expect(t.weights[2]).toBeCloseTo(0.35);
+  });
+});
+
+// PIE-846: a comment beside its reader is a pair in the reader's place. The tiles around keep their room, whichever
+// side it goes to and however it's sized, and when it goes the reader has its room back: the layout as it was.
+describe("a pair beside a tile, in its place", () => {
+  const row = () => normalise(splitOf("row", [leaf("outline"), leaf("reader"), leaf("links")], [0.25, 0.5, 0.25]));
+  const weights = (n: LNode<string>) => (n.t === "split" ? n.weights.map(w => Math.round(w * 100) / 100) : []);
+
+  test("opened beside a reader in a row of three, the others keep their room; closed, the row is as it was", () => {
+    const was = row();
+    const withComment = normalise(besideSlot(was, "reader", leaf("comment"), "right", 0.5, true));
+    expect(weights(withComment)).toEqual([0.25, 0.5, 0.25]);
+    const p = (withComment as any).kids[1];
+    expect(p).toMatchObject({ t: "split", dir: "row", pair: true });
+    expect(leaves(p)).toEqual(["reader", "comment"]);
+    // Normalised again (a save, a revive), it stays a pair, never flattened into the row.
+    expect(normalise(revive(serialize(withComment, l => ({ t: "leaf", id: l })) as any, (l: any) => l.id))).toEqual(withComment);
+    expect(normalise(remove(withComment, "comment")!)).toEqual(was);
+  });
+
+  test("moved to another side it keeps its share, along the other axis too; the row around never moves", () => {
+    const sized = normalise(besideSlot(row(), "reader", leaf("comment"), "right", 0.4, true));
+    for (const dir of ["left", "down", "up", "right"] as const) {
+      const moved = move(sized, "comment", { kind: "split", target: "reader", dir, pair: true, weight: 0.4 })!;
+      expect(weights(moved)).toEqual([0.25, 0.5, 0.25]);
+      const p = (moved as any).kids[1];
+      expect(p.dir).toBe(dir === "left" || dir === "right" ? "row" : "col");
+      expect(leaves(p)).toEqual(dir === "left" || dir === "up" ? ["comment", "reader"] : ["reader", "comment"]);
+      expect(p.weights[leaves(p).indexOf("comment")]).toBeCloseTo(0.4);
+    }
+  });
+
+  test("a tile put beside the reader in the pair doesn't join it: the pair stays two", () => {
+    const withComment = normalise(besideSlot(row(), "reader", leaf("comment"), "right", 0.5, true));
+    const more = normalise(besideSlot(withComment, "reader", leaf("preview"), "right"));
+    const p = (more as any).kids[1];
+    expect(p.pair).toBe(true);
+    expect(p.kids).toHaveLength(2);
   });
 });
