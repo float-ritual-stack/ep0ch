@@ -458,9 +458,13 @@ session's outline.
   Resource reader; `diff` opens its changes (git's diff against its last commit, else against the copy kept before
   the first touch). Outside a door the path is copied and a toast says it opens in a door. `/tool-rows off` puts
   Claude Code's rows back, these too.
-- **The record (off by default):** turn it on with the `fileTouches` option (`on`) or `PI_OUTLINER_FILE_TOUCHES=on` in
-  Claude's environment; the option wins when set. Off, nothing is filed and the rows above are unchanged,
-  except that `diff` for a file outside git has no first copy to compare with. On, after each Edit or Write that ran (never a denied or failed one), off the call and one at a time,
+- **The record (only where the outline asks):** the outline's Recent files page (`[[recent-files]]`) carries one
+  `[file-touches::<glob>]` property per area to record, e.g. `[file-touches::~/rangle/**/*.md]` or
+  `[file-touches::**/plans/**]` (`~` is the home folder; a glob without a leading `/` or `~` matches anywhere). A touch
+  is filed only when its path matches one; no globs, nothing is filed. The mod reads them when first needed and again
+  when a minute old (never per touch). The `fileTouches` option (`off`) or `PI_OUTLINER_FILE_TOUCHES=off` in Claude's
+  environment switches it off for a whole session, and off wins over the page. Unfiled, the rows above are unchanged,
+  except that `diff` for a file outside git has no first copy to compare with. After each Edit or Write that ran (never a denied or failed one), off the call and one at a time,
   the installed CLI's `agent touch-file` files it as this session (the outliner's `src/file-touches.ts` owns the
   shape): under `[[recent-files]]` › the day › the project (its git repository, else the session's folder) › this
   session, **one `[file::]` block per file per session**, its `touches`, `last-touch`, `added` and `removed` brought up

@@ -8,13 +8,50 @@ import { FILE_TOOLS, lineCounts } from './tool-rows'
  */
 
 /**
- * Whether touches are recorded at all: the `fileTouches` option when set, otherwise `PI_OUTLINER_FILE_TOUCHES`;
- * neither (or anything but on/true/yes/1): off. Recording was always on until Oct 14, when the edits of code drowned
- * the plans and handoffs it was for (those land in the outline directly now).
+ * Whether the session has switched recording off: the `fileTouches` option or `PI_OUTLINER_FILE_TOUCHES` saying
+ * off/false/no/0. Off wins over everything. Anything else (on, empty, unset) leaves it to the outline's globs
+ * (PIE-870): recording was always on until Oct 14, when the edits of code drowned the plans and handoffs it was for,
+ * and is now only where the Recent files page asks.
  */
-export function fileTouchesOn(option: unknown, environment: string | undefined): boolean {
-  const typed = typeof option === 'string' && option.trim() !== '' ? option.trim() : (environment ?? '').trim()
-  return ['on', 'true', 'yes', '1'].includes(typed.toLowerCase())
+export function fileTouchesOff(option: unknown, environment: string | undefined): boolean {
+  const off = (v: unknown) => typeof v === 'string' && ['off', 'false', 'no', '0'].includes(v.trim().toLowerCase())
+  return off(option) || off(environment)
+}
+
+/** The `[file-touches::<glob>]` values on the Recent files page's text: the areas whose touches are recorded. */
+export function fileTouchGlobsOf(pageText: string): string[] {
+  return [...pageText.matchAll(/\[file-touches::([^\]\n]+)\]/g)].map(m => m[1].trim()).filter(Boolean)
+}
+
+/**
+ * A glob as a RegExp: `**` crosses folders (`**\/` also matches none), `*` and `?` stay in one, `{a,b}` is either.
+ * One without a leading `/` matches anywhere in the path. The mod's hooks module can't use Bun.Glob (no Bun in the
+ * engine) nor import the outliner, and the repo has no other glob code.
+ */
+export function globRegExp(glob: string): RegExp {
+  let out = ''
+  let braces = 0
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]!
+    if (c === '*') {
+      if (glob[i + 1] === '*') {
+        if (glob[i + 2] === '/') { out += '(?:.*/)?'; i += 2 } else { out += '.*'; i += 1 }
+      } else out += '[^/]*'
+    } else if (c === '?') out += '[^/]'
+    else if (c === '{') { out += '(?:'; braces++ }
+    else if (c === '}' && braces) { out += ')'; braces-- }
+    else if (c === ',' && braces) out += '|'
+    else out += c.replace(/[.+^$()|\\[\]]/g, '\\$&').replace(/[{}]/g, '\\$&')
+  }
+  return new RegExp(`^${glob.startsWith('/') ? '' : '(?:.*/)?'}${out}$`)
+}
+
+/** Whether a touched file's absolute path falls in one of the page's globs (`~` is the home folder; `**\/plans/**` matches anywhere). */
+export function touchAllowed(globs: readonly string[], path: string, home: string | undefined): boolean {
+  return globs.some(glob => {
+    const g = glob.startsWith('~/') && home ? `${home.replace(/\/+$/, '')}${glob.slice(1)}` : glob
+    try { return globRegExp(g).test(path) } catch { return false }
+  })
 }
 
 /** What one Edit or Write touched: the file, the lines it added and removed, and the file before it (first touch). */
