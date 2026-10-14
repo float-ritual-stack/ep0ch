@@ -278,6 +278,9 @@ source evidence or distinguish authored glyphs from controls.
   delivery stage, note sections, item bodies) over the existing RPCs. The CLI
   `work`/`note` commands, the Claude mod tools and Pi's task completion call it;
   add workboard operations there rather than in a host adapter or a one-off script.
+- `src/work-stage-follows.ts` owns what follows a roadmap item's `work-stage`
+  (`done-at`, clearing `needs::sysop`, a request copy's `ticket-stage`). The store
+  applies it on every write, so no client or adapter sets those itself.
 - `src/agent-tools.ts` owns the other outline operations an agent makes (read with
   full text and bounded children, find, resolve, revision-checked edit, create,
   comment/reply/resolve as the agent, recent changes, `draft.patch`) over the

@@ -14,13 +14,14 @@ it read, reads the result back and prints JSON with the Work ID, `((block ref))`
 and new revision. Refusals print one `error: …` line and exit 1.
 
 ```sh
-bun src/cli.ts work create --title … --project … --arc … --track … --priority … [--stage queued] [--stdin|--body-file f]
+bun src/cli.ts work create --title … --project … --arc … --track … --priority … [--stage queued] [--wave <theme>] [--source <uuid>] [--stdin|--body-file f]
 bun src/cli.ts work stage PIE-123 doing [--expected N]
 bun src/cli.ts work set PIE-123 priority high [--expected N]
 bun src/cli.ts work set PIE-123/site delivery-stage complete [--expected N]
 bun src/cli.ts work deliver PIE-123 --repo owner/name --pr 42 [--key site] [--base main] [--branch feature/x]
 bun src/cli.ts work complete PIE-123 [--delivery <uuid|key|name>]… [--all-merged] --proof-file proof.md|--stdin|--proof-block <uuid>
 bun src/cli.ts work body PIE-123 --file body.md|--stdin [--expected N]
+bun src/cli.ts work link <request copy uuid> PIE-123 [--expected N]
 bun src/cli.ts note section <uuid> "Heading" --file section.md|--stdin [--expected N]
 bun src/cli.ts work help
 ```
@@ -95,13 +96,41 @@ query view alone never deletes its members.
 Relationships (`work-batch`, `depends-on`, `related-to`, `source-block`, `proof`,
 `superseded-by`) contain canonical block UUIDs, not Work IDs or titles.
 
+### What follows the stage
+
+The service writes these on every stage move, whichever path made it (`work
+stage`, `work deliver`, `work complete`, the Pi session tools, a board drag or an
+edit by hand), so no client sets them itself (`src/work-stage-follows.ts`):
+
+- **`done-at`.** Moving into `done` stamps `[done-at::YYYY-MM-DD]`, the day on the
+  host's clock; leaving `done` (a reopen) takes it off. "Done today" is the
+  query `type=roadmap-item done-at=today`. A date written by hand (a backfill,
+  `work set PIE-123 done-at 2026-10-02`) stays until the next move into done.
+- **`needs::sysop` clears on done.** An owner ask (`[needs::sysop]` or `[needs::sysop: reason]`, see the live
+  block) comes off when the item is done; other `needs` values stay.
+- **`ticket-stage` on request copies.** A note that names an item with
+  `[ticket::PIE-123]` (a request copy) carries `[ticket-stage::<its stage>]`, kept
+  equal to the item's `work-stage`. Name it with `work link <copy> PIE-123`, or
+  create the item with `--source <copy>`: a `[type::request]` source that names no
+  ticket yet gets `[ticket::<new Work ID>]` in the same step. A note that drops its
+  `ticket` loses its `ticket-stage`; one naming an id no item has gets none.
+
+Optional:
+
+- **`wave`.** `[wave::<theme>]` marks the items that ship together in one wave
+  (the `wave/<theme>` integration branch). Set it at creation with `--wave` or
+  later with `work set PIE-123 wave <theme>`; "what landed in the wave" is
+  `type=roadmap-item wave=<theme> work-stage=done`.
+
 ## Create and schedule
 
 1. Inspect the source and search for an existing outcome before allocating work.
    Rough ideas may remain notes until they have a concrete outcome and observable
    acceptance criteria.
-2. Use `outliner_roadmap_create` with title, body, priority, project, arc and tracks.
+2. Use `outliner_roadmap_create` (or `work create`) with title, body, priority, project, arc and tracks.
    Source and relationship fields take UUIDs. New work defaults to `unprioritized`.
+   Ticketing a request, pass its copy as the source (`--source`, the mod's `from`)
+   so the copy names its ticket.
 3. After the owner commits scope, create an ordinary `work-batch` block with its
    project and objective. Assign members through optimistic `work-batch` property
    patches; use `queued` for selected items waiting to start. `workBatchId` on

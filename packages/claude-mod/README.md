@@ -302,7 +302,7 @@ rows on. Only the outline host has to run: no door, no Herdr.
 
 ## Workboard tools
 
-In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`,
+In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`, `work_link`,
 `work_deliver`, `work_complete`, `work_body` and `note_section`. Each one runs the
 installed CLI's `work` / `note` command (see the
 [roadmap operations reference](../outliner/pi-extension/skills/outliner-workflow/references/roadmap-items.md#agent-commands))
@@ -321,6 +321,11 @@ An item can have several deliveries, one per PR. `work_deliver` takes a `key`
 is refused, naming what is left, while any other delivery is incomplete; and
 `work_set` sets `delivery-stage` on a delivery named by UUID or key, such as
 one left in validate on an item that is already done.
+
+A request becomes a ticket with `work_create` `from: <the request copy>` (the copy gets `[ticket::PIE-n]`), or
+`work_link` (`ref: <copy>`, `ticket: PIE-n`) for an item that already exists; the service keeps the copy's
+`[ticket-stage::…]` equal to the item's stage. `work_create` takes `wave` for `[wave::<theme>]`. Completing an item
+stamps `[done-at::<day>]` and takes `[needs::sysop]` off ([what follows the stage](../outliner/pi-extension/skills/outliner-workflow/references/roadmap-items.md#what-follows-the-stage)).
 
 ## Outline tools
 

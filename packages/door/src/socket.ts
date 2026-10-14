@@ -78,7 +78,7 @@ interface WireBlock {
 /** What `roadmap.items.create` takes (pi-herdr-outliner src/types.ts RoadmapItemCreateInput). */
 export interface RoadmapItemInput {
   title: string; body?: string; priority: string; workStage?: string; workBatchId?: string;
-  project: string; arc: string; tracks: string[]; dependsOn?: string[]; relatedTo?: string[]; sourceBlockId?: string;
+  project: string; arc: string; tracks: string[]; dependsOn?: string[]; relatedTo?: string[]; sourceBlockId?: string; wave?: string;
 }
 /** Everything a list row needs, without the note's full text. */
 export const LIST_FIELDS = ["parent", "title", "properties", "revision", "timestamps", "author", "hasChildren"] as const;

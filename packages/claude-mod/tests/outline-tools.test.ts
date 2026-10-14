@@ -326,10 +326,10 @@ describe('tool arguments', () => {
   test('every tool that takes a note takes it as ref, and as each alias', () => {
     expect(REF_TOOLS.map(tool => tool.name).sort()).toEqual([
       'door_open', 'note_section', 'outline_assign_id', 'outline_comment', 'outline_edit', 'outline_patch', 'outline_read', 'outline_resolve',
-      'outline_set_property', 'show', 'view_order', 'work_body', 'work_complete', 'work_deliver', 'work_set', 'work_stage',
+      'outline_set_property', 'show', 'view_order', 'work_body', 'work_complete', 'work_deliver', 'work_link', 'work_set', 'work_stage',
     ])
     for (const tool of REF_TOOLS) {
-      for (const alias of ALIASES.filter(alias => alias !== 'item' || WORK_TOOLS.includes(tool as never))) {
+      for (const alias of ALIASES.filter(alias => alias !== 'item' || (tool as { aliases?: { ref?: readonly string[] } }).aliases?.ref?.includes('item'))) {
         const { ref, ...rest } = tool.example as Record<string, unknown>
         const checked = checkedInput(tool, { tool: tool.name, ...rest, [alias]: ref })
         expect(checked, `${tool.name} ${alias}`).toEqual({ input: { ...rest, ref } })

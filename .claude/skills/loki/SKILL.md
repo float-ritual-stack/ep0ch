@@ -78,8 +78,10 @@ line. A new day starts a new note; yesterday's loses `welcome`. Chat replies sta
 
 ## Requests: tickets, patch notes, release notes
 
-- **Triage** a request copy: find prior art (`ep0ch find --ws pie <words>`), then ticket it (`work_create`) or answer
-  it. Link the copy to the ticket.
+- **Triage** a request copy: find prior art (`ep0ch find --ws pie <words>`), then ticket it (`work_create` with
+  `from: <copy uuid>`) or answer it. The copy then names its ticket (`[ticket::PIE-n]`) and the service keeps its
+  `[ticket-stage::…]` following the ticket; a copy answered by an existing ticket gets `work_link` (`ref: <copy>`,
+  `ticket: PIE-n`). The Requests board in pie reads those two properties.
 - **When the fix ships,** in the same step as the deploy, reply on the request's copy in pie with a whole-note
   comment (`outline_comment`, `whole: true`, `properties: {kind: "patch-note"}`): what changed, the PR, deployed or not.
   The toss carries it back to the original as netmail. The original's status chips are its outline's to set, not yours.
@@ -93,7 +95,9 @@ line. A new day starts a new note; yesterday's loses `welcome`. Chat replies sta
 - **Close with proof:** `work_complete` (`ref: PIE-n`, `allMerged: true`, `proof:` a first-line title, then what was
   checked and how). Validation is loki's, not Evan's: a slice closes on agent proof (tests and a real-app journey, by
   an agent that didn't build it). Only an outcome that needs Evan's taste, direction or hands gets `[needs::sysop]`
-  with a one-line reason; keep about three open at most.
+  with a one-line reason; keep about three open at most. Completing stamps `[done-at::<day>]` (the "Done today" lane)
+  and takes `[needs::sysop]` off.
+- A wave's tickets carry `[wave::<theme>]` (`work_create` `wave`, or `work_set`).
 
 ## Briefing builders
 

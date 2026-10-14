@@ -40,6 +40,7 @@ import {
   type BookmarkRecord,
 } from "./bookmarks";
 import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
+import { doneDay, roadmapStageOf, stageMoveText, ticketOf, ticketStageText } from "./work-stage-follows";
 import { seedDefaultWorkspace } from "./default-workspace";
 import { openSchema } from "./schema";
 import { openOutlineInstance, type OutlineInstance } from "./outline-instance";
@@ -1021,6 +1022,7 @@ export class OutlinerStore {
     const id = minted ?? crypto.randomUUID();
 
     this.database.transaction(() => {
+      text = this.withTicketStage("", text);
       this.validateRoadmapText(text);
       const siblingCount = this.database
         .query("SELECT COUNT(*) AS count FROM blocks WHERE parent_id IS ?")
@@ -1344,6 +1346,7 @@ export class OutlinerStore {
     const sourceBlockId = input.sourceBlockId === undefined
       ? undefined
       : normalizeRoadmapRelationshipId(input.sourceBlockId, "sourceBlockId");
+    const wave = input.wave === undefined ? undefined : normalizeRoadmapText(input.wave, "Roadmap wave");
     assertNoReservedRoadmapProperties(title, body);
 
     const workQueues = this.database.query(
@@ -1367,7 +1370,7 @@ export class OutlinerStore {
       }
     }
 
-    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,workQueueId,allocator};
+    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,wave,workQueueId,allocator};
   }
 
   createRoadmapItem(
@@ -1377,7 +1380,7 @@ export class OutlinerStore {
   ): RoadmapItemCreateReceipt {
     const creator = normalizeCreatorProvenance(author, provenance);
     return this.database.transaction(() => {
-      const {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,workQueueId,allocator}=this.prepareRoadmapItem(input);
+      const {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,wave,workQueueId,allocator}=this.prepareRoadmapItem(input);
       let nextNumber = allocator.next_number;
       let workId = formatWorkId(allocator.prefix, nextNumber);
       while (this.reservedWorkIdOwnerFromCurrentRead(workId) !== undefined) {
@@ -1392,6 +1395,7 @@ export class OutlinerStore {
         { key: "project", value: project },
         { key: "arc", value: arc },
         ...tracks.map((value) => ({ key: "track", value })),
+        ...(wave ? [{ key: "wave", value: wave }] : []),
         ...dependsOn.map((value) => ({ key: "depends-on", value })),
         ...relatedTo.map((value) => ({ key: "related-to", value })),
         ...(sourceBlockId ? [{ key: "source-block", value: sourceBlockId }] : []),
@@ -1421,6 +1425,15 @@ export class OutlinerStore {
       );
       this.replaceProperties(id, parsePropertyRecords(text));
       this.bumpSequence({ kind: "create", blockId: id });
+      // A request ticketed from its copy names the ticket back (PIE-844), so "where did this request go" is a query; a
+      // note that named this Work ID before the item existed gets its stage now.
+      const mutation = { author, ...provenance };
+      const source = sourceBlockId ? this.getFromCurrentRead(sourceBlockId) : null;
+      if (source && ticketOf(source.text) === null && !this.extensionOwnerFromCurrentRead(source.id) &&
+        source.properties.some((property) => property.key === "type" && property.value.toLowerCase() === "request")) {
+        this.update(source.id, patchPropertyText(source.text, [{ op: "append", key: "ticket", value: workId }]), source.revision, mutation, "properties");
+      }
+      this.refreshTicketStages(workId, workStage, mutation);
       const block = this.getFromCurrentRead(id);
       if (!block) throw new Error(`Roadmap item was not created: ${id}`);
       return {
@@ -1937,14 +1950,71 @@ export class OutlinerStore {
   ): Block {
     const provenance = normalizeMutationProvenance(mutation);
     this.database.transaction(() => {
-      this.requireActive(id);
-      const editedAt = this.writeBlockText(id, text, expectedRevision, undefined, identityChanges);
-      this.replaceProperties(id, parsePropertyRecords(text));
+      const before = this.requireActive(id);
+      const next = this.withTicketStage(before.text, stageMoveText(before.text, text, doneDay(new Date())));
+      const editedAt = this.writeBlockText(id, next, expectedRevision, undefined, identityChanges);
+      this.replaceProperties(id, parsePropertyRecords(next));
       this.recordActivity(id, provenance, kind, editedAt);
       this.bumpSequence({ kind: "edit", blockId: id });
+      this.followTicketStage(before.text, next, mutation);
     })();
     return this.require(id);
   }
+
+  // ── What follows a work stage (src/work-stage-follows.ts, PIE-844) ───────
+
+  /** The work-stage of the roadmap item `workId` names, or null when no live item has it. */
+  private workStageOfFromCurrentRead(workId: string): string | null {
+    const row = this.database.query(`
+      SELECT block.text FROM block_properties property JOIN blocks block ON block.id = property.block_id
+      WHERE property.scope = 'block' AND property.key = 'work-id' AND upper(trim(property.value)) = ?
+        AND block.effective_deleted_root_id IS NULL
+      ORDER BY block.created_at, block.id
+    `).all(workId) as Array<{ text: string }>;
+    for (const { text } of row) {
+      const stage = roadmapStageOf(text);
+      if (stage !== null) return stage;
+    }
+    return null;
+  }
+
+  /**
+   * `next` with the `[ticket-stage::…]` its `[ticket::PIE-n]` calls for: that item's stage, or none when no item has
+   * the id. A block that stops naming a ticket loses its ticket-stage; one that never named one is left as written.
+   */
+  private withTicketStage(previous: string, next: string): string {
+    const workId = ticketOf(next);
+    if (workId !== null) return ticketStageText(next, this.workStageOfFromCurrentRead(workId));
+    return ticketOf(previous) !== null ? ticketStageText(next, null) : next;
+  }
+
+  /**
+   * After a roadmap item's stage moved, every live block that names it in `[ticket::…]` says the new stage, written
+   * as the same actor. A block an extension owns is left to its extension.
+   */
+  private followTicketStage(previous: string, next: string, mutation: MutationProvenance): void {
+    const stage = roadmapStageOf(next);
+    if (stage === null || stage === roadmapStageOf(previous)) return;
+    const workId = parsePropertyRecords(next).find((property) => property.scope === "block" && property.key === "work-id")?.value;
+    const canonical = workId === undefined ? null : parseWorkId(workId)?.workId;
+    if (canonical) this.refreshTicketStages(canonical, stage, mutation);
+  }
+
+  /** Every live block naming `workId` in `[ticket::…]`, however it's spelled (`PIE-1`, `[[PIE-001]]`), says `stage`. */
+  private refreshTicketStages(workId: string, stage: string, mutation: MutationProvenance): void {
+    const named = this.database.query(`
+      SELECT DISTINCT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
+      WHERE property.scope = 'block' AND property.key = 'ticket' AND block.effective_deleted_root_id IS NULL
+        AND upper(property.value) LIKE ? ESCAPE '\\'
+    `).all(`%${(parseWorkId(workId)?.prefix ?? workId).replace(/[\\%_]/g, "\\$&")}-%`) as Array<{ id: string }>;
+    for (const { id } of named) {
+      const copy = this.require(id);
+      if (ticketOf(copy.text) !== workId || this.extensionOwnerFromCurrentRead(id)) continue;
+      const text = ticketStageText(copy.text, stage);
+      if (text !== copy.text) this.update(id, text, copy.revision, mutation, "properties");
+    }
+  }
+
 
   // ── Extension records (src/extension-records.ts) ────────────────────────
   // A record is an ordinary block an extension owns: only that extension may

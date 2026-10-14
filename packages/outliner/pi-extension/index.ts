@@ -2399,7 +2399,8 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       tracks: Type.Array(Type.String(), { minItems: 1 }),
       dependsOn: Type.Optional(Type.Array(Type.String())),
       relatedTo: Type.Optional(Type.Array(Type.String())),
-      sourceBlockId: Type.Optional(Type.String()),
+      sourceBlockId: Type.Optional(Type.String({ description: "The note it came from; a request copy gets [ticket::<the new Work ID>]" })),
+      wave: Type.Optional(Type.String({ description: "The wave it ships in ([wave::<theme>])" })),
     }),
     async execute(toolCallId, params, _signal, _onUpdate, context) {
       await ensureService(false);

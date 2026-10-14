@@ -1336,6 +1336,8 @@ export interface RoadmapItemCreateInput {
   dependsOn?: string[];
   relatedTo?: string[];
   sourceBlockId?: string;
+  /** The wave it ships in (`[wave::<theme>]`), when it's one of several tickets under one theme. */
+  wave?: string;
 }
 
 export interface RoadmapBranchMembership {

@@ -34,7 +34,7 @@ const QUOTE_CHARS = 48
 
 export const WRITE_TOOLS = [
   'outline_edit', 'outline_patch', 'outline_set_property', 'outline_assign_id', 'outline_create', 'outline_comment', 'outline_reply', 'outline_resolve_thread',
-  'note_section', 'work_create', 'work_set', 'work_stage', 'work_body', 'work_deliver', 'work_complete', 'view_order',
+  'note_section', 'work_create', 'work_set', 'work_stage', 'work_body', 'work_link', 'work_deliver', 'work_complete', 'view_order',
 ] as const
 export const READ_TOOLS = ['outline_read', 'outline_find', 'outline_changes', 'outline_resolve', 'show'] as const
 /**
@@ -294,6 +294,12 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       if (!target || typeof input.key !== 'string' || typeof input.value !== 'string') return null
       const previous = typeof out?.previous === 'string' && out.previous !== input.value ? `${clip(out.previous, 24)} ` : ''
       return { kind: 'write', glyph: '⇄', target, change: [`${input.key} ${previous}→ ${clip(input.value, QUOTE_CHARS)}`] }
+    }
+    case 'work_link': {
+      const target = targetOf(input.ref, titleOf)
+      if (!target || typeof input.ticket !== 'string') return null
+      const stage = typeof out?.ticketStage === 'string' ? [out.ticketStage] : []
+      return { kind: 'write', glyph: '⇄', target, change: [`ticket → ${clip(input.ticket, 24)}`, ...stage] }
     }
     case 'work_body': {
       const target = itemTarget(input.ref ?? input.item, out, titleOf)
