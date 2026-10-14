@@ -45,7 +45,7 @@ export interface BarHost {
   kept(): readonly Screen[];
   /** The note in the reader the person is in, or the screen's current one: the notes search starts near it. */
   near(): string | null;
-  /** Read a note (cached for the bar's life). */
+  /** Read a note: none when it's gone; a read that fails (offline, refused) throws, so a caller never takes it for gone. */
   note(id: string): Promise<Msg | null>;
 }
 
