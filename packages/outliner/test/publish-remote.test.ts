@@ -100,7 +100,8 @@ test("another machine's outline is listed as name@machine and read live through 
   // A browser that sends `@` escaped reaches the same page.
   expect((await get(`/pub/o/attic-notes%40${FAR}/p/${lantern.id}`)).status).toBe(200);
   expect(await (await get("/pub/o/")).text()).toContain("(live)");
-  expect(readFileSync(join(root, "ssh.log"), "utf8").split("\n").filter((line) => line.includes("-L"))).toHaveLength(1);
+  // The argv parsed, not the line searched: a temp folder named `pr-L…` holds "-L" in every path the log carries.
+  expect(readFileSync(join(root, "ssh.log"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]).filter((argv) => argv.includes("-L"))).toHaveLength(1);
 }, 30_000);
 
 test("its MCP access governs writes: read shows the threads with no write controls and refuses a write; full takes it", async () => {
