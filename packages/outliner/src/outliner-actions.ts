@@ -208,6 +208,8 @@ const ACTION_SPECS = [
   { id: "tree.add.child", surface: "tree", modes: ["browse"], label: "add child", description: "Create a child or virtual-lane item", defaultChords: ["a"], helpPriority: 50, menuGroup: "Edit" },
   { id: "tree.add.sibling", surface: "tree", modes: ["browse"], label: "add sibling", description: "Create a sibling block", defaultChords: ["s"], helpPriority: 45, menuGroup: "Edit" },
   { id: "tree.delete", surface: "tree", modes: ["browse"], label: "Trash", description: "Enter confirm-before-Trash mode", defaultChords: ["Delete"], helpPriority: 35, menuGroup: "Edit" },
+  { id: "tree.trash.restore", surface: "tree", modes: ["browse"], label: "restore from Trash", description: "Restore the selected direct Trash root where it was", defaultChords: ["r"], helpPriority: 34, menuGroup: "Edit" },
+  { id: "tree.trash.purge", surface: "tree", modes: ["browse"], label: "purge permanently", description: "Type the selected Trash root's work ID or short id to delete it for good", defaultChords: ["p"], helpPriority: 33, menuGroup: "Edit" },
   { id: "tree.file.open", surface: "tree", modes: ["browse"], label: "open file", description: "Open the selected file reference", defaultChords: ["f"], helpPriority: 30, menuGroup: "Navigate" },
   { id: "tree.virtual-branch.reset-expansion", surface:"tree", modes:["browse"], label:"Reset view expansion", description:"Forget manual disclosure choices for this virtual branch in this Tree", defaultChords:[], helpPriority:0, menuGroup:"View" },
   { id: "tree.depth.expand", surface:"tree", modes:["browse"], label:"expand one layer", description:"Reveal one additional layer below the selected occurrence", defaultChords:["Shift+ArrowRight"], helpPriority:39, menuGroup:"View" },

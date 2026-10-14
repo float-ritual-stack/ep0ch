@@ -10,6 +10,7 @@ import { detailRestoreRequest } from "../src/detail-controller";
 import { EditRecoveryRepository } from "../src/edit-recovery";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
+import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import type {
   Block,
   BlockEditActivityPage,
@@ -221,4 +222,18 @@ test("Detail's restore request says the person restored the block through Detail
   await client.request(detailRestoreRequest(trellis.id));
   const entries = (await activity(client, { author: "user", kinds: ["restore"] })).entries;
   expect(entries.map(entry => [entry.block.id, entry.kind, entry.actorId])).toEqual([[trellis.id, "restore", "detail"]]);
+});
+
+test("a restore whose page name was taken meanwhile says the new name, attributed to whoever restored (PIE-312)", async () => {
+  const { store, client } = await service();
+  const old = store.create("Seed swap [page::Seed Swap]");
+  store.delete(old.id);
+  store.create("Seed swap, this year [page::Seed Swap]");
+  const restored = await client.request<RestoredBlock>({ action: "trash.restore", blockId: old.id, mutation: gardenAgent });
+  expect(restored.renamedPages).toEqual([{ blockId: old.id, from: "Seed Swap", to: "Seed Swap-2" }]);
+  expect(restoredStatus(restored)).toBe("Restored from Trash; [[Seed Swap]] is another note's page now, so it is [[Seed Swap-2]]");
+  for (const kind of ["properties", "restore"]) {
+    const entries = (await activity(client, { author: "agent", kinds: [kind] })).entries;
+    expect(entries.map(entry => [entry.block.id, entry.kind, entry.actorId])).toEqual([[old.id, kind, "garden-agent"]]);
+  }
 });

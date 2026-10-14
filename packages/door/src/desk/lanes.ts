@@ -16,6 +16,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
 import { PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
+import { renamedPagesNote, type PageRename } from "@ep0ch/outline-core/protocol";
 import { clamp, sideways, SidewaysWheel, wheelRows, type RowPress } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
@@ -1185,10 +1186,10 @@ export class Lanes implements SourceModel {
   }
 
   /** `u`: bring back the card trashed last (or `id`), where it was. */
-  async restoreCard(id: string | undefined, actor: Actor): Promise<{ restored: string; title: string }> {
+  async restoreCard(id: string | undefined, actor: Actor): Promise<{ restored: string; title: string; renamedPages?: PageRename[] }> {
     const target = id ?? this.trashed?.id;
     if (!target) throw new ActionRefused("nothing was trashed from this board; pass id=<block id> to restore another");
-    let m: Msg;
+    let m: Msg & { renamedPages?: PageRename[] };
     try { m = await this.host.ctx.board.restore(target); }
     catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
     const title = titleOf(m);
@@ -1198,9 +1199,10 @@ export class Lanes implements SourceModel {
       this.trashed = null;
     }
     this.lastWrite = { what: "restore", id: m.id, result: "restored", ...(byOf(actor)) };
-    asActor(this.host.ctx, actor).flash(`restored "${title}"`);
+    const renamed = m.renamedPages?.length ? ` · ${renamedPagesNote(m.renamedPages)}` : "";
+    asActor(this.host.ctx, actor).flash(`restored "${title}"${renamed}`);
     this.host.redraw();
-    return { restored: m.id, title };
+    return { restored: m.id, title, ...(m.renamedPages?.length ? { renamedPages: m.renamedPages } : {}) };
   }
 
   // ── drawing: the desk draws the tiles; the board adds its pickers, its composer and its hint row ──

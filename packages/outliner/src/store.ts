@@ -12,7 +12,7 @@ import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, Chec
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
 import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWritePlanResult, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
-import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -2882,7 +2882,11 @@ export class OutlinerStore {
     return this.require(id);
   }
 
-  restore(id: string, mutation?: MutationProvenance): Block {
+  /**
+   * Back from Trash. A page name another note took while this one was away is not taken back: the restored note's
+   * `[page::x]` becomes the next free `x-2`, `x-3`…, and the reply names each rename (PIE-312).
+   */
+  restore(id: string, mutation?: MutationProvenance): RestoredBlock {
     const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
     const block = this.require(id);
     if (!block.deletedAt) throw new Error(`Block is not a direct Trash root: ${id}`);
@@ -2895,11 +2899,14 @@ export class OutlinerStore {
       ancestorId = ancestor.parentId;
     }
     const restoredAt = new Date().toISOString();
+    const renamedPages: PageRename[] = [];
     this.database.transaction(() => {
       this.database.query("UPDATE blocks SET deleted_at = NULL, updated_at = ? WHERE id = ?")
         .run(restoredAt, id);
       this.recomputeEffectiveDeletion();
       for (const blockId of this.subtreeIdsFromCurrentRead(id)) {
+        const rename = this.renameTakenPageFromCurrentRead(blockId, restoredAt, provenance);
+        if (rename) renamedPages.push(rename);
         const restored = this.getFromCurrentRead(blockId);
         if (
           restored &&
@@ -2915,7 +2922,36 @@ export class OutlinerStore {
       if (provenance) this.recordActivity(id, provenance, "restore", restoredAt);
       this.bumpSequence({ kind: "restore", blockId: id });
     })();
-    return this.require(id);
+    const restored = this.require(id);
+    return renamedPages.length ? { ...restored, renamedPages } : restored;
+  }
+
+  /**
+   * A just-restored block whose one `[page::x]` another live note holds now: its declaration is rewritten to the next
+   * free `x-2`, `x-3`… (the text edit is the rename, as pages.rename does it), so the restore succeeds without taking
+   * the name back. Null when the name is still its own or free.
+   */
+  private renameTakenPageFromCurrentRead(blockId: string, editedAt: string, provenance?: ReturnType<typeof normalizeMutationProvenance>): PageRename | null {
+    const block = this.getFromCurrentRead(blockId);
+    if (!block || block.effectiveDeletedRootId) return null;
+    const tokens = parsePropertyRecords(block.text).filter((token) => token.scope === "block" && token.key === "page");
+    if (tokens.length !== 1) return null;
+    const desired = tryNormalizePageAddress(tokens[0]!.value);
+    if (!desired) return null;
+    const owner = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
+    // Free, its own, or held by another note in Trash (which gives it up to this one, as to any live note): kept.
+    if (!owner || owner.block_id === blockId || (owner.kind !== "work-id" && this.inTrashFromCurrentRead(owner.block_id))) return null;
+    let free = "";
+    for (let n = 2; ; n++) {
+      free = `${desired.displayAddress}-${n}`;
+      const candidate = tryNormalizePageAddress(free);
+      if (candidate && !this.pageAddressRowFromCurrentRead(candidate.normalizedAddress)) break;
+    }
+    const text = patchPropertyText(block.text, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: free }]);
+    this.writeBlockText(blockId, text, block.revision, editedAt);
+    this.replacePropertyIndex(blockId, parsePropertyRecords(text));
+    if (provenance) this.recordActivity(blockId, provenance, "properties", editedAt);
+    return { blockId, from: desired.displayAddress, to: free };
   }
 
   purge(id: string, confirmation: string): void {
@@ -3526,7 +3562,11 @@ export class OutlinerStore {
       ).get(blockId);
       if (!registered) throw new Error(`Block has no registered symbolic address: ${blockId}`);
 
-      const existing = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
+      let existing = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
+      if (existing && existing.block_id !== blockId && existing.kind !== "work-id" && this.inTrashFromCurrentRead(existing.block_id)) {
+        this.database.query("DELETE FROM page_addresses WHERE normalized_address = ?").run(existing.normalized_address);
+        existing = null;
+      }
       if (existing) {
         if (existing.block_id !== blockId) {
           throw new Error(
@@ -4711,6 +4751,8 @@ export class OutlinerStore {
       const existing = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
       if (existing) {
         if (existing.block_id === retained.block_id) continue;
+        // A live note took the name of one in Trash: the live one keeps it.
+        if (this.inTrashFromCurrentRead(retained.block_id)) continue;
         throw new Error(
           `A kept page address conflicts with block ${existing.block_id}: ${retained.display_address}`,
         );
@@ -5157,6 +5199,12 @@ export class OutlinerStore {
     };
   }
 
+  private inTrashFromCurrentRead(blockId: string): boolean {
+    const row = this.database.query("SELECT effective_deleted_root_id FROM blocks WHERE id = ?")
+      .get(blockId) as { effective_deleted_root_id: string | null } | null;
+    return !!row?.effective_deleted_root_id;
+  }
+
   private pageAddressRowFromCurrentRead(normalizedAddress: string): PageAddressRow | null {
     return this.database.query(
       "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE normalized_address = ?",
@@ -5235,7 +5283,8 @@ export class OutlinerStore {
       if (current && current.normalized_address !== desired?.normalizedAddress) return false;
       if (!desired) continue;
       const owner = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
-      if (owner && owner.block_id !== blockId) return false;
+      // A page or alias of a note in Trash is no claim (PIE-312): syncing takes it.
+      if (owner && owner.block_id !== blockId && (kind !== "page" || owner.kind === "work-id" || !this.inTrashFromCurrentRead(owner.block_id))) return false;
     }
     return true;
   }
@@ -5281,12 +5330,16 @@ export class OutlinerStore {
       }
       return;
     }
-    const target = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
+    let target = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
+    if (target && target.block_id !== blockId && target.kind !== "work-id" && this.inTrashFromCurrentRead(target.block_id)) {
+      // A note in Trash holds no page name a live note asks for (PIE-312): the live one takes it, and the one in
+      // Trash, restored, gets the next free name (restore's renameTakenPageFromCurrentRead).
+      this.database.query("DELETE FROM page_addresses WHERE normalized_address = ?").run(target.normalized_address);
+      target = null;
+    }
     if (target && target.block_id !== blockId) {
       const role = target.kind === "page" ? "the page" : target.kind === "alias" ? "an alias" : "the Work ID";
-      const owner = this.database.query("SELECT effective_deleted_root_id FROM blocks WHERE id = ?")
-        .get(target.block_id) as { effective_deleted_root_id: string | null } | null;
-      const where = owner?.effective_deleted_root_id ? " (in Trash)" : "";
+      const where = this.inTrashFromCurrentRead(target.block_id) ? " (in Trash)" : "";
       throw new Error(
         `[[${desired.displayAddress}]] is already ${role} of block ${target.block_id}${where}; pick another name`,
       );

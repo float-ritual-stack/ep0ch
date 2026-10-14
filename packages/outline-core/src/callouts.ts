@@ -3,7 +3,7 @@
 // built-ins plus the types the outline declares with `[callout-type::name]`); the door's reader, completer and
 // type picker, and the outliner's Detail, all resolve a written type through it. Pure: no I/O.
 
-import { closesCodeFence, codeFenceOpen, type CodeFence } from "./code-fence";
+import { closesCodeFence, codeFenceOpen, fenceEnd, type CodeFence } from "./code-fence";
 
 /** A callout's colour family. Each client maps it to its own palette (the door's 16 colours, Detail's theme). */
 export type CalloutTone = "blue" | "green" | "violet" | "amber" | "coral" | "neutral";
@@ -181,13 +181,14 @@ export function calloutBlocks(lines: readonly string[]): CalloutBlock[] {
   // Which lines are code: a fence opens at the depth its line is quoted to and closes there (or when the quote it's
   // in ends).
   const fenced: boolean[] = [];
-  let fence: { depth: number; code: CodeFence } | null = null;
+  let fence: { depth: number; code: CodeFence; until: number } | null = null;
   q.forEach(({ depth, content }, i) => {
-    if (fence && depth < fence.depth) fence = null;
+    if (fence && (depth < fence.depth || i > fence.until)) fence = null;
     if (fence) { fenced.push(true); if (closesCodeFence(stripQuotes(lines[i]!, fence.depth), fence.code)) fence = null; return; }
     fenced.push(false);
     const code = codeFenceOpen(content);
-    if (code) fence = { depth, code };
+    // An unquoted fence left unclosed ends at its paragraph (PIE-669); a quoted one ends with its quote at the latest.
+    if (code) fence = { depth, code, until: depth ? lines.length : fenceEnd(lines, i, code).end };
   });
   q.forEach(({ depth }, i) => {
     const h = header(i);

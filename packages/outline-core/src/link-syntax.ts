@@ -112,12 +112,22 @@ export interface BlockReferenceEnvelope {
   end: number;
 }
 
-/** Where each `((…))` envelope is, shared by reference parsing and every re-scan of resolved text. */
+/**
+ * Where each `((…))` envelope is, shared by reference parsing and every re-scan of resolved text. An envelope is one
+ * line (PIE-669): a `((` its line doesn't close is text, and the scan goes on after it, so a half-typed `((` never
+ * hides the properties, tags and links after it.
+ */
 export function blockReferenceEnvelopeRanges(text: string): BlockReferenceEnvelope[] {
   const ranges: BlockReferenceEnvelope[] = [];
+  const references = text.includes("((") ? blockReferenceMatches(text).map(reference => reference.start) : [];
   for (let start = text.indexOf("(("); start >= 0; start = text.indexOf("((", start)) {
-    const end = referenceEnvelopeEnd(text, start + 2);
-    if (end < 0) break;
+    const end = referenceEnvelopeEnd(text, start + 2, true);
+    // A `((` that is no reference and that a reference starts inside before it closes was never closed: the `))` is
+    // that reference's (`((Mee … ((id|the list))`), as reference-warnings reads it.
+    if (end < 0 || (!references.includes(start) && references.some(at => at > start && at < end))) {
+      start += 2;
+      continue;
+    }
     ranges.push({ start, end });
     start = end;
   }

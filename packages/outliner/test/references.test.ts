@@ -65,11 +65,12 @@ describe("block reference rendering", () => {
       expect(resolveBlockReferences(invalid, () => target)).toBe(invalid);
     }
     const multiline = `((${target.id}|line one\r\n[[Hidden Page]] PIE-123))`;
-    expect(outlinerReferenceOccurrences(multiline, "PIE")).toEqual([]);
+    // A label is one line: `((id|line one` is never closed, so the next line's links are read (PIE-669).
+    expect(outlinerReferenceOccurrences(multiline, "PIE").map(o => o.kind)).toEqual(["page", "work-id"]);
     expect(
       outlinerReferenceOccurrences(`${multiline}\r\n[[Visible Page]] PIE-124`, "PIE")
         .map((reference) => reference.kind),
-    ).toEqual(["page", "work-id"]);
+    ).toEqual(["page", "work-id", "page", "work-id"]);
   });
 
   test("chooses a title after whole-block indexed-span stripping", () => {
@@ -241,12 +242,12 @@ describe("reference occurrence Markdown protection", () => {
       expect.objectContaining({ kind: "block", blockId }),
     ]);
   });
-  test("does not scan nested references in malformed titled envelopes", () => {
+  test("a titled envelope its line never closes hides nothing on the next line (PIE-669)", () => {
     const invalid = `((${target.id}|line one\n[[Page]] PIE-123))`;
 
     expect(blockReferenceOccurrences(invalid)).toEqual([]);
     expect(resolveBlockReferences(invalid, () => target)).toBe(invalid);
-    expect(outlinerReferenceOccurrences(invalid, "PIE")).toEqual([]);
+    expect(outlinerReferenceOccurrences(invalid, "PIE").map(o => o.kind)).toEqual(["page", "work-id"]);
   });
 
   test("excludes titled references in protected spans without leaking label syntax", () => {

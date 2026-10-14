@@ -17,7 +17,7 @@ import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
 import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
-import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
+import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, type PageRename, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
 import { Watched } from "./watched";
@@ -1426,8 +1426,11 @@ export class SocketBoard implements Board {
     return this.request<BlockRevisionEntry & { text: string }>("block.revisions", { blockId, revision });
   }
 
-  /** Bring a Trash root (and its subtree) back where it was. */
-  async restore(blockId: string): Promise<Msg> { return toMsg(await this.request<WireBlock>("trash.restore", { blockId })); }
+  /** Bring a Trash root (and its subtree) back where it was, with the page names it had to change (PIE-312). */
+  async restore(blockId: string): Promise<Msg & { renamedPages?: PageRename[] }> {
+    const restored = await this.request<WireBlock & { renamedPages?: PageRename[] }>("trash.restore", { blockId });
+    return { ...toMsg(restored), ...(restored.renamedPages?.length ? { renamedPages: restored.renamedPages } : {}) };
+  }
 
   /** A note's checklist steps (docs/CHECKLIST_ITEMS.md), in source order, at the revision the service read. */
   async checklist(blockId: string, limit = 200): Promise<ChecklistRead> {

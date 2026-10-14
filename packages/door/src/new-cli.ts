@@ -4,6 +4,7 @@
 // Inbox). Which outline is the one rule every client applies (`--ws`, `--machine`, EP0CH_WS, the folder's `.ep0ch`).
 import { savedReferenceWarnings } from "./reference-warnings";
 import { describeReferenceWarning } from "@ep0ch/outline-core/reference-warnings";
+import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { parseArgs } from "node:util";
 import { subject } from "./board";
 import { boardFor, type Out } from "./notes-cli";
@@ -41,6 +42,7 @@ export async function newCommand(argsIn: string[], io: Out = { out: console.log,
     else io.out(`made “${title}” ${placement.said}  ${note.id}`);
     // Made as written; a reference that leads nowhere is said after, with what it may have meant (PIE-761).
     for (const w of await savedReferenceWarnings(board, text, note.id)) io.err(`warning: ${describeReferenceWarning(w)}`);
+    for (const w of syntaxWarnings(text)) io.err(`warning: ${w.message}`);
     return 0;
   } catch (e) {
     const why = (e as Error).message;
