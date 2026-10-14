@@ -97,6 +97,17 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   return [...top, ...mid, ...(below.length ? pad0(room - mid.length) : []), ...below];
 }
 
+/**
+ * What the wheel at `x`, `y` (the host's cells) over a draft drawn by renderEditor scrolls (PIE-846): its preview when
+ * the pointer is over the preview, its text when over the text, else null (the host's own: the note around a comment).
+ */
+export function wheelTarget(d: Draft, x: number, y: number): "text" | "preview" | null {
+  const f = d.frame;
+  if (!f || x < f.col - 1 || x > f.col + f.cols) return null;
+  if (f.preview && d.preview && y >= f.preview.row && y < f.preview.row + f.preview.rows) return "preview";
+  return y >= f.row && y < f.row + f.rows ? "text" : null;
+}
+
 /** Empty rows, so the preview under the text stays put while the text is short. */
 const pad0 = (n: number) => Array.from({ length: Math.max(0, n) }, () => "");
 
@@ -116,8 +127,12 @@ function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: num
     shown = { text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !Array.isArray(r) && !!r.pending };
     previewCache.set(d, shown);
   }
-  const room = Math.max(0, h - 1), body = shown.body;
-  const at = d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * Math.max(0, body.length - room)) : 0;
+  const room = Math.max(0, h - 1), body = shown.body, last = Math.max(0, body.length - room);
+  // Where the wheel put it (PIE-846), while the text is as it was then; else the part around the cursor's line.
+  const scrolled = d.previewScroll?.text === text ? d.previewScroll.top : null;
+  if (scrolled === null) d.previewScroll = null;
+  const at = scrolled !== null ? Math.min(scrolled, last) : d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * last) : 0;
+  if (d.frame) d.frame.preview = { row, rows: h, top: at, total: body.length };
   if (d.frame) d.frame.links = shown.ranges.flatMap(r => {
     const target = shown.links[r.n];
     return target && r.line >= at && r.line < at + room ? [{ row: row + 1 + r.line - at, from: 1 + r.from, to: 1 + r.to, target }] : [];

@@ -169,7 +169,8 @@ export interface Pane {
    */
   nestsTiles?(): boolean;
   click?(x: number, y: number, desk: DeskApi): void;
-  wheel?(dir: 1 | -1, desk: DeskApi): void;
+  /** The wheel; `at`: where the pointer is, in the pane's cells. */
+  wheel?(dir: 1 | -1, desk: DeskApi, at?: { x: number; y: number }): void;
   select?(m: Msg | null, desk: DeskApi): void;
   reveal?(m: Msg, desk: DeskApi): void;
   onEvent?(desk: DeskApi): void;
@@ -550,7 +551,7 @@ export class ReaderPane implements Pane {
     return this.surface.key(k, this.host(desk));
   }
 
-  wheel(dir: 1 | -1, desk: DeskApi) { this.surface.wheel(dir, this.host(desk)); }
+  wheel(dir: 1 | -1, desk: DeskApi, at?: { x: number; y: number }) { this.surface.wheel(dir, this.host(desk), at); }
   /**
    * A click at `x`, `y` in the pane: a completion candidate is inserted, a link opens (where ⏎ on it
    * would, or through `open` when the host says otherwise), a property row is picked, a heading or a

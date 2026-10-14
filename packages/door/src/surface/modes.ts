@@ -35,8 +35,8 @@ export interface ReaderMode<H> extends Mode<H> {
   key(k: Key, host: H): boolean;
   /** A click at the surface's cell `x`, `y`: true or false when it was the mode's, undefined when reading has it. */
   click(x: number, y: number, host: H): boolean | undefined;
-  /** The wheel: true when the mode took it. */
-  wheel?(dir: 1 | -1, host: H): boolean;
+  /** The wheel, with where the pointer is in the surface's cells when the host knows: true when the mode took it. */
+  wheel?(dir: 1 | -1, host: H, at?: { x: number; y: number }): boolean;
   /** The button went down (`drag`: moved with it down) at `x`, `y`: true when the mode took it. */
   press?(x: number, y: number, host: H, drag: boolean): boolean;
   /** The rows it draws in place of the note (`covers`), or null. */
@@ -114,7 +114,7 @@ export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
     for (const m of this.all()) { const r = m.click(x, y, host); if (r !== undefined) return r; }
     return undefined;
   }
-  wheel(dir: 1 | -1, host: H): boolean { return this.all().some(m => !!m.wheel?.(dir, host)); }
+  wheel(dir: 1 | -1, host: H, at?: { x: number; y: number }): boolean { return this.all().some(m => !!m.wheel?.(dir, host, at)); }
   press(x: number, y: number, host: H, drag: boolean): boolean { return this.all().some(m => m.editing() && !!m.press?.(x, y, host, drag)); }
   /** What's drawn in place of the note, by the first mode that covers it. */
   rows(w: number, h: number, host: H | undefined): string[] | null {

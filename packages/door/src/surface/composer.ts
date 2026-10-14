@@ -78,7 +78,7 @@ export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number
   ];
   return {
     lines,
-    frame: frame && { ...frame, row: frame.row + 1, col: frame.col + 1, controls: frame.controls.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })), ...(frame.links ? { links: frame.links.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })) } : {}) },
+    frame: frame && { ...frame, row: frame.row + 1, col: frame.col + 1, controls: frame.controls.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })), ...(frame.links ? { links: frame.links.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })) } : {}), ...(frame.preview ? { preview: { ...frame.preview, row: frame.preview.row + 1 } } : {}) },
     popup: c?.drawn ? { ...c.drawn, row: c.drawn.row + 1 } : null,
     width: iw + 2,
   };
@@ -90,7 +90,7 @@ export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number
  */
 export function placeBox(d: Draft, box: ComposerBox, row: number, col: number) {
   const f = box.frame;
-  d.frame = f && { ...f, row: f.row + row, col: f.col + col, controls: f.controls.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })), ...(f.links ? { links: f.links.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })) } : {}) };
+  d.frame = f && { ...f, row: f.row + row, col: f.col + col, controls: f.controls.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })), ...(f.links ? { links: f.links.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })) } : {}), ...(f.preview ? { preview: { ...f.preview, row: f.preview.row + row } } : {}) };
   const c = completerOf(d);
   if (c) c.drawn = box.popup && { ...box.popup, row: box.popup.row + row };
 }

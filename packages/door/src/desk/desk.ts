@@ -5857,7 +5857,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const pane = this.panes.get(id);
       const at = this.local(id, r, k.x, k.y);
       if (pane?.mouse && pane.mouse(k, at.x, at.y, this)) return;
-      pane?.wheel?.(k.action === "wheel-up" ? -1 : 1, this);
+      pane?.wheel?.(k.action === "wheel-up" ? -1 : 1, this, at);
     }
   }
 }

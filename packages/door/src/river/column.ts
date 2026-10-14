@@ -638,7 +638,7 @@ export class RiverColumn extends ReaderPane {
       if (k.action === "down") { this.editDrag = true; this.surface.press(x, y, this.host(desk), !!((k.mods ?? 0) & 4)); }
       else if (k.action === "drag" && this.editDrag) this.surface.drag(x, y, this.host(desk));
       else if (k.action === "up" && this.editDrag) { this.editDrag = false; this.surface.release(x, y, this.host(desk)); }
-      else if (k.action === "wheel-up" || k.action === "wheel-down") this.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.host(desk));
+      else if (k.action === "wheel-up" || k.action === "wheel-down") this.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.host(desk), { x, y });
       desk.redraw();
       return true;
     }

@@ -318,6 +318,19 @@ export class CommentSession {
     return null;
   }
 
+  /**
+   * A comment on the whole note (PIE-846): no passage, the composer at the top of the note. A comment put aside on this
+   * note comes back in it, as under a passage.
+   */
+  writeNote(by: Actor = USER): string | null {
+    if (this.msg.revision === undefined) return "the outline didn't say which revision this note is at";
+    this.target = { kind: "note", blockId: this.msg.id, revision: this.msg.revision, ...(this.props ? { props: this.props } : {}) };
+    this.passage = null;
+    if (!this.writing) this.writing = this.open(by);
+    this.back = "threads"; this.mode = "compose"; this.error = null; this.stale = false;
+    return null;
+  }
+
   /** `r` on a thread: write a reply to it. */
   replyTo(i: number, by: Actor = USER): string | null {
     const t = this.threads[i];
@@ -399,7 +412,7 @@ export class CommentSession {
     const w = this.writing, t = this.target;
     if (!w || !t) return;
     this.env = env;
-    if (w.draft.text.trim()) { this.busy = t.kind === "quote" ? "sending the comment..." : t.kind === "reply" ? "sending the reply..." : "saving the edit..."; this.error = null; env.redraw(); }
+    if (w.draft.text.trim()) { this.busy = t.kind === "quote" || t.kind === "note" ? "sending the comment..." : t.kind === "reply" ? "sending the reply..." : "saving the edit..."; this.error = null; env.redraw(); }
     // A refusal is the adapter's to say (its error line, at once); one said on the draft itself (nothing typed) stays there.
     const r = await w.submit(env.actor ?? USER);
     if (!r.ok) this.busy = null;
@@ -413,10 +426,11 @@ export class CommentSession {
     this.mode = "threads"; this.busy = "loading the thread...";
     // From the reader: straight back to reading (the reader shows the reloaded thread there).
     if (this.fromReader) this.finished = true;
-    env.flash(r.deduplicated ? `already saved: the service returned the ${t.kind === "quote" ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "quote" ? "comment added" : "reply added");
+    const comment = t.kind !== "reply";
+    env.flash(r.deduplicated ? `already saved: the service returned the ${comment ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "note" ? "comment added on the whole note" : comment ? "comment added" : "reply added");
     this.threads = await env.reloadComments();
     this.busy = null;
-    const root = t.kind === "quote" ? r.id : t.thread.id;
+    const root = comment ? r.id : t.thread.id;
     this.sel = Math.max(0, this.threads.findIndex(x => x.id === root)); this.view.reveal();
     if (this.fromReader) env.posted?.(root);
     // A comment on a checklist step gives the step a stable id, which changes the note.
@@ -563,13 +577,13 @@ export class CommentSession {
     const status = (s: string, colour: number) => fg(colour) + s + RESET;
     const state = this.busy ? status(this.busy, C.grey) : this.error ? status(`! ${this.error}`, C.lred) : null;
     const kind = this.props?.kind === "question" ? "question" : this.props?.kind === "explain" ? "explain" : "comment";
-    const what = t.kind === "quote" ? kind : t.kind === "reply" ? `reply to ${authorName(t.thread.author)}` : `edit ${authorName(t.mark.author)}'s ${t.mark.reply ? "reply" : "comment"}`;
+    const what = t.kind === "quote" ? kind : t.kind === "note" ? `${kind} on the whole note` : t.kind === "reply" ? `reply to ${authorName(t.thread.author)}` : `edit ${authorName(t.mark.author)}'s ${t.mark.reply ? "reply" : "comment"}`;
     const away = this.place === "popup" || this.place === "split";
-    const quote = t.kind === "quote" ? t.passage.quote : t.thread.quote;
+    const quote = t.kind === "quote" ? t.passage.quote : t.kind === "note" ? "" : t.thread.quote;
     const context = away && quote ? wrap(quote.replace(/\s+/g, " "), w).slice(0, 2).map(l => fg(C.green) + " " + MARK + " " + l + RESET) : [];
     return {
       title: `${what} · ctrl+s saves · esc cancels`,
-      status: [state ?? status(d.note || this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words · ctrl+s saves · esc leaves it as it was") : d.dirty ? "unsent" : t.kind === "quote" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
+      status: [state ?? status(d.note || this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words · ctrl+s saves · esc leaves it as it was") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
       context, by: writtenBy(d, t.kind === "edit" ? "save" : "send"), preview, pick: true, follow: true, place: this.place,
     };
   }
@@ -641,6 +655,7 @@ export class CommentSession {
       mode: this.mode, blockId: this.msg.id, revision: this.msg.revision,
       quote: this.mode === "select" ? this.passage?.quote : this.target?.kind === "quote" ? this.target.passage.quote : undefined,
       replyTo: this.target?.kind === "reply" ? this.target.thread.id : undefined,
+      ...(this.target?.kind === "note" ? { whole: true } : {}),
       editing: this.target?.kind === "edit" ? this.target.mark.id : undefined,
       dirty: this.dirty, busy: this.busy, error: this.error, requestId: this.requestId, threads: this.threads.length,
       ...(this.mode === "compose" ? { place: this.place, ...(this.float ? { float: this.float } : {}), ...(this.composer ? { cursor: { line: this.composer.row + 1, col: this.composer.col + 1 } } : {}) } : {}),

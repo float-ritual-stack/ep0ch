@@ -1037,11 +1037,12 @@ export class SocketBoard implements Board {
    * when the note is no longer at `expectedRevision` or the quote isn't where `start` says. `requestId`
    * must be the same on a retry of the same comment: the service then returns the saved one.
    */
-  async comment(requestId: string, blockId: string, expectedRevision: number, body: string, passage: CommentPassage, actor: Actor = USER, properties?: AnnotationProps): Promise<CommentReceipt> {
+  /** A comment on `passage` of a note, or (null) on the whole note (PIE-846). */
+  async comment(requestId: string, blockId: string, expectedRevision: number, body: string, passage: CommentPassage | null, actor: Actor = USER, properties?: AnnotationProps): Promise<CommentReceipt> {
     const { source, ...who } = annotationAuthor(actor);
     const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.batch", {
       requestId, ...who,
-      operations: [{ operationId: "comment", type: "block-comment", input: { blockId, expectedRevision, body, source, passage, ...(properties ? { properties } : {}) } }],
+      operations: [{ operationId: "comment", type: "block-comment", input: { blockId, expectedRevision, body, source, ...(passage ? { passage } : {}), ...(properties ? { properties } : {}) } }],
     });
     return { id: r.annotations[0]!.block.id, deduplicated: r.deduplicated };
   }
@@ -1052,14 +1053,15 @@ export class SocketBoard implements Board {
    * is where the Resource's text begins in the note the passage was picked in (null: it isn't drawn as it is, so
    * the quote goes without an offset). Nothing is written to the Resource.
    */
-  async commentOnResource(requestId: string, resource: NonNullable<Msg["resource"]>, expectedRevision: number, body: string, passage: CommentPassage, actor: Actor = USER, properties?: AnnotationProps): Promise<CommentReceipt> {
+  async commentOnResource(requestId: string, resource: NonNullable<Msg["resource"]>, expectedRevision: number, body: string, passage: CommentPassage | null, actor: Actor = USER, properties?: AnnotationProps): Promise<CommentReceipt> {
     const { source, ...who } = annotationAuthor(actor);
-    const start = resource.sourceAt === null ? undefined : passage.start - resource.sourceAt;
+    const start = resource.sourceAt === null || !passage ? undefined : passage.start - resource.sourceAt;
     const r = await this.request<{ annotations: { block: { id: string } }[]; deduplicated: boolean }>("annotations.batch", {
       requestId, ...who,
       operations: [{ operationId: "comment", type: "resource-comment", input: {
         resourceId: resource.id, expectedRevision, body, source,
-        passage: { quote: passage.quote, ...(start !== undefined && start >= 0 ? { start } : {}) },
+        // None: on the whole of its text (PIE-846).
+        ...(passage ? { passage: { quote: passage.quote, ...(start !== undefined && start >= 0 ? { start } : {}) } } : {}),
         ...(resource.from ? { referenceBlockId: resource.from } : {}),
         ...(properties ? { properties } : {}),
       } }],
