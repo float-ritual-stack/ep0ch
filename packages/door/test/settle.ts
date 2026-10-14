@@ -10,7 +10,10 @@ export function watchHosts(busy: () => boolean = () => false) {
     for (let i = 0; i < 3; i++) await Bun.sleep(0);
     const end = Date.now() + 3000;
     while ((hostTraffic.waiting > 0 || busy()) && Date.now() < end) {
-      await Promise.race([hostTraffic.waiting > 0 ? hostsIdle() : Bun.sleep(10), Bun.sleep(Math.max(0, end - Date.now()))]);
+      // Woken by the last answer, or after 10 ms to look at busy() again; never past the end (one timer at a time).
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([...(hostTraffic.waiting > 0 ? [hostsIdle()] : []), new Promise<void>(r => { timer = setTimeout(r, Math.max(0, Math.min(end - Date.now(), hostTraffic.waiting > 0 ? 3000 : 10))); })]);
+      clearTimeout(timer);
       await Bun.sleep(0);
     }
     for (let i = 0; i < 3; i++) await Bun.sleep(0);

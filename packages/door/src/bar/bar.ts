@@ -34,7 +34,7 @@ export interface BarItem { source: BarSource; row: BarRow; heading?: string }
  * probes set 0: they wait for every ask to be answered before the next key, and 150 ms on each typed key was most of
  * their time in the bar).
  */
-const askMs = () => { const v = process.env.EP0CH_BAR_ASK_MS?.trim(); return v && Number(v) >= 0 ? Number(v) : 150; };
+const askMs = () => { const v = Number(process.env.EP0CH_BAR_ASK_MS?.trim() || NaN); return Number.isFinite(v) && v >= 0 && v <= 10_000 ? v : 150; };
 /** Below this many columns the bar draws no preview. */
 export const PREVIEW_COLS = 90;
 

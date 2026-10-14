@@ -60,16 +60,21 @@ jobs:
           # A run that hangs (a worker spinning after its tests, seen twice in October: the job ran into its 15 minutes
           # and said nothing) is stopped at 12 minutes, after scripts/ci-hang-report.sh has written what each process was
           # doing (its stacks) to the log and the hang-report artifact.
-          bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" & run=$!
-          hang="$RUNNER_TEMP/hang-${{ matrix.pkg }}.txt"
+          # The run is a process group of its own (setsid), so stopping it stops what it started too.
+          setsid bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" & run=$!
+          hung="$RUNNER_TEMP/hung-${{ matrix.pkg }}"; hang="$RUNNER_TEMP/hang-${{ matrix.pkg }}.txt"
           ( sleep 720; kill -0 $run 2>/dev/null || exit 0
-            bash ../../scripts/ci-hang-report.sh $run > "$hang" 2>&1
-            kill $run; sleep 15; kill -9 $run 2>/dev/null ) & watchdog=$!
+            touch "$hung"
+            timeout 150 bash ../../scripts/ci-hang-report.sh $run > "$hang" 2>&1 || true
+            kill -- -$run 2>/dev/null; sleep 15; kill -9 -- -$run 2>/dev/null; true ) & watchdog=$!
           code=0; wait $run || code=$?
-          kill $watchdog 2>/dev/null || true
-          if [ -s "$hang" ]; then
+          if [ -e "$hung" ]; then
+            wait $watchdog 2>/dev/null || true
             echo "::error title=Test run hung::bun test (${{ matrix.pkg }}) didn't finish in 12 minutes (a full run takes about 8): what it was doing is below and in the hang-report artifact"
-            cat "$hang"
+            cat "$hang" 2>/dev/null || true
+            [ $code = 0 ] && code=1
+          else
+            kill $watchdog 2>/dev/null || true
           fi
           exit $code
       # Which kind of red: each file with a failed test runs again alone, and the summary and annotations say, test by
