@@ -34,8 +34,8 @@ export function installCrashLog(client: string, restore: () => void): void {
     crashing = true;
     try { restore(); } catch { /* the terminal is already going */ }
     const path = recordCrash(client, error);
-    const first = (error instanceof Error ? error.message : String(error)).split("\n")[0];
-    console.error(`${client} crashed: ${first}\n${path ? `Details: ${path}` : "No host folder to keep a crash log in; the stack follows."}${path ? "" : `\n${error instanceof Error ? error.stack : ""}`}`);
+    const first = redactSecrets(error instanceof Error ? error.message : String(error)).split("\n")[0];
+    console.error(`${client} crashed: ${first}\n${path ? `Details: ${path}` : "No host folder to keep a crash log in; the stack follows."}${path ? "" : `\n${redactSecrets(error instanceof Error ? error.stack ?? "" : "")}`}`);
     process.exit(1);
   };
   process.on("uncaughtException", crash);

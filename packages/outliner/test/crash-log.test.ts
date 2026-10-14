@@ -34,6 +34,7 @@ test("a Detail crash restores the terminal, keeps its stack in the host folder a
   expect(log).toContain("rendering exploded");
   expect(log).toContain("client.ts");
   expect(log).not.toContain("not-a-real-credential-12345");
+  expect(stderr).not.toContain("not-a-real-credential-12345");
   expect(stderr).toContain(`Details: ${join(directory, ".host", "detail-crash.log")}`);
 });
 
