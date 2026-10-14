@@ -76,8 +76,6 @@ export async function findWelcome(board: SocketBoard): Promise<{ notes: Msg[]; v
 
 /** The digit for the note at place `i` (from 0): 1…9, then 0 for the tenth; none after that. */
 export const tabKey = (i: number): string | null => (i < 9 ? String(i + 1) : i === 9 ? "0" : null);
-/** The place a digit picks. */
-export const placeOfKey = (d: string): number => (d === "0" ? 9 : Number(d) - 1);
 
 // ── the logo ────────────────────────────────────────────────────────────────────────────────────────────
 

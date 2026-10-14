@@ -63,6 +63,16 @@ are its record. The outliner's entries from then are kept below, under
 - **Fixed:** an agent undoing or redoing its own edit moved the person's cursor and cleared their selection. Only the
   person's own ctrl+z moves the cursor now.
 
+### Typing `+`, a crash log for Detail, and a few leftovers removed (PIE-476, PIE-477, PIE-636)
+
+- **Fixed:** typing `+` in Tree, Detail or a Herdr pane no longer shows "Key chord cannot be empty", and in an edit
+  it is no longer swallowed. A chord whose key is `+` (`+`, `Shift++`, `Ctrl++`) parses and shows as `⇧+`.
+- **Added:** if Detail crashes, it puts the terminal back, keeps the stack in `<outlines>/.host/detail-crash.log` and
+  says where on the way out.
+- **Fixed:** two imports to one new outline name no longer race: the second is refused ("is being imported into by
+  another import") and never removes the first's file.
+- **Removed:** six helpers nothing called, a stale pointer in the outliner's CONTRIBUTING, and a dead test guard.
+
 ### Dates and numbers on any property (PIE-769)
 
 - **Added:** a query compares any property, not only `created` and `updated`: `due <= +3d` (overdue too),

@@ -1,4 +1,5 @@
 import type { RestoredBlock } from "@ep0ch/outline-core/protocol";
+import { installCrashLog } from "./crash-log";
 import type { FragmentCandidateCollection } from "./fragment-search";
 import {captureAnnotationPassage} from "./document-annotation";
 import {loadDetailDraftPreview} from './detail-read-preview';
@@ -1994,6 +1995,9 @@ try {
   console.error(errorMessage(error));
   process.exit(1);
 }
+
+// A crash (PIE-477) puts the terminal back and keeps its stack in <outlines>/.host/detail-crash.log.
+installCrashLog("detail", () => tui.stop({ preserveScreen: true }));
 
 process.on("SIGINT", () => {
   if (!externalEditorActive) void stop();

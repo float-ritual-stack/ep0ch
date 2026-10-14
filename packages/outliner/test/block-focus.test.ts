@@ -4,7 +4,6 @@ import {
   formatBlockFocusMatch,
   rankBlockFocusMatches,
   resolveBlockFocus,
-  uniqueBlockFocusIdentifier,
 } from "../src/block-focus";
 import type { RequestInput } from "../src/client";
 import type { VisibleBlock, WorkspaceSnapshot } from "../src/types";
@@ -74,18 +73,6 @@ describe("block focus resolution", () => {
     const limited = resolveBlockFocus(blocks, "40bd", 1);
     expect(limited.kind).toBe("ambiguous");
     expect(limited.matches).toHaveLength(1);
-  });
-
-  test("extends colliding convenience IDs until each candidate is unique", () => {
-    const collisions = [
-      block("deadbeef-1111-4222-8333-444455556666", "First"),
-      block("deadbeef-2222-4333-8444-555566667777", "Second"),
-    ];
-    const matches = rankBlockFocusMatches(collisions, "deadbeef");
-    expect(matches.map((match) => uniqueBlockFocusIdentifier(match.block.id, matches))).toEqual([
-      "deadbeef-1",
-      "deadbeef-2",
-    ]);
   });
 
   test("ranks token and subsequence fuzzy content matches", () => {

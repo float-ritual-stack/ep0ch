@@ -342,6 +342,25 @@ test("import makes a new outline with the blocks, properties, page addresses and
   expect(existsSync(target)).toBe(true);
 });
 
+test("two imports to one name: the one that finds it claimed is refused and touches nothing; a finished import leaves no claim (PIE-636)", () => {
+  const root = directory();
+  const source = join(root, "old.sqlite");
+  const target = join(root, "new.sqlite");
+  new OutlinerStore(source).close();
+  // Another import is under way: it holds the claim, and the file it is filling is not ours to touch or remove.
+  const claim = `${target}.import-claim`;
+  writeFileSync(claim, "");
+  writeFileSync(target, "half-filled by the other import");
+  expect(() => importOutline(source, target)).toThrow("being imported");
+  expect(readFileSync(target, "utf8")).toBe("half-filled by the other import");
+  expect(existsSync(claim)).toBe(true);
+  rmSync(target);
+  rmSync(claim);
+  importOutline(source, target);
+  expect(existsSync(claim)).toBe(false);
+  expect(userVersion(target)).toBe(SCHEMA_VERSION);
+});
+
 describe("the refusal says the exact commands for this machine (PIE-617)", () => {
   const SCRIPT = join(import.meta.dir, "../scripts/migrations/0005-extension-providers.ts");
   const at = (folder: string, name: string, version: number) => {

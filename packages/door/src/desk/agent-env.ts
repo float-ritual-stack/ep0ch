@@ -78,11 +78,6 @@ export function withContinue(cmd: string[]): string[] {
   if (basename(cmd[0] ?? "") !== "claude" || cmd.slice(1).some(a => CONTINUES.has(a) || a.startsWith("--resume="))) return cmd;
   return [...cmd, "--continue"];
 }
-/** The same for a command line a shell runs (the Herdr launcher's `exec <cmd>`). */
-export function lineWithContinue(line: string): string {
-  const words = line.trim().split(/\s+/);
-  return withContinue(words).length > words.length ? `${line.trim()} --continue` : line;
-}
 
 // ── the agent process ──
 

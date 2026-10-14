@@ -101,6 +101,23 @@ describe("Outliner action keymap", () => {
     expect(actionChordForInput("", { name: "return" })).toBe("Enter");
     expect(() => normalizeActionChord("Ctrl+Banana")).toThrow("Unsupported key name: Banana");
   });
+  test("a chord whose key is + parses, and typing + resolves to no action instead of throwing (PIE-476)", () => {
+    expect(normalizeActionChord("+")).toBe("+");
+    expect(normalizeActionChord("Shift++")).toBe("Shift++");
+    expect(normalizeActionChord("control++")).toBe("Ctrl++");
+    expect(normalizeActionChord("Ctrl+Shift++")).toBe("Ctrl+Shift++");
+    expect(normalizeActionChord("Ctrl+a")).toBe("Ctrl+A");
+    expect(actionChordForInput("+", { name: "+" })).toBe("+");
+    expect(actionChordForInput("+", { name: "=", shift: true })).toBe("Shift++");
+    expect(actionChordForInput("+", { name: "+", shift: true })).toBe("Shift++");
+    expect(displayActionChord("Shift++")).toBe("⇧+");
+    const keymap = new OutlinerActionKeymap("<test>");
+    for (const surface of ["tree", "detail"] as const) {
+      expect(keymap.resolve(surface, "browse", "+", { name: "+" }).actionId).toBeNull();
+      expect(keymap.resolve(surface, "browse", "+", { name: "+", shift: true }).actionId).toBeNull();
+    }
+    expect(keymap.canonicalize("tree", "browse", "+", { name: "+" })).toMatchObject({ actionId: null, str: "+" });
+  });
   test("renders compact terminal glyphs without changing canonical chords", () => {
     expect(displayActionChord("Ctrl+Shift+ArrowDown")).toBe("⌃⇧↓");
     expect(displayActionChord("Command+Option+ArrowUp")).toBe("⌘⌥↑");

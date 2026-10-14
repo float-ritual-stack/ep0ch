@@ -69,14 +69,14 @@ test("the bounded persistent readline probe reports decoded keys and releases it
   inspector.dispose();
 });
 
-test("a decoder or chord error remains inspectable instead of escaping into the app", () => {
+test("typing + is a key like any other: inspected with no parser error (PIE-476)", () => {
   const inspector = new KeyInspector();
   inspector.open();
   expect(inspector.handle("+")).toBe(true);
   const text = inspector.render(200, 30).join("\n");
   expect(text).toContain('Text: "+"');
   expect(text).toContain("Hex: 2b");
-  expect(text).toContain("parser error:");
+  expect(text).not.toContain("parser error:");
   expect(inspector.active).toBe(true);
   inspector.dispose();
 });

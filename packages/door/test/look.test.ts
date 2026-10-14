@@ -290,13 +290,17 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       const asked: string[] = [];
       const request = board.request.bind(board);
       (board as any).request = (action: string, params: any) => { asked.push(action); return request(action, params); };
+      const said: string[] = [], flash = (d.desk as any).ctx.flash;
+      (d.desk as any).ctx.flash = (m: string, ...rest: unknown[]) => { said.push(m); return flash.call((d.desk as any).ctx, m, ...rest); };
       try {
         const r = await d.app.act({ action: "tune.nudge", args: { row: "list.gap", by: 1 }, tile: "tune", as: "look-agent" }) as any;
         expect(r).toMatchObject({ value: "2", at: "screen detail" });
+        // One flash, the dispatcher's, and it keeps "s saves".
+        expect(said.filter(m => m.includes("list.gap"))).toEqual([expect.stringContaining("s saves")]);
         // The very next frame has it.
         expect(d.where("Turn the left").y - d.where("Net the brassicas").y).toBe(gapBefore + 1);
         expect(asked.filter(a => a !== "ping" && a !== "clients.heartbeat")).toEqual([]);
-      } finally { (board as any).request = request; }
+      } finally { (board as any).request = request; (d.desk as any).ctx.flash = flash; }
       // Unsaved, it says so; the door's quit says so too.
       expect(tuningOf(board).unsavedCount()).toBe(1);
       expect((d.app as any).confirmQuit()).toBe(false);

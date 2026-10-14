@@ -1,4 +1,6 @@
-import {captureHistoryResource} from '../src/capture-history';
+import {CAPTURE_HISTORY_PRODUCER} from '../src/capture-history';
+import type {ResourceCatalog} from '../src/resource-catalog';
+import type {Database} from 'bun:sqlite';
 import type {OutlinerStore} from '../src/store';
 import type {Block} from '../src/types';
 
@@ -18,4 +20,12 @@ export function rewriteWithOriginal(store:OutlinerStore,block:Block,attemptId:st
   const resourceId=captureHistoryResource(store.database,store.resources,attemptId,block.id);
   const [title,...rest]=text.split('\n');
   return {block:store.update(block.id,[`${title} [${key}::${resourceId}]`,...rest].join('\n'),block.revision),resourceId};
+}
+
+/** Resource identity is shared by every output that cites the same before-image. */
+export function captureHistoryResource(database:Database,catalog:ResourceCatalog,attemptId:string,blockId:string):string {
+  const existing=database.query("SELECT resource_id FROM computed_invocations WHERE producer_id=? AND json_extract(inputs_json,'$.attemptId')=? AND json_extract(inputs_json,'$.blockId')=? ORDER BY created_at,id LIMIT 1").get(CAPTURE_HISTORY_PRODUCER,attemptId,blockId) as {resource_id:string}|null;
+  if(existing)return existing.resource_id;
+  const source=catalog.listSources().find(source=>source.provider==="computed"&&source.boundary.registry==="outliner.capture-history")??catalog.createSource({name:"Capture history",provider:"computed",boundary:{registry:"outliner.capture-history",allowedPermissions:["inbox.history.read"]}});
+  return catalog.createComputedInvocation({sourceId:source.id,producerId:CAPTURE_HISTORY_PRODUCER,inputs:{attemptId,blockId},dependencies:[]}).resourceId;
 }
