@@ -229,7 +229,7 @@ export class PowerBar {
       try { const row = s.named!(q, this.host); return row ? [{ source: s, row: { ...row, exact: true }, heading: s.title }] : []; } catch { return []; }
     }) : [];
     this.items = [...guests, ...out];
-    const at = keep ? out.findIndex(it => `${it.source.id}\0${it.row.key}` === keep) : -1;
+    const at = keep ? this.items.findIndex(it => `${it.source.id}\0${it.row.key}` === keep) : -1;
     this.picker.sel = at >= 0 ? at : 0;
     this.litKey = keep;
   }

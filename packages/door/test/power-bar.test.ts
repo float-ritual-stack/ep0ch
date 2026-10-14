@@ -252,6 +252,15 @@ describe.skipIf(!outliner)("the power bar", () => {
     const tiles = (desk as any).all().length;
     key({ kind: "enter" });
     await until(() => (desk as any).all().length === tiles + 1, "the query tile opened from the notes scope", 5000);
+    // A row the person moved to stays lit as the rows come again, below the line's row.
+    key(ctrlK); type('/tile.open kind=query query="#seed-list"');
+    await (app as any).bar.settled();
+    key({ kind: "down" });
+    const lit = peek().bar.rows[peek().bar.selected - 1];
+    expect(lit.source).toBe("notes");
+    (app as any).bar.refresh(true);
+    expect(peek().bar.rows[peek().bar.selected - 1]).toMatchObject({ source: "notes", key: lit.key });
+    key({ kind: "esc" });
     // Only the line: words in the tiles scope list no actions.
     key(ctrlK); type("%theme.cycle");
     expect(peek().bar.rows.some((r: any) => r.source === "actions")).toBe(false);
