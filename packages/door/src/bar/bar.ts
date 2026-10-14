@@ -223,8 +223,13 @@ export class PowerBar {
         out.push({ source: s, row, ...(head ? { heading: head } : {}) });
       });
     }
-    this.items = out;
-    const at = keep ? out.findIndex(it => `${it.source.id}\0${it.row.key}` === keep) : -1;
+    // In another source's scope (never an answer's, `alone`), the row a source names outright comes first: a typed action line runs from anywhere.
+    const scoped = this.scope ? barSource(this.scope) : undefined, q = this.query.trim();
+    const guests = scoped && !scoped.alone && q ? barSources().filter(s => s !== scoped && s.named).flatMap((s): BarItem[] => {
+      try { const row = s.named!(q, this.host); return row ? [{ source: s, row: { ...row, exact: true }, heading: s.title }] : []; } catch { return []; }
+    }) : [];
+    this.items = [...guests, ...out];
+    const at = keep ? this.items.findIndex(it => `${it.source.id}\0${it.row.key}` === keep) : -1;
     this.picker.sel = at >= 0 ? at : 0;
     this.litKey = keep;
   }

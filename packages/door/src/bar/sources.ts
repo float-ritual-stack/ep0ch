@@ -223,6 +223,7 @@ const ACTIONS: BarSource = {
     const line = actionLine(q, host);
     return line ? [line, ...found] : found;
   },
+  named: (q, host) => actionLine(q, host),
   preview(row, host) {
     const d = row.data as { action: string; summary?: string; keys?: string };
     const info = host.dispatch.list().actions.find(a => a.name === d.action);
