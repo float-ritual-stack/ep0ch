@@ -1,6 +1,6 @@
 // The media line's grammar is shared (PIE-598): the service's property parser and every client agree on it.
 import { expect, test } from "bun:test";
-import { artifactKind, artifactTitle, imageSource, isMediaLine, parseMediaLine } from "../src/media-line";
+import { artifactKind, artifactTitle, imagePrimitiveSpec, imageSource, isMediaLine, parseMediaLine } from "../src/media-line";
 
 test("a media line is an image or video reference and its layout, nothing else", () => {
   expect(isMediaLine("[img::/p/beds.jpg] [hero-focus::0.8,0.6] [alt::the beds]")).toBe(true);
@@ -33,4 +33,8 @@ test("an image primitive's file: ref is read as a Resource ref is: absolute, or 
   expect(imageSource("file:/srv/garden/beds.png")).toBe("/srv/garden/beds.png");
   expect(imageSource("file:media/beds.png")).toBe("");
   expect(imageSource("file:/srv/garden/be\u0007ds.png")).toBe("");
+});
+
+test("an image primitive whose file: ref can't be read says so on its caption", () => {
+  expect(imagePrimitiveSpec({ src: "file:media/beds.png" }).problems).toEqual(["file:media/beds.png isn't a file: ref this can read (file:/absolute/path)"]);
 });

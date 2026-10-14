@@ -145,6 +145,7 @@ export function imageSource(src: string): string {
  */
 export function imagePrimitiveSpec(node: ImagePrimitive): MediaSpec {
   const spec: MediaSpec = { kind: "img", path: imageSource(node.src), problems: [] };
+  if (!spec.path) spec.problems.push(`${node.src} isn't a file: ref this can read (file:/absolute/path)`);
   if (node.size !== undefined) {
     const size = parseSize(String(node.size));
     if (size) spec.size = size; else spec.problems.push(`size ${node.size} isn't a size (cells, N% or full)`);
