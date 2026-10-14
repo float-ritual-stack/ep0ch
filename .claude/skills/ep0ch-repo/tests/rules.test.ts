@@ -99,6 +99,8 @@ describe('which rules a command touches', () => {
     expect(names('cd packages/door/src && cat ./home.ts')).toEqual(['door.md', 'outlines-by-name.md'])
     expect(names('cat home.ts', `${ROOT}/packages/door/src`)).toEqual(['door.md', 'outlines-by-name.md'])
     expect(names('cd packages && bun test outline-core/test/x.test.ts')).toEqual(['outline-core.md'])
+    // Each reading of the command follows its cd once: never packages/door/src/src.
+    expect(pathsIn('cd src && cat home.ts', `${ROOT}/packages/door`, ROOT)).not.toContain('packages/door/src/src/home.ts')
     // From packages/outliner, packages/door/x.ts is packages/outliner/packages/door/x.ts: not the door.
     expect(names('cat packages/door/x.ts', `${ROOT}/packages/outliner`)).toEqual(['outliner.md'])
   })

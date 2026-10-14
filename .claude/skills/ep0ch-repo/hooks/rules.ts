@@ -55,37 +55,41 @@ function normal(path: string): string {
  */
 export function pathsIn(command: string, cwd: string, root: string): string[] {
   const rel = (abs: string) => abs === root ? '' : abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : null
-  let here = rel(cwd)
+  const start = rel(cwd)
   const paths = new Set<string>()
   const at = (folder: string | null) => { if (folder) paths.add(normal(folder)) }
-  at(here)
-  // The wrappers' own words too (`scripts/agent-env … --` is a path), and what they run (`bash -c '…'`).
-  for (const words of [...simpleCommands(command, { unwrap: false }), ...simpleCommands(command)]) {
-    // `cd <dir> && …`: what follows runs there.
-    if (words[0] === 'cd' && words[1] && !words[1].startsWith('-')) {
-      const to = words[1].replace(/^~(?=\/)/, '/~')
-      here = to.startsWith('/') ? rel(normal(to) ? `/${normal(to)}` : '/') : normal(`${here ?? ''}/${to}`)
-      at(here)
-      continue
-    }
-    for (const word of words) {
-      // A path, or a file name in the folder the command runs in (`cat home.ts` in packages/door/src).
-      const isFile = /^[\w.-]+\.[A-Za-z0-9]+$/.test(word)
-      if (!word.includes('/') && !isFile) continue
-      if (/^[a-z]+:\/\//.test(word)) continue
-      const w = word.replace(/^~(?=\/)/, '/~')
-      if (w.startsWith('/')) {
-        const abs = `/${normal(w)}`
-        const inside = rel(abs)
-        if (inside !== null) { at(inside); continue }
-        // Each tail of an absolute path elsewhere: /x/ep0ch/packages/door/… is tried as packages/door/… too.
-        const parts = abs.split('/').filter(Boolean)
-        for (let i = 1; i < parts.length; i++) paths.add(parts.slice(i).join('/'))
-      } else if (here !== null) {
-        at(`${here}/${w}`)
-      } else if (!isFile) {
-        // The shell is outside this checkout: a relative path is read from its root.
-        at(w)
+  at(start)
+  // Read twice: with the wrappers' own words (`scripts/agent-env … --` is a path), and with what they run
+  // (`bash -c '…'`). Each reading starts from the shell's folder, so a `cd` is followed once per reading.
+  for (const reading of [simpleCommands(command, { unwrap: false }), simpleCommands(command)]) {
+    let here = start
+    for (const words of reading) {
+      // `cd <dir> && …`: what follows runs there.
+      if (words[0] === 'cd' && words[1] && !words[1].startsWith('-')) {
+        const to = words[1].replace(/^~(?=\/)/, '/~')
+        here = to.startsWith('/') ? rel(normal(to) ? `/${normal(to)}` : '/') : normal(`${here ?? ''}/${to}`)
+        at(here)
+        continue
+      }
+      for (const word of words) {
+        // A path, or a file name in the folder the command runs in (`cat home.ts` in packages/door/src).
+        const isFile = /^[\w.-]+\.[A-Za-z0-9]+$/.test(word)
+        if (!word.includes('/') && !isFile) continue
+        if (/^[a-z]+:\/\//.test(word)) continue
+        const w = word.replace(/^~(?=\/)/, '/~')
+        if (w.startsWith('/')) {
+          const abs = `/${normal(w)}`
+          const inside = rel(abs)
+          if (inside !== null) { at(inside); continue }
+          // Each tail of an absolute path elsewhere: /x/ep0ch/packages/door/… is tried as packages/door/… too.
+          const parts = abs.split('/').filter(Boolean)
+          for (let i = 1; i < parts.length; i++) paths.add(parts.slice(i).join('/'))
+        } else if (here !== null) {
+          at(`${here}/${w}`)
+        } else if (!isFile) {
+          // The shell is outside this checkout: a relative path is read from its root.
+          at(w)
+        }
       }
     }
   }
