@@ -194,7 +194,7 @@ function narrowRows(all: readonly LinkRow[], o: Readonly<BacklinkViewOptions>, f
     const w = linkWords(row), f = rowFacets(row);
     if (!matchesSearchText(filter, [w.text, w.context, f?.kindLabel ?? "", ...(f?.stage ? [f.stage.value] : [])])) continue;
     if (o.kind !== null && f?.kind !== o.kind) continue;
-    if (!stageMatches(f?.stage, o.stage)) continue;
+    if (!stageMatches(f?.stage, o.stage, o.stages ?? null)) continue;
     rows.push(row);
   }
   const dir = o.sortDirection === "asc" ? 1 : -1, field = o.sortField;
@@ -255,7 +255,7 @@ export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>, onl
     for (const c of d.value) note(c.facets);
   }
   const sum = (f: (x: { matching: number; total: number; filtered: number }) => number) => Object.values(by).reduce<number>((n, x) => n + (x ? f(x) : 0), 0);
-  return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })), stages: orderStageValues(stages.values()) };
+  return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })), stages: orderStageValues(stages.values(), o.stages ?? null) };
 }
 
 /** The block a row stands for: a resolved outlink's target, a backlink's source (a ticket's block is `linkOpens`'). */
@@ -318,14 +318,14 @@ export function linkRowLine(r: LinkRow, o: { cols: number; selected?: boolean; f
   return pad(`${fg(C.lcyan)}${head}${fg(colour)}${shown}${fg(C.dark)}${inks ? " " + inks : tail}`, o.cols) + RESET;
 }
 
-/** Each family's ink for its values on a group's header: waiting yellow, draft grey, active cyan, done green; unplaced dim. */
+/** Each family's ink for its values on a group's header: waiting yellow, draft grey, active cyan, done green; a value with no family neutral. */
 const FAMILY_INK: Record<BacklinkStageBucket, number> = { waiting: C.yellow, draft: C.grey, active: C.lcyan, done: C.green };
 /** `context` (the header's words, "(1 open · 2 answered) · 2 more") with each value's count and name in its family's ink. */
 function familyInks(group: BacklinkViewGroup, context: string): string {
   let out = context;
   for (const v of group.stageValues) {
     const words = `${v.count} ${v.value}`;
-    out = out.replace(new RegExp(`(^|[( ])${words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[ )·]|$)`), (_m, pre: string) => `${pre}${fg(v.bucket ? FAMILY_INK[v.bucket] : C.dark)}${words}${fg(C.dark)}`);
+    out = out.replace(new RegExp(`(^|[( ])${words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[ )·]|$)`), (_m, pre: string) => `${pre}${fg(v.bucket ? FAMILY_INK[v.bucket] : C.grey)}${words}${fg(C.dark)}`);
   }
   return out;
 }
@@ -552,7 +552,7 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const ui = blocks?.ui?.(key), typing = ui?.typing ?? null, entered = !!ui?.entered;
   const filter = [spec.filter, typing ?? ""].filter(Boolean).join(" ");
   const kinds = data.backlinks.kind === "ready" ? new Set(backlinkView(data.backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
-  const rows = linkRows(data, { shut: new Set(), kinds, backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, filter }, only: new Set(groups) });
+  const rows = linkRows(data, { shut: new Set(), kinds, backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, filter, ...(spec.stages ? { stages: spec.stages } : {}) }, only: new Set(groups) });
   // One group alone: its header is the frame's title, so its entries stand one level up.
   const alone = groups.length === 1;
   const shown = alone ? rows.filter(r => r.kind !== "group") : rows;

@@ -80,6 +80,8 @@ export interface TileSpec {
   groups?: "open";
   /** The link groups a backlinks tile lists (PIE-693), comma-separated (`children`: the thread tile's replies); left out, every group. */
   linkGroups?: string;
+  /** A links tile's stage values, in order (`next,doing,waiting`, PIE-819): what its headers and Stage control name. */
+  stages?: string;
   /** A links tile's subject (PIE-794): `held` (the default) keeps the note it lists until `b`; `follows` lists what its home shows. */
   subject?: "held" | "follows";
 }

@@ -710,7 +710,12 @@ export function detailBacklinkRegions(
 
 /** " (1 open · 2 answered)": each stage value as the notes write it (PIE-819), families in order; "" without stages. */
 function backlinkStageSummary(group: BacklinkViewGroup): string {
-  const parts = group.stageValues.map((v) => `${v.count} ${v.value}`);
+  const named = group.stageValues.filter((v) => !v.other), other = group.stageValues.filter((v) => v.other);
+  // The values a list's `stages=` doesn't name: said once, as "other: parked 1, told 2" (PIE-819), never hidden.
+  const parts = [
+    ...named.map((v) => `${v.count} ${v.value}`),
+    ...(other.length ? [`other: ${other.map((v) => `${v.value} ${v.count}`).join(", ")}`] : []),
+  ];
   return parts.length ? ` (${parts.join(" · ")})` : "";
 }
 

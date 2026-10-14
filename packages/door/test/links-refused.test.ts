@@ -10,7 +10,7 @@ afterEach(() => setLinksSource(null, () => {}));
 test("a refused query is named, wrapped whole and carries the fix", async () => {
   // The matches are a watched blocks.query (src/watched.ts): the service refuses it.
   setLinksSource({ request: () => Promise.reject(new Error(refusal)) } as any, () => {});
-  const spec = { kind: "links", of: null, filter: "", title: "Not letters", groups: null, query: "type!=letter", preview: "right" } as const;
+  const spec = { kind: "links", of: null, filter: "", title: "Not letters", groups: null, query: "type!=letter", preview: "right", stages: null } as const;
   const draw = () => renderLinkBlock({ ...spec }, undefined, 40, frame).map(strip);
   draw();
   await Bun.sleep(20);

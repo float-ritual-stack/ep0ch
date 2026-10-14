@@ -175,7 +175,7 @@ export class BacklinksPane implements Pane {
     return `${word} · ${subject(this.target).slice(0, 50)}${n}`;
   }
   hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.source} · alt+⏎ new detail · b ${this.follows ? "aim" : "re-aim"} at ${this.source}'s note · . fold · s K w h n view · v groups`; }
-  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const }; }
+  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
 
   /**
    * List these groups (at least one), in the model's order; the selection stays on its row where it still shows.
@@ -530,7 +530,8 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       id: { type: "string", optional: true, about: "the note whose backlinks to read; default the tile's" },
       filter: { type: "string", optional: true, about: "text to match, as / filters" },
       kind: { type: "string", optional: true, about: "one kind (its key or label), or all" },
-      stage: { type: "string", optional: true, about: "all, open, waiting, draft, active or done" },
+      stage: { type: "string", optional: true, about: "all, open, a family (waiting, draft, active, done), a value as the notes write it (answered), or other (a value stages= doesn't name)" },
+      stages: { type: "string", optional: true, about: "the stage values the list names, in order (next,doing,waiting): its headers and Stage control use them, other values are said as other, never hidden; all clears it. Saved with the layout" },
       resolved: { type: "boolean", optional: true, about: "show resolved comments" },
       related: { type: "boolean", optional: true, about: "show this note and its descendants" },
       sort: { type: "string", optional: true, about: "updated, created or title, optionally -asc or -desc" },
@@ -669,7 +670,8 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
     args: {
       filter: { type: "string", optional: true, about: "text to match, as / filters (empty clears)" },
       kind: { type: "string", optional: true, about: "a kind or its label, or all" },
-      stage: { type: "string", optional: true, about: "all, open, waiting, draft, active or done" },
+      stage: { type: "string", optional: true, about: "all, open, a family (waiting, draft, active, done), a value as the notes write it (answered), or other (a value stages= doesn't name)" },
+      stages: { type: "string", optional: true, about: "the stage values the list names, in order (next,doing,waiting): its headers and Stage control use them, other values are said as other, never hidden; all clears it. Saved with the layout" },
       resolved: { type: "boolean", optional: true, about: "show resolved comments" },
       related: { type: "boolean", optional: true, about: "show this note and its descendants" },
       sort: { type: "string", optional: true, about: "updated, created or title, optionally -asc or -desc" },

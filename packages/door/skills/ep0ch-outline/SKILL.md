@@ -196,7 +196,9 @@ one.
   `work-stage::` value as the notes write it (`2 answered`) and colour it by family (waiting, draft, active, done). The
   built-in list places the usual words; for any other, write a rule note: `answered, fixed, shipped
   [status-family::done]` (families: waiting, draft, active or `open`, done or `decided`/`never`). Nothing needs a code
-  change, and a later note moves a value again.
+  change, and a later note moves a value again. The defaults place next, doing, waiting, parked (waiting) and done. A list
+  shows only the values its own rows carry; `stages: [next, doing, waiting]` on a `::backlinks` (or `stages=` on a links
+  tile) names which, in that order, and rows with any other value stay listed, said as `other: parked 1`.
 
 ## Pages, welcome and the briefing
 

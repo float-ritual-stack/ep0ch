@@ -3,12 +3,15 @@
 // outliner's own functions over fictional sources and every option, then drive the board's dock against
 // a scratch service: the defaults, filter and sort, and the toggles by key, click and act.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { linkAcross } from "../src/links";
+import { tileKind } from "../src/desk/tile-kinds";
+import type { BacklinksPane } from "../src/desk/backlinks-pane";
 import { join } from "node:path";
 import { App } from "../src/app";
 import {
   backlinkGroupRows, backlinkOptionsFrom, backlinkRows, backlinkRowSuffix, backlinkGroupHidden, backlinkStageSummary, backlinkStatusParts, backlinkView,
   BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort,
-  nextBacklinkStageFilter, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkSourceFacets, type BacklinkView, type BacklinkViewOptions,
+  nextBacklinkStageFilter, stagesFrom, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkSourceFacets, type BacklinkView, type BacklinkViewOptions,
 } from "../src/backlinks";
 import { boardScreen } from "./board-view";
 import { Desk } from "../src/desk/desk";
@@ -105,6 +108,41 @@ describe("stages as the notes write them (PIE-819)", () => {
     expect(backlinkView(moved, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "value:open" }).matching.map(s => s.blockId)).toEqual(["4"]);
     expect(backlinkView(moved, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" }).matching.map(s => s.blockId)).toEqual(["5"]);
     expect(backlinkView(c, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "ALL" }).matching).toHaveLength(3);
+  });
+});
+
+describe("a list that names its stages (stages=, PIE-819)", () => {
+  test("its values in its order, the rest said as other and never hidden; Stage steps through them and other", () => {
+    const q = (id: string, value: string, bucket?: BacklinkStageBucket): BacklinkSource => ({ blockId: id, title: `Question ${id}`, parentContext: "", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: `2026-10-0${id}T00:00:00.000Z`, referenceGroups: [], occurrences: [], facets: { kind: "question", kindLabel: "Question", placement: "other", stage: { property: "status", value, ...(bucket ? { bucket } : {}) } } } as unknown as BacklinkSource);
+    const c: BacklinkCollection = { targetBlockId: "t", sources: [q("1", "doing", "active"), q("2", "next", "waiting"), q("3", "doing", "active"), q("4", "parked", "waiting")], completeness: { kind: "complete" } };
+    const o = { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stages: stagesFrom("[next, doing, waiting]") };
+    const v = backlinkView(c, o), g = v.groups[0]!;
+    expect(backlinkStageSummary(g)).toBe(" (1 next · 2 doing · other: parked 1)");
+    expect(g.sources).toHaveLength(4);                                     // parked is listed, not hidden
+    expect(nextBacklinkStageFilter("open", v.stages)).toBe("next");
+    expect(nextBacklinkStageFilter("doing", v.stages)).toBe("other");
+    expect(nextBacklinkStageFilter("other", v.stages)).toBe("all");
+    expect(backlinkView(c, { ...o, stage: "other" }).matching.map(s => s.blockId)).toEqual(["4"]);
+    // Without the list: the values the rows carry, as written, and nothing used elsewhere.
+    expect(backlinkStageSummary(backlinkView(c, DEFAULT_BACKLINK_VIEW_OPTIONS).groups[0]!)).toBe(" (1 next · 1 parked · 2 doing)");
+    // A status literally named `other`, named by the list, is its own choice beside the aggregate.
+    const lit = backlinkView({ ...c, sources: [...c.sources, q("5", "other")] }, { ...o, stages: ["other", "next"] });
+    expect(nextBacklinkStageFilter("open", lit.stages)).toBe("value:other");
+    expect(backlinkView({ ...c, sources: [...c.sources, q("5", "other")] }, { ...o, stages: ["other", "next"], stage: "value:other" }).matching.map(s => s.blockId)).toEqual(["5"]);
+    // The links tile's choices (across every group) take the list too: parked is other there as well.
+    const across = linkAcross({ links: { kind: "loading" }, backlinks: { kind: "ready", value: c } }, o);
+    expect(nextBacklinkStageFilter("doing", across.stages)).toBe("other");
+    // An empty list names nothing: every value, as no list.
+    expect(backlinkStageSummary(backlinkView(c, { ...o, stages: [] }).groups[0]!)).toBe(" (1 next · 1 parked · 2 doing)");
+    expect(stagesFrom("all")).toBeNull();
+    expect(backlinkOptionsFrom(DEFAULT_BACKLINK_VIEW_OPTIONS, { stages: "next, doing" }, []).stages).toEqual(["next", "doing"]);
+  });
+  test("a links tile's stages= is made into its options and saved back with its spec", () => {
+    new Desk();   // the desk registers the built-in tile kinds
+    const p = tileKind("backlinks")!.make({ kind: "backlinks", name: "links", source: "tile:reader", stages: "next,doing,waiting" } as any) as BacklinksPane;
+    expect(p.options.stages).toEqual(["next", "doing", "waiting"]);
+    expect(p.spec()).toMatchObject({ stages: "next,doing,waiting" });
+    expect((tileKind("backlinks")!.make({ kind: "backlinks", name: "l2", source: "tile:reader" } as any) as BacklinksPane).spec()).not.toHaveProperty("stages");
   });
 });
 

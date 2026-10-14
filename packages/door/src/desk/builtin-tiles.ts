@@ -6,6 +6,7 @@ import { ch } from "../term";
 // the entry; it never asks which kind a tile is.
 import { subject, type Msg } from "../board";
 import { BACKLINKS_ACTIONS, BacklinksPane, linkGroupsFrom } from "./backlinks-pane";
+import { stagesFrom } from "../backlinks";
 import { ACTIVITY_ACTIONS, ActivityPane, ArtPane, READER_ACTIONS, ReaderPane, sessionName, TreePane, WHO_ACTIONS, WhoPane, type Pane } from "./panes";
 import { ART_ACTIONS } from "../art-actions";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
@@ -203,13 +204,19 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => ({ tune: (p as TunePane).describe(desk) }),
   },
   {
-    kind: "backlinks", about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes",
+    kind: "backlinks", about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
     aim: p => p as BacklinksPane, companion: "preview", previews: true,
     // A selection previews (a preview tile follows it), ⏎ opens: in its home, the reader it belongs to, or the tile linked to it as a target (PIE-646, PIE-794).
     linkRole: "target", home: p => (p as BacklinksPane).home,
     keys: [{ key: "l", label: "backlinks", spec: at => ({ source: `tile:${at.name}` }) }, { key: "h", label: "children", spec: at => ({ source: `tile:${at.name}`, linkGroups: "children" }) }],
     // Children alone (the replies of what a reader shows) followed its reader before subject= was saved, and still does.
-    make: s => new BacklinksPane(sourceTile(s.source), s.groups === "open", linkGroupsOf(s.linkGroups), s.subject === "follows" || (s.subject === undefined && s.linkGroups === "children")),
+    make: s => {
+      const p = new BacklinksPane(sourceTile(s.source), s.groups === "open", linkGroupsOf(s.linkGroups), s.subject === "follows" || (s.subject === undefined && s.linkGroups === "children"));
+      // The stage values it names (`stages=next,doing,waiting`, PIE-819): its rows with another value say "other".
+      const stages = stagesFrom(s.stages);
+      if (stages) p.options = { ...p.options, stages };
+      return p;
+    },
     actions: BACKLINKS_ACTIONS,
     check: s => (s.source && !/^tile:./.test(s.source) ? "a backlinks tile's source is tile:<name>" : s.subject !== undefined && s.subject !== "held" && s.subject !== "follows" ? "a backlinks tile's subject is held or follows" : groupsProblem(s.linkGroups)),
     defaults: (s, at) => (s.source ? {} : { source: `tile:${at.name}` }),
