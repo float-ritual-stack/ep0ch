@@ -2059,8 +2059,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await stage().dispatch.press("passage.select", { quote: "A comment is written where you read it" }, "floating");
     await stage().dispatch.press("comment.write", { body: long }, "floating");
     await stage().dispatch.press("comment.place", { place: "floating" }, "floating");
-    sc.render(app);
-    sc.render(app);
+    await until(() => { sc.render(app); return surf().session?.place === "floating" && !!rect(); }, "the floating comment drawn");
     const noteAt = () => (surf() as any).scroll as number;
     // Over the box's text: its text scrolls, the note doesn't.
     const r = rect(), inText = { x: r.col + 4, y: r.row + r.rows - 3 }, before = noteAt();
