@@ -1425,12 +1425,15 @@ export class OutlinerStore {
       );
       this.replaceProperties(id, parsePropertyRecords(text));
       this.bumpSequence({ kind: "create", blockId: id });
-      // A request ticketed from its copy names the ticket back (PIE-844), so "where did this request go" is a query.
+      // A request ticketed from its copy names the ticket back (PIE-844), so "where did this request go" is a query; a
+      // note that named this Work ID before the item existed gets its stage now.
+      const mutation = { author, ...provenance };
       const source = sourceBlockId ? this.getFromCurrentRead(sourceBlockId) : null;
       if (source && ticketOf(source.text) === null && !this.extensionOwnerFromCurrentRead(source.id) &&
         source.properties.some((property) => property.key === "type" && property.value.toLowerCase() === "request")) {
-        this.update(source.id, patchPropertyText(source.text, [{ op: "append", key: "ticket", value: workId }]), source.revision, { author, ...provenance }, "properties");
+        this.update(source.id, patchPropertyText(source.text, [{ op: "append", key: "ticket", value: workId }]), source.revision, mutation, "properties");
       }
+      this.refreshTicketStages(workId, workStage, mutation);
       const block = this.getFromCurrentRead(id);
       if (!block) throw new Error(`Roadmap item was not created: ${id}`);
       return {
@@ -1994,20 +1997,23 @@ export class OutlinerStore {
     if (stage === null || stage === roadmapStageOf(previous)) return;
     const workId = parsePropertyRecords(next).find((property) => property.scope === "block" && property.key === "work-id")?.value;
     const canonical = workId === undefined ? null : parseWorkId(workId)?.workId;
-    if (!canonical) return;
-    const copies = this.database.query(`
+    if (canonical) this.refreshTicketStages(canonical, stage, mutation);
+  }
+
+  /** Every live block naming `workId` in `[ticket::…]`, however it's spelled (`PIE-1`, `[[PIE-001]]`), says `stage`. */
+  private refreshTicketStages(workId: string, stage: string, mutation: MutationProvenance): void {
+    const named = this.database.query(`
       SELECT DISTINCT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
       WHERE property.scope = 'block' AND property.key = 'ticket' AND block.effective_deleted_root_id IS NULL
-        AND upper(trim(trim(property.value, '[]'))) = ?
-    `).all(canonical) as Array<{ id: string }>;
-    for (const { id } of copies) {
-      if (this.extensionOwnerFromCurrentRead(id)) continue;
+    `).all() as Array<{ id: string }>;
+    for (const { id } of named) {
       const copy = this.require(id);
-      if (ticketOf(copy.text) !== canonical) continue;
+      if (ticketOf(copy.text) !== workId || this.extensionOwnerFromCurrentRead(id)) continue;
       const text = ticketStageText(copy.text, stage);
       if (text !== copy.text) this.update(id, text, copy.revision, mutation, "properties");
     }
   }
+
 
   // ── Extension records (src/extension-records.ts) ────────────────────────
   // A record is an ordinary block an extension owns: only that extension may

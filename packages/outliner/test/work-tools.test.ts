@@ -195,6 +195,9 @@ test("a request ticketed from its copy follows the ticket; done gets its day and
   const h = await setup();
   const stageOf = (id: string, key = "ticket-stage") => h.store.require(id).properties.find((property) => property.key === key)?.value;
   const request = h.store.create("A wide table wraps on the phone [type::request] [status::new] [from::node-b/abc]\n\nWhat happened, in the asker's words.");
+  // Named before the item exists, and spelled loosely: it gets its stage when the item is made, and follows it after.
+  const early = h.store.create("Asked ahead of the ticket [type::request] [ticket::[[PIE-1]]]");
+  expect(stageOf(early.id)).toBeUndefined();
   const created = await h.create(["--source", request.id, "--wave", "orientation", "--author", "agent", "--actor", "test-agent"]);
   expect(created.json.workId).toBe("PIE-001");
   expect(h.store.require(created.json.blockId).properties).toContainEqual({ key: "wave", value: "orientation" });
@@ -215,8 +218,9 @@ test("a request ticketed from its copy follows the ticket; done gets its day and
   expect(self.error).toContain("is a roadmap item");
 
   // Every way a stage moves carries the copies with it: work stage, a PR sync, completion, a reopen.
+  expect(stageOf(early.id)).toBe("queued");
   await h.run(["work", "stage", "PIE-001", "doing"]);
-  expect([stageOf(request.id), stageOf(second.id)]).toEqual(["doing", "doing"]);
+  expect([stageOf(request.id), stageOf(second.id), stageOf(early.id)]).toEqual(["doing", "doing", "doing"]);
   h.pull(21, "OPEN");
   await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "21"]);
   expect(stageOf(request.id)).toBe("review");
@@ -238,7 +242,7 @@ test("a request ticketed from its copy follows the ticket; done gets its day and
   // The "Done today" lane and the Requests board are plain queries over these properties.
   expect(h.store.queryBlocks({ where: "type=roadmap-item done-at=today" }).blocks.map((block) => block.id)).toEqual([item.id]);
   expect(h.store.queryBlocks({ where: "type=request ticket-stage=done" }).blocks.map((block) => block.id).sort())
-    .toEqual([request.id, second.id].sort());
+    .toEqual([request.id, second.id, early.id].sort());
 
   await h.run(["work", "stage", "PIE-001", "validate"]);
   expect(h.store.require(item.id).properties.some((property) => property.key === "done-at")).toBe(false);
