@@ -435,11 +435,10 @@ export class App implements Ctx {
   }
   /** What the bar's sources reach: this door, its dispatcher, its screens, the note the person is on. */
   barHost(): BarHost {
-    const notes = new Map<string, Promise<Msg | null>>();
     return {
       ctx: this, dispatch: this.dispatch, screens: () => this.stack, kept: () => this.background,
       near: () => this.noteInFront(),
-      note: id => { let p = notes.get(id); if (!p) notes.set(id, p = this.board.get(id).catch(() => null)); return p; },
+      note: id => this.board.get(id),
     };
   }
   /** What the bar's actions run on (BAR_ACTIONS). */

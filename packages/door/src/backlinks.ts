@@ -518,3 +518,9 @@ export function backlinkOptionsFrom(base: Readonly<BacklinkViewOptions>, args: {
   }
   return o;
 }
+
+/**
+ * Why an agent may not fold or open a group of links: which groups are folded is the person's view of a links list. (A
+ * note's own sections are another thing: `fold text=` folds one for someone, in a reader they aren't typing in.)
+ */
+export const LINK_GROUPS_ARE_THE_PERSONS = "which link groups are folded is the person's view (a note's sections an agent may fold: fold text=) · an agent reads every row with backlinks.view or peek";

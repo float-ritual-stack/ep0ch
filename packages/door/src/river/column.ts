@@ -18,7 +18,7 @@ import { presentLinks } from "../refs";
 import type { DocTrim } from "../doc";
 import { describeLinkRow, linkNote, linkRowLine, linkRows, linksOf, type LinkGroupName, type LinkRow } from "../links";
 import { isOutlineNote } from "../authored";
-import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
+import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, LINK_GROUPS_ARE_THE_PERSONS } from "../backlinks";
 import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selected, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -303,7 +303,7 @@ export class RiverColumn extends ReaderPane {
     const r = this.linkList()[j];
     if (!r) throw new ActionRefused(`no link row ${j + 1} in ${this.titleOf()}`);
     if (r.kind === "group" || r.kind === "kind") {
-      if (actor.kind === "agent") throw new ActionRefused("which groups are folded is the person's view · peek reads every row (noteLinks)");
+      if (actor.kind === "agent") throw new ActionRefused(LINK_GROUPS_ARE_THE_PERSONS);
       if (r.kind === "group") { if (this.linkShut.has(r.group)) this.linkShut.delete(r.group); else this.linkShut.add(r.group); }
       desk.redraw();
       return { group: r.kind === "group" ? r.group : r.group.kind };

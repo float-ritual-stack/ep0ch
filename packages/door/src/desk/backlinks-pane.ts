@@ -26,6 +26,7 @@ import {
   backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
   describeBacklinkView, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
   type BacklinkCollection, type BacklinkControl, type BacklinkStatusPart, type BacklinkViewOptions,
+  LINK_GROUPS_ARE_THE_PERSONS,
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
@@ -384,7 +385,7 @@ export class BacklinksPane implements Pane {
     if (!agent) { this.sel = i; this.headerPicked = !isLinkEntry(r); }
     if (r.kind === "group" || r.kind === "kind") {
       const g = r.kind === "group" ? r.group : r.group.kind;
-      if (how !== "show" && agent) throw new ActionRefused("which groups are folded is the person's view; an agent reads every row with backlinks.view or peek");
+      if (how !== "show" && agent) throw new ActionRefused(LINK_GROUPS_ARE_THE_PERSONS);
       if (how !== "show") { if (r.kind === "group") this.fold(r.group); else this.toggle(r.group.kind, desk); }
       desk.redraw();
       return { row: i + 1, group: g };
@@ -578,7 +579,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   "backlinks.fold": def({
     summary: "open or fold a group in a links tile: one of the three (outlinks, resources, backlinks) or a backlink kind (kind=<its key or label>); default the selected row's, as . or space on it does (a link's: its own group). Every backlink kind is open while a filter is set. The person's view: an agent's is refused",
     keys: ". space, a click on a group's ▾ ▸ + −, a double click on its header",
-    touches: "tile", replay: "safe", person: "which groups are folded is the person's view; an agent reads every row with backlinks.view or peek",
+    touches: "tile", replay: "safe", person: LINK_GROUPS_ARE_THE_PERSONS,
     args: { kind: { type: "string", optional: true, about: "outlinks, resources or backlinks, or a backlink kind (its key, as peek's rows give it, or its label); default the selected row's" } },
     run({ kind }, { pane, desk }) {
       const r = pane.rows()[pane.sel];
