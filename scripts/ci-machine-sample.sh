@@ -15,7 +15,8 @@ read -r u0 s0 i0 st0 t0 < <(cpu); th0=$(throttled)
 while sleep 30; do
   read -r u s i st t < <(cpu); th=$(throttled)
   d=$(( t - t0 )); [ $d -gt 0 ] || d=1
-  busy=$(top -b -n 1 -c -w 160 -o %CPU 2>/dev/null | awk 'NR > 7 && NR <= 10 { c = ""; for (k = 12; k <= NF; k++) c = c " " $k; printf "%s%s ·", $9, substr(c, 1, 60) }')
+  # top's second frame: its first gives each process's CPU over its whole life, not now.
+  busy=$(top -b -n 2 -d 1 -c -w 160 -o %CPU 2>/dev/null | awk '/^top -/ { f++; n = 0 } f == 2 && /^ *PID/ { n = 1; next } f == 2 && n && n++ <= 3 { c = ""; for (k = 12; k <= NF; k++) c = c " " $k; printf "%s%s ·", $9, substr(c, 1, 60) }')
   printf '%-8s %5s %5d %5d %5d %5d %9d  %s\n' "$(date +%T)" "$(cut -d' ' -f1 /proc/loadavg)" \
     $(( 100 * (u - u0) / d )) $(( 100 * (s - s0) / d )) $(( 100 * (i - i0) / d )) $(( 100 * (st - st0) / d )) \
     $(( (${th:-0} - ${th0:-0}) / 1000 )) "$busy" >> "$file"

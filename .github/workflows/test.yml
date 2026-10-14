@@ -69,7 +69,7 @@ jobs:
           setsid bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" > >(tee "$out") 2>&1 & run=$!
           hung="$RUNNER_TEMP/hung-${{ matrix.pkg }}"; hang="$RUNNER_TEMP/hang-${{ matrix.pkg }}.txt"
           ( sleep 720; kill -0 $run 2>/dev/null || exit 0
-            quiet=$(( $(date +%s) - $(stat -c %Y "$out") ))
+            quiet=$(( $(date +%s) - $(stat -c %Y "$out" 2>/dev/null || echo 0) ))
             if [ $quiet -ge 180 ]; then echo "hung: no output for ${quiet}s" > "$hung"; else echo "slow: still passing tests (output ${quiet}s ago)" > "$hung"; fi
             timeout 150 bash ../../scripts/ci-hang-report.sh $run "$out" > "$hang" 2>&1 || true
             kill -- -$run 2>/dev/null; sleep 15; kill -9 -- -$run 2>/dev/null; true ) & watchdog=$!

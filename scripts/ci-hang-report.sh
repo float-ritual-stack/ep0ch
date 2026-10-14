@@ -15,10 +15,10 @@ uptime
 grep -h . /proc/pressure/cpu 2>/dev/null | sed 's/^/cpu pressure: /'
 echo "-- vmstat 1 5 (st: CPU stolen by the hypervisor)"
 vmstat 1 5 2>/dev/null
-echo "-- the job's cgroup: its CPU limit and how long it was throttled"
+echo "-- the cgroup this runs in (the machine's root on a plain VM): its CPU limit and how long it was throttled"
 cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpu.stat 2>/dev/null
 echo "-- the busiest processes, anywhere"
-top -b -n 1 -c -w 220 -o %CPU 2>/dev/null | head -32
+top -b -n 2 -d 1 -c -w 220 -o %CPU 2>/dev/null | awk '/^top -/ { f++ } f == 2' | head -32   # the second frame: CPU now
 if [ -n "$out" ] && [ -f "$out" ]; then
   echo "== the run's output, its last 40 lines (written $(( $(date +%s) - $(stat -c %Y "$out") ))s ago)"
   tail -n 40 "$out" | cut -c1-240

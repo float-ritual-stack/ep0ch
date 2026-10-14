@@ -555,5 +555,10 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       expect(mine).toEqual([]);
     }, 600_000);
   }
+  // The other parts leave the shell's states to this one: a desk that stopped opening one would leave it unprobed.
+  if (part === "desk" && !only) test("the shell's input states were probed here, as no other part probes them", () => {
+    const probed = new Set([...sharedStates].filter(id => id.startsWith("\0")).map(id => id.split("\0")[1]));
+    expect([...probed].sort()).toEqual(["alt+a", "alt+g", "alt+o", "alt+s", "alt+w", "ctrl+n"]);
+  });
 });
 }
