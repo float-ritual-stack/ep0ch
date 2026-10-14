@@ -98,9 +98,16 @@ const ACTION_CHORD_GLYPHS: Readonly<Record<string, string>> = {
   Tab: "⇥",
 };
 
+/** A chord's parts: modifiers then the key, where the key may itself be `+` (`+`, `Shift++`). */
+function chordParts(chord: string): string[] {
+  const trimmed = chord.trim();
+  if (trimmed === "+") return ["+"];
+  if (trimmed.endsWith("++")) return [...trimmed.slice(0, -2).split("+"), "+"];
+  return trimmed.split("+");
+}
+
 export function displayActionChord(chord: string): string {
-  return chord
-    .split("+")
+  return chordParts(chord)
     .map((part) => ACTION_CHORD_GLYPHS[part] ?? part)
     .join("");
 }
@@ -359,7 +366,7 @@ function canonicalKeyName(input: string): string {
 }
 
 export function normalizeActionChord(input: string): string {
-  const parts = input.split("+").map((part) => part.trim()).filter(Boolean);
+  const parts = chordParts(input).map((part) => part.trim()).filter(Boolean);
   if (parts.length === 0) throw new Error("Key chord cannot be empty");
   let key = canonicalKeyName(parts.at(-1)!);
   const modifiers = new Set<string>();
@@ -438,7 +445,7 @@ function actionScopeRank(
 
 function triggerForChord(chord: string): { str: string; key: TerminalKey } {
   const normalized = normalizeActionChord(chord);
-  const parts = normalized.split("+");
+  const parts = chordParts(normalized);
   const name = parts.at(-1)!;
   const ctrl = parts.includes("Ctrl");
   const meta = parts.includes("Alt");

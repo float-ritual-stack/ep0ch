@@ -3,7 +3,6 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {OutlinerStore} from '../src/store';
-import {captureHistoryResource} from '../src/capture-history';
 import {OutlinerServer} from '../src/server';
 import {OutlinerClient} from '../src/client';
 import {TUI_RESOURCE_PRESENTATION_CONTEXT} from '../src/resource-presentation';
@@ -11,7 +10,7 @@ import {authoredResourceReferenceOccurrences} from '../src/resource-references';
 import {DocumentPreview} from '../src/document-preview';
 import {documentPreviewLinks,documentPreviewLines} from '../src/document-preview-renderer';
 import {initTheme} from '@earendil-works/pi-coding-agent';
-import {preserveCapture,rewriteWithOriginal} from './preserved-captures';
+import {captureHistoryResource,preserveCapture,rewriteWithOriginal} from './preserved-captures';
 const fixtures:Array<{root:string,store:OutlinerStore}>=[];
 function fixture(){const root=mkdtempSync(join(tmpdir(),'capture-history-')),store=new OutlinerStore(join(root,'db.sqlite'),{workspaceRoot:root});const f={root,store};fixtures.push(f);return f;}
 afterEach(()=>{for(const f of fixtures.splice(0)){f.store.close();rmSync(f.root,{recursive:true,force:true});}});

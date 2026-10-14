@@ -1,7 +1,6 @@
 import type {Database} from "bun:sqlite";
 import {Type} from "typebox";
 import {defineComputedProducer} from "./computed-resources";
-import type {ResourceCatalog} from "./resource-catalog";
 import type {Block} from "./types";
 
 export const CAPTURE_HISTORY_PRODUCER="builtin.capture-history";
@@ -25,12 +24,4 @@ export function captureHistoryProducer(database:Database){
       return {kind:"immutable-snapshot" as const,mediaType:"text/markdown",content:before.text};
     },
   });
-}
-
-/** Resource identity is shared by every output that cites the same before-image. */
-export function captureHistoryResource(database:Database,catalog:ResourceCatalog,attemptId:string,blockId:string):string {
-  const existing=database.query("SELECT resource_id FROM computed_invocations WHERE producer_id=? AND json_extract(inputs_json,'$.attemptId')=? AND json_extract(inputs_json,'$.blockId')=? ORDER BY created_at,id LIMIT 1").get(CAPTURE_HISTORY_PRODUCER,attemptId,blockId) as {resource_id:string}|null;
-  if(existing)return existing.resource_id;
-  const source=catalog.listSources().find(source=>source.provider==="computed"&&source.boundary.registry==="outliner.capture-history")??catalog.createSource({name:"Capture history",provider:"computed",boundary:{registry:"outliner.capture-history",allowedPermissions:["inbox.history.read"]}});
-  return catalog.createComputedInvocation({sourceId:source.id,producerId:CAPTURE_HISTORY_PRODUCER,inputs:{attemptId,blockId},dependencies:[]}).resourceId;
 }

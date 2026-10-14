@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { openSchema, OUTLINE_INSTANCE_ID_KEY } from "./schema";
 import { MCP_ACCESS_METADATA_KEY, OUTLINE_ABOUT_METADATA_KEY, OutlinerStore } from "./store";
@@ -87,15 +87,33 @@ function count(database: Database, table: string): number {
 }
 
 /**
- * Creates `target` (refused when it exists) and imports `source` into it. On any
- * failure the new file is removed, and `source` is never written.
+ * Creates `target` (refused when it exists or another import to it is under way) and imports `source` into it.
+ * The claim is a file made exclusively beside the target and held to the end, so two imports to one name can't
+ * both pass the existence check, and one's failure cleanup never removes the other's file. On any failure the
+ * new file is removed, and `source` is never written.
  */
 export function importOutline(sourceInput: string, targetInput: string): ImportReport {
   const source = resolve(sourceInput);
   const target = resolve(targetInput);
   if (!existsSync(source)) throw new Error(`No database at ${source}`);
-  if (existsSync(target)) throw new Error(`${target} already exists; import makes a new outline and never writes over one`);
   mkdirSync(dirname(target), { recursive: true });
+  const claim = `${target}.import-claim`;
+  try {
+    closeSync(openSync(claim, "wx"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`${target} is being imported into by another import (if none is running, remove ${claim})`);
+    throw error;
+  }
+  try {
+    return importClaimed(source, target);
+  } finally {
+    rmSync(claim, { force: true });
+  }
+}
+
+function importClaimed(source: string, target: string): ImportReport {
+  // After the claim: an import that finished between our first look and the claim has left its file.
+  if (existsSync(target)) throw new Error(`${target} already exists; import makes a new outline and never writes over one`);
   const reader = new Database(source, { readonly: true, create: false });
   const notCarried: Record<string, string> = {};
   const droppedColumns: string[] = [];

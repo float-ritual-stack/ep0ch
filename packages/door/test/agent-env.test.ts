@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { startControl } from "../src/control";
-import { AGENT_VARS, CARRIED_VARS, DOOR_START_VARS, doorAgents, judgeAgent, knowsLabel, lineWithContinue, modDirs, modStamp, procEnv, procStart, withContinue } from "../src/desk/agent-env";
+import { AGENT_VARS, CARRIED_VARS, DOOR_START_VARS, doorAgents, judgeAgent, knowsLabel, modDirs, modStamp, procEnv, procStart, withContinue } from "../src/desk/agent-env";
 import { agentConfig, findOrCreate, herdrRunner, runLine } from "../src/desk/herdr-agent";
 import { PtyPane, tileEnv } from "../src/desk/pty";
 import { DRAWER_TILE_ID } from "../src/drawer";
@@ -197,8 +197,6 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     expect(withContinue(["claude", "--resume=abc"])).toEqual(["claude", "--resume=abc"]);
     expect(withContinue(["door-claude"])).toEqual(["door-claude"]);
     expect(withContinue(["/x/door-agent-herdr.ts"])).toEqual(["/x/door-agent-herdr.ts"]);
-    expect(lineWithContinue("claude --model x")).toBe("claude --model x --continue");
-    expect(lineWithContinue("door-claude")).toBe("door-claude");
     expect(agentConfig({ HOME: "/h", PWD: "/w", EP0CH_AGENT_CONTINUE: "1" }, () => null).cmd).toBe("claude --continue");
     expect(agentConfig({ HOME: "/h", PWD: "/w", EP0CH_AGENT_CONTINUE: "1" }, () => "/bin/door-claude").cmd).toBe("claude --continue");
   });
