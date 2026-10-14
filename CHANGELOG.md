@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Paste works in the power bar (PIE-856)
+
+- **Fixed:** a paste into the power bar (ctrl+k), and into a question it asks for an action's argument, was dropped:
+  the bar takes every key before the door types a paste out. Every one-line input (the bar, filters, searches,
+  names) now takes a paste whole, its line breaks as spaces and a trailing one dropped.
+- **Added:** an action line typed or pasted with its arguments, quoted as a shell quotes them
+  (`tile.open kind=query query="#build-report"`, as `ep0ch act` takes it), is the bar's first row, `run …`; ⏎ runs
+  it as typed, and the action asks for anything it needs and wasn't given.
+
 ### Keep a tag's list (PIE-855)
 
 - **Added:** a list a `#tag` opened can be held: `p` in it, a click on the `○` on its frame (`●` while held), its tile

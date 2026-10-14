@@ -484,6 +484,16 @@ export function asActor<T extends { flash(msg: string): void }>(ctx: T, actor: A
  * arguments. A value `@path` is read from that file and `@-` from stdin, so long text needn't be quoted.
  */
 export async function parseActArgs(words: string[], stdin: () => Promise<string> = () => Bun.stdin.text()): Promise<ActRequest> {
+  const req = actRequestOf(words);
+  const read = async (v: string) => (v === "@-" ? (await stdin()).replace(/\n$/, "") : v.startsWith("@") && v.length > 1 ? (await Bun.file(v.slice(1)).text()).replace(/\n$/, "") : v);
+  for (const [k, v] of Object.entries(req.args!)) req.args![k] = await read(v as string);
+  if (req.tile !== undefined) req.tile = await read(req.tile);
+  if (req.as !== undefined) req.as = await read(req.as);
+  return req;
+}
+
+/** An action and its `key=value` words (`--as` and `--tile` too), every value as written: the CLI's and the power bar's. */
+export function actRequestOf(words: readonly string[]): ActRequest {
   const [action, ...rest] = words;
   if (!action) throw new ActionRefused("act needs an action name; `actions` lists them");
   const req: ActRequest = { action, args: {} };
@@ -492,13 +502,31 @@ export async function parseActArgs(words: string[], stdin: () => Promise<string>
     if (w === "--as" || w === "--tile") { const v = rest[++i]; if (v === undefined) throw new ActionRefused(`${w} needs a value`); if (w === "--as") req.as = v; else req.tile = v; continue; }
     const eq = w.indexOf("=");
     if (eq <= 0) throw new ActionRefused(`arguments are key=value, not ${JSON.stringify(w)}`);
-    const k = w.slice(0, eq);
-    let v = w.slice(eq + 1);
-    if (v === "@-") v = (await stdin()).replace(/\n$/, "");
-    else if (v.startsWith("@") && v.length > 1) v = (await Bun.file(v.slice(1)).text()).replace(/\n$/, "");
+    const k = w.slice(0, eq), v = w.slice(eq + 1);
     if (k === "tile") req.tile = v;
     else if (k === "as") req.as = v;
     else req.args![k] = v;
   }
   return req;
+}
+
+/** The quotes a typed or pasted line may use, each with the one that closes it (a chat's curly ones too). */
+const QUOTES: Record<string, string> = { '"': '"', "'": "'", "\u201c": "\u201d", "\u2018": "\u2019" };
+
+/**
+ * A line split into words as a shell splits a command: spaces between words, and a quote, anywhere in a word, keeps
+ * what's inside it in that word without the quotes (`query="#build report"` is `query=#build report`). An unclosed
+ * quote runs to the end.
+ */
+export function lineWords(line: string): string[] {
+  const out: string[] = [];
+  let word = "", inWord = false, close: string | null = null;
+  for (const c of line) {
+    if (close) { if (c === close) close = null; else word += c; continue; }
+    if (QUOTES[c]) { close = QUOTES[c]!; inWord = true; continue; }
+    if (/\s/.test(c)) { if (inWord) out.push(word); word = ""; inWord = false; continue; }
+    word += c; inWord = true;
+  }
+  if (inWord) out.push(word);
+  return out;
 }

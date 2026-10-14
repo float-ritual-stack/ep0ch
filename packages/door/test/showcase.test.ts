@@ -2640,7 +2640,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
   }, 30_000);
 
-  test("the power bar section (PIE-656): the stage's tiles listed as their tree, the folded one a spine; ctrl+k then %pears and ⏎ opens it from its spine and gives it the keys; an agent's bar.open answers and opens nothing", async () => {
+  test("the power bar section (PIE-656): the stage's tiles listed as their tree, the folded one a spine; ctrl+k then %pears and ⏎ opens it from its spine and gives it the keys; a pasted action line is the first row; an agent's bar.open answers and opens nothing", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "bar" }, as: "test-agent" });
     await until(() => marks.bar!.every(m => screen().includes(m)), "the power bar section");
@@ -2667,6 +2667,11 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "enter" });
     await until(() => { const t = stage().tileOutline().find(x => x.name === "pears")!; return !t.collapsed && t.focused; }, "pears opened and given the keys");
     expect((app as any).bar).toBeNull();
+    // An action line pasted, its arguments and quotes whole (PIE-856): the first row, ⏎ would run it as typed.
+    press({ kind: "char", ch: "k", ctrl: true });
+    press({ kind: "paste", text: 'tile.open kind=query query="#seeds"' });
+    expect((app as any).bar.describe().rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query query=#seeds" });
+    press({ kind: "esc" });
     if (S().focus === "stage") press({ kind: "esc" });
   }, 30_000);
 

@@ -283,7 +283,8 @@ panel) too.
 ### The power bar (PIE-656)
 
 The person's palette over every screen (`ctrl+k`): tiles on every screen and in the drawer (indented as each layout
-tree), notes (the service's one search), actions (the focused tile's menu, then every action needing no argument),
+tree), notes (the service's one search), actions (the focused tile's menu, then every action needing no argument; an action line typed or pasted with
+its arguments, `tile.open kind=query query="#seeds"` as `act` takes it, is a row of its own, first in the main list),
 what changed, screens, and an extension's bar sources (`extensions.bar`). An agent reads and picks with a bar of its
 own; it never touches the person's.
 

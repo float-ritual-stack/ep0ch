@@ -1,6 +1,6 @@
 // One line of typed text with a cursor (PIE-516's small parts): a property's value, a filter, a search, a layout's
-// name. Its keys are the line editor's everywhere: typing, backspace, delete, ← →, home end (ctrl+a ctrl+e), ctrl+u.
-// Enter, esc and the rest stay the caller's.
+// name. Its keys are the line editor's everywhere: typing, a paste (whole, its line breaks as spaces), backspace,
+// delete, ← →, home end (ctrl+a ctrl+e), ctrl+u. Enter, esc and the rest stay the caller's.
 import { bg, C, fg, INPUT_CURSOR, paint, RESET } from "../style";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
@@ -79,9 +79,13 @@ export class LineInput {
       if (k.ch === "u") return set([], 0);
       return false;
     }
-    if (k.kind === "char") {
-      if (this.fresh) return set([...k.ch], [...k.ch].length);
-      return set([...cs.slice(0, at), ...k.ch, ...cs.slice(at)], at + [...k.ch].length);
+    // A paste is one piece wherever the line is (the power bar takes its keys before the door types a paste out, PIE-856):
+    // one line, so its breaks and tabs are spaces, and a break at its end (copied with the line) is dropped.
+    const typed = k.kind === "char" ? k.ch : k.kind === "paste" ? k.text.replace(/[\r\n]+$/, "").replace(/\r\n?|\n|\t/g, " ") : null;
+    if (typed !== null) {
+      if (!typed) return false;   // an empty paste (only a picture on the clipboard) is the caller's
+      if (this.fresh) return set([...typed], [...typed].length);
+      return set([...cs.slice(0, at), ...typed, ...cs.slice(at)], at + [...typed].length);
     }
     if (k.kind === "backspace") return this.fresh ? set([], 0) : set([...cs.slice(0, Math.max(0, at - 1)), ...cs.slice(at)], Math.max(0, at - 1));
     if (k.kind === "delete") return set([...cs.slice(0, at), ...cs.slice(at + 1)], at);

@@ -26,6 +26,8 @@ export interface BarRow {
   refused?: string;
   /** Rows of a source are grouped under headings by this (the tiles' screen), when it changes. */
   group?: string;
+  /** What's typed names this row outright (an action line with its arguments): the main list puts its source first, so ⏎ picks it. */
+  exact?: true;
   data?: unknown;
 }
 
