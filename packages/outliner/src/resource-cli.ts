@@ -1,7 +1,6 @@
 // `resource rebind <folder>` (`ep0ch resource …`, PIE-853): a file Source whose folder now leads somewhere else is
 // refused until the person says the folder there is the one to read. This is that word; the refusal names it.
-import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createOutlinerClient } from "./client";
 import { resolveClientPaths } from "./paths";
@@ -23,7 +22,8 @@ export async function runResourceCommand(args: string[], io = { out: console.log
   }
   if (positionals.length !== 1) { io.err(`error: resource rebind takes one folder\n  ${RESOURCE_USAGE}`); return 2; }
   const typed = positionals[0]!;
-  const root = typed === "~" ? homedir() : typed.startsWith("~/") ? resolve(homedir(), typed.slice(2)) : resolve(cwd, typed);
+  // An absolute path or `~/…` is the host's (the host reads `~` as its own home); a relative one is from here.
+  const root = isAbsolute(typed) || typed === "~" || typed.startsWith("~/") ? typed : resolve(cwd, typed);
   try {
     const paths = resolveClientPaths(flags.ws ? { ...env, EP0CH_WS: flags.ws } : env);
     const { sources } = await createOutlinerClient(paths).request<{ sources: ResourceSource[] }>({ action: "resource-sources.rebind", root });

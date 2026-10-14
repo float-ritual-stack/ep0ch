@@ -787,9 +787,12 @@ function shellWord(path: string): string {
   return /^[\w@%+=:,./~-]+$/.test(path) ? path : `'${path.replaceAll("'", `'\\''`)}'`;
 }
 
-/** The command that binds a Source's root to the directory it resolves to now (`ep0ch resource rebind`). */
+/**
+ * The command that binds a Source's root to the directory it resolves to now (`ep0ch resource rebind`). The path is
+ * the host's, in full: a `~` would be the home of whichever machine's shell runs it.
+ */
 export function rebindCommand(root: string, outline?: string): string {
-  return `ep0ch resource rebind ${shellWord(homeWords(root))}${outline ? ` --ws ${shellWord(outline)}` : ""}`;
+  return `ep0ch resource rebind ${shellWord(root)}${outline ? ` --ws ${shellWord(outline)}` : ""}`;
 }
 
 function sourceMoved(root: string, was: string, now: string, outline?: string): ResourceCatalogError {
@@ -2105,7 +2108,7 @@ export class ResourceCatalog {
     destinationHostRegistered: boolean,
     revision?: unknown,
   ): ResourceDescription {
-    return this.database.transaction(() => {
+    const description = this.database.transaction((): ResourceDescription => {
       const resource = this.requireFromCurrentRead(normalizeResourceId(resourceId));
       const source = this.requireSourceFromCurrentRead(resource.sourceId);
       const requestedRevision: ResourceRevisionRef | null = revision === undefined
@@ -2131,9 +2134,8 @@ export class ResourceCatalog {
           if (error.code === "source-moved") filesystemError = error.message;
         }
       }
-      // A re-binding is said to the first reader of the folder's files after it (once).
+      // A re-binding is said to the first reader of the folder's files after it (once: forgotten when this read is done).
       const rebound = filesystem ? this.rebound.get(source.id) : undefined;
-      if (rebound) this.rebound.delete(source.id);
       const pdfRead = resource.mediaType === "application/pdf" && !readingDenied
         ? this.pdfReadFromCurrentRead(resource, requestedRevision)
         : null;
@@ -2197,6 +2199,8 @@ export class ResourceCatalog {
             : [],
       };
     })();
+    if (description.filesystemNotice) this.rebound.delete(description.source.id);
+    return description;
   }
 
   async open(
