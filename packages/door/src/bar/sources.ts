@@ -200,7 +200,7 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
 }
 
 const ACTIONS: BarSource = {
-  id: "actions", title: "actions", prefix: ">", by: "door", everywhere: true,
+  id: "actions", title: "actions", prefix: ">", by: "door",
   about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's that needs no argument, each with its key, found by its name or what it does; ⏎ runs it as that key would",
   main: { empty: false, typed: true, most: 6 },
   rows(q, host) {
@@ -223,6 +223,7 @@ const ACTIONS: BarSource = {
     const line = actionLine(q, host);
     return line ? [line, ...found] : found;
   },
+  named: (q, host) => actionLine(q, host),
   preview(row, host) {
     const d = row.data as { action: string; summary?: string; keys?: string };
     const info = host.dispatch.list().actions.find(a => a.name === d.action);

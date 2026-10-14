@@ -106,12 +106,7 @@ export class PowerBar {
   /** The sources it asks now: its scope's, or every source in the main list (with nothing typed, those that list then). */
   sources(): BarSource[] {
     const q = this.query.trim();
-    if (this.scope) {
-      const s = barSource(this.scope);
-      if (!s) return [];
-      // An action line is run from any scope: the sources offering their outright-named rows everywhere ask too.
-      return [s, ...(q && !s.alone ? barSources().filter(x => x.everywhere && x !== s) : [])];
-    }
+    if (this.scope) { const s = barSource(this.scope); return s ? [s] : []; }
     return barSources().filter(s => (q ? s.main.typed : s.main.empty));
   }
 
@@ -216,20 +211,24 @@ export class PowerBar {
     const lit = this.items[this.picker.sel];
     const keep = keepLit ? (lit ? `${lit.source.id}\0${lit.row.key}` : this.litKey) : null;
     const out: BarItem[] = [];
-    // A source whose row what's typed names outright (a pasted action line) comes first, that row lit; in another
-    // source's scope only that row is offered, under its source's heading.
-    const sources = this.sources(), named = (s: BarSource) => !!this.got.get(s.id)?.some(r => r.exact);
+    // In the main list a source whose row what's typed names outright (a pasted action line) comes first, that row lit.
+    const sources = this.sources(), named = (s: BarSource) => !this.scope && !!this.got.get(s.id)?.some(r => r.exact);
     for (const s of [...sources.filter(named), ...sources.filter(s => !named(s))]) {
-      const guest = !!this.scope && barSource(this.scope) !== s, rows = (this.got.get(s.id) ?? []).filter(r => !guest || r.exact);
+      const rows = this.got.get(s.id) ?? [];
       const shown = this.scope ? rows : rows.slice(0, s.main.most ?? 8);
       let group: string | undefined;
       shown.forEach((row, i) => {
-        const head = i === 0 ? (this.scope && !guest ? row.group : row.group ? `${s.title} · ${row.group}` : s.title) : row.group !== group ? row.group : undefined;
+        const head = i === 0 ? (this.scope ? row.group : row.group ? `${s.title} · ${row.group}` : s.title) : row.group !== group ? row.group : undefined;
         group = row.group;
         out.push({ source: s, row, ...(head ? { heading: head } : {}) });
       });
     }
-    this.items = out;
+    // In another source's scope (never an answer's, `alone`), the row a source names outright comes first: a typed action line runs from anywhere.
+    const scoped = this.scope ? barSource(this.scope) : undefined, q = this.query.trim();
+    const guests = scoped && !scoped.alone && q ? barSources().filter(s => s !== scoped && s.named).flatMap((s): BarItem[] => {
+      try { const row = s.named!(q, this.host); return row ? [{ source: s, row: { ...row, exact: true }, heading: s.title }] : []; } catch { return []; }
+    }) : [];
+    this.items = [...guests, ...out];
     const at = keep ? out.findIndex(it => `${it.source.id}\0${it.row.key}` === keep) : -1;
     this.picker.sel = at >= 0 ? at : 0;
     this.litKey = keep;

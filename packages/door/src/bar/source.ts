@@ -64,8 +64,11 @@ export interface BarSource {
   main: { empty: boolean; typed: boolean; most?: number };
   /** Its rows ask the service (the notes search, an extension's process): asked once typing pauses, not on every key. */
   asks?: boolean;
-  /** Its rows what's typed names outright (`exact`: an action line) are offered first in every other scope too (PIE-856). */
-  everywhere?: true;
+  /**
+   * The one row what's typed names outright (an action line, PIE-856), offered first in every other scope too, under
+   * this source's heading; asked on each key, so it answers at once. Its own rows give it `exact` in its scope and the main list.
+   */
+  named?(query: string, host: BarHost): BarRow | null;
   /** What's typed in its scope is an answer (the `?ask` scope): nothing from another source is offered there. */
   alone?: true;
   /** The door's own, or the extension's id. */
