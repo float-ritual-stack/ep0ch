@@ -170,6 +170,17 @@ describe("a draft's history", () => {
     expect(d.selectedText()).toBe("the");
     type(d, "a");                                                      // typed over their own selection, nowhere else
     expect(d.text).toBe("Spring seed list\n\nsow a peas");
+    // A patch above and below the person's block: undone and redone, their selection stays on the text between.
+    const e = new Draft("b1", 1, "one\n\nkeep\n\nthree");
+    e.place(2, 0); e.place(2, 4, true);
+    const span = (observed: string, replacement: string) => ({ observed, replacement, range: { start: e.text.indexOf(observed), end: e.text.indexOf(observed) + observed.length }, unit: "utf16" as const });
+    expect(e.applyPatch({ patchId: "p2", patches: [span("one", "ONE!"), span("three", "3")], revision: 1 }, tidy)).toEqual({ applied: true });
+    await DRAFT_ACTIONS.run("draft.undo", {}, e, tidy);
+    expect(e.text).toBe("one\n\nkeep\n\nthree");
+    expect(e.selectedText()).toBe("keep");
+    await DRAFT_ACTIONS.run("draft.redo", {}, e, tidy);
+    expect(e.text).toBe("ONE!\n\nkeep\n\n3");
+    expect(e.selectedText()).toBe("keep");
   });
 
   test("text replaced under a selection (an agent's text, $EDITOR's, a chosen completion): the next key types where the person is, never throws (PIE-632)", () => {
