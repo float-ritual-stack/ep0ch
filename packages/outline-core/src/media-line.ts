@@ -4,6 +4,8 @@
 // An artifact (PIE-793) is a file claude.ai would run (`.jsx`/`.tsx`, `.html`, `.svg`, `.mermaid`): the web pages run it
 // inline in a sandboxed frame, the door draws it as a card that opens that page.
 
+import { parseResourceRef } from "./resource-ref";
+
 /** What a media line names: an image, a video or an artifact. */
 export type MediaKind = "img" | "video" | "artifact";
 export type Align = "left" | "center" | "right";
@@ -126,8 +128,15 @@ export function parseMediaLine(line: string): MediaSpec | null {
  */
 export interface ImagePrimitive { src: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number }
 
-/** The path an image primitive's `src` names: a `file:` ref's path, else the path as written. */
-export const imageSource = (src: string) => (src.startsWith("file:") ? src.slice(5) : src);
+/**
+ * The path an image primitive's `src` names: a `file:` Resource ref's path, read by `parseResourceRef` (so it is
+ * absolute and has no control characters), else the path as written. A `file:` ref that can't be read names nothing.
+ */
+export function imageSource(src: string): string {
+  if (!src.startsWith("file:")) return src;
+  const ref = parseResourceRef(src);
+  return "kind" in ref && ref.kind === "filesystem" ? ref.path : "";
+}
 
 /**
  * An image primitive as the media line it stands for (PIE-827): one spec, so every client lays it out, dims it and

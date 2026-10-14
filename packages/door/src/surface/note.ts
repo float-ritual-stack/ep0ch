@@ -42,7 +42,7 @@ import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-c
 import { inWindow, type Placement } from "../kitty";
 import { sizedPlacement } from "../text-sizing";
 import { theme, type Rgb } from "../theme";
-import { ALIGNS, artifactPagePath, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, artifactPagePath, fileName, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
@@ -496,7 +496,7 @@ const tagged = (drawn: Link[], to: Link, text: string) => linkTag(drawn.push(to)
 function pictureRows(spec: MediaSpec, width: number, env: DocEnv, drawn: Link[]): string[] {
   const r = mediaRows(spec, width, { ...env, image: undefined }, -1);
   const lines = [...r.lines];
-  if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "image", picture: r.image }, " ".repeat(r.image.cols));
+  if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "picture", picture: r.image }, " ".repeat(r.image.cols));
   lines[r.caption] = tagged(drawn, { media: r.entry.path }, lines[r.caption]!);
   return lines;
 }
@@ -3718,8 +3718,9 @@ export class NoteSurface {
     for (const r of doc.links) { const g = byN.get(r.n); if (g) g.push(r); else byN.set(r.n, [r]); }
     for (const [n, rs] of byN) {
       const l = drawn[n], r = rs[0]!;
-      // An image's caption controls are click targets only: [ ] stops on the image, and its keys change it.
-      if (!l || l.role === "image") continue;
+      // An image's caption controls are click targets only: [ ] stops on the image, and its keys change it. A view's
+      // picture's tag only says where it's placed: its caption is the stop.
+      if (!l || l.role === "image" || l.role === "picture") continue;
       const kind: ElementKind = l.role ?? "link";
       // An embed's ruler is its shaded region; a row's is itself; a link's is the block it's in.
       let ruler = block(r.line);
@@ -3736,7 +3737,7 @@ export class NoteSurface {
       const label = kind === "task" && l.task ? `${STEP_BOXES[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}`
         // A view's picture (PIE-827) is named by its file, as a note's image is.
-        : l.media && !l.role ? l.media.split("/").pop() ?? l.media : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
+        : l.media && !l.role ? fileName(l.media) : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
     for (const x of doc.media) {

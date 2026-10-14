@@ -7,6 +7,7 @@
 
 import { codeHides, scanPropertyLiteralRanges } from "./code-ranges";
 import { isEscapedAt, propertyTokenMatches } from "./property-grammar";
+import { closest } from "./tool-args";
 
 /** The property key a form field is written under. */
 export const FORM_FIELD_KEY = "form-field";
@@ -17,6 +18,11 @@ export type FormFieldType = typeof FORM_FIELD_TYPES[number];
 export const FORM_FIELD_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 /** Names an action's request already uses: neither a declared argument nor a note's field may be one. */
 export const RESERVED_ARG_NAMES: ReadonlySet<string> = new Set(["block", "line", "with", "quote", "near", "tile", "action", "color"]);
+/**
+ * How much a field (or a declared argument, extension-manifest.ts ActionArg) may hold: its choices, each choice's
+ * length, and its default's length. One set of bounds, so a note's field is checked as a declared argument is.
+ */
+export const FORM_FIELD_LIMITS = { options: 32, option: 60, default: 200 } as const;
 /** At most this many fields are read from one note. */
 export const MAX_FORM_FIELDS = 16;
 
@@ -33,30 +39,6 @@ export interface FormField {
 export interface FormFieldProblem { written: string; message: string }
 
 const FLAGS = ["required", "default="] as const;
-
-/** The nearest of `words` to `typed` (at most two edits away), or undefined. */
-function nearest(typed: string, words: readonly string[]): string | undefined {
-  let best: string | undefined, score = 3;
-  for (const word of words) {
-    const d = distance(typed.toLowerCase(), word);
-    if (d < score) { best = word; score = d; }
-  }
-  return best;
-}
-
-function distance(a: string, b: string): number {
-  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    let diagonal = row[0]!;
-    row[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const above = row[j]!;
-      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
-      diagonal = above;
-    }
-  }
-  return row[b.length]!;
-}
 
 /**
  * A `form-field` value read: `<name> <type> [<options>] [required] [default=<value>]`, words split by spaces.
@@ -75,7 +57,7 @@ export function parseFormField(value: string): FormField | FormFieldProblem {
   if (RESERVED_ARG_NAMES.has(name)) return bad(`${name} is a name the action's request already uses (${[...RESERVED_ARG_NAMES].join(", ")}); call the field something else`);
   if (!type) return bad(`it says no type: add one of ${FORM_FIELD_TYPES.join(", ")} after ${name}`);
   if (!(FORM_FIELD_TYPES as readonly string[]).includes(type)) {
-    const near = nearest(type, FORM_FIELD_TYPES);
+    const near = closest(type, FORM_FIELD_TYPES);
     return bad(`${type} isn't a field type (${FORM_FIELD_TYPES.join(", ")})${near ? `; did you mean ${near}?` : ""}`);
   }
   const field: FormField = { name, type: type as FormFieldType };
@@ -84,10 +66,14 @@ export function parseFormField(value: string): FormField | FormFieldProblem {
     else if (word.startsWith("default=")) field.default = word.slice("default=".length);
     else if ((field.type === "choice" || field.type === "property") && !field.options && !word.includes("=")) field.options = word.split("|").filter(Boolean);
     else {
-      const near = nearest(word.replace(/=.*/, "="), FLAGS);
+      const near = closest(word.replace(/=.*/, "="), FLAGS);
       return bad(`${word} isn't read here (after the type: ${field.type === "choice" || field.type === "property" ? "its options a|b|c, " : ""}required, default=<value>)${near ? `; did you mean ${near === "default=" ? "default=<value>" : near}?` : ""}`);
     }
   }
+  if (field.options && field.options.length > FORM_FIELD_LIMITS.options) return bad(`it has ${field.options.length} options; a field holds at most ${FORM_FIELD_LIMITS.options}`);
+  const long = field.options?.find(option => option.length > FORM_FIELD_LIMITS.option);
+  if (long) return bad(`the option ${long.slice(0, 20)}… is longer than ${FORM_FIELD_LIMITS.option} characters`);
+  if (field.default !== undefined && field.default.length > FORM_FIELD_LIMITS.default) return bad(`its default is longer than ${FORM_FIELD_LIMITS.default} characters`);
   if (field.type === "choice" && !field.options?.length) return bad(`a choice needs its options after the type, split by | (${name} choice yes|no)`);
   if (field.default !== undefined && field.type === "choice" && !field.options!.includes(field.default)) return bad(`default=${field.default} isn't one of its options (${field.options!.join(", ")})`);
   if (field.default !== undefined && field.type === "number" && !Number.isFinite(Number(field.default))) return bad(`default=${field.default} isn't a number`);

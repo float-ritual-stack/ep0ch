@@ -21,3 +21,11 @@ test("a save warns on the chip it can't read, on its line, and none in code", ()
   // A name twice is said on the second chip's line, as the action would refuse it.
   expect(syntaxWarnings("Log\n[form-field::book text]\n[form-field::book number]").map(w => [w.line, w.message.includes("already has a field book")])).toEqual([[2, true]]);
 });
+
+test("a field is held to a declared argument's bounds, and a save says so", () => {
+  const many = Array.from({ length: 33 }, (_, i) => `o${i}`).join("|");
+  expect(parseFormField(`size choice ${many}`)).toMatchObject({ message: expect.stringContaining("at most 32") });
+  expect(parseFormField(`size choice small|${"x".repeat(61)}`)).toMatchObject({ message: expect.stringContaining("longer than 60") });
+  expect(parseFormField(`note text default=${"y".repeat(201)}`)).toMatchObject({ message: expect.stringContaining("longer than 200") });
+  expect(syntaxWarnings(`Sizes\n[form-field::size choice ${many}]`).map(w => [w.kind, w.line])).toEqual([["form-field", 1]]);
+});

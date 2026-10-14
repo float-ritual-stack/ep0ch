@@ -15,8 +15,9 @@
  */
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
-import { blockReferenceOccurrences, codeRangesOf, fragmentAnchorMatch, FRAGMENT_ID_SOURCE, referencedBlock, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
-import { fragmentAnchors } from "./fragments";
+import { blockReferenceOccurrences, codeRangesOf, FRAGMENT_ID_SOURCE, referencedBlock, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
+import { fragmentAnchors, withAnchorAtEnd, withoutAnchor } from "./fragments";
+import { ep0chBlockUriOccurrences, formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { blockDisplayTitle } from "./references";
 import { requestLines } from "./agent-requests";
 import { DRAFT_PROPOSAL_TYPE, type DraftGroup, type DraftGroupWrite, type DraftPatchApplied, type DraftPatchInput, type DraftPatchResult } from "./draft-patch";
@@ -24,6 +25,9 @@ import type { DraftGroupInput } from "./draft-patch-router";
 import { namesDemoIds, rewriteDemoReferences } from "./extension-demo";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
 import type { OutlinerStore } from "./store";
+// An EchoNet copy (`[from::<node>/<original id>]`) as EchoNet reads it: its text is its origin's, so a move never
+// rewrites it; its origin is told by netmail (ADR 0005).
+import { isCopy } from "../extensions/echonet/shapes";
 import type { MutationProvenance } from "./types";
 
 export type ExtensionWrite =
@@ -74,14 +78,7 @@ const isProposal = (block: { properties: readonly { key: string; value: string }
 
 const SHAPES = `{ op: "create", parentId, text, as?, position? }, { op: "update", blockId, expectedRevision, text }, { op: "move", blockId, parentId, position?, expectedRevision }, { op: "order", parentId, children }, { op: "move-anchor", from: "<block>^<anchor>", to }`;
 const ANCHOR_REF = new RegExp(String.raw`^([A-Za-z0-9_-]{8,64})\^(${FRAGMENT_ID_SOURCE})$`);
-/**
- * An EchoNet copy: `[from::<node>/<original id>]`, as the tosser writes it (extensions/echonet/shapes.ts FROM). Its
- * text is its origin's, so the service never rewrites it for a move; its origin is told by netmail (ADR 0005).
- */
-const ECHO_COPY = /^[a-z0-9][a-z0-9-]*@[\w.-]+\/[0-9a-f-]{36}$/;
 const MAX_REPOINT = 200;
-const isEchoCopy = (block: { properties: readonly { key: string; value: string }[] }) =>
-  block.properties.some((property) => property.key === "from" && ECHO_COPY.test(property.value));
 
 /** One block write of an action's answer, its shape checked (`writes[index]`); what it names is checked when applied. */
 export function parseBlockWrite(write: Record<string, unknown>, index: number): BlockWrite {
@@ -381,7 +378,7 @@ export class ExtensionWrites {
     for (const block of [from, ...(target ? [target] : [])]) {
       const owner = this.store.extensionOwner(block.id);
       if (owner) throw new Error(`${action} moves ^${anchor} in ${block.id}, a record ${owner.extensionId} keeps; ${nothing}`);
-      if (isEchoCopy(block)) throw new Error(`${action} moves ^${anchor} in "${blockDisplayTitle(block)}", an EchoNet copy: its text is its origin's (${nothing})`);
+      if (isCopy(block)) throw new Error(`${action} moves ^${anchor} in "${blockDisplayTitle(block)}", an EchoNet copy: its text is its origin's (${nothing})`);
     }
     // A block's text as the group leaves it, and a change to it: an update the group has, or one the move adds.
     const textOf = (blockId: string) => updates.get(blockId)?.after ?? this.store.get(blockId)!.text;
@@ -419,7 +416,7 @@ export class ExtensionWrites {
       const after = repointAnchor(before, from.id, anchor, toId, here);
       if (after === before) continue;
       if (++repointed > MAX_REPOINT) throw new Error(`${action} moves ^${anchor}, but more than ${MAX_REPOINT} notes link to it; ${nothing}`);
-      if (isEchoCopy(block)) {
+      if (isCopy(block)) {
         const where = made ? `the new "${labelOf(made.text)}"` : `"${blockDisplayTitle(target!)}"`;
         structure.push({ op: "netmail", blockId, about: { blockId: from.id, anchor }, body: `^${anchor} moved from "${fromTitle}" to ${where} here. This copy links to it as ^${anchor} of "${fromTitle}"; its original's link needs the same change, and the next toss brings it here.` });
         continue;
@@ -545,52 +542,25 @@ export function wholeTextSpan(before: string, after: string): DraftPatchSpan | n
 /** A new block's label for words: its first line, short. */
 const labelOf = (text: string) => { const line = withoutFragmentAnchor(text.split("\n", 1)[0]!).trim(); return line.length > 60 ? `${line.slice(0, 59)}…` : line; };
 
-/** `text` without its `^anchor` marker: the marker off its line, or the line itself when it's only the marker. */
-export function withoutAnchor(text: string, anchor: string): string {
-  const lines = text.split("\n");
-  const at = fragmentAnchors(text).find((found) => found.id === anchor);
-  if (!at) return text;
-  const line = lines[at.lineIndex]!;
-  const match = fragmentAnchorMatch(line);
-  if (!match) return text;
-  const kept = line.slice(0, match.index).trimEnd();
-  if (kept.trim()) lines[at.lineIndex] = kept;
-  else lines.splice(at.lineIndex, 1);
-  return lines.join("\n");
-}
-
-/** `text` with ` ^anchor` at the end of its last line that isn't blank. */
-export function withAnchorAtEnd(text: string, anchor: string): string {
-  const lines = text.split("\n");
-  let last = lines.length - 1;
-  while (last >= 0 && !lines[last]!.trim()) last -= 1;
-  if (last < 0) return text;
-  lines[last] = `${lines[last]!.trimEnd()} ^${anchor}`;
-  return lines.join("\n");
-}
-
 /**
  * `text` with every link to `^anchor` of `from` pointing at `to` instead (PIE-829): `((from^anchor))`, its labelled
  * and embedded forms (outline-core's reference grammar, so a link in code stays text), and an `ep0ch://…/b/<from>#anchor`
  * address outside code. Everything else as written.
  */
 export function repointAnchor(text: string, from: string, anchor: string, to: string, here?: { outline?: string; machines: readonly string[] }): string {
-  const spans: { start: number; end: number }[] = [];
+  const spans: { start: number; end: number; with: string }[] = [];
+  // The block a link names exactly, as the backlink index and the structural guard count it.
   for (const reference of blockReferenceOccurrences(text)) {
-    if (reference.fragmentId !== anchor || !(reference.blockId === from || from.startsWith(reference.blockId))) continue;
-    spans.push({ start: reference.start + 2, end: reference.start + 2 + reference.blockId.length });
+    if (reference.fragmentId !== anchor || reference.blockId !== from) continue;
+    spans.push({ start: reference.start + 2, end: reference.start + 2 + reference.blockId.length, with: to });
   }
   // An address is repointed only when it names this outline (`ep0ch://<outline>@<machine>`, under any name it goes by).
   const code = codeRangesOf(text);
-  const uri = new RegExp(String.raw`ep0ch://([^\s/()\[\]@]+)@([^\s/()\[\]]+)/b/${from}#${anchor}(?![A-Za-z0-9_-])`, "g");
-  for (const match of here?.outline ? text.matchAll(uri) : []) {
-    let outline: string, machine: string;
-    try { outline = decodeURIComponent(match[1]!); machine = decodeURIComponent(match[2]!); } catch { continue; }
-    if (outline !== here!.outline || !here!.machines.includes(machine)) continue;
-    const start = match.index + match[0].indexOf(`/b/${from}`) + 3;
-    if (!code.some((range) => range.start <= start && start < range.end)) spans.push({ start, end: start + from.length });
+  for (const { uri, start, end } of here?.outline ? ep0chBlockUriOccurrences(text) : []) {
+    if (uri.blockId !== from || uri.fragment !== anchor || uri.outline !== here!.outline || !here!.machines.includes(uri.machine)) continue;
+    if (!code.some((range) => range.start <= start && start < range.end)) spans.push({ start, end, with: formatEp0chBlockUri({ ...uri, blockId: to }) });
   }
   let out = text;
-  for (const span of spans.sort((a, b) => b.start - a.start)) out = out.slice(0, span.start) + to + out.slice(span.end);
+  for (const span of spans.sort((a, b) => b.start - a.start)) out = out.slice(0, span.start) + span.with + out.slice(span.end);
   return out;
 }

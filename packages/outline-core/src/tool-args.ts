@@ -125,8 +125,8 @@ function distance(a: string, b: string): number {
   return row[b.length]!;
 }
 
-/** The accepted name closest to `name` (case aside), if close enough to be a typo of it. */
-function closest(name: string, candidates: readonly string[]): string | undefined {
+/** The accepted name closest to `name` (case aside), if close enough to be a typo of it: the one did-you-mean rule. */
+export function closest(name: string, candidates: readonly string[]): string | undefined {
   const lower = name.toLowerCase();
   let best: { name: string; d: number } | undefined;
   for (const candidate of candidates) {

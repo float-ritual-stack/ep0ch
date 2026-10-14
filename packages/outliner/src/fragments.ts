@@ -462,6 +462,30 @@ function passageSlug(label: string): string {
   return fragmentSlug(words).slice(0, 24).replace(/[-_]+$/, "") || "passage";
 }
 
+/** `text` without its `^anchor` marker: the marker off its line, or the line itself when it's only the marker. */
+export function withoutAnchor(text: string, anchor: string): string {
+  const lines = text.split(/\r?\n/);
+  const at = fragmentAnchors(text).find((found) => found.id === anchor);
+  if (!at) return text;
+  const line = lines[at.lineIndex]!;
+  const match = fragmentAnchorMatch(line);
+  if (!match) return text;
+  const kept = line.slice(0, match.index).trimEnd();
+  if (kept.trim()) lines[at.lineIndex] = kept;
+  else lines.splice(at.lineIndex, 1);
+  return lines.join("\n");
+}
+
+/** `text` with ` ^anchor` at the end of its last line that isn't blank. */
+export function withAnchorAtEnd(text: string, anchor: string): string {
+  const lines = text.split(/\r?\n/);
+  let last = lines.length - 1;
+  while (last >= 0 && !lines[last]!.trim()) last -= 1;
+  if (last < 0) return text;
+  lines[last] = `${lines[last]!.trimEnd()} ^${anchor}`;
+  return lines.join("\n");
+}
+
 export function stripFragmentAnchors(text: string): string {
   return text.split(/\r?\n/).map((line) => contentBeforeAnchor(line, fragmentAnchorMatch(line))).join("\n");
 }

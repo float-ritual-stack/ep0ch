@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
-import { Type, IsSchema, type Static, type TSchema } from "typebox";
+import { Type, IsSchema, type Static, type TLiteral, type TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import { cleanExtensionText } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseKindSpec, PLACES, RULE_TONES } from "@ep0ch/outline-core/rules";
 import { componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
-import { RESERVED_ARG_NAMES } from "@ep0ch/outline-core/form-fields";
+import { FORM_FIELD_LIMITS, FORM_FIELD_NAME, FORM_FIELD_TYPES, RESERVED_ARG_NAMES, type FormFieldType } from "@ep0ch/outline-core/form-fields";
 import { cronProblem } from "./extension-schedule";
 import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
 
@@ -144,14 +144,15 @@ export type ExtensionHandler = Static<typeof Handler>;
  */
 const ActionArg = Type.Object(
   {
-    name: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,31}$" }),
-    type: Type.Union([Type.Literal("text"), Type.Literal("choice"), Type.Literal("property"), Type.Literal("number")]),
+    // A note's form field (outline-core form-fields.ts) is checked by the same rules: its name, types and bounds.
+    name: Type.String({ pattern: FORM_FIELD_NAME.source }),
+    type: Type.Union(FORM_FIELD_TYPES.map((type) => Type.Literal(type)) as unknown as [TLiteral<FormFieldType>]),
     label: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
     description: Type.Optional(Type.String({ maxLength: 200 })),
-    options: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 60 }), { minItems: 1, maxItems: 32 })),
+    options: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: FORM_FIELD_LIMITS.option }), { minItems: 1, maxItems: FORM_FIELD_LIMITS.options })),
     from: Type.Optional(Type.Union([Type.Literal("block"), Type.Literal("children"), Type.Literal("outline")])),
     required: Type.Optional(Type.Boolean()),
-    default: Type.Optional(Type.String({ maxLength: 200 })),
+    default: Type.Optional(Type.String({ maxLength: FORM_FIELD_LIMITS.default })),
     defaultProperty: Type.Optional(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_.-]{0,63}$" })),
   },
   { additionalProperties: false },

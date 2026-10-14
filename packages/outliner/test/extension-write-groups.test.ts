@@ -380,3 +380,17 @@ test("an ep0ch:// address is repointed only when it names this outline", () => {
     .toBe(`ep0ch://garden@box-one/b/${to}#s5 and ep0ch://other@box-one/b/${from}#s5 and ep0ch://garden@box-one/b/${from}#s50`);
   expect(repointAnchor(text, from, "s5", to)).toBe(text);
 });
+
+test("a link is repointed when it names the block exactly, as the guard counts it", () => {
+  const from = "11111111-2222-4333-8444-555555555555", to = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+  // A short id isn't a link the backlink index or the guard counts, so a move leaves it as written.
+  const text = `See ((${from}^s5)), ((${from}^s5|the peas)) and ((11111111^s5)).`;
+  expect(repointAnchor(text, from, "s5", to)).toBe(`See ((${to}^s5)), ((${to}^s5|the peas)) and ((11111111^s5)).`);
+});
+
+test("an address at the end of a sentence is repointed without its full stop", () => {
+  const from = "11111111-2222-4333-8444-555555555555", to = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+  const text = `It moved: ep0ch://garden@box-one/b/${from}#s5. And [here](ep0ch://garden@box-one/b/${from}#s5).`;
+  expect(repointAnchor(text, from, "s5", to, { outline: "garden", machines: ["box-one"] }))
+    .toBe(`It moved: ep0ch://garden@box-one/b/${to}#s5. And [here](ep0ch://garden@box-one/b/${to}#s5).`);
+});
