@@ -15,7 +15,7 @@ export const COMMENT_TILE_KIND = "comment";
 
 type Side = "left" | "right" | "up" | "down";
 /** Its side chips: where the tile goes round its note. */
-const SIDES: [Side, string][] = [["left", "◀ left"], ["right", "right ▶"], ["up", "▲ above"], ["down", "below ▼"]];
+const SIDES: [Side, string][] = [["left", "◄ left"], ["right", "right ►"], ["up", "▲ above"], ["down", "below ▼"]];
 
 export class CommentTilePane implements Pane {
   readonly kind = COMMENT_TILE_KIND;
