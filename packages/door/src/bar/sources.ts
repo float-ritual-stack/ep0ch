@@ -11,7 +11,7 @@ import { tileKinds } from "../desk/tile-kinds";
 import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
 import { notConfigured, jevOff, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
-import { ActionRefused, declaredKeys, type ActionInfo } from "../surface/actions";
+import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
@@ -219,7 +219,9 @@ const ACTIONS: BarSource = {
       rows.push({ key: a.name, label: a.name, detail: `${a.summary.split(/[.:;(]/)[0]!.slice(0, 80)}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
-    return filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
+    const found = filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
+    const line = actionLine(q, host);
+    return line ? [line, ...found] : found;
   },
   preview(row, host) {
     const d = row.data as { action: string; summary?: string; keys?: string };
@@ -237,6 +239,31 @@ const ACTIONS: BarSource = {
     return how.actor.kind === "agent" ? on.act({ action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor) : on.press(d.action, d.args, d.tile);
   },
 };
+
+/**
+ * What's typed as an action line, as `ep0ch act` takes it (PIE-856): an action this door has, then its `key=value`
+ * words, quoted as a shell quotes them (`tile.open kind=query query="#build-report"`), or the name alone of one that
+ * needs arguments. Its row runs it as typed, as the person; an argument the action doesn't take, of the wrong type
+ * or missing is said on the row (refused), and its summary and arguments are on the right. Anything else: none.
+ */
+function actionLine(q: string, host: BarHost): BarRow | null {
+  const words = lineWords(q);
+  let req: ActRequest;
+  try { req = actRequestOf(words); } catch { return null; }
+  const info = host.dispatch.list().actions.find(a => a.name === req.action);
+  // A name alone that needs nothing is the action's own row already.
+  if (!info || (words.length < 2 && bare(info))) return null;
+  // An argument it doesn't take, one of the wrong type or one it needs: the row says which, as `ep0ch act` would.
+  let refused: string | undefined;
+  if (req.as !== undefined) refused = "the power bar runs it as you: leave out as=";
+  else try { coerceActionArgs(req.action, info.args, req.args ?? {}); } catch (e) { refused = e instanceof Error ? e.message : String(e); }
+  const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
+  const shown = [req.action, ...Object.entries(req.args ?? {}).map(([k, v]) => `${k}=${said(String(v))}`), ...(req.tile !== undefined ? [`tile=${said(req.tile)}`] : [])].join(" ");
+  return {
+    key: `line:${shown}`, label: `run ${shown}`, detail: info.summary.split(/[.:;(]/)[0]!.slice(0, 80), exact: true, ...(refused ? { refused } : {}),
+    data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: info.summary, keys: info.keys },
+  };
+}
 
 /**
  * A ^W row picked: the person's presses its keys (the desk's own chord handler, so it is what ^W then the key does,

@@ -211,7 +211,9 @@ export class PowerBar {
     const lit = this.items[this.picker.sel];
     const keep = keepLit ? (lit ? `${lit.source.id}\0${lit.row.key}` : this.litKey) : null;
     const out: BarItem[] = [];
-    for (const s of this.sources()) {
+    // In the main list a source whose row what's typed names outright (a pasted action line) comes first, that row lit.
+    const sources = this.sources(), named = (s: BarSource) => !this.scope && !!this.got.get(s.id)?.some(r => r.exact);
+    for (const s of [...sources.filter(named), ...sources.filter(s => !named(s))]) {
       const rows = this.got.get(s.id) ?? [];
       const shown = this.scope ? rows : rows.slice(0, s.main.most ?? 8);
       let group: string | undefined;

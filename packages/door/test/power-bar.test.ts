@@ -10,7 +10,8 @@ import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
-import { Offline, SocketBoard, type Actor } from "../src/socket";
+import { Offline, SocketBoard, USER, type Actor } from "../src/socket";
+import { askInBar } from "../src/bar/ask";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -210,6 +211,36 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "enter" });
     const { theme } = await import("../src/theme");
     await until(() => theme().name !== was, "the theme turned", 3000);
+  });
+
+  test("a paste lands whole in the bar's line, and an action line pasted with its arguments is the lit row that ⏎ runs (PIE-856)", async () => {
+    key(ctrlK);
+    // As a terminal sends it (bracketed paste), copied from a chat with its line break.
+    key({ kind: "paste", text: 'tile.open kind=query query="#build-report"\n' });
+    expect(peek().bar.query).toBe('tile.open kind=query query="#build-report"');
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query query=#build-report" });
+    const tiles = (desk as any).all().length;
+    key({ kind: "enter" });
+    expect(peek().bar).toBeUndefined();
+    await until(() => (desk as any).all().length === tiles + 1, "the query tile opened", 5000);
+    // An argument the action doesn't take is said on the row, typed key by key as well as pasted.
+    key(ctrlK); type("tile.open kind=query colour=red");
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query colour=red" });
+    expect(peek().bar.rows[0].refused).toContain("colour");
+    key({ kind: "esc" });
+    // The name alone of one that needs arguments says what it needs.
+    key(ctrlK); type("tile.open");
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open" });
+    expect(peek().bar.rows[0].refused).toContain("kind");
+    key({ kind: "esc" });
+    // An argument the bar asks for takes a paste the same way.
+    let answered: Record<string, string> | null = null;
+    await askInBar(app as any, "Name the bed", [{ name: "name", type: "text" }], {}, USER, async a => { answered = a; });
+    key({ kind: "paste", text: "the bean row\n" });
+    expect(peek().bar).toMatchObject({ scope: "ask", query: "the bean row" });
+    key({ kind: "enter" });
+    await until(() => answered !== null, "the answer given", 3000);
+    expect(answered!).toEqual({ name: "the bean row" });
   });
 
   test("an agent's bar.open answers the rows and opens nothing; its bar.pick runs as the agent; it never closes the person's bar", async () => {
