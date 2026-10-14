@@ -2253,7 +2253,8 @@ export class Publisher {
             const node = images[n];
             if (!node) return null;
             const spec = imagePrimitiveSpec(node);
-            return mediaHtml(spec, !context.index.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${context.basePath}${mediaPath(blockId, line, n)}` : null);
+            // `caption: false` (PIE-839): a served cover without its caption; one not served still says what it is.
+            return mediaHtml(spec, !context.index.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${context.basePath}${mediaPath(blockId, line, n)}` : null, undefined, node.caption !== false);
           }));
           shown.set(line, componentSentinel(components.length - 1));
         } else if (output?.markdown.trim()) shown.set(line, output.markdown);

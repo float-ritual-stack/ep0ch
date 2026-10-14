@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A picture in an extension's view shows in Tern (PIE-839)
+
+- **Fixed:** `pic::`, a `gallery::` card's cover and any extension view's `image` drew an empty box of the right height
+  in Tern, while an `[img::]` line in the same note drew. The door places a picture under the text, and the view's
+  rows are tinted (the extension's region); Kitty draws a picture over a tinted cell, Tern under it. A picture's cells
+  now keep the terminal's own background in a reader, whatever tints the rows around it (a region, the ruler, a box).
+- **Added:** `caption: false` on the `image` primitive draws the picture alone, without its caption line (and with no
+  `[ ]` stop of its own): a card's cover, where the card is what opens. Without graphics the caption still says what it
+  is; a web page leaves out the figure's caption. The gallery example's covers use it.
+- **Added:** one reference page for image lines, `packages/door/docs/IMAGE-LINES.md`: the grammar, the properties,
+  the paths it takes and where it draws, linked from the door README and the ep0ch-outline skill.
+- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 167: the image primitive's `caption` on the wire; clients
+  and the host update together; no schema change).
+
 ### Paste works in the power bar (PIE-856)
 
 - **Fixed:** a paste into the power bar (ctrl+k), and into a question it asks for an action's argument, was dropped:

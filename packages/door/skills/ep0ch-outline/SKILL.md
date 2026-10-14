@@ -437,7 +437,7 @@ deeper, to any depth:
   `callout.type n= to=<type>` rewrites the type. Both are an attributed edit of one line, revision-checked, refused
   under a draft the person has open; `callout.undo` takes yours back.
 
-**Images and video** (PIE-532; the grammar is the door's `src/media.ts`). A line that is only the image, after an
+**Images and video** (PIE-532; the reference, grammar to where it draws, is the door's `docs/IMAGE-LINES.md`). A line that is only the image, after an
 optional list mark, with its layout as properties beside it: `[img::path]` (or `[video::path]`), then any of
 `[size::40%]` (its width: cells, a share of the reader, or `full`), `[height::12]` (rows; the aspect is kept),
 `[align::left|center|right]`, `[alt::what it shows]` and `[layout::hero]`, the note's **header**: drawn above the
@@ -535,7 +535,7 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
    row, stack, text, badge, stat, bar, table, checklist, sparkline, image) that every client draws, with actions
    (`[w ward]` in the door: its key, a click, or `act ext.fancy-horror.ward block=<id>`). Its state lives in
    the outline as blocks its actions write. A picture in a view is an `image` (`{ type: "image", src, alt?, size?,
-   fit?, height? }`, PIE-827): drawn as a note's `[img::]` line is (the door's graphics, a page's served image inside
+   fit?, height?, caption? }`, PIE-827; `caption: false` draws a card's cover alone): drawn as a note's `[img::]` line is (the door's graphics, a page's served image inside
    the publish roots, elsewhere its alt text and file), so a gallery or a card's cover writes nothing to the outline.
    The `gallery` example: `gallery::` draws the notes under it as cards with their `[cover::path]`, `pic:: path` one.
 4. **Tile** (`tarot.reading`): a program in a door terminal tile of its own kind (`^W o T`, or

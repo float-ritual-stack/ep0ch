@@ -2036,7 +2036,9 @@ draws a ticket (PIE-512):
 - **A rich component** (`fancy-horror::`) is drawn from the service's shared primitives (card, box, row,
   stack, text, badge, stat, bar, table, checklist, sparkline, band, track, blockdown, image) with their tone as
   colour (`src/components.ts`). An `image` (PIE-827, the gallery extension's covers) is drawn as a note's `[img::]`
-  line is: the picture under Kitty graphics, dimmed dark-first, with its caption, which `[ ]` stops on and ⏎ opens.
+  line is: the picture under Kitty graphics, dimmed dark-first, with its caption, which `[ ]` stops on and ⏎ opens;
+  `caption: false` draws it alone (a card's cover, PIE-839). Its cells keep the terminal's own background, never the
+  region's tint, so a terminal that draws pictures under every tinted cell (Tern) shows it too.
   A primitive this door doesn't know falls back to the line's Markdown, then its data.
 - **An `@name` request** shows its state (`queued`, `running`, `applied`, `proposed`, `replied`, `failed`…),
   what the agent said, its reply, and who asked. Its edit lands in the note attributed to the extension
@@ -2160,8 +2162,8 @@ come back in the reply and the reader stays as the person left it.
 
 Bodies render with `src/doc.ts`:
 
-- **Images and video** (PIE-532). A line that is only `img:: path`, `[img::path]` or `[video::path]` (after an optional
-  list mark) becomes an image through Kitty. Its layout is written as properties beside it on the same line:
+- **Images and video** (PIE-532; the whole reference, grammar to where it draws: [docs/IMAGE-LINES.md](docs/IMAGE-LINES.md)).
+  A line that is only `img:: path`, `[img::path]` or `[video::path]` (after an optional list mark) becomes an image through Kitty. Its layout is written as properties beside it on the same line:
 
   ```
   - [img::~/Pictures/plot.jpg] [layout::hero] [height::14]

@@ -62,9 +62,10 @@ export type Primitive =
   /**
    * A picture (PIE-827), drawn as each client draws a note's `[img::]` line (outline-core's imagePrimitiveSpec): the
    * door's graphics, dimmed dark-first; a page's served image, when the publish roots allow the file; elsewhere its alt
-   * text and file. `src`: a path or a `file:` Resource ref; `size` as `[size::]` (cells, `N%`, `full`); `height` in rows.
+   * text and file. `src`: a path or a `file:` Resource ref; `size` as `[size::]` (cells, `N%`, `full`); `height` in rows;
+   * `caption: false` (PIE-839): the picture alone where it's drawn (a card's cover), its caption only where it isn't.
    */
-  | { type: "image"; src: string; alt?: string; size?: string; fit?: "cover" | "contain"; height?: number };
+  | { type: "image"; src: string; alt?: string; size?: string; fit?: "cover" | "contain"; height?: number; caption?: boolean };
 
 export interface ComponentOutput {
   /** The truth: what `json` (and `csv`, for rows) returns. */
@@ -262,17 +263,18 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     }
     case "image": {
-      only(node, ["type", "src", "alt", "size", "fit", "height"], path);
+      only(node, ["type", "src", "alt", "size", "fit", "height", "caption"], path);
       const src = text(node.src, `${path}.src`)!;
       // A file the outline names, as a note's image line does: never a page on the web or a stored Resource.
       if (!src.trim() || src.includes("\0") || (isResourceRef(src) && !src.startsWith("file:")) || (src.startsWith("file:") && "problem" in parseResourceRef(src)))
         fail(`${path}.src`, "must be a file's path or a file: Resource ref (file:/path)");
       if (node.size !== undefined && (typeof node.size !== "string" || !parseSize(node.size))) fail(`${path}.size`, "must be a size as [size::] writes it: cells (24), N% (50%) or full");
       if (node.fit !== undefined && node.fit !== "cover" && node.fit !== "contain") fail(`${path}.fit`, "must be cover or contain");
+      if (node.caption !== undefined && typeof node.caption !== "boolean") fail(`${path}.caption`, "must be true or false");
       if (node.height !== undefined && (!Number.isInteger(node.height) || (node.height as number) < 1 || (node.height as number) > MAX_IMAGE_ROWS)) fail(`${path}.height`, `must be a whole number of rows from 1 to ${MAX_IMAGE_ROWS}`);
       return { type: "image", src: src.trim(), ...(node.alt !== undefined ? { alt: text(node.alt, `${path}.alt`)! } : {}),
         ...(node.size !== undefined ? { size: node.size as string } : {}), ...(node.fit !== undefined ? { fit: node.fit as "cover" | "contain" } : {}),
-        ...(node.height !== undefined ? { height: node.height as number } : {}) };
+        ...(node.height !== undefined ? { height: node.height as number } : {}), ...(node.caption !== undefined ? { caption: node.caption as boolean } : {}) };
     }
     default:
       fail(`${path}.type`, `must be one of ${PRIMITIVE_TYPES.join(", ")}`);

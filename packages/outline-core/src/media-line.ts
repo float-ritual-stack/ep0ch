@@ -123,10 +123,12 @@ export function parseMediaLine(line: string): MediaSpec | null {
 }
 
 /**
- * An extension view's `image` primitive (PIE-827): `{ type: "image", src, alt?, size?, fit?, height? }`. `src` is a path,
- * as an `[img::]` line names one, or a `file:` Resource ref; `size` is written as `[size::]` is (cells, `N%` or `full`).
+ * An extension view's `image` primitive (PIE-827): `{ type: "image", src, alt?, size?, fit?, height?, caption? }`. `src` is
+ * a path, as an `[img::]` line names one, or a `file:` Resource ref; `size` is written as `[size::]` is (cells, `N%` or
+ * `full`). `caption: false` (PIE-839): the picture alone where it's drawn, without the caption line under it (a card's
+ * cover, where the card is what opens); where it can't be drawn, its caption still says what it is.
  */
-export interface ImagePrimitive { src: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number }
+export interface ImagePrimitive { src: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number; caption?: boolean }
 
 /**
  * The path an image primitive's `src` names: a `file:` Resource ref's path, read by `parseResourceRef` (so it is

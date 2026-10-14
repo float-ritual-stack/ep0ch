@@ -51,9 +51,9 @@ function width(spec: MediaSpec): string | undefined {
 
 /**
  * An image as HTML: dark behind it until it loads, held a little below full brightness unless `[dim::]` says how much
- * (0 none … 1 black), its alt text its caption.
+ * (0 none … 1 black), its alt text its caption (none when `caption` is false: a view's cover, PIE-839).
  */
-export function mediaHtml(spec: MediaSpec, src: string | null, title?: string): string {
+export function mediaHtml(spec: MediaSpec, src: string | null, title?: string, caption = true): string {
   if (spec.kind === "artifact") return artifactHtml(spec, src, title ?? fileName(spec.path));
   const alt = spec.alt ?? "";
   const align = spec.align ?? (spec.layout === "hero" ? "center" : "left");
@@ -71,7 +71,7 @@ export function mediaHtml(spec: MediaSpec, src: string | null, title?: string): 
   styles.push(`filter:brightness(${spec.dim !== undefined ? Math.round((1 - spec.dim) * 100) / 100 : 0.9})`);
   return `<figure class="media media-${align}${spec.layout === "hero" ? " media-hero" : ""}">` +
     `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async" style="${styles.join(";")}">` +
-    `${alt ? `<figcaption>${escapeHtml(alt)}</figcaption>` : ""}</figure>`;
+    `${alt && caption ? `<figcaption>${escapeHtml(alt)}</figcaption>` : ""}</figure>`;
 }
 
 /** The permissions an artifact's frame runs with: claude.ai's, never this page's origin (no allow-same-origin). */
