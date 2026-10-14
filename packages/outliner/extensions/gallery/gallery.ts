@@ -40,7 +40,7 @@ if (handler === "pic") {
     children: cards.map((card) => ({
       type: "card", title: card.title, link: card.id,
       children: [
-        ...(card.cover ? [{ type: "image", src: card.cover, alt: card.title, height: rows, fit: "cover" }] : [{ type: "text", text: "no [cover::] picture", tone: "dim" }]),
+        ...(card.cover ? [{ type: "image", src: card.cover, alt: card.title, height: rows, fit: "cover", caption: false }] : [{ type: "text", text: "no [cover::] picture", tone: "dim" }]),
         ...(card.words ? [{ type: "text", text: card.words, tone: "dim" }] : []),
       ],
     })),

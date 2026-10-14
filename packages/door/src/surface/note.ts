@@ -494,10 +494,12 @@ const tagged = (drawn: Link[], to: Link, text: string) => linkTag(drawn.push(to)
  * carries a zero-width tag naming the picture, so wherever the view puts it (a card, a box, one side of a row)
  * placePictures finds it; its caption is a link to the file, so `[ ]` stops on it and ⏎ opens it, as on a note's image.
  */
-function pictureRows(spec: MediaSpec, width: number, env: DocEnv, drawn: Link[]): string[] {
-  const r = mediaRows(spec, width, { ...env, image: undefined }, -1);
+function pictureRows(node: ImagePrimitive, width: number, env: DocEnv, drawn: Link[]): string[] {
+  const r = mediaRows(imagePrimitiveSpec(node), width, { ...env, image: undefined }, -1);
   const lines = [...r.lines];
   if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "picture", picture: r.image }, " ".repeat(r.image.cols));
+  // `caption: false` (PIE-839): the picture alone, once its rows are kept for it; where it isn't drawn, the caption says what it is.
+  if (node.caption === false && r.caption > 0) return lines.slice(0, r.caption);
   lines[r.caption] = tagged(drawn, { media: r.entry.path }, lines[r.caption]!);
   return lines;
 }
@@ -1524,6 +1526,10 @@ export class NoteSurface {
       return this.paintSelection(marked(painted, row), row);
     });
     if (mcols) this.drawMargin(lines, laid, top, room, bodyW, mcols);
+    // A picture is placed under the text, and a terminal may draw it under every cell with a background of its own
+    // (Tern does; Kitty draws it over them): its cells keep the terminal's own background, whatever tinted the rows
+    // (an extension's region, the ruler, a box's surface), as the desk's surface yields there (PIE-839).
+    onGround(lines, placements);
     // The copy control (PIE-638) on a code block, a quote and a callout: a dim ⧉ at the block's top right edge, bright while its
     // block holds the `[ ]` position. A click is block.copy, as y is. Not drawn over a code cell it would hide.
     const blockNow = current ? this.blockOf(current) : null;
@@ -1614,7 +1620,7 @@ export class NoteSurface {
         task: undefined, link: undefined, literal: undefined, decorate: undefined, callout: undefined,
       }).lines,
       // A view's picture (PIE-827), laid out as the body's image lines are.
-      image: (node: ImagePrimitive, width: number) => pictureRows(imagePrimitiveSpec(node), width, env, drawn),
+      image: (node: ImagePrimitive, width: number) => pictureRows(node, width, env, drawn),
       // A view's link names a block, or (PIE-754) a Resource the extension wants opened.
       row: (block: string, text: string) => tagged(drawn, isResourceRef(block) ? { resourceRef: block, label: block, role: "row" } : { block, role: "row" }, text),
       hostKeys: host?.ownKeys ?? "",
@@ -1902,7 +1908,9 @@ export class NoteSurface {
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
     for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
-    return { lines, links, folds, placements: imagePlacements(doc.images, 0, ...cellOf(host)), current: current ? current.row : null, key: current?.key ?? null, trims: doc.trims, blocks: doc.blocks.map((b, n) => ({ row: b.row, rows: b.rows, col: b.col, ...(b.to !== undefined ? { to: b.to } : {}), kind: b.kind, n })) };
+    const placements = imagePlacements(doc.images, 0, ...cellOf(host));
+    onGround(lines, placements);
+    return { lines, links, folds, placements, current: current ? current.row : null, key: current?.key ?? null, trims: doc.trims, blocks: doc.blocks.map((b, n) => ({ row: b.row, rows: b.rows, col: b.col, ...(b.to !== undefined ? { to: b.to } : {}), kind: b.kind, n })) };
   }
 
   /** A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section. */
@@ -6109,6 +6117,12 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
   };
 }
 
+/** The terminal's own background: a picture under the text shows through a cell on it in every terminal. */
+const DEFAULT_BG = "\x1b[49m";
+/** `lines` with the cells under each of `placements` on the terminal's own background (PIE-839), in place. */
+function onGround(lines: string[], placements: readonly Placement[]): void {
+  for (const p of placements) for (let r = Math.max(0, p.row); r < p.row + p.rows && r < lines.length; r++) lines[r] = paintRange(lines[r]!, p.col, p.col + p.cols, DEFAULT_BG);
+}
 /** The cell size, in pixels, of the terminal the host draws in. */
 const cellOf = (host?: SurfaceHost): [number, number] => [host?.ctx.t?.cellW ?? 9, host?.ctx.t?.cellH ?? 18];
 

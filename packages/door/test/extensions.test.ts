@@ -28,6 +28,31 @@ import { C, fg } from "../src/style";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
+/** The cells under placement `at` on `lines` drawn on a background of their own ("row:col"): a picture under the text shows only where there are none. */
+function tintedCells(lines: readonly string[], at: { row: number; col: number; rows: number; cols: number }): string[] {
+  const out: string[] = [];
+  for (let r = at.row; r < at.row + at.rows; r++) {
+    let col = 0, bg = false;
+    for (const part of (lines[r] ?? "").split(/(\x1b\[[\d;:]*m)/)) {
+      if (part.startsWith("\x1b[")) {
+        const ps = part.slice(2, -1).split(";").map(Number);
+        for (let i = 0; i < ps.length; i++) {
+          const c = ps[i]!;
+          if (c === 0 || c === 49) bg = false;
+          else if ((c >= 40 && c <= 47) || (c >= 100 && c <= 107)) bg = true;
+          else if (c === 48 || c === 38 || c === 58) { if (c === 48) bg = true; i += ps[i + 1] === 2 ? 4 : 2; }
+        }
+        continue;
+      }
+      for (const ch of part) {
+        if (/[\u{100000}-\u{10FFFD}]/u.test(ch)) continue;
+        if (bg && col >= at.col && col < at.col + at.cols) out.push(`${r}:${col}`);
+        col++;
+      }
+    }
+  }
+  return out;
+}
 const plain = (s: string) => s.replace(/\x1b\[[\d;:]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -251,7 +276,8 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(drawn()).toContain("▌ Runner beans");
     // [ ] stops on the caption, a link to the file (⏎ opens it, as a note's image).
     expect(s.describeElements().filter(e => e.target === join(pics, "bean-row.png"))).toEqual([expect.objectContaining({ kind: "link", label: expect.stringContaining("bean-row.png") })]);
-    // With graphics: the picture is placed in the card, under its title, four rows tall, and the caption under it.
+    // With graphics: the picture is placed in the card, under its title, four rows tall, alone (the gallery's covers are
+    // caption: false, PIE-839): no caption under it, and no [ ] stop of its own (the card's title opens the note).
     const graphic: SurfaceHost = { ctx: Object.create(app, { graphics: { value: true }, t: { value: { cols: 120, rows: 60, cellW: 10, cellH: 20, kitty: true } } }), redraw() {}, navigate() {} };
     const g = new NoteSurface();
     g.show((await board.get(cards.id))!, graphic);
@@ -259,10 +285,23 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const v = g.render(120, 60, graphic), at = v.placements![0]!, rows = v.lines.map(plain);
     expect(at.rows).toBe(4);
     expect(rows[at.row - 1]).toContain("Runner beans");
-    expect(rows[at.row + at.rows]).toContain("bean-row.png");
+    expect(rows[at.row + at.rows]).not.toContain("bean-row.png");
+    expect(g.describeElements().some(e => e.target === join(pics, "bean-row.png"))).toBe(false);
     expect(rows.slice(at.row, at.row + at.rows).every(l => !l.slice(at.col, at.col + at.cols).trim())).toBe(true);
+    // Its cells are on the terminal's own background, not the extension region's tint (PIE-839): a terminal that draws a
+    // picture placed under the text beneath every cell with a background of its own (Tern) showed an empty box there.
+    expect(tintedCells(v.lines, at)).toEqual([]);
+    // Only its cells: the region beside it on the same rows keeps its tint.
+    expect(tintedCells(v.lines, { ...at, col: 0, cols: at.col }).length).toBeGreaterThan(0);
     // Nothing was written for it: the note is as it was.
     expect((await board.get(cards.id))!.text).toBe("Seed cards\ngallery:: 4");
+    // pic:: under an [img::] line: both pictures placed, each on the terminal's own background.
+    const lab = await board.createBlock(null, `Picture lab\n[img::${join(pics, "bean-row.png")}]\npic:: ${join(pics, "bean-row.png")}`);
+    const p = new NoteSurface();
+    p.show((await board.get(lab.id))!, graphic);
+    await until(() => p.render(120, 60, graphic).placements?.length === 2, "both pictures placed", 15_000);
+    const both = p.render(120, 60, graphic);
+    expect(both.placements!.map(pl => tintedCells(both.lines, pl))).toEqual([[], []]);
   }, 40_000);
 
   test("[ ] reach the component's line and its controls; w wards it, a click on [keep] keeps it, both as ext:fancy-horror", async () => {

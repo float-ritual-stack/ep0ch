@@ -105,6 +105,9 @@ test("an image primitive (PIE-827): a file the outline names, said as its words 
   expect(() => validatePrimitive({ type: "image", src: "a.png", size: "huge" })).toThrow("view.size must be a size as [size::] writes it");
   expect(() => validatePrimitive({ type: "image", src: "a.png", height: 0 })).toThrow("view.height must be a whole number of rows from 1 to 60");
   expect(() => validatePrimitive({ type: "image", src: "a.png", fit: "stretch" })).toThrow("view.fit must be cover or contain");
+  // A cover drawn alone (PIE-839): caption: false is kept for the reader; anything but true or false is refused.
+  expect(validatePrimitive({ type: "image", src: "a.png", caption: false })).toEqual({ type: "image", src: "a.png", caption: false });
+  expect(() => validatePrimitive({ type: "image", src: "a.png", caption: "no" })).toThrow("view.caption must be true or false");
 });
 
 function table(handlers: ExtensionHandler[]): HandlerTable {

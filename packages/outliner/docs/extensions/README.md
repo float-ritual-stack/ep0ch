@@ -506,7 +506,7 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | `row` | `children` side by side; `minWidth?` (4–200, default 12): the narrowest a child may be, in characters (terminal cells; `ch` on the web). Where a reader can't give each child that much, it stacks them: the door, Detail and the web alike |
 | `band` | `text?`, `level?` (1–3), `pattern?`, `align?`, `row?`, `tone?`: a heading in glyph tracks (rules) |
 | `track` | `pattern?`, `tone?`: one row of glyph track, a divider (rules) |
-| `image` | `src` (a path, as a note's `[img::]` line names one, or a `file:/path` Resource ref; never a web page or a stored Resource), `alt?`, `size?` (as `[size::]`: cells, `N%` or `full`), `fit?` (`cover` or `contain`), `height?` (1–60 rows): a picture, drawn the way each reader draws a note's image line (PIE-827; see [Pictures in a view](#pictures-in-a-view)) |
+| `image` | `src` (a path, as a note's `[img::]` line names one, or a `file:/path` Resource ref; never a web page or a stored Resource), `alt?`, `size?` (as `[size::]`: cells, `N%` or `full`), `fit?` (`cover` or `contain`), `height?` (1–60 rows), `caption?` (`false`: the picture alone, without its caption line, where it's drawn): a picture, drawn the way each reader draws a note's image line (PIE-827; see [Pictures in a view](#pictures-in-a-view)) |
 
 `tone` is `default`, `good`, `warn`, `bad`, `dim` or `accent`. Limits: depth 8, 400 primitives, 200
 rows, 12 columns, 2 000 characters of text each, 256 KiB of data. A view that breaks one is refused
@@ -519,10 +519,14 @@ is, and nothing is written to the outline to show it:
 
 - **The door** lays it out as the body's image lines (`mediaRows`): the picture under Kitty graphics, scaled down and
   dimmed dark-first, its rows kept while it loads, and its caption under it, which `[ ]` stops on and ⏎ opens. Without
-  graphics the caption says what it is and why it isn't drawn.
+  graphics the caption says what it is and why it isn't drawn. With `caption: false` (a card's cover, PIE-839) the
+  picture is drawn alone: no caption line, and no `[ ]` stop of its own (the card is what opens); without graphics,
+  or while its size isn't known, the caption still stands in for it. The picture's cells are drawn on the terminal's own
+  background, never the region's tint: a terminal that draws a picture placed under the text beneath every cell
+  with a background of its own (Tern) would otherwise show an empty box.
 - **A web page** serves it as a note's image (`/p/<id>/media/<line>/<n>`, the `n`th image of the view that line draws,
   read again from the kept view): only a file inside the publish roots, never by its path. One it may not serve is its
-  alt text and its file's name.
+  alt text and its file's name. `caption: false` drops the figure's caption under a served picture.
 - **The `terminal` target** says `[image: alt] path`; **`markdown`** (and `blockdown`, Detail, an export, MCP) say the alt
   text and the file's name, never its folders: a Markdown reader can't reach the outline's files.
 
