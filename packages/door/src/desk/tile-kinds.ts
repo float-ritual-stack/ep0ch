@@ -149,6 +149,8 @@ export interface TileKind {
   press?(p: Pane, k: Key): { action: string; args?: Record<string, unknown> } | null;
   /** Every key is the tile's own now, the desk's included (a whole screen in a tile, in its own edit). */
   takesKeys?(p: Pane): boolean;
+  /** While it takes every key, ^W and the window key after it are still the desk's: the way out by keys (the comment tile). */
+  readonly windowKeys?: true;
   /** The dispatcher of a whole screen in the tile (a board's), whose actions it answers there (the board's `card.*`). */
   dispatcher?(p: Pane): Dispatcher | null;
   /**

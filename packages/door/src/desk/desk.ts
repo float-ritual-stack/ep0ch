@@ -46,6 +46,7 @@ import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { lookFor, pageOf, type Look } from "../look";
 import type { Step } from "../session/restore";
+import { COMMENT_TILE_KIND, CommentTilePane } from "./comment-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
@@ -260,6 +261,33 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (id === undefined || !p || !look) return null;
     const reader = p instanceof ReaderPane ? p : null, shown = reader?.surface.msg;
     return { look, kind: p.kind, title: p.title(), cols: this.contents.get(id)?.cols ?? look.width, box: reader ? reader.surface.boxAt() : null, list: reader ? reader.surface.listAt() : null, ...(reader && shown ? { pictures: reader.surface.imagesIn(shown).filter(x => x.spec.kind === "img").map(x => x.path) } : {}) };
+  }
+  paneNamed(name: string): Pane | undefined { const id = this.idNamed(name); return id === undefined ? undefined : this.panes.get(id); }
+  dismiss(p: Pane) {
+    const id = [...this.panes].find(([, q]) => q === p)?.[0];
+    if (id === undefined) return;
+    try { this.closeTile(this.nameOf(id), USER); } catch { /* the screen keeps it (a locked one): it says it has no comment */ }
+  }
+  /**
+   * Reader `r`'s comment in a tile of its own beside it (PIE-846, comment.place place=tile): the one already open for it,
+   * else one opened on its right, given the person's keys (they were typing in the comment); `on` false closes it, and
+   * the keys go back to the reader.
+   */
+  async composerTile(r: ReaderPane, on: boolean): Promise<unknown> {
+    const name = [...this.panes].find(([, p]) => p === r)?.[0];
+    if (name === undefined) return null;
+    const reader = this.nameOf(name);
+    const mine = [...this.panes].filter(([, p]) => p instanceof CommentTilePane && p.source === reader).map(([id]) => id);
+    if (!on) { for (const id of mine) { try { this.closeTile(this.nameOf(id), USER); } catch { /* kept by the screen */ } } return { closed: mine.length }; }
+    let id = mine[0];
+    if (id === undefined) {
+      const made = await this.openTile({ kind: COMMENT_TILE_KIND, source: `tile:${reader}` }, reader, "right", USER);
+      id = this.idNamed(made.tile);
+      if (id !== undefined) this.openedFrom.set(id, name);
+    }
+    if (id !== undefined) this.keysTo(id);
+    this.redraw();
+    return { tile: id !== undefined ? this.nameOf(id) : null };
   }
   /**
    * The tune inspector (PIE-673) on tile `tile` (default the focused one): the one on this screen turns to it, else one
@@ -812,7 +840,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * it would edit a file that's gone and bring nothing back).
    */
   /** Tiles opened into a container (the board's details) are opened, not kept, as a ctrl+e edit tile isn't. */
-  private saved() { return serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || this.openedInto(id) !== undefined; }); }
+  // A comment's own tile (PIE-846) isn't kept either: a handover opens it again with its comment (Screen.reopen).
+  private saved() { return serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || p instanceof CommentTilePane || this.openedInto(id) !== undefined; }); }
   /** The layout as saved: tile specs in the tree of containers (each with its policy), the focus, the open rule, the screen's policy. */
   layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.nameOf(this.focus), rule: this.rule }; }
   private savedPolicy() { return Object.keys(this.layout.policy).length ? { policy: { ...this.layout.policy } } : {}; }
@@ -3437,8 +3466,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return this.run("tile.enter", { send: "\x1d" }, this.nameOf(this.focus));
     }
     // A board or river tile in its own edit, comment or panel: every key is its, the desk's included.
-    const held = this.panes.get(this.focus);
-    if (held && kindOf(held)?.takesKeys?.(held) && k.kind !== "mouse") { held.key(k, this); return; }
+    const held = this.panes.get(this.focus), heldKind = held && kindOf(held);
+    const windowKey = !!heldKind?.windowKeys && (!!this.prefix || (k.kind === "char" && k.ctrl && k.ch === "w"));
+    if (held && heldKind?.takesKeys?.(held) && k.kind !== "mouse" && !windowKey) { held.key(k, this); return; }
     if (this.dragging && k.kind === "esc") { this.dragging = null; this.headPress = null; this.endGroupGhost(); ctx.flash("not moved"); return this.redraw(); }
     // A key while a tile is dragged acts on that tile, as its ^W chord does (the same actions): f floats it, p puts it
     // in a dock (or pins it), a puts it in your drawer. The drag ends there.

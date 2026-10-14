@@ -578,7 +578,7 @@ export class CommentSession {
     const state = this.busy ? status(this.busy, C.grey) : this.error ? status(`! ${this.error}`, C.lred) : null;
     const kind = this.props?.kind === "question" ? "question" : this.props?.kind === "explain" ? "explain" : "comment";
     const what = t.kind === "quote" ? kind : t.kind === "note" ? `${kind} on the whole note` : t.kind === "reply" ? `reply to ${authorName(t.thread.author)}` : `edit ${authorName(t.mark.author)}'s ${t.mark.reply ? "reply" : "comment"}`;
-    const away = this.place === "popup" || this.place === "split";
+    const away = this.place === "popup" || this.place === "split" || this.place === "tile";
     const quote = t.kind === "quote" ? t.passage.quote : t.kind === "note" ? "" : t.thread.quote;
     const context = away && quote ? wrap(quote.replace(/\s+/g, " "), w).slice(0, 2).map(l => fg(C.green) + " " + MARK + " " + l + RESET) : [];
     return {

@@ -140,6 +140,12 @@ export interface SurfaceHost {
    */
   startSession?(kind: SessionKind): void | Promise<unknown>;
   /**
+   * The comment being written goes into a tile of its own beside this reader (`on`), or out of it (PIE-846): the host's
+   * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
+   * none: a comment there is drawn split.
+   */
+  composerTile?(on: boolean): Promise<unknown>;
+  /**
    * A view's own header rows for the note (the BBS message header: Date, To, From, Subj, Conf), drawn in
    * place of the surface's title, byline and crumb rows. The summary line, notices, an agent's line, a
    * focus mark and the property panel still follow it, and clicks and `[ ]` count its rows.
@@ -740,6 +746,8 @@ export class NoteSurface {
   private composerRows: [number, number] | null = null;
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
   private boxRect: FloatRect | null = null;
+  /** The comment session whose own tile (PIE-846) the host was asked for: asked once, again after it left the tile. */
+  private tileFor: CommentSession | null = null;
   private boxRoom: { w: number; h: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
   private frameDrag: { zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
@@ -1044,8 +1052,15 @@ export class NoteSurface {
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
     this.boxRect = null;
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
-    const writing = this.composing();
-    return writing?.cs.place === "split" && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing) : this.renderReading(w, h, host, writing);
+    const writing = this.composing(host);
+    // In a tile of its own (PIE-846) the note is drawn whole here, and the host is asked for the tile once (it opens
+    // after this frame); with no tile to be in, it's drawn split.
+    if (writing?.cs.place === "tile" && host?.composerTile) {
+      if (this.tileFor !== writing.cs) { this.tileFor = writing.cs; const open = host.composerTile; queueMicrotask(() => void open(true)); }
+      return this.renderReading(w, h, host, null);
+    }
+    const split = writing?.cs.place === "split" || writing?.cs.place === "tile";
+    return split && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing!) : this.renderReading(w, h, host, writing);
   }
 
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
@@ -1055,7 +1070,7 @@ export class NoteSurface {
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
     // A split that doesn't fit the reader (too narrow or short to share) is drawn as a popup meanwhile.
-    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" ? "popup" : writing.cs.place);
+    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place);
     if (!hero || !shown) return v;
     const cut = hero.box.rows - shown, lines = Array.from({ length: shown }, () => "");
     if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
@@ -1091,7 +1106,7 @@ export class NoteSurface {
     overlayBox(lines, box.lines, row, col, w);
     placeBox(c.d, box, row, col);
     const under = (p: Placement) => p.row < row + box.lines.length && p.row + p.rows > row && p.col < col + box.width && p.col + p.cols > col;
-    return { ...v, lines, placements: (v.placements ?? []).filter(p => !under(p)) };
+    return { ...v, lines, placements: [...(v.placements ?? []).filter(p => !under(p)), ...previewPictures(c.d, 0, room)] };
   }
 
   /**
@@ -1105,7 +1120,7 @@ export class NoteSurface {
       const box = composerBox(c.d, c.f, cw, h, true);
       placeBox(c.d, box, -(this.drawn?.heroRows ?? 0), nw + 1);
       const lines = Array.from({ length: h }, (_, i) => pad(v.lines[i] ?? "", nw) + RESET + " " + (box.lines[i] ?? ""));
-      return { ...v, lines };
+      return { ...v, lines, placements: [...(v.placements ?? []), ...previewPictures(c.d, 0, h)] };
     }
     const ch = Math.max(8, Math.min(h - 4, Math.floor(h * 0.45))), nh = h - ch;
     const v = this.renderReading(w, nh, host, null);
@@ -1113,7 +1128,7 @@ export class NoteSurface {
     placeBox(c.d, box, nh - (this.drawn?.heroRows ?? 0), 0);
     const top = v.lines.slice(0, nh);
     while (top.length < nh) top.push("");
-    return { ...v, lines: [...top, ...box.lines] };
+    return { ...v, lines: [...top, ...box.lines], placements: [...(v.placements ?? []).filter(p => p.row < nh), ...previewPictures(c.d, nh, h)] };
   }
 
   /**
@@ -1464,6 +1479,8 @@ export class NoteSurface {
     // The body's images, past its inset (the look's margin), cut to the rows shown.
     const bx = this.bx;
     const placements = imagePlacements(doc.images, bx, ...cellOf(host)).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
+    // An inline comment's preview pictures (PIE-846), where its box is in the rows shown.
+    if (comp?.inline && writingIn) placements.push(...previewPictures(writingIn, head.length, head.length + room));
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
@@ -1595,7 +1612,7 @@ export class NoteSurface {
     const mcols = marginColumn(w, this.printed ? "off" : this.marginMode, cardThreads.length);
 
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
-    const writing = this.composing();
+    const writing = this.composing(host);
     // A host's own rows after the note (EchoNet's tear line, origin and SEEN-BY): drawn after the body, never elements.
     const footRows = host?.footer?.(m, Math.max(1, w - this.bx - this.bxRight)) ?? [];
     const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
@@ -1670,7 +1687,7 @@ export class NoteSurface {
     // choice (PIE-472) under its step.
     // The comment being written inline (PIE-770) is a box of rows under its passage, after an expanded thread's.
     const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(bw, 96), Math.max(8, h - top)) : null;
-    const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines);
+    const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines, host);
     const { doc, picks } = this.pickerRows(threads.doc, drawn, bw);
     const shift = (r: number) => r + (picks && r >= picks.at ? picks.lines : 0);
     const composer = writing ? {
@@ -1830,9 +1847,11 @@ export class NoteSurface {
    */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
-  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = []): { lines: string[]; links: LinkRange[]; pending: boolean } {
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[] } {
     const m = this.msg, src = this.src;
-    const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 6), graphics: false, noImages: undefined, unfold: true };
+    // `pictures`: its img:: lines drawn as the reader draws them (PIE-846), where the terminal can; else each says what it is.
+    const graphics = pictures && !!host?.ctx.graphics;
+    const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 8), graphics, noImages: undefined, unfold: true };
     const drawEmbed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
     // One of its own embeds still being read: an edit's preview draws it again when the answer's redraw comes (src/surface/editor.ts).
     let pending = false;
@@ -1842,7 +1861,7 @@ export class NoteSurface {
       return out;
     } : undefined;
     const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
-    return { lines: doc.lines, links: doc.links, pending };
+    return { lines: doc.lines, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [] };
   }
 
   /** Text written about the note on one line, as a margin card says it: references by their titles (PIE-770). */
@@ -2606,10 +2625,11 @@ export class NoteSurface {
    * The comment being written, drawn where the reader shows the note (PIE-770): its session, draft and frame for
    * renderEditor (src/surface/composer.ts draws it inline, floating, split or as a popup). Null while nothing is.
    */
-  private composing(): { cs: CommentSession; d: Draft; f: EditFrame } | null {
+  private composing(host?: SurfaceHost): { cs: CommentSession; d: Draft; f: EditFrame } | null {
     const cs = this.session, m = this.msg;
     if (!cs || cs.mode !== "compose" || !cs.composer || !m) return null;
-    const f = cs.composerFrame((t, pw, links) => this.snippetDoc(t, pw, undefined, links));
+    // Its preview draws pictures as the reader does (PIE-846), with the host's terminal.
+    const f = cs.composerFrame((t, pw, links) => this.snippetDoc(t, pw, host, links, true));
     return f ? { cs, d: cs.composer, f } : null;
   }
 
@@ -3132,6 +3152,44 @@ export class NoteSurface {
     await this.runKey("draft.place", { line: row, col: to + 1, extend: true }, host);
   }
 
+  /**
+   * The comment being written as its own tile draws it (PIE-846, place `tile`): the one edit control (renderEditor) in
+   * the tile's `w` × `h` cells, the passage quoted above the text as split and popup quote it, its preview's pictures
+   * placed. Null when nothing is being written here in a tile.
+   */
+  composerTile(w: number, h: number, host: SurfaceHost): { lines: string[]; placements: Placement[] } | null {
+    const c = this.composing(host);
+    if (!c || c.cs.place !== "tile") return null;
+    const lines = renderEditor(c.d, c.f, w, h).map(l => pad(l, w) + RESET);
+    while (lines.length < h) lines.push("");
+    return { lines, placements: previewPictures(c.d, 0, h) };
+  }
+
+  /**
+   * The mouse in the comment's own tile (PIE-846), at `x`, `y` in it: a press puts the cursor there and a drag selects,
+   * the release is a click (a control, a candidate, a link in the preview) and copies what a drag selected, the wheel
+   * scrolls the text or its preview. True when it was the comment's.
+   */
+  composerPointer(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, host: SurfaceHost): boolean {
+    const d = this.session?.mode === "compose" && this.session.place === "tile" ? this.session.composer : null;
+    if (!d) return false;
+    if (k.action === "wheel-up" || k.action === "wheel-down") { this.writeWheel(d, k.action === "wheel-down" ? 1 : -1, { x, y }); host.redraw(); return true; }
+    if (k.action === "down") { this.tileDrag = false; this.writePress(d, x, y, false); host.redraw(); return true; }
+    if (k.action === "drag") { this.tileDrag = true; this.writePress(d, x, y, true); host.redraw(); return true; }
+    if (k.action === "up") {
+      if (!this.tileDrag) this.writeClick(d, x, y, host);
+      else if (d.selectedText()?.trim() && copyOnSelect()) void this.runKey("draft.copy", {}, host);
+      this.tileDrag = false;
+      host.redraw();
+      return true;
+    }
+    return false;
+  }
+  /** The comment left its own tile (comment.place): put back in one, the host is asked for it again. */
+  leftTile() { this.tileFor = null; }
+  /** A drag in the comment's own tile is selecting (its release copies, never clicks). */
+  private tileDrag = false;
+
   /** A press puts the cursor there; a drag from it selects (Draft's own selection). */
   private writePress(d: Draft, x: number, y: number, drag: boolean): boolean {
     return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag);
@@ -3653,7 +3711,7 @@ export class NoteSurface {
   }
 
   /** Each expanded thread's rows, spliced into the body under the last row of its passage, and its controls. */
-  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[]): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
+  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
     // A narrow reader folds each annotation's card under its passage (ADR 0004 contract 6), unless the margin is off.
     const folding = fold && this.marginMode !== "off" && !this.printed;
     // The passage of the comment being written (PIE-770): its rows, and its box under them (after its thread, if expanded).
@@ -3675,11 +3733,12 @@ export class NoteSurface {
     const cs = this.comments ?? [];
     const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
       const c = cs.find(x => x.id === k.thread);
-      if (c && this.expanded.has(k.thread)) return [{ at: k.rows[1], thread: c.id, ...threadPanel(c, W, this.cur, (t, w) => this.snippet(t, w)) }];
+      // Its comment and replies drawn as the reader draws a note, pictures too (PIE-846).
+      if (c && this.expanded.has(k.thread)) return [{ at: k.rows[1], thread: c.id, ...threadPanel(c, W, this.cur, (t, w) => this.snippetDoc(t, w, host, [], true)) }];
       if (!c || !folding || !hasCard(c)) return [];
       const rows = cardRows(c, Math.max(8, Math.min(W, 72) - 2), this.marginMode, t => this.said(t)).map(l => "  " + l);
       // The whole card is one control: a click or ⏎ on it expands its thread.
-      return [{ at: k.rows[1], thread: c.id, lines: rows, controls: [{ thread: c.id, control: "card" as const, row: 0, from: 0, to: Math.min(W, 72), label: `${kindOf(c)} card` }] }];
+      return [{ at: k.rows[1], thread: c.id, lines: rows, images: [] as DocImage[], controls: [{ thread: c.id, control: "card" as Control["control"], row: 0, from: 0, to: Math.min(W, 72), label: `${kindOf(c)} card` }] as Control[] }];
     });
     if (!panels.length && !box.length) return { doc, controls: [], passage: at, composerAt: null };
     // A reply's box goes right under its own thread; a comment's after every thread on its passage.
@@ -6018,13 +6077,25 @@ const controlKey = (thread: string, c: ThreadControl, value?: string) => `ctl:${
  * comment and its replies, and the Select, Reply and Resolve (or Reopen) controls, the current one lit.
  * Controls' rows and columns are the panel's own (no margin).
  */
+/** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */
+const previewPictures = (d: Draft, from: number, to: number): Placement[] =>
+  d.preview ? (d.frame?.preview?.placements ?? []).flatMap(p => inWindow(p, from, to - from, from) ?? []) : [];
+
 /** The byline's way in to a comment on the whole note (PIE-846). */
 const COMMENT_CHIP = "[comment]";
 
 /** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
 export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
 
-function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: string, width: number) => string[]): { lines: string[]; controls: Control[] } {
+function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[] }): { lines: string[]; controls: Control[]; images: DocImage[] } {
+  // Its pictures (PIE-846), on the panel's own rows: `col` cells in from the panel's left.
+  const images: DocImage[] = [];
+  const draw = drawDoc && ((text: string, w: number, col = 2): string[] => {
+    const r = drawDoc(text, w);
+    if (Array.isArray(r)) return r;
+    for (const im of r.images ?? []) images.push({ ...im, line: lines.length + im.line, col: col + im.col });
+    return r.lines;
+  });
   const edge = fg(c.open ? C.yellow : C.dark);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
@@ -6033,7 +6104,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
   const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
   // The body and replies as the reader draws a note (PIE-770): references by title, embeds transcluded; else as typed.
-  const body = (s: string, w: number) => (draw ? draw(s, w) : text(s, w));
+  const body = (s: string, w: number, col = 2) => (draw ? draw(s, w, col) : text(s, w));
   // Its TL;DR first: the thread's face, the discussion under it.
   if (c.tldr) for (const l of body(`TL;DR ${c.tldr.body}`, inner)) lines.push(edge + "│ " + fg(C.lgreen) + l + RESET);
   for (const l of body(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
@@ -6062,7 +6133,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
       col += 1 + q.length;
     }
     lines.push(edge + "│ " + fg(C.cyan) + head + RESET + tail);
-    for (const l of body(r.body, Math.max(2, inner - 2))) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
+    for (const l of body(r.body, Math.max(2, inner - 2), 4)) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
     quotedIn(r.quotedIn, "  ");
   }
   // The controls on one row, or as many as a narrow reader needs: each is whole, never cut off.
@@ -6077,7 +6148,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
     col += shown.length;
   });
   lines.push(row + RESET, edge + "└" + "─".repeat(Math.max(0, W - 1)) + RESET);
-  return { lines, controls };
+  return { lines, controls, images };
 }
 
 /**
@@ -6085,7 +6156,8 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
  * from no note line (source -1), so selection, focus and fold lookups pass over them. Links, images,
  * media rows and fold heads move down with the rows under them. `starts[i]`: where insert i landed.
  */
-function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[] }[]): { doc: Doc; starts: number[] } {
+/** `doc` with `inserts`' rows put in at their rows (a thread's panel, a comment's box); an insert's `images` (on its own rows) go with it. */
+function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[]; images?: readonly DocImage[] }[]): { doc: Doc; starts: number[] } {
   const order = inserts.map((p, i) => ({ ...p, i })).sort((a, b) => a.at - b.at || a.i - b.i);
   const starts: number[] = [], lines: string[] = [], source: number[] = [], moved: number[] = [];
   let k = 0;
@@ -6098,7 +6170,7 @@ function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly stri
     doc: {
       lines, source,
       links: doc.links.map(l => ({ ...l, line: mv(l.line) })),
-      images: doc.images.map(im => ({ ...im, line: mv(im.line) })),
+      images: [...doc.images.map(im => ({ ...im, line: mv(im.line) })), ...inserts.flatMap((p, i) => (p.images ?? []).map(im => ({ ...im, line: starts[i]! + im.line })))],
       media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
       heads: doc.heads.map(h => ({ ...h, row: mv(h.row) })),
       trims: new Map([...doc.trims].map(([r, t]) => [mv(r), t])),
@@ -7198,16 +7270,20 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "comment.place": def({
-    summary: "where the comment, question or reply being written sits (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer, or over it when narrow) or popup (a box in the middle, the passage quoted). Left out, the next one. This composer only: composer.place sets where new ones open",
+    summary: "where the comment, question or reply being written sits (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer, or over it when narrow), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own beside the reader, the note whole beside it; it moves, sizes and docks to an edge as any tile does, ^W p). Left out, the next one. This composer only: composer.place sets where new ones open",
     keys: "ctrl+o while writing a comment; a click on the box's place chip",
     touches: "draft", draft: "type", replay: "ask",
     args: { place: { type: "string", optional: true, about: `${COMPOSER_PLACES.join(", ")}; left out, the next one` } },
-    run({ place }, { surface, host }) {
+    async run({ place }, { surface, host }) {
       const s = surface.session;
       if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
-      const want = place === undefined ? nextPlace(s.place) : composerPlaceOf(place);
+      const want = place === undefined ? nextPlace(s.place, !!host.composerTile) : composerPlaceOf(place);
       if (!want) throw new ActionRefused(`place is ${COMPOSER_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
+      if (want === "tile" && !host.composerTile) throw new ActionRefused("this reader has no tiles round it to put the comment in · split is the nearest (comment.place place=split)");
+      const was = s.place;
       s.place = want;
+      // Out of its tile, back into the reader: the tile closes (into one, the next frame asks for it).
+      if (was === "tile" && want !== "tile") { surface.leftTile(); await host.composerTile?.(false); }
       surface.revealComposerNext();
       host.redraw();
       return { place: want };

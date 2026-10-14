@@ -8,6 +8,7 @@ import { linkOccurrences, type LinkOccurrence } from "@ep0ch/outline-core/link-s
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
+import type { Placement } from "./kitty";
 import type { LinkTarget } from "./refs";
 import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
@@ -873,8 +874,11 @@ export class Draft {
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
   frame: {
     row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" }[];
-    /** The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls. */
-    preview?: { row: number; rows: number; top: number; total: number };
+    /**
+     * The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls.
+     * `placements`: its pictures (PIE-846), on the rows they're drawn, for the host to put out with its own.
+     */
+    preview?: { row: number; rows: number; top: number; total: number; placements?: Placement[] };
     /** The preview's links, where they're drawn (PIE-592): a click on one follows it. */
     links?: { row: number; from: number; to: number; target: LinkTarget }[];
   } | null = null;
