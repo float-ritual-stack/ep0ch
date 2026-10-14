@@ -117,10 +117,11 @@ export function protocolOf(source: string): number | null {
 
 /**
  * A PR that bumps PROTOCOL merges only at main's plus one (AGENTS.md "Rebase on the way in"): another merge may have
- * taken the number since the branch picked it. Null when the branch leaves PROTOCOL as main has it, or bumps it right.
+ * taken the number since the branch picked it. `base` is PROTOCOL where the branch left main: a branch that never
+ * changed it (only behind main) is not a bump. Null when the branch leaves PROTOCOL alone, or bumps it right.
  */
-export function protocolRefusal(main: number, branch: number, pr: string | null): string | null {
-  if (branch === main || branch === main + 1) return null
+export function protocolRefusal(main: number, branch: number, base: number, pr: string | null): string | null {
+  if (branch === base || branch === main + 1) return null
   const merge = pr ? MERGE.replace('<n>', pr) : MERGE
   return `This PR sets PROTOCOL to ${branch}, and main is at ${main}: a bump merges at main's plus one, so use ${main + 1}. ` +
     `Rebase on origin/main, set \`export const PROTOCOL = ${main + 1};\` in packages/outline-core/src/protocol.ts, push, then \`${merge}\`. ` +

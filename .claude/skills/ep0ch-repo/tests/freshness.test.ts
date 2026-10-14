@@ -129,7 +129,10 @@ describe('freshness helpers', () => {
       "ssh -o 'ProxyCommand=touch /tmp/x' laptop 'echo ok'", 'journalctl --user --rotate', 'systemctl --user start status',
       'env LD_PRELOAD=/tmp/p.so cat f', 'xargs cat', 'awk 1 f',
     ]) expect(bashReadRefusal(writes)).not.toBeNull()
-    for (const reads of ['git branch -a', 'systemctl --user status outliner-host.service', 'gh api repos/o/r/pulls', 'git log --oneline 2>&1 | head -3']) {
+    expect(bashReadRefusal('tail -f /var/log/x')).not.toBeNull()
+    expect(bashReadRefusal('constructor')).not.toBeNull()
+    for (const reads of [
+      'gh pr list --state merged --search "merged:>=2026-03-03" --json number','git branch -a', 'systemctl --user status outliner-host.service', 'gh api repos/o/r/pulls', 'git log --oneline 2>&1 | head -3']) {
       expect(bashReadRefusal(reads)).toBeNull()
     }
   })

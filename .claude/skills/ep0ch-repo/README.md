@@ -21,9 +21,10 @@ instead (`hooks/guards.ts`):
 - The command is read the way a shell splits it (`hooks/shell.ts`): `;`, `&&` and pipes split it, wrappers such as
   `timeout`, `env`, `sudo`, `scripts/agent-env … --` and `bash -c '…'` are looked through, and quoted text and heredoc
   bodies are ignored. A commit message that mentions `pkill` is not a `pkill`.
-- The PROTOCOL check asks `gh` for the PR's head and reads `packages/outline-core/src/protocol.ts` at that commit and
-  at main. A slice merging into its `wave/…` branch is let through: it takes its number when the wave merges. When
-  `gh` can't answer within 10s, the merge goes on.
+- The PROTOCOL check asks `gh` for each merged PR's head and reads `packages/outline-core/src/protocol.ts` at that
+  commit, at main, and where the branch left main. Only a branch that changed it is held to main's plus one; a branch
+  merely behind a bump on main merges. A slice merging into its `wave/…` branch is let through: it takes its number
+  when the wave merges. When `gh` can't answer within 10s, the merge goes on.
 
 ## The freshness sweep
 
@@ -50,5 +51,6 @@ claude plugin validate .claude/skills/ep0ch-repo
 claude plugin test .claude/skills/ep0ch-repo     # under scripts/agent-env <name> --test -- on float-2
 ```
 
-An interactive session in the repository reloads the mod when its files change. `claude -p` can't show the sweep: a
+These tests aren't in a workspace package, so neither the root `bun run test` nor CI runs them: run them when you
+change the mod. An interactive session in the repository reloads the mod when its files change. `claude -p` can't show the sweep: a
 headless run ends with its turn, before the agent could start.

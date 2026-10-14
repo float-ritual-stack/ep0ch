@@ -99,7 +99,9 @@ const noneOf = (w: readonly string[], refused: RegExp) => !w.slice(1).some(a => 
  * write a file or run another command (sed's `w` and `e`, sort's `-o`, rg's `--pre`, awk, xargs) isn't here.
  */
 const READ_PROGRAMS: Record<string, (w: readonly string[]) => boolean> = {
-  cat: () => true, head: () => true, tail: () => true, wc: () => true, ls: () => true, grep: () => true,
+  cat: () => true, head: () => true,
+  // A follow never ends: the sweep would hang on it.
+  tail: w => noneOf(w, /^(-f|-F|--follow)/), wc: () => true, ls: () => true, grep: () => true,
   stat: () => true, date: () => true, pwd: () => true, echo: () => true, cut: () => true, tr: () => true,
   hostname: () => true, uptime: () => true, df: () => true, free: () => true, ps: () => true, pstree: () => true,
   which: () => true, basename: () => true, dirname: () => true, realpath: () => true,
@@ -122,7 +124,7 @@ const READ_PROGRAMS: Record<string, (w: readonly string[]) => boolean> = {
   ep0ch: w => ['show', 'find', 'where', 'status', 'help'].includes(w[1] ?? '') || (w[1] === 'outline' && w[2] === 'list') || (w[1] === 'echo' && w[2] === 'status'),
   // systemctl --user <read verb> …: the verb is its first operand.
   systemctl: w => w.includes('--user') && ['status', 'is-active', 'is-enabled', 'is-failed', 'list-units', 'list-timers', 'show', 'cat'].includes(operands(w)[0] ?? ''),
-  journalctl: w => noneOf(w, /^--(rotate|vacuum|flush|sync|relinquish|setup-keys|update-catalog)/),
+  journalctl: w => noneOf(w, /^(-f|--follow|--(rotate|vacuum|flush|sync|relinquish|setup-keys|update-catalog))/),
   tailscale: w => w[1] === 'status',
   // ssh <machine> '<command>', no options (an option can run a command here): as read-only as the command it runs there.
   ssh: w => w.length >= 3 && !w[1]!.startsWith('-') && bashReadRefusal(w.slice(2).join(' ')) === null,
@@ -132,13 +134,14 @@ const READ_PROGRAMS: Record<string, (w: readonly string[]) => boolean> = {
 export function bashReadRefusal(command: string): string | null {
   // A substitution runs a command the checks below can't see whole; process substitution too.
   if (/\$\(|`|<\(|>\(/.test(command)) return 'a command substitution runs a command of its own'
-  // A redirection writes a file, quoted or not; one to /dev/null, or of one stream to another, doesn't.
-  if (command.replace(/\d*>>?\s*\/dev\/null|\d*>&\d/g, '').includes('>')) return 'a redirection writes a file (a `>` inside quotes counts too)'
+  // A redirection writes a file; one to /dev/null, or of one stream to another, doesn't. A `>` in quotes is an
+  // argument (`--search "merged:>=…"`): no shell runs it, as no wrapper is allowed (ssh's command is checked on its own).
+  if (command.replace(/'[^']*'|"[^"]*"/g, '').replace(/\d*>>?\s*\/dev\/null|\d*>&\d/g, '').includes('>')) return 'a redirection writes a file'
   // Wrappers are not looked through: `env`, `xargs`, `bash -c` aren't on the list.
   for (const w of simpleCommands(command, { unwrap: false })) {
     const name = baseName(w[0] ?? '')
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0] ?? '')) return 'a variable set before a command changes what it runs'
-    const check = READ_PROGRAMS[name]
+    const check = Object.hasOwn(READ_PROGRAMS, name) ? READ_PROGRAMS[name] : undefined
     if (!check) return `\`${name}\` isn't one of the commands the sweep may run`
     if (!check(w)) return `\`${w.slice(0, 3).join(' ')}\` changes something`
   }

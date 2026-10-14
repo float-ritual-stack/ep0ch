@@ -17,6 +17,9 @@ const counts: Counts = { changes: 0, turns: 0 }
 let wroteThisTurn = false
 /** The sweep running now (its agent id), and whether one is being started. */
 let sweepId: string | null = null
+/** When it started (the session clock): one that never answers stops blocking the next after SWEEP_STALE_MS. */
+let sweepAt = 0
+const SWEEP_STALE_MS = 30 * 60_000
 let starting = false
 
 function hostnameOf($: EngineInterface): Promise<string> {
@@ -48,10 +51,13 @@ async function protocolCheck($: EngineInterface, merge: Merge): Promise<string |
   if (!headRefOid || baseRefName !== 'main') return null
   const repo = merge.repo ?? '{owner}/{repo}'
   const at = (ref: string) => gh(['api', '-H', 'Accept: application/vnd.github.raw', `repos/${repo}/contents/${PROTOCOL_PATH}?ref=${ref}`])
-  const [branch, main] = await Promise.all([at(headRefOid), at('main')])
-  const b = branch === null ? null : protocolOf(branch)
-  const m = main === null ? null : protocolOf(main)
-  return b === null || m === null ? null : protocolRefusal(m, b, merge.pr)
+  // Where the branch left main: a branch only behind main hasn't bumped anything.
+  const compared = await gh(['api', `repos/${repo}/compare/main...${headRefOid}`, '--jq', '.merge_base_commit.sha'])
+  const mergeBase = compared?.trim()
+  if (!mergeBase) return null
+  const [branch, main, base] = await Promise.all([at(headRefOid), at('main'), at(mergeBase)])
+  const [b, m, o] = [branch, main, base].map(text => text === null ? null : protocolOf(text))
+  return b == null || m == null || o == null ? null : protocolRefusal(m, b, o, merge.pr)
 }
 
 /** The first merge in `command` whose PROTOCOL is wrong, said; null when none is. */
@@ -86,7 +92,7 @@ async function startSweep($: EngineInterface): Promise<void> {
       tools: SWEEP_TOOLS,
       model: 'sonnet',
       background: true,
-      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `bun ${$.plugin.root}/scripts/read-only-bash.ts` }] }] },
+      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `bun ${JSON.stringify(`${$.plugin.root}/scripts/read-only-bash.ts`)}` }] }] },
     })
     const taken = { ...counts }
     const why = `It runs now because this session made ${taken.changes} deploys or merges and ${taken.turns} turns that wrote to the outline since the last sweep.`
@@ -94,6 +100,7 @@ async function startSweep($: EngineInterface): Promise<void> {
     if ('deny' in spawned && spawned.deny) throw Error(spawned.deny)
     if (!spawned.agentId) throw Error('no agent was started')
     sweepId = spawned.agentId
+    sweepAt = await $.clock.now()
     // What came in while it started counts toward the next sweep.
     counts.changes -= taken.changes
     counts.turns -= taken.turns
@@ -124,6 +131,7 @@ export const register: Register = (on) => {
   counts.turns = 0
   wroteThisTurn = false
   sweepId = null
+  sweepAt = 0
   starting = false
   // The sweep's type is the mod's own: never offered to the model.
   on('agent.offer', { agent: `ep0ch-repo:${SWEEP_AGENT}` }, () => ({ isOffered: false }))
@@ -160,6 +168,7 @@ export const register: Register = (on) => {
     if (e.agentId !== undefined) return result
     if (wroteThisTurn) counts.turns++
     wroteThisTurn = false
+    if (sweepId !== null && (await $.clock.now()) - sweepAt > SWEEP_STALE_MS) sweepId = null
     if (!dueOf(counts) || sweepId !== null || starting) return result
     // Off the turn's dispatch: reading the brief and starting the sweep never hold the answer up.
     starting = true

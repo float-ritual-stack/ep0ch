@@ -14,10 +14,25 @@ function linesOf(command: string): string[] {
       continue
     }
     out.push(line)
-    const heredoc = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line)
-    if (heredoc) until = heredoc[2]!
+    until = heredocOf(line)
   }
   return out
+}
+
+/** The delimiter of a heredoc this line opens (`<<EOF`, `<<-'EOF'`), outside quotes and not `<<<`; else null. */
+function heredocOf(line: string): string | null {
+  let quote: string | null = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!
+    if (quote) { if (c === quote) quote = null; else if (c === '\\' && quote === '"') i++; continue }
+    if (c === '"' || c === "'") { quote = c; continue }
+    if (c === '\\') { i++; continue }
+    if (c === '<' && line[i + 1] === '<' && line[i + 2] !== '<' && line[i - 1] !== '<') {
+      const m = /^<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line.slice(i))
+      if (m) return m[2]!
+    }
+  }
+  return null
 }
 
 /** Where the `$(…)` that opens just before `from` closes (the index of its `)`), counting nested parentheses. */
@@ -118,7 +133,7 @@ function unwrap(words: string[]): string[][] {
     while (rest.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(rest[0]!)) rest = rest.slice(1)
     if (!rest.length) return []
     const name = baseName(rest[0]!)
-    const wrapper = WRAPPERS[name]
+    const wrapper = Object.hasOwn(WRAPPERS, name) ? WRAPPERS[name] : undefined
     if (wrapper) { rest = rest.slice(wrapper(rest)); continue }
     // scripts/agent-env <name> [--test] [--parallel …] -- <command>
     if (name === 'agent-env') {

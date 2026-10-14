@@ -10,7 +10,8 @@ const result = (exitCode: number, stdout = '', stderr = ''): ProcessRunResult =>
 
 const protocolTs = (n: number) => `// the one check\nexport const PROTOCOL = ${n};\n`
 
-type Case = { hostname?: string; base?: string; branch?: number; main?: number }
+/** `left`: PROTOCOL where the branch left main (default: main's, so a branch that differs changed it). */
+type Case = { hostname?: string; base?: string; branch?: number; main?: number; left?: number }
 
 /** A session on `hostname` whose gh answers from the case, recording what Bash really ran. */
 function sessionIn(on: On, c: Case = {}) {
@@ -23,9 +24,11 @@ function sessionIn(on: On, c: Case = {}) {
     const argv = e.argv
     if (argv[0] === 'hostname') return { value: result(0, `${c.hostname ?? 'float-2'}\n`) }
     if (argv[0] === 'gh' && argv[1] === 'pr' && argv[2] === 'view') return { value: result(0, JSON.stringify({ headRefOid: 'abc123', baseRefName: c.base ?? 'main' })) }
+    if (argv[0] === 'gh' && argv[1] === 'api' && argv.includes('--jq')) return { value: result(0, 'base123\n') }
     if (argv[0] === 'gh' && argv[1] === 'api') {
       const ref = argv.at(-1)!.split('ref=')[1]
-      return { value: result(0, protocolTs(ref === 'main' ? c.main ?? 165 : c.branch ?? c.main ?? 165)) }
+      const main = c.main ?? 165
+      return { value: result(0, protocolTs(ref === 'main' ? main : ref === 'base123' ? c.left ?? main : c.branch ?? main)) }
     }
     return { value: result(1, '', 'unexpected') }
   })
@@ -102,6 +105,12 @@ describe('guardrails refuse with the reason and the command to run', () => {
     expect(s.ran).toEqual(['gh pr merge --squash'])
   })
 
+  test('a branch that is only behind a bump on main (it never touched PROTOCOL) merges', async ($, on) => {
+    const s = sessionIn(on, { main: 166, branch: 165, left: 165 })
+    expect((await bash($, 'gh pr merge 522 --squash')).deny).toBeUndefined()
+    expect(s.ran).toEqual(['gh pr merge 522 --squash'])
+  })
+
   test('a slice into its wave branch takes its number later', async ($, on) => {
     const s = sessionIn(on, { main: 165, branch: 170, base: 'wave/margins' })
     expect((await bash($, 'gh pr merge 521 --squash')).deny).toBeUndefined()
@@ -124,6 +133,8 @@ describe('what counts as the command', () => {
     expect(guardOf('ls | xargs -r pkill', ctx)).toContain('pkill')
     expect(guardOf("bash -lc 'git stash'", ctx)).toContain('git stash')
     expect(guardOf('git \\\nstash', ctx)).toContain('git stash')
+    // `<<` inside quotes opens no heredoc: the next line is still read.
+    expect(guardOf('git commit -m "use <<EOF"\npkill foo', ctx)).toContain('pkill')
   })
 
   test('a merge whose body says -d is not a delete', () => {
@@ -137,8 +148,9 @@ describe('what counts as the command', () => {
   })
 
   test('the PROTOCOL rule: equal and plus one pass, anything else names main plus one', () => {
-    expect(protocolRefusal(165, 165, '1')).toBeNull()
-    expect(protocolRefusal(165, 166, '1')).toBeNull()
-    expect(protocolRefusal(166, 166 - 1, null)).toContain('use 167')
+    expect(protocolRefusal(165, 165, 165, '1')).toBeNull()
+    expect(protocolRefusal(165, 166, 165, '1')).toBeNull()
+    expect(protocolRefusal(166, 165, 165, '1')).toBeNull()
+    expect(protocolRefusal(166, 166, 165, null)).toContain('use 167')
   })
 })
