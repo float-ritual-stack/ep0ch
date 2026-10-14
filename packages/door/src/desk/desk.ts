@@ -308,6 +308,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     return at !== undefined && [...this.panes.values()].some(p => p instanceof CommentTilePane && p.source === this.nameOf(at));
   }
+  /** The side of reader `at` its comment's own tile is on now, from the pair they make; null with no tile. */
+  private commentSideOf(at: number): Dir | null {
+    const reader = this.nameOf(at);
+    const id = [...this.panes].find(([, p]) => p instanceof CommentTilePane && p.source === reader)?.[0];
+    const p = id === undefined ? null : parentOf(this.root, id);
+    if (!p || p.parent.t !== "split" || !p.parent.pair) return null;
+    const first = p.i === 0;
+    return p.parent.dir === "row" ? (first ? "left" : "right") : (first ? "up" : "down");
+  }
   /** The side of its reader a comment's own tile opens on (PIE-846): the one last chosen. */
   private commentSide: Dir = "right";
   /** Its share of the pair it opens in. */
@@ -2550,8 +2559,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const steps = [...this.panes].flatMap(([id, p]): (Step & { tile: string })[] => {
       if (!(p instanceof ReaderPane) || !p.msg) return [];
       const opening = p.surface.reopenSteps();
-      // A comment in its own tile comes back on the side it was on (PIE-846).
-      const sided = opening.map(s => (s.action === "comment.place" && s.args?.place === "tile" ? { ...s, args: { ...s.args, side: this.commentSide } } : s));
+      // A comment in its own tile comes back on the side of its note it was on (PIE-846).
+      const side = this.commentSideOf(id);
+      const sided = opening.map(s => (s.action === "comment.place" && s.args?.place === "tile" && side ? { ...s, args: { ...s.args, side } } : s));
       return sided.length ? [{ action: "open", tile: this.nameOf(id), args: { id: p.msg.id } }, ...sided.map(s => ({ ...s, tile: this.nameOf(id) }))] : [];
     });
     // Opening one gives it the keys: they go back to the tile that had them (the tune inspector beside a comment). A

@@ -2562,6 +2562,8 @@ export class NoteSurface {
     if (this.commentsFor !== m.id) await this.loadComments(host);
     if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
     this.session = new CommentSession(fresh, this.comments ?? [], mode);
+    // A tile where there are none to be had (the BBS reader, a river column): split, the nearest.
+    if (this.session.place === "tile" && !host.composerTile) this.session.place = "split";
     // From a comment mark (⏎, a click, or `m` while on one): the list opens on its thread.
     const on = mine && mode === "threads" && this.cur?.startsWith("comment:") ? this.cur.slice(8) : null;
     const t = on ? this.session.threads.findIndex(x => x.id === on) : -1;
@@ -2615,6 +2617,7 @@ export class NoteSurface {
     // Another comment opened while this one was read (a second C, an act): the one being written stays.
     if ((this.session as CommentSession | null)?.mode === "compose") return "a comment is being written here: send it (ctrl+s) or put it aside (esc twice) first";
     const s = new CommentSession(fresh, this.comments ?? [], "threads");
+    if (s.place === "tile" && !host.composerTile) s.place = "split";
     // Sent (or esc'd), the person is back reading, its thread at the top of the note.
     s.fromReader = true; s.startedBy = actor;
     const why = s.writeNote(actor);
