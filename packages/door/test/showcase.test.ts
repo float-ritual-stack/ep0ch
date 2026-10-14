@@ -313,6 +313,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment · ctrl+s"],
     // Four readers on one note, each writing a comment in another place (PIE-770).
     composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
+    // A comment on the whole note in its own tile beside the reader (PIE-846); the note's whole-note thread in the margin.
+    "comment-tile": ["Seed library opening hours", "comment on the whole note", "The winter shelf needs a lock", "comment · reader"],
     // The draft session: an edit open on the left, a comment being written on the right.
     drafts: ["editing · Kitchen whiteboard", "» comment · ctrl+s", "[add them]"],
     // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
@@ -2035,6 +2037,101 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(rect(), JSON.stringify([rect(), r0, cs()!.composer!.text])).toMatchObject({ col: r0.col, cols: r0.cols });
     // As it was: the comment let go of (its put-aside text with it).
     await stage().dispatch.press("comment.close", { discard: true }, "floating");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 60_000);
+
+  // PIE-846: "i can't easily scroll this comment, if my cursor is over this", "once i type again - it scrolls back to the
+  // top", "when i hit preview - i cant scroll the preview either". The wheel over the box scrolls its text, over its
+  // preview the preview, anywhere else the note; typing in a floating comment leaves the note where it was scrolled.
+  test("composer scrolls: the wheel over a long comment scrolls it, over its preview the preview, elsewhere the note; typing leaves the note where it is", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "composer" }, as: "test-agent" });
+    await until(() => screen().includes("Writing in the margin"), "the composer section");
+    const stage = () => S().stages.get(S().sel).top;
+    const pane = () => stage().pane("floating");
+    const surf = () => pane().surface;
+    const d = () => surf().session?.composer;
+    const rect = () => (surf() as any).boxRect as { row: number; col: number; cols: number; rows: number };
+    await until(() => surf().session?.place === "floating" && !!rect(), "the floating comment drawn");
+    const long = Array.from({ length: 30 }, (_, i) => `- row ${i + 1} of the long comment`).join("\n");
+    // On the note's first words, so the note can scroll its passage out of view above.
+    await stage().dispatch.press("comment.close", { discard: true }, "floating");
+    await stage().dispatch.press("passage.select", { quote: "A comment is written where you read it" }, "floating");
+    await stage().dispatch.press("comment.write", { body: long }, "floating");
+    await stage().dispatch.press("comment.place", { place: "floating" }, "floating");
+    sc.render(app);
+    sc.render(app);
+    const noteAt = () => (surf() as any).scroll as number;
+    // Over the box's text: its text scrolls, the note doesn't.
+    const r = rect(), inText = { x: r.col + 4, y: r.row + r.rows - 3 }, before = noteAt();
+    pane().wheel(-1, stage(), inText); pane().wheel(-1, stage(), inText);
+    expect(d()!.follow).toBe(false);
+    expect(noteAt()).toBe(before);
+    // Off the box: the note scrolls, here until the passage the comment is on is out of view above.
+    for (let i = 0; i < 12; i++) { pane().wheel(1, stage(), { x: 0, y: 4 }); sc.render(app); }
+    const passage = (surf() as any).composerRows as [number, number];
+    expect(passage[0]).toBeLessThan((surf() as any).drawn.top);
+    const scrolled = noteAt();
+    expect(scrolled).not.toBe(before);
+    // Typing in it: the comment's view follows the cursor again; the note stays where it was scrolled.
+    pane().key({ kind: "char", ch: "!" }, stage());
+    sc.render(app);
+    expect(d()!.text.endsWith("!")).toBe(true);
+    expect(noteAt()).toBe(scrolled);
+    // Its preview scrolls under the wheel too, from where it follows the cursor, until the text changes.
+    await stage().dispatch.press("draft.preview", { on: true }, "floating");
+    sc.render(app);
+    const p = d()!.frame!.preview!;
+    expect(p.total).toBeGreaterThan(p.rows);
+    const top = p.top;
+    pane().wheel(-1, stage(), { x: r.col + 4, y: p.row + 2 });
+    expect(d()!.previewScroll!.top).toBeLessThan(top);
+    pane().key({ kind: "char", ch: "?" }, stage());
+    sc.render(app);
+    expect(d()!.previewScroll).toBeNull();
+    await stage().dispatch.press("comment.close", { discard: true }, "floating");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 60_000);
+
+  // PIE-846, Evan's comments while writing in the floating editor: a comment on the whole note (C with nothing selected,
+  // the byline's [comment]), the comment in a tile of its own beside the reader so the whole note stays in view (docked
+  // as any tile), and its thread at the top of the note.
+  test("comment-tile: a whole-note comment in its own tile, typed into and sent; the tile closes; C with nothing selected starts another; it docks", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "comment-tile" }, as: "test-agent" });
+    await until(() => marks["comment-tile"]!.every(m => screen().includes(m)), "the comment-tile section");
+    const stage = () => S().stages.get(S().sel).top as Desk;
+    const surf = () => (stage() as any).pane("reader").surface;
+    const tiles = () => (stage().describe().panes as any[]).map(t => t.kind);
+    // The thread already there is on the whole note: drawn at the top of the note, before its first line.
+    const rows = () => screen().split("\n");
+    const at = (s: string) => rows().findIndex(l => l.includes(s));
+    expect(at("Could we pin the opening hours")).toBeGreaterThan(-1);
+    expect(at("Could we pin the opening hours")).toBeLessThan(at("The seed library opens"));
+    expect(screen()).toContain("▣ the notice");
+    // In the stage, the keys are the comment tile's: what's typed lands in the reader's comment, and ctrl+s sends it.
+    expect(tiles()).toContain("comment");
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    for (const c of ", please") ch(c);
+    await until(() => surf().session?.composer?.text === "The winter shelf needs a lock, please", "typed in the comment tile");
+    expect(surf().session.target).toMatchObject({ kind: "note" });
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !tiles().includes("comment") && !surf().session, "sent, the tile closed");
+    const whole = (surf().comments as any[]).filter(c => c.start === null && !c.quote);
+    expect(whole.map(c => c.body)).toContain("The winter shelf needs a lock, please");
+    // C with nothing selected: another comment on the whole note, in the reader (the place new ones open).
+    ch("C");
+    await until(() => surf().session?.target?.kind === "note" && surf().session?.mode === "compose", "C opened a whole-note comment");
+    // Into its tile by act (ctrl+o's action), then docked to an edge as any tile is, and back in the reader.
+    await stage().dispatch.press("comment.place", { place: "tile" }, "reader");
+    await until(() => tiles().includes("comment"), "the comment tile");
+    const tile = (stage().describe().panes as any[]).find(t => t.kind === "comment")!.name;
+    await stage().dispatch.press("tile.dock", { on: true, edge: "right" }, tile);
+    expect((stage().describe().panes as any[]).find(t => t.kind === "comment")).toMatchObject({ dock: expect.any(String), edge: "right" });
+    await stage().dispatch.press("comment.place", { place: "inline" }, "reader");
+    await until(() => !tiles().includes("comment"), "back in the reader, the tile closed");
+    await stage().dispatch.press("comment.close", { discard: true }, "reader");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 

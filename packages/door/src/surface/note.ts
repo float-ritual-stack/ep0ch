@@ -1847,7 +1847,7 @@ export class NoteSurface {
    */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
-  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[] } {
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[] } {
     const m = this.msg, src = this.src;
     // `pictures`: its img:: lines drawn as the reader draws them (PIE-846), where the terminal can; else each says what it is.
     const graphics = pictures && !!host?.ctx.graphics;
@@ -1861,11 +1861,16 @@ export class NoteSurface {
       return out;
     } : undefined;
     const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
-    return { lines: doc.lines, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [] };
+    // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
+    return { lines: doc.lines, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [], images: graphics ? doc.images : [] };
   }
 
   /** Text written about the note on one line, as a margin card says it: references by their titles (PIE-770). */
-  said(text: string): string { return stripMarks(stripTags(presentLinks(text, false, this.src, text))); }
+  said(text: string): string {
+    // A picture's line says what it is (PIE-846), as the reader's caption does, never its path and attributes.
+    const named = text.split("\n").map(l => { const m = parseMediaLine(l); return m ? `▣ ${m.alt ?? fileName(m.path)}` : l; }).join("\n");
+    return stripMarks(stripTags(presentLinks(named, false, this.src, named)));
+  }
 
   private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task"> & { preview?: (id: string, width: number) => string[] } {
     const inner: EmbedBody = (target, part, width, hooks) => {
@@ -7058,7 +7063,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, on, actor) => travelAction(1, on, actor),
   }),
   "passage.select": def({
-    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text)", keys: "C, then j k J K h l H L",
+    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: "C on selected words; an agent: quote=",
     touches: "draft", draft: "type", replay: "ask",
     menu: noteRow("comment on a passage", "C", { busy: true }),
     args: {

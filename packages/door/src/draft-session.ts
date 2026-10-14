@@ -777,7 +777,7 @@ export function commentTarget(o: {
   const key = (t: NewCommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : t.kind === "note" ? ["comment", t.blockId, t.revision, body] : ["reply", t.thread.id, body]);
   // A comment on a passage or on the whole note is put aside on the note: either brings it back.
   const comment = w0.kind !== "reply";
-  const back = comment ? "C brings it back (on selected words, or the whole note)" : "r on the thread brings it back";
+  const back = comment ? "C brings it back, on selected words or the whole note" : "r on the thread brings it back";
   const label = `${o.note.id.slice(0, 8)}-${comment ? "comment" : "reply"}`;
   return {
     place: w0.kind !== "reply" ? `comment:${o.note.id}` : `reply:${w0.thread.id}`, near: o.note.id,
