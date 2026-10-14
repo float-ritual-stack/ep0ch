@@ -45,24 +45,27 @@ a time and tell the next one main's new value. A PR that bumps it says what each
 
 ## The check-in (every half hour)
 
-Run the steps in order and act on what you find; a step with nothing new says nothing. Put what changed in the
-build log, not chat.
+A cron at minutes 17 and 47 (set up at Evan's ask, Oct 12). Check quietly, act on what you find, and tell Evan only
+what needs him or what changed; if nothing changed and nothing's wrong, one line. What changed goes in the build log.
 
-1. **Margins:** Evan's marks and comments since the last check-in (the saved view `[[my-marks]]`, or
-   `type=annotation AND annotation-source=user`). Answer each in its thread, or do what it asks.
-2. **Requests:** new request copies in pie (from the gurgle's `#pie-request` lane and float-hub, through EchoNet),
-   and any older one without a reply. Each gets prior art checked, a ticket or an answer, and a reply on the copy.
-3. **Agents:** each running builder's last word; a stalled one gets a nudge, a finished one its deploy (builders merge
-   their own PRs; when several bump `PROTOCOL`, you say which merges next).
-4. **Laptop:** is float-hub reachable and on main's `PROTOCOL` (`ep0ch doctor`)? Unreachable is a status, not a fault.
-5. **float-2 health:** `uptime`, `free -h`, `df -h ~ ~/wt`, `systemctl --user --failed`, the outline host and
-   publishers active, backups recent (`ep0ch doctor --backups`).
-6. **main's CI:** `gh run list --branch main --limit 5`. A red run gets at most **one** rerun
-   (`gh run rerun <id> --failed`). A pass doesn't clear the first failure: note it, and a failure seen twice gets a
-   ticket. A second red is a bug: ticket it and give it to an ep0ch-builder with the diagnosing-bugs skill, never
-   another rerun.
-7. **The board:** tickets in `doing` with no agent behind them, merged work still in `review`, `validate` items you
-   can close with proof.
+1. **Margins:** comments addressed to @loki in pie or gurgle since the last check:
+   `ep0ch find --ws <ws> --query "(type=annotation OR type=annotation-reply) AND annotation-source=user AND updated >= -40m" --json`.
+   Reply in place, act on clear asks, and summarise.
+2. **Requests:** new copies in pie's "ep0ch requests" subscription (`67a152f1-779a-482c-9b58-d5f7594714f0`; short
+   ids don't resolve in `ep0ch show`) created since the last check (compare `created_at` with
+   `date -u -d '-40 min' +%Y-%m-%dT%H:%M`), and whether intake wrote a prior-art note for each. Also list every
+   request copy created after Oct 12 carrying `#pie-request` with no reply annotation, and answer it: a ticket and a
+   reply, or a patch note. When a fix for a request has shipped, reply on its copy with a patch note (below).
+3. **The laptop** (`laptop`, which dials in): its ssh is gated by work policy, so unreachable is normal. Report it only
+   as status ("laptop: away"), never as a warning. Reachable and behind main:
+   `ssh laptop 'ep0ch install --apply && ep0ch ext add echonet --outline-folder ~/outlines/float-hub'` (its PATH must
+   include `~/.bun/bin`, `~/.local/bin` and `/opt/homebrew/bin`).
+4. **float-2 health:** load; disk free (warn under 3G, and find who's filling it); the outline host, the publishers,
+   the MCP gateway and the backup timer active; `ep0ch echo status` (a stale tosser exits 1).
+5. **main's CI:** `gh run list --branch main --limit 3 --json conclusion,name,headSha` in `~/projects/ep0ch`. A failed
+   run on main gets fixed (a ticket and an agent, or a small PR), never left red. It gets at most **one** rerun
+   (`gh run rerun <id> --failed`); a second red means the diagnosing-bugs method (root cause and a reproduction
+   before any fix), not another rerun.
 
 ## The build log
 
