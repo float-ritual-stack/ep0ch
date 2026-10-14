@@ -6,7 +6,7 @@
 // docks, floats and spines are the desk's. Every key and click runs an action (BOARD_ACTIONS, the source's).
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
-import { byOf, USER, type Actor, type Change, type OutlineEvent } from "../socket";
+import { byOf, recordedActorId, USER, type Actor, type Change, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { armsEdit, draftPreview, leaveSaid, sessionStart } from "../surface/note";
@@ -1370,7 +1370,8 @@ interface CardPlan { born: { key: string; value: string }[]; defaults: { key: st
 const roadmapHint = (C0: { born: { key: string }[]; defaults: { key: string }[] }) =>
   ["project", "priority", "arc", "track"].filter(k => !C0.born.some(p => p.key === k) && !C0.defaults.some(p => p.key === k))
     .map(k => k === "priority" ? "[priority::high|medium|low]" : `[${k}::…]`).join(" ");
-const recordedAs = (actor: Actor) => actor.kind === "agent" || actor.with?.length ? `agent ${[actor.kind === "agent" ? actor.id : "you", ...(actor.with ?? [])].join("+")}` : "you";
+/** What a card write recorded, as the service stored it (socket.ts `recordedActorId`): the person alone, or an agent, or the person naming who wrote with them. */
+export const recordedAs = (actor: Actor) => actor.kind === "agent" || actor.with?.length ? `agent ${recordedActorId(actor)}` : "you";
 
 type Composer =
   | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; session: DraftSession }

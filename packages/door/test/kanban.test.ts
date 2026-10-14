@@ -10,10 +10,11 @@ import type { Msg } from "../src/board";
 import { startControl } from "../src/control";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
+import { recordedAs } from "../src/desk/lanes";
 import { pickParent } from "../src/desk/writes";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { recordedActorId, SocketBoard, type Actor } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import * as BV from "./board-view";
@@ -555,5 +556,15 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
       const trash = await ask({ cmd: "act", action: "card.trash", args: { card: made.result.id }, as: "socket-agent" });
       expect(trash).toMatchObject({ ok: false, error: expect.stringContaining("card.trash needs confirm") });
     } finally { ctl.close(); }
+  });
+});
+
+describe("a card's receipt says what the service recorded", () => {
+  test("the person alone, an agent, and the person writing with an agent (their actor id joined by +)", () => {
+    expect(recordedAs({ kind: "user" })).toBe("you");
+    expect(recordedAs({ kind: "agent", id: "helper-7" })).toBe("agent helper-7");
+    const together: Actor = { kind: "user", with: ["helper-7"] };
+    expect(recordedAs(together)).toBe(`agent ${recordedActorId(together)}`);
+    expect(recordedAs(together)).toMatch(/^agent ep0ch-door:.+\+helper-7$/);
   });
 });
