@@ -1820,11 +1820,9 @@ viewport; explicit thread navigation scrolls its controls into view.
 Comments identify **Resource-wide**, **This reference**, or **Other reference**
 scope. Other occurrences and lost/ambiguous anchors stay reachable, with their
 original evidence. Failed saves remain in the composer with a visible status;
-`Esc` cancels the reply without returning focus to Tree. The ANSI reader shares
-thread actions and appends complete, wrapped threads to the source preview.
+`Esc` cancels the reply without returning focus to Tree.
 `[` and `]` reveal the selected thread; scrolling reaches unpositioned quotes,
-bodies and replies. Appended evidence is not selectable as source text. The
-annotation document also scrolls through its full evidence and history with `G`.
+bodies and replies. The annotation document also scrolls through its full evidence and history with `G`.
 
 ### Detail edit and comment modes
 
