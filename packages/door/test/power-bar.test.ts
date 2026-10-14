@@ -228,6 +228,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query colour=red" });
     expect(peek().bar.rows[0].refused).toContain("colour");
     key({ kind: "esc" });
+    // The name alone of one that needs arguments says what it needs.
+    key(ctrlK); type("tile.open");
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open" });
+    expect(peek().bar.rows[0].refused).toContain("kind");
+    key({ kind: "esc" });
     // An argument the bar asks for takes a paste the same way.
     let answered: Record<string, string> | null = null;
     await askInBar(app as any, "Name the bed", [{ name: "name", type: "text" }], {}, USER, async a => { answered = a; });

@@ -242,22 +242,27 @@ const ACTIONS: BarSource = {
 
 /**
  * What's typed as an action line, as `ep0ch act` takes it (PIE-856): an action this door has, then its `key=value`
- * words, quoted as a shell quotes them (`tile.open kind=query query="#build-report"`). Its row runs it as typed; an
- * argument the action doesn't take, of the wrong type or missing is said on the row (refused). Anything else: none.
+ * words, quoted as a shell quotes them (`tile.open kind=query query="#build-report"`), or the name alone of one that
+ * needs arguments. Its row runs it as typed, as the person; an argument the action doesn't take, of the wrong type
+ * or missing is said on the row (refused), and its summary and arguments are on the right. Anything else: none.
  */
 function actionLine(q: string, host: BarHost): BarRow | null {
   const words = lineWords(q);
-  if (words.length < 2) return null;
   let req: ActRequest;
   try { req = actRequestOf(words); } catch { return null; }
-  const info = req.as === undefined ? host.dispatch.list().actions.find(a => a.name === req.action) : undefined;
-  if (!info) return null;
+  const info = host.dispatch.list().actions.find(a => a.name === req.action);
+  // A name alone that needs nothing is the action's own row already.
+  if (!info || (words.length < 2 && bare(info))) return null;
   // An argument it doesn't take, one of the wrong type or one it needs: the row says which, as `ep0ch act` would.
   let refused: string | undefined;
-  try { coerceActionArgs(req.action, info.args, req.args ?? {}); } catch (e) { refused = e instanceof Error ? e.message : String(e); }
+  if (req.as !== undefined) refused = "the power bar runs it as you: leave out as=";
+  else try { coerceActionArgs(req.action, info.args, req.args ?? {}); } catch (e) { refused = e instanceof Error ? e.message : String(e); }
   const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
   const shown = [req.action, ...Object.entries(req.args ?? {}).map(([k, v]) => `${k}=${said(String(v))}`), ...(req.tile !== undefined ? [`tile=${said(req.tile)}`] : [])].join(" ");
-  return { key: `line:${shown}`, label: `run ${shown}`, detail: "as typed", exact: true, ...(refused ? { refused } : {}), data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: "" } };
+  return {
+    key: `line:${shown}`, label: `run ${shown}`, detail: info.summary.split(/[.:;(]/)[0]!.slice(0, 80), exact: true, ...(refused ? { refused } : {}),
+    data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: info.summary, keys: info.keys },
+  };
 }
 
 /**
