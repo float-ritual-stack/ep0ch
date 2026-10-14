@@ -49,6 +49,11 @@ export interface ExtensionAction {
   builtIn?: boolean;
   /** What it asks for (PIE-784): the door asks the person for them, `act` takes them as `name=value`. */
   args?: ExtensionActionArg[];
+  /**
+   * `block` (PIE-828): it also asks for the fields the block it runs on writes (`[form-field::…]`), which the service
+   * answers (`extensions.args` on that block); `act` takes them in `with=` as JSON.
+   */
+  fieldsFrom?: "block";
 }
 /** An argument an action declares (PIE-784), as `extensions.list` carries it. */
 export interface ExtensionActionArg {
@@ -56,7 +61,11 @@ export interface ExtensionActionArg {
   options?: string[]; from?: "block" | "children" | "outline"; required?: boolean; default?: string; defaultProperty?: string;
 }
 /** An argument with its choices on a block and its value when not given (`extensions.args`). */
-export interface ExtensionArgChoice extends ExtensionActionArg { choices?: string[]; value?: string }
+export interface ExtensionArgChoice extends ExtensionActionArg {
+  choices?: string[]; value?: string;
+  /** One of the block's own fields (PIE-828): the door asks for every one the person didn't give. */
+  fromBlock?: true;
+}
 export interface ExtensionHandler { key: string; kind: string; effects: string; description?: string; fields?: string[] }
 export interface ExtensionAgent { name: string; description?: string; effects?: string; threads?: boolean }
 export interface ExtensionEntry {
@@ -323,6 +332,8 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
   } catch (e) {
     say.flash(`${name}: ${a.label.toLowerCase()} refused: ${oneLine(e instanceof Error ? e.message : String(e))}`);
     ctx.redraw();
+    // A field the note's form asks for (PIE-828) isn't one of the action's own arguments: `act` takes it in with=.
+    if (a.fieldsFrom === "block" && e instanceof Error && / needs [a-z][a-z0-9_-]*=/.test(e.message)) throw new ActionRefused(`${e.message} · give the note's fields as with='{"<field>":"<value>"}'`);
     throw e;
   }
 }
@@ -348,7 +359,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
   return {
-    summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${unbound}`,
+    summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${a.fieldsFrom === "block" ? ` It also asks for the fields the note writes as [form-field::<name> <type> …] (read the note for them): give them as with='{"<field>":"<value>"}'.` : ""}${unbound}`,
     ...(key ? { keys: `${key}, click` } : { keys: "click" }),
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
@@ -393,8 +404,18 @@ const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "prope
  * value now lit, then the action runs with them. An agent is never asked: what it leaves out takes its default, or is refused.
  */
 export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>): Promise<R | { asking: string; action: string }> {
+  if (actor.kind !== "user" || !ctx.dispatch) return run(given);
+  // A form from the note (PIE-828): what it asks is the note's, so the service says it (a form it can't read is refused there).
+  if (a.fieldsFrom === "block") {
+    let specs: ExtensionArgChoice[];
+    try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch (err) { throw new ActionRefused(err instanceof Error ? err.message : String(err)); }
+    const open = specs.filter(x => (x.fromBlock || asks(x)) && given[x.name] === undefined);
+    if (!open.length) return run(given);
+    const r = await askInBar(ctx, a.label, open.map(x => (x.fromBlock ? { ...x, required: !!x.required } : x)), given, actor, run);
+    return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
+  }
   const open = (a.args ?? []).filter(x => asks(x) && given[x.name] === undefined);
-  if (actor.kind !== "user" || !open.length || !ctx.dispatch) return run(given);
+  if (!open.length) return run(given);
   let specs: ExtensionArgChoice[];
   try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = open; }
   const r = await askInBar(ctx, a.label, open.map(x => ({ ...x, ...specs.find(y => y.name === x.name) })), given, actor, run);

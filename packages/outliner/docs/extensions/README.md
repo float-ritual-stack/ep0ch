@@ -832,6 +832,18 @@ actions yet; `r` is its path today.
   give when they run the action by key, a click or the power bar, its default lit; `act` takes them as `name=value`;
   the action list shows them; `ep0ch ext act … --arg name=value` and `ext ls` lists them.
 
+- **Fields from the note** (PIE-828): `"fieldsFrom": "block"` beside (or instead of) `args` makes the action also ask
+  for the fields the block it runs on writes, one chip per field: `[form-field::<name> <type> [<options>] [required]
+  [default=<value>]]`, the type `text`, `number`, `choice` (options split by `|`: `mood choice good|meh|rough`) or
+  `property`, names as declared arguments' (not one the request uses). One action then serves every note that writes
+  its own form, and the form is edited where it's used. The service reads the chips (outline-core's `form-fields.ts`),
+  lists them after the declared ones in `extensions.args` on that block (each `fromBlock: true`), checks the answers the
+  same way, and tells the action the note's form as `input.fields` (`[{ name, type, options?, required?, default? }]`).
+  A chip it can't read is saved as written and warned on when the note is saved (`did you mean choice?`); the action
+  refuses with the same words, as it does a field named like a declared argument, or a note with no form and no
+  declared arguments. The door asks for every field the person didn't give (a text or number typed, an optional one left
+  empty); an agent gives them in `with=` as JSON. The example is `extensions/form` (`Fill in the form`).
+
   ```json
   { "id": "sort-blocks", "label": "Sort the children", "on": "block", "effects": "write", "args": [
     { "name": "by", "type": "property", "options": ["title", "created"], "from": "children", "default": "title", "defaultProperty": "sort-by" },

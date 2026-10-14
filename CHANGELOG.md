@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A form written in the note it's for (PIE-828)
+
+- **Added:** an extension action can ask for the fields of the note it runs on: `"fieldsFrom": "block"` in its
+  `extension.json`, and the note writes its fields as chips, `[form-field::mood choice good|meh|rough]`
+  (`<name> <type> [<options>] [required] [default=<value>]`; types `text`, `number`, `choice`, `property`). One action
+  serves every note that writes its own form, and the form is edited where it's used. The service checks the answers as
+  it checks declared arguments and tells the action the note's `fields`.
+- **Added:** the example **Form** extension (`outliner ext add form`): Fill in the form asks the note for its fields and
+  writes an entry under it with the answers as properties.
+- **Added:** the door asks for a note's fields through the power bar's one prompt, by keys or a click, as it asks a
+  sort's `by`; a text or number not needed can be left empty, and a needed one says it's waiting for what you type.
+  An agent gives them in `with=` as JSON and is never asked.
+- **Added:** a `[form-field::…]` chip that can't be read is saved as written and warned on with a did-you-mean
+  (`choise isn't a field type …; did you mean choice?`); the action refuses with the same words.
+- A kitchen-sink section, **forms**: the reading log and the shed repairs, two forms, one action.
+
 ### Dates and numbers on any property (PIE-769)
 
 - **Added:** a query compares any property, not only `created` and `updated`: `due <= +3d` (overdue too),

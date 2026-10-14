@@ -73,6 +73,8 @@ export const PROGRAM_EXAMPLES = ["almanac"] as const;
  * rules; its toss is scheduled every 30 minutes, so a scratch showcase left open that long writes its own nodelist.
  */
 export const CARD_EXAMPLES = ["echonet"] as const;
+/** The outliner's example form (PIE-828): one action that asks each note for the fields it writes. Installed with the rules. */
+export const FORM_EXAMPLES = ["form"] as const;
 
 /**
  * Copy the outliner's example extensions (its checkout's `extensions/`) into the scratch service's user

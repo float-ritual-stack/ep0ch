@@ -14,7 +14,7 @@ import { USER, type Actor, type SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { recentRepliesView } from "@ep0ch/outline-core/recent-replies";
-import { CARD_EXAMPLES, DEMO_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
+import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, installTickets, PROGRAM_EXAMPLES, refreshTicket, registerTicket, RULE_EXAMPLES, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -86,8 +86,24 @@ export const SEED = {
   nodelist: "EchoNet nodelist",
   dates: "Plot calendar",
   datesBoard: "Plot calendar board",
+  formReading: "Reading log",
+  formRepairs: "Shed repairs",
 } as const;
 export type SeedName = keyof typeof SEED;
+
+/** Two notes with different forms (PIE-828): each says its own fields; the Form extension's one action asks for them. */
+const FORM_READING = [
+  SEED.formReading,
+  "What the plot's book club read over the winter. Fill in the form (the power bar: Fill in the form, or act ext.form.fill) and each book lands under this note with its answers as properties.",
+  "",
+  "The form: [form-field::book text required] [form-field::pages number] [form-field::mood choice gripping|slow|abandoned default=slow]",
+].join("\n");
+const FORM_REPAIRS = [
+  SEED.formRepairs,
+  "The same action, another form: this note asks which part, what's wrong and whether it's urgent.",
+  "",
+  "The form: [form-field::part choice door|roof|window|gutter required] [form-field::what text required] [form-field::urgent choice yes|no default=no]",
+].join("\n");
 
 /** EchoNet's mini network (PIE-779): Plot chat's posts, Seed swap's copies, the nodelist's entries. */
 export const ECHO_TOSSER = { kind: "agent", id: "echo-tosser" } as const satisfies Actor;
@@ -1338,10 +1354,13 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
   // The example rules, last: a trigger starts from what matches when it's installed, so nothing seeded before is stamped.
   const rulesFrom = opts.outliner ?? opts.rulesFrom;
-  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES]).length) {
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES, ...FORM_EXAMPLES]).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.rules?.some(r => r.key === "ext:done-stamp/stamp")) await Bun.sleep(100);
   }
+  // A form written in each note it's used on (PIE-828): one action, ext.form.fill, asks each note for its own fields.
+  notes.formReading = await make(notes.root.id, FORM_READING);
+  notes.formRepairs = await make(notes.root.id, FORM_REPAIRS);
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia"]).length) {
     const end = Date.now() + 10_000;

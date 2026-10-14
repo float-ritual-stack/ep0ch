@@ -10,8 +10,9 @@ import { LINK_BLOCK_KINDS } from "./link-blocks";
 import { pageLinkSpans } from "./link-syntax";
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges } from "./code-ranges";
 import { isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
+import { formFieldChipProblems } from "./form-fields";
 
-export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal";
+export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal" | "form-field";
 
 /** One construct left open: its kind, its line (0 is the title line), and a sentence saying what is read and how to close it. */
 export interface SyntaxWarning {
@@ -78,6 +79,12 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
     if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!)) return;
     out.push({ kind: "component", line: i, message: `the ::${open[1]} on line ${i + 1} isn't closed with :: on a line of its own: it's plain text` });
   });
+
+  // A form's field chip that can't be read (PIE-828): saved as written, its action says the same when it runs.
+  for (const { start, problem } of formFieldChipProblems(text)) {
+    const line = lineOf(start);
+    out.push({ kind: "form-field", line, message: `${problem.message} (line ${line + 1})` });
+  }
 
   const unterminated = scanLiteralRegions(text).unterminated;
   if (unterminated) {
