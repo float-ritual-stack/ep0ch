@@ -127,6 +127,8 @@ describe('each touch, recorded in the session\'s outline', () => {
       touchAllowed(['~/rangle/**/*.md'], '/home/e/rangle/a/b.md', '/home/e'), touchAllowed(['~/rangle/**/*.md'], '/home/e/rangle/a/b.ts', '/home/e'),
       touchAllowed(['**/plans/**'], '/work/x/plans/y/z.ts', undefined), touchAllowed([], FILE, undefined),
     ]).toEqual([true, false, true, false])
+    expect(fileTouchGlobsOf('[file-touches::/a/**]\n`[file-touches::**]`\n```\n[file-touches::/b/**]\n```')).toEqual(['/a/**'])
+    expect(touchAllowed(['/a/foo**bar.md'], '/a/foo/x/bar.md', undefined)).toBe(false)
     expect([touchAllowed(['/a/*.md'], '/a/b/c.md', undefined), touchAllowed(['/a/*.{md,txt}'], '/a/c.txt', undefined), touchAllowed(['/a/**/*.md'], '/a/c.md', undefined)])
       .toEqual([false, true, true])
   })

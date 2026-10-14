@@ -20,11 +20,12 @@ export function fileTouchesOff(option: unknown, environment: string | undefined)
 
 /** The `[file-touches::<glob>]` values on the Recent files page's text: the areas whose touches are recorded. */
 export function fileTouchGlobsOf(pageText: string): string[] {
-  return [...pageText.matchAll(/\[file-touches::([^\]\n]+)\]/g)].map(m => m[1].trim()).filter(Boolean)
+  const prose = pageText.replace(/^(`{3,}|~{3,})[\s\S]*?^\1[ \t]*$/gm, '').replace(/`[^`\n]*`/g, '')
+  return [...prose.matchAll(/\[file-touches::([^\]\n]+)\]/g)].map(m => m[1].trim()).filter(Boolean)
 }
 
 /**
- * A glob as a RegExp: `**` crosses folders (`**\/` also matches none), `*` and `?` stay in one, `{a,b}` is either.
+ * A glob as a RegExp: `**` crosses folders (`**\/` also matches none), `*` and `?` stay in one, `{a,b}` is either (no `[ab]` classes).
  * One without a leading `/` matches anywhere in the path. The mod's hooks module can't use Bun.Glob (no Bun in the
  * engine) nor import the outliner, and the repo has no other glob code.
  */
@@ -34,9 +35,9 @@ export function globRegExp(glob: string): RegExp {
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i]!
     if (c === '*') {
-      if (glob[i + 1] === '*') {
+      if (glob[i + 1] === '*' && (i === 0 || glob[i - 1] === '/')) {
         if (glob[i + 2] === '/') { out += '(?:.*/)?'; i += 2 } else { out += '.*'; i += 1 }
-      } else out += '[^/]*'
+      } else { out += '[^/]*'; while (glob[i + 1] === '*') i++ }
     } else if (c === '?') out += '[^/]'
     else if (c === '{') { out += '(?:'; braces++ }
     else if (c === '}' && braces) { out += ')'; braces-- }
