@@ -7,6 +7,8 @@ export interface Run { start: number; end: number; items: Item[]; indent: string
 const MARK = /^(\s*)([-*+]|\d+[.)])\s+/;
 const indentOf = (line: string) => /^\s*/.exec(line)![0].length;
 const blank = (line: string) => line.trim() === "";
+/** Only a fragment anchor (and blanks): what follows a line's words when it ends in `^s5`. */
+const ANCHOR_ONLY = /^\s+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/;
 
 /** The sort asked for: by title, ascending, unless the arguments say (the service fills in the note's own defaults). */
 export function sortSpec(args: Record<string, string> | undefined): SortSpec {
@@ -159,7 +161,10 @@ export function extractFrom(text: string, start: number, end: number): { child: 
   const lineStart = text.lastIndexOf("\n", start - 1) + 1;
   const eol = text.indexOf("\n", end - (text[end - 1] === "\n" ? 1 : 0));
   const lineEnd = eol < 0 ? text.length : eol;
-  const wholeLines = quote.includes("\n") || (text.slice(lineStart, start).trim() === "" && text.slice(end, lineEnd).trim() === "");
+  // A selection of a line's words is the whole line: what's left before it is only its indent and list mark, and
+  // after it only its anchor (`^s5`, which a reader doesn't show, so nobody can select it).
+  const before = text.slice(lineStart, start), after = text.slice(end, lineEnd);
+  const wholeLines = quote.includes("\n") || ((before.trim() === "" || MARK.exec(before)?.[0] === before) && (after.trim() === "" || ANCHOR_ONLY.test(after)));
   if (!wholeLines) return { child: quote, replace: (id) => text.slice(0, start) + `!((${id}))` + text.slice(end) };
   const lines = text.slice(lineStart, lineEnd).split("\n");
   const base = Math.min(...lines.filter((l) => !blank(l)).map(indentOf));

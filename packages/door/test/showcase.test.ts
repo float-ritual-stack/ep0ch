@@ -2981,6 +2981,31 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
+  test("structure's extract takes a line's anchor with it (PIE-829): the diary's link points at the new child, no forwarding line, one undo puts all of it back", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
+    const listed = await board.listExtensions(true);
+    const title = (m: { text: string }) => m.text.split("\n")[0]!;
+    const demo = await board.children(listed.pages!.structure!);
+    const plan = demo.find(m => title(m) === "Garden plan")!, diary = demo.find(m => title(m) === "Garden diary")!;
+    expect(diary.text).toContain(`((${plan.id}^s5|pea stakes))`);
+    const line = "- Stake the peas by the north fence ^s5";
+    const done = await app.act({ action: "ext.structure.extract", args: { block: plan.id, quote: line }, as: "test-agent" }) as { undo?: string; message?: string };
+    expect(done.message).toBe("extracted 1 line(s) into a child, with ^s5");
+    const [child] = await board.children(plan.id);
+    expect(child!.text).toBe("Stake the peas by the north fence ^s5");
+    const planNow = (await board.get(plan.id))!.text;
+    // No forwarding line: the item is the child's embed, and ^s5 lives only in the child.
+    expect(planNow).toContain(`- !((${child!.id}))`);
+    expect(planNow).not.toContain("^s5");
+    expect((await board.get(diary.id))!.text).toContain(`((${child!.id}^s5|pea stakes))`);
+    await board.undoExtension(done.undo!, { kind: "agent", id: "test-agent" });
+    expect((await board.get(plan.id))!.text).toBe(plan.text);
+    expect((await board.get(diary.id))!.text).toBe(diary.text);
+    expect(await board.children(plan.id)).toEqual([]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   test("rules (PIE-600): a rule note's bands, meeting-card's card, shout's band; the card goes and comes with its property through act; R shows it as written; done-stamp stamps once", async () => {
     const id = seeded.notes.rules.id, text = async (of = id) => (await board.get(of))!.text;
     const at = SECTIONS.findIndex(s => s.key === "rules");

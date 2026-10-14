@@ -26,6 +26,20 @@ are its record. The outliner's entries from then are kept below, under
   (`choise isn't a field type …; did you mean choice?`); the action refuses with the same words.
 - A kitchen-sink section, **forms**: the reading log and the shed repairs, two forms, one action.
 
+### Moving a linked anchor with its text (PIE-829)
+
+- **Added:** an extension action's write group can `move-anchor`: `{ op: "move-anchor", from: "<block>^s5", to }`
+  moves the anchor to another block (or one the group makes) and points every link to it there (`((A^s5))`, labelled,
+  embedded, `ep0ch://…#s5`), in the same group, attributed to the extension, one undo for all of it. A split or a merge
+  no longer leaves a forwarding line behind.
+- **Added:** structure's `extract` takes the anchors on the lines it extracts with them: extract an item ending in
+  `^s5` and the notes linking to it point at the new child.
+- **Changed:** the structural guard judges links as the whole write group leaves them: a group that repoints the link
+  and drops the anchor lands; one that leaves a link dangling is refused as before. A list item's `^id` the same group
+  writes in another note counts as moved, not removed.
+- **Added:** an EchoNet copy that links to a moved anchor is never written (ADR 0005): it gets a comment saying where the
+  anchor went, which the tosser carries to the origin as netmail.
+
 ### Dates and numbers on any property (PIE-769)
 
 - **Added:** a query compares any property, not only `created` and `updated`: `due <= +3d` (overdue too),

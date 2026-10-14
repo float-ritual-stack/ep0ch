@@ -547,6 +547,11 @@ by `|`, `property`). Fill in the form (the power bar, or `act ext.form.fill bloc
 entry under the note with the answers as properties. Any action can ask a note's fields: `"fieldsFrom": "block"` in its
 `extension.json`. A chip it can't read is saved and warned on with a did-you-mean.
 
+An action's writes are one group, one undo (`create`, `update`, `move`, `order`). Moving anchored text (a split, a
+merge) uses `{ op: "move-anchor", from: "<block>^s5", to: "<block or as-name>" }`: the anchor goes with the text and
+every link to it is repointed in the same step, so no forwarding line (`- → ((child)) ^s5`) is needed; an EchoNet copy
+that links to it is told by netmail, never written (packages/outliner `docs/extensions/README.md#actions`).
+
 **Rules** (PIE-600) say "when a block matches this, draw this on it, or run this", without touching its text:
 `match` by a property (`type=meeting`), a saved-view query, a text pattern (line by line, never in code) or a
 construct kind (`heading:1`, `callout`, `list`, `rule`, `image`); then `decorate` (view primitives above, below, in

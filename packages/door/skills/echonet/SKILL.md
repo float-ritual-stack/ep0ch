@@ -55,6 +55,8 @@ What the tosser writes (never edit these by hand; they're rewritten or read back
   reply there comes back into the copy's thread from that node's next bulletin. Netmail to an original that's gone is tried 3 tosses (config
   `undeliverableAfter`), then becomes an **undeliverable** note beside the copy (`[type::echo-undeliverable]`), and
   that mark is never sent, even if the original comes back.
+  An extension's `move-anchor` (PIE-829) that finds a copy here linking to the anchor it moves never rewrites the copy:
+  it leaves a comment on it saying where the anchor went, and that comment is netmail like any other.
 - **Nodelist** `[type::nodelist]`: this node, the nodes it reads (a board each) and the ones that read it (their
   seen-by marks), reachable or not and why, netmail held for it, areas, subscriptions, last toss. Under it, a **toss log** per toss that moved something or found trouble (an empty toss writes none: `last-toss` is the heartbeat) (`[type::toss]`, counts as properties, the why in its
   text) and the **ledger** (`[type::echo-ledger]`).
