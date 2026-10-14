@@ -26,9 +26,13 @@ async function act() {
       if (!child.trim()) return refuse("nothing to extract");
       // One group: the child is made and named, and the note's edit links it by that name. The service applies both
       // in one step (one undo), or neither; a draft open on the note makes the pair one proposal.
-      return say({ message: `extracted ${child.split("\n").length} line(s) into a child`, writes: [
+      // An anchor that goes with the lines (`^s5` at a line's end) moves with them: the service repoints every link
+      // to it at the child in the same step (PIE-829), so no forwarding line is left behind.
+      const anchors = [...child.matchAll(/(?:^|\s)\^([A-Za-z0-9][A-Za-z0-9_-]{0,63})[ \t]*$/gm)].map((m) => m[1]!);
+      return say({ message: `extracted ${child.split("\n").length} line(s) into a child${anchors.length ? `, with ${anchors.map((a) => `^${a}`).join(", ")}` : ""}`, writes: [
         { op: "create", parentId: block.id, text: child, as: "child" },
         { op: "update", blockId: block.id, expectedRevision: target!.revision, text: replace("child") },
+        ...anchors.map((anchor) => ({ op: "move-anchor", from: `${block.id}^${anchor}`, to: "child" })),
       ] });
     }
     try {

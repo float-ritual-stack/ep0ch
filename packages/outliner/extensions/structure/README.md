@@ -6,7 +6,7 @@ shows who wrote them. Every saying in the demo is made up.
 
 | Action | Acts on | Does |
 |---|---|---|
-| `extract` (`x`) | a passage | The passage becomes a new last child of the note and is replaced in place by `!((child))`. A whole list item (with its sub-items) becomes a child titled by the item, and the note keeps its bullet: `- !((child))`. |
+| `extract` (`x`) | a passage | The passage becomes a new last child of the note and is replaced in place by `!((child))`. A whole list item (with its sub-items) becomes a child titled by the item, and the note keeps its bullet: `- !((child))`. An anchor at the end of an extracted line (`^s5`) goes with it, and every link to it points at the child (`move-anchor`). |
 | `sort-selection` (`s`) | a passage | Sorts the list items the selection touches, each with its sub-items. |
 | `sort-list` (`l`) | a block | Sorts the block's first list (`list=2`: the second). |
 | `sort-blocks` (`o`) | a block | Sorts the block's child blocks. |

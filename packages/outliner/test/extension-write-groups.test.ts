@@ -256,3 +256,88 @@ test("undo is refused, with nothing changed, when a block it made has a proposal
   await expect(client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } })).rejects.toThrow(/has a proposal waiting under it; apply or dismiss it, then undo/);
   expect(store.get(beds!.id)!.effectiveDeletedRootId).toBeFalsy();
 });
+
+// ── a linked anchor moved with its text (PIE-829) ────────────────────────────────────────────────────────────
+
+test("the guard judges links as the whole group leaves them: a split that repoints the link first lands, one that leaves it is refused", async () => {
+  const { store, write, note, live } = await setup();
+  const plot = await note("Plot notes\n- Stake the peas by the north fence ^s5\n- Mulch the leeks");
+  const diary = await note(`Diary\nSee ((${plot.id}^s5|the pea stakes)).`);
+  const split = [
+    { op: "create", parentId: plot.id, text: "Stake the peas by the north fence ^s5", as: "c1" },
+    { op: "update", blockId: plot.id, expectedRevision: plot.revision, text: "Plot notes\n- !((c1))\n- Mulch the leeks" },
+  ];
+  await expect(write(plot.id, split)).rejects.toThrow(/would drop \^s5 \(1 note links to it\)/);
+  expect(live(plot.id)).toEqual([]);
+  await write(plot.id, [...split, { op: "update", blockId: diary.id, expectedRevision: diary.revision, text: "Diary\nSee ((c1^s5|the pea stakes))." }]);
+  const [child] = live(plot.id);
+  expect(store.get(diary.id)!.text).toBe(`Diary\nSee ((${child!.id}^s5|the pea stakes)).`);
+});
+
+test("move-anchor moves the anchor and repoints every link to it in the same group, one undo for all of it", async () => {
+  const { store, write, note, live, client } = await setup();
+  const plot = await note("Plot notes\n- Stake the peas by the north fence ^s5\n- Mulch the leeks");
+  const diary = await note(`Diary\nSee ((${plot.id}^s5|the pea stakes)) and ((${plot.id})).`);
+  const board = await note(`Board\n!((${plot.id}^s5))\nCode stays: \`((${plot.id}^s5))\``);
+  const done = await write(plot.id, [
+    { op: "create", parentId: plot.id, text: "Stake the peas by the north fence", as: "c1" },
+    { op: "update", blockId: plot.id, expectedRevision: plot.revision, text: "Plot notes\n- !((c1))\n- Mulch the leeks ^s5" },
+    { op: "move-anchor", from: `${plot.id}^s5`, to: "c1" },
+  ]);
+  const [child] = live(plot.id);
+  // The group's text on the source still had the marker: it comes off; the child, without one, gets it at its end.
+  expect(child!.text).toBe("Stake the peas by the north fence ^s5");
+  expect(store.get(plot.id)!.text).toBe(`Plot notes\n- !((${child!.id}))\n- Mulch the leeks`);
+  expect(store.get(diary.id)!.text).toBe(`Diary\nSee ((${child!.id}^s5|the pea stakes)) and ((${plot.id})).`);
+  expect(store.get(board.id)!.text).toBe(`Board\n!((${child!.id}^s5))\nCode stays: \`((${plot.id}^s5))\``);
+  const changes = store.changes.since(0, 1000);
+  expect(changes.kind === "changes" && changes.changes.some((change) => change.blockId === diary.id && change.actor?.actorId === "ext:grouper")).toBe(true);
+  await client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } });
+  expect(store.get(plot.id)!.text).toBe(plot.text);
+  expect(store.get(diary.id)!.text).toBe(diary.text);
+  expect(store.get(board.id)!.text).toBe(board.text);
+  expect(live(plot.id)).toEqual([]);
+});
+
+test("move-anchor into a note that's there: a merge's paragraph keeps its anchor, and what it can't do is refused with nothing written", async () => {
+  const { store, write, note } = await setup();
+  const minutes = await note("Minutes\nWe agreed to share the water butt. ^m2");
+  const keeper = await note("Keeper\nThe allotment rules.");
+  const cite = await note(`Decision\nAs agreed in ((${minutes.id}^m2)).`);
+  const refused = async (writes: unknown[], reason: RegExp) => {
+    await expect(write(minutes.id, writes)).rejects.toThrow(reason);
+    expect(store.get(minutes.id)!.text).toBe(minutes.text);
+    expect(store.get(cite.id)!.text).toBe(cite.text);
+  };
+  await refused([{ op: "move-anchor", from: `${minutes.id}^zz`, to: keeper.id }], /doesn't have/);
+  await refused([{ op: "move-anchor", from: `${minutes.id}^m2`, to: minutes.id }], /to the block it's in/);
+  const other = await note("Other\nHas one already ^m2");
+  await refused([{ op: "move-anchor", from: `${minutes.id}^m2`, to: other.id }], /has a \^m2 already/);
+  await refused([{ op: "move-anchor", from: "not a ref", to: keeper.id }], /from: "<block>\^<anchor>"/);
+  await write(minutes.id, [
+    { op: "update", blockId: keeper.id, expectedRevision: keeper.revision, text: "Keeper\nThe allotment rules.\nWe agreed to share the water butt." },
+    { op: "update", blockId: minutes.id, expectedRevision: minutes.revision, text: "Minutes" },
+    { op: "move-anchor", from: `((${minutes.id}^m2))`, to: keeper.id },
+  ]);
+  expect(store.get(keeper.id)!.text).toBe("Keeper\nThe allotment rules.\nWe agreed to share the water butt. ^m2");
+  expect(store.get(cite.id)!.text).toBe(`Decision\nAs agreed in ((${keeper.id}^m2)).`);
+});
+
+test("an EchoNet copy that links to the anchor isn't written: its origin is told by a comment the tosser carries as netmail", async () => {
+  const { store, write, note, client } = await setup();
+  const plot = await note("Plot notes\nStake the peas ^s5");
+  const copyText = `Shared diary [from::cafe@example-box/0f3c2a91-5b7e-4c1d-9a8e-2b6f4d1c7e30] [echo::garden.diary]\nSee ((${plot.id}^s5)).`;
+  const copy = await note(copyText);
+  const done = await write(plot.id, [
+    { op: "create", parentId: plot.id, text: "Stake the peas", as: "c1" },
+    { op: "update", blockId: plot.id, expectedRevision: plot.revision, text: "Plot notes" },
+    { op: "move-anchor", from: `${plot.id}^s5`, to: "c1" },
+  ]);
+  expect(store.get(copy.id)!.text).toBe(copyText);
+  const threads = await client.request<Array<{ body: string }>>({ action: "annotations.list", query: { subject: { kind: "block", blockId: copy.id } } });
+  expect(threads.map((thread) => thread.body)).toEqual([expect.stringContaining("^s5 moved from \"Plot notes\" to the new \"Stake the peas\"")]);
+  // Undone whole: the comment goes with the rest.
+  await client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } });
+  expect((await client.request<unknown[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: copy.id } } }))).toEqual([]);
+  expect(store.get(plot.id)!.text).toBe(plot.text);
+});

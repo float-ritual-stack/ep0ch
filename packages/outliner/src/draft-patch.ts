@@ -369,7 +369,12 @@ export interface DraftGroup {
 export type DraftGroupWrite =
   | { op: "create"; id: string; parentId: string; text: string; position?: number }
   | { op: "move"; blockId: string; parentId: string; position?: number; expectedRevision: number }
-  | { op: "order"; parentId: string; children: string[] };
+  | { op: "order"; parentId: string; children: string[] }
+  /**
+   * A comment on an EchoNet copy, which the tosser carries to the copy's origin as netmail (PIE-829): what a
+   * `move-anchor` says to a note it may not write, since a copy's text is its origin's (ADR 0005).
+   */
+  | { op: "netmail"; blockId: string; body: string };
 
 /** How many changes a proposal holds: its spans across its notes, and its group's writes. */
 export function proposalChanges(proposal: Pick<DraftProposal, "edits"> & { group?: DraftGroup }): number {
@@ -473,6 +478,10 @@ function groupWriteShown(text: string, write: DraftGroupWrite, made: ReadonlySet
     }
     return true;
   };
+  if (write.op === "netmail") {
+    if (typeof write.body !== "string") return false;
+    return text.includes(`\n${shownGroupWrite(write, () => "").slice(1).join("\n")}`) && text.includes(`((${write.blockId}|`);
+  }
   if (write.op === "create") {
     if (typeof write.text !== "string") return false;
     const shown = shownGroupWrite(write, () => "").slice(1).join("\n");
@@ -493,6 +502,10 @@ function shownGroupWrite(write: DraftGroupWrite, title: (id: string) => string, 
   if (write.op === "create") {
     const fence = fenceFor(write.text);
     return [`${lead}a new block under ${title(write.parentId)}:`, fence, write.text, fence];
+  }
+  if (write.op === "netmail") {
+    const fence = fenceFor(write.body);
+    return [`${lead}a comment on ${title(write.blockId)}, a copy, carried to its origin as netmail:`, fence, write.body, fence];
   }
   if (write.op === "move") return [`${lead}${title(write.blockId)} moves under ${title(write.parentId)}${write.position !== undefined ? `, at ${write.position + 1}` : ""}.`];
   return [`${lead}the children of ${title(write.parentId)} in this order: ${write.children.map(title).join(", ")}.`];

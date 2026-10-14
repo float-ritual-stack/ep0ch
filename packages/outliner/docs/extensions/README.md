@@ -760,6 +760,7 @@ actions yet; `r` is its path today.
   | `{ "op": "update", "blockId", "expectedRevision", "text" }` | an agent's edit of the block (below) |
   | `{ "op": "move", "blockId", "parentId", "position"?, "expectedRevision" }` | moves the block, revision-checked |
   | `{ "op": "order", "parentId", "children": [ids] }` | the block's children in this order, in one step: exactly the children it has, or refused |
+  | `{ "op": "move-anchor", "from": "<block>^<anchor>", "to" }` | moves the anchor to `to` (a block, or a name made in the group) and points every link to it there (PIE-829, below) |
 
   A later write names a block made earlier in the group by its `as`: as a `parentId`, `blockId` or one of an order's
   `children`, and in text as `((c1))`, `!((c1))`, `((c1|label))` or `((c1^anchor))` (its id is minted before anything is
@@ -798,6 +799,35 @@ actions yet; `r` is its path today.
   a door holds a live draft of any block it edits, moves or reorders, the **whole group** waits as one proposal beside
   the note it acted on (its new blocks' text shown in it), and applying that proposal writes all of it in one step.
   Either way the answer's `message` says so and nothing else is written.
+- **The guard judges links as the whole group leaves them** (PIE-829): a group that rewrites `((A^s5))` to `((c1^s5))`
+  in the note that links to it, and drops `^s5` from A, lands; one that leaves a link pointing at the dropped anchor is
+  refused as before (`would drop ^s5 (1 note links to it)`). A list item's `^id` that the group takes out of one note
+  and writes in another (a split's child, a merge's keeper) moved; one that just goes is still refused.
+- **`move-anchor` does the repointing for you.** `{ "op": "move-anchor", "from": "<block>^s5", "to": "c1" }` makes
+  the anchor live in `to` and points every link to it there, in the same group and undone with it:
+  - the marker comes off `from` if the group's text there still has it (the line stays; a line that was only the
+    marker goes);
+  - it goes on `to` unless the group's text there has it already, at the end of its last line that isn't blank (a
+    split's one-line child, a merge's appended paragraph). Write `^s5` on the line yourself to put it anywhere else;
+  - every link to it in this outline points at `to`: `((A^s5))`, `((A^s5|label))`, `!((A^s5))` and an
+    `ep0ch://…/b/A#s5` address, in the notes the backlink index knows and in the group's own texts, each written as the
+    extension, revision-checked. A link in code stays text;
+  - an EchoNet copy here that links to it (a note with `[from::<node>/<id>]`) is never written: its text is its
+    origin's (ADR 0005). It gets a comment saying where the anchor went, which the tosser carries to the origin as
+    netmail; the copy's link follows when the origin fixes its note and the next toss brings it;
+  - refused, with nothing written, for an anchor `from` doesn't have, a `to` that's gone, the block it's in, a `to` that
+    has that anchor already, a record an extension keeps, or more than 200 linking notes.
+
+  ```json
+  { "writes": [
+    { "op": "create", "parentId": "<note>", "text": "Stake the peas by the north fence ^s5", "as": "child" },
+    { "op": "update", "blockId": "<note>", "expectedRevision": 7, "text": "Garden plan\n- !((child))" },
+    { "op": "move-anchor", "from": "<note>^s5", "to": "child" }
+  ] }
+  ```
+
+  Structure's `extract` does this for every anchor on the lines it takes, so extracting an anchored line leaves no
+  forwarding line behind.
 - **A created block is Blockdown like anyone's**: a `key::` line or `[key::value]` in it is a property, as in a
   block written over the [connection](#a-connection-to-the-service). Code the person installed is trusted in their
   outline; what keeps it safe is the rest: every write is attributed `ext:<id>`, revision-checked and undoable

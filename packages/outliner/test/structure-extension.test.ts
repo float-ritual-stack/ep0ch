@@ -59,6 +59,10 @@ test("the pure parts: sort a list by title and by a property, extract a list ite
   expect(sortListInText(text, sortSpec(undefined)).text).toBe("Seeds\n- a [price::12]\n- b [price::3.5]\n  - sub\n- c\n\nafter");
   expect(sortListInText(text, sortSpec({ by: "price", order: "desc" })).text).toBe("Seeds\n- a [price::12]\n- b [price::3.5]\n  - sub\n- c\n\nafter");
   expect(() => sortListInText(text, sortSpec({ by: "cost" }))).toThrow("the items have price");
+  // A line's words, selected as a reader shows them (no mark, no anchor), are the whole line.
+  const words = "Plan\n- Stake the peas ^s5\n- Mend";
+  expect(extractFrom(words, words.indexOf("Stake"), words.indexOf(" ^s5")).replace("abc12345")).toBe("Plan\n- !((abc12345))\n- Mend");
+  expect(extractFrom(words, words.indexOf("Stake"), words.indexOf(" ^s5")).child).toBe("Stake the peas ^s5");
   const item = extractFrom("Plan\n- Order\n  - three\n  - four\n- Mend", 5, 29);
   expect(item.child).toBe("Order\n- three\n- four");
   expect(item.replace("abc12345")).toBe("Plan\n- !((abc12345))\n- Mend");
@@ -137,4 +141,20 @@ test("a selection sorts whole items with their sub-items, code fences aren't lis
   expect(sortListInText(fenced, sortSpec(undefined)).text).toBe("N\n```\n- z\n- a\n```\n- x\n- y");
   const nested = "N\n- one\n  - [price::1]\n- two [price::5]";
   expect(sortListInText(nested, sortSpec({ by: "price", order: "desc" })).text).toBe("N\n- two [price::5]\n- one\n  - [price::1]");
+});
+
+test("extract takes a line's anchor with it: links to it point at the child, with no forwarding line, and one undo puts all of it back (PIE-829)", async () => {
+  const { client, create, get, kids } = await setup();
+  const note = await create("Garden plan\n- Stake the peas by the north fence ^s5\n- Mend the fence");
+  const diary = await create(`Garden diary\nThe ((${note.id}^s5|pea stakes)) went in on Sunday.`);
+  const done = await onPassage(client, "extract", note, "- Stake the peas by the north fence ^s5") as { message?: string; undo?: string };
+  expect(done.message).toBe("extracted 1 line(s) into a child, with ^s5");
+  const [child] = await kids(note.id);
+  expect(child!.text).toBe("Stake the peas by the north fence ^s5");
+  expect((await get(note.id)).text).toBe(`Garden plan\n- !((${child!.id}))\n- Mend the fence`);
+  expect((await get(diary.id)).text).toBe(`Garden diary\nThe ((${child!.id}^s5|pea stakes)) went in on Sunday.`);
+  await client.request({ action: "extensions.undo", undo: done.undo!, mutation: PERSON });
+  expect((await get(note.id)).text).toBe(note.text);
+  expect((await get(diary.id)).text).toBe(diary.text);
+  expect(await kids(note.id)).toEqual([]);
 });
