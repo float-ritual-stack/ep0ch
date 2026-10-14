@@ -15,15 +15,17 @@ test("every extension's outline.ts is the same file", () => {
 });
 
 const cleanups: Array<() => void> = [];
-afterEach(() => { for (const c of cleanups.splice(0)) c(); });
+afterEach(() => { for (const c of cleanups.splice(0).reverse()) c(); });
 
 async function host(onRequest: (connection: Socket) => void): Promise<void> {
+  const was = { socket: process.env.EP0CH_SOCKET, grant: process.env.EP0CH_EXT_GRANT };
+  const restore = (key: string, value: string | undefined) => { if (value === undefined) delete process.env[key]; else process.env[key] = value; };
   const folder = mkdtempSync(join(tmpdir(), "outline-client-"));
   const server: Server = createServer(connection => connection.once("data", () => onRequest(connection)));
   await new Promise<void>(resolve => server.listen(join(folder, "s.sock"), resolve));
   process.env.EP0CH_SOCKET = join(folder, "s.sock");
   process.env.EP0CH_EXT_GRANT = "grant";
-  cleanups.push(() => { server.close(); rmSync(folder, { recursive: true, force: true }); });
+  cleanups.push(() => { restore("EP0CH_SOCKET", was.socket); restore("EP0CH_EXT_GRANT", was.grant); server.close(); rmSync(folder, { recursive: true, force: true }); });
 }
 
 for (const name of COPIES) {
