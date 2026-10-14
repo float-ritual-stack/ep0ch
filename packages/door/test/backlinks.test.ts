@@ -3,6 +3,7 @@
 // outliner's own functions over fictional sources and every option, then drive the board's dock against
 // a scratch service: the defaults, filter and sort, and the toggles by key, click and act.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { linkAcross } from "../src/links";
 import { tileKind } from "../src/desk/tile-kinds";
 import type { BacklinksPane } from "../src/desk/backlinks-pane";
 import { join } from "node:path";
@@ -128,6 +129,11 @@ describe("a list that names its stages (stages=, PIE-819)", () => {
     const lit = backlinkView({ ...c, sources: [...c.sources, q("5", "other")] }, { ...o, stages: ["other", "next"] });
     expect(nextBacklinkStageFilter("open", lit.stages)).toBe("value:other");
     expect(backlinkView({ ...c, sources: [...c.sources, q("5", "other")] }, { ...o, stages: ["other", "next"], stage: "value:other" }).matching.map(s => s.blockId)).toEqual(["5"]);
+    // The links tile's choices (across every group) take the list too: parked is other there as well.
+    const across = linkAcross({ links: { kind: "loading" }, backlinks: { kind: "ready", value: c } }, o);
+    expect(nextBacklinkStageFilter("doing", across.stages)).toBe("other");
+    // An empty list names nothing: every value, as no list.
+    expect(backlinkStageSummary(backlinkView(c, { ...o, stages: [] }).groups[0]!)).toBe(" (1 next · 1 parked · 2 doing)");
     expect(stagesFrom("all")).toBeNull();
     expect(backlinkOptionsFrom(DEFAULT_BACKLINK_VIEW_OPTIONS, { stages: "next, doing" }, []).stages).toEqual(["next", "doing"]);
   });

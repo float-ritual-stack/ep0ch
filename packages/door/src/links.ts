@@ -255,7 +255,7 @@ export function linkAcross(data: LinkData, o: Readonly<BacklinkViewOptions>, onl
     for (const c of d.value) note(c.facets);
   }
   const sum = (f: (x: { matching: number; total: number; filtered: number }) => number) => Object.values(by).reduce<number>((n, x) => n + (x ? f(x) : 0), 0);
-  return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })), stages: orderStageValues(stages.values()) };
+  return { matching: sum(x => x.matching), total: sum(x => x.total), filtered: sum(x => x.filtered), by, kinds: [...kinds].map(([kind, label]) => ({ kind, label })), stages: orderStageValues(stages.values(), o.stages ?? null) };
 }
 
 /** The block a row stands for: a resolved outlink's target, a backlink's source (a ticket's block is `linkOpens`'). */

@@ -119,7 +119,7 @@ function matchesStage(source: BacklinkSource, stage: BacklinkStageFilter, subset
 
 /** Whether `value` is one the list names (`stages=`, case folded); every value is, without a list. */
 export function namedStage(value: string, subset: readonly string[] | null | undefined): boolean {
-  return !subset || subset.some((x) => x.trim().toLowerCase() === value.trim().toLowerCase());
+  return !subset?.length || subset.some((x) => x.trim().toLowerCase() === value.trim().toLowerCase());
 }
 
 /** The Stage filter's form for a value spelled like one of its keywords (`value:open`), so each stays a choice. */
@@ -132,7 +132,7 @@ const STAGE_KEYWORDS: readonly string[] = ["all", "open", "other", ...BACKLINK_S
 export function stageMatches(stage: { value: string; bucket?: BacklinkStageBucket } | undefined, filter: BacklinkStageFilter, subset: readonly string[] | null = null): boolean {
   const f = filter.trim().toLowerCase();
   // `other`, where the list names its values: a row whose value it doesn't name.
-  if (subset && f === STAGE_OTHER) return !!stage && !namedStage(stage.value, subset);
+  if (subset?.length && f === STAGE_OTHER) return !!stage && !namedStage(stage.value, subset);
   // `value:open`: the value as written, where it's spelled like a keyword (a status `open` a rule put in done).
   if (f.startsWith(STAGE_VALUE)) return !!stage && stage.value.trim().toLowerCase() === f.slice(STAGE_VALUE.length);
   if (f === "all") return true;
@@ -142,9 +142,15 @@ export function stageMatches(stage: { value: string; bucket?: BacklinkStageBucke
 }
 
 /** Stage values in their families' order (waiting, draft, active, done, then unplaced), most first, then by name. */
-export function orderStageValues(values: Iterable<BacklinkStageValue>): BacklinkStageValue[] {
+export function orderStageValues(values: Iterable<BacklinkStageValue>, subset: readonly string[] | null = null): BacklinkStageValue[] {
   const rank = (b: BacklinkStageBucket | undefined) => (b ? BACKLINK_STAGE_BUCKETS.indexOf(b) : BACKLINK_STAGE_BUCKETS.length);
-  return [...values].sort((a, b) => rank(a.bucket) - rank(b.bucket) || b.count - a.count || a.value.localeCompare(b.value));
+  const all = [...values];
+  if (!subset?.length) return all.sort((a, b) => rank(a.bucket) - rank(b.bucket) || b.count - a.count || a.value.localeCompare(b.value));
+  // The values the list names, in its order; then the rest, each marked other (said as "other: parked 1").
+  const at = (v: BacklinkStageValue) => subset.findIndex((x) => x.trim().toLowerCase() === v.value.toLowerCase());
+  const named = all.filter((v) => at(v) >= 0).sort((a, b) => at(a) - at(b));
+  const rest = orderStageValues(all.filter((v) => at(v) < 0)).map((v) => ({ ...v, other: true as const }));
+  return [...named, ...rest];
 }
 
 /** Count `sources`' stage values as written, one entry per value (case folded, first spelling kept). */
@@ -158,12 +164,7 @@ function countStageValues(sources: readonly BacklinkSource[], subset: readonly s
     if (had) had.count += 1;
     else by.set(key, { value: stage.value.trim(), ...(stage.bucket ? { bucket: stage.bucket } : {}), count: 1 });
   }
-  if (!subset) return orderStageValues(by.values());
-  // The values the list names, in its order; then the rest, each marked other (said as "other: parked 1").
-  const at = (v: BacklinkStageValue) => subset.findIndex((x) => x.trim().toLowerCase() === v.value.toLowerCase());
-  const named = [...by.values()].filter((v) => at(v) >= 0).sort((a, b) => at(a) - at(b));
-  const rest = orderStageValues([...by.values()].filter((v) => at(v) < 0)).map((v) => ({ ...v, other: true as const }));
-  return [...named, ...rest];
+  return orderStageValues(by.values(), subset);
 }
 
 function compareSources(options: BacklinkViewOptions, faceted: boolean) {
@@ -329,6 +330,7 @@ export function parseBacklinkViewOptions(input: unknown): BacklinkViewOptions {
     showResolved: value.showResolved,
     kind: value.kind as string | null,
     stage: value.stage as BacklinkStageFilter,
-    ...(Array.isArray(value.stages) && value.stages.every((x) => typeof x === "string") ? { stages: value.stages as string[] } : value.stages === null ? { stages: null } : {}),
+    // An empty list names nothing: every value, as no list.
+    ...(Array.isArray(value.stages) && value.stages.every((x) => typeof x === "string") ? { stages: value.stages.length ? value.stages as string[] : null } : value.stages === null ? { stages: null } : {}),
   };
 }
