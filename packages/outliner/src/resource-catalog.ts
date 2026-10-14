@@ -817,7 +817,7 @@ function assertFilesystemConfinement(
   if (drift.kind === "recreated") {
     throw new ResourceCatalogError(
       "source-unavailable",
-      `${homeWords(root)} was replaced while its file was being read or saved: nothing was written; try again`,
+      `${homeWords(root)} was replaced during this read or save of one of its files; try again`,
     );
   }
   const boundRoot = realpathSync(root);
