@@ -2897,8 +2897,7 @@ behavior; emitted hyperlinks have separate renderer regressions.
 `bun run test:e2e:annotation-threads` uses real keys in a private Herdr session
 for contextual/Resource-wide thread navigation, multiline replies, visible save
 validation, resolve/reopen and cancellation. It verifies preserved target and
-viewport, other-occurrence and orphan reachability, a narrow Detail, and ANSI
-ordinary-thread/evidence scrolling and operations. One real Pi Reply control
+viewport, other-occurrence and orphan reachability, and a narrow Detail. One real Reply control
 click and cancellation runs through the attached Herdr client's mouse input.
 Existing threads and an agent reply are seeded through public APIs.
 
