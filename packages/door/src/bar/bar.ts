@@ -68,6 +68,7 @@ export class PowerBar {
   private readonly surface = new NoteSurface();
   private shownNote: string | null = null;
   private readonly notes = new Map<string, Msg | null | "…" | { offline: string }>();
+  private readonly reads = new Map<string, number>();
   private readonly previews = new Map<string, BarPreview | "…">();
 
   /** An agent's own bar, never drawn: it asks the service at once instead of waiting for typing to pause. */
@@ -163,7 +164,7 @@ export class PowerBar {
     if (this.done) return;
     if (background) {
       // The outline changed: the notes the preview read are read again (the old one stays drawn until the new arrives).
-      for (const [id, m] of [...this.notes]) if (m !== "…") this.readNote(id, true);
+      for (const id of [...this.notes.keys()]) this.readNote(id, true);
       for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
       return this.build(true);
     }
@@ -295,9 +296,12 @@ export class PowerBar {
    */
   private readNote(id: string, again = false) {
     if (!again) this.notes.set(id, "…");
+    // The newest read of a note is the one that counts: an older answer arriving later is dropped.
+    const gen = (this.reads.get(id) ?? 0) + 1;
+    this.reads.set(id, gen);
     void this.host.note(id).then(
-      m => { if (this.done) return; this.notes.set(id, m); this.shownNote = null; this.host.ctx.redraw(); },
-      e => { if (this.done) return; this.notes.set(id, { offline: e instanceof Error ? e.message : String(e) }); this.shownNote = null; this.host.ctx.redraw(); },
+      m => { if (this.done || this.reads.get(id) !== gen) return; this.notes.set(id, m); this.shownNote = null; this.host.ctx.redraw(); },
+      e => { if (this.done || this.reads.get(id) !== gen) return; this.notes.set(id, { offline: e instanceof Error ? e.message : String(e) }); this.shownNote = null; this.host.ctx.redraw(); },
     );
   }
 
