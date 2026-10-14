@@ -454,7 +454,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.nudge": def({
     summary: "nudge a look value by steps (by=1 or -1): a number by its step (columns by 2, rows by 1: cells are twice as tall as wide; pad and margin move a row and two columns), on/off flipped, a choice to the next, header.image through the note's pictures. It draws in the next frame, from memory; s saves it. level= and width= (all, or this: the breakpoint the tile is in now) default to the inspector's. Where something nearer wins over the level (or the width) it writes, it asks first: shadow=anyway (nudge it; it shows only where nothing nearer sets it), shadow=instead (nudge what wins), shadow=clear (take what wins away, then nudge)",
     keys: "+ − (= l → and - h ←), a click on [−] [+], the wheel over a value; on a row that asks: a, o, c, or a click on a choice",
-    touches: "nothing", replay: "ask", says: out => (out.offered ? `· ${out.row}: ${out.why}` : `· ${out.row} ${out.value} (${out.at})`),
+    touches: "nothing", replay: "ask", says: out => (out.offered ? `· ${out.row}: ${out.why}` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
     args: {
       by: { type: "number", about: "steps: 1 up, -1 down" },
       row: { type: "string", optional: true, about: "the row (measure, pad, pad.x, margin, list.gap, …); default the picked one" },
@@ -511,14 +511,13 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
         at = `${targetWords(a.target)}${a.variant ? `, ${a.variant} only` : ""}`;
       }
       desk.redraw();
-      if (actor.kind === "agent") desk.ctx.flash(says(actor, `tuned ${r.name} to ${shown.join(" ")} (${at}) · s saves`));
       return { row: r.name, value: shown.join(" "), at, unsaved: tuning.unsavedCount(), ...(shadow ? { shadow } : {}) };
     },
   }),
   "tune.set": def({
     summary: "set a look value outright, as a nudge does (in memory until saved): row= a token, value= as a style note writes it (88, on, dots, \"1 0 1\")",
     keys: "`ep0ch act tune.set row=measure value=72`",
-    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value}`,
+    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.at}) · s saves`,
     args: {
       row: { type: "string", about: "a token (measure, pad.x, list.gap, …)" },
       value: { type: "string", about: "its value" },
@@ -539,14 +538,13 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       listOnly(a.target, a.field, t, tuningOf(desk.ctx.board));
       tuningOf(desk.ctx.board).set(a.target, a.field, styleValueText(ok.value), actor);
       desk.redraw();
-      if (actor.kind === "agent") desk.ctx.flash(says(actor, `set ${tk} to ${styleValueText(ok.value)} (${targetWords(a.target)}) · s saves`));
       return { row: tk, value: styleValueText(ok.value), at: targetWords(a.target) };
     },
   }),
   "tune.unset": def({
     summary: "reset a row's value to what it inherits: what sets it here is taken away (a width variant first, then its plain value), off the note that wrote it (in memory until s, the save removing the property), or, set only by a nudge, the nudge let go. A built-in, a box's or a heading style's is edited where it's written; one a shorthand or a tier gives is refused, naming the note",
     keys: "x, a click on a row's × or on [reset value]",
-    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.from})`,
+    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.from}) · s saves`,
     args: { row: { type: "string", optional: true, about: "the row (measure, pad, bg, list.divider, …); default the picked one" } },
     async run({ row }, { pane, desk }, actor) {
       const r = row === undefined ? TUNE_ROWS[pane.sel]! : rowNamed(row);
@@ -561,7 +559,6 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       // What shows now, resolved again (the tile's look as drawn is the frame before this one).
       const now = pane.values(fresh(pane, desk)), last = r.tokens[r.tokens.length - 1]!;
       const value = r.tokens.map(tk => styleValueText(now.values[tk] as StyleValue)).join(" "), from = sourceWords(now.sources[last]);
-      if (actor.kind === "agent") desk.ctx.flash(says(actor, `reset ${r.name} to ${value} (${from}) · s saves`));
       return { row: r.name, value, from, unsaved: tuningOf(desk.ctx.board).unsavedCount() };
     },
   }),
