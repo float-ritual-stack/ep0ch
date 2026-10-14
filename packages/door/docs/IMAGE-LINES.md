@@ -60,7 +60,7 @@ video needs `ffmpeg` (Quick Look on a Mac). A web page serves a picture only fro
 | A reader, a detail tile, the river (the door) | Under Kitty graphics: the picture, scaled to its box and dimmed dark-first, its rows kept dark while it loads, its caption under it (name, size, layout, `[−][+] [◂][▸] [▀]`). Without graphics (`alt+v` to cells, or a terminal without them): the caption, saying why |
 | The header (`[layout::hero]`) | Above the title, the full width; as it scrolls under the sticky header, the header takes a muted crop of it as its background |
 | An extension's view (`image` primitive, PIE-827) | Laid out as a note's image line, inside the view's card, box or row; `caption: false` draws the picture alone (a card's cover) |
-| A web page (the publisher) | `<figure>` with the served image and its alt as the caption, or its words and file name where it may not be served |
+| A web page (the publisher) | `<figure>` with the served image and its alt as the caption (none for a view's image with `caption: false`), or its words and file name where it may not be served |
 | Elsewhere (Markdown, an export, MCP) | Its words and its file, never the picture: those readers can't reach the outline's files |
 | Detail (the outliner's Herdr console) | The line as written |
 
