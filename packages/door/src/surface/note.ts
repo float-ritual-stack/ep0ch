@@ -144,7 +144,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
-  composerTile?(on: boolean): Promise<unknown>;
+  composerTile?(on: boolean, keys?: boolean): Promise<unknown>;
   /** The comment's own tile is open now (composerTile's): false once it was closed by hand. */
   hasComposerTile?(): boolean;
   /**
@@ -1064,7 +1064,8 @@ export class NoteSurface {
       if (this.tileFor !== cs) {
         this.tileFor = cs;
         const open = host.composerTile;
-        queueMicrotask(() => void open(true).then(() => { if (this.tileFor === cs) this.tileOpen = cs; }, e => {
+        // The person's keys go to it only when the comment is theirs: an agent's comment never takes them.
+        queueMicrotask(() => void open(true, cs.startedBy.kind === "user").then(() => { if (this.tileFor === cs) this.tileOpen = cs; }, e => {
           // Refused (a locked screen): the comment stays in the reader, split, and says why.
           if (this.tileFor === cs) { this.tileFor = null; cs.place = "split"; }
           host.ctx.flash(`the comment stays in the reader: ${e instanceof Error ? e.message : String(e)}`);
@@ -7097,7 +7098,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "passage.select": def({
     summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: "C on selected words; an agent: quote=",
     touches: "draft", draft: "type", replay: "ask",
-    menu: noteRow("comment on a passage", "C", { busy: true }),
+    // The menu's way to it is the person's words selected (PIE-846): with none, the menu offers the whole note instead.
+    menu: noteRow("comment on the selected words", "C", { busy: true, now: on => (on.surface.selection ? null : { hide: true }) }),
     args: {
       quote: { type: "string", optional: true, about: "the exact words to quote, as stored" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
@@ -7179,8 +7181,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.note": def({
     summary: "comment on the whole note, not a passage (PIE-846): the person's composer opens at the top of the note, where whole-note threads are (a comment put aside on the note comes back in it); body= sends it at once, as an agent's always is. Its thread sits at the top of the note, its card in the margin's first row",
-    keys: "C with nothing selected; a click on the byline's [comment]",
+    keys: "C with nothing selected; a click on the byline's [comment]; the tile menu's \"comment on the whole note\"",
     touches: "draft", draft: "type", replay: "ask",
+    menu: noteRow("comment on the whole note", "C", { busy: true }),
     args: { body: { type: "string", optional: true, about: "the comment's text, sent at once (left out, the person writes it)" } },
     async run({ body }, { surface, host }, actor) {
       const m = surface.requireNote();

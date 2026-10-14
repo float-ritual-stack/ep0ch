@@ -2140,6 +2140,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => { sc.render(app); return surf().session?.place === "split"; }, "back in the reader, split");
     expect(surf().session.composer.text).toBe("Bring a padlock");
     await stage().dispatch.press("comment.close", { discard: true }, "reader");
+    // An agent's own comment put in a tile: the tile opens, the person's keys stay where they were.
+    const keysWere = (stage().describe() as any).focus;
+    await app.act({ action: "passage.select", tile: "reader", args: { quote: "The seed library opens" }, as: "test-agent" });
+    await app.act({ action: "comment.write", tile: "reader", args: { body: "Saturdays only?" }, as: "test-agent" });
+    await app.act({ action: "comment.place", tile: "reader", args: { place: "tile" }, as: "test-agent" });
+    await until(() => { sc.render(app); return tiles().includes("comment"); }, "the agent's comment in its tile");
+    expect((stage().describe() as any).focus).toEqual(keysWere);
+    await app.act({ action: "comment.close", tile: "reader", args: { discard: true }, as: "test-agent" });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 

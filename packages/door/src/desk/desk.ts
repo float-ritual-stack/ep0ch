@@ -277,7 +277,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     return at !== undefined && [...this.panes.values()].some(p => p instanceof CommentTilePane && p.source === this.nameOf(at));
   }
-  async composerTile(r: ReaderPane, on: boolean): Promise<unknown> {
+  async composerTile(r: ReaderPane, on: boolean, keys = true): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
     const reader = this.nameOf(at);
@@ -288,7 +288,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // gives the reader its room back whole when the comment ends.
     const p = parentOf(this.root, at);
     if (id === undefined && !(p && p.parent.t === "split" && p.parent.dir === "row")) {
-      const made = await this.openTile({ kind: COMMENT_TILE_KIND, source: `tile:${reader}` }, reader, "right", USER);
+      const made = await this.openTile({ kind: COMMENT_TILE_KIND, source: `tile:${reader}` }, reader, "right", USER, keys ? {} : { keys: false });
       id = this.idNamed(made.tile);
       if (id !== undefined) this.openedFrom.set(id, at);
     }
@@ -303,14 +303,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const col = !rr ? A.col + A.cols - cols : right >= left ? (fits ? rr.col + rr.cols : A.col + A.cols - cols) : (fits ? rr.col - cols : A.col);
       const rect = { col, row: rr?.row ?? A.row, cols, rows: rr?.rows ?? A.rows };
       id = this.nextId;
-      const ok = this.ask({ op: "open", tile: id, kind: COMMENT_TILE_KIND, name: this.autoName("comment"), at: { kind: "float", rect, near: at } }, USER);
+      const ok = this.ask({ op: "open", tile: id, kind: COMMENT_TILE_KIND, name: this.autoName("comment"), at: { kind: "float", rect, near: at }, ...(keys ? {} : { keys: false as const }) }, USER);
       if (!ok.ok) throw new ActionRefused(ok.refused);
       this.put(makeTile({ t: "leaf", kind: COMMENT_TILE_KIND, source: `tile:${reader}` }));
       this.commit(ok);
       this.startTile(id);
       this.openedFrom.set(id, at);
     }
-    this.keysTo(id);
+    if (keys) this.keysTo(id);
     this.save(); this.redraw();
     return { tile: this.nameOf(id) };
   }
