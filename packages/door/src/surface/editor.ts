@@ -8,6 +8,7 @@ import { DRAFT_ACTIONS, keepCopy, patchLabel, type Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { C, fg, pad, RESET, visible, type LinkRange } from "../style";
+import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
 import { ownTerminal, type Handover, type TileProgram } from "../term";
@@ -28,7 +29,7 @@ export interface EditFrame {
    * the same body renderer every reader uses). With it the frame offers the preview (ctrl+p, or its control).
    * `pending`: something in it (an embed) is still being read, so it is drawn again on the redraw its answer brings.
    */
-  preview?: (text: string, w: number, links: LinkTarget[]) => string[] | { lines: string[]; links: LinkRange[]; pending?: boolean };
+  preview?: (text: string, w: number, links: LinkTarget[]) => string[] | { lines: string[]; links: LinkRange[]; pending?: boolean; placements?: Placement[] };
   /**
    * The host follows a link: ctrl+l on the one the cursor is on, a click on one in the preview (PIE-592). Without it
    * the preview's links are only drawn.
@@ -97,10 +98,21 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   return [...top, ...mid, ...(below.length ? pad0(room - mid.length) : []), ...below];
 }
 
+/**
+ * What the wheel at `x`, `y` (the host's cells) over a draft drawn by renderEditor scrolls (PIE-846): its preview when
+ * the pointer is over the preview, its text when over the text, else null (the host's own: the note around a comment).
+ */
+export function wheelTarget(d: Draft, x: number, y: number): "text" | "preview" | null {
+  const f = d.frame;
+  if (!f || x < f.col - 1 || x > f.col + f.cols) return null;
+  if (f.preview && d.preview && y >= f.preview.row && y < f.preview.row + f.preview.rows) return "preview";
+  return y >= f.row && y < f.row + f.rows ? "text" : null;
+}
+
 /** Empty rows, so the preview under the text stays put while the text is short. */
 const pad0 = (n: number) => Array.from({ length: Math.max(0, n) }, () => "");
 
-const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[]; ranges: LinkRange[]; links: LinkTarget[]; pending: boolean }>();
+const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[]; ranges: LinkRange[]; links: LinkTarget[]; pending: boolean; placements: Placement[] }>();
 
 /**
  * The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. Its links are kept on
@@ -113,11 +125,17 @@ function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: num
   let shown = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 && !hit.pending ? hit : null;
   if (!shown) {
     const links: LinkTarget[] = [], r = render(text, pw, links), doc = Array.isArray(r) ? { lines: r, links: [] } : r;
-    shown = { text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !Array.isArray(r) && !!r.pending };
+    shown = { text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !Array.isArray(r) && !!r.pending, placements: Array.isArray(r) ? [] : r.placements ?? [] };
     previewCache.set(d, shown);
   }
-  const room = Math.max(0, h - 1), body = shown.body;
-  const at = d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * Math.max(0, body.length - room)) : 0;
+  const room = Math.max(0, h - 1), body = shown.body, last = Math.max(0, body.length - room);
+  // Where the wheel put it (PIE-846), while the text is as it was then; else the part around the cursor's line.
+  const scrolled = d.previewScroll?.text === text ? d.previewScroll.top : null;
+  if (scrolled === null) d.previewScroll = null;
+  const at = scrolled !== null ? Math.min(scrolled, last) : d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * last) : 0;
+  // Its pictures (PIE-846) on the rows of the part shown, one column in as its text is.
+  const placements = shown.placements.flatMap(p => { const q = inWindow(p, at, room, row + 1); return q ? [{ ...q, col: q.col + 1 }] : []; });
+  if (d.frame) d.frame.preview = { row, rows: h, top: at, total: body.length, placements };
   if (d.frame) d.frame.links = shown.ranges.flatMap(r => {
     const target = shown.links[r.n];
     return target && r.line >= at && r.line < at + room ? [{ row: row + 1 + r.line - at, from: 1 + r.from, to: 1 + r.to, target }] : [];

@@ -1084,10 +1084,8 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     for (let i = 0; i < 50 && JSON.stringify((await control({ cmd: "peek" })).screen.state).includes(`"place":"edit:`); i++) await Bun.sleep(100);
     a.type("2");
     for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "reader"; i++) await Bun.sleep(100);
-    // C picks a passage (the first line with text), ⏎ writes on it; ctrl+o floats it, ctrl+g and the arrows move it.
+    // C with nothing selected writes on the whole note (PIE-846); ctrl+o floats it, ctrl+g and the arrows move it.
     a.type("C");
-    for (let i = 0; i < 50 && (await commenting())?.mode !== "select"; i++) await Bun.sleep(100);
-    a.type("\r");
     for (let i = 0; i < 50 && (await commenting())?.mode !== "compose"; i++) await Bun.sleep(100);
     a.type("onions by the gate"); a.type("\r"); a.type("and a sign for the leeks");
     a.type("\x0f");
@@ -1108,7 +1106,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     await until(() => b.screen().includes("your comment is as you left it"), "the handover said", 15_000).catch(e => { console.log(b.screen()); throw e; });
     await until(() => b.screen().includes("onions by the gate") && b.screen().includes("and a sign for the leeks"), "the comment's text", 10_000);
     const after = await commenting();
-    expect(after).toMatchObject({ mode: "compose", place: "floating", dirty: true, float: before.float, cursor: before.cursor, quote: before.quote });
+    expect(after).toMatchObject({ mode: "compose", place: "floating", dirty: true, float: before.float, cursor: before.cursor, whole: true });
     // Put aside (esc twice), so the tests after this one find the reader reading.
     b.type("\x1b"); b.type("\x1b");
     for (let i = 0; i < 50 && (await commenting()); i++) await Bun.sleep(100);

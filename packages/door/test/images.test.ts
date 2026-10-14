@@ -461,3 +461,48 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
     expect(s.headerBackdrop().backdrop).toMatchObject({ step: 3, drawn: "cells" });
   });
 });
+
+// PIE-846: "img:: in a comment draws the image, as in a note". Evan saw only "▣ Screenshot … · 4030×2110" in the
+// comment's preview and in the posted thread; both are drawn by the reader's renderer, pictures included.
+describe("pictures in a comment", () => {
+  const note = { id: "51111111-2222-4333-8444-555555555555", text: "Seed packets\n\nThe tray by the door holds this year's.", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 4, props: {} };
+  const thread = (body: string) => ({ id: "c1111111-2222-4333-8444-555555555555", author: "user", body, quote: "", at: 0, open: true, lifecycle: "open", start: null, end: null, replies: [] });
+  const host = (comments: unknown[]): SurfaceHost => ({
+    ctx: { board: { ancestors: async () => [], comments: async () => comments, get: async () => note }, flash() {}, t: { cols: 100, rows: 40, cellW: 10, cellH: 20, kitty: true }, graphics: true } as any,
+    redraw() {}, navigate() {},
+  });
+
+  test("a posted comment's picture is placed in its thread, inside the panel, under the words before it", async () => {
+    await ready("small.png");
+    const h = host([thread(`The new labels:\n[img::${file("small.png")}]`)]), s = new NoteSurface();
+    s.show(note as any, h);
+    await s.loadComments(h);
+    s.setExpanded("c1111111-2222-4333-8444-555555555555", true);
+    await until(() => !!s.render(100, 40, h).placements?.length, "the comment's picture, scaled", 10_000);
+    const v = s.render(100, 40, h), p = v.placements![0]!;
+    const words = v.lines.findIndex(l => plain(l).includes("The new labels:"));
+    expect(words).toBeGreaterThan(-1);
+    // Under its words, in the panel (its │ edge to the left), before the note's first line.
+    expect(p.row).toBeGreaterThan(words);
+    expect(p.row).toBeLessThan(v.lines.findIndex(l => plain(l).includes("The tray by the door")));
+    expect(plain(v.lines[p.row]!).trimStart().startsWith("│")).toBe(true);
+  });
+
+  test("the comment being written draws its picture in its preview (ctrl+p), floating or in the reader", async () => {
+    await ready("small.png");
+    const h = host([]), s = new NoteSurface();
+    s.show(note as any, h);
+    expect(await s.commentOnNote(h)).toBeUndefined();
+    const cs = s.session!;
+    cs.writing!.replace(`Like this one:\n[img::${file("small.png")}]`, { kind: "user" } as any);
+    cs.composer!.preview = true;
+    for (const place of ["inline", "floating", "popup"] as const) {
+      cs.place = place;
+      await until(() => !!s.render(100, 40, h).placements?.length, `the preview's picture (${place})`, 10_000);
+      const v = s.render(100, 40, h), p = v.placements![0]!, at = cs.composer!.frame!.preview!;
+      // On the preview's rows, under its rule.
+      expect(p.row).toBeGreaterThan(at.row);
+      expect(p.row).toBeLessThan(at.row + at.rows);
+    }
+  });
+});

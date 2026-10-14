@@ -23,7 +23,8 @@ const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 const STARTS: { key: Key; name: string; action: string; args?: Record<string, unknown>; opens: "draft" | "session" | "panel" }[] = [
   { key: char("e"), name: "e", action: "edit", opens: "draft" },
   { key: ctrl("e"), name: "ctrl+e", action: "edit", opens: "draft" },
-  { key: char("C"), name: "C", action: "passage.select", opens: "session" },
+  // With nothing selected, C writes on the whole note (PIE-846).
+  { key: char("C"), name: "C", action: "comment.note", opens: "session" },
   { key: char("m"), name: "m", action: "threads", opens: "session" },
   { key: char("i"), name: "i", action: "props", opens: "panel" },
   { key: char("I"), name: "I", action: "props", opens: "panel" },

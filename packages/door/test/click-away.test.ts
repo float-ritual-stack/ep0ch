@@ -172,8 +172,6 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     await until(() => reader()?.msg?.id === id && !reader().msg!.partial, "the reader");
     const rd = reader(), name = D().nameOf(D().focus) as string;
     key(char("C"));
-    await until(() => !!rd.surface.session, "the passage picker");
-    key({ kind: "enter" });
     await until(() => !!rd.surface.session?.composer, "the comment composer");
     type("How much bark?");
     const went = clickElsewhere();
@@ -189,10 +187,10 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     expect(rd.surface.session?.composer?.text).toBe("How much bark? Two sacks");
     await Bun.sleep(150);
     expect(await board.comments(id)).toEqual([]);
-    // Leaving it on purpose: esc twice puts it aside as unsent (back to picking the passage), esc again closes.
+    // Leaving it on purpose: esc twice puts it aside as unsent and closes it (a comment on the whole note: C with
+    // nothing selected, PIE-846).
     key({ kind: "esc" }); key({ kind: "esc" });
     expect(unsent(`comment:${id}`)?.text).toBe("How much bark? Two sacks");
-    key({ kind: "esc" });
     expect(rd.surface.session).toBeNull();
   }, 30_000);
 
@@ -204,8 +202,6 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     await until(() => reader()?.msg?.id === id && !reader().msg!.partial, "the reader");
     const rd = reader(), name = D().nameOf(D().focus) as string;
     key(char("C"));
-    await until(() => !!rd.surface.session, "the passage picker");
-    key({ kind: "enter" });
     await until(() => !!rd.surface.session?.composer, "the comment composer");
     type("Which pots?");
     // An agent's follow never asks the person (and doesn't move their reader).
@@ -229,8 +225,6 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     expect(await board.comments(id)).toEqual([]);
     // On the shed, another comment, then back: d discards it (nothing kept to come back) and the reader goes.
     key(char("C"));
-    await until(() => !!rd.surface.session, "the passage picker on the shed");
-    key({ kind: "enter" });
     await until(() => !!rd.surface.session?.composer, "a second composer");
     type("Never mind");
     await D().dispatch.press("back", {}, name);

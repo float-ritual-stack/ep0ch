@@ -1,9 +1,12 @@
 // Where a comment is written (PIE-770): the composer for a comment, a question, an explain or a reply sits where the
-// person is reading, never a screen of its own. Four placements, one editor:
+// person is reading, never a screen of its own. Five placements, one editor:
 //   inline    a box under the passage, as rows of the note's body: the text around it still reads and scrolls;
 //   floating  a box over the note, beside the passage (under it when it fits, else over it);
 //   split     the reader's own rect shared: the note on the left (on top when narrow), the composer beside it;
-//   popup     a box in the middle of the reader, the passage quoted in it.
+//   popup     a box in the middle of the reader, the passage quoted in it;
+//   tile      a tile of its own beside the reader (PIE-846), the note whole beside it: a tile like any other, so it
+//             moves, sizes and docks to an edge (tile.dock) as tiles do. A reader with no tiles round it (the BBS
+//             reader, a river column) draws it split.
 // The default is the person's setting (`composer.place`, kept in the state dir like reader.overscroll); ctrl+o, a
 // click on the box's place chip or `comment.place` switches the one being written. Whatever the placement, the text
 // is a Draft drawn by renderEditor (the one edit control): mouse select, undo, paste, `((` completion, the preview.
@@ -13,7 +16,7 @@ import { C, fg, headOf, pad, RESET, tailFrom, width } from "../style";
 import { COMPLETION_ROWS, completerOf, completionOf } from "./completer";
 import { renderEditor, type EditFrame } from "./editor";
 
-export const COMPOSER_PLACES = ["inline", "floating", "split", "popup"] as const;
+export const COMPOSER_PLACES = ["inline", "floating", "split", "popup", "tile"] as const;
 export type ComposerPlace = (typeof COMPOSER_PLACES)[number];
 
 let setting: ComposerPlace = "inline";
@@ -24,7 +27,11 @@ export function useComposerPlace(v: unknown) { setting = composerPlaceOf(v) ?? "
 /** Where a new composer opens. */
 export const composerPlace = (): ComposerPlace => setting;
 /** The placement after `p`, round again (ctrl+o). */
-export const nextPlace = (p: ComposerPlace): ComposerPlace => COMPOSER_PLACES[(COMPOSER_PLACES.indexOf(p) + 1) % COMPOSER_PLACES.length]!;
+export const nextPlace = (p: ComposerPlace, tiles = true): ComposerPlace => {
+  const next = COMPOSER_PLACES[(COMPOSER_PLACES.indexOf(p) + 1) % COMPOSER_PLACES.length]!;
+  // A reader with no tiles round it has no tile to put it in: round to the next.
+  return next === "tile" && !tiles ? nextPlace(next, tiles) : next;
+};
 
 /** The most rows of text a box grows to before its text scrolls (the cursor's row kept in view). */
 export const COMPOSER_TEXT_ROWS = 10;
@@ -78,7 +85,7 @@ export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number
   ];
   return {
     lines,
-    frame: frame && { ...frame, row: frame.row + 1, col: frame.col + 1, controls: frame.controls.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })), ...(frame.links ? { links: frame.links.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })) } : {}) },
+    frame: frame && { ...frame, row: frame.row + 1, col: frame.col + 1, controls: frame.controls.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })), ...(frame.links ? { links: frame.links.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })) } : {}), ...(frame.preview ? { preview: { ...frame.preview, row: frame.preview.row + 1, placements: frame.preview.placements?.map(p => ({ ...p, row: p.row + 1, col: p.col + 1 })) } } : {}) },
     popup: c?.drawn ? { ...c.drawn, row: c.drawn.row + 1 } : null,
     width: iw + 2,
   };
@@ -90,7 +97,7 @@ export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number
  */
 export function placeBox(d: Draft, box: ComposerBox, row: number, col: number) {
   const f = box.frame;
-  d.frame = f && { ...f, row: f.row + row, col: f.col + col, controls: f.controls.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })), ...(f.links ? { links: f.links.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })) } : {}) };
+  d.frame = f && { ...f, row: f.row + row, col: f.col + col, controls: f.controls.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })), ...(f.links ? { links: f.links.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })) } : {}), ...(f.preview ? { preview: { ...f.preview, row: f.preview.row + row, placements: f.preview.placements?.map(p => ({ ...p, row: p.row + row, col: p.col + col })) } } : {}) };
   const c = completerOf(d);
   if (c) c.drawn = box.popup && { ...box.popup, row: box.popup.row + row };
 }

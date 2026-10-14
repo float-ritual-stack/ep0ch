@@ -149,17 +149,16 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await until(() => !S().draft, "closed");
   });
 
-  test("C: pick a passage in the column, write, ctrl+s sends the comment", async () => {
+  test("C with nothing selected: a comment on the whole note in the column, written and sent with ctrl+s (PIE-846)", async () => {
     key(char("C"));
-    await until(() => surfaceOf(2).session?.mode === "select", "the passage picker");
-    expect(screen()).toContain("quoting");
-    key({ kind: "enter" }); type("Which canes, bamboo?");
+    await until(() => surfaceOf(2).session?.mode === "compose", "the comment on the whole note");
+    expect(surfaceOf(2).session.target).toMatchObject({ kind: "note" });
+    type("Which canes, bamboo?");
     key(ctrl("s"));
-    await until(() => surfaceOf(2).session?.mode === "threads", "the sent comment", 8000);
+    // Sent, back to reading: the column holds no session.
+    await until(() => !surfaceOf(2).session, "the sent comment", 8000);
     const t = await threads(notes.beans.id);
-    expect(t.map(x => x.body)).toContain("Which canes, bamboo?");
-    key({ kind: "esc" });
-    expect(surfaceOf(2).session).toBeNull();
+    expect(t.find(x => x.body === "Which canes, bamboo?")?.originalTarget.anchor).toMatchObject({ kind: "whole-subject" });
   });
 
   test("an agent's edit in the focused column doesn't take the person's keys; its line clears on their next key there", async () => {

@@ -743,7 +743,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "composer.place": def({
-    summary: `where a comment, question, explain or reply is written (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it; the default), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer) or popup (a box in the middle, the passage quoted). Every reader, kept for the next start; ctrl+o (comment.place) moves the one being written`,
+    summary: `where a comment, question, explain or reply is written (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it; the default), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own beside the reader, which docks as tiles do; split where there are no tiles). Every reader, kept for the next start; ctrl+o (comment.place) moves the one being written`,
     keys: "`ep0ch act composer.place place=floating`, the power bar's actions scope (>)",
     touches: "screen", replay: "ask", says: out => `· comments are written ${out.place === "inline" ? "at their passage" : out.place}`,
     args: { place: { type: "string", about: COMPOSER_PLACES.join(", ") } },
@@ -752,7 +752,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       if (!want) throw new ActionRefused(`place is ${COMPOSER_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
       useComposerPlace(want);
       writeState("composer-place.json", { place: want });
-      ctx.flash(`comments open ${want === "inline" ? "inline, under their passage" : want === "floating" ? "floating beside their passage" : want === "split" ? "split beside the note" : "in a popup"} · ctrl+o moves the one being written`);
+      ctx.flash(`comments open ${want === "inline" ? "inline, under their passage" : want === "floating" ? "floating beside their passage" : want === "split" ? "split beside the note" : want === "tile" ? "in a tile of their own beside the note" : "in a popup"} · ctrl+o moves the one being written`);
       return { place: composerPlace() };
     },
   }),
@@ -1237,7 +1237,7 @@ export class MessageReader implements Screen {
   /** The mouse over the reader: the surface's press, drag, release (a click or a selection) and wheel. The hint row isn't the surface's. */
   private mouse(k: Extract<Key, { kind: "mouse" }>, ctx: Ctx, host: SurfaceHost) {
     const inside = k.y < ctx.t.rows - 2;
-    if (k.action === "wheel-up" || k.action === "wheel-down") { if (inside) this.surface.wheel(k.action === "wheel-down" ? 1 : -1, host); return; }
+    if (k.action === "wheel-up" || k.action === "wheel-down") { if (inside) this.surface.wheel(k.action === "wheel-down" ? 1 : -1, host, { x: k.x, y: k.y }); return; }
     if (k.action === "down") { if (inside) this.surface.press(k.x, k.y, host, !!((k.mods ?? 0) & 4)); return; }
     if (k.action === "drag") { this.surface.drag(k.x, k.y, host); return; }
     if (k.action === "up") { this.surface.release(k.x, k.y, host); ctx.redraw(); }

@@ -115,10 +115,12 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
   const create = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const threads = (id: string) => other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: id }, includeResolved: true } });
+  // "C": the passage picker (`passage.select`, as an agent or `act` opens it: the person's C with nothing selected writes
+  // on the whole note, PIE-846); "m": the thread list.
   const open = async (id: string, key: "C" | "m" = "C") => {
     const pane = new ReaderPane(), d = desk(pane);
     pane.show(await board.get(id), d);
-    pane.key(char(key), d);
+    if (key === "C") void pane.surface.startAsPerson("select", pane.host(d)); else pane.key(char(key), d);
     await until(() => !!pane.session, "the comment session");
     return { pane, d };
   };
@@ -369,9 +371,9 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     desk.focusOn("reader");                                             // `open` (an agent's) never moves the person's keys
     const reader = () => (desk as any).panes.get((desk as any).focus) as ReaderPane;
     await until(() => reader()?.msg?.id === b.id, "the desk reader to show the note");
+    // C with nothing selected: a comment on the whole note, written at once (PIE-846).
     key(char("C"));
-    await until(() => !!reader().session, "the comment session");
-    key({ kind: "enter" });
+    await until(() => reader().session?.mode === "compose", "the comment session");
     for (const c of "unsent") key(char(c));
     key(ctrl("c"));
     expect(quit).toBe(0);

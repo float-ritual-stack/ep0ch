@@ -211,8 +211,8 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
   test("C comments now, in a reader and from the lanes; c no longer does", async () => {
     await fresh();
     key(char("C"));                                                       // from the lanes: in the preview
-    await until(() => !!B().preview.session, "the passage picker");
-    expect(B().preview.surface.state()).toBe("quoting");
+    await until(() => !!B().preview.session, "the comment on the whole note (PIE-846)");
+    expect(B().preview.surface.state()).toBe("writing");
     key({ kind: "esc" });
     expect(B().preview.session).toBeNull();
     key({ kind: "esc" });
@@ -400,7 +400,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(reader().session).toBeNull();
     expect(message()).toContain("C comments");
     key(char("C"));
-    await until(() => !!reader().session, "the passage picker");
+    await until(() => !!reader().session, "the comment on the whole note");
     key({ kind: "esc" });
     app.pop();
   });

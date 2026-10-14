@@ -81,6 +81,7 @@ export const SEED = {
   deepLinks: "Deep links, by hand",
   meeting: "Greenhouse meeting, October",
   margin: "Writing in the margin",
+  wholeNote: "Seed library opening hours",
   echoArea: "Plot chat",
   echoSub: "Seed swap",
   echoPosted: "Compost bins arrive Thursday",
@@ -740,6 +741,24 @@ const MARGIN = [
   ...Object.values(MARGIN_LINES).flatMap(l => [l, ""]),
 ].join("\n").trimEnd();
 
+/** The comment editor's note (PIE-846): long enough that a comment written beside it can't hide it, with a whole-note thread. */
+const WHOLE_NOTE = [
+  SEED.wholeNote,
+  "",
+  "The seed library opens on Saturday mornings from nine, in the shed by the north gate. Bring seeds in paper packets, labelled with the variety and the year saved.",
+  "",
+  "- **Taking:** two packets a visit, more in March when the swap table fills up.",
+  "- **Giving:** anything you grew yourself and let go to seed; no F1 hybrids, they don't come true.",
+  "- **Labels:** the variety, the year, the plot it came from, and anything odd (\"crossed with the yellow ones\").",
+  "",
+  "In winter the library moves indoors, to the shelf above the kettle in the committee room. The key is with whoever has the Saturday shift.",
+  "",
+  "Write a comment on the whole note with C (nothing selected) or the [comment] after the date: it sits at the top, where the one already there is.",
+].join("\n");
+
+/** The whole-note comment on it, with a picture in it (drawn under Kitty graphics, said elsewhere). */
+export const WHOLE_NOTE_COMMENT = (dir = SHOWCASE_ASSETS) => `Could we pin the opening hours on the gate too?\n\n[img::${dir}/allotment-notice.png] [size::40%] [alt::the notice on the gate]`;
+
 const RECIPE = [
   `${SEED.recipe} [serves::4]`,
   "",
@@ -1295,6 +1314,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.meeting = await make(notes.root.id, MEETING);
   notes.deepLinks = await make(notes.root.id, DEEP_LINKS);
   notes.margin = await make(notes.root.id, MARGIN);
+  notes.wholeNote = await make(notes.root.id, WHOLE_NOTE);
   notes.errand = await make(notes.root.id, ERRAND);
   await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
   notes.calloutType = await make(notes.root.id, CALLOUT_TYPE);
@@ -1454,6 +1474,9 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const resolved = await board.comment("showcase-resolved", notes.shed.id, notes.shed.revision!, "Which hook are the inner tubes on?", quote(notes.shed.text, "The spare inner tubes"));
   await board.reply("showcase-reply", resolved.id, "The left one; I've written it in.", SEED_AGENT);
   await board.setLifecycle(resolved.id, "resolved");
+
+  // A comment on the whole note (PIE-846), no passage: it sits at the top of the note, a picture in it.
+  await board.comment("showcase-whole-note", notes.wholeNote.id, notes.wholeNote.revision!, WHOLE_NOTE_COMMENT(), null, SEED_AGENT);
 
   // Attention, not tickets (PIE-791): a note whose margin holds one current comment, one kept with its TL;DR (the
   // card's face), and one seen (on the earlier shelf, out of the margin).

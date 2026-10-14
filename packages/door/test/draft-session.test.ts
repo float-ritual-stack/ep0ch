@@ -519,7 +519,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     const r = await s.submit(USER);
     expect(r).toMatchObject({ ok: false, why: expect.stringContaining("refused, not sent: Block is not an annotation") });
     expect(refusedWhy[0]).toContain("your text is kept here and copied to");
-    expect(refusedWhy[0]).toContain("ctrl+s tries again, esc esc puts it aside (C and a passage bring it back)");
+    expect(refusedWhy[0]).toContain("ctrl+s tries again, esc esc puts it aside (C brings it back, on selected words or the whole note)");
     expect([s.open, s.draft.text, readFileSync(s.draft.savedCopy!, "utf8")]).toEqual([true, body, `${body}\n`]);
     // esc esc then puts it aside where C brings it back.
     expect(await s.leave()).toMatchObject({ left: "kept" });

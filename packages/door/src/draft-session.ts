@@ -714,9 +714,13 @@ export function blockTarget(m: Msg, o: {
 
 // ── adapter 2: a comment on a passage, or a reply to a thread ─────────────────
 
-/** Where a comment goes: a passage of a note at a revision, a thread, or (PIE-763) a posted comment or reply's own words. */
+/**
+ * Where a comment goes: a passage of a note at a revision, the whole note (PIE-846), a thread, or (PIE-763) a posted
+ * comment or reply's own words.
+ */
 export type CommentWhere =
   | { kind: "quote"; blockId: string; revision: number; passage: CommentPassage; props?: AnnotationProps }
+  | { kind: "note"; blockId: string; revision: number; props?: AnnotationProps }
   | { kind: "reply"; thread: Comment }
   | { kind: "edit"; thread: Comment; mark: EditedMark };
 
@@ -770,13 +774,15 @@ export function commentTarget(o: {
   const w0 = o.where(), title = `“${subject(o.note).slice(0, 40)}”`;
   let confirmNew = false;
   const no = (why: string, more: { stale?: boolean; again?: boolean } = {}): Outcome => { o.refused?.(why, !!more.stale); return { ok: false, why, ...more }; };
-  const key = (t: NewCommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : ["reply", t.thread.id, body]);
-  const back = w0.kind === "quote" ? "C and a passage bring it back" : "r on the thread brings it back";
-  const label = `${o.note.id.slice(0, 8)}-${w0.kind === "quote" ? "comment" : "reply"}`;
+  const key = (t: NewCommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : t.kind === "note" ? ["comment", t.blockId, t.revision, body] : ["reply", t.thread.id, body]);
+  // A comment on a passage or on the whole note is put aside on the note: either brings it back.
+  const comment = w0.kind !== "reply";
+  const back = comment ? "C brings it back, on selected words or the whole note" : "r on the thread brings it back";
+  const label = `${o.note.id.slice(0, 8)}-${comment ? "comment" : "reply"}`;
   return {
-    place: w0.kind === "quote" ? `comment:${o.note.id}` : `reply:${w0.thread.id}`, near: o.note.id,
+    place: w0.kind !== "reply" ? `comment:${o.note.id}` : `reply:${w0.thread.id}`, near: o.note.id,
     back, label,
-    what: `the ${w0.kind === "quote" ? "comment" : "reply"} on ${title}`,
+    what: `the ${comment ? "comment" : "reply"} on ${title}`,
     verb: "send", leaveWrites: false,
     async submit(s, by) {
       const d = s.draft, t = o.where();
@@ -793,8 +799,8 @@ export function commentTarget(o: {
       try {
         const b = o.board();
         const r = t.kind === "reply" ? await b.reply(requestId, t.thread.id, body, by)
-          : o.note.resource ? await b.commentOnResource(requestId, o.note.resource, t.revision, body, t.passage, by, t.props)
-          : await b.comment(requestId, t.blockId, t.revision, body, t.passage, by, t.props);
+          : o.note.resource ? await b.commentOnResource(requestId, o.note.resource, t.revision, body, t.kind === "quote" ? t.passage : null, by, t.props)
+          : await b.comment(requestId, t.blockId, t.revision, body, t.kind === "quote" ? t.passage : null, by, t.props);
         o.out.done();
         d.saving = false;
         await o.landed(r, t, body);

@@ -8,6 +8,7 @@ import { linkOccurrences, type LinkOccurrence } from "@ep0ch/outline-core/link-s
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
+import type { Placement } from "./kitty";
 import type { LinkTarget } from "./refs";
 import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
@@ -865,9 +866,19 @@ export class Draft {
   private shown: { w: number; h: number; rows: VRow[] } = { w: 0, h: 15, rows: [] };
   /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
   preview = false;
+  /**
+   * The preview scrolled by the wheel (PIE-846): its top row, for the text it was scrolled on. Typing (the text changing)
+   * lets it go, and the preview follows the cursor's line again.
+   */
+  previewScroll: { top: number; text: string } | null = null;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
   frame: {
     row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" }[];
+    /**
+     * The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls.
+     * `placements`: its pictures (PIE-846), on the rows they're drawn, for the host to put out with its own.
+     */
+    preview?: { row: number; rows: number; top: number; total: number; placements?: Placement[] };
     /** The preview's links, where they're drawn (PIE-592): a click on one follows it. */
     links?: { row: number; from: number; to: number; target: LinkTarget }[];
   } | null = null;
@@ -1085,10 +1096,17 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ line, col, extend }, d, actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
   }),
   "draft.scroll": def({
-    summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view)", keys: "wheel",
+    summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view). preview=true scrolls its preview instead (PIE-846), until the text changes", keys: "wheel over the text, or over the preview",
     touches: "draft", draft: "type", replay: "safe",
-    args: { by: { type: "number", about: "rows, negative up" } },
-    run({ by }, d, actor) { d.scrollBy(by); return { following: d.follow }; },
+    args: { by: { type: "number", about: "rows, negative up" }, preview: { type: "boolean", optional: true, about: "scroll the preview under the text (ctrl+p shows it)" } },
+    run({ by, preview }, d, actor) {
+      if (!preview) { d.scrollBy(by); return { following: d.follow }; }
+      const p = d.frame?.preview;
+      if (!d.preview || !p) throw new ActionRefused("the preview isn't shown · ctrl+p (draft.preview) shows it");
+      const top = Math.max(0, Math.min(Math.max(0, p.total - (p.rows - 1)), p.top + by));
+      d.previewScroll = { top, text: d.text };
+      return { previewTop: top };
+    },
   }),
   "draft.paste": def({
     summary: "put text in at the cursor as it came, as a paste does (over the selection, if any): no list continuation or indenting, and one undo step however big; a paste over 20 lines or 2 KB says so on the status line", keys: "a paste (bracketed paste: cmd+v, ctrl+shift+v)",

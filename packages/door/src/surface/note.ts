@@ -55,7 +55,7 @@ import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
-import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy, type EditFrame } from "./editor";
+import { draftState, editHint, editorClick, openInEditor, renderEditor, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { clampFloat, COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, frameZone, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox, type FloatRect } from "./composer";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
@@ -139,6 +139,14 @@ export interface SurfaceHost {
    * thread list (⏎ or a click on a comment mark), an armed edit confirmed (edit.arm). Without it the surface opens it itself.
    */
   startSession?(kind: SessionKind): void | Promise<unknown>;
+  /**
+   * The comment being written goes into a tile of its own beside this reader (`on`), or out of it (PIE-846): the host's
+   * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
+   * none: a comment there is drawn split.
+   */
+  composerTile?(on: boolean, keys?: boolean): Promise<unknown>;
+  /** The comment's own tile is open now (composerTile's): false once it was closed by hand. */
+  hasComposerTile?(): boolean;
   /**
    * A view's own header rows for the note (the BBS message header: Date, To, From, Subj, Conf), drawn in
    * place of the surface's title, byline and crumb rows. The summary line, notices, an agent's line, a
@@ -304,6 +312,8 @@ interface HeaderBlock {
   title: { row: number; rows: number; text: string; ink: string; big: boolean; col: number } | null;
   /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
   crumbsRow?: number;
+  /** The byline's [comment] (PIE-846): a click writes a comment on the whole note, as C with nothing selected does. */
+  commentChip?: { row: number; from: number; to: number };
 }
 
 /** A note laid out by a reader (NoteSurface.layOut), and what it was laid out for (`m`, `key`). */
@@ -339,7 +349,7 @@ const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -738,6 +748,10 @@ export class NoteSurface {
   private composerRows: [number, number] | null = null;
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
   private boxRect: FloatRect | null = null;
+  /** The comment session whose own tile (PIE-846) the host was asked for: asked once, again after it left the tile. */
+  private tileFor: CommentSession | null = null;
+  /** The comment session whose own tile the host opened (a tile gone after that was closed by hand). */
+  private tileOpen: CommentSession | null = null;
   private boxRoom: { w: number; h: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
   private frameDrag: { zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
@@ -885,6 +899,7 @@ export class NoteSurface {
     if (!cs || !d || !t || cs.startedBy.kind !== "user") return [];
     // words: something was typed, so its text was put aside and must come back (an empty comment has nothing to bring).
     const open: Omit<Step, "tile"> = { opens: "comment", ...(d.text.trim() ? { words: true } : {}), ...(t.kind === "quote" ? { action: "passage.act", args: { action: cs.props?.kind === "question" ? "ask" : "comment", quote: t.passage.quote, near: t.passage.start } }
+      : t.kind === "note" ? { action: "comment.note", args: {} }
       : t.kind === "reply" ? { action: "reply", args: { thread: t.thread.id } }
       : { action: "comment.edit", args: { thread: t.thread.id, ...(t.mark.reply ? { reply: t.mark.id } : {}) } }) };
     return [
@@ -1041,8 +1056,32 @@ export class NoteSurface {
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
     this.boxRect = null;
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
-    const writing = this.composing();
-    return writing?.cs.place === "split" && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing) : this.renderReading(w, h, host, writing);
+    const writing = this.composing(host);
+    // In a tile of its own (PIE-846) the note is drawn whole here, and the host is asked for the tile once (it opens
+    // after this frame); with no tile to be in, it's drawn split.
+    if (writing?.cs.place === "tile" && host?.composerTile) {
+      const cs = writing.cs;
+      if (this.tileFor !== cs) {
+        this.tileFor = cs;
+        const open = host.composerTile;
+        // The person's keys go to it only when the comment is theirs: an agent's comment never takes them.
+        queueMicrotask(() => void open(true, cs.startedBy.kind === "user").then(() => { if (this.tileFor === cs) this.tileOpen = cs; }, e => {
+          // Refused (a locked screen): the comment stays in the reader, split, and says why.
+          if (this.tileFor === cs) { this.tileFor = null; cs.place = "split"; }
+          host.ctx.flash(`the comment stays in the reader: ${e instanceof Error ? e.message : String(e)}`);
+          host.redraw();
+        }));
+      } else if (this.tileOpen === cs && host.hasComposerTile && !host.hasComposerTile()) {
+        // Its tile was closed by hand (×, ^W x): the comment comes back into the reader, as it was, split.
+        this.tileFor = this.tileOpen = null;
+        cs.place = "split";
+        host.ctx.flash("the comment is back in the reader (split) · ctrl+o moves it");
+        return this.render(w, h, host);
+      }
+      return this.renderReading(w, h, host, null);
+    }
+    const split = writing?.cs.place === "split" || writing?.cs.place === "tile";
+    return split && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing!) : this.renderReading(w, h, host, writing);
   }
 
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
@@ -1052,7 +1091,7 @@ export class NoteSurface {
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
     // A split that doesn't fit the reader (too narrow or short to share) is drawn as a popup meanwhile.
-    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" ? "popup" : writing.cs.place);
+    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place);
     if (!hero || !shown) return v;
     const cut = hero.box.rows - shown, lines = Array.from({ length: shown }, () => "");
     if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
@@ -1088,7 +1127,7 @@ export class NoteSurface {
     overlayBox(lines, box.lines, row, col, w);
     placeBox(c.d, box, row, col);
     const under = (p: Placement) => p.row < row + box.lines.length && p.row + p.rows > row && p.col < col + box.width && p.col + p.cols > col;
-    return { ...v, lines, placements: (v.placements ?? []).filter(p => !under(p)) };
+    return { ...v, lines, placements: [...(v.placements ?? []).filter(p => !under(p)), ...previewPictures(c.d, 0, room)] };
   }
 
   /**
@@ -1102,7 +1141,7 @@ export class NoteSurface {
       const box = composerBox(c.d, c.f, cw, h, true);
       placeBox(c.d, box, -(this.drawn?.heroRows ?? 0), nw + 1);
       const lines = Array.from({ length: h }, (_, i) => pad(v.lines[i] ?? "", nw) + RESET + " " + (box.lines[i] ?? ""));
-      return { ...v, lines };
+      return { ...v, lines, placements: [...(v.placements ?? []), ...previewPictures(c.d, 0, h)] };
     }
     const ch = Math.max(8, Math.min(h - 4, Math.floor(h * 0.45))), nh = h - ch;
     const v = this.renderReading(w, nh, host, null);
@@ -1110,7 +1149,7 @@ export class NoteSurface {
     placeBox(c.d, box, nh - (this.drawn?.heroRows ?? 0), 0);
     const top = v.lines.slice(0, nh);
     while (top.length < nh) top.push("");
-    return { ...v, lines: [...top, ...box.lines] };
+    return { ...v, lines: [...top, ...box.lines], placements: [...(v.placements ?? []).filter(p => p.row < nh), ...previewPictures(c.d, nh, h)] };
   }
 
   /**
@@ -1150,6 +1189,8 @@ export class NoteSurface {
     // The Work ID heads the title line (PIE-809), not this one.
     const meta = [authorName(m.author), bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
+    // The way in to a comment on the whole note (PIE-846), by mouse: the same as C with nothing selected.
+    const chip = !this.printed && (isOutlineNote(m) || (m.resource && !m.resource.uncommentable)) ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "";
     const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
@@ -1184,6 +1225,9 @@ export class NoteSurface {
     // being cut off the end of the byline.
     const apart = !!summary && width(`${before}${summary}`) > w;
     const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
+    // The [comment] chip ends the first byline row, where it fits whole: never at the cost of the byline itself.
+    const chipped = !!chip && width(metaRows[0]! + chip) <= w;
+    if (chipped) metaRows[0] += chip;
     const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
     // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
     // here was the bug). The Work ID keeps the accent at the start of the first line.
@@ -1193,7 +1237,9 @@ export class NoteSurface {
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...(big ? [pad("", w)] : []), ...metas];
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0 };
+    // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
+    const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip } : {}) };
   }
 
   /**
@@ -1339,7 +1385,7 @@ export class NoteSurface {
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
     this.lookAt(m, w, host);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
@@ -1457,12 +1503,15 @@ export class NoteSurface {
     // The body's images, past its inset (the look's margin), cut to the rows shown.
     const bx = this.bx;
     const placements = imagePlacements(doc.images, bx, ...cellOf(host)).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
+    // An inline comment's preview pictures (PIE-846), where its box is in the rows shown.
+    if (comp?.inline && writingIn) placements.push(...previewPictures(writingIn, head.length, head.length + room));
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
     if (summary) for (const l of summaryLinks) this.hits.push({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`${summaryRow}:${l.from}`) });
     // The crumbs: a click shows the note in the outline (reader.reveal, PIE-794), where the host has one.
     if (crumbsRow !== undefined && host?.revealInOutline && isOutlineNote(m)) this.hits.push({ row: crumbsRow, from: 0, to: Math.max(1, Math.min(w, width(this.crumbs))), crumbs: true });
+    if (commentChip) this.hits.push({ ...commentChip, start: "note" });
     const firstOf = new Map<number, string>();
     for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + bx}`) ?? "");
     for (const r of doc.links) {
@@ -1587,7 +1636,7 @@ export class NoteSurface {
     const mcols = marginColumn(w, this.printed ? "off" : this.marginMode, cardThreads.length);
 
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
-    const writing = this.composing();
+    const writing = this.composing(host);
     // A host's own rows after the note (EchoNet's tear line, origin and SEEN-BY): drawn after the body, never elements.
     const footRows = host?.footer?.(m, Math.max(1, w - this.bx - this.bxRight)) ?? [];
     const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
@@ -1662,7 +1711,7 @@ export class NoteSurface {
     // choice (PIE-472) under its step.
     // The comment being written inline (PIE-770) is a box of rows under its passage, after an expanded thread's.
     const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(bw, 96), Math.max(8, h - top)) : null;
-    const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines);
+    const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines, host);
     const { doc, picks } = this.pickerRows(threads.doc, drawn, bw);
     const shift = (r: number) => r + (picks && r >= picks.at ? picks.lines : 0);
     const composer = writing ? {
@@ -1822,9 +1871,11 @@ export class NoteSurface {
    */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
-  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = []): { lines: string[]; links: LinkRange[]; pending: boolean } {
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[] } {
     const m = this.msg, src = this.src;
-    const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 6), graphics: false, noImages: undefined, unfold: true };
+    // `pictures`: its img:: lines drawn as the reader draws them (PIE-846), where the terminal can; else each says what it is.
+    const graphics = pictures && !!host?.ctx.graphics;
+    const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 8), graphics, noImages: undefined, unfold: true };
     const drawEmbed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
     // One of its own embeds still being read: an edit's preview draws it again when the answer's redraw comes (src/surface/editor.ts).
     let pending = false;
@@ -1834,11 +1885,16 @@ export class NoteSurface {
       return out;
     } : undefined;
     const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
-    return { lines: doc.lines, links: doc.links, pending };
+    // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
+    return { lines: doc.lines, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [], images: graphics ? doc.images : [] };
   }
 
   /** Text written about the note on one line, as a margin card says it: references by their titles (PIE-770). */
-  said(text: string): string { return stripMarks(stripTags(presentLinks(text, false, this.src, text))); }
+  said(text: string): string {
+    // A picture's line says what it is (PIE-846), as the reader's caption does, never its path and attributes.
+    const named = text.split("\n").map(l => { const m = parseMediaLine(l); return m ? `▣ ${m.alt ?? fileName(m.path)}` : l; }).join("\n");
+    return stripMarks(stripTags(presentLinks(named, false, this.src, named)));
+  }
 
   private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task"> & { preview?: (id: string, width: number) => string[] } {
     const inner: EmbedBody = (target, part, width, hooks) => {
@@ -2538,6 +2594,35 @@ export class NoteSurface {
     host.redraw();
   }
 
+  /**
+   * A comment on the whole note (PIE-846): the person's C with nothing selected, the byline's [comment], `comment.note`.
+   * The note is read as the service has it now; the composer opens at the top of its body, where whole-note threads
+   * are, and a comment put aside on the note comes back in it. Why it didn't open, else nothing.
+   */
+  async commentOnNote(host: SurfaceHost, actor: Actor = USER, still?: () => boolean): Promise<string | void> {
+    const m = this.msg;
+    if (!m || this.editing) return;
+    if (this.session?.mode === "compose") return "a comment is being written here: send it (ctrl+s) or put it aside (esc twice) first";
+    if (m.resource?.uncommentable) return m.resource.uncommentable;
+    const read = await host.ctx.board.get(m.id);
+    const fresh = read ? rereadResource(read, m) : read;
+    if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
+    if (!fresh || fresh.revision === undefined) return "can't comment: the outline didn't say which revision this note is at";
+    this.msg = fresh;
+    if (this.commentsFor !== m.id) await this.loadComments(host);
+    if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
+    // Another comment opened while this one was read (a second C, an act): the one being written stays.
+    if ((this.session as CommentSession | null)?.mode === "compose") return "a comment is being written here: send it (ctrl+s) or put it aside (esc twice) first";
+    const s = new CommentSession(fresh, this.comments ?? [], "threads");
+    // Sent (or esc'd), the person is back reading, its thread at the top of the note.
+    s.fromReader = true; s.startedBy = actor;
+    const why = s.writeNote(actor);
+    if (why) return why;
+    this.session = s;
+    this.revealComposer = true;
+    host.redraw();
+  }
+
   // ── the reader's modes: what takes its keys besides reading (src/surface/modes.ts) ──
 
   /** The edit: its draft session's keys, clicks, wheel and rows; leaving saves it or keeps it as unsent. */
@@ -2551,7 +2636,7 @@ export class NoteSurface {
       key: (k, host) => this.draftKey(k, host),
       click: (x, y, host) => this.writeClick(d, x, y, host),
       press: (x, y, _host, drag) => this.writePress(d, x, y, drag),
-      wheel: dir => this.writeWheel(d, dir),
+      wheel: (dir, _host, at) => this.writeWheel(d, dir, at),
       rows: (w, h, host) => { this.use(host); return this.msg ? this.renderDraft(d, this.msg, w, h, (host?.entered ?? host?.focused) === false && this.keepsOnFocusAway()) : null; },
       leave: async (host, actor) => {
         const r = await s.leave(actor);
@@ -2571,11 +2656,18 @@ export class NoteSurface {
    * The comment being written, drawn where the reader shows the note (PIE-770): its session, draft and frame for
    * renderEditor (src/surface/composer.ts draws it inline, floating, split or as a popup). Null while nothing is.
    */
-  private composing(): { cs: CommentSession; d: Draft; f: EditFrame } | null {
+  private composing(host?: SurfaceHost): { cs: CommentSession; d: Draft; f: EditFrame } | null {
     const cs = this.session, m = this.msg;
     if (!cs || cs.mode !== "compose" || !cs.composer || !m) return null;
-    const f = cs.composerFrame((t, pw, links) => this.snippetDoc(t, pw, undefined, links));
+    // Its preview draws pictures as the reader does (PIE-846), with the host's terminal.
+    const f = cs.composerFrame((t, pw, links) => this.snippetDoc(t, pw, host, links, true));
     return f ? { cs, d: cs.composer, f } : null;
+  }
+
+  /** The comment being written is on the whole note, or answers a thread that is (PIE-846). */
+  private writingOnWhole(): boolean {
+    const t = this.session?.mode === "compose" ? this.session.target : null;
+    return !!t && (t.kind === "note" || (t.kind !== "quote" && isWholeNote(t.thread)));
   }
 
   /** The words the comment is on, as offsets of the note's text (a reply: its thread's), or null when it has none placed. */
@@ -2583,20 +2675,22 @@ export class NoteSurface {
     const t = cs.mode === "compose" ? cs.target : null;
     if (!t || cs.msg.id !== m.id) return null;
     if (t.kind === "quote") return [t.passage.start, t.passage.start + Math.max(1, t.passage.quote.length)];
+    if (t.kind === "note") return null;
     const c = (this.comments ?? []).find(x => x.id === t.thread.id) ?? t.thread;
     return c.start !== null && c.end !== null ? [c.start, Math.max(c.start + 1, c.end)] : null;
   }
 
   /** Commenting: picking a passage, writing (its own draft session), the thread list. */
   private commentMode(cs: CommentSession): CommentMode {
-    const writing = () => (cs.mode === "compose" ? cs.composer : null);
+    // The comment's own tile (PIE-846) has its mouse (composerPointer): here, a press, a click and the wheel are the note's.
+    const writing = () => (cs.mode === "compose" && cs.place !== "tile" ? cs.composer : null);
     return {
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       // The passage picker and the thread list are drawn in place of the note; the composer is drawn in it (PIE-770).
       editing: () => true, covers: () => cs.mode !== "compose",
       key: (k, host) => this.commentKey(cs, k, host),
       // Beside the box, a click on a link, a comment mark or back and forward goes there, asking first (PIE-785).
-      click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : false; },
+      click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : cs.mode === "compose" && cs.place === "tile" ? this.followFromComposer(x, y, host) : false; },
       press: (x, y, host, drag) => {
         const d = writing();
         if (!d) return false;
@@ -2606,13 +2700,15 @@ export class NoteSurface {
         if (z) { this.frameDrag = { zone: z, x, y, from: r! }; return true; }
         return this.writePress(d, x, y, drag);
       },
-      // While a comment is written the wheel scrolls the note around it (its open completion's candidates first).
-      wheel: dir => {
+      // While a comment is written the wheel over its box scrolls the box's text or preview (PIE-846, its open completion's
+      // candidates first); anywhere else it scrolls the note around it.
+      wheel: (dir, _host, at) => {
+        if (cs.mode === "compose" && cs.place === "tile") return false;
         const d = writing();
         if (!d) { cs.wheel(dir); return true; }
         const c = completerOf(d);
         if (c?.shown) { c.move(dir); return true; }
-        return false;
+        return !!at && !!wheelTarget(d, at.x, at.y) && this.writeWheel(d, dir, at);
       },
       rows: (w, h, host) => { this.use(host); return this.msg ? cs.render(w, h, subject(this.msg), (t, pw, links) => this.snippetDoc(t, pw, undefined, links)) : null; },
       leave: async (host, actor) => {
@@ -3031,8 +3127,9 @@ export class NoteSurface {
     if (sessionKey(s, k, "o")) { void this.runKey("comment.place", {}, host, true); return true; }
     // ctrl+g: move and size it by keys (it floats, PIE-785).
     if (sessionKey(s, k, "g")) { void this.runKey("comment.grip", {}, host, true); return true; }
-    // Typing brings the composer back into view after the wheel took the note elsewhere.
-    if (s.mode === "compose") this.revealComposer = true;
+    // Typing brings an inline composer (rows of the note) back into view after the wheel took the note elsewhere. A
+    // floating, split or popup one is in view already: the note stays where it was scrolled (PIE-846).
+    if (s.mode === "compose" && s.place === "inline") this.revealComposer = true;
     const verb = s.mode === "threads" && !s.busy && s.threads[s.sel] ? ATTENTION_KEYS[ch(k) ?? ""] : undefined;
     if (verb) { void this.runKey(verb, { thread: s.threads[s.sel]!.id }, host, true); return true; }
     // e edits the current thread's comment in the same editor (PIE-763); a reply's words: its [Edit] on the expanded thread.
@@ -3088,15 +3185,54 @@ export class NoteSurface {
     await this.runKey("draft.place", { line: row, col: to + 1, extend: true }, host);
   }
 
+  /**
+   * The comment being written as its own tile draws it (PIE-846, place `tile`): the one edit control (renderEditor) in
+   * the tile's `w` × `h` cells, the passage quoted above the text as split and popup quote it, its preview's pictures
+   * placed. Null when nothing is being written here in a tile.
+   */
+  composerTile(w: number, h: number, host: SurfaceHost): { lines: string[]; placements: Placement[] } | null {
+    const c = this.composing(host);
+    if (!c || c.cs.place !== "tile") return null;
+    const lines = renderEditor(c.d, c.f, w, h).map(l => pad(l, w) + RESET);
+    while (lines.length < h) lines.push("");
+    return { lines, placements: previewPictures(c.d, 0, h) };
+  }
+
+  /**
+   * The mouse in the comment's own tile (PIE-846), at `x`, `y` in it: a press puts the cursor there and a drag selects,
+   * the release is a click (a control, a candidate, a link in the preview) and copies what a drag selected, the wheel
+   * scrolls the text or its preview. True when it was the comment's.
+   */
+  composerPointer(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, host: SurfaceHost): boolean {
+    const d = this.session?.mode === "compose" && this.session.place === "tile" ? this.session.composer : null;
+    if (!d) return false;
+    if (k.action === "wheel-up" || k.action === "wheel-down") { this.writeWheel(d, k.action === "wheel-down" ? 1 : -1, { x, y }); host.redraw(); return true; }
+    if (k.action === "down") { this.tileDrag = false; this.writePress(d, x, y, false); host.redraw(); return true; }
+    if (k.action === "drag") { this.tileDrag = true; this.writePress(d, x, y, true); host.redraw(); return true; }
+    if (k.action === "up") {
+      if (!this.tileDrag) this.writeClick(d, x, y, host);
+      else if (d.selectedText()?.trim() && copyOnSelect()) void this.runKey("draft.copy", {}, host);
+      this.tileDrag = false;
+      host.redraw();
+      return true;
+    }
+    return false;
+  }
+  /** The comment left its own tile (comment.place): put back in one, the host is asked for it again. */
+  leftTile() { this.tileFor = this.tileOpen = null; }
+  /** A drag in the comment's own tile is selecting (its release copies, never clicks). */
+  private tileDrag = false;
+
   /** A press puts the cursor there; a drag from it selects (Draft's own selection). */
   private writePress(d: Draft, x: number, y: number, drag: boolean): boolean {
     return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag);
   }
-  /** The wheel over text being written: through an open completion popup's candidates, else the draft's view (its cursor stays). */
-  private writeWheel(d: Draft, dir: 1 | -1): boolean {
+  /** The wheel over text being written: through an open completion popup's candidates, else its preview under the pointer (PIE-846), else the draft's view (its cursor stays). */
+  private writeWheel(d: Draft, dir: 1 | -1, at?: { x: number; y: number }): boolean {
     const c = completerOf(d);
     if (c?.shown) { c.move(dir); return true; }
-    if (!d.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir) }, d, USER);
+    const preview = !!at && wheelTarget(d, at.x, at.y) === "preview";
+    if (!d.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir), ...(preview ? { preview: true } : {}) }, d, USER);
     return true;
   }
 
@@ -3109,7 +3245,7 @@ export class NoteSurface {
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
   private hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "copy" in h || "block" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || ("follow" in h && h.follow)) ?? at[0];
+    return at.find(h => "copy" in h || "block" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || "start" in h || ("follow" in h && h.follow)) ?? at[0];
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -3285,9 +3421,9 @@ export class NoteSurface {
    * full panel moves its selection, a draft or a comment being written scrolls its view (the cursor stays),
    * and a comment session scrolls its thread list.
    */
-  wheel(dir: 1 | -1, host: SurfaceHost) {
-    // A mode first (a draft's view, a comment's thread list, the full panel's rows), else the note scrolls.
-    if (this.modes.wheel(dir, host)) { host.redraw(); return; }
+  wheel(dir: 1 | -1, host: SurfaceHost, at?: { x: number; y: number }) {
+    // A mode first (a draft's view or its preview, a comment's box or thread list, the full panel's rows), else the note scrolls.
+    if (this.modes.wheel(dir, host, at)) { host.redraw(); return; }
     void this.runKey("scroll", { by: wheelRows(dir) }, host);
   }
 
@@ -3608,15 +3744,16 @@ export class NoteSurface {
   }
 
   /** Each expanded thread's rows, spliced into the body under the last row of its passage, and its controls. */
-  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[]): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
+  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
     // A narrow reader folds each annotation's card under its passage (ADR 0004 contract 6), unless the margin is off.
     const folding = fold && this.marginMode !== "off" && !this.printed;
     // The passage of the comment being written (PIE-770): its rows, and its box under them (after its thread, if expanded).
     const span = this.session ? this.composerSpan(this.session, m) : null;
     const lineOf = lineAtOffset(m.text);
     const at = span ? rowsOfLines(doc, noteLines, lineOf(span[0]), lineOf(Math.max(span[0], span[1] - 1))) : null;
-    // Not inline, the box's place is still where the passage and its open thread end: a floating box goes past both.
-    const box = composer || span ? [{ at: at ? at[1] : doc.lines.length, lines: composer ?? [], controls: [] as Control[] }] : [];
+    // Not inline, the box's place is still where the passage and its open thread end: a floating box goes past both. A
+    // comment on the whole note, or a reply to one, is at the top of the body, where whole-note threads are (PIE-846).
+    const box = composer || span ? [{ at: at ? at[1] : this.writingOnWhole() ? 0 : doc.lines.length, lines: composer ?? [], controls: [] as Control[] }] : [];
     const placed = (d: Doc, starts: number[], n: number) => {
       const was = at && starts.length ? rowsOfLines(d, noteLines, lineOf(span![0]), lineOf(Math.max(span![0], span![1] - 1))) : at;
       return { passage: was, composerAt: box.length ? starts[n] ?? null : null };
@@ -3629,16 +3766,17 @@ export class NoteSurface {
     const cs = this.comments ?? [];
     const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
       const c = cs.find(x => x.id === k.thread);
-      if (c && this.expanded.has(k.thread)) return [{ at: k.rows[1], thread: c.id, ...threadPanel(c, W, this.cur, (t, w) => this.snippet(t, w)) }];
+      // Its comment and replies drawn as the reader draws a note, pictures too (PIE-846).
+      if (c && this.expanded.has(k.thread)) return [{ at: k.rows[1], thread: c.id, ...threadPanel(c, W, this.cur, (t, w) => this.snippetDoc(t, w, host, [], true)) }];
       if (!c || !folding || !hasCard(c)) return [];
       const rows = cardRows(c, Math.max(8, Math.min(W, 72) - 2), this.marginMode, t => this.said(t)).map(l => "  " + l);
       // The whole card is one control: a click or ⏎ on it expands its thread.
-      return [{ at: k.rows[1], thread: c.id, lines: rows, controls: [{ thread: c.id, control: "card" as const, row: 0, from: 0, to: Math.min(W, 72), label: `${kindOf(c)} card` }] }];
+      return [{ at: k.rows[1], thread: c.id, lines: rows, images: [] as DocImage[], controls: [{ thread: c.id, control: "card" as Control["control"], row: 0, from: 0, to: Math.min(W, 72), label: `${kindOf(c)} card` }] as Control[] }];
     });
     if (!panels.length && !box.length) return { doc, controls: [], passage: at, composerAt: null };
     // A reply's box goes right under its own thread; a comment's after every thread on its passage.
     const t = this.session?.mode === "compose" ? this.session.target : null;
-    const own = t && t.kind !== "quote" ? panels.findIndex(p => p.thread === t.thread.id) : -1;
+    const own = t && (t.kind === "reply" || t.kind === "edit") ? panels.findIndex(p => p.thread === t.thread.id) : -1;
     const n = own >= 0 ? own + 1 : panels.length;
     const all = [...panels.slice(0, n), ...box, ...panels.slice(n)];
     const { doc: out, starts } = withRows(doc, all);
@@ -3712,6 +3850,8 @@ export class NoteSurface {
     const lineOf = lineAtOffset(m.text);
     const out: Mark[] = [];
     for (const c of cs) {
+      // On the whole note (PIE-846): at the top of the body, its card on the first row.
+      if (isWholeNote(c)) { out.push({ thread: c.id, open: c.open, row: 0, rows: [0, 0], label: `the whole note · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${authorName(c.author)}${c.open ? "" : " · resolved"}` }); continue; }
       if (c.start === null || c.end === null) continue;
       const lo = lineOf(c.start), hi = lineOf(Math.max(c.start, c.end - 1));
       const rows = rowsOfLines(doc, noteLines, lo, hi);
@@ -4247,6 +4387,8 @@ export class NoteSurface {
     if (h && "history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
     // The crumbs: the note in the outline (reader.reveal: the outline's cursor moves there, nothing else, PIE-794).
     if (h && "crumbs" in h) { host.revealInOutline?.(); return true; }
+    // The byline's [comment] (PIE-846): as its key would, where the host keeps track of the person's session.
+    if (h && "start" in h) { if (host.startSession) void host.startSession(h.start); else void this.startAsPerson(h.start, host); return true; }
     // A chip of the passage toolbar (ADR 0004 contract 5): what its key after `a` does, on the person's selection.
     if (h && "passage" in h) { this.passageMenu = false; this.passagePick(h.passage, host); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.
@@ -5660,7 +5802,9 @@ export class NoteSurface {
    * to say or let go (one the action said already, or the person moved on).
    */
   startAsPerson(kind: SessionKind, host: SurfaceHost, still?: () => boolean): Promise<unknown> {
-    const a = SESSION_ACTIONS[kind];
+    // C is a comment on the words selected (and on what a toolbar asked for), else on the whole note (PIE-846): one way
+    // in, never the passage picker.
+    const a = SESSION_ACTIONS[kind === "comment" ? (!this.selection && !this.writeNext && !this.session && !this.draft ? "note" : "select") : kind];
     return this.act(a.name, a.args, still ? { ...host, still } : host, USER);
   }
 
@@ -5966,7 +6110,25 @@ const controlKey = (thread: string, c: ThreadControl, value?: string) => `ctl:${
  * comment and its replies, and the Select, Reply and Resolve (or Reopen) controls, the current one lit.
  * Controls' rows and columns are the panel's own (no margin).
  */
-function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: string, width: number) => string[]): { lines: string[]; controls: Control[] } {
+/** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */
+const previewPictures = (d: Draft, from: number, to: number): Placement[] =>
+  d.preview ? (d.frame?.preview?.placements ?? []).flatMap(p => inWindow(p, from, to - from, from) ?? []) : [];
+
+/** The byline's way in to a comment on the whole note (PIE-846). */
+const COMMENT_CHIP = "[comment]";
+
+/** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
+export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
+
+function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[] }): { lines: string[]; controls: Control[]; images: DocImage[] } {
+  // Its pictures (PIE-846), on the panel's own rows: `col` cells in from the panel's left.
+  const images: DocImage[] = [];
+  const draw = drawDoc && ((text: string, w: number, col = 2): string[] => {
+    const r = drawDoc(text, w);
+    if (Array.isArray(r)) return r;
+    for (const im of r.images ?? []) images.push({ ...im, line: lines.length + im.line, col: col + im.col });
+    return r.lines;
+  });
   const edge = fg(c.open ? C.yellow : C.dark);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
@@ -5975,7 +6137,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
   const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
   const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
   // The body and replies as the reader draws a note (PIE-770): references by title, embeds transcluded; else as typed.
-  const body = (s: string, w: number) => (draw ? draw(s, w) : text(s, w));
+  const body = (s: string, w: number, col = 2) => (draw ? draw(s, w, col) : text(s, w));
   // Its TL;DR first: the thread's face, the discussion under it.
   if (c.tldr) for (const l of body(`TL;DR ${c.tldr.body}`, inner)) lines.push(edge + "│ " + fg(C.lgreen) + l + RESET);
   for (const l of body(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
@@ -6004,12 +6166,13 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
       col += 1 + q.length;
     }
     lines.push(edge + "│ " + fg(C.cyan) + head + RESET + tail);
-    for (const l of body(r.body, Math.max(2, inner - 2))) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
+    for (const l of body(r.body, Math.max(2, inner - 2), 4)) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
     quotedIn(r.quotedIn, "  ");
   }
   // The controls on one row, or as many as a narrow reader needs: each is whole, never cut off.
   let row = edge + "│ ", col = 2;
-  ([["select", "Select"], ["reply", "Reply"], ...(c.body.trim() ? [["edit", "Edit"] as const] : []), ["seen", c.open ? "Seen" : "Bring back"], ["keep", c.lifecycle === "kept" ? "Unkeep" : "Keep"], ["tldr", "TL;DR"], ["quote", "Quote"]] as const).forEach(([k, label]) => {
+  // A thread on the whole note has no words to select (PIE-846).
+  ([...(isWholeNote(c) ? [] : [["select", "Select"] as const]), ["reply", "Reply"], ...(c.body.trim() ? [["edit", "Edit"] as const] : []), ["seen", c.open ? "Seen" : "Bring back"], ["keep", c.lifecycle === "kept" ? "Unkeep" : "Keep"], ["tldr", "TL;DR"], ["quote", "Quote"]] as const).forEach(([k, label]) => {
     const shown = `[${label}]`, on = cur === controlKey(c.id, k);
     if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
     if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
@@ -6018,7 +6181,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
     col += shown.length;
   });
   lines.push(row + RESET, edge + "└" + "─".repeat(Math.max(0, W - 1)) + RESET);
-  return { lines, controls };
+  return { lines, controls, images };
 }
 
 /**
@@ -6026,7 +6189,8 @@ function threadPanel(c: Comment, W: number, cur: string | null, draw?: (text: st
  * from no note line (source -1), so selection, focus and fold lookups pass over them. Links, images,
  * media rows and fold heads move down with the rows under them. `starts[i]`: where insert i landed.
  */
-function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[] }[]): { doc: Doc; starts: number[] } {
+/** `doc` with `inserts`' rows put in at their rows (a thread's panel, a comment's box); an insert's `images` (on its own rows) go with it. */
+function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[]; images?: readonly DocImage[] }[]): { doc: Doc; starts: number[] } {
   const order = inserts.map((p, i) => ({ ...p, i })).sort((a, b) => a.at - b.at || a.i - b.i);
   const starts: number[] = [], lines: string[] = [], source: number[] = [], moved: number[] = [];
   let k = 0;
@@ -6039,7 +6203,7 @@ function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly stri
     doc: {
       lines, source,
       links: doc.links.map(l => ({ ...l, line: mv(l.line) })),
-      images: doc.images.map(im => ({ ...im, line: mv(im.line) })),
+      images: [...doc.images.map(im => ({ ...im, line: mv(im.line) })), ...inserts.flatMap((p, i) => (p.images ?? []).map(im => ({ ...im, line: starts[i]! + im.line })))],
       media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
       heads: doc.heads.map(h => ({ ...h, row: mv(h.row) })),
       trims: new Map([...doc.trims].map(([r, t]) => [mv(r), t])),
@@ -6236,23 +6400,29 @@ async function personComments(surface: NoteSurface, host: SurfaceHost, mode: "se
   return surface.session;
 }
 
-/** A key that starts a session in a reader: e edit, ctrl+e $EDITOR, C quote, m threads, i / I properties. */
-export type SessionKind = "edit" | "external" | "select" | "threads" | "props" | "props-full";
+/**
+ * A key that starts a session in a reader: e edit, ctrl+e $EDITOR, C comment (on the words selected, else the whole
+ * note: PIE-846), m threads, i / I properties; `select` is the passage picker (`passage.select`, an agent's or `act`'s)
+ * and `note` a comment on the whole note (`comment.note`), as C resolves them.
+ */
+export type SessionKind = "edit" | "external" | "comment" | "select" | "note" | "threads" | "props" | "props-full";
 /** The key that starts a session in a reader (e, ctrl+e, C, m, i, I; c collapses), or null: one table for every reader. */
 export function sessionStart(k: Key): SessionKind | null {
   if (k.kind !== "char") return null;
   if (k.ctrl) return k.ch === "e" ? "external" : null;
-  return k.ch === "e" ? "edit" : k.ch === "C" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
+  return k.ch === "e" ? "edit" : k.ch === "C" ? "comment" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
 }
 /** The person's e and ctrl+e arm the edit (edit.arm, src/arm.ts) where the others start at once; a click on a hint's e opens it. */
 export const armsEdit = (kind: SessionKind): boolean => (kind === "edit" || kind === "external") && !clickedKey();
 /** The key running now came from a click (a hint's key: asBoundKey "click"): the mouse's, so an edit opens at once. */
 const clickedKey = () => !!boundNow()?.split("; ").includes("click");
 /** The note action each of those keys runs (PIE-510): the key, a click and `act` all start it the same way. */
-export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.select" | "threads" | "props"; args: Record<string, unknown> }> = {
+export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.select" | "comment.note" | "threads" | "props"; args: Record<string, unknown> }> = {
   edit: { name: "edit", args: {} },
   external: { name: "edit", args: { external: true } },
+  comment: { name: "passage.select", args: {} },
   select: { name: "passage.select", args: {} },
+  note: { name: "comment.note", args: {} },
   threads: { name: "threads", args: {} },
   props: { name: "props", args: {} },
   "props-full": { name: "props", args: { full: true } },
@@ -6926,9 +7096,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, on, actor) => travelAction(1, on, actor),
   }),
   "passage.select": def({
-    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text)", keys: "C, then j k J K h l H L",
+    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: "C on selected words; an agent: quote=",
     touches: "draft", draft: "type", replay: "ask",
-    menu: noteRow("comment on a passage", "C", { busy: true }),
+    // The menu's way to it is the person's words selected (PIE-846): with none, the menu offers the whole note instead.
+    menu: noteRow("comment on the selected words", "C", { busy: true, now: on => (on.surface.selection ? null : { hide: true }) }),
     args: {
       quote: { type: "string", optional: true, about: "the exact words to quote, as stored" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
@@ -7006,6 +7177,33 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       await NOTE_ACTIONS.run("passage.select", { quote, near }, on, actor);
       await NOTE_ACTIONS.run("comment.write", { body }, on, actor);
       return NOTE_ACTIONS.run("comment.send", {}, on, actor);
+    },
+  }),
+  "comment.note": def({
+    summary: "comment on the whole note, not a passage (PIE-846): the person's composer opens at the top of the note, where whole-note threads are (a comment put aside on the note comes back in it); body= sends it at once, as an agent's always is. Its thread sits at the top of the note, its card in the margin's first row",
+    keys: "C with nothing selected; a click on the byline's [comment]; the tile menu's \"comment on the whole note\"",
+    touches: "draft", draft: "type", replay: "ask",
+    menu: noteRow("comment on the whole note", "C", { busy: true }),
+    args: { body: { type: "string", optional: true, about: "the comment's text, sent at once (left out, the person writes it)" } },
+    async run({ body }, { surface, host }, actor) {
+      const m = surface.requireNote();
+      if (!isOutlineNote(m) && !m.resource) throw new ActionRefused("this isn't a note or a Resource's text: nothing to comment on");
+      if (body !== undefined && body.trim()) {
+        if (m.revision === undefined) throw new ActionRefused("the outline didn't say which revision this note is at");
+        const id = crypto.randomUUID();
+        const r = m.resource ? await host.ctx.board.commentOnResource(id, m.resource, m.revision, body, null, actor) : await host.ctx.board.comment(id, m.id, m.revision, body, null, actor);
+        await surface.loadComments(host);
+        asActor(host.ctx, actor).flash("commented on the whole note");
+        surface.noteAgent(actor, "commented on the whole note");
+        host.redraw();
+        return { thread: r.id, whole: true };
+      }
+      if (actor.kind !== "user") throw new ActionRefused("say body=: an agent's comment is sent at once");
+      const why = await surface.commentOnNote(host, actor, host.still);
+      if (!surface.session || surface.session.target?.kind !== "note") throw new ActionRefused(movedOn(host, surface, m.id) ?? (why || "the comment didn't open"));
+      host.redraw();
+      // restored: what was put aside on this note came back into it (a handover's restore checks it did).
+      return { writing: "comment", whole: true, restored: !!surface.session.composer?.restored };
     },
   }),
   "passage.act": def({
@@ -7112,16 +7310,20 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "comment.place": def({
-    summary: "where the comment, question or reply being written sits (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer, or over it when narrow) or popup (a box in the middle, the passage quoted). Left out, the next one. This composer only: composer.place sets where new ones open",
+    summary: "where the comment, question or reply being written sits (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer, or over it when narrow), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own beside the reader, the note whole beside it; it moves, sizes and docks to an edge as any tile does, ^W p). Left out, the next one. This composer only: composer.place sets where new ones open",
     keys: "ctrl+o while writing a comment; a click on the box's place chip",
     touches: "draft", draft: "type", replay: "ask",
     args: { place: { type: "string", optional: true, about: `${COMPOSER_PLACES.join(", ")}; left out, the next one` } },
-    run({ place }, { surface, host }) {
+    async run({ place }, { surface, host }) {
       const s = surface.session;
       if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
-      const want = place === undefined ? nextPlace(s.place) : composerPlaceOf(place);
+      const want = place === undefined ? nextPlace(s.place, !!host.composerTile) : composerPlaceOf(place);
       if (!want) throw new ActionRefused(`place is ${COMPOSER_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
+      if (want === "tile" && !host.composerTile) throw new ActionRefused("this reader has no tiles round it to put the comment in · split is the nearest (comment.place place=split)");
+      const was = s.place;
       s.place = want;
+      // Out of its tile, back into the reader: the tile closes (into one, the next frame asks for it).
+      if (was === "tile" && want !== "tile") { surface.leftTile(); await host.composerTile?.(false); }
       surface.revealComposerNext();
       host.redraw();
       return { place: want };

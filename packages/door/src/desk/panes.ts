@@ -47,6 +47,14 @@ export interface DeskApi {
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
   startSession?(pane: ReaderPane, kind: SessionKind): void;
+  /** The tile named `name` on this screen. */
+  paneNamed?(name: string): Pane | undefined;
+  /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
+  dismiss?(p: Pane): void;
+  /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
+  composerTile?(r: ReaderPane, on: boolean, keys?: boolean): Promise<unknown>;
+  /** Reader `r`'s comment tile is open. */
+  hasComposerTile?(r: ReaderPane): boolean;
   /**
    * A tile's own key or click, as the person, through the screen's dispatcher (PIE-514): the action of `set` (its kind's,
    * a reader's note actions), in tile `p`. `quiet`: the action says its own refusal.
@@ -169,7 +177,8 @@ export interface Pane {
    */
   nestsTiles?(): boolean;
   click?(x: number, y: number, desk: DeskApi): void;
-  wheel?(dir: 1 | -1, desk: DeskApi): void;
+  /** The wheel; `at`: where the pointer is, in the pane's cells. */
+  wheel?(dir: 1 | -1, desk: DeskApi, at?: { x: number; y: number }): void;
   select?(m: Msg | null, desk: DeskApi): void;
   reveal?(m: Msg, desk: DeskApi): void;
   onEvent?(desk: DeskApi): void;
@@ -421,6 +430,8 @@ export class ReaderPane implements Pane {
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
+      // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
+      ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean) => desk.composerTile!(this, on, keys), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
       ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),
       // `b`: this note's links in the screen's links tile (one opened beside it where there's none).
@@ -532,8 +543,8 @@ export class ReaderPane implements Pane {
   refuses(kind: SessionKind): string | null {
     const m = this.msg;
     if (!m || !this.readOnly) return null;
-    if ((kind === "select" || kind === "threads") && m.resource && !this.fileSource()) {
-      return kind === "select" && m.resource.uncommentable ? `${subject(m)}: ${m.resource.uncommentable}` : null;
+    if ((kind === "comment" || kind === "select" || kind === "note" || kind === "threads") && m.resource && !this.fileSource()) {
+      return kind !== "threads" && m.resource.uncommentable ? `${subject(m)}: ${m.resource.uncommentable}` : null;
     }
     return `${subject(m)} is shown here to read · it isn't a note in the outline`;
   }
@@ -550,7 +561,7 @@ export class ReaderPane implements Pane {
     return this.surface.key(k, this.host(desk));
   }
 
-  wheel(dir: 1 | -1, desk: DeskApi) { this.surface.wheel(dir, this.host(desk)); }
+  wheel(dir: 1 | -1, desk: DeskApi, at?: { x: number; y: number }) { this.surface.wheel(dir, this.host(desk), at); }
   /**
    * A click at `x`, `y` in the pane: a completion candidate is inserted, a link opens (where ⏎ on it
    * would, or through `open` when the host says otherwise), a property row is picked, a heading or a

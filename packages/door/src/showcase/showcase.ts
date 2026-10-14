@@ -241,6 +241,23 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "comment-tile", need: "write a comment and still see the whole note: on the whole note or on selected words, in a tile of its own that docks, its text and preview scrolling under the wheel, its pictures drawn",
+    part: "the comment editor (PIE-846): one way in, C on selected words (as a c, or the selection's [Comment c]) writes on them, C with nothing selected or the byline's [comment] writes on the whole note (comment.note: the service's block-comment with no passage; its thread sits at the top of the note, its card on the margin's first row); the composer's fifth place, tile (comment.place place=tile, ctrl+o): CommentTilePane, a tile beside the reader drawing that reader's own comment session through renderEditor, which moves, sizes and docks (tile.dock, ^W p) as any tile; the wheel over a box scrolls its text, or its preview (draft.scroll preview=true), and typing never scrolls the note out from under it; img:: in a comment drawn as the reader draws it, in the preview and the posted thread (snippetDoc with pictures, threadPanel's images)",
+    files: "src/desk/comment-tile.ts, src/surface/note.ts (comment.note, commentOnNote, composerTile, composerPointer, threadPanel, isWholeNote), src/comment.ts (writeNote), src/draft-session.ts (the note target), src/surface/editor.ts (wheelTarget, previewRows), src/surface/composer.ts (the tile place), src/desk/desk.ts (composerTile)",
+    aside: "a comment on the whole note, half written, in its own tile beside the reader: the note stays whole · type in it, ctrl+s sends it and the tile closes · ^W p docks it to an edge (^W P picks which), drag its title to move it · ctrl+o puts it back in the reader · the thread at the top of the note is on the whole note, a picture in it (drawn under Kitty graphics) · C with nothing selected, or the [comment] after the date, starts another · the wheel over a long comment scrolls it, and over its preview (ctrl+p) the preview",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · comment tile", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.wholeNote]], d => {
+        // The person's own keys would do these: the thread on the whole note open, then a comment on the whole note in its own tile.
+        void (async () => {
+          await d.press(r, NOTE_ACTIONS, "comment.note");
+          await d.press(r, NOTE_ACTIONS, "comment.write", { body: "The winter shelf needs a lock" });
+          await d.press(r, NOTE_ACTIONS, "comment.place", { place: "tile" });
+        })();
+      });
+    },
+  },
+  {
     key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind four target adapters (blockTarget, commentTarget, cardTarget, and commentEditTarget for a posted comment's words: margin-attention shows it); what's put aside shows as a ■ unsent line with [diff] [open copy] [dismiss] [take it back] (unsent.*), and an edit opened by mistake closes on one esc (the stray rule)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts, src/unsent.ts, src/stray.ts, src/reference-warnings.ts",
     aside: "the left reader is in an edit (a block's draft, held on the service), the middle one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter · the right one has an edit put aside on an older revision: [diff] shows it against the note now, [take it back] replays it into an edit (a passage changed since is left as it is), [dismiss] lets it go (src/unsent.ts) · e then a stray j, then esc: an edit opened by mistake closes at once, no ■ unsent line, and ctrl+z brings the j back (src/stray.ts) · what you write always lands (PIE-761): a ((reference left unclosed or naming nothing is sent as written and said after, with a did-you-mean (outline-core reference-warnings.ts); a refused send keeps the comment open with a copy on disk; and a reader with a comment open stays on its note whatever else opens",
     stage(n, show) {

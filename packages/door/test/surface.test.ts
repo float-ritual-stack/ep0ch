@@ -431,10 +431,8 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
   test("an agent acts while the person types a comment, then an edit: comment.write and complete insert= are refused, said, and nothing of theirs moves (round 3, deferred)", async () => {
     const { pane, reader } = await openFresh("Stake the raspberries\nAlong the north wall.");
-    // The person's comment: C picks a passage, enter writes under it, then they type.
+    // The person's comment: C with nothing selected writes on the whole note (PIE-846), then they type.
     key(char("C"));
-    await until(() => pane.session?.mode === "select" && !pane.session.busy, "the passage picker");
-    key({ kind: "enter" });
     await until(() => pane.session?.mode === "compose", "the comment");
     type("Which canes?");
     const c = pane.session!.composer!;

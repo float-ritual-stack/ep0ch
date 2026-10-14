@@ -31,7 +31,7 @@ export const OLD_UNSENT_DAYS = 3;
 export interface UnsentEntry { kind: UnsentKind; place: string; u: Unsent; stale: boolean; old: boolean; text: string; ops: UnsentOp[]; verdict: Verdict | null; pending: boolean }
 
 const WHAT: Record<UnsentKind, string> = { edit: "edit", comment: "comment", child: "note under this", card: "new card" };
-const BACK: Record<UnsentKind, string> = { edit: "e brings it back", comment: "C and a passage bring it back", child: "N on the card brings it back", card: "n in this lane brings it back" };
+const BACK: Record<UnsentKind, string> = { edit: "e brings it back", comment: "C brings it back, on selected words or the whole note", child: "N on the card brings it back", card: "n in this lane brings it back" };
 
 /** What the lines of a note are drawn against: its text now, how to read an edit's starting text, or a verdict a view carries. */
 export interface UnsentContext {
