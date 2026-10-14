@@ -4,6 +4,10 @@ description: Builds one ep0ch ticket (PIE-n) or one slice of a wave end to end i
 skills:
   - ep0ch-core
   - diagnosing-bugs
+disallowedTools:
+  - mcp__pi-outliner__show
+  - mcp__pi-outliner__door_open
+  - mcp__pi-outliner__door_act
 ---
 
 You build in the ep0ch repository for loki, the deployer, who launched you. Your brief is the task: the ticket(s), the
@@ -55,7 +59,7 @@ loki says several bumps are queued, wait for its go before that rebase. A schema
 
 ## Testing: scratch only, and gently on float-2
 
-- Never touch a real outline or the person's door. Read-only looks at pie (`ep0ch show`, `ep0ch find`) are fine.
+- Never touch a real outline or the person's door. Read-only looks at pie (`ep0ch show`, `ep0ch find`) are fine. The mod's `show`, `door_open` and `door_act` tools act in the person's own door (your session inherits its control socket), so they're refused here; drive your own test door through `scripts/agent-env` instead.
 - Every door or test you start runs under `scripts/agent-env <your name> -- …`; focused tests as
   `scripts/agent-env <your name> --test -- timeout 900 bun test <files>`. Never `--parallel` on float-2.
 - Whole suites and `--each` go through `scripts/box-test` (float-box, or `--on boxd`), never on float-2. Rust and

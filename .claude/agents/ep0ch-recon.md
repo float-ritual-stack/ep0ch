@@ -2,7 +2,7 @@
 name: ep0ch-recon
 description: Read-only research in the ep0ch repository and its outlines - how something works today, where a concept lives, what a change would touch, what prior art exists. Changes no code; writes its findings as one note in an outline and returns the conclusion. Use before planning a feature or ticket, or to answer "how does X work?".
 model: sonnet
-disallowedTools: Edit, Write, NotebookEdit
+disallowedTools: Edit, Write, NotebookEdit, mcp__pi-outliner__show, mcp__pi-outliner__door_open, mcp__pi-outliner__door_act
 skills:
   - ep0ch-core
   - ep0ch-outline
