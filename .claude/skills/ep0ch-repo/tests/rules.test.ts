@@ -32,6 +32,7 @@ function sessionIn(on: On, cwd: () => string = () => ROOT) {
   })
   on('process.run', ($, e) => ({ value: e.argv[0] === 'hostname' ? result(0, 'float-2\n') : result(1) }))
   on('session.compact', ($, e) => ({ messages: e.messages }))
+  on('session.end', () => ({ sessionId: 'session-1' }))
   on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'ok', stderr: '', interrupted: false } }) as never)
 }
 
@@ -68,6 +69,15 @@ describe('path-scoped rules reach a command that touches their package', () => {
     expect(files(await bash($, 'ls packages/claude-mod/hooks'))).toEqual(['.claude/rules/claude-mod.md'])
   })
 
+  test('each loop gets its own: a subagent is given the rule the main thread already has; /clear gives it again', async ($, on) => {
+    sessionIn(on)
+    expect(files(await bash($, 'ls packages/outline-core'))).toEqual(['.claude/rules/outline-core.md'])
+    expect(files(await bash($, 'ls packages/outline-core', 'agent-7'))).toEqual(['.claude/rules/outline-core.md'])
+    expect(await bash($, 'ls packages/outline-core', 'agent-7')).toEqual([])
+    await $.session.end({ reason: 'clear' } as never)
+    expect(files(await bash($, 'ls packages/outline-core'))).toEqual(['.claude/rules/outline-core.md'])
+  })
+
   test('a refused command gets no rule', async ($, on) => {
     sessionIn(on)
     expect(await bash($, 'cd packages/door && git stash')).toEqual([])
@@ -83,6 +93,20 @@ describe('which rules a command touches', () => {
     expect(names('bun test packages/outline-core/test/x.test.ts')).toEqual(['outline-core.md'])
     expect(names('bun test ../outline-core/test/x.test.ts', `${ROOT}/packages/door`)).toEqual(['door.md', 'outline-core.md'])
     expect(names('~/projects/ep0ch/scripts/agent-env loki -- ep0ch act open')).toEqual(['door.md'])
+  })
+
+  test('a cd in the command moves where what follows is read from; a bare file name counts in that folder', () => {
+    expect(names('cd packages/door/src && cat ./home.ts')).toEqual(['door.md', 'outlines-by-name.md'])
+    expect(names('cat home.ts', `${ROOT}/packages/door/src`)).toEqual(['door.md', 'outlines-by-name.md'])
+    expect(names('cd packages && bun test outline-core/test/x.test.ts')).toEqual(['outline-core.md'])
+    // From packages/outliner, packages/door/x.ts is packages/outliner/packages/door/x.ts: not the door.
+    expect(names('cat packages/door/x.ts', `${ROOT}/packages/outliner`)).toEqual(['outliner.md'])
+  })
+
+  test('paths: is read as written: either quotes, CRLF, and no other key\'s list', () => {
+    const rule = ruleOf('r.md', "---\r\ntags:\r\n  - nope\r\npaths:\r\n  - 'packages/door/**/*.ts'\r\n---\r\nBody\r\n")!
+    expect(rule.globs).toEqual(['packages/door/**/*.ts'])
+    expect(rulesFor(['packages/door/main.ts'], [rule])).toHaveLength(1)
   })
 
   test('a narrow rule matches its own files only', () => {
