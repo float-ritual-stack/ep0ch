@@ -280,6 +280,8 @@ function serves(entry: ExtensionsListResult["extensions"][number]): string[] {
     ...entry.handlers.map((handler) => `${handler.key}::`),
     ...entry.tiles.map((tile) => `tile ${tile.kind}`),
     ...entry.actions.filter((action) => !action.builtIn).map((action) => `action ${action.name}`),
+    ...(entry.agents ?? []).map((agent) => `@${agent.name}`),
+    ...(entry.bar?.length ? [`${entry.bar.length} palette source${entry.bar.length === 1 ? "" : "s"}`] : []),
   ];
 }
 

@@ -397,7 +397,7 @@ test("ext ls reads as a table by default, in full with --long, and as the regist
     generation: 3, roots: [{ origin: "outline", path: "/o/moon-outline/extensions", exists: true }], tileKinds: [], primitives: [], targets: [], trust: "trusted code",
     extensions: [
       { id: "moon", origin: "outline", directory: "/o/moon-outline/extensions/moon", state: "active", version: 2, runsCode: true,
-        handlers: [{ key: "moon", kind: "component", effects: "none" }], tiles: [{ kind: "phase" }], agents: [],
+        handlers: [{ key: "moon", kind: "component", effects: "none" }], tiles: [{ kind: "phase" }], agents: [{ name: "oracle", effects: "read" }], bar: [{ id: "phases" }],
         actions: [{ name: "shout", args: [{ name: "loud", type: "boolean", required: false }] }],
         schedules: [{ entry: "action:write-day", cron: "5 6 * * *", next: "tomorrow", last: { at: "today", ok: false, error: "no network" } }] },
       { id: "bad", origin: "user", directory: "/u/bad", state: "failed", error: "extension.json is not valid JSON", runsCode: false, handlers: [], tiles: [], agents: [], actions: [] },
@@ -410,7 +410,7 @@ test("ext ls reads as a table by default, in full with --long, and as the regist
   expect(short.find((line) => line.startsWith("EXTENSION"))).toBeDefined();
   expect(moon.indexOf("active")).toBe(header.indexOf("STATE"));
   expect(bad.indexOf("failed")).toBe(header.indexOf("STATE"));
-  expect(moon).toContain("moon::, tile phase, action shout");
+  expect(moon).toContain("moon::, tile phase, action shout, @oracle, 1 palette source");
   expect(moon).toContain("schedule action:write-day failed today: no network");
   expect(short.join("\n")).not.toContain("--arg");
   expect(short.join("\n")).toContain("ext ls --long");
