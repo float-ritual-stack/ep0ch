@@ -243,7 +243,9 @@ export class BacklinksPane implements Pane {
   /** Ask the service for `m`'s backlinks (the list keeps its view options, as Detail's panel does). */
   load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
     const was = keepSel ? rowKey(this.rows()[this.sel]) : undefined;
-    if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); this.headerPicked = false; }
+    // Another note: its groups start as a first read opens them. `openedFor` goes with `expanded`: a read cut short (the
+    // person moved on before it came) never left them shut on the way back to a note opened before.
+    if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); this.openedFor = null; this.headerPicked = false; }
     this.target = m;
     if (!keepSel) { this.data = null; this.authored = { kind: "loading" }; this.sel = 0; this.view.reset(); }
     this.problem = "";

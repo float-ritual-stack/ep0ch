@@ -58,11 +58,24 @@ jobs:
           export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
           for v in $(compgen -e | grep '^EP0CH_'); do unset "$v"; done
           # A run that hangs (a worker spinning after its tests, seen twice in October: the job ran into its 15 minutes
-          # and said nothing) is ended here with a line saying so, short of the job's limit.
-          start=$SECONDS; code=0
-          timeout --kill-after=15s 720s bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" || code=$?
-          # 137 is a hang only when it came at the deadline (timeout's own kill), not a SIGKILL from elsewhere sooner.
-          if [ $code = 124 ] || { [ $code = 137 ] && [ $((SECONDS - start)) -ge 720 ]; }; then echo "::error title=Test run hung::bun test (${{ matrix.pkg }}) didn't finish in 12 minutes (a full run takes about 8): a test or a worker hung"; fi
+          # and said nothing) is stopped at 12 minutes, after scripts/ci-hang-report.sh has written what each process was
+          # doing (its stacks) to the log and the hang-report artifact.
+          # The run is a process group of its own (setsid), so stopping it stops what it started too.
+          setsid bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" & run=$!
+          hung="$RUNNER_TEMP/hung-${{ matrix.pkg }}"; hang="$RUNNER_TEMP/hang-${{ matrix.pkg }}.txt"
+          ( sleep 720; kill -0 $run 2>/dev/null || exit 0
+            touch "$hung"
+            timeout 150 bash ../../scripts/ci-hang-report.sh $run > "$hang" 2>&1 || true
+            kill -- -$run 2>/dev/null; sleep 15; kill -9 -- -$run 2>/dev/null; true ) & watchdog=$!
+          code=0; wait $run || code=$?
+          if [ -e "$hung" ]; then
+            wait $watchdog 2>/dev/null || true
+            echo "::error title=Test run hung::bun test (${{ matrix.pkg }}) didn't finish in 12 minutes (a full run takes about 8): what it was doing is below and in the hang-report artifact"
+            cat "$hang" 2>/dev/null || true
+            [ $code = 0 ] && code=1
+          else
+            kill $watchdog 2>/dev/null || true
+          fi
           exit $code
       # Which kind of red: each file with a failed test runs again alone, and the summary and annotations say, test by
       # test, "failed again" or "passed alone: a flake". The job stays failed: a flake is reported, never re-run green.
@@ -78,4 +91,10 @@ jobs:
         with:
           name: junit-${{ matrix.pkg }}
           path: ${{ runner.temp }}/junit-${{ matrix.pkg }}.xml
+          if-no-files-found: ignore
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hang-report-${{ matrix.pkg }}
+          path: ${{ runner.temp }}/hang-${{ matrix.pkg }}.txt
           if-no-files-found: ignore

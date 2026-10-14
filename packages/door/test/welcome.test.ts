@@ -77,10 +77,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   /** The welcome list (its notes), the detail, the preview and the backlinks: the screen's tiles, by name. */
   const list = () => tileOf<WelcomeList>("welcome");
   const lines = () => top().render(app).lines.map(plain);
-  /**
-   * The backlinks tile on the kettle with a backlink row to pick, what the tests below go on to use: its data being
-   * there wasn't enough (on a loaded runner a test then found no backlink row, now and then).
-   */
+  /** The backlinks tile on the kettle with a backlink row to pick: what the tests below go on to use. */
   const kettleRows = () => { const bl = tileOf<BacklinksPane>("backlinks"); return bl.target?.id === n.kettle.id && bl.data !== null && bl.rows().some(r => r.kind === "backlink"); };
   const screen = () => lines().join("\n");
   /** Where `text` is drawn: its column and row. */

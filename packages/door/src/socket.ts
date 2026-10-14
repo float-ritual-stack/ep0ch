@@ -34,12 +34,25 @@ export type HostStatus = OutlinerHostStatus;
 export type HostedOutline = HostedOutlineSummary;
 
 /**
+ * Round trips to an outline host waiting for their answer in this process, every way they're asked (a board's request,
+ * hostRequest): `hostsIdle()` resolves once none is. What a test waits on before it looks (test/settle.ts), so a
+ * screen's own read (the home base's hostLive) never lands in the middle of a probe.
+ */
+export const hostTraffic = { waiting: 0, asked: 0 };
+let whenIdle: (() => void)[] = [];
+function traced<T>(p: Promise<T>): Promise<T> {
+  hostTraffic.waiting++; hostTraffic.asked++;
+  return p.finally(() => { if (--hostTraffic.waiting === 0) { const w = whenIdle; whenIdle = []; for (const f of w) f(); } });
+}
+export const hostsIdle = (): Promise<void> => (hostTraffic.waiting ? new Promise(r => whenIdle.push(r)) : Promise.resolve());
+
+/**
  * A request to the outline host itself (`outlines.*`, or `ping` for the host), on a short connection of
  * its own. The host answers the first line of a connection and hands the rest to one outline, so these
  * never go on a board's connection, which belongs to its outline.
  */
 export function hostRequest<T = any>(path: string, action: string, params: Record<string, unknown> = {}, timeoutMs = 15_000): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
+  return traced(new Promise<T>((resolve, reject) => {
     const s = connect(path);
     const timer = setTimeout(() => { s.destroy(); reject(new Error(`${action} timed out`)); }, timeoutMs);
     const lines = new JsonLines(r => {
@@ -49,7 +62,7 @@ export function hostRequest<T = any>(path: string, action: string, params: Recor
     s.on("data", d => lines.feed(d));
     s.on("error", e => { clearTimeout(timer); reject(e); });
     s.on("connect", () => s.write(jsonLine({ id: "host", action, ...params })));
-  });
+  }));
 }
 
 /**
@@ -471,12 +484,12 @@ export class SocketBoard implements Board {
     const id = `d${++this.seq}`;
     if (this.sent.length > 5000) this.sent.splice(0, 2500);
     this.sent.push(action);
-    return new Promise<T>((resolve, reject) => {
+    return traced(new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, timeoutMs);
       const sock = this.conn();
       this.waiting.set(id, { resolve, reject, timer, sock });
       sock.write(jsonLine({ id, action, ...params, ...(this.outline ? { outline: this.outline } : {}) }));
-    });
+    }));
   }
 
   /** A file's text, read by the service (`files.read`): a relative path is the outline's own folder (an artifact's card, PIE-793). */
