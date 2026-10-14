@@ -13,7 +13,8 @@ const HERDR_LISTING = JSON.stringify({ result: { plugins: [{ plugin_id: 'float.p
 const BOUND = JSON.stringify({ bound: true, folder: FOLDER, configPath: `${FOLDER}/.ep0ch`, outline: 'garden' })
 
 type Row = { id: string; title: string; props?: Record<string, string>; createdAt?: string }
-const listed = (rows: Row[]) => JSON.stringify({
+const listed = (rows: Row[], complete = true) => JSON.stringify({
+  completeness: { kind: complete ? 'complete' : 'limited' },
   blocks: rows.map(r => ({ id: r.id, title: r.title, properties: Object.entries(r.props ?? {}).map(([key, value]) => ({ key, value })), ...(r.createdAt ? { createdAt: r.createdAt } : {}) })),
 })
 
@@ -27,7 +28,7 @@ const LOGS: Row[] = [
   { id: 'log-new', title: 'Build log, Mar 3', createdAt: '2026-03-03T08:00:00Z' },
 ]
 
-type Case = { items: Row[]; logs: Row[]; anyItem?: boolean; prs?: string | null; listMs?: number }
+type Case = { items: Row[]; logs: Row[]; anyItem?: boolean; prs?: string | null; listMs?: number; ghMs?: number; itemsCut?: boolean }
 
 /** A session in FOLDER, bound to garden; the Outliner's `list` answers from the case, `gh` from `prs` (null: no gh). */
 function sessionIn(on: On, c: Case) {
@@ -54,6 +55,7 @@ function sessionIn(on: On, c: Case) {
     if (argv[0] === 'herdr') return { value: result(0, HERDR_LISTING) }
     if (argv[0] === 'ep0ch') throw Error('ENOENT: ep0ch')
     if (argv[0] === 'gh') gh++
+    if (argv[0] === 'gh' && c.ghMs) await clock.sleep(c.ghMs)
     if (argv[0] === 'gh') return { value: c.prs === undefined || c.prs === null ? result(1, '', 'gh: not a git repository') : result(0, c.prs) }
     if (argv.includes('bound-folder')) return { value: result(0, BOUND) }
     if (argv.includes('work-id-status')) return { value: result(0, '{"prefix":"GAR"}') }
@@ -62,7 +64,7 @@ function sessionIn(on: On, c: Case) {
       const query = argv[argv.indexOf('--query') + 1]!
       lists.push(query)
       if (c.listMs) await clock.sleep(c.listMs)
-      if (query === BOARD_QUERY) return { value: result(0, listed(c.items)) }
+      if (query === BOARD_QUERY) return { value: result(0, listed(c.items, !c.itemsCut)) }
       if (query === BUILD_LOG_QUERY) return { value: result(0, listed(c.logs)) }
       return { value: result(0, listed(c.anyItem ? [{ id: 'old', title: 'GAR-1 — done long ago' }] : [])) }
     }
@@ -119,6 +121,22 @@ describe('workboard now, in the first prompt', () => {
     expect(await boardOf($)).toContain('GAR-12')
   })
 
+  test('a GitHub that never answers leaves the PRs out, never the board', async ($, on) => {
+    const s = sessionIn(on, { items: ITEMS, logs: LOGS, prs: '[]', ghMs: 60_000, listMs: 1000 })
+    await $.session.start(START)
+    await s.clock.advance(10_000)
+    const text = (await boardOf($))!
+    expect(text).toContain('GAR-12')
+    expect(text).not.toContain('PRs')
+  })
+
+  test('a read the service cut short says its counts are partial', async ($, on) => {
+    const s = sessionIn(on, { items: ITEMS, logs: LOGS, itemsCut: true })
+    await $.session.start(START)
+    await s.clock.settle()
+    expect(await boardOf($)).toContain('the counts are partial')
+  })
+
   test('after a compaction the workboard is read again, so the remade context is current', async ($, on) => {
     const c: Case = { items: ITEMS, logs: LOGS }
     const s = sessionIn(on, c)
@@ -146,6 +164,6 @@ describe('workboard text', () => {
 
   test('list output that is not a list reads as no answer', () => {
     expect(listedOf('error: no carrier')).toBeNull()
-    expect(listedOf('{"blocks":[]}')).toEqual([])
+    expect(listedOf('{"blocks":[],"completeness":{"kind":"complete"}}')).toEqual({ blocks: [], complete: true })
   })
 })

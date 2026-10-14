@@ -120,6 +120,7 @@ import {
   ANY_ITEM_QUERY,
   BOARD_QUERY,
   BUILD_LOG_QUERY,
+  LIST_LIMIT,
   listArgs,
   listedOf,
   openPrsOf,
@@ -366,6 +367,9 @@ export function register(on: On, options: PluginOptions): void {
       })
       workboardGiven = workboard
       if (workboard) blocks.push({ name: WORKBOARD_BLOCK, text: workboard })
+      // A newer read (a compaction, a /clear) started while this one was awaited: when it lands, the context follows it.
+      const newer = workboardLoad
+      if (newer && newer !== board) void newer.then(text => { if (newer === workboardLoad && text !== workboardGiven) $.ui.invalidate('prompt.context') })
       return { ...result, blocks }
     } catch {
       return result
@@ -822,7 +826,8 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
  */
 function readWorkboard($: EngineInterface, option: PluginOptions): Promise<string | null> {
   const generation = ++workboardGeneration
-  const read = async (): Promise<string | null> => {
+  // The outline's half: null when there is no outline, no workboard, or no answer.
+  const board = async () => {
     if (!references?.workspace) await loadReferences($, option)
     const workspace = references?.workspace
     if (!workspace) return null
@@ -832,16 +837,23 @@ function readWorkboard($: EngineInterface, option: PluginOptions): Promise<strin
       const ran = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: workspace.root, env: envFor(workspace), timeoutMs: WORKBOARD_TIMEOUT_MS })
       return ran.exitCode === 0 ? listedOf(ran.stdout) : null
     }
-    const [items, logs] = await Promise.all([list(listArgs(BOARD_QUERY, 100)), list(listArgs(BUILD_LOG_QUERY, 200, 'id,title,timestamps'))])
+    const [items, logs] = await Promise.all([list(listArgs(BOARD_QUERY, LIST_LIMIT)), list(listArgs(BUILD_LOG_QUERY, LIST_LIMIT, 'id,title,timestamps'))])
     if (!items || !logs) return null
-    const hasItems = items.length > 0 || !!(await list(listArgs(ANY_ITEM_QUERY, 1, 'id')))?.length
-    if (!items.length && !hasItems && !logs.length) return null
-    // Open PRs only for an outline with a workboard, from the folder the session works in.
-    const prs = await $.process.run([...PRS_ARGV], { cwd: workspace.root, timeoutMs: PRS_TIMEOUT_MS })
-      .then(ran => ran.exitCode === 0 ? openPrsOf(ran.stdout) : null, () => null)
-    return workboardText({ outline: workspace.outline ?? 'outline', items, logs, prs }, hasItems)
+    const hasItems = items.blocks.length > 0 || !!(await list(listArgs(ANY_ITEM_QUERY, 1, 'id')))?.blocks.length
+    if (!hasItems && !logs.blocks.length) return null
+    return { workspace, items, logs, hasItems }
   }
-  const load = Promise.race([read().catch(() => null), $.clock.sleep(WORKBOARD_TIMEOUT_MS).then(() => null)]).then(text => {
+  const read = async (): Promise<string | null> => {
+    const found = await Promise.race([board().catch(() => null), $.clock.sleep(WORKBOARD_TIMEOUT_MS).then(() => null)])
+    if (!found) return null
+    // Open PRs only for an outline with a workboard, from the folder the session works in, on a budget of their own.
+    const prs = await Promise.race([
+      $.process.run([...PRS_ARGV], { cwd: found.workspace.root, timeoutMs: PRS_TIMEOUT_MS }).then(ran => ran.exitCode === 0 ? openPrsOf(ran.stdout) : null, () => null),
+      $.clock.sleep(PRS_TIMEOUT_MS).then(() => null),
+    ])
+    return workboardText({ outline: found.workspace.outline ?? 'outline', items: found.items.blocks, itemsComplete: found.items.complete, logs: found.logs.blocks, prs }, found.hasItems)
+  }
+  const load = read().catch(() => null).then(text => {
     if (generation === workboardGeneration && workboardGiven !== undefined && workboardGiven !== text) $.ui.invalidate('prompt.context')
     return text
   })

@@ -36,20 +36,28 @@ export const PRS_ARGV = ['gh', 'pr', 'list', '--state', 'open', '--limit', '20',
 export type ListedBlock = { id: string; title: string; properties: Record<string, string>; createdAt?: string }
 export type OpenPr = { number: number; title: string; branch: string; draft: boolean }
 
-/** `list`'s JSON as rows (properties flattened, the first value of a key kept), or null when it isn't that. */
-export function listedOf(stdout: string): ListedBlock[] | null {
+/** How many rows a read asks for: far more than a board holds, so the counts are whole (a cut read says so). */
+export const LIST_LIMIT = 500
+
+export type Listed = { blocks: ListedBlock[]; complete: boolean }
+
+/**
+ * `list`'s JSON as rows (properties flattened, the first value of a key kept) and whether the service said that was
+ * all of them, or null when it isn't that.
+ */
+export function listedOf(stdout: string): Listed | null {
   let parsed: unknown
   try { parsed = JSON.parse(stdout) } catch { return null }
-  const blocks = (parsed as { blocks?: unknown } | null)?.blocks
+  const { blocks, completeness } = (parsed ?? {}) as { blocks?: unknown; completeness?: { kind?: unknown } }
   if (!Array.isArray(blocks)) return null
-  return blocks.flatMap((b): ListedBlock[] => {
+  return { complete: completeness?.kind === 'complete', blocks: blocks.flatMap((b): ListedBlock[] => {
     if (!b || typeof b.id !== 'string') return []
     const properties: Record<string, string> = {}
     for (const p of Array.isArray(b.properties) ? b.properties : []) {
       if (typeof p?.key === 'string' && typeof p.value === 'string' && !(p.key in properties)) properties[p.key] = p.value
     }
     return [{ id: b.id, title: typeof b.title === 'string' ? b.title : '', properties, ...(typeof b.createdAt === 'string' ? { createdAt: b.createdAt } : {}) }]
-  })
+  }) }
 }
 
 /** `gh pr list --json`'s answer, or null when it isn't one. */
@@ -65,7 +73,9 @@ export function openPrsOf(stdout: string): OpenPr[] | null {
 export type WorkboardFacts = {
   outline: string
   items: ListedBlock[]
-  /** The build logs, newest last or first: the newest created is the one shown. */
+  /** Whether `items` is every one the query matched; a cut read's counts are said to be partial. */
+  itemsComplete?: boolean
+  /** The build logs, in any order: the newest created is the one shown. */
   logs: ListedBlock[]
   /** Null: `gh` didn't answer (not installed, not a GitHub folder, too slow). */
   prs: OpenPr[] | null
@@ -115,6 +125,7 @@ export function workboardText(facts: WorkboardFacts, hasItems: boolean): string 
     }),
   ]
   if (!STAGES.some(s => byStage(s).length)) lines.push('- nothing in doing, review or validate')
+  if (facts.itemsComplete === false) lines.push(`- (the read stopped at ${facts.items.length} items: the counts are partial)`)
   if (facts.prs) {
     lines.push(...(facts.prs.length
       ? lane('open PRs', facts.prs, p => `#${p.number} ${clip(p.title, 70)} (${clip(p.branch, 40)}${p.draft ? ', draft' : ''})`)

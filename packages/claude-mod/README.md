@@ -177,9 +177,9 @@ block, `workboardNow`, one screen of where the work stands. It is made again aft
 read anew each time.
 
 - **What it says:** the latest build log (`type::build-log`, newest created, with its `((id))`); the roadmap items
-  in doing, review and validate (six a lane, the rest counted); the items waiting on the person (`needs::sysop`, with
+  in doing, review and validate (six a lane, the rest counted; a read the service cut short says its counts are partial); the items waiting on the person (`needs::sysop`, with
   its reason, in any stage but done or superseded); and the open PRs of the session's folder (`gh pr list`), when
-  `gh` answers within 3s.
+  `gh` answers within 3s (a slow GitHub drops the PRs, never the board).
 - **Where it comes from:** the service, through the installed Outliner CLI's `list --query` in the views' query
   grammar (`hooks/workboard-now.ts` holds the queries; the mod keeps nothing of its own). Two reads, and a third
   (`type=roadmap-item`, one row) only when nothing is in flight.
