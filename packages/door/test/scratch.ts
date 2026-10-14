@@ -21,6 +21,12 @@ const OWN_FOLDERS = ["OUTLINER_EXTENSIONS_DIR"];
 export const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../outliner")]
   .find(p => p && existsSync(join(p, "src/host-main.ts")));
 
+/**
+ * The test's time zone, given to every scratch host: `bun test` runs in UTC while a spawned host would take the
+ * machine's zone, and "today" (`wait-until <= today`, PIE-769) would then be a day apart in the evening.
+ */
+const TEST_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 export const until = async (ok: () => boolean, what: string, ms = 5000) => {
   const end = Date.now() + ms;
   while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(20); }
@@ -116,6 +122,7 @@ export class Scratch {
     };
     // No Jev key: a scratch host answers searches with text matches only, never a paid call.
     for (const k of [...HERDR_VARS, ...NO_JEV, ...OWN_FOLDERS, "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
+    env.TZ = TEST_ZONE;
     this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: "ignore" });
     const path = join(this.outlines, ".host", "host.sock");
     const { hostRequest, SocketBoard } = await import("../src/socket");
@@ -188,6 +195,7 @@ export class ScratchHost {
     };
     for (const k of [...HERDR_VARS, ...NO_JEV, ...OWN_FOLDERS, "EP0CH_DEFAULT_WS", "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
     if (defaultOutline) env.EP0CH_DEFAULT_WS = defaultOutline;
+    env.TZ = TEST_ZONE;
     this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: hostOutliner!, env, stdout: "ignore", stderr: "ignore" });
     const { hostLive } = await import("../src/discover");
     const end = Date.now() + 20_000;
