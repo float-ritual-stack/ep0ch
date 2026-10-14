@@ -21,6 +21,7 @@ import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
+import type { Step } from "../session/restore";
 import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
@@ -876,13 +877,14 @@ export class NoteSurface {
    * open it: the edit; or the comment on its passage (a reply on its thread, an edit of a posted one), then where it
    * sits, its size, its cursor and its preview (PIE-847). Its text is what the handover put aside for it.
    */
-  reopenSteps(): { action: string; args?: Record<string, unknown> }[] {
-    if (this.draft) return [{ action: "edit" }];
+  reopenSteps(): Omit<Step, "tile">[] {
+    if (this.draft) return [{ action: "edit", opens: "edit" }];
     const cs = this.session, d = cs?.mode === "compose" ? cs.composer : null, t = cs?.target;
     if (!cs || !d || !t || cs.startedBy.kind !== "user") return [];
-    const open = t.kind === "quote" ? { action: "passage.act", args: { action: cs.props?.kind === "question" ? "ask" : "comment", quote: t.passage.quote, near: t.passage.start } }
+    // words: something was typed, so its text was put aside and must come back (an empty comment has nothing to bring).
+    const open: Omit<Step, "tile"> = { opens: "comment", ...(d.text.trim() ? { words: true } : {}), ...(t.kind === "quote" ? { action: "passage.act", args: { action: cs.props?.kind === "question" ? "ask" : "comment", quote: t.passage.quote, near: t.passage.start } }
       : t.kind === "reply" ? { action: "reply", args: { thread: t.thread.id } }
-      : { action: "comment.edit", args: { thread: t.thread.id, ...(t.mark.reply ? { reply: t.mark.id } : {}) } };
+      : { action: "comment.edit", args: { thread: t.thread.id, ...(t.mark.reply ? { reply: t.mark.id } : {}) } }) };
     return [
       open,
       { action: "comment.place", args: { place: cs.place } },
@@ -892,7 +894,7 @@ export class NoteSurface {
     ];
   }
 
-  /** "editing · unsaved","writing", "quoting", "comments", "properties", or null while reading. For the host's title. */
+  /** "editing · unsaved", "writing", "quoting", "comments", "properties", or null while reading. For the host's title. */
   state(): string | null {
     for (const m of this.modes.all()) { const st = m.state(); if (st) return st; }
     return null;
@@ -7038,7 +7040,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         else await personComments(surface, host, "select");
         if (!surface.session) throw new ActionRefused("the comment didn't open: the note couldn't be read for commenting");
         host.redraw();
-        return { writing: action, passage: p.target };
+        // restored: what was put aside on this note came back into it (a handover's restore checks it did).
+        return { writing: action, passage: p.target, restored: !!surface.session.composer?.restored };
       }
       const named = /^ext\.([a-z][a-z0-9-]{0,31})\.([a-z][a-z0-9-]{0,31})$/.exec(action);
       const choice = passageActions().find(x => x.action.name === action);
@@ -7183,7 +7186,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const why = s.replyTo(findThread(s, thread), actor);
       if (why) throw new ActionRefused(why);
       // Written by hand: as the Reply control opens it, back to reading once it's sent.
-      if (body === undefined) { s.fromReader = true; on.host.redraw(); return { replying: s.target?.kind === "reply" ? s.target.thread.id : thread }; }
+      if (body === undefined) { s.fromReader = true; on.host.redraw(); return { replying: s.target?.kind === "reply" ? s.target.thread.id : thread, restored: !!s.composer?.restored }; }
       s.writing!.replace(body, actor);
       return sendComment(on.surface, on.host, actor);
     },
@@ -7211,7 +7214,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const why = s.editMark(i, reply, actor);
       if (why) throw new ActionRefused(why);
       const t = s.target as Extract<NonNullable<typeof s.target>, { kind: "edit" }>;
-      if (body === undefined) { on.host.redraw(); return { editing: t.mark.id, revision: t.mark.revision, words: t.mark.body }; }
+      if (body === undefined) { on.host.redraw(); return { editing: t.mark.id, revision: t.mark.revision, words: t.mark.body, restored: !!s.composer?.restored }; }
       s.writing!.replace(body, actor);
       return sendComment(on.surface, on.host, actor);
     },

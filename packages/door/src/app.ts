@@ -325,7 +325,7 @@ export interface Screen {
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
   viewState?(): ViewState;
   /** The edits open here, by tile: what a session's next daemon opens again after a handoff (src/session/restore.ts). */
-  reopen?(): { action: string; tile: string; args?: Record<string, unknown> }[];
+  reopen?(): (import("./session/restore").Step & { tile: string })[];
   /** No drawer and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
   noDrawer?: boolean;
   /**

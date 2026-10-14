@@ -27,7 +27,7 @@ import { controlFor, ep0ch, pickSession, placeFor, placeOf, runningSessions, ses
 import { ensurePtyHost, frame, HostFrames, HOST_PROTOCOL, ptyHostSocket } from "../src/session/pty-host";
 import { restore, restoredSaying, screenSteps, type Checkpoint } from "../src/session/restore";
 import { tuningOf } from "../src/look";
-import { MainMenu } from "../src/screens";
+import { MainMenu, SHELL_ACTIONS } from "../src/screens";
 import { controlPlace, servingSocket } from "../src/control";
 import { homeState, useOutlineState } from "../src/state";
 import { createServer } from "node:net";
@@ -780,20 +780,20 @@ describe("the terminal host", () => {
 
 describe("the checkpoint and the restore", () => {
   /** An App enough for a restore: a stack, the actions' replay declarations, a dispatcher that records what it's asked. */
-  function stubApp(refuse: (s: { action: string; tile?: string; args: Record<string, unknown> }) => string | null = () => null) {
+  function stubApp(refuse: (s: { action: string; tile?: string; args: Record<string, unknown> }) => string | null = () => null, answer: (s: { action: string; tile?: string }) => unknown = () => ({})) {
     const stack: any[] = [], ran: { action: string; tile?: string; args: Record<string, unknown> }[] = [];
     const declared: Record<string, "safe" | "ask"> = { "screen.open": "safe", "screen.back": "safe", "screen.shell": "ask", open: "safe", edit: "ask" };
     const app = {
       background: [], screens: () => stack, push: (s: any) => { stack.push(s); }, flush() {}, board: {},
       dispatch: {
         list: () => ({ actions: Object.entries(declared).map(([name, replay]) => ({ name, replay })) }),
-        act: async (req: { action: string; tile?: string; args: Record<string, unknown> }) => {
+        act: async (req: { action: string; tile?: string; args: Record<string, unknown> }, as?: { kind: string; id?: string }) => {
           const no = refuse(req);
           if (no) throw new Error(no);
-          ran.push({ action: req.action, ...(req.tile ? { tile: req.tile } : {}), args: req.args });
+          ran.push({ action: req.action, ...(req.tile ? { tile: req.tile } : {}), args: req.args, ...(as && as.kind !== "user" ? { as } : {}) });
           if (req.action === "screen.open") stack.push({ title: String(req.args.name), name: req.args.name });
           if (req.action === "screen.back") stack.pop();
-          return {};
+          return answer(req);
         },
       },
     };
@@ -815,7 +815,7 @@ describe("the checkpoint and the restore", () => {
     const c: Checkpoint = {
       v: 2, at: 0, menu: true,
       screens: [{ action: "screen.open", args: { name: "desk" } }, { action: "screen.back" }, { action: "screen.shell" }, { action: "screen.open", args: { name: "board" } }],
-      reopen: [{ action: "open", tile: "reader", args: { id: "0a1b2c3d" }, screen: "board" }, { action: "edit", tile: "reader", screen: "board" }],
+      reopen: [{ action: "open", tile: "reader", args: { id: "0a1b2c3d" }, screen: "board" }, { action: "edit", tile: "reader", screen: "board", opens: "edit" }],
     };
     const r = await restore(app, c);
     expect(app.screens()[0]).toBeInstanceOf(MainMenu);
@@ -823,31 +823,47 @@ describe("the checkpoint and the restore", () => {
     expect(r).toMatchObject({ screens: 2, held: ["screen.shell"], reopened: 1, errors: [] });
   });
 
-  test("a comment opened again sits where it sat, and the look's unsaved nudges come back; one whose words are gone takes its place and cursor with it (PIE-847)", async () => {
+  test("a comment opened again sits where it sat, and the look's unsaved nudges come back as whoever made them; one whose words are gone takes its place and cursor with it (PIE-847)", async () => {
     const { app, ran } = stubApp(req => (req.action === "passage.act" && req.tile === "gone" ? "no passage “the old gate” in the note now"
-      : req.action === "comment.move" && req.tile === "narrow" ? "the comment is split, not floating" : null));
+      : req.action === "comment.move" && req.tile === "narrow" ? "the comment is split, not floating" : null),
+      req => (req.action === "passage.act" ? { restored: req.tile !== "blank" } : {}));
     const comment = (tile: string) => [
       { action: "open", tile, args: { id: "0a1b2c3d" } },
-      { action: "passage.act", tile, args: { action: "comment", quote: "Beans, chard", near: 15 } },
+      { action: "passage.act", tile, args: { action: "comment", quote: "Beans, chard", near: 15 }, opens: "comment" as const, words: true },
       { action: "comment.place", tile, args: { place: "floating" } },
       { action: "comment.move", tile, args: { row: 9, col: 12, cols: 50, rows: 8 } },
       { action: "draft.place", tile, args: { line: 2, col: 4 } },
     ];
+    const fern = { kind: "agent" as const, id: "fern" };
     const r = await restore(app, {
-      // The keys were on the reader whose words are gone: they go back there all the same.
-      v: 2, at: 0, menu: true, screens: [], reopen: [...comment("gone"), ...comment("reader"), ...comment("narrow"), { action: "tile.focus", tile: "gone" }],
-      tuning: [{ target: "screen:desk", field: "measure", value: "120", by: USER }],
+      v: 2, at: 0, menu: true, screens: [],
+      reopen: [
+        ...comment("gone"), ...comment("reader"), ...comment("narrow"), ...comment("blank"),
+        { action: "look.nudge", args: { target: "screen:desk", field: "measure", value: "120" }, as: fern },
+        // The keys were on the reader whose words are gone: they go back there all the same.
+        { action: "tile.focus", tile: "gone" },
+      ],
     });
     expect(ran.filter(x => x.tile === "gone").map(x => x.action)).toEqual(["open", "tile.focus"]);
-    expect(ran.filter(x => x.tile === "reader")).toEqual(comment("reader"));
+    expect(ran.filter(x => x.tile === "reader").map(x => x.action)).toEqual(comment("reader").map(x => x.action));
     expect(ran.filter(x => x.tile === "narrow").map(x => x.action)).toEqual(["open", "passage.act", "comment.place"]);
-    expect(ran.at(-1)).toEqual({ action: "tile.focus", tile: "gone", args: {} });
-    expect(r.errors).toEqual(["passage.act in gone: no passage “the old gate” in the note now", "comment.move in narrow: the comment is split, not floating"]);
-    // One as it sat, one with its words but not its place: said apart.
-    expect(restoredSaying(r, "upgrade", 0)).toContain("your comment is as you left it");
-    expect(restoredSaying(r, "upgrade", 0)).toContain("your comment is back with its words, not where it sat");
-    // Unsaved still: s in the tune inspector saves them, as before the handover.
-    expect(tuningOf(app.board).unsaved()).toEqual([{ target: "screen:desk", fields: [["measure", "120"]] }]);
+    expect(ran.find(x => x.action === "look.nudge")).toMatchObject({ as: fern });
+    expect(ran.at(-1)).toMatchObject({ action: "tile.focus", tile: "gone" });
+    expect(r.errors).toEqual(["passage.act in gone: no passage “the old gate” in the note now", "comment.move in narrow: the comment is split, not floating", "passage.act in blank: its words weren't brought back"]);
+    // As it sat, back with its words but not its place, opened without its words: each said apart.
+    const said = restoredSaying(r, "upgrade", 0);
+    expect(said).toContain("your comment is as you left it");
+    expect(said).toContain("your comment is back with its words, not where it sat");
+    expect(said).toContain("a comment opened without its words");
+  });
+
+  test("look.nudge puts a nudge back in memory, unsaved, as whoever made it; a field or value the look doesn't have is refused", async () => {
+    const ctx = { board: {}, redraw() {} } as any;
+    const fern = { kind: "agent" as const, id: "fern" };
+    await SHELL_ACTIONS.run("look.nudge", { target: "screen:desk", field: "measure", value: "120" }, { ctx }, fern);
+    expect(tuningOf(ctx.board).unsaved()).toEqual([{ target: "screen:desk", fields: [["measure", "120"]] }]);
+    expect(tuningOf(ctx.board).get("screen:desk" as any, "measure" as any)?.by).toEqual(fern);
+    expect(() => SHELL_ACTIONS.run("look.nudge", { target: "screen:desk", field: "girth", value: "3" }, { ctx }, USER)).toThrow(/look token/);
   });
 
   test("a checkpoint from before anyone logged on restores nothing: the next daemon starts at the logon", async () => {
