@@ -1,8 +1,8 @@
 // The comment's own tile (PIE-846): the comment being written in a reader, drawn in a tile beside it so the whole note
 // stays in view, as Evan asked ("dock it in a tile to the side"). It's the reader's comment, not a second editor: the
 // reader's comment session holds the draft, its keys run the reader's comment keys, its mouse the reader's draft, and the
-// edit control (renderEditor) draws it. Being a tile, it moves, sizes, folds and docks to an edge (tile.dock, ^W p) as
-// any tile does; it sits in its note's place beside it (a pair, Split.pair), on the side its last row's arrows (or ctrl+g
+// edit control (renderEditor) draws it, or the thread list (m) when it's reading the comments. Being a tile, it sizes
+// and folds as any tile; it sits in its note's place beside it (a pair, Split.pair), on the side its last row's arrows (or ctrl+g
 // and the arrows, or comment.place side=) put it, and closing it gives the note its room back. It opens when the comment's place is `tile` (comment.place, ctrl+o) and closes when the comment is sent,
 // put aside or placed back in the reader. Never saved in a layout: a handover opens it again through the comment's own
 // reopen steps (src/session/restore.ts).
@@ -83,7 +83,7 @@ export class CommentTilePane implements Pane {
 /** The comment tile's kind: opened by the desk when a reader's comment goes into a tile (Desk.composerTile). */
 export const COMMENT_TILE: TileKind = {
   kind: COMMENT_TILE_KIND, noun: "a comment tile",
-  about: "the comment being written in a reader (source=tile:<name>), in a tile of its own beside it (PIE-846): the note stays whole in its reader; the tile moves, sizes and docks as any tile does. Opened by comment.place place=tile (ctrl+o while writing), closed when the comment is sent or put back",
+  about: "the comment being written in a reader (source=tile:<name>), or its thread list, in a tile of its own in the reader's place beside it (PIE-846): left, right, above or below (comment.place side=), sized by its border; the tiles round them never move, and closing it gives the reader its room back. Opened by comment.place place=tile (ctrl+o), closed when the comment is sent or put back",
   make: s => new CommentTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader"),
   check: s => (s.source && !/^tile:./.test(s.source) ? "a comment tile's source is tile:<name>, the reader writing it" : null),
   // Typing in it is typing in the reader's comment: the desk's keys don't take it, but ^W and a window key do (the way out).

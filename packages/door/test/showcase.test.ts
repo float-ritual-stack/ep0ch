@@ -2099,7 +2099,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   // PIE-846, Evan's comments while writing in the floating editor: a comment on the whole note (C with nothing selected,
   // the byline's [comment]), the comment in a tile of its own beside the reader so the whole note stays in view (docked
   // as any tile), and its thread at the top of the note.
-  test("comment-tile: a whole-note comment in its own tile, typed into and sent; the tile closes; C with nothing selected starts another; it docks", async () => {
+  test("comment-tile: a whole-note comment in its own tile, typed into and sent; C with nothing selected starts another; its tile on each side of the note and sized, the thread list there too; closed, the layout as it was", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "comment-tile" }, as: "test-agent" });
     await until(() => marks["comment-tile"]!.every(m => screen().includes(m)), "the comment-tile section");
@@ -2111,7 +2111,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const at = (s: string) => rows().findIndex(l => l.includes(s));
     expect(at("Could we pin the opening hours")).toBeGreaterThan(-1);
     expect(at("Could we pin the opening hours")).toBeLessThan(at("The seed library opens"));
-    expect(screen()).toContain("▣ the notice");
+    // Its card names its picture, never its path.
+    expect(surf().said((surf().comments as any[]).find(c => c.start === null)!.body)).toContain("▣ the notice on the gate");
     // In the stage, the keys are the comment tile's: what's typed lands in the reader's comment, and ctrl+s sends it.
     expect(tiles()).toContain("comment");
     press({ kind: "enter" });
@@ -2125,22 +2126,56 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // C with nothing selected: another comment on the whole note, in the reader (the place new ones open).
     ch("C");
     await until(() => surf().session?.target?.kind === "note" && surf().session?.mode === "compose", "C opened a whole-note comment");
-    // Into its tile by act (ctrl+o's action), then docked to an edge as any tile is, and back in the reader.
+    // The request's validation (pie 16d46bc7): its tile beside the note on all four sides, sized, the tiles round them
+    // never moving; closed, the layout exactly as it was; the text, cursor and the note's scroll kept throughout.
+    const rects = () => { sc.render(app); return Object.fromEntries((stage().describe().panes as any[]).map(t => [t.kind === "comment" ? "comment" : t.name, t.rect])); };
+    const was = rects(), d = () => surf().session.composer;
+    for (const c of "Gate code?") ch(c);
+    const cursor = [d().row, d().col], scroll = (surf() as any).scroll;
     await stage().dispatch.press("comment.place", { place: "tile" }, "reader");
     await until(() => tiles().includes("comment"), "the comment tile");
+    for (const side of ["left", "up", "down", "right"] as const) {
+      await stage().dispatch.press("comment.place", { side }, "reader");
+      const r = rects(), rd = r.reader, cm = r.comment;
+      // In the note's place: the two of them fill the room the note had; the tile on the side asked for.
+      expect(r.links).toEqual(was.links);
+      if (side === "left" || side === "right") expect([rd.cols + cm.cols, rd.row, cm.rows]).toEqual([was.reader.cols, was.reader.row, was.reader.rows]);
+      else expect([rd.rows + cm.rows, rd.col, cm.cols]).toEqual([was.reader.rows, was.reader.col, was.reader.cols]);
+      expect(side === "left" ? cm.col < rd.col : side === "right" ? cm.col > rd.col : side === "up" ? cm.row < rd.row : cm.row > rd.row).toBe(true);
+    }
+    // Sized by its border (as ^W > does), then moved: it keeps its size.
     const tile = (stage().describe().panes as any[]).find(t => t.kind === "comment")!.name;
-    await stage().dispatch.press("tile.dock", { on: true, edge: "right" }, tile);
-    expect((stage().describe().panes as any[]).find(t => t.kind === "comment")).toMatchObject({ dock: expect.any(String), edge: "right" });
+    await stage().dispatch.press("tile.resize", { by: 3 }, tile);
+    const wide = rects().comment.cols;
+    await stage().dispatch.press("comment.place", { side: "left" }, "reader");
+    expect(Math.abs(rects().comment.cols - wide)).toBeLessThanOrEqual(1);
+    expect([d().text, [d().row, d().col], (surf() as any).scroll]).toEqual(["Gate code?", cursor, scroll]);
     await stage().dispatch.press("comment.place", { place: "inline" }, "reader");
     await until(() => !tiles().includes("comment"), "back in the reader, the tile closed");
+    expect(rects()).toEqual(was);
     // Its tile closed by hand (×, ^W x): the comment isn't lost out of sight, it's back in the reader, split.
     for (const c of "Bring a padlock") ch(c);
     await stage().dispatch.press("comment.place", { place: "tile" }, "reader");
     await until(() => tiles().includes("comment"), "in its tile again");
     await stage().dispatch.press("tile.close", {}, (stage().describe().panes as any[]).find(t => t.kind === "comment")!.name);
     await until(() => { sc.render(app); return surf().session?.place === "split"; }, "back in the reader, split");
-    expect(surf().session.composer.text).toBe("Bring a padlock");
+    expect(surf().session.composer.text).toBe("Gate code?Bring a padlock");
     await stage().dispatch.press("comment.close", { discard: true }, "reader");
+    // Reading the comments there too: the thread list (m) in the tile beside the note, the note not covered; a reply
+    // written there; esc, and the layout is as it was.
+    ch("m");
+    await until(() => surf().session?.mode === "threads", "the thread list");
+    await stage().dispatch.press("comment.place", { place: "tile" }, "reader");
+    await until(() => { sc.render(app); return tiles().includes("comment"); }, "the thread list in its tile");
+    expect(screen()).toContain("comments · reader");
+    expect(screen()).toContain("The seed library opens");
+    ch("r");
+    await until(() => surf().session?.mode === "compose" && surf().session?.place === "tile", "a reply, in the tile");
+    press({ kind: "esc" });
+    await until(() => surf().session?.mode === "threads", "back to the list");
+    press({ kind: "esc" });
+    await until(() => !surf().session && !tiles().includes("comment"), "closed");
+    expect(rects()).toEqual(was);
     // An agent's own comment put in a tile: the tile opens, the person's keys stay where they were.
     const keysWere = (stage().describe() as any).focus;
     await app.act({ action: "passage.select", tile: "reader", args: { quote: "The seed library opens" }, as: "test-agent" });

@@ -7341,7 +7341,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "comment.place": def({
-    summary: "where the comment, question or reply being written sits (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer, or over it when narrow), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own beside the reader, the note whole beside it; it moves, sizes and docks to an edge as any tile does, ^W p). Left out, the next one. This composer only: composer.place sets where new ones open",
+    summary: "where the comment, question or reply being written sits (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer, or over it when narrow), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own in the note's place, beside it on side= left, right, up or down, the tiles round them never moving; sized by its border; closing it gives the note its room back; the thread list (m) goes there too). Left out, the next one. This composer only: composer.place sets where new ones open",
     keys: "ctrl+o while writing a comment; a click on the box's place chip",
     touches: "draft", draft: "type", replay: "ask",
     args: {

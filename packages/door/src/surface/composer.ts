@@ -4,9 +4,10 @@
 //   floating  a box over the note, beside the passage (under it when it fits, else over it);
 //   split     the reader's own rect shared: the note on the left (on top when narrow), the composer beside it;
 //   popup     a box in the middle of the reader, the passage quoted in it;
-//   tile      a tile of its own beside the reader (PIE-846), the note whole beside it: a tile like any other, so it
-//             moves, sizes and docks to an edge (tile.dock) as tiles do. A reader with no tiles round it (the BBS
-//             reader, a river column) draws it split.
+//   tile      a tile of its own in the reader's place, beside the note on any side (PIE-846: a pair, Split.pair, so
+//             the tiles round them never move, and closing it gives the note its room back); sized by its border.
+//             The thread list goes there too. A reader with no tiles round it (the BBS reader, a river column)
+//             draws a comment split.
 // The default is the person's setting (`composer.place`, kept in the state dir like reader.overscroll); ctrl+o, a
 // click on the box's place chip or `comment.place` switches the one being written. Whatever the placement, the text
 // is a Draft drawn by renderEditor (the one edit control): mouse select, undo, paste, `((` completion, the preview.
