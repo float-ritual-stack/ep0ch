@@ -78,6 +78,11 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   /** The welcome list (its notes), the detail, the preview and the backlinks: the screen's tiles, by name. */
   const list = () => tileOf<WelcomeList>("welcome");
   const lines = () => top().render(app).lines.map(plain);
+  /**
+   * The backlinks tile on the kettle with a backlink row to pick, what the tests below go on to use: its data being
+   * there wasn't enough (on a loaded runner a test then found no backlink row, now and then).
+   */
+  const kettleRows = () => { const bl = tileOf<BacklinksPane>("backlinks"); return bl.target?.id === n.kettle.id && bl.data !== null && bl.rows().some(r => r.kind === "backlink"); };
   const screen = () => lines().join("\n");
   /** Where `text` is drawn: its column and row. */
   const at = (text: string, after = 0) => { const ls = lines(); for (let y = after; y < ls.length; y++) { const x = ls[y]!.indexOf(text); if (x >= 0) return { x, y }; } throw new Error(`${text} isn't on screen:\n${ls.join("\n")}`); };
@@ -217,7 +222,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   });
 
   test("the detail's backlinks run under it and show in the same preview; alt+⏎ reads one here", async () => {
-    await until(() => tileOf<BacklinksPane>("backlinks").data !== null && tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id, "the kettle's backlinks");
+    await until(() => kettleRows(), "the kettle's backlinks");
     await until(() => screen().includes("Tea shelf"), "the backlinks drawn");
     expect(screen()).toContain("Start here");
     const rows = (top().describe() as any).panes.find((p: any) => p.name === "backlinks").backlinks.rows as { id?: string; text: string }[];
@@ -236,7 +241,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.kettle.id, "back to the kettle");
     // By the mouse: a click on a backlink row shows it in the preview.
     tileOf<WelcomePreview>("preview").show(null, top());
-    await until(() => tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id && tileOf<BacklinksPane>("backlinks").data !== null, "the kettle's backlinks, read again");
+    await until(() => kettleRows(), "the kettle's backlinks, read again");
     const r = at("Tea shelf", at("links · The kettle").y);
     mouse(r.x, r.y);
     await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.shelf.id, "the clicked backlink in the preview");
@@ -247,7 +252,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id && focus() === "detail", "the start note");
     idle();
     await app.act({ action: "welcome.read", args: { id: n.kettle.id } });
-    await until(() => tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id && tileOf<BacklinksPane>("backlinks").data !== null, "the kettle's backlinks");
+    await until(() => kettleRows(), "the kettle's backlinks");
     tileOf<WelcomePreview>("preview").show(null, top());
     tileOf<BacklinksPane>("backlinks").sel = tileOf<BacklinksPane>("backlinks").rows().findIndex(r => r.kind === "backlink");
     const first = (tileOf<BacklinksPane>("backlinks").rows()[tileOf<BacklinksPane>("backlinks").sel] as any).source.blockId as string;
@@ -300,7 +305,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect((app as any).message).toContain("an agent (test-agent) put House rules in the detail (welcome 2)");
     expect(await app.act({ action: "welcome.read", args: { id: n.kettle.id }, as: "test-agent" })).toMatchObject({ id: n.kettle.id, n: null });
     expect(focus()).toBe("welcome");
-    await until(() => tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id && tileOf<BacklinksPane>("backlinks").data !== null, "the kettle's backlinks");
+    await until(() => kettleRows(), "the kettle's backlinks");
     await app.act({ action: "backlinks.pick", args: { id: n.start.id }, as: "test-agent" });
     await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.start.id, "an agent's pick in the preview");
     expect(focus()).toBe("welcome");
