@@ -3,13 +3,11 @@ import {visibleWidth} from "@earendil-works/pi-tui";
 import type {Block} from "../../src/types";
 import {runHerdrScenario} from "./herdr-runner";
 
-const ansi = process.argv.includes("--ansi");
 const nvim = Bun.which("nvim");
 if (!nvim) throw Error("Neovim is required for this journey");
 
 const result = await runHerdrScenario({
-  name: `checklist-identity-${ansi ? "ansi" : "pi"}`,
-  detailRenderer: ansi ? "ansi" : "pi-tui",
+  name: "checklist-identity",
   editor: `${nvim} --clean`,
   async prepare() {},
   async run(s) {
@@ -42,9 +40,7 @@ const result = await runHerdrScenario({
     await s.checkpoint("02-cancel-after-resize");
     await s.keys(s.panes.detail, "ctrl+s");
     await s.waitVisible(s.panes.detail, "Save and remove 1 item address");
-    if (ansi) {
-      await s.keys(s.panes.detail, "down", "enter");
-    } else {
+    {
       const label = "Save and remove 1 item address";
       const frame = await s.waitFor("attached removal menu", terminal.visible, f => f.includes(label));
       const rows = frame.split("\n"), row = rows.findIndex(line => line.includes(label));
@@ -57,7 +53,7 @@ const result = await runHerdrScenario({
     assert.ok(saved.text.includes("^second"));
     await s.waitVisible(s.panes.detail, "Keep this step");
     await s.checkpoint("03-only-confirmed-address-removed");
-    await s.record("coverage", {input: ansi ? "Injected keyboard" : "Injected keyboard and attached-terminal pointer", physicalKeyboard: false});
+    await s.record("coverage", {input: "Injected keyboard and attached-terminal pointer", physicalKeyboard: false});
   },
 });
 console.log(JSON.stringify(result));

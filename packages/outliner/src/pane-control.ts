@@ -314,8 +314,6 @@ export function openDetailPane(
       "OUTLINER_DETAIL_PRESENTATION=property-inspector",
       "--env",
       `OUTLINER_DETAIL_TARGET_BLOCK_ID=${blockId}`,
-      "--env",
-      "OUTLINER_DETAIL_RENDERER=pi-tui",
     );
   }
   if (options.initialTarget !== undefined) {

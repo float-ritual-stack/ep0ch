@@ -3,9 +3,8 @@ import {visibleWidth} from '@earendil-works/pi-tui';
 import type {Block,ChecklistCollection} from '../../src/types';
 import {runHerdrScenario} from './herdr-runner';
 
-const ansi=process.argv.includes('--ansi');
-const detailAnchor=ansi?'Current [Note]':'● Current';
-const result=await runHerdrScenario({name:`checklist-controls-${ansi?'ansi':'pi'}`,detailRenderer:ansi?'ansi':'pi-tui',async prepare(){},async run(s){
+const detailAnchor='● Current';
+const result=await runHerdrScenario({name:'checklist-controls',async prepare(){},async run(s){
   const terminal=await s.attachClient();
   await terminal.resize(190,70);
   const source=await s.client.request<Block>({action:'create',text:[

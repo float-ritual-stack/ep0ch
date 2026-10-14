@@ -2866,8 +2866,8 @@ metadata-preserving external file replacement, and explicit cancellation/reload
 before a fresh save. The file journey does not claim to close the separate
 validation/rename race.
 
-`bun run test:e2e:file-authority` runs the file ownership journey for both Pi and
-ANSI Detail. The fixture opens one additional remote-mode Tree/Detail pair with
+`bun run test:e2e:file-authority` runs the file ownership journey for Detail.
+The fixture opens one additional remote-mode Tree/Detail pair with
 its own workspace root, deliberately writes different contents at the same path,
 and checks service-owned previews, path completion, preserved line ranges, and
 explicit Resource activation. Passive reads leave catalog identities unchanged.
@@ -2967,7 +2967,7 @@ representation and retains its revision; it does not intern or refresh a Resourc
 
 ### Inspecting received keys
 
-Use **? → Inspect received keys** in Tree or Pi Detail. The in-place panel shows
+Use **? → Inspect received keys** in Tree or Detail. The in-place panel shows
 received bytes, Unicode code points, decoded keys/modifiers, and matching reading-mode
 shortcuts. It observes the input reaching that pane, with its existing terminal
 protocol settings. Escape is displayed for inspection; **Ctrl+Q closes only the
@@ -2975,8 +2975,7 @@ inspector**. Inspected keys do not edit documents or execute shortcuts. No key l
 is written to disk or sent to the service. Raw chunks are bounded and are not assumed
 to be individual physical keypresses.
 
-For the ANSI Detail runtime, launch with `OUTLINER_DEBUG_KEYS=1` to open the same
-inspector on startup. This is useful when the host intercepts a shortcut: injected
+Launch Detail with `OUTLINER_DEBUG_KEYS=1` to open the same inspector on startup. This is useful when the host intercepts a shortcut: injected
 Herdr keys test the application, while pressing the physical keys in this panel
 also tests the terminal input path.
 

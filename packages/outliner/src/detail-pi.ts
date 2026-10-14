@@ -78,7 +78,7 @@ import {
 } from "./detail-mouse";
 import { detailCalloutThemeFromEnvironment, type DetailCalloutTheme } from "./detail-callout-theme";
 import { BUILTIN_CALLOUT_REGISTRY, calloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
-import { projectDetailRead } from "./detail-embeds";
+import { learnDetailRules, projectDetailRead } from "./detail-embeds";
 import { createDetailKeyHandler, detailActionScopes } from "./detail-keymap";
 import {
   createPiDetailInputListener,
@@ -941,6 +941,7 @@ function startWatcher(): void {
     onConnect: async () => {
       void destinationDisplay.refresh();
       refreshCalloutTypes();
+      await learnDetailRules(client);
       await runtimeSync?.synchronize();
       firstWatcherConnection.resolve();
       if (runtimeInitialized) {
@@ -960,7 +961,13 @@ function startWatcher(): void {
       if (!runtimeInitialized) firstWatcherConnection.reject(error);
       else serviceEventScheduler.scheduleWork(() => controller.onServiceError(error));
     },
-    onEvent: (event) => { destinationDisplay.onEvent(event); serviceEventScheduler.schedule(event); if (event.domain === "content") calloutTypesSoon(); },
+    onEvent: (event) => {
+      destinationDisplay.onEvent(event);
+      // The rules changed (PIE-600): whether every note may be decorated, then the note again.
+      if (event.domain === "extensions") serviceEventScheduler.scheduleWork(async () => { await learnDetailRules(client); });
+      serviceEventScheduler.schedule(event);
+      if (event.domain === "content") calloutTypesSoon();
+    },
   });
 }
 
@@ -2007,3 +2014,5 @@ process.on("SIGHUP", () => void stop());
 process.stdout.on("resize", handleResize);
 
 tui.start();
+// Open the key inspector on startup, for keys the host intercepts before any menu can open.
+if (process.env.OUTLINER_DEBUG_KEYS === "1") openKeyInspector();

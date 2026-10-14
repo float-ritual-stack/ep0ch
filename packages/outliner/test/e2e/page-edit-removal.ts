@@ -2,14 +2,12 @@ import assert from "node:assert/strict";
 import type {Block, PageAddressResolution} from "../../src/types";
 import {runHerdrScenario} from "./herdr-runner";
 
-const ansi = process.argv.includes("--ansi");
 const composed = process.argv.includes("--composed");
 const nvim = Bun.which("nvim");
 if (!nvim) throw Error("Neovim is required for this journey");
 const result = await runHerdrScenario({
-  name: `page-edit-removal-${composed ? "composed" : ansi ? "ansi" : "pi"}`,
+  name: `page-edit-removal-${composed ? "composed" : "pi"}`,
   layout: composed ? "composed" : "separate",
-  detailRenderer: ansi ? "ansi" : "pi-tui",
   editor: `${nvim} --clean`,
   async prepare() {},
   async run(s) {

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import type {Block} from "../../src/types";
 import type {EditRecovery} from "../../src/edit-recovery";
 import {runHerdrScenario} from "./herdr-runner";
-const composed=process.argv.includes("--composed"),ansi=process.argv.includes("--ansi");
+const composed=process.argv.includes("--composed");
 const nvim=Bun.which("nvim");if(!nvim)throw Error("Neovim is required for the editor recovery journey");
-const result=await runHerdrScenario({name:`editor-recovery-${composed?"composed":ansi?"ansi":"pi"}`,layout:composed?"composed":"separate",detailRenderer:ansi?"ansi":"pi-tui",editor:`${nvim} --clean`,async prepare(){},async run(s){
+const result=await runHerdrScenario({name:`editor-recovery-${composed?"composed":"pi"}`,layout:composed?"composed":"separate",editor:`${nvim} --clean`,async prepare(){},async run(s){
   const terminal=await s.attachClient();await terminal.resize(160,55);
   const base=await s.client.request<Block>({action:"create",text:"RECOVERY JOURNEY\n\nOriginal paragraph\n\nEnding paragraph"});
   await s.revealTree(s.panes.tree,base.id);await s.keys(s.panes.tree,"alt+enter");await s.waitVisible(s.panes.detail,"Original paragraph");await s.focus(s.panes.detail);
@@ -41,7 +41,7 @@ const result=await runHerdrScenario({name:`editor-recovery-${composed?"composed"
   const retained=await s.client.request<EditRecovery[]>({action:"edit-recovery.list",blockId:base.id});
   assert.ok(retained[0]!.draftText.includes("LOCAL ENDING"));assert.equal(retained[0]!.proposal,null);
   await s.keys(s.panes.detail,"escape");
-  const reopened=await s.openRemoteBrowsingContext({name:"recovery-reopen",renderer:ansi?"ansi":"pi-tui"});
+  const reopened=await s.openRemoteBrowsingContext({name:"recovery-reopen"});
   await s.revealTree(reopened.tree,base.id);await s.keys(reopened.tree,"enter");await s.waitVisible(reopened.detail,"LATEST ENDING");
   // Compact chrome (default since PIE-385) keeps ordinary history out of the header;
   // Alt+R and the actions menu remain the routes to it.

@@ -30,9 +30,9 @@ import {
 import { composedTreeNavigation } from "../src/composed-surface";
 import { OutlinerActionKeymap } from "../src/outliner-actions";
 import { detailBacklinkRegions, renderBacklinksDocument } from "../src/detail-pi-preview";
-import { resolveAnnotationReferences } from "../src/detail-annotations";
+import { detailAnnotationGroups, resolveAnnotationReferences } from "../src/detail-annotations";
 import { detailPropertyInspectorRegions } from "../src/property-inspector";
-import { buildDetailAnsiPreview, renderDetailLines } from "../src/detail-renderer";
+import { renderDetailLines } from "../src/detail-renderer";
 import type { ReferencedFile } from "../src/files";
 import type { OutlinerLinkTarget } from "../src/outliner-links";
 import { patchPropertyText } from "../src/properties";
@@ -845,40 +845,6 @@ describe("detail controller projection and deferred refresh", () => {
     await harness.controller.dispatch({ type: "reference.follow" }, viewport);
     expect(harness.controller.state.destinationChooser.active).toBe(true);
     await harness.controller.handleDestinationChooserKeypress("", { name: "escape" });
-  });
-
-  test("ANSI ordinary preview exposes every full thread and reply through its existing scroll", async () => {
-    const text = "Source title\nSource phrase";
-    const harness = createHarness(makeBlock({ text }), null, async text => ({ text, references: [] }));
-    harness.effects.reconcileAnnotations = async input => {
-      const target: AnnotationTarget = { representation: input.newRepresentation,
-        anchor: { kind: "text-quote", start: 0, end: 6, exact: "Source", prefix: "", suffix: "" } };
-      const first = annotationRecord(target, { block: makeBlock({ id: "first-thread" }), body: "First body " + "wide ".repeat(24) + "WRAPPED-END" });
-      const second = annotationRecord(target, { block: makeBlock({ id: "orphan-thread" }), body: "Orphan body\nFINAL-BODY" });
-      return { threads: [{ ...first, replies: [] }, { ...second, resolvedTarget: null,
-        currentResolution: { ...second.currentResolution, status: "orphaned" },
-        replies: [{ ...annotationRecord(target, { body: "Agent reply\nFINAL-REPLY", source: "agent" }), parentAnnotationId: second.block.id }],
-      }], changed: true };
-    };
-    await harness.controller.initialize();
-    const frames: string[] = [];
-    const ansiViewport = (): DetailViewport => ({ ...viewport, preview: buildDetailAnsiPreview(harness.controller.state, viewport.width) });
-    for (let step = 0; step < 30; step += 1) {
-      frames.push(renderDetailLines(harness.controller.state, ansiViewport()).map(stripTerminalSequences).join("\n"));
-      await harness.controller.dispatch({ type: "preview.navigate", direction: "down" }, ansiViewport());
-    }
-    expect(frames.join("\n")).toContain("WRAPPED-END");
-    expect(frames.join("\n")).toContain("FINAL-BODY");
-    expect(frames.join("\n")).toContain("FINAL-REPLY");
-    expect(frames.some(frame => frame.includes("Agent reply\nFINAL-REPLY"))).toBe(true);
-    await harness.controller.dispatch({ type: "annotation.thread.move", delta: -1 }, ansiViewport());
-    expect(renderDetailLines(harness.controller.state, ansiViewport()).map(stripTerminalSequences).join("\n")).toContain("▶ Comment 2 · open");
-    await harness.controller.dispatch({ type: "annotation.selection.begin" }, ansiViewport());
-    expect(harness.controller.state.mode).toBe("preview");
-    expect(harness.controller.state.status).toContain("Scroll to source text");
-    await harness.controller.dispatch({ type: "preview.navigate", direction: "top" }, ansiViewport());
-    await harness.controller.dispatch({ type: "annotation.selection.begin" }, ansiViewport());
-    expect(harness.controller.state.mode).toBe("select");
   });
 
   test("annotation events preserve a Resource reader and its viewport", async () => {
@@ -3559,10 +3525,7 @@ describe("detail controller saves and annotations", () => {
     await controller.dispatch({ type: "buffer.save" }, viewport);
     expect(calls.creates).toHaveLength(1);
     expect(calls.creates[0]!.input).toMatchObject({ body: "Looks ready", target: { anchor: { kind: "whole-subject" } } });
-    const comments = buildDetailAnsiPreview(controller.state, 40).annotationLines.join("\n");
-    expect(comments).toContain("general");
-    expect(comments).not.toContain("unpositioned");
-    expect(comments).not.toContain("Original quote:");
+    expect(detailAnnotationGroups(controller.state).map(group => group.placement)).toEqual(["general"]);
     await controller.dispatch({ type: "annotation.comment.direct", capture: null }, viewport);
     await controller.dispatch({ type: "buffer.cancel" }, viewport);
     expect(controller.state.mode).toBe("preview");

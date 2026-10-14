@@ -288,8 +288,6 @@ if (args[0] === "pane" && args[1] === "current") {
       "OUTLINER_DETAIL_PRESENTATION=property-inspector",
       "--env",
       "OUTLINER_DETAIL_TARGET_BLOCK_ID=block-property-heavy",
-      "--env",
-      "OUTLINER_DETAIL_RENDERER=pi-tui",
       "--placement",
       "split",
       "--target-pane",

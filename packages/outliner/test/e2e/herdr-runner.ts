@@ -61,7 +61,7 @@ export interface HerdrScenarioSession {
   restartService(): Promise<void>;
   attachClient(): Promise<{ write(input: string): Promise<void>; visible(): Promise<string>; cursor(): Promise<{column: number; row: number}>; resize(columns: number, rows: number): Promise<void> }>;
   openCapturePopup(blockId: string, socketPath: string): Promise<void>;
-  openRemoteBrowsingContext(options?: { name?: string; renderer?: "pi-tui" | "ansi"; treeTransport?: "direct" | "forwarded"; detailTransport?: "direct" | "forwarded" }): Promise<{ workspaceRoot: string; tree: string; detail: string; firstTreeFrameMs: number }>;
+  openRemoteBrowsingContext(options?: { name?: string; treeTransport?: "direct" | "forwarded"; detailTransport?: "direct" | "forwarded" }): Promise<{ workspaceRoot: string; tree: string; detail: string; firstTreeFrameMs: number }>;
   forwardedTreeRequests(): readonly ForwardedRequest[];
   forwardedDetailRequests(): readonly ForwardedRequest[];
   holdDetailResponse(match: OptionalResponseMatch): ResponseBarrier;
@@ -94,7 +94,6 @@ type Scenario = {
   name: string;
   /** ui.json written before any pane starts: pins (`bar`) and `chrome` per pane kind. */
   uiConfig?: unknown;
-  detailRenderer?: "pi-tui" | "ansi";
   editor?: string;
   commandKeys?: ReadonlyArray<{ key: string; command: string }>;
   layout?: "separate" | "composed";
@@ -396,7 +395,6 @@ function makeEnvironment(options: {
     HERDR_BIN_PATH: options.herdrBinary,
     EP0CH_OUTLINES: options.outlinerState,
     OUTLINER_KEYBINDINGS_PATH: options.keymapPath,
-    OUTLINER_DETAIL_RENDERER: "pi-tui",
     // A developer's Bun .env file must not turn isolated UI journeys into API calls.
     TYPESAFE_API_KEY: "",
   };
@@ -498,7 +496,6 @@ async function readProcessEnvironment(pid: number): Promise<Record<string, strin
     "EP0CH_SOCKET",
     "EP0CH_WS",
     "OUTLINER_KEYBINDINGS_PATH",
-    "OUTLINER_DETAIL_RENDERER",
     "OUTLINER_PROMPT_DIR",
     "OUTLINER_WORKSPACE_ROOT",
     "OUTLINER_BROWSING_CONTEXT_ID",
@@ -529,7 +526,6 @@ function environmentMatches(
     environment.XDG_CONFIG_HOME === expected.XDG_CONFIG_HOME &&
     environment.EP0CH_OUTLINES === expected.EP0CH_OUTLINES &&
     environment.OUTLINER_KEYBINDINGS_PATH === expected.OUTLINER_KEYBINDINGS_PATH &&
-    environment.OUTLINER_DETAIL_RENDERER === expected.OUTLINER_DETAIL_RENDERER &&
     environment.OUTLINER_PROMPT_DIR === expected.OUTLINER_PROMPT_DIR;
 }
 
@@ -1078,7 +1074,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         if (!fault.composedForwarder) throw new Error("Enable the private composed response transport first");
         return fault.composedForwarder.holdNext(match);
       },
-      async openRemoteBrowsingContext({ name = "remote", renderer = "pi-tui", treeTransport = "direct", detailTransport = "direct" } = {}) {
+      async openRemoteBrowsingContext({ name = "remote", treeTransport = "direct", detailTransport = "direct" } = {}) {
         if (extraPanes[`${name}Tree`]) throw new Error("This fixture already owns a remote browsing context");
         const workspaceRoot = join(runRoot, `${name}-client-project`);
         await mkdir(workspaceRoot);
@@ -1097,7 +1093,6 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
           EP0CH_SOCKET: socket,
           EP0CH_WS: OUTLINE_NAME,
           OUTLINER_BROWSING_CONTEXT_ID: contextId,
-          OUTLINER_DETAIL_RENDERER: renderer,
         };
         const open = async (entrypoint: "outliner" | "detail", target: string): Promise<string> => {
           const forwarder = entrypoint === "outliner" ? resources.treeForwarder : resources.detailForwarder;
@@ -1321,7 +1316,6 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       keymapPath,
       herdrBinary,
     });
-    environment.OUTLINER_DETAIL_RENDERER = scenario.detailRenderer ?? "pi-tui";
     if (scenario.editor) environment.EDITOR = environment.VISUAL = scenario.editor;
     if (scenario.allowJev) {
       if (!process.env.TYPESAFE_API_KEY) throw new Error("The live Jev journey requires TYPESAFE_API_KEY");
@@ -1464,7 +1458,6 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       "XDG_RUNTIME_DIR",
       "EP0CH_OUTLINES",
       "OUTLINER_KEYBINDINGS_PATH",
-      "OUTLINER_DETAIL_RENDERER",
       "OUTLINER_PROMPT_DIR",
       "TYPESAFE_API_KEY",
     ].flatMap((key) => environment[key] === undefined ? [] : ["--env", `${key}=${environment[key]}`]);
