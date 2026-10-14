@@ -1,0 +1,5 @@
+{
+  "name": "ep0ch-repo",
+  "version": "0.1.0",
+  "description": "The ep0ch repository's own rules for agents working in it: guardrails that refuse pkill, git stash, gh pr merge -d, bun test --parallel on float-2 and a PROTOCOL that isn't main's plus one, each with the reason and the command to run; and, in the deployer's sessions, a freshness sweep that forks after a few deploys or merges and reports what's stale."
+}

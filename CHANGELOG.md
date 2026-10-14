@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The repository's own mod: guardrails and a freshness sweep (PIE-842)
+
+- **Added:** agents working in this repository (any checkout or worktree) are refused with the reason and the command
+  to run instead when they reach for `pkill` or `killall`, `git stash`, `gh pr merge -d`/`--delete-branch`,
+  `bun test --parallel` on float-2, or a merge into main whose `PROTOCOL` isn't main's plus one. These were rules in
+  AGENTS.md; the mod in `.claude/skills/ep0ch-repo/` makes them refusals.
+- **Added:** in the deployer's sessions, after every three deploys or merges, a read-only agent checks what
+  `.claude/freshness.md` lists as stale (build-log lines, tickets behind their PRs, patch notes, the Infrastructure
+  hub, the CHANGELOG, docs naming removed files) and hands its findings to the main thread, which makes the updates.
+
 ### Sessions start oriented: the workboard now (PIE-843)
 
 - **Added:** a Claude session bound to an outline with a workboard gets "the workboard now" in its first prompt, and
