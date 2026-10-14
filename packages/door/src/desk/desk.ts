@@ -1053,7 +1053,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const to = this.layout.links.get(at);
     if (to === undefined || to === at || this.layout.linkRoles.get(at) === "target" || !this.panes.has(to)) return;
     const p = this.panes.get(to)!;
-    if (by.kind === "agent" && this.limitedFor(p)) return;
     if (!(p instanceof ReaderPane) || p.msg?.id === m.id || p.editing) return;
     this.openInto(to, m, by, true);
   }
@@ -1131,7 +1130,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The previews following tile `at` (a preview with source=tile:<its name>) show `m`: but one the screen limits for an agent's opens. */
   private follow(at: number, m: Msg, by: Actor) {
-    for (const p of this.followers(at)) if (!(by.kind === "agent" && this.limitedFor(p))) p.follow?.(m, this.homeOf(p));
+    for (const p of this.followers(at)) if (!this.keptFrom(p, by)) p.follow?.(m, this.homeOf(p));
   }
 
   /**
@@ -1166,10 +1165,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     this.follow(at, m, by);
     if (this.openAcross(at, m, by)) return true;
-    if (to && "to" in to) {
-      if (by.kind === "agent") { const no = this.agentNo(to.to, "opening a note in it"); if (no) throw new ActionRefused(no); }
-      return this.openInto(to.to, m, by);
-    }
+    if (to && "to" in to) return this.openInto(to.to, m, by);
     if (to && "next" in to) return this.openNext(at, m, by, false) !== undefined;
     if (held) { from.show(m, this); return true; }
     return false;
@@ -1177,10 +1173,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The current note moves to `m`: every reader that follows it shows it; the person's open reveals it in the outline. */
   private moveCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } & OpenHow, by: Actor) {
-    const keeps = (p: Pane) => by.kind === "agent" && this.limitedFor(p);
     this.current = m;
     for (const p of this.panes.values()) {
-      if (keeps(p)) continue;
+      if (this.keptFrom(p, by)) continue;
       p.select?.(m, this);
       // Revealing moves the outline's cursor to the note: the person's own opens only (an agent's never does).
       if (opts.reveal && m && p !== opts.from && opts.by?.kind !== "agent") void p.reveal?.(m, this);
@@ -1197,16 +1192,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * A selection moved in `from` (a backlinks tile's row): the previews following it, and its link, show `m`.
-   * The current note stays, so a reader that follows it (maybe the tile `from` lists the backlinks of) doesn't move.
+   * A selection moved in `from` (a backlinks tile's row, a tree's row), by `by`: the previews following it, and its link,
+   * show `m`. The current note stays, so a reader that follows it (maybe the tile `from` lists the backlinks of) doesn't
+   * move. An agent's (its `tree.pick`) is shown as the agent's, so the open path's guard keeps it out of a tile the screen
+   * limits for agents, and the layout's rules keep it off the person's keys (PIE-632).
    */
-  showFrom(from: Pane, m: Msg) {
+  showFrom(from: Pane, m: Msg, by: Actor = USER) {
     const id = this.idOf(from);
     if (id === undefined) return;
-    for (const p of this.followers(id)) p.follow?.(m, this.homeOf(p));
+    this.follow(id, m, by);
     // Never into `from` itself (a reader linked to itself): a selection there is only its own.
     const to = this.previewOf(id);
-    if (to !== undefined && to !== id) this.openInto(to, m, USER, true); else this.openAcross(id, m, USER, true);
+    if (to !== undefined && to !== id) this.openInto(to, m, by, true); else this.openAcross(id, m, by, true);
     this.redraw();
   }
 
@@ -1371,7 +1368,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let ids = this.openedTiles(key).filter(id => !this.isFloat(id));
     const active = this.activeIn(key);
     // A tile the screen limits for agents (PIE-639) is never one an agent's open lands in: its new tiles go elsewhere.
-    const busy = (id: number) => { const p = this.panes.get(id); return p instanceof ReaderPane && (p.holdsKeys || p === person || (agent && this.agentOf(id).level !== "free")); };
+    const busy = (id: number) => { const p = this.panes.get(id); return p instanceof ReaderPane && (p.holdsKeys || p === person || this.keptFrom(p, actor)); };
     const wantNew = fresh || active === undefined || busy(active);
     let to = active;
     if (wantNew) {
@@ -1439,6 +1436,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * that follows the current note only shows there, until the current note moves it: a preview never moves the current note.
    */
   private openIntoPane(p: Pane | undefined, m: Msg, name: string, by: Actor = USER, preview = false): boolean {
+    // The one guard on every open into a tile (PIE-632): an agent's never lands in a tile the screen limits for agents
+    // (PIE-639). A preview (a selection shown) passes it by quietly; an open is refused, saying why.
+    if (p && preview && this.keptFrom(p, by)) return false;
+    if (p) this.mayOpen(p, by);
     const k = kindOf(p);
     // A tile whose kind takes notes takes it its own way (a preview follows it, a reader holds it in its history).
     if (!p || !k?.accepts?.notes || !k.take) { this.ctx.flash(`${name} can't show a note · alt+l links this tile somewhere else`); return false; }
@@ -1459,7 +1460,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private besideEdit(at: number, m: Msg, by: Actor, fresh = false): boolean {
     const was = fresh ? undefined : this.besides.get(at), there = was !== undefined ? this.panes.get(was) : undefined;
-    if (there instanceof ReaderPane && !there.editing && !there.holdsKeys && !(by.kind === "agent" && this.limitedFor(there))) {
+    if (there instanceof ReaderPane && !there.editing && !there.holdsKeys && !this.keptFrom(there, by)) {
       there.surface.track(() => there.hold(m, this));
       if (this.collapsed.has(was!)) { const r = this.ask({ op: "collapse", tile: was!, on: false }); if (r.ok) this.commit(r); }
       this.ctx.flash(`${this.nameOf(at)} keeps its edit · opened in ${this.nameOf(was!)} beside it`);
@@ -1475,7 +1476,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private openAcross(from: number, m: Msg, by: Actor, following = false): boolean {
     const x = this.extTarget(from);
     if (!x || (following && x.role !== "preview")) return false;
-    if (by.kind === "agent" && x.desk.limitedFor(x.pane)) return false;
+    if (x.desk.keptFrom(x.pane, by)) return false;
     return x.desk.openIntoPane(x.pane, m, this.pathTo(x.pane) ?? x.desk.nameOfPane(x.pane), by, following);
   }
 
@@ -1695,7 +1696,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const lands = this.spec.lands !== undefined ? this.idNamed(this.spec.lands) : undefined;
     const p = lands !== undefined ? this.panes.get(lands) : undefined, take = p ? kindOf(p)?.take : undefined;
-    if (p && take && by.kind === "agent") { const no = this.agentNo(lands!, "opening a note in it"); if (no) throw new ActionRefused(no); }
+    if (p && take) this.mayOpen(p, by);
     if (p && take) { const why = take(p, m, this, by); this.redraw(); if (why) throw new ActionRefused(/^(holds|is|has|can't)\b/.test(why) ? `${this.nameOf(lands!)} ${why}` : why); return; }
     this.openShown(m, by);
   }
@@ -1711,7 +1712,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const link = focused instanceof ReaderPane ? undefined : this.linkOf(this.focus);
     // Not a tile that follows a source (a preview of a tile or a file): what it shows is its source's.
     // A reader the screen limits for agents (PIE-639) isn't where an agent's open lands.
-    const readers = this.namedReaders().filter(r => !r.pane.holdsKeys && !r.pane.editing && !kindOf(r.pane)?.follower && !(by.kind === "agent" && this.limitedFor(r.pane)) && (r.pane.followMode !== "pinned" || r.id === link));
+    const readers = this.namedReaders().filter(r => !r.pane.holdsKeys && !r.pane.editing && !kindOf(r.pane)?.follower && !this.keptFrom(r.pane, by) && (r.pane.followMode !== "pinned" || r.id === link));
     // (A reader pinned to a page, the daily layout's `now`, is where an open lands only when linked: other opens leave it on its page, PIE-705.)
     return (link !== undefined ? readers.find(x => x.id === link) : undefined) ?? readers.find(x => x.pane.follows && !x.pane.holding) ?? readers[0];
   }
@@ -1723,7 +1724,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private openShown(m: Msg, by: Actor): string | null {
     // A link across a group's edge: the reader there (in its own desk) takes it. A reader's own link is for opens made in it.
     const across = this.panes.get(this.focus) instanceof ReaderPane ? undefined : this.linkOf(this.focus) === undefined ? this.extTarget(this.focus) : undefined;
-    if (across && across.pane instanceof ReaderPane && !across.pane.holdsKeys && !across.pane.editing && !(by.kind === "agent" && across.desk.limitedFor(across.pane))) {
+    if (across && across.pane instanceof ReaderPane && !across.pane.holdsKeys && !across.pane.editing && !across.desk.keptFrom(across.pane, by)) {
       const path = this.pathTo(across.pane) ?? null;
       across.desk.openIntoPane(across.pane, m, path ?? across.desk.nameOfPane(across.pane), by);
       this.redraw(); across.desk.redraw();
@@ -1758,7 +1759,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!x) return null;
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
-    if (actor.kind === "agent" && x.desk.limitedFor(x.pane)) throw new ActionRefused(`${this.pathTo(x.pane)} limits what an agent does there`);
     const path = this.pathTo(x.pane) ?? "";
     if (!x.desk.openIntoPane(x.pane, m, path, actor)) return null;
     this.redraw(); x.desk.redraw();
@@ -1791,7 +1791,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (across) {
       const m = await this.ctx.board.get(id);
       if (!m) throw new ActionRefused(`no block ${id}`);
-      if (actor.kind === "agent" && across.desk.limitedFor(across.pane)) throw new ActionRefused(`${this.pathTo(across.pane)} limits what an agent does there`);
       if (across.desk.openIntoPane(across.pane, m, this.pathTo(across.pane) ?? "", actor)) { this.redraw(); across.desk.redraw(); return { reader: this.pathTo(across.pane) ?? null, id: m.id }; }
     }
     // A column of a flow (the river's): the column after it (`fresh`: a new one even when a column has the note).
@@ -1807,13 +1806,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     // A linked tile that takes notes its own way (an extension's kind): it takes it there.
-    if (to !== undefined && actor.kind === "agent") { const no = this.agentNo(to, "opening a note in it"); if (no) throw new ActionRefused(no); }
     if (to !== undefined && this.openInto(to, m, actor)) { this.redraw(); return { reader: this.nameOf(to), id: m.id }; }
     // A reader with no link is its own home (PIE-794): the note replaces its own, as a link followed in it does (a held
     // one changes only itself; one following the current note moves the current note).
     const self = this.panes.get(t.id);
     if (to === undefined && !fresh && self instanceof ReaderPane && !kindOf(self)?.follower) {
-      if (actor.kind === "agent") { const no = this.agentNo(t.id, "opening a note in it"); if (no) throw new ActionRefused(no); }
       if (this.openInto(t.id, m, actor)) { this.redraw(); return { reader: t.name, id: m.id }; }
     }
     // A mounted part with no reader of its own (the lanes alone): where the mount's opens land, on the screen holding it.
@@ -2242,7 +2239,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     if (!this.all().includes(r.id) || this.panes.get(r.id) !== r.pane) throw new ActionRefused(`reader ${r.name} closed while the note was fetched; nothing was opened`);
-    if (actor.kind === "agent") { const no = this.agentNo(r.id, "opening a note in it"); if (no) throw new ActionRefused(no); }
+    this.mayOpen(r.pane, actor);
     // An open into a reader is part of its history (PIE-453): back returns to what it showed.
     r.pane.surface.track(() => {
       this.setCurrent(m, { reveal: true, by: actor });
@@ -3714,6 +3711,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** Pane `p` is a tile the screen limits for agents (edit only or hands off). */
   private limitedFor(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && this.agentOf(id).level !== "free"; }
+  /** Tile `p` is kept from `by`'s opens: `by` is an agent and the screen limits it there (PIE-639). Where an open may land asks this. */
+  private keptFrom(p: Pane, by: Actor): boolean { return by.kind === "agent" && this.limitedFor(p); }
+  /** An open by `by` into tile `p` that doesn't go through `openIntoPane` (a screen's own landing tile): the same guard, refused with why. */
+  private mayOpen(p: Pane, by: Actor) { if (this.keptFrom(p, by)) throw new ActionRefused(this.agentNo(this.idOf(p)!, "opening a note in it")!); }
   /** What an agent may do to tile `id` (PIE-639), and which layer said so ("tile", "screen" or a container's id). */
   agentOf(id: number): { level: AgentLevel; by: string } { return agentLevel(this.layout, id, this.facts(id)); }
   private policyAt(id: number): Effective { return policyOver(this.layout, id, this.facts(id)); }
