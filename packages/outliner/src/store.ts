@@ -2005,7 +2005,8 @@ export class OutlinerStore {
     const named = this.database.query(`
       SELECT DISTINCT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
       WHERE property.scope = 'block' AND property.key = 'ticket' AND block.effective_deleted_root_id IS NULL
-    `).all() as Array<{ id: string }>;
+        AND upper(property.value) LIKE ? ESCAPE '\\'
+    `).all(`%${(parseWorkId(workId)?.prefix ?? workId).replace(/[\\%_]/g, "\\$&")}-%`) as Array<{ id: string }>;
     for (const { id } of named) {
       const copy = this.require(id);
       if (ticketOf(copy.text) !== workId || this.extensionOwnerFromCurrentRead(id)) continue;

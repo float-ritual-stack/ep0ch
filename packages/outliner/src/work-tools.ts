@@ -17,6 +17,7 @@ import { markdownSourceTokens } from "./markdown-structure";
 import { getProperty, matchesFilters, normalizePropertyKey, parsePropertyRecords, patchPropertyText, validateProperty } from "./properties";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { parseWorkId } from "./work-ids";
+import { ticketOf } from "./work-stage-follows";
 import {
   ROADMAP_WORK_STAGES,
   type BacklinkCollection,
@@ -335,7 +336,7 @@ export async function linkTicket(
   const revision = requireRevision(note, options.expectedRevision);
   const previous = getProperty(note.properties, "ticket") ?? null;
   const ticketStage = (block: Block) => getProperty(block.properties, "ticket-stage") ?? null;
-  if (previous === workId) return { ...blockRef(note), workId, previous, ticketStage: ticketStage(note), changed: false };
+  if (ticketOf(note.text) === workId) return { ...blockRef(note), workId, previous, ticketStage: ticketStage(note), changed: false };
   const updated = await client.request<Block>({
     action: "properties.patch",
     blockId: note.id,

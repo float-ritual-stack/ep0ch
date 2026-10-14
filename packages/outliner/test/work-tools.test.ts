@@ -214,6 +214,8 @@ test("a request ticketed from its copy follows the ticket; done gets its day and
   expect(unknown.error).toContain("No block has Work ID PIE-042");
   const linked = await h.run(["work", "link", second.id, "PIE-1", "--expected", "1"]);
   expect(linked.json).toMatchObject({ blockId: second.id, workId: "PIE-001", previous: null, ticketStage: "queued", changed: true });
+  const again = await h.run(["work", "link", early.id, "PIE-001"]);
+  expect(again.json).toMatchObject({ previous: "[[PIE-1]]", changed: false });
   const self = await h.run(["work", "link", "PIE-001", "PIE-001"]);
   expect(self.error).toContain("is a roadmap item");
 
