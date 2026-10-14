@@ -2045,6 +2045,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   // preview the preview, anywhere else the note; typing in a floating comment leaves the note where it was scrolled.
   test("composer scrolls: the wheel over a long comment scrolls it, over its preview the preview, elsewhere the note; typing leaves the note where it is", async () => {
     (app as any).lastInput = 0;
+    // A stage drawn for the first time opens its own comments as it opens: let those land before this one's.
+    const fresh = !S().stages.has(SECTIONS.findIndex(x => x.key === "composer"));
     await app.act({ action: "section", args: { name: "composer" }, as: "test-agent" });
     await until(() => screen().includes("Writing in the margin"), "the composer section");
     const stage = () => S().stages.get(S().sel).top;
@@ -2052,6 +2054,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const surf = () => pane().surface;
     const d = () => surf().session?.composer;
     const rect = () => (surf() as any).boxRect as { row: number; col: number; cols: number; rows: number };
+    if (fresh) await until(() => { sc.render(app); return surf().session?.place === "floating" && !!rect(); }, "the stage's own floating comment");
     const long = Array.from({ length: 30 }, (_, i) => `- row ${i + 1} of the long comment`).join("\n");
     // On the note's first words, so the note can scroll its passage out of view above (whatever the stage's own comment is
     // by now: a test before this one may have closed it).
@@ -2129,6 +2132,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((stage().describe().panes as any[]).find(t => t.kind === "comment")).toMatchObject({ dock: expect.any(String), edge: "right" });
     await stage().dispatch.press("comment.place", { place: "inline" }, "reader");
     await until(() => !tiles().includes("comment"), "back in the reader, the tile closed");
+    // Its tile closed by hand (×, ^W x): the comment isn't lost out of sight, it's back in the reader, split.
+    for (const c of "Bring a padlock") ch(c);
+    await stage().dispatch.press("comment.place", { place: "tile" }, "reader");
+    await until(() => tiles().includes("comment"), "in its tile again");
+    await stage().dispatch.press("tile.close", {}, (stage().describe().panes as any[]).find(t => t.kind === "comment")!.name);
+    await until(() => { sc.render(app); return surf().session?.place === "split"; }, "back in the reader, split");
+    expect(surf().session.composer.text).toBe("Bring a padlock");
     await stage().dispatch.press("comment.close", { discard: true }, "reader");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);

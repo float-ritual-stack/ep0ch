@@ -145,6 +145,8 @@ export interface SurfaceHost {
    * none: a comment there is drawn split.
    */
   composerTile?(on: boolean): Promise<unknown>;
+  /** The comment's own tile is open now (composerTile's): false once it was closed by hand. */
+  hasComposerTile?(): boolean;
   /**
    * A view's own header rows for the note (the BBS message header: Date, To, From, Subj, Conf), drawn in
    * place of the surface's title, byline and crumb rows. The summary line, notices, an agent's line, a
@@ -748,6 +750,8 @@ export class NoteSurface {
   private boxRect: FloatRect | null = null;
   /** The comment session whose own tile (PIE-846) the host was asked for: asked once, again after it left the tile. */
   private tileFor: CommentSession | null = null;
+  /** The comment session whose own tile the host opened (a tile gone after that was closed by hand). */
+  private tileOpen: CommentSession | null = null;
   private boxRoom: { w: number; h: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
   private frameDrag: { zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
@@ -1056,7 +1060,23 @@ export class NoteSurface {
     // In a tile of its own (PIE-846) the note is drawn whole here, and the host is asked for the tile once (it opens
     // after this frame); with no tile to be in, it's drawn split.
     if (writing?.cs.place === "tile" && host?.composerTile) {
-      if (this.tileFor !== writing.cs) { this.tileFor = writing.cs; const open = host.composerTile; queueMicrotask(() => void open(true)); }
+      const cs = writing.cs;
+      if (this.tileFor !== cs) {
+        this.tileFor = cs;
+        const open = host.composerTile;
+        queueMicrotask(() => void open(true).then(() => { if (this.tileFor === cs) this.tileOpen = cs; }, e => {
+          // Refused (a locked screen): the comment stays in the reader, split, and says why.
+          if (this.tileFor === cs) { this.tileFor = null; cs.place = "split"; }
+          host.ctx.flash(`the comment stays in the reader: ${e instanceof Error ? e.message : String(e)}`);
+          host.redraw();
+        }));
+      } else if (this.tileOpen === cs && host.hasComposerTile && !host.hasComposerTile()) {
+        // Its tile was closed by hand (×, ^W x): the comment comes back into the reader, as it was, split.
+        this.tileFor = this.tileOpen = null;
+        cs.place = "split";
+        host.ctx.flash("the comment is back in the reader (split) · ctrl+o moves it");
+        return this.render(w, h, host);
+      }
       return this.renderReading(w, h, host, null);
     }
     const split = writing?.cs.place === "split" || writing?.cs.place === "tile";
@@ -2590,6 +2610,8 @@ export class NoteSurface {
     this.msg = fresh;
     if (this.commentsFor !== m.id) await this.loadComments(host);
     if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
+    // Another comment opened while this one was read (a second C, an act): the one being written stays.
+    if ((this.session as CommentSession | null)?.mode === "compose") return "a comment is being written here: send it (ctrl+s) or put it aside (esc twice) first";
     const s = new CommentSession(fresh, this.comments ?? [], "threads");
     // Sent (or esc'd), the person is back reading, its thread at the top of the note.
     s.fromReader = true; s.startedBy = actor;
@@ -2659,14 +2681,15 @@ export class NoteSurface {
 
   /** Commenting: picking a passage, writing (its own draft session), the thread list. */
   private commentMode(cs: CommentSession): CommentMode {
-    const writing = () => (cs.mode === "compose" ? cs.composer : null);
+    // The comment's own tile (PIE-846) has its mouse (composerPointer): here, a press, a click and the wheel are the note's.
+    const writing = () => (cs.mode === "compose" && cs.place !== "tile" ? cs.composer : null);
     return {
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       // The passage picker and the thread list are drawn in place of the note; the composer is drawn in it (PIE-770).
       editing: () => true, covers: () => cs.mode !== "compose",
       key: (k, host) => this.commentKey(cs, k, host),
       // Beside the box, a click on a link, a comment mark or back and forward goes there, asking first (PIE-785).
-      click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : false; },
+      click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : cs.mode === "compose" && cs.place === "tile" ? this.followFromComposer(x, y, host) : false; },
       press: (x, y, host, drag) => {
         const d = writing();
         if (!d) return false;
@@ -2679,6 +2702,7 @@ export class NoteSurface {
       // While a comment is written the wheel over its box scrolls the box's text or preview (PIE-846, its open completion's
       // candidates first); anywhere else it scrolls the note around it.
       wheel: (dir, _host, at) => {
+        if (cs.mode === "compose" && cs.place === "tile") return false;
         const d = writing();
         if (!d) { cs.wheel(dir); return true; }
         const c = completerOf(d);
@@ -3194,7 +3218,7 @@ export class NoteSurface {
     return false;
   }
   /** The comment left its own tile (comment.place): put back in one, the host is asked for it again. */
-  leftTile() { this.tileFor = null; }
+  leftTile() { this.tileFor = this.tileOpen = null; }
   /** A drag in the comment's own tile is selecting (its release copies, never clicks). */
   private tileDrag = false;
 

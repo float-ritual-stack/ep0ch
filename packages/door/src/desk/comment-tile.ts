@@ -23,17 +23,22 @@ export class CommentTilePane implements Pane {
   hint() { return "ctrl+s send · esc twice puts it aside · ctrl+o back in the reader · ^W p docks it to an edge"; }
   spec() { return { source: `tile:${this.source}` }; }
 
+  private drawn(w: number, h: number, desk: DeskApi) {
+    const r = this.reader(desk);
+    return r?.surface.composerTile(w, h, r.host(desk)) ?? null;
+  }
+
   private reader(desk: DeskApi): ReaderPane | null {
     const p = desk.paneNamed?.(this.source);
     return p instanceof ReaderPane ? p : null;
   }
 
   render(w: number, h: number, _focused: boolean, desk: DeskApi): PaneView {
-    const r = this.reader(desk);
-    const drawn = r?.surface.composerTile(w, h, r.host(desk));
-    if (drawn) return drawn;
-    // Its comment was sent, put aside or placed back in the reader (or its reader went): it closes.
-    if (!this.closing) { this.closing = true; queueMicrotask(() => desk.dismiss?.(this)); }
+    const drawn = this.drawn(w, h, desk);
+    if (drawn) { this.closing = false; return drawn; }
+    // Its comment was sent, put aside or placed back in the reader (or its reader went): it closes, unless the comment
+    // is back in it by the time the close comes round.
+    if (!this.closing) { this.closing = true; queueMicrotask(() => { if (this.closing && !this.drawn(w, h, desk)) desk.dismiss?.(this); }); }
     return { lines: [fg(C.dark) + pad(` no comment is being written in ${this.source}`, w) + RESET] };
   }
 

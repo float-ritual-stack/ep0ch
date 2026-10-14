@@ -273,6 +273,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * else one opened on its right, given the person's keys (they were typing in the comment); `on` false closes it, and
    * the keys go back to the reader.
    */
+  hasComposerTile(r: ReaderPane): boolean {
+    const at = [...this.panes].find(([, p]) => p === r)?.[0];
+    return at !== undefined && [...this.panes.values()].some(p => p instanceof CommentTilePane && p.source === this.nameOf(at));
+  }
   async composerTile(r: ReaderPane, on: boolean): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;

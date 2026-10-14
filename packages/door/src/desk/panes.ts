@@ -53,6 +53,8 @@ export interface DeskApi {
   dismiss?(p: Pane): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
   composerTile?(r: ReaderPane, on: boolean): Promise<unknown>;
+  /** Reader `r`'s comment tile is open. */
+  hasComposerTile?(r: ReaderPane): boolean;
   /**
    * A tile's own key or click, as the person, through the screen's dispatcher (PIE-514): the action of `set` (its kind's,
    * a reader's note actions), in tile `p`. `quiet`: the action says its own refusal.
@@ -429,7 +431,7 @@ export class ReaderPane implements Pane {
       get look() { return desk.lookOf?.(pane); },
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
-      ...(desk.composerTile ? { composerTile: (on: boolean) => desk.composerTile!(this, on) } : {}),
+      ...(desk.composerTile ? { composerTile: (on: boolean) => desk.composerTile!(this, on), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
       ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),
       // `b`: this note's links in the screen's links tile (one opened beside it where there's none).
