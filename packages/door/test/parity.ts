@@ -116,6 +116,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       return request.call(this, action, params).finally(() => { inflight--; wake(); });
     } as typeof request;
     restore.push(() => { SocketBoard.prototype.request = request; });
+    // The door's clock two days on: the seeded notes it lists then read "2d" old, not "9s", "10s" … as they did for the
+    // first minute and a half, when the activity tile's ages ticked under the probes (a wider age shifts its row and
+    // cuts its title one cell shorter, so masking the digits wasn't enough): a key took the blame for a tick.
+    const now = Date.now;
+    Date.now = () => now() + 2 * 86_400_000;
+    restore.push(() => { Date.now = now; });
     newApp();
     board.subscribe(e => app.event(e));
   }, 60_000);
@@ -241,6 +247,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     return mask;
   };
 
+  /**
+   * A run a key can be said to have run. A read no key names (touches nothing, declares no keys) is a part asking for
+   * what it draws, such as the power bar's screens source calling screen.list for its rows: it can land in any key's
+   * window, as the answer to an earlier one, so it's never that key's action.
+   */
+  const keyed = (r: ActionRun) => r.touches !== "nothing" || !!r.keys;
   const tokens = (runs: ActionRun[]) => new Set(runs.flatMap(r => [...declaredKeys(r.keys)]));
   const named = (k: Key) => (k.kind === "mouse" ? `${k.action === "down" ? "click" : k.action}@${k.x},${k.y}` : keyName(k) ?? "?");
   /** What the declared keys must name for this probe: the key's name, or for the mouse its gesture. */
@@ -279,9 +291,10 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   /**
    * A change with no action, checked once more before it's a finding: the screen built again, the rows that
    * change by themselves in the meantime (a terminal's prompt arriving, a section opening its panel) masked
-   * from then on, and the key pressed again. True when it still changes the screen without an action.
+   * from then on, and the key pressed again. When it still changes the screen without an action, what changed (the
+   * finding says it, so a finding that comes and goes shows what moved); else null.
    */
-  async function bare(label: string, make: () => Screen | Promise<Screen>, setup: Key[], k: Key): Promise<boolean> {
+  async function bare(label: string, make: () => Screen | Promise<Screen>, setup: Key[], k: Key): Promise<string | null> {
     let mask = await fresh(label, make, setup);
     const a = snap(mask);
     await Bun.sleep(150); await settle();
@@ -290,11 +303,26 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (a.about !== b.about) mask.add(-1);
     const base = snap(mask);
     const runs: ActionRun[] = [];
-    const stop = traceActions(r => runs.push(r));
+    const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
     try { push(k); await settle(); } finally { stop(); }
     const after = snap(mask);
-    return !same(base, after) && !runs.length && !(after.holds && after.top === base.top);
+    if (same(base, after) || runs.length || (after.holds && after.top === base.top)) return null;
+    return changes(base, after) || "the screen";
   }
+  /** What differs between two looks: the stack, the description, the rows (cut short). */
+  const changes = (a: Snap, b: Snap) => {
+    /** Where two strings first differ, and a little of each from just before it. */
+    const from = (x: string, y: string) => {
+      let i = 0;
+      while (i < x.length && x[i] === y[i]) i++;
+      const at = (z: string) => JSON.stringify(z.slice(Math.max(0, i - 16), i + 40)).slice(1, -1);
+      return `at ${i}: "${at(x)}" → "${at(y)}"`;
+    };
+    // The words that changed; or, the same words drawn differently (a colour, a weight), the escapes that did.
+    const row = (l: string, m: string) => (plain(l) !== plain(m) ? from(plain(l), plain(m)) : `same text, drawn differently ${from(l, m)}`);
+    const rows = a.lines.flatMap((l, i) => (l === b.lines[i] ? [] : [`row ${i}: ${row(l, b.lines[i] ?? "")}`]));
+    return [a.top !== b.top || a.depth !== b.depth ? "the stack" : "", a.video !== b.video ? `video ${a.video} → ${b.video}` : "", a.drawer !== b.drawer ? `the drawer ${a.drawer} → ${b.drawer}` : "", a.about !== b.about ? "its description" : "", ...rows.slice(0, 3), rows.length > 3 ? `${rows.length - 3} more rows` : ""].filter(Boolean).join("; ");
+  };
 
   /**
    * Press every key, and click across the screen, as it opens; then, from each key that left it holding the
@@ -326,7 +354,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
       const base = last ?? snap(mask);
       const runs: ActionRun[] = [];
-      const stop = traceActions(r => runs.push(r));
+      const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
       if (process.env.PARITY_TRACE) require("node:fs").appendFileSync(process.env.PARITY_TRACE, `${label} ${named(k)}\n`);
       try { push(k); await settle(); } finally { stop(); }
       const after = snap(mask);
@@ -345,8 +373,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         continue;
       }
       if (after.holds && after.top === base.top) { if (log && k.kind !== "mouse") require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`); if (k.kind !== "mouse") states.push(k); continue; }
-      if (!(await bare(label, make, setup, k))) continue;
-      findings.push({ screen: label, keys: named(k), problem: after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action" });
+      const changed = await bare(label, make, setup, k);
+      if (!changed) continue;
+      findings.push({ screen: label, keys: named(k), problem: `${after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action"} (${changed})` });
     }
     if (log) require("node:fs").appendFileSync(log, `# ${label}: input states ${states.map(named).join(" ")}\n`);
     if (process.env.PARITY_DEPTH === "1") return;
@@ -369,7 +398,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         }
         const mid = snap(mask);
         const runs: ActionRun[] = [];
-        const stop = traceActions(r => runs.push(r));
+        const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
         try { push(k2); await settle(); } finally { stop(); }
         const after = snap(mask);
         if (same(mid, after)) continue;
@@ -395,7 +424,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const mask = await fresh(label, make, [...setup, k1]);
     const mid = snap(mask);
     const runs: ActionRun[] = [];
-    const stop = traceActions(r => runs.push(r));
+    const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
     try { push(k2); await settle(); } finally { stop(); }
     const after = snap(mask);
     if (same(mid, after)) return null;
@@ -412,8 +441,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (alike(again, ended, false)) return null;
       if (process.env.PARITY_DIFF) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(k1)} ${named(k2)}: ${again.about === ended.about ? "" : "describe differs; "}${again.lines.map((l, i) => (l === ended.lines[i] ? "" : `row ${i}: ${plain(l).trim().slice(0, 100)} | ${plain(ended.lines[i] ?? "").trim().slice(0, 100)}`)).filter(Boolean).join("\n  ")}\n`);
     }
-    if (!(await bare(label, make, [...setup, k1], k2))) return null;
-    return "ended an input state with a change and no action";
+    const changed = await bare(label, make, [...setup, k1], k2);
+    return changed ? `ended an input state with a change and no action (${changed})` : null;
   }
 
   /**

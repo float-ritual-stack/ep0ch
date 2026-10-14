@@ -319,9 +319,12 @@ export class Lanes implements SourceModel {
     this.hubs[this.host.ctx.workspace] = hub.id;
     this.host.title = `board · ${subject(hub)}`;
     const onLanes = this.onLanes;
-    await this.host.showSource(this.container, `hub:${hub.id}`);
+    // The new lanes are laid out at once (the old ones closed under the person's keys) and filled after: where the keys
+    // fell then is noted, so a person who moved on while the lanes filled (a card opened in a detail) keeps their keys.
+    const filling = this.host.showSource(this.container, `hub:${hub.id}`), fell = this.host.focusedPane();
+    await filling;
     // The person was on the lanes: they're on the new board's (its old lanes were closed under them).
-    if (onLanes && !this.host.holdsKeys?.()) this.toLanes();
+    if (onLanes && this.host.focusedPane() === fell && !this.host.holdsKeys?.()) this.toLanes();
     this.status = "";
     this.host.save();
     this.host.redraw();

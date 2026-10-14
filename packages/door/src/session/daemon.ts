@@ -10,7 +10,7 @@
 // folder, beside the control socket agents use (door.sock), which the session serves as the door always has. Naming an
 // outline names its session, so a terminal is never attached to another outline's. A test door on its own state dir
 // (EP0CH_STATE) has its own sessions and never reaches the person's.
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync, writeSync, chmodSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync, chmodSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { resolve } from "node:path";
 import type { App } from "../app";
@@ -137,7 +137,12 @@ export async function serve(args: string[]): Promise<never> {
     kept: host.unadopted().map(p => ({ key: p.key, cmd: (p.meta.cmd ?? p.argv).join(" "), ...(p.pid ? { pid: p.pid } : {}) })),
     host: host.hostPid,
   });
-  const writeInfo = () => { if (over) return; try { writeFileSync(sessionFile(dir), JSON.stringify(info(), null, 1), { mode: 0o600 }); } catch { /* not fatal */ } };
+  // Whole or not at all (a temp file renamed over it): a reader never parses half of it.
+  const writeInfo = () => {
+    if (over) return;
+    const file = sessionFile(dir), tmp = `${file}.${process.pid}.tmp`;
+    try { writeFileSync(tmp, JSON.stringify(info(), null, 1), { mode: 0o600 }); renameSync(tmp, file); } catch { /* not fatal */ }
+  };
   term.onClients = writeInfo;
   // Logging off (Goodbye, ctrl+c) detaches the client it was done from: the session says so and goes on.
   term.onLogoff = c => { writeLastCall(loggedOnAt); c.link.close({ t: "bye", reason: "detached", message: detachedSaying(place) }); };

@@ -400,7 +400,9 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
       c.render(100, 40, hc);
       const caption = (c as any).drawn.doc.media[1].row;
       (c as any).scroll = caption + 1;
-      await until(() => c.render(100, 40, hc).lines[0]!.includes("\x1b[48;2;") && c.headerBackdrop().backdrop?.drawn === "cells", "the cells crossfade", 10_000);
+      // Both pictures' variants are made off the render path, each when it's first asked for: the crossfade is drawn
+      // once the one before is ready at full too (a loaded machine can make the new one's step first).
+      await until(() => c.render(100, 40, hc).lines[0]!.includes("\x1b[48;2;") && c.headerBackdrop().backdrop?.drawn === "cells" && !!c.headerBackdrop().backdrop?.over, "the cells crossfade", 10_000);
       expect(c.headerBackdrop().backdrop).toMatchObject({ image: "wide.jpg", step: 1, over: "sunset.png" });
     } finally { useHeroHeader(null); }
     // First mode keeps the hero however far it scrolls.

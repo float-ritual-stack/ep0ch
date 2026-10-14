@@ -189,6 +189,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
 
   test("L shows a row's outlinks, resources and backlinks, grouped as the Tree groups them; L again hides them", async () => {
     selectRow("Weekend plan");
+    const sentBefore = board.sent.length;
     ch("L");
     await until(() => rows().some(r => r.text.startsWith("← backlinks (1)")) && rows().some(r => r.text.startsWith("→ outlinks (2)")), "the groups");
     const shown = rows().filter(r => r.depth > 1 && r.n > rowOf("Weekend plan").n && r.n < rows().find(x => x.kind === "block" && x.text === "Compost notes")!.n).map(r => `${"  ".repeat(r.depth - 2)}${r.text}${r.context ? ` · ${r.context}` : ""}`);
@@ -196,8 +197,9 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     expect(shown).toContain("  compost.md · not registered · ⏎ registers and shows it · notes");
     expect(shown.some(s => s.startsWith("  ACME-12 · not registered"))).toBe(true);
     expect(shown).toContain("    Compost notes · Allotment log · block reference ×1");
-    // Listing registered nothing and wrote nothing.
-    expect(board.sent.filter(a => a.startsWith("resources.") || a === "update")).toEqual([]);
+    // Listing registered nothing and wrote nothing. The reader following the selection to the plan reads its
+    // projections when it gets there (resources.projection.read, sooner or later than L): that's the reader's open.
+    expect(board.sent.slice(sentBefore).filter(a => (a.startsWith("resources.") && a !== "resources.projection.read") || a === "update")).toEqual([]);
     const drawn = lines().join("\n");
     expect(drawn).toContain("→ outlinks (2)");
     expect(drawn).toContain("♦ resources (3)");

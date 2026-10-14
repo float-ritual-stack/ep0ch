@@ -96,6 +96,26 @@ export function scratchDir(prefix: string): string {
   return dir;
 }
 
+/** Where a scratch host's stderr goes: `host.log` in its dir (a restart starts it again). */
+const hostLog = (root: string) => Bun.file(join(root, "host.log"));
+
+/**
+ * A scratch host that exits while its tests still hold it (nobody called stop) says so on stderr, with its exit
+ * code and the end of its log: a test that then can't reach its socket shows why, not only ENOENT.
+ */
+function watchHost(p: Subprocess, root: string, current: () => Subprocess | null): Subprocess {
+  void p.exited.then(code => {
+    if (current() !== p) return;
+    let tail = "";
+    try { tail = readFileSync(join(root, "host.log"), "utf8").split("\n").slice(-30).join("\n"); } catch { /* no log */ }
+    // A clean exit (the host stops on SIGTERM) nobody here asked for: most likely Bun's, which ends a file's processes
+    // when one of its tests times out ("killed N dangling processes").
+    const why = code === 0 || p.signalCode === "SIGTERM" ? ": it was told to stop; a test in this file timing out does that (bun test ends the file's processes)" : "";
+    console.error(`scratch host ${root} exited while its tests held it (code ${code}, signal ${p.signalCode ?? "none"}${why}); the tests after it here can't reach it. Its log ends:\n${tail}`);
+  });
+  return p;
+}
+
 export class Scratch {
   readonly root: string;
   sock = "";
@@ -123,7 +143,7 @@ export class Scratch {
     // No Jev key: a scratch host answers searches with text matches only, never a paid call.
     for (const k of [...HERDR_VARS, ...NO_JEV, ...OWN_FOLDERS, "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
     env.TZ = TEST_ZONE;
-    this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: "ignore" });
+    this.proc = watchHost(Bun.spawn(["bun", "src/host-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: hostLog(this.root) }), this.root, () => this.proc);
     const path = join(this.outlines, ".host", "host.sock");
     const { hostRequest, SocketBoard } = await import("../src/socket");
     const ping = async () => {
@@ -196,7 +216,7 @@ export class ScratchHost {
     for (const k of [...HERDR_VARS, ...NO_JEV, ...OWN_FOLDERS, "EP0CH_DEFAULT_WS", "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
     if (defaultOutline) env.EP0CH_DEFAULT_WS = defaultOutline;
     env.TZ = TEST_ZONE;
-    this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: hostOutliner!, env, stdout: "ignore", stderr: "ignore" });
+    this.proc = watchHost(Bun.spawn(["bun", "src/host-main.ts"], { cwd: hostOutliner!, env, stdout: "ignore", stderr: hostLog(this.root) }), this.root, () => this.proc);
     const { hostLive } = await import("../src/discover");
     const end = Date.now() + 20_000;
     while (!(await hostLive(this.sock, 1000))) {

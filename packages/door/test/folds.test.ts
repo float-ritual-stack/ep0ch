@@ -414,6 +414,8 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     b = boardScreen(hub.id);
     app.push(new MainMenu()); app.push(b);
     await until(() => B().lanes.length === 1 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
+    // The board has started: the person is on its lanes, where each test below begins.
+    await until(() => BV.where(b) === "lanes", "the board started, the person on its lanes", 10_000);
   }, 30_000);
 
   afterAll(async () => {

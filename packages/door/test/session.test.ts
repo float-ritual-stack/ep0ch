@@ -491,7 +491,8 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const a = await RawClient.attach(sessionSocket(dir), 150, 44, { args: ["--screen", "library"] });
     await until(() => a.screen().includes("component library") || a.screen().includes("library ·"), "the library on the attached client", 10_000);
     expect(a.screen()).toContain("library");
-    expect(a.screen()).toContain("opened library");
+    // Said once the open has finished, which can be a frame after the library is first drawn.
+    await until(() => a.screen().includes("opened library"), "opened library, said", 10_000);
     // Again, on the screen it is on: said, not silently nothing.
     const b = await RawClient.attach(sessionSocket(dir), 150, 44, { args: ["--screen", "library"] });
     await until(() => b.screen().includes("already on library"), "the already-there note", 10_000);
