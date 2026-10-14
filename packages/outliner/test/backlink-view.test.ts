@@ -166,6 +166,7 @@ test("Peek's launch options are validated", () => {
   expect(() => parseBacklinkViewOptions({ ...DEFAULT_BACKLINK_VIEW_OPTIONS, sortField: "rank" })).toThrow("sort");
   // A stage is a family, open, all, or a value as the notes write it (PIE-819); only an empty or non-text one is refused.
   expect(parseBacklinkViewOptions({ ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "answered" }).stage).toBe("answered");
+  expect(parseBacklinkViewOptions({ ...DEFAULT_BACKLINK_VIEW_OPTIONS, stages: ["next", "doing"] }).stages).toEqual(["next", "doing"]);
   expect(() => parseBacklinkViewOptions({ ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: " " })).toThrow("stage");
   expect(() => parseBacklinkViewOptions({ ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: 3 })).toThrow("stage");
   expect(() => parseBacklinkViewOptions({ ...DEFAULT_BACKLINK_VIEW_OPTIONS, showResolved: "yes" })).toThrow("booleans");

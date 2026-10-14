@@ -263,6 +263,9 @@ describe("the outline's own status families (PIE-819)", () => {
     const parked = workspace.create("Do we need the urn? [[Hall Booking]] [type::question] [status::parked]");
     const before = workspace.queryBacklinks({ targetBlockId: target.id, limit: 10 });
     expect(facetsOf(before, asked)?.stage).toEqual({ property: "status", value: "answered" });
+    // The five words of Evan's outlines each have a family by default: parked waits (open), not done.
+    expect(facetsOf(before, parked)?.stage).toEqual({ property: "status", value: "parked", bucket: "waiting" });
+    for (const word of ["next", "doing", "waiting", "parked", "done"]) expect(Object.values(DEFAULT_BACKLINK_FACET_RULES.stageBuckets).some((l) => l.includes(word))).toBe(true);
     // The outline says answered (and fixed) are done, parked is waiting.
     workspace.create("answered, fixed [status-family::done]");
     workspace.create("parked [status-family::waiting]");

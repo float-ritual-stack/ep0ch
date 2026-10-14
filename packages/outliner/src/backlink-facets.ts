@@ -46,7 +46,8 @@ export const DEFAULT_BACKLINK_FACET_RULES: BacklinkFacetRules = {
   fallbackKind: "note",
   stageProperties: ["work-stage", "outbox", "stage", "status"],
   stageBuckets: {
-    waiting: ["waiting", "queued", "later", "blocked", "pending", "next", "planned", "todo", "unprocessed"],
+    // The five words Evan's outlines use (next · doing · waiting · parked · done) each have a family: parked waits.
+    waiting: ["waiting", "queued", "later", "blocked", "pending", "next", "planned", "todo", "unprocessed", "parked"],
     draft: ["draft", "unprioritized", "idea", "proposed"],
     active: ["active", "doing", "in-progress", "review", "validate", "open", "started"],
     done: [

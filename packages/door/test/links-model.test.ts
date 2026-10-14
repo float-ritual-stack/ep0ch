@@ -67,7 +67,7 @@ describe("the sideways wheel", () => {
 });
 
 /** An inline component's spec with nothing written. */
-const BLOCK = { of: null, filter: "", title: null, groups: null, query: null, preview: "none" } as const;
+const BLOCK = { of: null, filter: "", title: null, groups: null, query: null, preview: "none", stages: null } as const;
 
 describe("the inline component's forms", () => {
   test("one line: the words after the name filter, a ((ref)) names whose", () => {
@@ -100,6 +100,8 @@ describe("the inline component's forms", () => {
     expect(blockGroups(q.spec)).toEqual(["matches"]);
     // Unclosed, the braces' line alone is the component.
     expect(linkBlockAt(["::links{query=type=errand}", "after"], 0)).toEqual({ spec: { ...BLOCK, kind: "links", query: "type=errand", preview: "right" }, end: 0 });
+    // stages: names the values its headers and Stage use, in order (PIE-819).
+    expect(linkBlockAt(["::backlinks{stages=\"[next, doing, waiting]\"}"], 0)?.spec.stages).toEqual(["next", "doing", "waiting"]);
     const lines = linkBlockAt(["::links", "query: type=errand", "groups: backlinks, children", "preview: below", "::"], 0)!.spec;
     expect(lines).toMatchObject({ query: "type=errand", groups: ["backlinks", "children"], preview: "below" });
     expect(blockGroups({ ...BLOCK, kind: "links" })).toEqual(["outlinks", "resources", "backlinks", "children"]);

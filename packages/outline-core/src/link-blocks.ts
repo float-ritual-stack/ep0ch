@@ -35,6 +35,11 @@ export interface LinkBlockSpec {
   /** A query in the saved views' grammar: its matches are the `matches` group. */
   query: string | null;
   preview: LinkPreview;
+  /**
+   * The stage values its group headers and Stage name, in order (`stages: [next, doing, waiting]`, PIE-819), or null
+   * for every value its rows carry. Rows with another value stay listed, said as "other".
+   */
+  stages: string[] | null;
   problem?: string;
 }
 
@@ -79,7 +84,7 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
   const block: ComponentBlock | null = blocks.get(i) ?? (open && !open[2] ? { name: open[1]!, args: null, start: i, end: i, ...(open[3] ? { attrs: open[3].slice(1, -1) } : {}) } : null);
   if (!block || !(LINK_BLOCK_KINDS as readonly string[]).includes(block.name)) return null;
   const rest = (block.args ?? "").trim(), end = block.end;
-  const spec: LinkBlockSpec = { kind: block.name as LinkBlockKind, of: null, filter: "", title: null, groups: null, query: null, preview: "none" };
+  const spec: LinkBlockSpec = { kind: block.name as LinkBlockKind, of: null, filter: "", title: null, groups: null, query: null, preview: "none", stages: null };
   const idOf = (s: string) => referencedBlock(s)?.blockId ?? null;
   const words: string[] = [];
   let preview: string | null = null;
@@ -90,16 +95,17 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
     else if (k === "query") spec.query = v.trim() || null;
     else if (k === "preview") preview = v.trim().toLowerCase();
     else if (k === "groups") { const g = groupsFrom(v); if (typeof g === "string") spec.problem = g; else spec.groups = g; }
+    else if (k === "stages") { const l = v.replace(/^\s*\[|\]\s*$/g, "").split(",").map((x) => x.trim()).filter(Boolean); spec.stages = l.length ? l : null; }
     else return false;
     return true;
   };
   // Its attributes, in braces on the first line.
-  for (const a of componentAttrs(block.attrs ?? "").pairs) if (!set(a.key.toLowerCase(), a.value)) spec.problem = `${a.key} isn't one of ::${block.name}'s keys (of, filter, title, groups, query, preview)`;
+  for (const a of componentAttrs(block.attrs ?? "").pairs) if (!set(a.key.toLowerCase(), a.value)) spec.problem = `${a.key} isn't one of ::${block.name}'s keys (of, filter, title, groups, query, preview, stages)`;
   // Its arguments: `::links ((id))` names whose; anything else is the filter.
   if (rest) { const id = idOf(rest); if (id) spec.of = id; else words.push(rest); }
   for (const line of lines.slice(i + 1, end)) {
     if (/^\s*---\s*$/.test(line)) continue;
-    const kv = /^\s*(of|filter|title|groups|query|preview)\s*:\s*(.*?)\s*$/.exec(line);
+    const kv = /^\s*(of|filter|title|groups|query|preview|stages)\s*:\s*(.*?)\s*$/.exec(line);
     if (!kv) { words.push(line.trim()); continue; }
     set(kv[1]!, kv[2]!.replace(/^["']|["']$/g, ""));
   }
