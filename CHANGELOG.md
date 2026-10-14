@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Keep a tag's list (PIE-855)
+
+- **Added:** a list a `#tag` opened can be held: `p` in it, a click on the `○` on its frame (`●` while held), its tile
+  menu, or `act tile.hold tile=<list>`. A held list keeps its tag and stays where you dock it (`^W p`); the next tag you
+  open in the reader gets a list of its own instead of replacing it. ⏎ in a held list still opens in its reader. `p`
+  again lets it go, making it the reader's list again (refused, with what to do, while the reader already has another).
+  The hint says `held · a new tag opens its own list`, and the hold is saved with the layout.
+
 ### A handover keeps the comment you were writing (PIE-847)
 
 - **Fixed:** when the door is handed to new code (a deploy, `ep0ch session restart`) while you're writing a comment,

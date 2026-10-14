@@ -179,8 +179,11 @@ const builtins = (): TileKind[] => [
     kind: "query", about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
     // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
     keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (m.props.type ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
-    make: s => { const src = s.source && sourceOf(s.source); return new QueryPane(s.view ?? "", s.query ?? null, src && "tile" in src ? src.tile : null); }, actions: QUERY_ACTIONS,
+    make: s => { const src = s.source && sourceOf(s.source); return new QueryPane(s.view ?? "", s.query ?? null, src && "tile" in src ? src.tile : null, s.mode === "held"); }, actions: QUERY_ACTIONS,
     save: p => (p as QueryPane).spec(),
+    // A #tag's list held (PIE-855): it keeps its tag, and the next tag in its home opens a list of its own. p, as the river's hold.
+    hold: { held: p => ((p as QueryPane).holdable ? (p as QueryPane).held : null), set: (p, on) => { (p as QueryPane).held = on; } },
+    press: (p, k) => (ch(k) === "p" && (p as QueryPane).holdable ? { action: "tile.hold" } : null),
     check: s => (s.view || s.query ? null : "a query tile needs view=<a saved view's block id> (^W o q picks one) or query=<a query, #tag>"),
     // Beside a reader (a #tag's list): that reader is its home, where ⏎ lands (PIE-794).
     home: p => (p as QueryPane).home,

@@ -291,6 +291,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Each tile's ⋯ (its menu, tile.menu), and how far its cell is from the tile's right edge (a float moves under it). */
   /** The fold glyphs drawn (◂ ▾) on tile frames, for a click: it folds the tile to a spine (alt+click the other way). */
   private foldButtons: { id: number; from: number; to: number; row: number }[] = [];
+  /** A holdable list's ○ (● held) on its frame (PIE-855): a click holds it or lets it go (tile.hold). */
+  private holdButtons: { id: number; from: number; to: number; row: number }[] = [];
   private menuButtons: { id: number; from: number; to: number; row: number; right: number }[] = [];
   /** Each open dock's `[×]` as drawn: a click closes it, as Esc in it does. */
   private dockCloses: { id: number; from: number; to: number; row: number }[] = [];
@@ -1577,7 +1579,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /**
    * DeskApi.openTag (PIE-800): a `#tag` opened in reader `r` lists the notes carrying it (the service's `#tag` query, the
    * atom views use) in a query tile whose home is `r` (PIE-794: its selection previews, ⏎ replaces `r`'s note, alt+⏎ a
-   * new detail beside `r`): the one already listing for `r`, asked the new tag, else one opened below `r` with a preview
+   * new detail beside `r`): the one already listing for `r` (not one held, PIE-855), asked the new tag, else one opened below `r` with a preview
    * following its selection beside it, as `b` opens the links tile (tile.open, the layout's rules: a locked screen says
    * so). The person's keys go to the list; an agent's stay where they are, and an agent never retargets the person's list
    * (it is answered the notes instead).
@@ -1586,7 +1588,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const rid = this.idOf(r);
     if (rid === undefined) throw new ActionRefused("that reader isn't on this screen");
     const home = this.nameOf(rid), query = `#${tag}`;
-    let id = this.all().find(i => { const p = this.panes.get(i); return p instanceof QueryPane && p.query !== null && p.home === home; });
+    let id = this.all().find(i => { const p = this.panes.get(i); return p instanceof QueryPane && p.query !== null && p.home === home && !p.held; });
     const opened = id === undefined;
     // The person's list stays as it is (its tag, its selection): an agent reads the notes carrying the tag instead.
     if (!opened && actor.kind === "agent") {
@@ -2551,7 +2553,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // For the mouse: the top float first, then the top dock's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
     this.tileSpots = [];
-    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.linkChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.linkChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.holdButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
@@ -2771,8 +2773,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // horizontal one (stacked); a click folds it, alt+click folds it the other way (tile.collapse, as alt+h and alt+H).
     const foldDir = menus && !float && r.cols >= 20 ? this.foldDirOf(id) : null;
     const foldX = menuX - 2;
+    // A list that can be held off its home (a #tag's list, PIE-855): ○, or ● while held, left of those; a click is tile.hold.
+    const holdK = kindOf(pane)?.hold, listHeld = menus && !float && r.cols >= 24 && holdK ? holdK.held(pane) : null;
+    const holdX = (foldDir ? foldX : menuX) - 2;
     // With the controls, the title ends a cell before them; what follows the title (how far down, "e enters") gives way first.
-    const fits = Math.max(1, (foldDir ? foldX : menuX) - r.col - 4);
+    const fits = Math.max(1, (listHeld !== null ? holdX : foldDir ? foldX : menuX) - r.col - 4);
     // Without it, as before: a float's long subject is cut so how far down it is still shows.
     const floatFits = Math.max(1, r.cols - 5 - width(tail));
     const title = !menus ? (float && width(head) > floatFits ? pad(head, floatFits) : head) + tail : width(head) + width(tail) <= fits ? head + tail
@@ -2814,6 +2819,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (foldDir) {
       canvas.text(foldX, r.row, `${fg(focused ? C.grey : C.dark)}${foldDir === "h" ? "▾" : "◂"}${RESET}`, 1);
       this.foldButtons.push({ id, row: r.row, from: foldX, to: foldX + 1 });
+    }
+    if (listHeld !== null) {
+      canvas.text(holdX, r.row, `${fg(listHeld ? C.yellow : focused ? C.grey : C.dark)}${listHeld ? "●" : "○"}${RESET}`, 1);
+      this.holdButtons.push({ id, row: r.row, from: holdX, to: holdX + 1 });
     }
     // Every tile's ⋯, left of those: a click opens its menu (tile.menu, as ^W . and a right-click in it do).
     if (menus) {
@@ -4913,6 +4922,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       float: this.isFloat(id), zoomed: this.zoom === id, collapsed: this.collapsed.has(id), dock: !!dockOf(this.root, id),
       shuts: chainOf(this.root, id).some(c => c.policy?.shuts), inDrawer, flow: !!flow,
       held: !!flow?.held?.some(h => columnOf(flow, h) === columnOf(flow, id)),
+      listHeld: p && kindOf(p)?.hold ? kindOf(p)!.hold!.held(p) : null,
       running: p instanceof PtyPane && p.running ? p.title() : null,
       refused: op => {
         switch (op) {
@@ -5027,9 +5037,25 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { tile: String(r.answer.tile ?? this.nameOf(this.focus)), from: t.name };
   }
 
-  /** `tile.hold`: tile `sel`'s column resists compression in its flow (the river's `p`), or lets go; default toggles. */
+  /**
+   * `tile.hold`: tile `sel`'s column resists compression in its flow (the river's `p`), or lets go; default toggles. A
+   * list its kind lets hold (a #tag's list, PIE-855) is held off its home instead: it keeps what it lists and the next
+   * tag opens a list of its own. Let go, it is its home's list again, unless another list already is (said, refused).
+   */
   holdTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone {
-    const t = this.tile(sel);
+    const t = this.tile(sel), p = this.panes.get(t.id), k = kindOf(p);
+    const was = p && k?.hold ? k.hold.held(p) : null;
+    if (p && k?.hold && was !== null) {
+      const to = on ?? !was;
+      if (!to && was) {
+        const home = k.home?.(p) ?? null;
+        const other = home === null ? undefined : this.all().find(i => { const q = this.panes.get(i); return q !== p && !!q && kindOf(q) === k && k.hold!.held(q) === false && k.home?.(q) === home; });
+        if (other !== undefined) throw new ActionRefused(`${this.nameOf(other)} is ${home}'s list now: close it or hold it (p in it) before letting ${t.name} go`);
+      }
+      k.hold.set(p, to);
+      this.save(); this.redraw();
+      return { tile: t.name, held: to, ...(to !== was ? {} : { changed: false }) };
+    }
     const r = this.apply({ op: "flow.hold", tile: t.id, ...(on !== undefined ? { on } : {}) }, actor);
     this.save(); this.redraw();
     return { tile: t.name, held: !!r.answer.held };
@@ -5635,6 +5661,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const xb = this.closeButtons.find(at);
       if (xb) return this.run("tile.close", {}, this.nameOf(xb.id));
       // ◂ ▾ on a tile's frame: it folds to a spine (tile.collapse, as alt+h), alt-click the other way (alt+H), without taking the keys.
+      // ○ ● on a list's frame: it is held off its home or let go (tile.hold, as p in it), without taking the keys.
+      const hb = this.holdButtons.find(at);
+      if (hb) return this.run("tile.hold", {}, this.nameOf(hb.id));
       const ob = this.foldButtons.find(at);
       if (ob) {
         const alt = ((k.mods ?? 0) & 28) !== 0;

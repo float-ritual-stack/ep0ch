@@ -103,6 +103,12 @@ export interface TileKind {
    */
   home?(p: Pane): string | null;
   /**
+   * A list that can be held off its home (PIE-855: a `#tag`'s list): `held` says whether it is now (null: it can't be,
+   * as a saved view's lane), `set` holds it or lets it go. A held list keeps what it lists, and the next tag opened in
+   * its home opens a list of its own; its opens still land in its home. `tile.hold` runs it.
+   */
+  hold?: { held(p: Pane): boolean | null; set(p: Pane, on: boolean): void };
+  /**
    * A list about a note that `b` aims (the links tile: a reader's note's Outlinks, Resources and Backlinks): the
    * tile as the desk aims it, and the kind of tile opened beside it to follow its selection when a screen has
    * none and `b` opens one (`companion`, a preview).

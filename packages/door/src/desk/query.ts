@@ -97,8 +97,12 @@ export class QueryPane implements Pane {
   /**
    * `view`: the saved view's block id. `query`: a query in the views' grammar it lists instead (`#garden`), with no
    * saved view. `home`: the reader it belongs to (a tile's name): its selection previews, ⏎ lands there (PIE-794).
+   * `held`: a #tag's list kept off its home (PIE-855): it keeps its query, and the next tag in its home opens a list of its own.
    */
-  constructor(public view: string, public query: string | null = null, public home: string | null = null) {}
+  constructor(public view: string, public query: string | null = null, public home: string | null = null, public held = false) {}
+
+  /** A query listed for a home reader (a #tag's list) can be held there; a saved view's lane can't. */
+  get holdable(): boolean { return this.query !== null && this.home !== null && !this.model; }
 
   /** Its view's name (the lane's name), or the query it lists. */
   get name(): string { return this.query ?? (this.def ? subject(this.def) : `view ${this.view.slice(0, 8)}`); }
@@ -122,7 +126,12 @@ export class QueryPane implements Pane {
   title() { return `${this.name} ${this.items ? this.items.length : "…"}`; }
   /** Its header names the view as written ("Reading now"), not the tile (`Reading-now`). */
   headName() { return this.def ? subject(this.def) : undefined; }
-  hint() { return this.boardHint ?? (this.home ? `j k preview · ⏎ open in ${this.home} · alt+⏎ new detail · r reload` : "j k pick · ⏎ open · r reload"); }
+  hint() {
+    if (this.boardHint) return this.boardHint;
+    if (!this.home) return "j k pick · ⏎ open · r reload";
+    const keys = `j k preview · ⏎ open in ${this.home} · alt+⏎ new detail · r reload`;
+    return !this.holdable ? keys : this.held ? `held · a new tag opens its own list · ${keys} · p let go` : `${keys} · p hold`;
+  }
   /** While a card is dragged over it: yellow (it would move, and what changes), red (refused, why). */
   frameLook(focused: boolean): { colour?: number; hint?: string } | null {
     const d = this.drop;
@@ -261,10 +270,10 @@ export class QueryPane implements Pane {
     return true;
   }
 
-  spec() { return { ...(this.query !== null ? { query: this.query } : { view: this.view }), ...(this.home ? { source: `tile:${this.home}` } : {}) }; }
+  spec() { return { ...(this.query !== null ? { query: this.query } : { view: this.view }), ...(this.home ? { source: `tile:${this.home}` } : {}), ...(this.held ? { mode: "held" as const } : {}) }; }
   describe() {
     const brief = (m: Msg | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
-    return { ...(this.query !== null ? { query: this.query, ...(this.home ? { home: this.home } : {}), cards: (this.items ?? []).map(m => ({ id: m.id, title: subject(m) })) } : { view: this.view }), lane: this.name, count: this.items?.length ?? null, status: this.read?.status, truncated: this.read?.truncated, selected: brief(this.card()) };
+    return { ...(this.query !== null ? { query: this.query, ...(this.home ? { home: this.home } : {}), ...(this.holdable ? { held: this.held } : {}), cards: (this.items ?? []).map(m => ({ id: m.id, title: subject(m) })) } : { view: this.view }), lane: this.name, count: this.items?.length ?? null, status: this.read?.status, truncated: this.read?.truncated, selected: brief(this.card()) };
   }
 }
 
