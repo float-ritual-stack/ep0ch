@@ -145,6 +145,22 @@ describe('each touch, recorded in the session\'s outline', () => {
     expect(s.pageReads).toHaveLength(1)
   })
 
+  test('the page is read again once a minute old: a glob added mid-session takes effect', async ($, on) => {
+    const s = sessionIn(on, {}, '')
+    await $.session.start(START)
+    await s.clock.settle()
+    const edit = { tool: 'Edit', file_path: FILE, old_string: 'Borlotti', new_string: 'Runner beans\nChard' } as any
+    await $.tool.call(edit)
+    await s.clock.settle()
+    expect(s.touches()).toEqual([])
+    s.pageText.value = 'Recent files [page::recent-files]\n[file-touches::**/*.md]'
+    await s.clock.advance(61_000)
+    await $.tool.call(edit)
+    await s.clock.settle()
+    expect(s.touches().map(t => t.path)).toEqual([FILE])
+    expect(s.pageReads).toHaveLength(2)
+  })
+
   test('a page with no globs records nothing', async ($, on) => {
     const none = sessionIn(on, {}, '')
     await $.session.start(START)

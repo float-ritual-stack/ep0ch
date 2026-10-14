@@ -460,7 +460,7 @@ session's outline.
   Claude Code's rows back, these too.
 - **The record (only where the outline asks):** the outline's Recent files page (`[[recent-files]]`) carries one
   `[file-touches::<glob>]` property per area to record, e.g. `[file-touches::~/rangle/**/*.md]` or
-  `[file-touches::**/plans/**]` (`~` is the home folder; a glob without a leading `/` or `~` matches anywhere). A touch
+  `[file-touches::**/plans/**]` (`~` is the home folder; a glob without a leading `/` or `~` matches anywhere; `**`, `*`, `?` and `{a,b}` only, no `[ab]` classes; a property in code is ignored). A touch
   is filed only when its path matches one; no globs, nothing is filed. The mod reads them when first needed and again
   when a minute old (never per touch). The `fileTouches` option (`off`) or `PI_OUTLINER_FILE_TOUCHES=off` in Claude's
   environment switches it off for a whole session, and off wins over the page. Unfiled, the rows above are unchanged,
