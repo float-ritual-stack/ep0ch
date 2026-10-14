@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### CI: a slow run is told from a hung one (PIE-831)
+
+- **Changed:** the door's agent-parity probe runs in five files, not three, and the shell's input states (ctrl+n, the
+  drawer's alt keys) are probed once in the suite, not again in each file. The longest file was about 8½ minutes of a
+  9-minute run; a runner that slowed every parity test 2-3x (Oct 13 and 14) ran it past the 12-minute stop, which
+  called it "hung".
+- **Changed:** CI's stop at 12 minutes says "Test run hung" only when the output stopped 3 minutes or more before, and
+  "Test run too slow" while tests are still passing. Its report starts with the machine (load, CPU steal, the busiest
+  processes anywhere) and the run's last output, and gives the main thread's stack first. Every test job also keeps a
+  `machine-<package>` artifact: the runner every 30 s (load, CPU stolen, cgroup throttling, the busiest processes), so
+  a run that slows part-way shows when and why.
+
 ### Package rules reach commands too
 
 - **Added:** a Claude session in this repository that runs a command touching a package (`cd packages/door && bun
