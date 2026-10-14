@@ -6,7 +6,8 @@ applies:
 - **Package rules** are in `.claude/rules/`: [door](.claude/rules/door.md), [outliner](.claude/rules/outliner.md),
   [outline-core](.claude/rules/outline-core.md), [claude-mod](.claude/rules/claude-mod.md), and
   [outlines-by-name](.claude/rules/outlines-by-name.md) for the code that picks an outline or a machine. Claude Code
-  loads each one when you touch its files. **Any other tool (Codex, Pi), and any agent about to plan, change or run
+  loads each one when you read its files, and the repository's mod (below) gives it to a Claude session when a Bash
+  command touches them. **Any other tool (Codex, Pi), and any agent about to plan, change or run
   something in a package (a test door, snapshots, sessions) without having opened its files: read that package's file
   first,** and `outlines-by-name.md` too when the change touches which outline or machine a client opens.
 - [CONTRIBUTING.md](CONTRIBUTING.md) has the verification steps and the review checklist. The `ep0ch-core` skill
@@ -209,4 +210,5 @@ The repository's own Claude mod, `.claude/skills/ep0ch-repo/` (loaded for sessio
 hard rules above into refusals that name the command to run instead: `pkill`/`killall`, `git stash`, `gh pr merge
 -d`/`--delete-branch`, `bun test --parallel` on float-2, and a merge into main whose `PROTOCOL` isn't main's plus one.
 In the deployer's sessions it also runs the freshness sweep: after every three deploys or merges, a read-only agent
-checks what `.claude/freshness.md` lists as stale and hands its findings to the main thread.
+checks what `.claude/freshness.md` lists as stale and hands its findings to the main thread. It also attaches a package's
+`.claude/rules/` file, once a session, to the first Bash command that touches that package.

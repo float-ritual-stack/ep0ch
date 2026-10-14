@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Package rules reach commands too
+
+- **Added:** a Claude session in this repository that runs a command touching a package (`cd packages/door && bun
+  test …`, `scripts/agent-env … --`) gets that package's `.claude/rules/` file the first time, as Claude Code already
+  gives it when a file is read. Each rule's own `paths:` decide; the `ep0ch-repo` mod attaches it once a session.
+
 ### The repository's own mod: guardrails and a freshness sweep (PIE-842)
 
 - **Added:** agents working in this repository (any checkout or worktree) are refused with the reason and the command
