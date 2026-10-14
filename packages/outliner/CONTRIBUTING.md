@@ -103,10 +103,10 @@ source evidence or distinguish authored glyphs from controls.
   per-document limit, the read budget) and what each failure is called.
   `fragments.read` and `transclusions.read` serve it; Detail's embeds use its
   limit and wording. A client asks rather than re-deriving slices.
-- `src/reference-envelopes.ts` owns where a `((…))` ends: parentheses inside a
+- outline-core's `referenceEnvelopeEnd` (`addressable-resource.ts`) owns where a `((…))` ends: parentheses inside a
   label or title balance, so `((uuid|Label (x)))` and `((Title (x)))` close
   after `(x)`. `src/references.ts` parses with it, and envelope checks (links,
-  hashtags, completion) use `blockReferenceEnvelopeRanges`. Resolved text is
+  hashtags, completion) use outline-core's `blockReferenceEnvelopeRanges` (`link-syntax.ts`). Resolved text is
   never re-parsed to find a reference: `linkOutlinerDocument` places each
   presented `((Title))` by the authored text around it.
 - `src/fragment-search.ts` owns fragment completion across every note
@@ -322,7 +322,8 @@ If a Herdr launch fails, Outliner reports the cause with a Herdr notification
 (when notification delivery is enabled) and retains the most recent failure in
 `<outlines>/.host/open-startup-error.log` when that folder exists (opening never
 creates it), else only on stderr and in the notification. The host's own
-failures are on its stderr (the journal under systemd). The log includes a
+failures are on its stderr (the journal under systemd). A Detail crash puts the terminal back and appends its stack to
+`<outlines>/.host/detail-crash.log` (`src/crash-log.ts`), saying where on stderr. The log includes a
 timestamp; an old error is not evidence that the current process failed. Action output is also available through
 `herdr plugin log list --plugin float.pi-outliner --limit 3`.
 

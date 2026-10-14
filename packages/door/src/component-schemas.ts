@@ -15,7 +15,5 @@ const SCHEMAS = outlineList<ComponentSchema, readonly ComponentSchema[]>(
 export const componentsOf = SCHEMAS.of;
 /** The schemas once the question out now (if any) is answered: what the completer offers. */
 export const componentsReady = SCHEMAS.ready;
-/** Which answer `componentsOf` gives now, for a cache of what was drawn with it. */
-export const componentsStamp = SCHEMAS.stamp;
 /** The extensions changed (`extensions` event): their components are asked for again, the last answer kept till then. */
 export const componentsChanged = SCHEMAS.stale;

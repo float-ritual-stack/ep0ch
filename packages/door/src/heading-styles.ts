@@ -17,5 +17,3 @@ export const headingStylesOf = HEADINGS.of;
 export const headingStylesReady = HEADINGS.ready;
 /** Which answer `headingStylesOf` gives now, for a reader's layout cache. */
 export const headingStylesStamp = HEADINGS.stamp;
-/** What's wrong with the outline's heading-style declarations, as the service last said. */
-export const headingStyleProblems = HEADINGS.problems;

@@ -93,21 +93,6 @@ export function shortBlockId(blockId: string): string {
   return blockId.slice(0, 8);
 }
 
-export function uniqueBlockFocusIdentifier(
-  blockId: string,
-  matches: readonly { block: Pick<Block, "id"> }[],
-  minimumLength = 8,
-): string {
-  const startLength = Math.max(1, Math.min(minimumLength, blockId.length));
-  for (let length = startLength; length < blockId.length; length += 1) {
-    const prefix = blockId.slice(0, length);
-    if (matches.filter((match) => match.block.id.startsWith(prefix)).length === 1) {
-      return prefix;
-    }
-  }
-  return blockId;
-}
-
 export function formatBlockFocusMatch(
   match: { block: Pick<Block, "id">; title: string },
   identifier = shortBlockId(match.block.id),

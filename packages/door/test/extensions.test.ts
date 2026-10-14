@@ -294,8 +294,6 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const { NOTE_ACTIONS } = await import("../src/surface/note");
     const line = (await board.get(note.id))!.text.split("\n").findIndex(l => l.startsWith("@tidy"));
     await NOTE_ACTIONS.run("projection.refresh", { block: note.id, line }, { surface, host }, { kind: "agent", id: AS });
-    // A service before pi-herdr-outliner #273 says no one; one with it, the agent.
-    if (!readFileSync(join(outliner!, "src/agent-requests.ts"), "utf8").includes("agent:${actor.actorId}")) return;
     await until(() => { forgetProjectionAnswers(); return text().includes(`asked by an agent (${AS})`); }, "who asked", 20_000);
   }, 30_000);
 

@@ -14,6 +14,14 @@ export function openStartupErrorLogPath(env: NodeJS.ProcessEnv): string | undefi
   return existsSync(hostDir) ? join(hostDir, "open-startup-error.log") : undefined;
 }
 
+/** Error text for a log: forwarded credentials (a failed child command can carry its arguments) and control characters out. */
+export function redactSecrets(text: string, env: NodeJS.ProcessEnv = process.env): string {
+  for (const [name, value] of Object.entries(env)) {
+    if (value && /(?:KEY|TOKEN|PASSWORD|SECRET)$/.test(name)) text = text.replaceAll(value, "<REDACTED>");
+  }
+  return sanitizeDynamicText(text, true);
+}
+
 /**
  * Startup panes can disappear on exit; keep the failure available outside them. `callerReports`: a program
  * caller (the Claude mod's `--no-focus` and `find-detail`) says the failure itself, so it only goes to stderr,
@@ -29,13 +37,7 @@ export async function reportStartupErrors(start: () => Promise<void>, options: {
       return;
     }
     let details = error instanceof Error ? error.stack ?? error.message : String(error);
-    // A failed child command can include its arguments, including forwarded credentials.
-    for (const [name, value] of Object.entries(process.env)) {
-      if (value && /(?:KEY|TOKEN|PASSWORD|SECRET)$/.test(name)) {
-        details = details.replaceAll(value, "<REDACTED>");
-      }
-    }
-    details = sanitizeDynamicText(details, true);
+    details = redactSecrets(details);
     const title = "Outliner could not open";
     let location = "See herdr plugin log list --plugin float.pi-outliner --limit 1";
     try {
