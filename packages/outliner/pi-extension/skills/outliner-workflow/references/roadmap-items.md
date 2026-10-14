@@ -106,7 +106,7 @@ edit by hand), so no client sets them itself (`src/work-stage-follows.ts`):
   host's clock; leaving `done` (a reopen) takes it off. "Done today" is the
   query `type=roadmap-item done-at=today`. A date written by hand (a backfill,
   `work set PIE-123 done-at 2026-10-02`) stays until the next move into done.
-- **`needs::sysop` clears on done.** An owner ask (`[needs::sysop]`, see the live
+- **`needs::sysop` clears on done.** An owner ask (`[needs::sysop]` or `[needs::sysop: reason]`, see the live
   block) comes off when the item is done; other `needs` values stay.
 - **`ticket-stage` on request copies.** A note that names an item with
   `[ticket::PIE-123]` (a request copy) carries `[ticket-stage::<its stage>]`, kept

@@ -5,9 +5,13 @@ import type { PropertyPatchOperation, PropertyRecord } from "./types";
 // What moves with a roadmap item's work-stage (PIE-844). The workboard owns `work-stage`; these are the properties
 // that follow it, and the store applies them on every write, so each path that moves a stage (work complete, a
 // delivery sync, the Pi extension, an edit by hand) carries them without a copy of the rule:
-// - into done: `[done-at::<day>]`, the day on this machine's clock, and `[needs::sysop]` comes off;
+// - into done: `[done-at::<day>]`, the day on this machine's clock, and `[needs::sysop]` (with or without its reason)
+//   comes off;
 // - out of done: `done-at` comes off;
 // - a block that names an item with `[ticket::PIE-n]` (a request copy) carries `[ticket-stage::<its stage>]`.
+
+/** An owner ask: `[needs::sysop]`, or with its reason, `[needs::sysop: a taste call]`. */
+const OWNER_ASK = /^sysop(?![\w-])/i;
 
 function blockRecords(text: string): PropertyRecord[] {
   return parsePropertyRecords(text).filter((property) => property.scope === "block");
@@ -65,7 +69,7 @@ export function stageMoveText(previous: string, next: string, day: string): stri
   const was = roadmapStageOf(previous);
   if (was === now) return next;
   if (now === "done") {
-    return setOne(removeWhere(next, (property) => property.key === "needs" && property.value.trim().toLowerCase() === "sysop"), "done-at", day);
+    return setOne(removeWhere(next, (property) => property.key === "needs" && OWNER_ASK.test(property.value.trim())), "done-at", day);
   }
   return was === "done" ? removeWhere(next, (property) => property.key === "done-at") : next;
 }

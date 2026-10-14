@@ -228,8 +228,8 @@ test("a request ticketed from its copy follows the ticket; done gets its day and
   await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "21"]);
   expect(stageOf(second.id)).toBe("validate");
 
-  const asked = await h.run(["work", "set", "PIE-001", "needs", "sysop"]);
-  expect(asked.json).toMatchObject({ value: "sysop", changed: true });
+  const asked = await h.run(["work", "set", "PIE-001", "needs", "sysop: a taste call on the wording"]);
+  expect(asked.json).toMatchObject({ changed: true });
   const done = await h.run(["work", "complete", "PIE-001", "--all-merged", "--stdin"], "Checked on a scratch host");
   expect(done.json.workStage).toBe("done");
   const item = h.store.require(created.json.blockId);
