@@ -5774,9 +5774,9 @@ export class NoteSurface {
    * to say or let go (one the action said already, or the person moved on).
    */
   startAsPerson(kind: SessionKind, host: SurfaceHost, still?: () => boolean): Promise<unknown> {
-    // C with nothing selected (and nothing a toolbar asked for) is a comment on the whole note (PIE-846): one way in,
-    // the words selected or the note, never the passage picker.
-    const a = SESSION_ACTIONS[kind === "select" && !this.selection && !this.writeNext && !this.session && !this.draft ? "note" : kind];
+    // C is a comment on the words selected (and on what a toolbar asked for), else on the whole note (PIE-846): one way
+    // in, never the passage picker.
+    const a = SESSION_ACTIONS[kind === "comment" ? (!this.selection && !this.writeNext && !this.session && !this.draft ? "note" : "select") : kind];
     return this.act(a.name, a.args, still ? { ...host, still } : host, USER);
   }
 
@@ -6372,13 +6372,17 @@ async function personComments(surface: NoteSurface, host: SurfaceHost, mode: "se
   return surface.session;
 }
 
-/** A key that starts a session in a reader: e edit, ctrl+e $EDITOR, C quote, m threads, i / I properties. */
-export type SessionKind = "edit" | "external" | "select" | "note" | "threads" | "props" | "props-full";
+/**
+ * A key that starts a session in a reader: e edit, ctrl+e $EDITOR, C comment (on the words selected, else the whole
+ * note: PIE-846), m threads, i / I properties; `select` is the passage picker (`passage.select`, an agent's or `act`'s)
+ * and `note` a comment on the whole note (`comment.note`), as C resolves them.
+ */
+export type SessionKind = "edit" | "external" | "comment" | "select" | "note" | "threads" | "props" | "props-full";
 /** The key that starts a session in a reader (e, ctrl+e, C, m, i, I; c collapses), or null: one table for every reader. */
 export function sessionStart(k: Key): SessionKind | null {
   if (k.kind !== "char") return null;
   if (k.ctrl) return k.ch === "e" ? "external" : null;
-  return k.ch === "e" ? "edit" : k.ch === "C" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
+  return k.ch === "e" ? "edit" : k.ch === "C" ? "comment" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
 }
 /** The person's e and ctrl+e arm the edit (edit.arm, src/arm.ts) where the others start at once; a click on a hint's e opens it. */
 export const armsEdit = (kind: SessionKind): boolean => (kind === "edit" || kind === "external") && !clickedKey();
@@ -6388,6 +6392,7 @@ const clickedKey = () => !!boundNow()?.split("; ").includes("click");
 export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.select" | "comment.note" | "threads" | "props"; args: Record<string, unknown> }> = {
   edit: { name: "edit", args: {} },
   external: { name: "edit", args: { external: true } },
+  comment: { name: "passage.select", args: {} },
   select: { name: "passage.select", args: {} },
   note: { name: "comment.note", args: {} },
   threads: { name: "threads", args: {} },

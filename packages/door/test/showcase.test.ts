@@ -2052,9 +2052,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const surf = () => pane().surface;
     const d = () => surf().session?.composer;
     const rect = () => (surf() as any).boxRect as { row: number; col: number; cols: number; rows: number };
-    await until(() => surf().session?.place === "floating" && !!rect(), "the floating comment drawn");
     const long = Array.from({ length: 30 }, (_, i) => `- row ${i + 1} of the long comment`).join("\n");
-    // On the note's first words, so the note can scroll its passage out of view above.
+    // On the note's first words, so the note can scroll its passage out of view above (whatever the stage's own comment is
+    // by now: a test before this one may have closed it).
     await stage().dispatch.press("comment.close", { discard: true }, "floating");
     await stage().dispatch.press("passage.select", { quote: "A comment is written where you read it" }, "floating");
     await stage().dispatch.press("comment.write", { body: long }, "floating");

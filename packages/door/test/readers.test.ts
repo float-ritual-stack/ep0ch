@@ -106,9 +106,10 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       await Bun.sleep(30);
       expect(BV.where(b)).toBe("detail0");
       const title = frame()[rect("detail0").row]!;
-      expect(title).toContain(k === "m" ? "comments" : "quoting");
-      expect(hints()).toContain(`detail 1 · ${k === "m" ? "comments" : "quoting"}`);
-      expect(message()).toStartWith(`detail 1 · ${k === "m" ? "comments" : "quoting"}`);
+      // C with nothing selected writes on the whole note (PIE-846).
+      expect(title).toContain(k === "m" ? "comments" : "writing");
+      expect(hints()).toContain(`detail 1 · ${k === "m" ? "comments" : "writing"}`);
+      expect(message()).toStartWith(`detail 1 · ${k === "m" ? "comments" : "writing"}`);
       // The wheel over the preview scrolls the preview, not the session's reader.
       wheel(rect("preview"));
       expect(scrollOf(B().preview)).toBe(SCROLL_ROWS);
@@ -146,7 +147,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       key(char("e")); key({ kind: "esc" }); key({ kind: "esc" });           // cancel, then to the lanes
       await Bun.sleep(450);
       expect(d.draft).toBeNull();
-      // And a comment's passage picker (C reads the note first too).
+      // And a comment (C reads the note first too).
       key({ kind: "tab" }); key({ kind: "tab" });
       expect(BV.where(b)).toBe("detail0");
       key(char("C")); key({ kind: "tab" });

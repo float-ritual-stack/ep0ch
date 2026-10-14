@@ -541,8 +541,8 @@ export class ReaderPane implements Pane {
   refuses(kind: SessionKind): string | null {
     const m = this.msg;
     if (!m || !this.readOnly) return null;
-    if ((kind === "select" || kind === "threads") && m.resource && !this.fileSource()) {
-      return kind === "select" && m.resource.uncommentable ? `${subject(m)}: ${m.resource.uncommentable}` : null;
+    if ((kind === "comment" || kind === "select" || kind === "note" || kind === "threads") && m.resource && !this.fileSource()) {
+      return kind !== "threads" && m.resource.uncommentable ? `${subject(m)}: ${m.resource.uncommentable}` : null;
     }
     return `${subject(m)} is shown here to read · it isn't a note in the outline`;
   }
