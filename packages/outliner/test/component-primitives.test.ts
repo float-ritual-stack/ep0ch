@@ -2,6 +2,7 @@
 // line grammar every extension shares, and how Detail lays out an extension's output. Made-up data.
 import { expect, test } from "bun:test";
 import { renderComponent, validateComponent, validatePrimitive, type ComponentOutput } from "../src/component-primitives";
+import { readImages } from "../src/publish-components";
 import { handlerCalls, type HandlerTable } from "../src/extension-handlers";
 import type { ExtensionHandler, LoadedExtension } from "../src/extension-manifest";
 import { resourceProjectionLayout } from "../src/detail-embeds";
@@ -97,6 +98,9 @@ test("an image primitive (PIE-827): a file the outline names, said as its words 
   expect(html).toContain('<figure class="media media-missing ext-image" data-ext-image="0"><span class="media-what">image</span> a packet of &lt;seed&gt; <code>seed packet.webp</code></figure>');
   expect(html).toContain('data-ext-image="1"');
   expect(html).not.toContain("/plot/pics");
+  // The publisher puts each in its place by its number, an alt text over two lines too.
+  const twoLines = renderComponent(validateComponent({ data: null, view: { type: "stack", children: [{ type: "image", src: "a.png", alt: "one\ntwo" }, { type: "image", src: "b.png" }] } }), "html").body;
+  expect(readImages(twoLines, (n) => `<img data-n="${n}">`)).toBe('<div class="ext-component"><div class="ext-stack"><img data-n="0"><img data-n="1"></div></div>');
   expect(() => validatePrimitive({ type: "image", src: "web:https://example.com/a.png" })).toThrow("view.src must be a file's path or a file: Resource ref");
   expect(() => validatePrimitive({ type: "image", src: "a.png", size: "huge" })).toThrow("view.size must be a size as [size::] writes it");
   expect(() => validatePrimitive({ type: "image", src: "a.png", height: 0 })).toThrow("view.height must be a whole number of rows from 1 to 60");

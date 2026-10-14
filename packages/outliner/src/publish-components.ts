@@ -58,7 +58,7 @@ export function readBlockdown(html: string, read: (source: string) => string): s
  * placeholder `draw` has nothing for stays as it is: the words and the file's name.
  */
 export function readImages(html: string, draw: (image: number) => string | null): string {
-  return html.replace(/<figure class="media media-missing ext-image" data-ext-image="(\d+)">.*?<\/figure>/g, (whole, n: string) => draw(Number(n)) ?? whole);
+  return html.replace(/<figure class="media media-missing ext-image" data-ext-image="(\d+)">[\s\S]*?<\/figure>/g, (whole, n: string) => draw(Number(n)) ?? whole);
 }
 
 /** A handler line's projection that a page draws: an output or a component, not a data record (a block of its own). */
