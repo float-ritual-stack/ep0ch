@@ -14,7 +14,7 @@ several of them.
 |---|---|---|---|---|
 | 1. **Data** | A record put into a block, as if you copied it in | `moon:: 2026-10-26`, `jira:: PC-12` | A real block the extension owns, with namespaced properties (`[moon.phase::Full Moon]`) | As any block. Under the line, a projection says what it is and when it was fetched |
 | 2. **Inline output** | Markdown rendered inside a block | `horoscope:: virgo` | Kept by the service per line (`extension_outputs`); never written into the note unless you **keep** it | The projection's `output.markdown`, under the line |
-| 3. **Rich component** | Data plus a view, with its own behaviour (actions) | `fancy-horror:: virgo` | Kept like an output: `{ data, view }` | The view's primitives (box, card, table, stat, bar, checklist, sparkline, badge, text, row, stack), or a rendered target |
+| 3. **Rich component** | Data plus a view, with its own behaviour (actions) | `fancy-horror:: virgo` | Kept like an output: `{ data, view }` | The view's primitives (box, card, table, stat, bar, checklist, sparkline, badge, text, image, row, stack), or a rendered target |
 | 4. **A whole tile** | A program in a tile of its own kind | opened from the door | Whatever its actions write | The door's tile-kind registry runs it in a terminal tile |
 | **Rules** (`decorate`, `on`) | "When a block matches this, draw this on it, or run this": `match` by a property, a saved-view query, a text pattern or a construct kind | `rules[]` in `extension.json`, or a rule note (`[rule-name::name]`, no code) | Nothing in the note: a built-in decoration is computed on read; a code rule's view is kept like an output until the block's revision changes; a trigger's writes are the extension's | `decorations` in `resources.projection.read`: view primitives (plus `band` and `track`) above, below, in place of or around what matched; Detail and the publisher as text |
 
@@ -506,10 +506,28 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | `row` | `children` side by side; `minWidth?` (4–200, default 12): the narrowest a child may be, in characters (terminal cells; `ch` on the web). Where a reader can't give each child that much, it stacks them: the door, Detail and the web alike |
 | `band` | `text?`, `level?` (1–3), `pattern?`, `align?`, `row?`, `tone?`: a heading in glyph tracks (rules) |
 | `track` | `pattern?`, `tone?`: one row of glyph track, a divider (rules) |
+| `image` | `src` (a path, as a note's `[img::]` line names one, or a `file:/path` Resource ref; never a web page or a stored Resource), `alt?`, `size?` (as `[size::]`: cells, `N%` or `full`), `fit?` (`cover` or `contain`), `height?` (1–60 rows): a picture, drawn the way each reader draws a note's image line (PIE-827; see [Pictures in a view](#pictures-in-a-view)) |
 
 `tone` is `default`, `good`, `warn`, `bad`, `dim` or `accent`. Limits: depth 8, 400 primitives, 200
 rows, 12 columns, 2 000 characters of text each, 256 KiB of data. A view that breaks one is refused
 with a path to the problem (`view.children[0].max must be more than 0`), and the line shows it.
+
+#### Pictures in a view
+
+An `image` is the media line's spec (outline-core's `imagePrimitiveSpec`), so it is drawn as a note's `[img::]` line
+is, and nothing is written to the outline to show it:
+
+- **The door** lays it out as the body's image lines (`mediaRows`): the picture under Kitty graphics, scaled down and
+  dimmed dark-first, its rows kept while it loads, and its caption under it, which `[ ]` stops on and ⏎ opens. Without
+  graphics the caption says what it is and why it isn't drawn.
+- **A web page** serves it as a note's image (`/p/<id>/media/<line>/<n>`, the `n`th image of the view that line draws,
+  read again from the kept view): only a file inside the publish roots, never by its path. One it may not serve is its
+  alt text and its file's name.
+- **The `terminal` target** says `[image: alt] path`; **`markdown`** (and `blockdown`, Detail, an export, MCP) say the alt
+  text and the file's name, never its folders: a Markdown reader can't reach the outline's files.
+
+The outliner's `gallery` extension is the example: `gallery::` draws the notes under it as cards with their
+`[cover::]` pictures, `pic:: path` one picture.
 
 ### Targets and fallbacks
 
@@ -760,6 +778,7 @@ actions yet; `r` is its path today.
   | `{ "op": "update", "blockId", "expectedRevision", "text" }` | an agent's edit of the block (below) |
   | `{ "op": "move", "blockId", "parentId", "position"?, "expectedRevision" }` | moves the block, revision-checked |
   | `{ "op": "order", "parentId", "children": [ids] }` | the block's children in this order, in one step: exactly the children it has, or refused |
+  | `{ "op": "move-anchor", "from": "<block>^<anchor>", "to" }` | moves the anchor to `to` (a block, or a name made in the group) and points every link to it there (PIE-829, below) |
 
   A later write names a block made earlier in the group by its `as`: as a `parentId`, `blockId` or one of an order's
   `children`, and in text as `((c1))`, `!((c1))`, `((c1|label))` or `((c1^anchor))` (its id is minted before anything is
@@ -798,6 +817,35 @@ actions yet; `r` is its path today.
   a door holds a live draft of any block it edits, moves or reorders, the **whole group** waits as one proposal beside
   the note it acted on (its new blocks' text shown in it), and applying that proposal writes all of it in one step.
   Either way the answer's `message` says so and nothing else is written.
+- **The guard judges links as the whole group leaves them** (PIE-829): a group that rewrites `((A^s5))` to `((c1^s5))`
+  in the note that links to it, and drops `^s5` from A, lands; one that leaves a link pointing at the dropped anchor is
+  refused as before (`would drop ^s5 (1 note links to it)`). A list item's `^id` that the group takes out of one note
+  and writes in another (a split's child, a merge's keeper) moved; one that just goes is still refused.
+- **`move-anchor` does the repointing for you.** `{ "op": "move-anchor", "from": "<block>^s5", "to": "c1" }` makes
+  the anchor live in `to` and points every link to it there, in the same group and undone with it:
+  - the marker comes off `from` if the group's text there still has it (the line stays; a line that was only the
+    marker goes);
+  - it goes on `to` unless the group's text there has it already, at the end of its last line that isn't blank (a
+    split's one-line child, a merge's appended paragraph). Write `^s5` on the line yourself to put it anywhere else;
+  - every link to it in this outline points at `to`: `((A^s5))`, `((A^s5|label))`, `!((A^s5))` and an
+    `ep0ch://…/b/A#s5` address, in the notes the backlink index knows and in the group's own texts, each written as the
+    extension, revision-checked. A link in code stays text;
+  - an EchoNet copy here that links to it (a note with `[from::<node>/<id>]`) is never written: its text is its
+    origin's (ADR 0005). It gets a comment saying where the anchor went, which the tosser carries to the origin as
+    netmail; the copy's link follows when the origin fixes its note and the next toss brings it;
+  - refused, with nothing written, for an anchor `from` doesn't have, a `to` that's gone, the block it's in, a `to` that
+    has that anchor already, a record an extension keeps, or more than 200 linking notes.
+
+  ```json
+  { "writes": [
+    { "op": "create", "parentId": "<note>", "text": "Stake the peas by the north fence ^s5", "as": "child" },
+    { "op": "update", "blockId": "<note>", "expectedRevision": 7, "text": "Garden plan\n- !((child))" },
+    { "op": "move-anchor", "from": "<note>^s5", "to": "child" }
+  ] }
+  ```
+
+  Structure's `extract` does this for every anchor on the lines it takes, so extracting an anchored line leaves no
+  forwarding line behind.
 - **A created block is Blockdown like anyone's**: a `key::` line or `[key::value]` in it is a property, as in a
   block written over the [connection](#a-connection-to-the-service). Code the person installed is trusted in their
   outline; what keeps it safe is the rest: every write is attributed `ext:<id>`, revision-checked and undoable
@@ -831,6 +879,18 @@ actions yet; `r` is its path today.
   client prompts with. The door asks for every declared choice or property (and any required one) the person didn't
   give when they run the action by key, a click or the power bar, its default lit; `act` takes them as `name=value`;
   the action list shows them; `ep0ch ext act … --arg name=value` and `ext ls` lists them.
+
+- **Fields from the note** (PIE-828): `"fieldsFrom": "block"` beside (or instead of) `args` makes the action also ask
+  for the fields the block it runs on writes, one chip per field: `[form-field::<name> <type> [<options>] [required]
+  [default=<value>]]`, the type `text`, `number`, `choice` (options split by `|`: `mood choice good|meh|rough`) or
+  `property`, names as declared arguments' (not one the request uses). One action then serves every note that writes
+  its own form, and the form is edited where it's used. The service reads the chips (outline-core's `form-fields.ts`),
+  lists them after the declared ones in `extensions.args` on that block (each `fromBlock: true`), checks the answers the
+  same way, and tells the action the note's form as `input.fields` (`[{ name, type, options?, required?, default? }]`).
+  A chip it can't read is saved as written and warned on when the note is saved (`did you mean choice?`); the action
+  refuses with the same words, as it does a field named like a declared argument, or a note with no form and no
+  declared arguments. The door asks for every field the person didn't give (a text or number typed, an optional one left
+  empty); an agent gives them in `with=` as JSON. The example is `extensions/form` (`Fill in the form`).
 
   ```json
   { "id": "sort-blocks", "label": "Sort the children", "on": "block", "effects": "write", "args": [
@@ -1853,7 +1913,7 @@ Both built with no core change, working around these. Wave 2 closed them:
   "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{key}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
-  "primitives": ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"],
+  "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"],
   "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
   "ruleProblems": [],
   "targets": ["terminal", "markdown", "blockdown", "html", "json", "csv"],

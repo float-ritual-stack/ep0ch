@@ -504,6 +504,7 @@ export class OutlinerServer {
       // A group that also makes, moves or orders blocks: one transaction, or one proposal while a draft holds a part.
       patchGroup: (input) => this.draftPatches.patchGroup(input),
       held: (blockId) => this.draftPatches.isHeld(blockId),
+      here: () => ({ ...(this.outline?.name ? { outline: this.outline.name } : {}), machines: [localMachineName(this.outlinesFolder), ...localMachineAliases(this.outlinesFolder)] }),
       changed: (blockId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
       }),

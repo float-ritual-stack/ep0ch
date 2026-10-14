@@ -4,6 +4,8 @@
 // An artifact (PIE-793) is a file claude.ai would run (`.jsx`/`.tsx`, `.html`, `.svg`, `.mermaid`): the web pages run it
 // inline in a sandboxed frame, the door draws it as a card that opens that page.
 
+import { parseResourceRef } from "./resource-ref";
+
 /** What a media line names: an image, a video or an artifact. */
 export type MediaKind = "img" | "video" | "artifact";
 export type Align = "left" | "center" | "right";
@@ -117,6 +119,40 @@ export function parseMediaLine(line: string): MediaSpec | null {
       if (f) spec.focus = f; else spec.problems.push(`hero-focus::${value} isn't a point (x,y: 0 to 1, or percents)`);
     } else if (k === "alt") spec.alt = value.trim();
   }
+  return spec;
+}
+
+/**
+ * An extension view's `image` primitive (PIE-827): `{ type: "image", src, alt?, size?, fit?, height? }`. `src` is a path,
+ * as an `[img::]` line names one, or a `file:` Resource ref; `size` is written as `[size::]` is (cells, `N%` or `full`).
+ */
+export interface ImagePrimitive { src: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number }
+
+/**
+ * The path an image primitive's `src` names: a `file:` Resource ref's path, read by `parseResourceRef` (so it is
+ * absolute and has no control characters), else the path as written. A `file:` ref that can't be read names nothing.
+ */
+export function imageSource(src: string): string {
+  if (!src.startsWith("file:")) return src;
+  const ref = parseResourceRef(src);
+  return "kind" in ref && ref.kind === "filesystem" ? ref.path : "";
+}
+
+/**
+ * An image primitive as the media line it stands for (PIE-827): one spec, so every client lays it out, dims it and
+ * serves it as it does a note's `[img::]` line (the door's graphics, the publisher's served image, alt text and path
+ * where neither can be drawn). What isn't a value of the line's grammar is a problem, said on its caption.
+ */
+export function imagePrimitiveSpec(node: ImagePrimitive): MediaSpec {
+  const spec: MediaSpec = { kind: "img", path: imageSource(node.src), problems: [] };
+  if (!spec.path) spec.problems.push(`${node.src} isn't a file: ref this can read (file:/absolute/path)`);
+  if (node.size !== undefined) {
+    const size = parseSize(String(node.size));
+    if (size) spec.size = size; else spec.problems.push(`size ${node.size} isn't a size (cells, N% or full)`);
+  }
+  if (node.height !== undefined) spec.height = node.height;
+  if (node.fit !== undefined) spec.fit = node.fit;
+  if (node.alt?.trim()) spec.alt = node.alt.trim();
   return spec;
 }
 

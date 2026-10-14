@@ -9,7 +9,7 @@ import { ADORN, LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 import type { StepRef } from "./steps";
 import type { FigureControl } from "./graphs";
-import type { ImageControl } from "./doc";
+import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
 import { noteStructure } from "@ep0ch/outline-core/component-block";
@@ -180,7 +180,7 @@ export type LinkTarget = {
   resource?: AuthoredResourceLink;
   /** A Resource an extension's view links to (PIE-754): `file:/path`, `web:https://…` or `resource:<id>`. */
   resourceRef?: string;
-  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image"; reason?: string;
+  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image" | "picture"; reason?: string;
   /**
    * A live figure's control (role "figure"): one of a tabs figure's tabs, or its density; on a row (role "row"), the
    * figure the row is in (`figure` only), so the figure's keys work while the row is current (src/graphs.ts).
@@ -222,6 +222,11 @@ export type LinkTarget = {
    * (role "image", with `control`), what a click on it changes.
    */
   image?: ImageRef;
+  /**
+   * An extension view's picture (PIE-827, role "picture"): the tag on its first row, where the reader places it once the
+   * view is laid out (its row and column are where the tag landed).
+   */
+  picture?: DocImage;
 };
 
 /**

@@ -532,12 +532,28 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
 2. **Inline output** (`horoscope:: virgo`): Markdown the service runs and keeps per line, shown under it and
    never written into the note unless someone **keeps** it (`[keep]`, `ext.<id>.keep`). `r` runs it again.
 3. **Rich component** (`fancy-horror:: virgo`): data plus a view built from the shared primitives (card, box,
-   row, stack, text, badge, stat, bar, table, checklist, sparkline) that every client draws, with actions
+   row, stack, text, badge, stat, bar, table, checklist, sparkline, image) that every client draws, with actions
    (`[w ward]` in the door: its key, a click, or `act ext.fancy-horror.ward block=<id>`). Its state lives in
-   the outline as blocks its actions write.
+   the outline as blocks its actions write. A picture in a view is an `image` (`{ type: "image", src, alt?, size?,
+   fit?, height? }`, PIE-827): drawn as a note's `[img::]` line is (the door's graphics, a page's served image inside
+   the publish roots, elsewhere its alt text and file), so a gallery or a card's cover writes nothing to the outline.
+   The `gallery` example: `gallery::` draws the notes under it as cards with their `[cover::path]`, `pic:: path` one.
 4. **Tile** (`tarot.reading`): a program in a door terminal tile of its own kind (`^W o T`, or
    `act tile.open kind=tarot.reading note=<id>`). It reaches the outline only through the service's
    actions, so what it writes is the extension's.
+
+**A form in the note** (PIE-828): when the person wants data entry where they work (a reading log, a bug report, a
+sprint check), don't write an extension per form. With the Form extension installed (`outliner ext add form`), write the
+fields on the note itself, one chip each: `[form-field::book text required] [form-field::pages number]
+[form-field::mood choice gripping|slow|abandoned default=slow]` (types `text`, `number`, `choice` with its options split
+by `|`, `property`). Fill in the form (the power bar, or `act ext.form.fill block=<id> with='{"book":"…"}'`) writes an
+entry under the note with the answers as properties. Any action can ask a note's fields: `"fieldsFrom": "block"` in its
+`extension.json`. A chip it can't read is saved and warned on with a did-you-mean.
+
+An action's writes are one group, one undo (`create`, `update`, `move`, `order`). Moving anchored text (a split, a
+merge) uses `{ op: "move-anchor", from: "<block>^s5", to: "<block or as-name>" }`: the anchor goes with the text and
+every link to it is repointed in the same step, so no forwarding line (`- → ((child)) ^s5`) is needed; an EchoNet copy
+that links to it is told by netmail, never written (packages/outliner `docs/extensions/README.md#actions`).
 
 **Rules** (PIE-600) say "when a block matches this, draw this on it, or run this", without touching its text:
 `match` by a property (`type=meeting`), a saved-view query, a text pattern (line by line, never in code) or a

@@ -1,6 +1,6 @@
 // A rich component's view (an extension's `component` handler line, pi-herdr-outliner
 // PIE-507), and a rule's decoration (PIE-600): the shared primitives (card, box, stack, row, text, badge, stat, bar,
-// table, checklist, sparkline, and band and track for headings and dividers) in the terminal, as the service's `terminal` target lays them out, with tone as colour. The
+// table, checklist, sparkline, image, and band and track for headings and dividers) in the terminal, as the service's `terminal` target lays them out, with tone as colour. The
 // service checks the view against the catalogue; this draws what it sent and nothing else.
 import { BOLD, C, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
 import { printable, wrap } from "./text";
@@ -8,9 +8,10 @@ import { BAND_ALIGNS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLE_REGISTRY, 
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
 import { TONE as CALLOUT_TONE } from "./callouts";
+import { imageSource, type ImagePrimitive } from "@ep0ch/outline-core/media-line";
 
 /** The service's primitives (src/component-primitives.ts PRIMITIVE_TYPES): what `primitiveLines` draws. */
-export const PRIMITIVES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"] as const;
+export const PRIMITIVES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"] as const;
 
 /** A primitive this door doesn't draw (a newer catalogue), or a view past the catalogue's bounds. */
 export class PrimitiveUnknown extends Error {}
@@ -93,6 +94,11 @@ export interface PrimitiveDraw {
   link?(block: string, text: string): string;
   /** A `blockdown` primitive drawn as the reader draws a note's body, `width` wide. Without it, its lines as written. */
   blockdown?(text: string, width: number): string[];
+  /**
+   * An `image` primitive (PIE-827) drawn as the reader draws a note's `[img::]` line, `width` wide: its picture and
+   * caption. Without it, its alt text and its path.
+   */
+  image?(node: ImagePrimitive, width: number): string[];
   headings?: HeadingStyleRegistry;
 }
 
@@ -182,6 +188,14 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       return kids(n).flatMap(c => inner(c, w));
     case "band":
       return bandRows(n, w, headings);
+    case "image": {
+      if (typeof n.src !== "string" || !n.src) throw new PrimitiveUnknown("an image needs src");
+      const node: ImagePrimitive = { src: n.src, ...(typeof n.alt === "string" ? { alt: n.alt } : {}), ...(typeof n.size === "string" ? { size: n.size } : {}),
+        ...(n.fit === "cover" || n.fit === "contain" ? { fit: n.fit } : {}), ...(typeof n.height === "number" && Number.isInteger(n.height) && n.height > 0 ? { height: n.height } : {}) };
+      if (draw.image) return draw.image(node, w);
+      // As the service's terminal target says it: its words, then its file.
+      return wrap(`[image${node.alt ? `: ${one(node.alt)}` : ""}] ${one(imageSource(node.src))}`, w).map(l => fg(C.cyan) + l + RESET);
+    }
     case "track":
       return drawTrack(primitiveStyle(n, headings, "fade"), w) ?? [fg(C.dark) + "─".repeat(w) + RESET];
     case "row": {

@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
-import { Type, IsSchema, type Static, type TSchema } from "typebox";
+import { Type, IsSchema, type Static, type TLiteral, type TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import { cleanExtensionText } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseKindSpec, PLACES, RULE_TONES } from "@ep0ch/outline-core/rules";
 import { componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
+import { FORM_FIELD_LIMITS, FORM_FIELD_NAME, FORM_FIELD_TYPES, RESERVED_ARG_NAMES, type FormFieldType } from "@ep0ch/outline-core/form-fields";
 import { cronProblem } from "./extension-schedule";
 import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
 
@@ -143,21 +144,22 @@ export type ExtensionHandler = Static<typeof Handler>;
  */
 const ActionArg = Type.Object(
   {
-    name: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,31}$" }),
-    type: Type.Union([Type.Literal("text"), Type.Literal("choice"), Type.Literal("property"), Type.Literal("number")]),
+    // A note's form field (outline-core form-fields.ts) is checked by the same rules: its name, types and bounds.
+    name: Type.String({ pattern: FORM_FIELD_NAME.source }),
+    type: Type.Union(FORM_FIELD_TYPES.map((type) => Type.Literal(type)) as unknown as [TLiteral<FormFieldType>]),
     label: Type.Optional(Type.String({ minLength: 1, maxLength: 40 })),
     description: Type.Optional(Type.String({ maxLength: 200 })),
-    options: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 60 }), { minItems: 1, maxItems: 32 })),
+    options: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: FORM_FIELD_LIMITS.option }), { minItems: 1, maxItems: FORM_FIELD_LIMITS.options })),
     from: Type.Optional(Type.Union([Type.Literal("block"), Type.Literal("children"), Type.Literal("outline")])),
     required: Type.Optional(Type.Boolean()),
-    default: Type.Optional(Type.String({ maxLength: 200 })),
+    default: Type.Optional(Type.String({ maxLength: FORM_FIELD_LIMITS.default })),
     defaultProperty: Type.Optional(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_.-]{0,63}$" })),
   },
   { additionalProperties: false },
 );
 export type ExtensionActionArg = Static<typeof ActionArg>;
-/** Names an action's request already uses: a declared argument can't be one of them. */
-export const RESERVED_ARG_NAMES = new Set(["block", "line", "with", "quote", "near", "tile", "action", "color"]);
+/** Names an action's request already uses: a declared argument (or a note's form field) can't be one of them. */
+export { RESERVED_ARG_NAMES };
 
 const Action = Type.Object(
   {
@@ -180,6 +182,12 @@ const Action = Type.Object(
     deadline: Type.Optional(Duration),
     /** What it asks for (PIE-784): a client prompts for them, `act` takes them, agents see them. */
     args: Type.Optional(Type.Array(ActionArg, { maxItems: 8 })),
+    /**
+     * `block` (PIE-828): it also asks for the fields the block it runs on declares, as `[form-field::<name> <type> …]`
+     * chips (outline-core's form-fields.ts), after its own `args`; the service checks them as it checks those. One
+     * action then serves every note that writes its own form.
+     */
+    fieldsFrom: Type.Optional(Type.Literal("block")),
   },
   { additionalProperties: false },
 );
@@ -585,6 +593,9 @@ function checkManifest(manifest: ExtensionManifest): void {
       if (arg.defaultProperty && !["block", "passage"].includes(action.on ?? "block") && !action.on?.startsWith("handler:")) {
         throw new ExtensionLoadError(`${where}/defaultProperty reads the acted-on block's property; this action acts on ${action.on}`);
       }
+    }
+    if (action.fieldsFrom && !["block", "passage"].includes(action.on ?? "block") && !action.on?.startsWith("handler:")) {
+      throw new ExtensionLoadError(`extension.json: actions/${index}/fieldsFrom reads the fields of the block it acts on; this action acts on ${action.on}`);
     }
     const actionDeadline = durationMs(action.deadline);
     if (actionDeadline !== undefined && actionDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: actions/${index}/deadline is longer than 5m`);

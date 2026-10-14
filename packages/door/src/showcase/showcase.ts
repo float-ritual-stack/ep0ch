@@ -621,7 +621,15 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "ext-pages", need: "give an extension a page in the outline that explains and demonstrates it (its README, what it adds, its demo notes), list what's installed and what isn't, install or remove one", part: "the extensions' pages (outliner src/extension-pages.ts, src/extension-demo.ts): the service writes the Extensions hub and a page per installed extension from its folder (README drawn as the note, what its manifest adds, its CHANGELOG's head), and its demo/ notes under the page once, as ext:<id>, with fresh ids; extensions.list says the hub, each page and what's available; extensions.install and extensions.uninstall (demo=keep|remove, never silently) are actions in EXTENSION_INSTALL_ACTIONS, reached by the power bar's extensions scope (&: ⏎ or a click on a row) and act; the pages are notes, read by the note surface", files: "outliner src/extension-pages.ts, outliner src/extension-demo.ts, src/extensions.ts (EXTENSION_INSTALL_ACTIONS), src/bar/sources.ts (EXTENSIONS)",
+    key: "gallery", need: "show a picture in an extension's view (a card's cover, a gallery, a mood board)", part: "the image primitive (PIE-827): { type: \"image\", src, alt?, size?, fit?, height? }, outline-core's imagePrimitiveSpec turns it into the media line's spec, primitiveLines hands it to the reader's PrimitiveDraw.image, which lays it out as a note's [img::] line is (doc.ts mediaRows: the graphics budget, dark-first dimming, its caption); a zero-width tag on its first row says where the view put it, and the reader places the picture there", files: "src/components.ts, src/doc.ts (mediaRows), src/surface/note.ts (pictureRows), outliner src/component-primitives.ts, outliner extensions/gallery",
+    aside: "the outliner's gallery extension (installed with the rules): gallery:: draws the notes under it as cards with their [cover::] pictures, pic:: draws one · [ ] stops on a picture's caption and ⏎ opens it, a card's title opens its note · under Kitty graphics the pictures are drawn, dimmed as a note's are; elsewhere each caption says what it is · nothing is written to the outline: on a page each picture is served as a note's image is, when the publish roots allow it",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · gallery", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.gallery]]);
+    },
+  },
+  {
+    key: "ext-pages", need: "give an extension a page in the outline that explains and demonstrates it (its README, what it adds, its demo notes), list what's installed and what isn't, install or remove one", part: "the extensions' pages (outliner src/extension-pages.ts, src/extension-demo.ts): the service writes the Extensions hub and a page per installed extension from its folder (README drawn as the note, what its manifest adds, its CHANGELOG's head), and its demo/ notes under the page once, as ext:<id>, with fresh ids; extensions.list says the hub, each page and what's available; extensions.install and extensions.uninstall (demo=keep|remove, never silently) are actions in EXTENSION_INSTALL_ACTIONS, reached by the power bar's extensions scope (&: ⏎ or a click on a row) and act; the pages are notes, read by the note surface; structure's extract of a line ending in ^s5 takes the anchor with it (a move-anchor in its write group, PIE-829): the Garden diary's link points at the new child, no forwarding line, one undo", files: "outliner src/extension-pages.ts, outliner src/extension-demo.ts, src/extensions.ts (EXTENSION_INSTALL_ACTIONS), src/bar/sources.ts (EXTENSIONS)",
     aside: "the notifications hub (on made-up Gmail, Jira and Slack, pulled once) and the runbook extension, copied into the showcase's own config dir when try-it names the checkout; without them there is no hub, and the readers stay empty",
     stage(_n, show) {
       // The hub on the left; the notifications hub's page on the right, its demo boards under it, live.
@@ -635,6 +643,16 @@ export const SECTIONS: Section[] = [
         ctx.redraw();
       })().catch(() => {}));
       return d;
+    },
+  },
+  {
+    key: "forms", need: "enter data through a form written in the note it's for: one action, each note its own fields",
+    part: "the action's arguments (PIE-784) from the note (PIE-828): an action with fieldsFrom: block asks for the [form-field::<name> <type> …] chips of the block it runs on (outline-core's form-fields.ts reads them; the service checks the answers as declared arguments, extensions.args lists them on that block); the door asks for each in the power bar (askInBar, src/bar/ask.ts), by keys or a click on a row, and runs it; an agent gives them in with=; a chip that can't be read is saved and warned on, with a did-you-mean",
+    files: "outline-core/src/form-fields.ts, outliner src/extension-calls.ts (argsOn), src/extensions.ts (askingFirst), src/bar/ask.ts",
+    aside: "the outliner's example Form extension: one action, Fill in the form (ctrl+k, type fill, ⏎ or a click), asks the reading log for book, pages and mood and the shed repairs for part, what and urgent, then writes an entry under the note with its answers as properties · change a note's [form-field::] chips and the next run asks the new form · an agent: act ext.form.fill block=<id> with='{\"part\":\"roof\",\"what\":\"a slipped tile\"}'",
+    stage(n, show) {
+      const reading = new ReaderPane(), repairs = new ReaderPane();
+      return deskOf({ title: "showcase · forms", panes: [reading, repairs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [[reading, n.formReading], [repairs, n.formRepairs]]);
     },
   },
   {

@@ -8,3 +8,4 @@ The north fence needs mending before the beans go in, because the wind there is 
   - three bags
   - ask about delivery
 - Mend the fence
+- Stake the peas by the north fence ^s5

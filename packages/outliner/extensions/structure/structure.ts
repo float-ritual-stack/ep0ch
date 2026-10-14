@@ -9,6 +9,20 @@ const request = (await Bun.stdin.json()) as { operation: string; input: any };
 const say = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 const refuse = (message: string) => say({ message: `refused: ${message}` });
 
+/** The `^anchors` at the ends of `text`'s lines, outside fenced code (a fenced line ending in `^x` is code, not an anchor). */
+function anchorsOf(text: string): string[] {
+  const found: string[] = [];
+  let fence: string | null = null;
+  for (const line of text.split("\n")) {
+    const mark = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (mark && (!fence || (mark[0] === fence[0] && mark.length >= fence.length))) { fence = fence ? null : mark; continue; }
+    if (fence) continue;
+    const anchor = /(?:^|\s)\^([A-Za-z0-9][A-Za-z0-9_-]{0,63})[ \t]*$/.exec(line)?.[1];
+    if (anchor) found.push(anchor);
+  }
+  return found;
+}
+
 async function act() {
   const { action, args, target } = request.input as {
     action: string; args?: Record<string, string>;
@@ -26,9 +40,13 @@ async function act() {
       if (!child.trim()) return refuse("nothing to extract");
       // One group: the child is made and named, and the note's edit links it by that name. The service applies both
       // in one step (one undo), or neither; a draft open on the note makes the pair one proposal.
-      return say({ message: `extracted ${child.split("\n").length} line(s) into a child`, writes: [
+      // An anchor that goes with the lines (`^s5` at a line's end) moves with them: the service repoints every link
+      // to it at the child in the same step (PIE-829), so no forwarding line is left behind.
+      const anchors = anchorsOf(child);
+      return say({ message: `extracted ${child.split("\n").length} line(s) into a child${anchors.length ? `, with ${anchors.map((a) => `^${a}`).join(", ")}` : ""}`, writes: [
         { op: "create", parentId: block.id, text: child, as: "child" },
         { op: "update", blockId: block.id, expectedRevision: target!.revision, text: replace("child") },
+        ...anchors.map((anchor) => ({ op: "move-anchor", from: `${block.id}^${anchor}`, to: "child" })),
       ] });
     }
     try {

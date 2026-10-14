@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "structure",
-  "version": 2,
+  "version": 3,
   "name": "Structure",
   "description": "Do by one action what you do to a note by hand: extract a passage or a list item into its own child block, sort a list inside a block, sort a block's children.",
   "run": ["bun", "structure.ts"],

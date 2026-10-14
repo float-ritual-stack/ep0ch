@@ -718,25 +718,45 @@ export async function setDeliveryStage(
 // ─── Prose ─────────────────────────────────────────────────────────────────
 
 /**
+ * The notes as a whole write group leaves them (PIE-829): `text` answers the text the group writes for a block it
+ * changes (undefined for one it leaves alone), and `told` names copies whose link stays as it is because their origin
+ * is told by netmail (a `move-anchor` never writes another outline's note, ADR 0005).
+ */
+export interface GroupLinks {
+  text(blockId: string): string | undefined;
+  /** The blocks the group writes (each with `text`) and the texts of those it makes: a link it adds counts too. */
+  written?: Iterable<string>;
+  made?: readonly string[];
+  /** `<copy>:<target>^<anchor>`: a copy whose link to that anchor stays, its origin told by netmail. */
+  told?: ReadonlySet<string>;
+}
+
+/**
  * What an agent's rewrite of a note from `before` to `next` would take away that others rely on: each
  * `[page::…]` property it drops, and each `^anchor` it drops that another note links to (`((id^anchor))`),
  * with how many link to it. When more notes link to the block than one backlink read returns, a dropped
  * anchor counts rather than being guessed about. Empty when nothing others rely on goes. This is the one
  * structural guard for agent edits: `refuseDroppedStructure` below, and `draft.patch` under its default
- * `edit` policy (`src/draft-patch-router.ts`), both ask it.
+ * `edit` policy (`src/draft-patch-router.ts`), both ask it. `group`: the links judged as a whole write group leaves
+ * them, so a group that repoints every link before it drops the anchor passes.
  */
-export async function droppedLinkedStructure(client: WorkToolsClient, blockId: string, before: string, next: string): Promise<string[]> {
+export async function droppedLinkedStructure(client: WorkToolsClient, blockId: string, before: string, next: string, group?: GroupLinks): Promise<string[]> {
   const dropped = droppedStructure(before, next);
   const lost = [...dropped.pages];
   if (dropped.anchors.length) {
     const backlinks = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: blockId, limit: 1000 } });
     const ids = backlinks.sources.filter(source => !source.deletedRootId && source.blockId !== blockId).map(source => source.blockId);
-    const texts = ids.length
-      ? (await client.request<BlockReadCollection>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["text"] })).blocks
-      : [];
+    // The group's own notes too: a link it adds to an anchor it drops is a link left dangling.
+    const written = [...(group?.written ?? [])].filter(id => id !== blockId && group?.text(id) !== undefined);
+    const read = [...new Set(ids)].filter(id => !written.includes(id));
+    const texts: { id: string; text?: string }[] = [
+      ...(read.length ? (await client.request<BlockReadCollection>({ action: "blocks.read", ids: read, fields: ["text"] })).blocks : []),
+      ...written.map(id => ({ id, text: group!.text(id)! })),
+      ...(group?.made ?? []).map(text => ({ id: "", text })),
+    ];
     const unchecked = backlinks.completeness.kind !== "complete";
     for (const anchor of dropped.anchors) {
-      const count = texts.filter(row => blockReferenceOccurrences(row.text ?? "")
+      const count = texts.filter(row => !group?.told?.has(`${row.id}:${blockId}^${anchor}`) && blockReferenceOccurrences(group?.text(row.id) ?? row.text ?? "")
         .some(reference => reference.blockId === blockId && reference.fragmentId === anchor)).length;
       if (count) lost.push(`^${anchor} (${count} ${count === 1 ? "note links" : "notes link"} to it)`);
       else if (unchecked) lost.push(`^${anchor} (too many notes link here to check it)`);

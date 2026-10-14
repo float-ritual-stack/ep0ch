@@ -19,7 +19,7 @@ import { LIST_FIELDS } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { resourceProviderKeys } from "./resource-providers";
 import { decoratingRules, handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
-import { primitiveLines } from "./components";
+import { primitiveLines, type PrimitiveDraw } from "./components";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
 
@@ -507,6 +507,8 @@ export interface ExtDraw {
   markdown(text: string, width: number): string[];
   /** A view's `blockdown` primitive, drawn as this reader draws a note's body (its links, lists and properties), `width` wide. */
   blockdown?(text: string, width: number): string[];
+  /** A view's `image` primitive (PIE-827), drawn as this reader draws a note's image line, `width` wide. */
+  image?: PrimitiveDraw["image"];
   /** Tag a block a component names (a card's link, a table row's): `[ ]` stops on it, a click opens it. */
   row?(block: string, text: string): string;
   /** The keys the reader's host keeps (SurfaceHost.ownKeys): a control never names one as its key. */
@@ -528,7 +530,7 @@ export function primaryAction(p: ResourceProjection): { name: string; label: str
 /** A line's view: drawn from its primitives, else (a primitive this door doesn't draw) its markdown, else its data. */
 function componentBody(p: ResourceProjection, width: number, d: ExtDraw): { lines: string[]; via: "primitives" | "markdown" | "json" } {
   const c = p.output?.component;
-  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
+  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}), ...(d.image ? { image: d.image } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
   if (p.output?.markdown.trim()) return { lines: d.markdown(p.output.markdown, width), via: "markdown" };
   return { lines: wrap(JSON.stringify(c?.data ?? null, null, 1) ?? "null", width).map(l => fg(C.grey) + l + RESET), via: "json" };
 }

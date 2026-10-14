@@ -15,12 +15,19 @@
  */
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
+import { blockReferenceOccurrences, codeRangesOf, FRAGMENT_ID_SOURCE, referencedBlock, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
+import { fragmentAnchors, withAnchorAtEnd, withoutAnchor } from "./fragments";
+import { ep0chBlockUriOccurrences, formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { blockDisplayTitle } from "./references";
 import { requestLines } from "./agent-requests";
 import { DRAFT_PROPOSAL_TYPE, type DraftGroup, type DraftGroupWrite, type DraftPatchApplied, type DraftPatchInput, type DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
 import { namesDemoIds, rewriteDemoReferences } from "./extension-demo";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
 import type { OutlinerStore } from "./store";
+// An EchoNet copy (`[from::<node>/<original id>]`) as EchoNet reads it: its text is its origin's, so a move never
+// rewrites it; its origin is told by netmail (ADR 0005).
+import { isCopy } from "../extensions/echonet/shapes";
 import type { MutationProvenance } from "./types";
 
 export type ExtensionWrite =
@@ -29,6 +36,11 @@ export type ExtensionWrite =
   | { readonly op: "move"; readonly blockId: string; readonly parentId: string; readonly position?: number; readonly expectedRevision: number }
   /** A block's children in this order, in one step: exactly the children it has (a name made in the group among them). */
   | { readonly op: "order"; readonly parentId: string; readonly children: readonly string[] }
+  /**
+   * An anchor moved to another block (PIE-829): `from` is `<block>^<anchor>`, `to` a block or a name made in the group.
+   * Every link to it in this outline is repointed in the same group; an EchoNet copy's is told by netmail instead.
+   */
+  | { readonly op: "move-anchor"; readonly from: string; readonly to: string }
   /**
    * An annotation on the passage the action acts on (`on: passage`): a comment with `body`, a highlight without, with
    * its own properties (`kind`, `tags`, `color` as a theme tone, any other).
@@ -64,7 +76,9 @@ export const SERVICE_GROUP = "ep0ch";
 const isProposal = (block: { properties: readonly { key: string; value: string }[] }) =>
   block.properties.some((property) => property.key === "type" && property.value === DRAFT_PROPOSAL_TYPE);
 
-const SHAPES = `{ op: "create", parentId, text, as?, position? }, { op: "update", blockId, expectedRevision, text }, { op: "move", blockId, parentId, position?, expectedRevision }, { op: "order", parentId, children }`;
+const SHAPES = `{ op: "create", parentId, text, as?, position? }, { op: "update", blockId, expectedRevision, text }, { op: "move", blockId, parentId, position?, expectedRevision }, { op: "order", parentId, children }, { op: "move-anchor", from: "<block>^<anchor>", to }`;
+const ANCHOR_REF = new RegExp(String.raw`^([A-Za-z0-9_-]{8,64})\^(${FRAGMENT_ID_SOURCE})$`);
+const MAX_REPOINT = 200;
 
 /** One block write of an action's answer, its shape checked (`writes[index]`); what it names is checked when applied. */
 export function parseBlockWrite(write: Record<string, unknown>, index: number): BlockWrite {
@@ -84,6 +98,13 @@ export function parseBlockWrite(write: Record<string, unknown>, index: number): 
   }
   if (write.op === "move" && id(write.blockId) && id(write.parentId) && Number.isSafeInteger(write.expectedRevision)) {
     return { op: "move", blockId: write.blockId as string, parentId: write.parentId as string, expectedRevision: write.expectedRevision as number, ...(position !== undefined ? { position: position as number } : {}) };
+  }
+  if (write.op === "move-anchor") {
+    const from = typeof write.from === "string" ? (referencedBlock(write.from) ?? null) : null;
+    const bare = typeof write.from === "string" ? ANCHOR_REF.exec(write.from.trim()) : null;
+    const anchor = bare ? { blockId: bare[1]!, fragment: bare[2]! } : from?.fragment ? from : null;
+    if (!anchor || !id(write.to)) throw new Error(`${at} must be { op: "move-anchor", from: "<block>^<anchor>", to: "<block, or a name made in this answer>" }`);
+    return { op: "move-anchor", from: `${anchor.blockId}^${anchor.fragment}`, to: (write.to as string).trim() };
   }
   if (write.op === "order" && id(write.parentId)) {
     if (!Array.isArray(write.children) || !write.children.length || write.children.length > MAX_ORDER || !write.children.every(id)) {
@@ -126,6 +147,8 @@ export interface ExtensionWritesDeps {
   patchGroup?: (input: DraftGroupInput) => Promise<DraftPatchResult>;
   /** Whether a door holds a live draft of the block. */
   held?: (blockId: string) => boolean;
+  /** This outline's names in `ep0ch://<outline>@<machine>` addresses: only those are repointed by a `move-anchor`. */
+  here?: () => { outline?: string; machines: readonly string[] };
 }
 
 interface Plan {
@@ -162,7 +185,7 @@ export class ExtensionWrites {
       return { written: outcome.edits.map((edit) => edit.blockId), ...this.keep(extension, action, [], outcome.edits) };
     }
     if (!this.deps.patchGroup) throw new Error(`${action}'s writes can't be applied together here (no draft.patch); nothing was written`);
-    const host = hostId ?? plan.edits[0]?.blockId ?? plan.structure.map((write) => write.op === "move" || write.op === "create" || write.op === "order" ? write.parentId : "")[0]!;
+    const host = hostId ?? plan.edits[0]?.blockId ?? plan.structure.map((write) => write.op === "netmail" ? write.blockId : write.parentId)[0]!;
     const group: DraftGroup = { extension, action, hostId: host, writes: plan.structure };
     const writer = this.writer(extension, group.writes, actor);
     const outcome = await this.store.changes.run(attribution, () => this.deps.patchGroup!({ edits: plan.edits, mutation: actor, group, touched: plan.touched, write: writer.write }));
@@ -179,7 +202,7 @@ export class ExtensionWrites {
   forProposal(group: DraftGroup, by: MutationProvenance): { write(): void; done(applied: DraftPatchApplied["edits"]): void } {
     for (const write of group.writes) {
       if (write.op === "create" && this.store.get(write.id)) throw new Error("it was applied already: its new block is there");
-      const parent = write.parentId;
+      const parent = write.op === "netmail" ? write.blockId : write.parentId;
       const current = this.store.get(parent);
       if (!current || current.effectiveDeletedRootId) {
         if (!group.writes.some((other) => other.op === "create" && other.id === parent)) throw new Error(`${parent} is gone or in the Trash`);
@@ -251,6 +274,7 @@ export class ExtensionWrites {
     const updates = new Map<string, { revision: number; before: string; after: string }>();
     const structure: DraftGroupWrite[] = [];
     const touched = new Set<string>();
+    const moves: Extract<BlockWrite, { op: "move-anchor" }>[] = [];
     const nothing = "nothing was written";
     for (const raw of writes) {
       // A name used before the write that makes it is said, rather than taken for an id that isn't there.
@@ -280,6 +304,10 @@ export class ExtensionWrites {
         const id = crypto.randomUUID();
         if (raw.as !== undefined) names.set(raw.as, id);
         structure.push({ op: "create", id, parentId, text, ...(raw.position !== undefined ? { position: raw.position } : {}) });
+        continue;
+      }
+      if (raw.op === "move-anchor") {
+        moves.push(raw);
         continue;
       }
       if (raw.op === "order") {
@@ -316,6 +344,7 @@ export class ExtensionWrites {
       if (!current.text && after) throw new Error(`${action} updated an empty block; create a child instead (${nothing})`);
       updates.set(blockId, { revision: current.revision, before: current.text, after });
     }
+    for (const move of moves) this.moveAnchor(action, move, names, updates, structure);
     const edits = [...updates].flatMap(([blockId, update]) => {
       const span = wholeTextSpan(update.before, update.after);
       return span ? [{ blockId, revision: update.revision, patches: [span] }] : [];
@@ -323,12 +352,94 @@ export class ExtensionWrites {
     return { edits, structure, touched: [...touched] };
   }
 
+  /**
+   * A `move-anchor` resolved into the group (PIE-829): the anchor's marker comes out of `from` (if the group's text
+   * there still has it) and goes on `to` (unless the group's text there has it already: at the end of its last line
+   * that isn't blank), and every link to it in this outline points at `to`, each as the group leaves its note. An
+   * EchoNet copy's link stays as its origin wrote it: a `netmail` write tells the origin, as a comment the tosser
+   * carries. Refused, with nothing written, for an anchor `from` doesn't have, a `to` that's gone, the same block, or
+   * one that has the anchor already.
+   */
+  private moveAnchor(action: string, move: Extract<BlockWrite, { op: "move-anchor" }>, names: ReadonlyMap<string, string>,
+    updates: Map<string, { revision: number; before: string; after: string }>, structure: DraftGroupWrite[]): void {
+    const nothing = "nothing was written";
+    const [fromRef, anchor] = move.from.split("^") as [string, string];
+    if (names.has(fromRef)) throw new Error(`${action} moves ^${anchor} out of ${fromRef}, a block made in the same answer: nothing links to it yet (${nothing})`);
+    const from = this.store.get(fromRef);
+    if (!from || from.effectiveDeletedRootId) throw new Error(`${action} moves ^${anchor} out of ${fromRef}, which is gone or in the Trash; ${nothing}`);
+    const fromTitle = blockDisplayTitle(from);
+    if (!fragmentAnchors(from.text).some((found) => found.id === anchor)) throw new Error(`${action} moves ^${anchor}, which "${fromTitle}" doesn't have; ${nothing}`);
+    const toId = names.get(move.to) ?? move.to;
+    if (toId === from.id) throw new Error(`${action} moves ^${anchor} to the block it's in; ${nothing}`);
+    const made = structure.find((write): write is Extract<DraftGroupWrite, { op: "create" }> => write.op === "create" && write.id === toId);
+    const target = made ? null : this.store.get(toId);
+    if (!made && (!target || target.effectiveDeletedRootId)) throw new Error(`${action} moves ^${anchor} to ${move.to}, which is gone or in the Trash; ${nothing}`);
+    if (target && fragmentAnchors(target.text).some((found) => found.id === anchor)) throw new Error(`${action} moves ^${anchor} to "${blockDisplayTitle(target)}", which has a ^${anchor} already; ${nothing}`);
+    for (const block of [from, ...(target ? [target] : [])]) {
+      const owner = this.store.extensionOwner(block.id);
+      if (owner) throw new Error(`${action} moves ^${anchor} in ${block.id}, a record ${owner.extensionId} keeps; ${nothing}`);
+      if (isCopy(block)) throw new Error(`${action} moves ^${anchor} in "${blockDisplayTitle(block)}", an EchoNet copy: its text is its origin's (${nothing})`);
+    }
+    // A block's text as the group leaves it, and a change to it: an update the group has, or one the move adds.
+    const textOf = (blockId: string) => updates.get(blockId)?.after ?? this.store.get(blockId)!.text;
+    const write = (blockId: string, after: string) => {
+      const was = updates.get(blockId);
+      if (was) was.after = after;
+      else {
+        const block = this.store.get(blockId)!;
+        updates.set(blockId, { revision: block.revision, before: block.text, after });
+      }
+    };
+    const fromText = textOf(from.id);
+    if (fragmentAnchors(fromText).some((found) => found.id === anchor)) write(from.id, withoutAnchor(fromText, anchor));
+    const toText = made ? made.text : textOf(toId);
+    if (!fragmentAnchors(toText).some((found) => found.id === anchor)) {
+      const placed = withAnchorAtEnd(toText, anchor);
+      // Placed where it is an anchor, and every anchor there still one (a line ending in ^t1 would lose it).
+      const kept = new Set(fragmentAnchors(placed).map((found) => found.id));
+      if (!kept.has(anchor) || fragmentAnchors(toText).some((found) => !kept.has(found.id))) {
+        throw new Error(`${action} can't put ^${anchor} at the end of ${move.to} (its last line is code, empty or has an anchor of its own): write ^${anchor} on the line it belongs to (${nothing})`);
+      }
+      if (made) made.text = placed;
+      else write(toId, placed);
+    }
+    const here = this.deps.here?.();
+    // Every link to it: the notes the backlink index knows, and the group's own (the blocks it writes and makes).
+    const backlinks = this.store.queryBacklinks({ targetBlockId: from.id, limit: 1000 });
+    if (backlinks.completeness.kind !== "complete") throw new Error(`${action} moves ^${anchor}, but more notes link to "${fromTitle}" than can be repointed in one step; ${nothing}`);
+    const linking = new Set([...backlinks.sources.filter((source) => !source.deletedRootId).map((source) => source.blockId), ...updates.keys()]);
+    let repointed = 0;
+    for (const blockId of linking) {
+      const block = this.store.get(blockId);
+      if (!block || block.effectiveDeletedRootId) continue;
+      const before = textOf(blockId);
+      const after = repointAnchor(before, from.id, anchor, toId, here);
+      if (after === before) continue;
+      if (++repointed > MAX_REPOINT) throw new Error(`${action} moves ^${anchor}, but more than ${MAX_REPOINT} notes link to it; ${nothing}`);
+      if (isCopy(block)) {
+        const where = made ? `the new "${labelOf(made.text)}"` : `"${blockDisplayTitle(target!)}"`;
+        structure.push({ op: "netmail", blockId, about: { blockId: from.id, anchor }, body: `^${anchor} moved from "${fromTitle}" to ${where} here. This copy links to it as ^${anchor} of "${fromTitle}"; its original's link needs the same change, and the next toss brings it here.` });
+        continue;
+      }
+      const owner = this.store.extensionOwner(blockId);
+      if (owner) throw new Error(`${action} moves ^${anchor}, but ${blockId}, a record ${owner.extensionId} keeps, links to it; ${nothing}`);
+      write(blockId, after);
+    }
+    for (const write of structure) if (write.op === "create") write.text = repointAnchor(write.text, from.id, anchor, toId, here);
+  }
+
   /** What writes the group's blocks in the transaction it runs in, and the undo steps it took. */
   private writer(extension: string, writes: readonly DraftGroupWrite[], by: MutationProvenance): { write(): void; steps: UndoStep[] } {
     const steps: UndoStep[] = [];
     const maker = extensionActorId(extension);
     const one = (write: DraftGroupWrite) => {
-      if (write.op === "create") {
+      if (write.op === "netmail") {
+        const copy = this.store.get(write.blockId);
+        if (!copy || copy.effectiveDeletedRootId) throw new Error(`${write.blockId} is gone or in the Trash`);
+        const receipt = this.store.createAnnotationBatch(crypto.randomUUID(), [{ operationId: "netmail", type: "block-comment", input: {
+          blockId: copy.id, expectedRevision: copy.revision, body: write.body, source: "agent" } }], "agent", { actorId: maker });
+        for (const record of receipt.annotations) steps.push({ kind: "create", blockId: record.block.id, revision: record.block.revision });
+      } else if (write.op === "create") {
         const block = this.store.create(write.text, write.parentId, "agent", { actorId: maker, ...(by.actorId === maker && by.taskId ? { taskId: by.taskId } : {}) }, { id: write.id, ...(write.position !== undefined ? { position: write.position } : {}) });
         steps.push({ kind: "create", blockId: block.id, revision: block.revision });
       } else if (write.op === "move") {
@@ -426,4 +537,30 @@ export function wholeTextSpan(before: string, after: string): DraftPatchSpan | n
     replacement: after.slice(start, after.length - (before.length - end)),
     range: { start, end },
   };
+}
+
+/** A new block's label for words: its first line, short. */
+const labelOf = (text: string) => { const line = withoutFragmentAnchor(text.split("\n", 1)[0]!).trim(); return line.length > 60 ? `${line.slice(0, 59)}…` : line; };
+
+/**
+ * `text` with every link to `^anchor` of `from` pointing at `to` instead (PIE-829): `((from^anchor))`, its labelled
+ * and embedded forms (outline-core's reference grammar, so a link in code stays text), and an `ep0ch://…/b/<from>#anchor`
+ * address outside code. Everything else as written.
+ */
+export function repointAnchor(text: string, from: string, anchor: string, to: string, here?: { outline?: string; machines: readonly string[] }): string {
+  const spans: { start: number; end: number; with: string }[] = [];
+  // The block a link names exactly, as the backlink index and the structural guard count it.
+  for (const reference of blockReferenceOccurrences(text)) {
+    if (reference.fragmentId !== anchor || reference.blockId !== from) continue;
+    spans.push({ start: reference.start + 2, end: reference.start + 2 + reference.blockId.length, with: to });
+  }
+  // An address is repointed only when it names this outline (`ep0ch://<outline>@<machine>`, under any name it goes by).
+  const code = codeRangesOf(text);
+  for (const { uri, start, end } of here?.outline ? ep0chBlockUriOccurrences(text) : []) {
+    if (uri.blockId !== from || uri.fragment !== anchor || uri.outline !== here!.outline || !here!.machines.includes(uri.machine)) continue;
+    if (!code.some((range) => range.start <= start && start < range.end)) spans.push({ start, end, with: formatEp0chBlockUri({ ...uri, blockId: to }) });
+  }
+  let out = text;
+  for (const span of spans.sort((a, b) => b.start - a.start)) out = out.slice(0, span.start) + span.with + out.slice(span.end);
+  return out;
 }

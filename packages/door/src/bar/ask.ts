@@ -29,6 +29,8 @@ export interface BarQuestion {
   free?: boolean;
   /** How a note the search found is described (default "under this note", a quote's place). */
   found?: string;
+  /** A text or number the action needs: without it, nothing typed offers "leave it empty" (a note's form, PIE-828). */
+  required?: boolean;
 }
 
 /** One answer a question's `suggest` offers: the whole value, and how it's shown. */
@@ -75,13 +77,19 @@ const ASK_SOURCE: BarSource = {
     }
     if (q.type === "text" || q.type === "number") {
       const value = typed || q.value;
-      return value === undefined ? [] : [{ key: `answer:${value}`, label: value, detail: head, group: head, data: value }];
+      if (value !== undefined) return [{ key: `answer:${value}`, label: value, detail: head, group: head, data: value }];
+      // Nothing typed and nothing now: one that isn't needed can be left out (the action takes its default, or none).
+      // A needed one says it's waiting on what's typed, so the person sees what's asked.
+      return [q.required === false ? { key: "answer:", label: "leave it empty", detail: `${head} · type to answer`, group: head, data: "" }
+        : { key: "type", label: `type the ${q.label ?? q.name}`, detail: q.type === "number" ? "a number" : "then ⏎", group: head }];
     }
     const choices = [...new Set([...(q.value !== undefined ? [q.value] : []), ...(q.choices ?? q.options ?? [])])];
     const words = typed.toLowerCase();
     const rows: BarRow[] = choices.filter(c => !words || c.toLowerCase().includes(words) || q.says?.[c]?.toLowerCase().includes(words))
       .map(c => ({ key: `answer:${c}`, label: q.says?.[c] ?? c, detail: c === q.value ? "now" : undefined, group: head, data: c }));
     if (q.free && typed && !choices.includes(typed)) rows.unshift({ key: `answer:${typed}`, label: typed, detail: "as typed", group: head, data: typed });
+    // One that isn't needed and has no default (a note's form, PIE-828) can be left out.
+    if (q.required === false && q.value === undefined && !words) rows.push({ key: "answer:", label: "leave it empty", detail: "no answer", group: head, data: "" });
     // A note: any the outline's search finds by the words typed, nearer the note in front first. The rest answer at once.
     if (q.type !== "note" || typed.length < 2) return rows;
     return host.ctx.board.search(typed, 20, { near: host.near() ?? undefined }).then(found => [
@@ -97,6 +105,7 @@ const ASK_SOURCE: BarSource = {
   async pick(row, host, how) {
     const q = question();
     if (!q || !waiting) throw new ActionRefused("nothing is waiting on an answer");
+    if (row.data === undefined) throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);
     waiting.answers[q.name] = String(row.data);
     if (question()) return how.actor.kind === "agent" ? { asking: question()!.name } : host.dispatch.press("bar.open", { scope: ASK_SCOPE });
     const done = waiting;

@@ -98,6 +98,27 @@ export function parseEp0chBlockUri(input: string): Ep0chBlockUri {
   return { outline, machine, blockId: normalizedBlockId, ...(fragment ? { fragment } : {}) };
 }
 
+/** An `ep0ch://…/b/<id>` address written in text: what it names, and where it is (`start`, `end` offsets). */
+export interface Ep0chBlockUriOccurrence { uri: Ep0chBlockUri; start: number; end: number }
+
+/**
+ * The block addresses written in `text` (a note, a label, Markdown's `(…)`), each read by `parseEp0chBlockUri`, so one
+ * rule says what an address is. An address ends at whitespace, a bracket, a quote or `<>`; trailing sentence punctuation
+ * (`.`, `,`, `;`, `:`, `!`, `?`) isn't part of it. Anything that doesn't parse is left out.
+ */
+export function ep0chBlockUriOccurrences(text: string): Ep0chBlockUriOccurrence[] {
+  const out: Ep0chBlockUriOccurrence[] = [];
+  for (const match of text.matchAll(/ep0ch:\/\/[^\s()[\]<>"'`]+/g)) {
+    const raw = match[0].replace(/[.,;:!?]+$/, "");
+    try {
+      out.push({ uri: parseEp0chBlockUri(raw), start: match.index, end: match.index + raw.length });
+    } catch {
+      // Not an address: left as text.
+    }
+  }
+  return out;
+}
+
 /** An outline as a URI names it: `name@machine`. */
 export interface OutlineAddress { outline: string; machine: string }
 

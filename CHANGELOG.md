@@ -10,6 +10,47 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A form written in the note it's for (PIE-828)
+
+- **Added:** an extension action can ask for the fields of the note it runs on: `"fieldsFrom": "block"` in its
+  `extension.json`, and the note writes its fields as chips, `[form-field::mood choice good|meh|rough]`
+  (`<name> <type> [<options>] [required] [default=<value>]`; types `text`, `number`, `choice`, `property`). One action
+  serves every note that writes its own form, and the form is edited where it's used. The service checks the answers as
+  it checks declared arguments and tells the action the note's `fields`.
+- **Added:** the example **Form** extension (`outliner ext add form`): Fill in the form asks the note for its fields and
+  writes an entry under it with the answers as properties.
+- **Added:** the door asks for a note's fields through the power bar's one prompt, by keys or a click, as it asks a
+  sort's `by`; a text or number not needed can be left empty, and a needed one says it's waiting for what you type.
+  An agent gives them in `with=` as JSON and is never asked.
+- **Added:** a `[form-field::…]` chip that can't be read is saved as written and warned on with a did-you-mean
+  (`choise isn't a field type …; did you mean choice?`); the action refuses with the same words.
+- A kitchen-sink section, **forms**: the reading log and the shed repairs, two forms, one action.
+
+### Moving a linked anchor with its text (PIE-829)
+
+- **Added:** an extension action's write group can `move-anchor`: `{ op: "move-anchor", from: "<block>^s5", to }`
+  moves the anchor to another block (or one the group makes) and points every link to it there (`((A^s5))`, labelled,
+  embedded, `ep0ch://…#s5`), in the same group, attributed to the extension, one undo for all of it. A split or a merge
+  no longer leaves a forwarding line behind.
+- **Added:** structure's `extract` takes the anchors on the lines it extracts with them: extract an item ending in
+  `^s5` and the notes linking to it point at the new child.
+- **Changed:** the structural guard judges links as the whole write group leaves them: a group that repoints the link
+  and drops the anchor lands; one that leaves a link dangling is refused as before. A list item's `^id` the same group
+  writes in another note counts as moved, not removed.
+- **Added:** an EchoNet copy that links to a moved anchor is never written (ADR 0005): it gets a comment saying where the
+  anchor went, which the tosser carries to the origin as netmail.
+
+### Pictures in an extension's view (PIE-827)
+
+- **Added:** an `image` primitive for extension views: `{ type: "image", src, alt?, size?, fit?, height? }`, `src` a
+  path as a note's `[img::]` line names one (or `file:/path`). Each reader draws it the way it draws a note's image
+  line: the door with Kitty graphics, dimmed dark-first, its caption a `[ ]` stop that ⏎ opens; a web page with the
+  image it serves (`/p/<id>/media/<line>/<n>`) when the publish roots allow the file; the `terminal` target as alt
+  text and path, Markdown (Detail, exports, MCP) as alt text and the file's name. Nothing is written to the outline.
+- **Added:** the `gallery` example extension: `gallery::` draws the notes under it as cards with their `[cover::]`
+  pictures, `pic:: path` one picture. The kitchen sink's gallery section shows it.
+- **Needs:** PROTOCOL 165 for the wave (the image primitive, the form-field grammar and `fieldsFrom` on the wire): the door and the service update together.
+
 ### An agent's pick stays the agent's; a replaced draft keeps the person's place (PIE-632)
 
 - **Fixed:** an agent's `tree.pick` (or a links-tile pick) showed its row where the tree's selection goes as if the

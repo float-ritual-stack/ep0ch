@@ -64,7 +64,9 @@ import { requestLines } from "./agent-requests";
 import { embedMatches } from "./transclusions";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
-import type { MutationProvenance } from "./types";
+import type { ChecklistIdentityChange, MutationProvenance } from "./types";
+import { removedListItemIds } from "./checklist-items";
+import { fragmentAnchors } from "./fragments";
 import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
 
 /** What a request to a holding door carries besides its ids, which the server fills in. */
@@ -122,7 +124,19 @@ interface RunOptions {
   proposal?: DraftHolderProposal;
   /** Writes that land with the saved notes, in their transaction (a write group's blocks made, moved and ordered). */
   alongside?: () => void;
+  /** `<copy>:<target>^<anchor>`, what a write group's netmail tells (PIE-829): that copy's link to that anchor stays. */
+  told?: ReadonlySet<string>;
+  /** The texts the whole patch leaves its saved notes with, which the guard judges links by (set by `run`). */
+  leaves?: Map<string, string>;
+  /** The texts of the blocks a write group makes: a list-item ID one of them carries moved there, it wasn't removed. */
+  made?: readonly string[];
 }
+
+/** The copies a write group tells by netmail (its `netmail` writes). */
+const toldBy = (group: DraftGroup | undefined) => new Set((group?.writes ?? []).flatMap(write =>
+  write.op === "netmail" && write.about ? [`${write.blockId}:${write.about.blockId}^${write.about.anchor}`] : []));
+/** The texts of the blocks a write group makes. */
+const madeBy = (group: DraftGroup | undefined) => (group?.writes ?? []).flatMap(write => write.op === "create" ? [write.text] : []);
 
 /** `refused`: the `edit` policy's guard said no; the patch is an error, never a proposal. */
 type Outcome = { ok: true; applied: DraftPatchApplied["edits"] } | { ok: false; reason: string; refused?: boolean };
@@ -332,7 +346,7 @@ export class DraftPatchRouter {
       const title = this.deps.store.get(held);
       return this.propose(`${title ? `"${blockDisplayTitle(title)}"` : "a note it changes"} is open in a draft; the whole change waits for you`, edits, mutation, undefined, sent, input.group);
     }
-    const outcome = await this.run(edits, { mutation, ...sent, alongside: input.write });
+    const outcome = await this.run(edits, { mutation, ...sent, alongside: input.write, told: toldBy(input.group), made: madeBy(input.group) });
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
     if (outcome.refused) throw new DraftPatchRefusal(outcome.reason);
     return this.propose(outcome.reason, edits, mutation, undefined, sent, input.group);
@@ -451,8 +465,8 @@ export class DraftPatchRouter {
     const edits = proposal.edits.length ? normalizeDraftPatchEdits({ edits: proposal.edits }) : [];
     const forced = who.author !== "agent";
     const outcome = await this.run(edits, forced
-      ? { mutation: who, force: true, policy: "edit", proposal: { id: proposalId, op: "apply" }, alongside: prepared.write }
-      : { mutation: who, current: true, policy: "edit", proposal: { id: proposalId, op: "apply" }, alongside: prepared.write });
+      ? { mutation: who, force: true, policy: "edit", proposal: { id: proposalId, op: "apply" }, alongside: prepared.write, made: madeBy(proposal.group) }
+      : { mutation: who, current: true, policy: "edit", proposal: { id: proposalId, op: "apply" }, alongside: prepared.write, told: toldBy(proposal.group), made: madeBy(proposal.group) });
     if (!outcome.ok) throw new Error(`Couldn't apply it: ${outcome.reason}${outcome.refused ? "; only the person applies that anyway" : ""}`);
     prepared.done(outcome.applied);
     const warning = this.writeStatus(proposalId, "applied", who);
@@ -559,6 +573,16 @@ export class DraftPatchRouter {
     // Saved notes first: nothing is written until every part has passed. The text the policy passed is the
     // text the write below must still find.
     const checked = new Map<string, string>();
+    // What the whole patch leaves each saved note with: the guard judges links by it (PIE-829), so a group that
+    // repoints a link and drops the anchor it pointed at is judged on where the link ends up, not where it was.
+    const leaves = new Map<string, string>();
+    for (const { edit, hold } of plan) {
+      if (hold || options.force) continue;
+      const block = store.get(edit.blockId);
+      const located = block && !block.effectiveDeletedRootId ? this.savedLocator(edit, options)(block.text, edit.patches) : null;
+      if (located?.ok) leaves.set(edit.blockId, applyLocated(block!.text, located.spans));
+    }
+    options = { ...options, leaves };
     for (const { edit, hold } of plan) {
       if (hold) continue;
       const failure = this.checkSaved(edit, options);
@@ -629,7 +653,8 @@ export class DraftPatchRouter {
         const located = options.force ? locateSpans(block.text, edit.patches, true) : this.savedLocator(edit, options)(block.text, edit.patches);
         if (!located.ok) throw new Error(located.reason);
         const rebased = this.rebasedFrom(edit, block.revision, options);
-        return { block: store.update(edit.blockId, applyLocated(block.text, located.spans), block.revision, options.mutation), rebased };
+        const after = applyLocated(block.text, located.spans);
+        return { block: store.update(edit.blockId, after, block.revision, options.mutation, "text", movedListItems(store, edit.blockId, block.text, after, options)), rebased };
       }))();
       for (const { block, rebased } of written) applied.push({ blockId: block.id, route: "saved", revision: block.revision, ...(rebased ? { rebasedFrom: rebased } : {}) });
     } catch (error) {
@@ -719,7 +744,9 @@ export class DraftPatchRouter {
       return { ok: false, reason: blamed(reason, blame(edits, edit, text, next => draftPatchTextPolicy(text, next) !== null, locate), total) };
     }
     if (options.allowStructural) return null;
-    const lost = await droppedLinkedStructure(this.deps.client, edit.blockId, text, after);
+    const lost = await droppedLinkedStructure(this.deps.client, edit.blockId, text, after, {
+      text: blockId => options.leaves?.get(blockId), written: options.leaves?.keys() ?? [], made: options.made ?? [], ...(options.told ? { told: options.told } : {}),
+    });
     if (!lost.length) return null;
     // Which change drops one of them: the first whose application loses a page or an anchor named here.
     const named = (token: string) => lost.some(entry => entry === token || entry.startsWith(`${token} (`));
@@ -856,3 +883,21 @@ function proposalKey(edits: readonly DraftPatchEdit[], actor: { author: string; 
 }
 
 export type { DraftHolderRequest };
+
+/**
+ * The list-item IDs a patch takes out of one note and puts in another it writes or makes (PIE-829, a split or a merge
+ * moving `^s5` with its line): declared to the store as moved out of this note, which it otherwise refuses as an ID
+ * dropped by accident. Only for an ID the same patch writes elsewhere; one that just goes is still refused.
+ */
+function movedListItems(store: OutlinerStore, blockId: string, before: string, after: string, options: RunOptions): ChecklistIdentityChange[] {
+  const gone = removedListItemIds(before, after);
+  if (!gone.length) return [];
+  const ids = (text: string) => fragmentAnchors(text).map(anchor => anchor.id);
+  // Where it went: a block the patch makes, or one it writes that didn't have it before.
+  const arrived = new Set([...(options.made ?? []).flatMap(ids), ...[...(options.leaves ?? new Map<string, string>())].flatMap(([id, text]) => {
+    if (id === blockId) return [];
+    const had = new Set(ids(store.get(id)?.text ?? ""));
+    return ids(text).filter(anchor => !had.has(anchor));
+  })]);
+  return gone.filter(itemId => arrived.has(itemId)).map(itemId => ({ kind: "remove" as const, itemId }));
+}

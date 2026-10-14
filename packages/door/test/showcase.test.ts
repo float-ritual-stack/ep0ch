@@ -367,8 +367,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
+    // The gallery extension's cards with their covers, and pic::'s one picture (PIE-827); no Kitty graphics here, so captions.
+    gallery: ["Seed packet gallery", "Beetroot, Boltardy", "▣ seed-packet.webp", "▣ evening-beds.jpg · no Kitty graphics in this terminal"],
     // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
     "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
+    // Two notes, each writing its own form: the reading log and the shed repairs, side by side.
+    forms: ["Reading log", "Shed repairs"],
     // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
     rules: ["Allotment committee, Saturday", "[meeting]", "CLOSE THE COLD FRAME TONIGHT", "Mend the water butt"],
     // A rule note beside a view: both configurable, , opens either's card.
@@ -448,6 +452,30 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       .rejects.toThrow(`the note has ${links.length}`);
     expect(S().focus).toBe("index");
   }, 20_000);
+
+  test("the gallery section (PIE-827): an extension's cards draw their covers as a note's images are; [ ] stops on a cover's caption, by act and by keys", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "gallery" }, as: "test-agent" })).toMatchObject({ key: "gallery" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "gallery")).top; };
+    const reader = () => (stage().layoutGet().tiles as any[]).find(t => t.showing?.id === seeded.notes.gallery.id);
+    await until(() => !!reader() && marks.gallery!.every(m => screen().includes(m)), "the gallery's cards and picture", 15_000);
+    const cover = join(SHOWCASE_ASSETS, "seed-packet.webp");
+    const { elements } = await app.act({ action: "elements", tile: reader().name, as: "test-agent" }) as { elements: { n: number; kind: string; target?: string }[] };
+    // Each cover's caption is a link to its file; each card's title opens its note.
+    expect(elements.filter(e => e.target === cover)).toEqual([expect.objectContaining({ kind: "link" })]);
+    expect(elements.some(e => e.target === join(SHOWCASE_ASSETS, "evening-beds.jpg"))).toBe(true);
+    expect(elements.filter(e => e.kind === "row").length).toBeGreaterThanOrEqual(3);
+    // The person's ] reaches it.
+    press({ kind: "enter" });
+    const current = () => (stage().pane(reader().name) as any).describe().elements?.current?.target;
+    for (let i = 0; i < 30 && current() !== cover; i++) ch("]");
+    expect(current()).toBe(cover);
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+    ch("1");   // the index back at its top, for the tests after
+    // Nothing was written to draw them.
+    expect((await board.get(seeded.notes.gallery.id))!.text).toBe(seeded.notes.gallery.text);
+  }, 30_000);
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
     const spine = SECTIONS.findIndex(s => s.key === "spine");
@@ -2942,6 +2970,64 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((await board.get(plan.id))!.text).toContain(`!((${child!.id}))`);
     await board.undoExtension(done.undo!, { kind: "agent", id: "test-agent" });
     expect((await board.get(plan.id))!.text).toBe(plan.text);
+    expect(await board.children(plan.id)).toEqual([]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+  test("forms (PIE-828): one action, two notes, two forms; the person answers the reading log's in the power bar by keys, an agent the repairs' in with=; each writes a child with its own chips", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" })).toMatchObject({ key: "forms" });
+    await until(() => !!extensionNamed("form"), "the door bound the form extension", 8000);
+    const reading = seeded.notes.formReading, repairs = seeded.notes.formRepairs;
+    const kids = async (id: string) => (await board.children(id)).map(m => m.text);
+    const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`) : []; };
+    // The person's run on the reading log: book (typed), pages (typed), then mood, its default lit first.
+    void app.dispatch.press("ext.form.fill", { block: reading.id });
+    await until(() => asked()[0] === "Fill in the form · book = type the book", "the bar asks for the book", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
+    for (const c of "Moss and Lichen") ch(c);
+    await until(() => asked()[0] === "Fill in the form · book = Moss and Lichen", "the typed title offered");
+    press({ kind: "enter" });
+    await until(() => asked()[0]?.startsWith("Fill in the form · pages") ?? false, "the bar asks for pages", 8000);
+    // pages isn't needed: nothing typed offers to leave it empty.
+    expect(asked()).toEqual(["Fill in the form · pages = leave it empty"]);
+    for (const c of "212") ch(c);
+    await until(() => asked()[0] === "Fill in the form · pages = 212", "the typed pages offered");
+    press({ kind: "enter" });
+    await until(() => asked()[0]?.startsWith("Fill in the form · mood") ?? false, "the bar asks for the mood", 8000);
+    expect(asked()).toEqual(["slow", "gripping", "abandoned"].map(c => `Fill in the form · mood = ${c}`));
+    press({ kind: "down" });
+    press({ kind: "enter" });
+    for (let i = 0; i < 80 && !(await kids(reading.id)).length; i++) await Bun.sleep(100);
+    expect(await kids(reading.id)).toEqual(["Moss and Lichen [book::Moss and Lichen] [pages::212] [mood::gripping]"]);
+    // The repairs note asks for other fields; an agent gives them at once and is never asked, its default filled in.
+    await expect(app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof" }) }, as: "test-agent" })).rejects.toThrow(/needs what=.*with=/);
+    await app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof", what: "a slipped tile over the bench" }) }, as: "test-agent" });
+    expect(await kids(repairs.id)).toEqual(["a slipped tile over the bench [part::roof] [what::a slipped tile over the bench] [urgent::no]"]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+  test("structure's extract takes a line's anchor with it (PIE-829): the diary's link points at the new child, no forwarding line, one undo puts all of it back", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
+    const listed = await board.listExtensions(true);
+    const title = (m: { text: string }) => m.text.split("\n")[0]!;
+    const demo = await board.children(listed.pages!.structure!);
+    const plan = demo.find(m => title(m) === "Garden plan")!, diary = demo.find(m => title(m) === "Garden diary")!;
+    expect(diary.text).toContain(`((${plan.id}^s5|pea stakes))`);
+    const line = "- Stake the peas by the north fence ^s5";
+    const done = await app.act({ action: "ext.structure.extract", args: { block: plan.id, quote: line }, as: "test-agent" }) as { undo?: string; message?: string };
+    expect(done.message).toBe("extracted 1 line(s) into a child, with ^s5");
+    const [child] = await board.children(plan.id);
+    expect(child!.text).toBe("Stake the peas by the north fence ^s5");
+    const planNow = (await board.get(plan.id))!.text;
+    // No forwarding line: the item is the child's embed, and ^s5 lives only in the child.
+    expect(planNow).toContain(`- !((${child!.id}))`);
+    expect(planNow).not.toContain("^s5");
+    expect((await board.get(diary.id))!.text).toContain(`((${child!.id}^s5|pea stakes))`);
+    await board.undoExtension(done.undo!, { kind: "agent", id: "test-agent" });
+    expect((await board.get(plan.id))!.text).toBe(plan.text);
+    expect((await board.get(diary.id))!.text).toBe(diary.text);
     expect(await board.children(plan.id)).toEqual([]);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
