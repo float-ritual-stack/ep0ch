@@ -198,7 +198,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(get().locked).toBe(true);
     // A click on the same row unlocks it.
     render();
-    const panel = D().overlays.get("policy"), row = panel.hits[0];
+    const panel = D().overlays.get("policy"), row = panel.hits.find((h: any) => panel.items[h.i].label.startsWith("locked"));
     mouse("down", panel.box.col + 3, row.y);
     expect(get().locked).toBe(false);
     key({ kind: "esc" });

@@ -538,6 +538,8 @@ A terminal tile running `nvim` listens on a socket:
 - It's in the door's state (`nvim/<tile>-<pid>-<id>.sock`), or a short folder under the temp directory when
   that path would be too long for a socket.
 - `layout.get`, `tile.info` and the feed's `layout.changed` name it (`nvim.socket`).
+- `tile.info` also says, in plain words, what the tile follows (`follows`) and where its opens land (`opens`), as
+  `^W P`'s first rows do (PIE-855). `reader.follow`, `tile.hold` and `tile.link` change them.
 - The door connects too: nvim reports its cursor, window and buffer (autocmds that `rpcnotify` the door). That
   is how nvim's cursor is in `cursor` events, and how a preview of the tile follows the buffer's file.
 

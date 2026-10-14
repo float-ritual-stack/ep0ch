@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A tile says what it follows and where it opens, and you can cut either (PIE-855)
+
+- **Added:** `^W P` starts with two plain rows for the tile it's opened on. **Follows:** "the #tags opened in
+  detail", "tree's selection (a link)", "the current note, as it changes", "nothing: held on its note". **Opens
+  into:** "detail, its reader (⏎ replaces its note…)", "preview (its link…)", "a new column after it", "the current
+  note (no link…)". Each has a row to change it (⏎ or a click: what it follows, or a list of the tiles its opens may
+  land in) and, where there's a link, one to unlink it.
+- **Added:** a tag's list shows `◄ detail` on its frame while it follows its reader's tags. A click on it, or on a
+  tile's `→ preview` or `⏎ detail` mark, opens `^W P` on that row.
+- **Added:** `tile.info` answers `follows=` and `opens=` in the same words, for agents.
+
 ### An action line runs from any scope of the power bar (PIE-856)
 
 - **Changed:** `run tile.open kind=query query="#build-report"` is offered first in every scope of the power bar
