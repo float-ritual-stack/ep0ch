@@ -419,8 +419,8 @@ test("ext add, ls and remove: a built-in or a folder in, the service told; a bro
     expect(errors.join("\n")).toContain("handlers, actions, agents, bar sources and rules that decorate with code need run");
 
     logs.length = 0;
-    expect(await runExtCommand(["ls"], connect)).toBe(0);
-    expect(logs.join("\n")).toMatch(/horoscope\tactive\tuser\tv1/);
+    expect(await runExtCommand(["ls", "--long"], connect)).toBe(0);
+    expect(logs.join("\n")).toMatch(/horoscope\s+active\s+user\s+v1/);
     expect(logs.join("\n")).toContain("serves joke:: (output, read)");
 
     expect(await runExtCommand(["remove", "horoscope"], connect)).toBe(0);
