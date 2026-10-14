@@ -2318,6 +2318,9 @@ export class OutlinerServer {
         case "resource-sources.get":
           result = this.store.resources.requireSource(request.sourceId);
           break;
+        case "resource-sources.rebind":
+          result = { sources: this.store.resources.rebindFilesystemRoot(request.root) };
+          break;
         case "computed.invocations.create":
           result = this.store.resources.createComputedInvocation(request.input);
           break;

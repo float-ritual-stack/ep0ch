@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A file link whose folder was made again keeps working (PIE-853)
+
+- **Fixed:** a `[file::]` link whose folder was deleted and made again in the same place (a sync renaming a new copy
+  into place, an agent rewriting the folder) was refused for good with "Filesystem source root no longer resolves to
+  its bound directory identity". The outline host now re-binds the folder on the next read and says so once, above the
+  file: "~/float-hub/inbox was made again; its files are read from it again".
+- **Changed:** a folder whose path now leads to another directory (a symlink retargeted, another folder moved over it)
+  is still not read, and the file's reader says where it leads now and the command that reads it there.
+- **Added:** `ep0ch resource rebind <folder> [--ws <outline>]`: the files under that folder are read from where it
+  leads now.
+- **Run:** `ep0ch install --apply` on each machine (the protocol changed).
+
 ### The comment's tile sits beside its note on any side (PIE-846)
 
 - **Changed:** the comment's own tile (`ctrl+o` to **tile**) now opens in the note's place, beside it, instead of floating:

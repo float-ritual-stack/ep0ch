@@ -137,6 +137,10 @@ ${LIBRARY_USAGE}
                                    the outline's extensions: ls lists each folder, what it serves and each
                                    schedule (every or cron, next run, last run and what it did); act runs an
                                    action as the extension; run runs a schedule now (the outliner's ext command)
+  ep0ch resource rebind <folder> [--ws <name>] [--json]
+                                   read a file link's folder where it leads now, after a link in its path
+                                   changed or another folder took its place: the command a refused file link
+                                   names. A folder deleted and made again in the same place needs nothing
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id|ep0ch://outline@machine/b/id|file:/path> [--json] | act <action> [key=value ...]
@@ -235,6 +239,12 @@ if (args[0] === "ext") {
   if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
   const run = Bun.spawn([process.execPath, cli, "ext", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
+}
+// A file Source's folder that leads elsewhere now (PIE-853): `ep0ch resource rebind <folder>`, the outliner's own command.
+if (args[0] === "resource") {
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "resource", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
 // EchoNet (PIE-779): `ep0ch echo …`, through the outliner's own command.

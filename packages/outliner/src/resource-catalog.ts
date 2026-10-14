@@ -9,6 +9,7 @@ import {
   statSync,
   type BigIntStats,
 } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type, type Static } from "typebox";
 import { Parse } from "typebox/value";
@@ -345,6 +346,8 @@ export interface ResourceCatalogOptions {
   readonly maximumWebBytes?: number;
   readonly webStaleAfterMs?: number;
   readonly workspaceRoot?: string;
+  /** This outline's name, for the commands a refusal names (`--ws <outline>`). */
+  readonly outline?: string;
   readonly maximumPdfBytes?: number;
   readonly remoteEntityClient?: RemoteEntityProviderClient;
   readonly computedProducerRegistry?: ComputedProducerRegistry;
@@ -752,19 +755,69 @@ function filesystemRootBinding(root: string): string {
   }
 }
 
+/**
+ * How a filesystem Source's root compares with the directory it was bound to: the same directory; the same place
+ * holding a new directory (deleted and made again, a sync's rename into place: a new inode); or a place that now
+ * resolves to another directory (a symlink retargeted, a folder moved over it).
+ */
+function filesystemRootDrift(
+  root: string,
+  rootBinding: string,
+): { kind: "same" } | { kind: "recreated"; binding: string } | { kind: "moved"; was: string; now: string } {
+  const binding = filesystemRootBinding(root);
+  if (binding === rootBinding) return { kind: "same" };
+  const now = (JSON.parse(binding) as { path: string }).path;
+  let was: string | undefined;
+  try {
+    was = (JSON.parse(rootBinding) as { path?: unknown }).path as string | undefined;
+  } catch {
+    was = undefined;
+  }
+  return was === now ? { kind: "recreated", binding } : { kind: "moved", was: was ?? "an unknown folder", now };
+}
+
+/** A path as a person reads it: under their home, from `~`. */
+function homeWords(path: string): string {
+  const home = homedir();
+  return path === home ? "~" : path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
+}
+
+/** A path as a shell takes it: quoted when it has anything but the plain characters. */
+function shellWord(path: string): string {
+  return /^[\w@%+=:,./~-]+$/.test(path) ? path : `'${path.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * The command that binds a Source's root to the directory it resolves to now (`ep0ch resource rebind`). The path is
+ * the host's, in full: a `~` would be the home of whichever machine's shell runs it.
+ */
+export function rebindCommand(root: string, outline?: string): string {
+  return `ep0ch resource rebind ${shellWord(root)}${outline ? ` --ws ${shellWord(outline)}` : ""}`;
+}
+
+function sourceMoved(root: string, was: string, now: string, outline?: string): ResourceCatalogError {
+  return new ResourceCatalogError(
+    "source-moved",
+    `${homeWords(root)} now leads to ${homeWords(now)}, not ${homeWords(was)} where its files were registered, so they aren't read from it. ` +
+      `If ${homeWords(now)} is where they live now: ${rebindCommand(root, outline)}`,
+  );
+}
+
 function assertFilesystemConfinement(
   root: string,
   rootBinding: string | null,
   address: Extract<ResourceAddress, { kind: "filesystem" }>,
+  outline?: string,
 ): void {
   if (!rootBinding) {
     throw new ResourceCatalogError("source-unavailable", "Filesystem source has no root binding");
   }
-  const currentBinding = filesystemRootBinding(root);
-  if (currentBinding !== rootBinding) {
+  const drift = filesystemRootDrift(root, rootBinding);
+  if (drift.kind === "moved") throw sourceMoved(root, drift.was, drift.now, outline);
+  if (drift.kind === "recreated") {
     throw new ResourceCatalogError(
       "source-unavailable",
-      "Filesystem source root no longer resolves to its bound directory identity",
+      `${homeWords(root)} was replaced during this read or save of one of its files; try again`,
     );
   }
   const boundRoot = realpathSync(root);
@@ -881,6 +934,9 @@ export class ResourceCatalog {
   private readonly maximumPdfBytes: number;
   private readonly webStaleAfterMs: number;
   private readonly workspaceRoot: string;
+  private readonly outline: string | undefined;
+  /** What a Source's re-binding said, by Source, until the next read of one of its files says it (once). */
+  private readonly rebound = new Map<string, string>();
   private readonly pendingWebRefreshes = new Map<string, Promise<ResourceDescription>>();
   private readonly pendingPdfRefreshes = new Map<string, Promise<ResourceDescription>>();
   private readonly pendingRemoteEntityRefreshes =
@@ -925,6 +981,7 @@ export class ResourceCatalog {
     this.webStaleAfterMs = options.webStaleAfterMs ?? DEFAULT_WEB_STALE_AFTER_MS;
     this.remoteEntityStaleAfterMs = options.remoteEntityStaleAfterMs ?? DEFAULT_REMOTE_ENTITY_STALE_AFTER_MS;
     this.workspaceRoot = resolve(options.workspaceRoot ?? ".");
+    this.outline = options.outline;
     if (!Number.isFinite(this.webStaleAfterMs) || this.webStaleAfterMs < 0) {
       throw new ResourceCatalogError(
         "invalid-input",
@@ -1270,11 +1327,11 @@ export class ResourceCatalog {
     // Use the same boundary explicit interning would choose, without creating a Source.
     const root = source?.boundary.root ?? dirname(absolutePath);
     const binding = source
-      ? this.requireSourceRowFromCurrentRead(source.id).root_binding
+      ? this.confirmFilesystemRoot(source, this.requireSourceRowFromCurrentRead(source.id).root_binding)
       : filesystemRootBinding(root);
     assertFilesystemConfinement(root, binding, {
       kind: "filesystem", path: relative(root, absolutePath).replaceAll(sep, "/"),
-    });
+    }, this.outline);
     return readFileContents(path, this.workspaceRoot);
   }
 
@@ -1364,10 +1421,19 @@ export class ResourceCatalog {
       if (!source) {
         return { kind: "unregistered", reason: `File is not registered: ${reference.path}` };
       }
-      const resource = this.find(source.id, {
+      const address = {
         kind: "filesystem",
         path: relative(source.boundary.root, absolutePath).replaceAll(sep, "/"),
-      });
+      } as const;
+      let resource: Resource | null;
+      try {
+        resource = this.find(source.id, address);
+      } catch (error) {
+        if (!(error instanceof ResourceCatalogError) || error.code !== "source-moved") throw error;
+        // Its folder leads elsewhere now: the link still names its Resource, whose reading says why and what to run.
+        const row = this.resourceRowByKeyFromCurrentRead(source.id, normalizeResourceAddress(source, address).canonicalKey);
+        resource = row ? resourceFromRow(row, source) : null;
+      }
       return resource
         ? { kind: "ready", resourceId: resource.id }
         : { kind: "unregistered", reason: `File is not registered: ${reference.path}` };
@@ -1690,13 +1756,14 @@ export class ResourceCatalog {
       );
     }
     const sourceRow = this.requireSourceRowFromCurrentRead(source.id);
-    this.assertConfinement(source, sourceRow.root_binding, resource.address);
+    const binding = this.assertConfinement(source, sourceRow.root_binding, resource.address);
     const absolutePath = realpathSync(resolve(source.boundary.root, resource.address.path));
     if (expectedRevision.revision.kind !== "filesystem") {
       throw new ResourceCatalogError("provider-mismatch", "Filesystem writes require a filesystem revision");
     }
+    // The folder the save began in is the one it ends in: no re-binding while it runs.
     commitFilesystemText(absolutePath, input.text, expectedRevision.revision, () =>
-      this.assertConfinement(source, sourceRow.root_binding, resource.address));
+      this.assertConfinement(source, binding, resource.address, false));
     return this.filesystemReadFromCurrentRead(resource, source, null);
   }
 
@@ -1735,9 +1802,9 @@ export class ResourceCatalog {
       );
     }
     const sourceRow = this.requireSourceRowFromCurrentRead(source.id);
-    this.assertConfinement(source, sourceRow.root_binding, resource.address);
+    const binding = this.assertConfinement(source, sourceRow.root_binding, resource.address);
     recoverFilesystemSave(resolve(source.boundary.root, resource.address.path));
-    this.assertConfinement(source, sourceRow.root_binding, resource.address);
+    this.assertConfinement(source, binding, resource.address, false);
     const contents = readFileContents(resource.address.path, source.boundary.root);
     const revision: ResourceRevisionRef = {
       resourceId: resource.id,
@@ -2041,7 +2108,7 @@ export class ResourceCatalog {
     destinationHostRegistered: boolean,
     revision?: unknown,
   ): ResourceDescription {
-    return this.database.transaction(() => {
+    const description = this.database.transaction((): ResourceDescription => {
       const resource = this.requireFromCurrentRead(normalizeResourceId(resourceId));
       const source = this.requireSourceFromCurrentRead(resource.sourceId);
       const requestedRevision: ResourceRevisionRef | null = revision === undefined
@@ -2049,6 +2116,7 @@ export class ResourceCatalog {
         : normalizeResourceRevisionRef(revision, resource);
       const readingDenied = source.policy.deniedCapabilities.includes("read");
       let filesystem: FilesystemResourceDocument | null = null;
+      let filesystemError: string | undefined;
       if (
         resource.provider === "filesystem" &&
         resource.mediaType !== "application/pdf" &&
@@ -2060,10 +2128,14 @@ export class ResourceCatalog {
           if (
             requestedRevision ||
             !(error instanceof ResourceCatalogError) ||
-            error.code !== "source-unavailable"
+            (error.code !== "source-unavailable" && error.code !== "source-moved")
           ) throw error;
+          // A folder that leads elsewhere now is said with the command that re-binds it, where the file would be.
+          if (error.code === "source-moved") filesystemError = error.message;
         }
       }
+      // A re-binding is said to the first reader of the folder's files after it (once: forgotten when this read is done).
+      const rebound = filesystem ? this.rebound.get(source.id) : undefined;
       const pdfRead = resource.mediaType === "application/pdf" && !readingDenied
         ? this.pdfReadFromCurrentRead(resource, requestedRevision)
         : null;
@@ -2101,10 +2173,12 @@ export class ResourceCatalog {
         : null;
       return {
         resource,
-        source,
+        source: rebound ? this.requireSourceFromCurrentRead(source.id) : source,
         requestedRevision,
         capabilities,
         filesystem,
+        ...(rebound ? { filesystemNotice: rebound } : {}),
+        ...(filesystemError ? { filesystemError } : {}),
         pdf: pdfRead?.document ?? null,
         pdfHistory: pdfRead?.history ?? null,
         web: webRead?.document ?? null,
@@ -2125,6 +2199,8 @@ export class ResourceCatalog {
             : [],
       };
     })();
+    if (description.filesystemNotice) this.rebound.delete(description.source.id);
+    return description;
   }
 
   async open(
@@ -4646,14 +4722,21 @@ export class ResourceCatalog {
     };
   }
 
+  /**
+   * The address stays inside its Source. A filesystem Source's root is first confirmed (`rebind`: re-bound when its
+   * folder was made again in the same place); the binding it was checked against is returned, for the checks of one
+   * operation that must all see the same folder (`rebind` false: a save, a recovery).
+   */
   private assertConfinement(
     source: ResourceSource,
     rootBinding: string | null,
     address: ResourceAddress,
-  ): void {
+    rebind = true,
+  ): string | null {
     if (source.provider === "filesystem" && address.kind === "filesystem") {
-      assertFilesystemConfinement(source.boundary.root, rootBinding, address);
-      return;
+      const binding = rebind ? this.confirmFilesystemRoot(source, rootBinding) : rootBinding;
+      assertFilesystemConfinement(source.boundary.root, binding, address, this.outline);
+      return binding;
     }
     if (source.provider !== address.kind) {
       throw new ResourceCatalogError(
@@ -4661,6 +4744,68 @@ export class ResourceCatalog {
         `Resource address ${address.kind} does not match source ${source.provider}`,
       );
     }
+    return rootBinding;
+  }
+
+  /**
+   * A filesystem Source's root binding as it stands now. A folder deleted and made again in the same place (a sync's
+   * rename, an agent rewriting it) has a new inode at the same real path: it is the folder the Source was registered
+   * for, so the Source is re-bound to it, said once, and its files are read again. A root that now resolves elsewhere
+   * is refused with the command that re-binds it (`sourceMoved`); a missing one stays unavailable.
+   */
+  private confirmFilesystemRoot(
+    source: Extract<ResourceSource, { provider: "filesystem" }>,
+    rootBinding: string | null,
+  ): string | null {
+    if (!rootBinding) return rootBinding;
+    const drift = filesystemRootDrift(source.boundary.root, rootBinding);
+    if (drift.kind === "moved") throw sourceMoved(source.boundary.root, drift.was, drift.now, this.outline);
+    if (drift.kind === "same") return rootBinding;
+    this.writeRootBinding(source.id, drift.binding);
+    const said = `${homeWords(source.boundary.root)} was made again; its files are read from it again`;
+    this.rebound.set(source.id, said);
+    console.warn(`outline host: ${said} (Source ${source.name}, ${source.id}, re-bound by the outline host)`);
+    return drift.binding;
+  }
+
+  private writeRootBinding(sourceId: string, binding: string): void {
+    this.database.transaction(() => {
+      this.database.query(
+        "UPDATE resource_sources SET root_binding = ?, version = version + 1, updated_at = ? WHERE id = ?",
+      ).run(binding, new Date().toISOString(), sourceId);
+      this.bumpSequence();
+    })();
+  }
+
+  /**
+   * Bind every filesystem Source whose root is `root` to the directory it resolves to now (`ep0ch resource rebind`):
+   * the person's word that the folder there, wherever it leads, is the one to read. Refused when no Source has that
+   * root, or it isn't a directory now.
+   */
+  rebindFilesystemRoot(root: string): ResourceSource[] {
+    if (typeof root !== "string" || !root.trim()) {
+      throw new ResourceCatalogError("invalid-input", "Which folder? Name a file Source's folder");
+    }
+    const absolute = resolveReferencedPath(root, this.workspaceRoot);
+    const sources = this.listSources().filter(
+      (source): source is Extract<ResourceSource, { provider: "filesystem" }> =>
+        source.provider === "filesystem" && resolve(source.boundary.root) === absolute,
+    );
+    if (!sources.length) {
+      const roots = this.listSources().flatMap((source) => source.provider === "filesystem" ? [homeWords(source.boundary.root)] : []);
+      throw new ResourceCatalogError(
+        "missing-source",
+        `No file Source has the folder ${homeWords(absolute)}${roots.length ? `; the folders there are: ${roots.join(", ")}` : ""}`,
+      );
+    }
+    const binding = filesystemRootBinding(absolute);
+    return this.database.transaction(() => {
+      for (const source of sources) {
+        this.writeRootBinding(source.id, binding);
+        this.rebound.delete(source.id);
+      }
+      return sources.map((source) => this.requireSourceFromCurrentRead(source.id));
+    })();
   }
 
   private getSourceFromCurrentRead(sourceId: string): ResourceSource | null {
