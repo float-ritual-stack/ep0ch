@@ -2854,6 +2854,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       : float ? pad(head, Math.max(1, fits - width(tail))) + tail : width(bare) <= fits ? bare : pad(head, fits);
     // A title the border cuts (it ends in …) is said whole in the status line when the person's keys come to the tile
     // (PIE-815): the header inside shows it wrapped, and tile.info gives it to an agent.
+    // A ◄ or → mark cut off by the title's end isn't a click (PIE-855): past it is the border, or the corner's controls.
+    const titleEnd = r.col + 3 + width(title);
+    this.wireChips = this.wireChips.flatMap(c => (c.id !== id || c.to <= titleEnd ? [c] : c.from < titleEnd - 1 ? [{ ...c, to: titleEnd - 1 }] : []));
     const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.msg) : null;
     if (shownTitle && !visibleText(title).includes(shownTitle)) this.cutTitles.add(id); else this.cutTitles.delete(id);
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
@@ -5750,8 +5753,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (dl) return this.run("tile.dock", { on: false }, this.nameOf(dl.id));
       const ac = this.agentChips.find(at);
       if (ac) return this.run("tile.agent", {}, this.nameOf(ac.id));
-      const wc = this.wireChips.find(at);
-      if (wc) return this.openWires(wc.id, wc.wire);
       const lc = this.linkChips.find(at);
       if (lc) return this.run("tile.link", { role: this.layout.linkRoles.get(lc.id) === "target" ? "preview" : "target" }, this.nameOf(lc.id));
       const hp = this.headPresses.find(at);
@@ -5774,6 +5775,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // ⋯ on a tile's frame: its menu opens under it (tile.menu, as ^W . does), the keys given to the tile it's for.
       const mb = this.menuButtons.find(at);
       if (mb) { if (mb.id !== this.focus) this.run("tile.focus", {}, this.nameOf(mb.id)); return this.run("tile.menu", {}, this.nameOf(mb.id)); }
+      // ◄ → ⏎ marks on a header (PIE-855): ^W P opens on that row (what it follows, where its opens land).
+      const wc = this.wireChips.find(at);
+      if (wc) return this.openWires(wc.id, wc.wire);
       // A float: a press gives it the keys and brings it to the top; its title moves it, its ◢ corner sizes it.
       if (hit && this.isFloat(hit[0])) {
         const [id, r] = hit;

@@ -1471,6 +1471,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => panel().items[opens()]?.label.startsWith(`${L2} opens into: detail, its reader`), "unlinked: its opens land in its reader again", 5000);
     press({ kind: "esc" });
     expect(stage().overlays.top()?.name).not.toBe("policy");
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
   }, 30_000);
 
   test("children (PIE-693): a thread's replies are a group of its links, narrowed by Stage; a tile's groups are chosen by act and saved; ⏎ opens a reply in the reader", async () => {
