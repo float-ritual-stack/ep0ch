@@ -76,6 +76,10 @@ area; one line each: the time, what Evan will notice, then `(PIE-n, #PR)`). Ever
 line. A new day starts a new note; yesterday's loses `welcome`. Chat replies stay to a line or two plus the link
 (`https://float-2.tail2a183e.ts.net/pub/p/<page|PIE-n|id>`).
 
+A session (and a compacted one) starts with the `workboardNow` context block from the Claude mod (PIE-843): the
+latest build log, the items in doing, review and validate, what waits on Evan and the open PRs. A cold start reads it
+first, then opens the build log it links.
+
 ## Requests: tickets, patch notes, release notes
 
 - **Triage** a request copy: find prior art (`ep0ch find --ws pie <words>`), then ticket it (`work_create` with

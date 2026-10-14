@@ -170,6 +170,24 @@ then doesn't have to guess from the repo name or a window title.
 - It never blocks or fails the session: the work runs after the start, and any
   failure leaves the context as it was. Outside a door, this block isn't added (the binding card's is).
 
+### The workboard now, at the start (PIE-843)
+
+A session bound to an outline that keeps a workboard starts oriented: the first prompt carries one more context
+block, `workboardNow`, one screen of where the work stands. It is made again after a compaction and after `/clear`,
+read anew each time.
+
+- **What it says:** the latest build log (`type::build-log`, newest created, with its `((id))`); the roadmap items
+  in doing, review and validate (six a lane, the rest counted); the items waiting on the person (`needs::sysop`, with
+  its reason, in any stage but done or superseded); and the open PRs of the session's folder (`gh pr list`), when
+  `gh` answers within 3s.
+- **Where it comes from:** the service, through the installed Outliner CLI's `list --query` in the views' query
+  grammar (`hooks/workboard-now.ts` holds the queries; the mod keeps nothing of its own). Two reads, and a third
+  (`type=roadmap-item`, one row) only when nothing is in flight.
+- **Silent** where the outline has no workboard (no roadmap item and no build log), where the session is bound to
+  no outline, and where the host doesn't answer within 6s. `gh` is asked only when there is a workboard.
+- **Never delays the session:** the read starts at `session.start` (and when a compaction or `/clear` begins). The
+  first prompt waits for it no longer than for the binding (1.5s); one that lands later makes the context again.
+
 ### What this Claude is doing, to its terminal (PIE-614)
 
 The mod reports Claude's own state to the terminal it runs in with OSC 7501 (the Program Status Protocol), so a door's
