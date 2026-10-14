@@ -112,10 +112,11 @@ test("a recorded copy that was edited after install is forked, even when it matc
 test("a recorded copy says what's new since it was installed, across commits that never touched it", async () => {
   const s = setup();
   const copy = join(s.user, "moon");
-  await addExtension(join(s.builtIns, "moon"), { from: join(s.builtIns, "moon"), root: s.user, builtIns: s.builtIns });
+  // Installed at a commit that never touched it: the record's commit isn't in the built-in's own log.
   writeFileSync(join(s.repo, "elsewhere.md"), "unrelated\n");
   git(s.repo, "add", "-A");
   git(s.repo, "commit", "-qm", "Something else entirely");
+  await addExtension(join(s.builtIns, "moon"), { from: join(s.builtIns, "moon"), root: s.user, builtIns: s.builtIns });
   writeFileSync(join(s.builtIns, "moon", "phases.ts"), "export const PHASES = 12;\n");
   git(s.repo, "add", "-A");
   git(s.repo, "commit", "-qm", "Moon counts twelve phases");
