@@ -10,7 +10,7 @@ import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
-import { SocketBoard, type Actor } from "../src/socket";
+import { Offline, SocketBoard, type Actor } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -130,6 +130,24 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "alt-enter" });
     await until(() => desk.tileOutline().length === before + 1, "a new detail", 5000);
     expect(desk.tileOutline().some(t => t.showing?.id === notes.shed!.id)).toBe(true);
+  });
+
+  test("the preview reads the note again when the outline changes, and says a failed read as that, not as gone", async () => {
+    key(ctrlK); type("/runner");
+    await until(() => frame().join("\n").includes("stake them in May"), "the preview", 5000);
+    const m = (await board.get(notes.beans!.id))!;
+    await board.update(m.id, `${m.text}\nwatered every dawn`, m.revision!, AGENT);
+    await until(() => frame().join("\n").includes("watered every dawn"), "the preview shows the change", 5000);
+    key({ kind: "esc" });
+    // A read that fails: offline is said as offline.
+    const get = board.get.bind(board);
+    (board as any).get = async () => { throw new Offline("the outline isn't answering (test)"); };
+    try {
+      key(ctrlK); type("/bike");
+      await until(() => peek().bar?.rows.length > 0, "the hit", 5000);
+      await until(() => frame().join("\n").includes("offline"), "the preview says offline", 5000);
+      expect(frame().join("\n")).not.toContain("that note is gone");
+    } finally { (board as any).get = get; key({ kind: "esc" }); }
   });
 
   test("a tile picked gets the keys, its spine opened; alt+⏎ zooms it; one on a screen under this comes up first", async () => {

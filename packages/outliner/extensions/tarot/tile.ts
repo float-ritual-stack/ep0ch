@@ -5,8 +5,8 @@
 //
 // The door starts it with the command, cwd and env from `extensions.list` (`tileKinds`), adds its own
 // EP0CH_CONTROL, and passes the tile's saved args as `--name=value` (here `--block=<id>`).
-import { connect } from "node:net";
 import { draw, type Card } from "./deck";
+import { request as send } from "./request";
 
 const args = Object.fromEntries(process.argv.slice(2).flatMap((arg) => {
   const match = /^--([a-z][a-z0-9-]*)=(.*)$/.exec(arg);
@@ -15,25 +15,7 @@ const args = Object.fromEntries(process.argv.slice(2).flatMap((arg) => {
 const socketPath = process.env.EP0CH_SOCKET;
 const outline = process.env.EP0CH_WS;
 
-/** One request to the outline service: a JSON line out, a JSON line back. */
-function request<T>(body: Record<string, unknown>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    if (!socketPath) return reject(new Error("no EP0CH_SOCKET: open this tile from the door"));
-    const socket = connect(socketPath);
-    let buffer = "";
-    socket.on("data", (chunk) => {
-      buffer += chunk.toString("utf8");
-      const end = buffer.indexOf("\n");
-      if (end < 0) return;
-      socket.end();
-      const response = JSON.parse(buffer.slice(0, end)) as { ok: boolean; result?: T; error?: string };
-      if (response.ok) resolve(response.result as T);
-      else reject(new Error(response.error));
-    });
-    socket.on("error", reject);
-    socket.write(`${JSON.stringify({ id: crypto.randomUUID(), ...(outline ? { outline } : {}), ...body })}\n`);
-  });
-}
+const request = <T>(body: Record<string, unknown>) => send<T>(body, { socketPath, outline });
 
 /** Who asks: the person at the tile's keys. */
 const ASKER = { author: "user" } as const;

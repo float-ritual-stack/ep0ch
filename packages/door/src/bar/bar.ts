@@ -29,8 +29,12 @@ import "./sources";
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
 
-/** How long typing must pause before a source that asks the service is asked. */
-const ASK_MS = 150;
+/**
+ * How long typing must pause before a source that asks the service is asked: EP0CH_BAR_ASK_MS when set (the parity
+ * probes set 0: they wait for every ask to be answered before the next key, and 150 ms on each typed key was most of
+ * their time in the bar).
+ */
+const askMs = () => { const v = Number(process.env.EP0CH_BAR_ASK_MS?.trim() || NaN); return Number.isFinite(v) && v >= 0 && v <= 10_000 ? v : 150; };
 /** Below this many columns the bar draws no preview. */
 export const PREVIEW_COLS = 90;
 
@@ -67,7 +71,8 @@ export class PowerBar {
   /** The preview's reader and the notes it read. */
   private readonly surface = new NoteSurface();
   private shownNote: string | null = null;
-  private readonly notes = new Map<string, Msg | null | "…">();
+  private readonly notes = new Map<string, Msg | null | "…" | { offline: string }>();
+  private readonly reads = new Map<string, number>();
   private readonly previews = new Map<string, BarPreview | "…">();
 
   /** An agent's own bar, never drawn: it asks the service at once instead of waiting for typing to pause. */
@@ -162,6 +167,8 @@ export class PowerBar {
   refresh(background = false) {
     if (this.done) return;
     if (background) {
+      // The outline changed: the notes the preview read are read again (the old one stays drawn until the new arrives).
+      for (const id of [...this.notes.keys()]) this.readNote(id, true);
       for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
       return this.build(true);
     }
@@ -189,7 +196,7 @@ export class PowerBar {
     this.build();
     // A source that asks the service (the notes search, an extension's) waits for typing to pause.
     if (later.length && this.quick) for (const s of later) ask(s);
-    else if (later.length) this.timer = setTimeout(() => { this.timer = null; for (const s of later) ask(s); }, ASK_MS);
+    else if (later.length) this.timer = setTimeout(() => { this.timer = null; for (const s of later) ask(s); }, askMs());
   }
 
   /** Resolves once every source asked has answered (or `ms` passed); the sources still out, if any (an agent's rows aren't whole). */
@@ -287,16 +294,28 @@ export class PowerBar {
     return this.notePreview(p.note, w, h);
   }
 
+  /**
+   * Read note `id` for the preview. An answer of none is a note that is gone; a read that failed (offline, refused) is said
+   * as that, never as gone. A re-read (`again`, after a change) keeps the old note drawn until the new one arrives.
+   */
+  private readNote(id: string, again = false) {
+    if (!again) this.notes.set(id, "…");
+    // The newest read of a note is the one that counts: an older answer arriving later is dropped.
+    const gen = (this.reads.get(id) ?? 0) + 1;
+    this.reads.set(id, gen);
+    void this.host.note(id).then(
+      m => { if (this.done || this.reads.get(id) !== gen) return; this.notes.set(id, m); this.shownNote = null; this.host.ctx.redraw(); },
+      e => { if (this.done || this.reads.get(id) !== gen) return; this.notes.set(id, { offline: e instanceof Error ? e.message : String(e) }); this.shownNote = null; this.host.ctx.redraw(); },
+    );
+  }
+
   /** A note as a reader draws it: the bar's own note surface, its top `h` rows. */
   private notePreview(id: string, w: number, h: number): string[] {
     const m = this.notes.get(id);
-    if (m === undefined) {
-      this.notes.set(id, "…");
-      void this.host.note(id).then(n => { this.notes.set(id, n); this.host.ctx.redraw(); }, () => this.notes.set(id, null));
-      return [dim("…")];
-    }
+    if (m === undefined) { this.readNote(id); return [dim("…")]; }
     if (m === "…") return [dim("…")];
     if (!m) return [dim("(that note is gone)")];
+    if ("offline" in m) return [dim(`(${m.offline})`)];
     const app = this.host.ctx;
     // A reader's host with nothing to host but the drawing: no graphics (an image is named on its line), no keys.
     const ctx = { board: app.board, t: { cols: w, rows: h, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => app.flash(s), redraw: () => app.redraw() } as unknown as Ctx;

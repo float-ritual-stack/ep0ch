@@ -82,9 +82,9 @@ export class PreviewPane extends ReaderPane {
     this.watching = path;
     this.show(fileNote(path), desk);
     // Polling, not fs.watch: an editor that saves by writing a new file and renaming it over the old one
-    // (vim's backupcopy) would leave an inotify watch on the old inode. Each preview's own poll, not watchFile:
-    // unwatchFile(path) ends every listener on that path, so one preview closing stopped another's re-reads of the
-    // same file. The baseline is the read just shown.
+    // (vim's backupcopy) would leave an inotify watch on the old inode. Its own poll, not fs.watchFile: Bun's takes its
+    // first look a moment after it's called, so a save in between became its starting point and was never read (a save
+    // 0 ms after: 31% missed, 2 ms after: 0.5%; test/preview-file.test.ts). Here the baseline is the read just shown.
     const stamp = () => { try { const s = statSync(path); return `${s.mtimeMs}:${s.size}`; } catch { return ""; } };
     let seen = stamp();
     this.poll = setInterval(() => {
