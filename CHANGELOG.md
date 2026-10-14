@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An action line runs from any scope of the power bar (PIE-856)
+
+- **Changed:** `run tile.open kind=query query="#build-report"` is offered first in every scope of the power bar
+  (`/` notes, `%` tiles, an extension's), not only the main list and `>`: typed after `/`, the line still runs. Not
+  in a question the bar asks for an argument, where what's typed is the answer.
+
 ### A picture in an extension's view shows in Tern (PIE-839)
 
 - **Fixed:** `pic::`, a `gallery::` card's cover and any extension view's `image` drew an empty box of the right height

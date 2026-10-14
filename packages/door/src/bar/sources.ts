@@ -200,7 +200,7 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
 }
 
 const ACTIONS: BarSource = {
-  id: "actions", title: "actions", prefix: ">", by: "door",
+  id: "actions", title: "actions", prefix: ">", by: "door", everywhere: true,
   about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's that needs no argument, each with its key, found by its name or what it does; ⏎ runs it as that key would",
   main: { empty: false, typed: true, most: 6 },
   rows(q, host) {

@@ -60,7 +60,7 @@ export async function askInBar<R>(ctx: AskCtx, title: string, questions: readonl
 }
 
 const ASK_SOURCE: BarSource = {
-  id: ASK_SCOPE, title: "ask", prefix: "?", by: "door",
+  id: ASK_SCOPE, title: "ask", prefix: "?", by: "door", alone: true,
   about: "what an action you ran asks for (a sort's by and order, where a quote goes): ⏎ on a choice answers it, then the next, then the action runs",
   main: { empty: false, typed: false },
   rows(query, host) {

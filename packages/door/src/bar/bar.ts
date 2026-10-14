@@ -106,7 +106,12 @@ export class PowerBar {
   /** The sources it asks now: its scope's, or every source in the main list (with nothing typed, those that list then). */
   sources(): BarSource[] {
     const q = this.query.trim();
-    if (this.scope) { const s = barSource(this.scope); return s ? [s] : []; }
+    if (this.scope) {
+      const s = barSource(this.scope);
+      if (!s) return [];
+      // An action line is run from any scope: the sources offering their outright-named rows everywhere ask too.
+      return [s, ...(q && !s.alone ? barSources().filter(x => x.everywhere && x !== s) : [])];
+    }
     return barSources().filter(s => (q ? s.main.typed : s.main.empty));
   }
 
@@ -211,14 +216,15 @@ export class PowerBar {
     const lit = this.items[this.picker.sel];
     const keep = keepLit ? (lit ? `${lit.source.id}\0${lit.row.key}` : this.litKey) : null;
     const out: BarItem[] = [];
-    // In the main list a source whose row what's typed names outright (a pasted action line) comes first, that row lit.
-    const sources = this.sources(), named = (s: BarSource) => !this.scope && !!this.got.get(s.id)?.some(r => r.exact);
+    // A source whose row what's typed names outright (a pasted action line) comes first, that row lit; in another
+    // source's scope only that row is offered, under its source's heading.
+    const sources = this.sources(), named = (s: BarSource) => !!this.got.get(s.id)?.some(r => r.exact);
     for (const s of [...sources.filter(named), ...sources.filter(s => !named(s))]) {
-      const rows = this.got.get(s.id) ?? [];
+      const guest = !!this.scope && barSource(this.scope) !== s, rows = (this.got.get(s.id) ?? []).filter(r => !guest || r.exact);
       const shown = this.scope ? rows : rows.slice(0, s.main.most ?? 8);
       let group: string | undefined;
       shown.forEach((row, i) => {
-        const head = i === 0 ? (this.scope ? row.group : row.group ? `${s.title} · ${row.group}` : s.title) : row.group !== group ? row.group : undefined;
+        const head = i === 0 ? (this.scope && !guest ? row.group : row.group ? `${s.title} · ${row.group}` : s.title) : row.group !== group ? row.group : undefined;
         group = row.group;
         out.push({ source: s, row, ...(head ? { heading: head } : {}) });
       });

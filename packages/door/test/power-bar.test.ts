@@ -243,6 +243,29 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(answered!).toEqual({ name: "the bean row" });
   });
 
+  test("an action line is offered first in any scope, and ⏎ there runs it; never in an argument's answer (PIE-856)", async () => {
+    // In the notes scope: the line's row first, under the actions heading, then the notes found.
+    key(ctrlK); type('/tile.open kind=query query="#seed-list"');
+    await (app as any).bar.settled();
+    expect(peek().bar).toMatchObject({ scope: "notes" });
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query query=#seed-list" });
+    const tiles = (desk as any).all().length;
+    key({ kind: "enter" });
+    await until(() => (desk as any).all().length === tiles + 1, "the query tile opened from the notes scope", 5000);
+    // Only the line: words in the tiles scope list no actions.
+    key(ctrlK); type("%theme.cycle");
+    expect(peek().bar.rows.some((r: any) => r.source === "actions")).toBe(false);
+    key({ kind: "esc" });
+    // What's typed in an argument's question is its answer, never an action to run.
+    let answered: Record<string, string> | null = null;
+    await askInBar(app as any, "Name the bed", [{ name: "name", type: "text" }], {}, USER, async a => { answered = a; });
+    key({ kind: "paste", text: "tile.open kind=query" });
+    expect(peek().bar.rows.every((r: any) => r.source === "ask")).toBe(true);
+    key({ kind: "enter" });
+    await until(() => answered !== null, "the answer given", 3000);
+    expect(answered!).toEqual({ name: "tile.open kind=query" });
+  });
+
   test("an agent's bar.open answers the rows and opens nothing; its bar.pick runs as the agent; it never closes the person's bar", async () => {
     (app as any).lastInput = 0;
     const r = await app.act({ action: "bar.open", args: { query: "bike", scope: "notes" }, as: "wren-agent" }) as any;
