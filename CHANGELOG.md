@@ -49,7 +49,19 @@ are its record. The outliner's entries from then are kept below, under
   text and path, Markdown (Detail, exports, MCP) as alt text and the file's name. Nothing is written to the outline.
 - **Added:** the `gallery` example extension: `gallery::` draws the notes under it as cards with their `[cover::]`
   pictures, `pic:: path` one picture. The kitchen sink's gallery section shows it.
-- **Needs:** the new primitive is a wire change: the door and the service update together (`PROTOCOL`).
+- **Needs:** PROTOCOL 165 for the wave (the image primitive, the form-field grammar and `fieldsFrom` on the wire): the door and the service update together.
+
+### An agent's pick stays the agent's; a replaced draft keeps the person's place (PIE-632)
+
+- **Fixed:** an agent's `tree.pick` (or a links-tile pick) showed its row where the tree's selection goes as if the
+  person had picked it: into a tile the screen limits for agents (edit only, hands off) too. Every open into a tile now
+  carries who made it through one guard, so a limited tile keeps its note and an agent's `open` into one is refused,
+  saying why and the command that frees it.
+- **Fixed:** text replaced under a selection (an agent's text, `$EDITOR`'s, a chosen completion) left the selection
+  pointing past the new text: the next key threw, or typed over the inserted reference. The selection now stays on the
+  text it was on, or is let go.
+- **Fixed:** an agent undoing or redoing its own edit moved the person's cursor and cleared their selection. Only the
+  person's own ctrl+z moves the cursor now.
 
 ### Dates and numbers on any property (PIE-769)
 

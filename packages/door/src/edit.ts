@@ -213,14 +213,20 @@ export class Draft {
     if (lines > BIG_PASTE_LINES || Buffer.byteLength(text) > BIG_PASTE_BYTES) this.note = `pasted ${lines} line${lines === 1 ? "" : "s"} · ctrl+z undoes`;
   }
 
-  /** The text becomes `to` (an undo or redo): the cursor at the end of what changed, the view following it. */
-  private jump(to: string, by: Actor) {
-    const c = changeOf(this.text, to);
-    this.lines = to.split("\n");
+  /**
+   * The text becomes `to` (an undo or redo): the person's own puts the cursor at the end of what changed, the view
+   * following it; an agent's leaves their cursor and selection on the text they were on (PIE-632).
+   */
+  private jump(to: string, by: Actor, spans?: Edit[] | null) {
+    if (by.kind === "agent") this.carry(to, spans);
+    else {
+      const c = changeOf(this.text, to);
+      this.lines = to.split("\n");
+      const p = this.placeOf(c.at + c.added);
+      this.row = p.row; this.col = p.col;
+      this.anchor = null; this.goal = null; this.follow = true;
+    }
     this.seen = to;
-    const p = this.placeOf(c.at + c.added);
-    this.row = p.row; this.col = p.col;
-    this.anchor = null; this.goal = null; this.follow = true;
     this.flashes = [];
     this.discardArmed = false;
     this.markWriter(by);
@@ -238,7 +244,7 @@ export class Draft {
     if (!s) throw new ActionRefused("nothing to undo in this draft");
     this.undos.pop();
     s.open = false;
-    this.jump(s.before, by);
+    this.jump(s.before, by, editsOf(s, true));
     if (s.unit) this.patches = s.removes ? [...this.patches, s.unit] : this.patches.filter(u => u !== s.unit);
     this.redos.push(s);
     return this.note = `undid ${s.what === "typing" ? "typing" : s.what}${this.undos.length ? "" : " · the draft is as it started"} · ctrl+y redoes`;
@@ -252,7 +258,7 @@ export class Draft {
     if (!s) throw new ActionRefused("nothing to redo in this draft");
     if (by.kind === "agent" && !sameParty(s.by, by)) throw new ActionRefused("the next redo is someone else's change; an agent redoes only its own");
     this.redos.pop();
-    this.jump(s.after, by);
+    this.jump(s.after, by, editsOf(s, false));
     if (s.unit) this.patches = s.removes ? this.patches.filter(u => u !== s.unit) : [...this.patches, s.unit];
     this.undos.push(s);
     return this.note = `redid ${s.what}`;
@@ -296,10 +302,37 @@ export class Draft {
     this.record(USER, "a change");
     const before = this.text;
     // An editor's file ends in a line break the draft never had; `exact` (an earlier revision) keeps the text as it was.
-    this.lines = (exact ? text : text.replace(/\n$/, "")).split("\n");
+    this.carry(exact ? text : text.replace(/\n$/, ""));
     if (this.text !== before) this.wrote(by, what);
-    this.row = Math.min(this.row, this.lines.length - 1);
-    this.col = Math.min(this.col, this.lines[this.row]!.length);
+  }
+
+  /**
+   * The text becomes `to` wholesale, by a change the cursor didn't make: the cursor and the selection stay on the text
+   * they were on (after what changed, they move with it; inside it, to its end, and a selection there is let go), so the
+   * next key types where the person is, never past the text's end (PIE-632). `edits`: the change as the spans it
+   * really was (an agent's patch, which can change text above and below the person's), when they make `to` exactly;
+   * else the one span from the first difference to the last.
+   */
+  private carry(to: string, edits?: Edit[] | null) {
+    const from = this.text;
+    const cs = edits && applyEdits(from, edits) === to ? edits : [((c: ReturnType<typeof changeOf>) => ({ at: c.at, removed: c.removed, text: to.slice(c.at, c.at + c.added) }))(changeOf(from, to))];
+    const at = (o: number) => {
+      let shift = 0;
+      for (const c of cs) {
+        if (o < c.at) break;
+        if (o < c.at + c.removed) return c.at + shift + c.text.length;
+        shift += c.text.length - c.removed;
+      }
+      return o + shift;
+    };
+    const cursor = at(this.offsetOf(this.row, this.col));
+    const a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : null;
+    const anchor = a === null || cs.some(c => a > c.at && a < c.at + c.removed) ? null : at(a);
+    this.lines = to.split("\n");
+    const p = this.placeOf(cursor);
+    this.row = p.row; this.col = p.col;
+    this.anchor = anchor === null || anchor === cursor ? null : this.placeOf(anchor);
+    this.goal = null;
   }
 
   /**
@@ -313,7 +346,9 @@ export class Draft {
     for (const [i, l] of Object.entries(lines)) if (this.lines[Number(i)] !== undefined) this.lines[Number(i)] = l;
     const line = this.line;
     this.lines[this.row] = line.slice(0, start) + text + line.slice(end);
+    // The cursor lands after the insert: a selection from before it is let go, or the next key would type over the insert.
     this.col = start + text.length;
+    this.anchor = null; this.goal = null;
     this.discardArmed = false;
     this.note = "";
     if (this.text !== before) this.wrote(by, "the insert");
@@ -1099,6 +1134,24 @@ export const sameParty = (a: Actor, b: Actor) => a.kind === b.kind && (a.kind ==
 
 /** An actor without the others it names (`with`): who made a step. */
 const stripWith = (who: Actor): Actor => { const { with: _, ...me } = who; return me as Actor; };
+
+/** One span of a change, in the text it starts from: `removed` characters at `at` become `text`. */
+type Edit = { at: number; removed: number; text: string };
+/** `edits` (in order, apart) made to `from`. */
+const applyEdits = (from: string, edits: Edit[]) => { let out = "", i = 0; for (const e of edits) { out += from.slice(i, e.at) + e.text; i = e.at + e.removed; } return out + from.slice(i); };
+/**
+ * Step `s` as the spans its agent patch changed, in the text undoing (`back`) or redoing it starts from; null for a step
+ * with no patch, or one that took a patch back (its spans were where the patch was, not where it was taken back).
+ */
+function editsOf(s: Step, back: boolean): Edit[] | null {
+  if (!s.unit || s.removes) return null;
+  let delta = 0;
+  return s.unit.spans.map(sp => {
+    const e = back ? { at: sp.start, removed: sp.text.length, text: sp.was } : { at: sp.start - delta, removed: sp.was.length, text: sp.text };
+    delta += sp.text.length - sp.was.length;
+    return e;
+  });
+}
 
 /** Where two texts differ: the offset of the first difference, and how many UTF-16 units of each differ from there. */
 export function changeOf(a: string, b: string): { at: number; removed: number; added: number } {
