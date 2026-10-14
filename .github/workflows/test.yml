@@ -37,7 +37,8 @@ jobs:
           - { pkg: outliner, runner: blacksmith-8vcpu-ubuntu-2404, args: "" }
           - { pkg: outline-core, runner: blacksmith-2vcpu-ubuntu-2404, args: "" }
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    # The run's own 12 minutes, the reruns' 4 and the setup.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -50,12 +51,26 @@ jobs:
       - run: sudo apt-get install -y --no-install-recommends tmux sqlite3 >/dev/null
       - run: bun install --frozen-lockfile
       - name: bun test (${{ matrix.pkg }})
+        id: tests
         working-directory: packages/${{ matrix.pkg }}
         # A private HOME, as box-test gives: no test reads a person's settings.
         run: |
           export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
           for v in $(compgen -e | grep '^EP0CH_'); do unset "$v"; done
-          bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml"
+          # A run that hangs (a worker spinning after its tests, seen twice in October: the job ran into its 15 minutes
+          # and said nothing) is ended here with a line saying so, short of the job's limit.
+          code=0; timeout --kill-after=15s 720s bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" || code=$?
+          if [ $code = 124 ] || [ $code = 137 ]; then echo "::error title=Test run hung::bun test (${{ matrix.pkg }}) didn't finish in 12 minutes (a full run takes about 8): a test or a worker hung"; fi
+          exit $code
+      # Which kind of red: each file with a failed test runs again alone, and the summary and annotations say, test by
+      # test, "failed again" or "passed alone: a flake". The job stays failed: a flake is reported, never re-run green.
+      - name: failed tests, run again alone (${{ matrix.pkg }})
+        if: failure() && steps.tests.outcome == 'failure'
+        working-directory: packages/${{ matrix.pkg }}
+        run: |
+          export HOME="$RUNNER_TEMP/home"
+          for v in $(compgen -e | grep '^EP0CH_'); do unset "$v"; done
+          bun ../../scripts/ci-rerun-failed.ts "$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" packages/${{ matrix.pkg }}
       - if: always()
         uses: actions/upload-artifact@v4
         with:

@@ -500,18 +500,20 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
   test("an agent reads the same view with its own options and changes none of the person's; the person's act sets theirs", async () => {
     await openDock();
     ch("s");                                                                          // the person's sort: updated ↑
-    const before = JSON.stringify(peek());
+    // What the person sees, less the rows' ages ("agent · 3s"), which tick on by themselves between two looks.
+    const seen = () => JSON.stringify(peek()).replace(/(?<![\d.:])\d+[smhd]"/g, '#age"');
+    const before = seen();
     const agent = { kind: "agent" as const, id: "gardener" };
     const r: any = await b.dispatch.act({ action: "backlinks", args: { resolved: true, kind: "comment" } }, agent);
     expect(r.backlinks.status).toBe("2 of 9 match · →0/0 ♦0/0 ←2/9 · 6 filtered · 1 this note hidden · resolved shown · Kind: Comment · Stage: all · Sort: Updated ↑");
     expect(r.backlinks.rows.filter((x: any) => x.id).length).toBe(2);
-    expect(JSON.stringify(peek())).toBe(before);                                      // nothing of the person's moved
+    expect(seen()).toBe(before);                                      // nothing of the person's moved
     expect((app as any).message).toContain("gardener");
     const other: any = await b.dispatch.act({ action: "backlinks", args: { id: ids.rota } }, agent);
     expect(other.backlinks.total).toBe(1);                                              // the rota links out to the note: an outlink, no backlinks
     expect(other.backlinks.rows.filter((x: any) => x.kind === "outlink").map((x: any) => x.id)).toEqual([target.id]);   // the rows are the ones the counts count
     expect(other.backlinks.across).toMatchObject({ outlinks: { matching: 1, total: 1 }, backlinks: { total: 0 } });
-    expect(JSON.stringify(peek())).toBe(before);
+    expect(seen()).toBe(before);
     await expect(b.dispatch.act({ action: "backlinks", args: { stage: " " } }, agent)).rejects.toThrow("stage is all, open");
     const mine: any = await b.dispatch.act({ action: "backlinks", args: { stage: "done", sort: "title" } }, USER);
     expect(mine.backlinks.options).toMatchObject({ stage: "done", sortField: "title", sortDirection: "asc" });

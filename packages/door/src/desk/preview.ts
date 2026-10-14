@@ -3,7 +3,7 @@
 // being written in nvim beside it). Either way it is the shared note surface (a ReaderPane): the same
 // body, embeds resolved through the outline, links that open where this tile's opens go. There is no
 // second renderer. A file is shown read-only: it is edited in its editor, and re-read when it changes.
-import { statSync, unwatchFile, watchFile, readFileSync } from "node:fs";
+import { statSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { subject, type Msg } from "../board";
 import { C, fg, RESET } from "../style";
@@ -36,6 +36,7 @@ const WRITES = new Set(["e", "C", "m", "i", "I"]);
 export class PreviewPane extends ReaderPane {
   override readonly kind: TileKindName = "preview";
   private watching: string | null = null;
+  private poll: ReturnType<typeof setInterval> | null = null;
   /** How many times the file was read again after it changed (tests and `peek`). */
   reads = 0;
   constructor(public source: PreviewSource) { super(false); }
@@ -81,19 +82,22 @@ export class PreviewPane extends ReaderPane {
     this.watching = path;
     this.show(fileNote(path), desk);
     // Polling, not fs.watch: an editor that saves by writing a new file and renaming it over the old one
-    // (vim's backupcopy) would leave an inotify watch on the old inode.
-    // The baseline is taken now, not by watchFile's first poll: a change between this line and that poll (a fast save
-    // right after opening) would otherwise be taken as the starting state and never re-read.
-    let seen = (() => { try { const s = statSync(path); return { mtimeMs: s.mtimeMs, size: s.size }; } catch { return null; } })();
-    watchFile(path, { interval: 250 }, cur => {
-      if (this.watching !== path || (seen && cur.mtimeMs === seen.mtimeMs && cur.size === seen.size)) return;
-      seen = { mtimeMs: cur.mtimeMs, size: cur.size };
+    // (vim's backupcopy) would leave an inotify watch on the old inode. Each preview's own poll, not watchFile:
+    // unwatchFile(path) ends every listener on that path, so one preview closing stopped another's re-reads of the
+    // same file. The baseline is the read just shown.
+    const stamp = () => { try { const s = statSync(path); return `${s.mtimeMs}:${s.size}`; } catch { return ""; } };
+    let seen = stamp();
+    this.poll = setInterval(() => {
+      const now = stamp();
+      if (this.watching !== path || now === seen) return;
+      seen = now;
       this.reads++;
       this.refresh(fileNote(path));
       (this.on ?? desk).redraw();
-    });
+    }, 250);
+    this.poll.unref?.();
   }
-  private unwatch() { if (this.watching) unwatchFile(this.watching); this.watching = null; }
+  private unwatch() { if (this.poll) clearInterval(this.poll); this.poll = null; this.watching = null; }
   override dispose() { this.unwatch(); super.dispose(); }
 
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {

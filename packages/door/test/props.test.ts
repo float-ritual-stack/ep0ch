@@ -161,7 +161,9 @@ describe("the surface: summary, panel and embeds at any width", () => {
     const m = msg("dddddddd-4444-4444-8444-444444444444", text, { properties: P(["type", "roadmap-item"], ["priority", "high"], ["work-stage", "doing"], ["track", "soil"], ["track", "tools"], ["related-to", A]), props: { type: "roadmap-item", priority: "high" } });
     const s = new NoteSurface();
     s.show(m, h);
-    s.render(60, 40, h); await Bun.sleep(10);
+    s.render(60, 40, h);
+    // The embeds are read off the render path: drawn once they've come (a fixed 10 ms was too short on a loaded runner).
+    await until(() => s.render(90, 40, h).lines.map(strip).join("\n").includes("» Garden plan"), "the embeds read");
     const lines = s.render(90, 40, h).lines.map(strip);
     expect(lines[1]!.trim()).toBe("Build the compost bin");          // the breadcrumb is the eyebrow above it (PIE-657)
     expect(lines[2]!.trim()).toBe("you · 01-01-70 (00:00) · i 6 properties · stage doing · priority high · track soil, tools");

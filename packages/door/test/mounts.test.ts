@@ -66,7 +66,8 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     render();
     await until(() => { render(); return (tile("kanban")?.mount?.layout?.tiles ?? []).filter((t: any) => t.kind === "query").length === 4; }, "the mounted board's lanes", 8000);
     expect(tile("kanban")).toMatchObject({ id: r.id, mount: { screen: "board", args: { hub: seeded.notes.hub.id }, group: false } });
-    expect(tile("kanban").title).toMatch(/^board · /);
+    // The title names the hub once the hub is read, which can come after its lanes are laid out.
+    await until(() => { render(); return /^board · /.test(tile("kanban")?.title ?? ""); }, "the mount's title naming its hub", 8000);
     expect(get().focus).not.toBe("kanban");                    // an agent's mount never takes the person's keys
     expect(existsSync(join(state(), "delivery.json"))).toBe(false);
     // Refusals say what to do: no such screen, no such part, the desk in itself.

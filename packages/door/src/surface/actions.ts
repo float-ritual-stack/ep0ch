@@ -189,7 +189,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
     // The screen key that ran it names only the action it ran, not one that action runs in turn.
     const bound = boundKey;
     boundKey = null;
-    for (const t of tracers) t({ scope: this.scope, name, keys: [this.defs[name].keys, bound].filter(Boolean).join("; ") || undefined, actor });
+    for (const t of tracers) t({ scope: this.scope, name, keys: [this.defs[name].keys, bound].filter(Boolean).join("; ") || undefined, touches: this.defs[name].touches, actor });
     return this.defs[name].run(args, host, actor);
   }
 
@@ -222,8 +222,8 @@ export function allActionSets(): ActionSet<any, any>[] {
   return out;
 }
 
-/** One action run, as a tracer sees it: which set, which action, the keys it declares, and who ran it. */
-export interface ActionRun { scope: string; name: string; keys?: string; actor: Actor }
+/** One action run, as a tracer sees it: which set, which action, the keys it declares, what it touches, and who ran it. */
+export interface ActionRun { scope: string; name: string; keys?: string; touches: Touches; actor: Actor }
 const tracers = new Set<(r: ActionRun) => void>();
 /** The screen's key map entry running now (a spec's `keys`): the key names the action it runs, as the action's own keys do. */
 let boundKey: string | null = null;

@@ -54,7 +54,9 @@ describe.skipIf(!outliner)("the resize bench, within budget", () => {
     expect(runs.map(r => r.config)).toEqual(["kitty@120x40", "cells@120x40"]);
     for (const r of runs) {
       expect({ config: r.config, broken: broken(r) }).toEqual({ config: r.config, broken: [] });
-      expect(r.frames).toBeGreaterThan(5);
+      // Painted during the drag, more than once. How often depends on the machine: reports due while a frame paints
+      // arrive as one chunk and are painted once (App.batched), so a loaded runner paints the same drag in fewer.
+      expect(r.frames).toBeGreaterThan(1);
       expect(r.bytesPerFrame / (120 * 40)).toBeLessThanOrEqual(BUDGET.bytesPerCell);
     }
   }, 180_000);

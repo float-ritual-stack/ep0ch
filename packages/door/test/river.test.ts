@@ -56,6 +56,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     notes.peas = await create(null, "Sow the peas\nTwo rows, see ((" + notes.beans.id + ")).");
     notes.shoot = await create(notes.peas.id, "First shoots\nThey came up on Tuesday.");
     notes.thin = await create(notes.peas.id, "Thin the seedlings\nOne every hand's width.");
+    notes.herbs = await create(null, "Water the herbs\nEvery other evening.");
     const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
@@ -470,7 +471,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(screen()).toContain("same property");
     expect(screen()).toContain("stage:: queued");                 // in the hint row
     key({ kind: "esc" });
-    await mine("column.select", { id: notes.peas.id }, lib());
+    // A note with none (the peas have [stage::doing] since the notice test; a Library still listing them as they were
+    // made passed this only until it was read again).
+    await mine("column.select", { id: notes.herbs.id }, lib());
     key(char("#"));
     expect(screen()).toContain("this note has no properties to follow");
     key({ kind: "esc" });

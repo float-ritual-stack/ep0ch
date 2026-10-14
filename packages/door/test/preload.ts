@@ -3,12 +3,18 @@
 // set EP0CH_STATE still win. The person's own EP0CH_* settings (a landing, a now page, the daily agent) are
 // cleared too (and Claude's config dir moved), so the suite runs the same from any shell; EP0CH_OUTLINER, which names the checkout the tests
 // start scratch services from, stays.
-import { afterAll, beforeEach } from "bun:test";
+import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER") delete process.env[k];
+// A test's budget is its own waits' (until()'s, 5 s and up), not Bun's 5 s default: under a loaded runner (CI's
+// --parallel=16) a test whose waits all held still ran past 5 s and was timed out. A timeout costs more than that test:
+// Bun ends every process the file started when a test times out ("killed N dangling processes"), the file's scratch
+// host among them, so each test after it in the file failed too, with "connect ENOENT …/host.sock".
+setDefaultTimeout(30_000);
+
 // A door a test starts (`bun src/main.ts …`) runs in its own process, not as a session that would outlive the test
 // (test/session.test.ts starts its sessions itself).
 process.env.EP0CH_DAEMON = "0";

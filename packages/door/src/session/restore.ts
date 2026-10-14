@@ -13,12 +13,12 @@
 //
 // There is no journal of every action to replay: each screen already saves its layout as each action changes it, so a
 // replay of layout actions would only apply them twice.
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { App, Screen } from "../app";
 import { MainMenu } from "../screens";
 import { USER } from "../socket";
-import { outlineState } from "../state";
+import { outlineState, writeState } from "../state";
 
 /** One step of a restore: an action as the App's dispatcher takes it. */
 export interface Step { action: string; args?: Record<string, unknown>; tile?: string; screen?: string; drawer?: boolean }
@@ -73,7 +73,9 @@ export class Checkpoints {
         ...(this.app.drawer.made?.reopen() ?? []).map(r => ({ ...r, drawer: true })),
       ] : [],
     };
-    try { writeFileSync(checkpointPath(), JSON.stringify(c), { mode: 0o600 }); } catch { /* not fatal: the screens save their own layouts */ }
+    // Whole or not at all (state.ts writeState: a temp file renamed over it): a daemon killed mid-write, or a reader
+    // between two writes, never finds half a checkpoint. Not fatal when it fails: the screens save their own layouts.
+    writeState("session-state.json", c, outlineState());
   }
 
   /** The daemon is going (a handoff): the checkpoint stays as written. */
