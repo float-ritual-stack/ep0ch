@@ -24,6 +24,7 @@ import type { BlockActivityKind, HostedOutlineArchival, HostedOutlineDeletion, H
 import {
   completeWorkItem,
   createWorkItem,
+  linkTicket,
   deliverPullRequest,
   readPullRequestFacts,
   replaceItemBody,
@@ -539,13 +540,14 @@ function workActor(values: Record<string, unknown>): WorkActor {
 
 /** The `work` / `note` synopsis, printed by `work help` and after an unknown operation. */
 const WORK_USAGE = [
-  "  work create --title T --project P --arc A --track T… --priority high|medium|low [--stage S] [--batch UUID] [--stdin|--body-file F]",
+  "  work create --title T --project P --arc A --track T… --priority high|medium|low [--stage S] [--batch UUID] [--wave W] [--source <request>] [--stdin|--body-file F]",
   "  work stage <item> <stage> [--expected N]",
   "  work set <item> <key> <value> [--expected N]",
   "  work set <delivery> delivery-stage complete|validate [--expected N]   (delivery: block UUID or key, e.g. PIE-123/door)",
   "  work deliver <item> --repo owner/name --pr N [--key name] [--base B] [--branch W]",
   "  work complete <item> [--delivery <uuid|key|name>]… [--all-merged] --proof-file F|--stdin|--proof-block UUID",
   "  work body <item> --file F|--stdin [--expected N]",
+  "  work link <note> <item> [--expected N]   (the note, a request copy, names its ticket: [ticket::PIE-n])",
   "  note section <block> <heading> --file F|--stdin [--expected N]",
   "  Writers: --author user|agent --actor ID [--session ID]. <item> is a Work ID or block UUID.",
 ].join("\n");
@@ -583,7 +585,7 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           title: { type: "string" }, project: { type: "string" }, arc: { type: "string" },
           track: { type: "string", multiple: true }, priority: { type: "string" }, stage: { type: "string" },
           batch: { type: "string" }, "depends-on": { type: "string", multiple: true },
-          "related-to": { type: "string", multiple: true }, source: { type: "string" },
+          "related-to": { type: "string", multiple: true }, source: { type: "string" }, wave: { type: "string" },
           "body-file": { type: "string" }, stdin: { type: "boolean" },
         });
         if (positionals.length) throw new Error("work create takes no positional arguments");
@@ -602,6 +604,7 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           ...(values["depends-on"] === undefined ? {} : { dependsOn: values["depends-on"] as string[] }),
           ...(values["related-to"] === undefined ? {} : { relatedTo: values["related-to"] as string[] }),
           ...(values.source === undefined ? {} : { sourceBlockId: values.source as string }),
+          ...(values.wave === undefined ? {} : { wave: values.wave as string }),
           ...(body === undefined ? {} : { body }),
         }, workActor(values));
       }
@@ -652,6 +655,11 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           ...(values["all-merged"] ? { allMerged: true } : {}),
           proof: proofText === undefined ? { blockId: values["proof-block"] as string } : { text: proofText },
         }, workActor(values));
+      }
+      case "link": {
+        const { values, positionals } = parse({});
+        if (positionals.length !== 2) throw new Error("work link requires a note and an item: work link <request copy> PIE-123");
+        return await linkTicket(client, positionals[0]!, positionals[1]!, workActor(values), expected(values.expected));
       }
       case "body": {
         const { values, positionals } = parse({ file: { type: "string" }, stdin: { type: "boolean" } });

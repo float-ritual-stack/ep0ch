@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Done has a date, requests name their ticket, waves are recorded (PIE-844)
+
+- **Added:** moving a roadmap item into done stamps `[done-at::<day>]` and takes `[needs::sysop]` off; a reopen takes
+  `done-at` off. "Done today" is `type=roadmap-item done-at=today`, no longer the last-edited time a groom moves.
+- **Added:** a note that names its ticket with `[ticket::PIE-n]` (a request copy) carries `[ticket-stage::…]`, and the
+  service keeps it equal to the item's stage on every move: `work stage`, a PR sync, `work complete`, the Pi session
+  tools, a board drag or an edit by hand. `work create --source <copy>` (the mod's `from`) names the ticket on a
+  `[type::request]` copy in the same step; `work link <copy> PIE-n` (the mod's `work_link`) names one later.
+- **Added:** `work create --wave <theme>` (the mod's and Pi's `wave`) writes `[wave::<theme>]`; `work set` already sets it.
+- **Needs:** PROTOCOL 166 (`roadmap.items.create` takes `wave`, and the service writes these properties): deploy with `ep0ch install --apply` on each
+  machine. To see what a backfill of `ticket::` on existing request copies would set, run
+  `bun packages/outliner/scripts/request-tickets.ts --ws pie` (read-only).
+
 ### AGENTS.md is a short core; package rules load where they apply (PIE-841)
 
 - **Changed:** `AGENTS.md` keeps the rules every agent needs (the repository map, real outlines and doors, tests on

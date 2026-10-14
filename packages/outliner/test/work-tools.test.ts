@@ -191,6 +191,65 @@ test("completion needs a merged delivery and records proof, delivery Complete an
   expect(again.error).toContain("already done");
 });
 
+test("a request ticketed from its copy follows the ticket; done gets its day and clears the owner ask (PIE-844)", async () => {
+  const h = await setup();
+  const stageOf = (id: string, key = "ticket-stage") => h.store.require(id).properties.find((property) => property.key === key)?.value;
+  const request = h.store.create("A wide table wraps on the phone [type::request] [status::new] [from::node-b/abc]\n\nWhat happened, in the asker's words.");
+  const created = await h.create(["--source", request.id, "--wave", "orientation", "--author", "agent", "--actor", "test-agent"]);
+  expect(created.json.workId).toBe("PIE-001");
+  expect(h.store.require(created.json.blockId).properties).toContainEqual({ key: "wave", value: "orientation" });
+  expect(h.store.require(request.id).properties).toEqual(expect.arrayContaining([
+    { key: "ticket", value: "PIE-001" }, { key: "ticket-stage", value: "queued" },
+  ]));
+  expect(h.store.require(request.id).text).toContain("What happened, in the asker's words.");
+  expect(h.store.recentEditActivity({ author: "agent", actorId: "test-agent", limit: 10 }).entries.map((entry) => entry.block.id))
+    .toContain(request.id);
+
+  // A second request, ticketed later by hand, and an unknown ticket refused before anything changes.
+  const second = h.store.create("The same table, asked again [type::request] [status::new]");
+  const unknown = await h.run(["work", "link", second.id, "PIE-042"]);
+  expect(unknown.error).toContain("No block has Work ID PIE-042");
+  const linked = await h.run(["work", "link", second.id, "PIE-1", "--expected", "1"]);
+  expect(linked.json).toMatchObject({ blockId: second.id, workId: "PIE-001", previous: null, ticketStage: "queued", changed: true });
+  const self = await h.run(["work", "link", "PIE-001", "PIE-001"]);
+  expect(self.error).toContain("is a roadmap item");
+
+  // Every way a stage moves carries the copies with it: work stage, a PR sync, completion, a reopen.
+  await h.run(["work", "stage", "PIE-001", "doing"]);
+  expect([stageOf(request.id), stageOf(second.id)]).toEqual(["doing", "doing"]);
+  h.pull(21, "OPEN");
+  await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "21"]);
+  expect(stageOf(request.id)).toBe("review");
+  h.pull(21, "MERGED", "feature/pie-001", "abc1234");
+  await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "21"]);
+  expect(stageOf(second.id)).toBe("validate");
+
+  const asked = await h.run(["work", "set", "PIE-001", "needs", "sysop"]);
+  expect(asked.json).toMatchObject({ value: "sysop", changed: true });
+  const done = await h.run(["work", "complete", "PIE-001", "--all-merged", "--stdin"], "Checked on a scratch host");
+  expect(done.json.workStage).toBe("done");
+  const item = h.store.require(created.json.blockId);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  expect(item.properties).toContainEqual({ key: "done-at", value: today });
+  expect(item.properties.some((property) => property.key === "needs")).toBe(false);
+  expect(item.text.split("\n")[0]).not.toContain("  ");
+  expect([stageOf(request.id), stageOf(second.id)]).toEqual(["done", "done"]);
+  // The "Done today" lane and the Requests board are plain queries over these properties.
+  expect(h.store.queryBlocks({ where: "type=roadmap-item done-at=today" }).blocks.map((block) => block.id)).toEqual([item.id]);
+  expect(h.store.queryBlocks({ where: "type=request ticket-stage=done" }).blocks.map((block) => block.id).sort())
+    .toEqual([request.id, second.id].sort());
+
+  await h.run(["work", "stage", "PIE-001", "validate"]);
+  expect(h.store.require(item.id).properties.some((property) => property.key === "done-at")).toBe(false);
+  expect(stageOf(request.id)).toBe("validate");
+
+  // Naming no ticket any more drops the stage it followed.
+  const unlinked = h.store.require(second.id);
+  h.store.update(second.id, unlinked.text.replace("[ticket::PIE-001]", ""), unlinked.revision);
+  expect(stageOf(second.id)).toBeUndefined();
+});
+
 const DOOR = "example-org/example-door";
 
 /** PIE-001 with a merged primary delivery in REPO (#11) and a merged one in DOOR (#12) under `doorKey`. */

@@ -80,6 +80,11 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       priority: { type: 'string', enum: ['high', 'medium', 'low'] },
       stage: { type: 'string', enum: ['unprioritized', 'later', 'queued', 'doing', 'review', 'validate'] },
       batch: { type: 'string', description: 'UUID of the agreed work-batch' },
+      wave: { type: 'string', description: 'The wave it ships in, when it is one of several tickets under one theme ([wave::<theme>])' },
+      from: {
+        type: 'string',
+        description: 'The note it came from (block UUID), recorded as [source-block::…]; a request copy ([type::request]) gets [ticket::<the new Work ID>]',
+      },
       body: { type: 'string', description: 'Markdown body: context and acceptance criteria' },
     }, ['title', 'project', 'arc', 'tracks', 'priority']),
     command(input) {
@@ -88,10 +93,11 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       if (!title || !project || !arc || !priority || tracks.length === 0) return 'Give a title, project, arc, priority and at least one track.'
       const args = ['work', 'create', opt('title', title), opt('project', project), opt('arc', arc), opt('priority', priority),
         ...tracks.map(track => opt('track', track))]
-      const stage = text(input, 'stage')
-      const batch = text(input, 'batch')
+      const [stage, batch, wave, from] = ['stage', 'batch', 'wave', 'from'].map(key => text(input, key))
       if (stage) args.push(opt('stage', stage))
       if (batch) args.push(opt('batch', batch))
+      if (wave) args.push(opt('wave', wave))
+      if (from) args.push(opt('source', from))
       const body = text(input, 'body')
       return body ? { args: [...args, '--stdin'], stdin: body } : { args }
     },
@@ -131,6 +137,24 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       const [item, key, value] = [text(input, 'ref'), text(input, 'key'), text(input, 'value')]
       if (!item || !key || !value) return 'Give the ref, the property key and its value.'
       return { args: ['work', 'set', ...expected(input), '--', item, key, value] }
+    },
+  },
+  {
+    name: 'work_link',
+    example: {"ref": "0c909b93-266b-4d70-b3b3-e215f1fbd97d", "ticket": "PIE-123"},
+    description:
+      'Name the roadmap item a note became: [ticket::PIE-n] on the note `ref` (a request copy), replacing one it named ' +
+      'before. The service adds [ticket-stage::…] and keeps it following the item\'s work-stage. A new item made with ' +
+      'work_create from the request names it already.',
+    inputSchema: schema({
+      ref: { type: 'string', description: 'The note that asked for the work (a request copy): its block UUID' },
+      ticket: ITEM,
+      expectedRevision: EXPECTED,
+    }, ['ref', 'ticket']),
+    command(input) {
+      const [note, ticket] = [text(input, 'ref'), text(input, 'ticket')]
+      if (!note || !ticket) return 'Give the ref of the note and the ticket (a Work ID).'
+      return { args: ['work', 'link', ...expected(input), '--', note, ticket] }
     },
   },
   {

@@ -9,7 +9,7 @@ documents the metadata and the commands.
 
 ## Tools
 
-In Claude Code, use the mod's tools: `work_create`, `work_set`, `work_stage`, `work_body`, `work_deliver`,
+In Claude Code, use the mod's tools: `work_create`, `work_set`, `work_stage`, `work_body`, `work_link`, `work_deliver`,
 `work_complete`, `outline_read`, `outline_find`, `outline_comment`, `outline_reply` and `note_section`. Other
 agents use the outliner CLI (`bun src/cli.ts work …` in `packages/outliner`, with `--author agent --actor <id>`).
 Every write checks the revision you read (`expectedRevision`), so read the item first.
@@ -22,6 +22,9 @@ Every write checks the revision you read (`expectedRevision`), so read the item 
   `track` from neighbouring items. The allocator gives it a Work ID beneath that project's work queue (its
   "Roadmap Item Source Library": `fbee72f7-4e0b-41d9-83b9-accd6b5fceef` for ep0ch-door,
   `3dc268a3-74de-4e6b-b858-b91d0d324f23` for pi-outliner). Leave `stage` out: new work starts `unprioritized`.
+- **From a request**: pass the request copy as `from` (CLI `--source`): the copy gets `[ticket::PIE-n]`, and the
+  service keeps its `[ticket-stage::…]` equal to the item's stage. An existing item answers a request with
+  `work_link`. Items in a wave carry `wave` (`[wave::<theme>]`).
 - **Spec**: one roadmap item whose body is the spec. A spec too large for one item can instead be a
   `[type::design-note]` block with `[source-block::<item uuid>]`, linked from an item.
 - **Tickets from a spec**: one roadmap item each. Set `[source-block::<spec uuid>]` and

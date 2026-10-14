@@ -167,7 +167,7 @@ describe('the formatter: one row per tool', () => {
     expect([...WRITE_TOOLS, ...READ_TOOLS].sort()).toEqual([
       'note_section', 'outline_assign_id', 'outline_changes', 'outline_comment', 'outline_create', 'outline_edit', 'outline_find', 'outline_patch', 'outline_read',
       'outline_reply', 'outline_resolve', 'outline_resolve_thread', 'outline_set_property', 'show', 'view_order', 'work_body', 'work_complete', 'work_create',
-      'work_deliver', 'work_set', 'work_stage',
+      'work_deliver', 'work_link', 'work_set', 'work_stage',
     ])
   })
 })

@@ -303,6 +303,49 @@ export function setWorkStage(
   return setWorkProperty(client, address, "work-stage", stage, actor, options) as Promise<WorkSetResult>;
 }
 
+// ─── Ticket link ───────────────────────────────────────────────────────────
+
+export interface WorkLinkResult extends BlockRef {
+  workId: string;
+  previous: string | null;
+  /** The item's stage, as the note now says it in `[ticket-stage::…]` (the service keeps it following the item). */
+  ticketStage: string | null;
+  changed: boolean;
+}
+
+/**
+ * Names the roadmap item a note became (a request copy, PIE-844): `[ticket::PIE-n]` on the note, revision-checked,
+ * replacing a ticket it named before. The service writes `[ticket-stage::…]` beside it and keeps it following the
+ * item's work-stage, so "what came from requests, and where is it" is a query. `work create --source` on a request
+ * copy names it in the same step.
+ */
+export async function linkTicket(
+  client: WorkToolsClient,
+  noteAddress: string,
+  itemAddress: string,
+  actor: WorkActor,
+  options: { expectedRevision?: number } = {},
+): Promise<WorkLinkResult> {
+  const item = await resolveWorkItem(client, itemAddress);
+  const workId = requireWorkItem(item);
+  const note = await resolveBlock(client, noteAddress);
+  if (note.id === item.id || getProperty(note.properties, "type") === "roadmap-item") {
+    throw new WorkToolRefusal(`${noteAddress} is a roadmap item; link the note that asked for it (a request copy) to ${workId}`);
+  }
+  const revision = requireRevision(note, options.expectedRevision);
+  const previous = getProperty(note.properties, "ticket") ?? null;
+  const ticketStage = (block: Block) => getProperty(block.properties, "ticket-stage") ?? null;
+  if (previous === workId) return { ...blockRef(note), workId, previous, ticketStage: ticketStage(note), changed: false };
+  const updated = await client.request<Block>({
+    action: "properties.patch",
+    blockId: note.id,
+    expectedRevision: revision,
+    operations: [propertyTransition(note, "ticket", workId)],
+    mutation: mutationOf(actor),
+  });
+  return { ...blockRef(updated), workId, previous, ticketStage: ticketStage(updated), changed: true };
+}
+
 // ─── Delivery ──────────────────────────────────────────────────────────────
 
 /** A pull request as GitHub reports it (`gh pr view --json`). */
