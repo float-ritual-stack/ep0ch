@@ -5,6 +5,7 @@ import { Compile } from "typebox/compile";
 import { cleanExtensionText } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseKindSpec, PLACES, RULE_TONES } from "@ep0ch/outline-core/rules";
 import { componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
+import { RESERVED_ARG_NAMES } from "@ep0ch/outline-core/form-fields";
 import { cronProblem } from "./extension-schedule";
 import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
 
@@ -156,8 +157,8 @@ const ActionArg = Type.Object(
   { additionalProperties: false },
 );
 export type ExtensionActionArg = Static<typeof ActionArg>;
-/** Names an action's request already uses: a declared argument can't be one of them. */
-export const RESERVED_ARG_NAMES = new Set(["block", "line", "with", "quote", "near", "tile", "action", "color"]);
+/** Names an action's request already uses: a declared argument (or a note's form field) can't be one of them. */
+export { RESERVED_ARG_NAMES };
 
 const Action = Type.Object(
   {
@@ -180,6 +181,12 @@ const Action = Type.Object(
     deadline: Type.Optional(Duration),
     /** What it asks for (PIE-784): a client prompts for them, `act` takes them, agents see them. */
     args: Type.Optional(Type.Array(ActionArg, { maxItems: 8 })),
+    /**
+     * `block` (PIE-828): it also asks for the fields the block it runs on declares, as `[form-field::<name> <type> …]`
+     * chips (outline-core's form-fields.ts), after its own `args`; the service checks them as it checks those. One
+     * action then serves every note that writes its own form.
+     */
+    fieldsFrom: Type.Optional(Type.Literal("block")),
   },
   { additionalProperties: false },
 );
@@ -585,6 +592,9 @@ function checkManifest(manifest: ExtensionManifest): void {
       if (arg.defaultProperty && !["block", "passage"].includes(action.on ?? "block") && !action.on?.startsWith("handler:")) {
         throw new ExtensionLoadError(`${where}/defaultProperty reads the acted-on block's property; this action acts on ${action.on}`);
       }
+    }
+    if (action.fieldsFrom && !["block", "passage"].includes(action.on ?? "block") && !action.on?.startsWith("handler:")) {
+      throw new ExtensionLoadError(`extension.json: actions/${index}/fieldsFrom reads the fields of the block it acts on; this action acts on ${action.on}`);
     }
     const actionDeadline = durationMs(action.deadline);
     if (actionDeadline !== undefined && actionDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: actions/${index}/deadline is longer than 5m`);

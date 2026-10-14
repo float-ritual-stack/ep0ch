@@ -539,6 +539,14 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
    `act tile.open kind=tarot.reading note=<id>`). It reaches the outline only through the service's
    actions, so what it writes is the extension's.
 
+**A form in the note** (PIE-828): when the person wants data entry where they work (a reading log, a bug report, a
+sprint check), don't write an extension per form. With the Form extension installed (`outliner ext add form`), write the
+fields on the note itself, one chip each: `[form-field::book text required] [form-field::pages number]
+[form-field::mood choice gripping|slow|abandoned default=slow]` (types `text`, `number`, `choice` with its options split
+by `|`, `property`). Fill in the form (the power bar, or `act ext.form.fill block=<id> with='{"book":"…"}'`) writes an
+entry under the note with the answers as properties. Any action can ask a note's fields: `"fieldsFrom": "block"` in its
+`extension.json`. A chip it can't read is saved and warned on with a did-you-mean.
+
 **Rules** (PIE-600) say "when a block matches this, draw this on it, or run this", without touching its text:
 `match` by a property (`type=meeting`), a saved-view query, a text pattern (line by line, never in code) or a
 construct kind (`heading:1`, `callout`, `list`, `rule`, `image`); then `decorate` (view primitives above, below, in

@@ -1,0 +1,12 @@
+{
+  "contract": 2,
+  "id": "form",
+  "version": 1,
+  "name": "Form",
+  "description": "A form written in the note it's used on: [form-field::…] chips say its fields, and one action asks for them and writes an entry under the note with its answers as properties.",
+  "run": ["bun", "form.ts"],
+  "actions": [
+    { "id": "fill", "label": "Fill in the form", "on": "block", "effects": "write", "fieldsFrom": "block",
+      "description": "Ask for the fields this note writes as [form-field::…] chips, then write an entry under it, each answer a property" }
+  ]
+}

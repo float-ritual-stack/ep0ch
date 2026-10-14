@@ -638,6 +638,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "forms", need: "enter data through a form written in the note it's for: one action, each note its own fields",
+    part: "the action's arguments (PIE-784) from the note (PIE-828): an action with fieldsFrom: block asks for the [form-field::<name> <type> …] chips of the block it runs on (outline-core's form-fields.ts reads them; the service checks the answers as declared arguments, extensions.args lists them on that block); the door asks for each in the power bar (askInBar, src/bar/ask.ts), by keys or a click on a row, and runs it; an agent gives them in with=; a chip that can't be read is saved and warned on, with a did-you-mean",
+    files: "outline-core/src/form-fields.ts, outliner src/extension-calls.ts (argsOn), src/extensions.ts (askingFirst), src/bar/ask.ts",
+    aside: "the outliner's example Form extension: one action, Fill in the form (ctrl+k, type fill, ⏎ or a click), asks the reading log for book, pages and mood and the shed repairs for part, what and urgent, then writes an entry under the note with its answers as properties · change a note's [form-field::] chips and the next run asks the new form · an agent: act ext.form.fill block=<id> with='{\"part\":\"roof\",\"what\":\"a slipped tile\"}'",
+    stage(n, show) {
+      const reading = new ReaderPane(), repairs = new ReaderPane();
+      return deskOf({ title: "showcase · forms", panes: [reading, repairs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [[reading, n.formReading], [repairs, n.formRepairs]]);
+    },
+  },
+  {
     key: "rules", need: "decorate a block that matches a rule, or run something when it starts or stops matching",
     part: "rules (PIE-600): the service matches (a property, a query, a text pattern, a kind) and sends decorations with resources.projection.read; planDecorations lays them out and primitiveLines draws them (band, track, card) above, below, in place of or around what matched; R (decor.raw) shows the note as written",
     files: "src/decorations.ts, src/projection.ts, src/components.ts, src/doc.ts",

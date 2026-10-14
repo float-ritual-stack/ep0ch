@@ -17,6 +17,7 @@ import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type Bloc
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "./properties";
+import { FORM_FIELD_KEY, formFields } from "@ep0ch/outline-core/form-fields";
 import type { ResourceProjection } from "./resource-projection";
 import type { ExtensionCallFor, ResourceExtensionRuntime } from "./resource-extensions";
 import type { ExtensionOutputRow, OutlinerStore } from "./store";
@@ -86,6 +87,8 @@ export interface ExtensionCallsOptions {
 
 /** An action's declared argument as a client asks for it (`extensions.args`): its spec, the choices it has here, its value now. */
 export interface ExtensionArgChoice extends ExtensionActionArg {
+  /** A field the block declares (`[form-field::…]`, PIE-828), not one the action does: a client asks for every one. */
+  readonly fromBlock?: true;
   /** What may be chosen: a choice's options, or a property's fixed options then the keys it finds (`from`). */
   readonly choices?: readonly string[];
   /** What it is when not given: the acted-on block's `defaultProperty`, else `default`. */
@@ -947,6 +950,7 @@ export class ExtensionCalls {
     const answer = await this.runtime.invokeLoaded(extension, "act", {
       action: action.id,
       ...(args ? { args } : {}),
+      ...this.formOf(action, block),
       ...asker(request.requestedBy),
       ...(block ? { target: { blockId: block.id, revision: block.revision, ...(call ? { line: call.line, argument: call.argument, options: call.options } : {}) } } : {}),
       // No block (an outline action, a scheduled run): the call still knows when it is.
@@ -1040,6 +1044,7 @@ export class ExtensionCalls {
     const answer = await this.runtime.invokeLoaded(extension, "act", {
       action: action.id,
       ...(args ? { args } : {}),
+      ...this.formOf(action, checked.block ?? host),
       ...asker(request.requestedBy),
       // The subject's text, so an action can read around the passage (a glossary, the paragraph, a fragment anchor).
       target: { passage: checked.passage, text: this.passageSubject(checked.passage.subject).text.slice(0, MAX_PASSAGE_TEXT),
@@ -1134,11 +1139,34 @@ export class ExtensionCalls {
     if (!action) throw new Error(`No action ${actionId} in ${extensionId} here (outliner ext ls lists them)`);
     const block = blockId ? this.store.get(blockId) : null;
     if (blockId && (!block || block.effectiveDeletedRootId)) throw new Error(`Block not found: ${blockId}`);
-    return { extension: extensionId, action: action.id, args: (action.args ?? []).map((arg) => {
+    return { extension: extensionId, action: action.id, args: this.argsOn(action, block).map((arg) => {
       const choices = this.choicesFor(arg, block);
       const value = this.defaultOf(arg, block);
       return { ...arg, ...(choices.length ? { choices } : {}), ...(value !== undefined ? { value } : {}) };
     }) };
+  }
+
+  /**
+   * What an action asks for on `block`: its declared arguments, then (`fieldsFrom: "block"`, PIE-828) the fields the
+   * block writes as `[form-field::…]` chips. A chip that can't be read, a field with a declared argument's name, or a
+   * block that writes none is refused here, with what to write; the note itself was saved as written.
+   */
+  private argsOn(action: ExtensionActionEntry, block: Block | null): (ExtensionActionArg & { fromBlock?: true })[] {
+    const declared = action.args ?? [];
+    if (action.fieldsFrom !== "block") return declared;
+    if (!block) throw new Error(`${action.name} asks for the fields of the block it runs on: pass blockId`);
+    const { fields, problems } = formFields(parsePropertyRecords(block.text).filter((property) => property.key === FORM_FIELD_KEY).map((property) => property.value));
+    if (problems.length) throw new Error(`${action.name}: the note's form can't be read: ${problems.map((problem) => problem.message).join(" · ")}`);
+    const clash = fields.find((field) => declared.some((arg) => arg.name === field.name));
+    if (clash) throw new Error(`${action.name}: the note's field ${clash.name} has the name of an argument the action declares (${declared.map((arg) => arg.name).join(", ")}); call the field something else`);
+    if (!fields.length && !declared.length) throw new Error(`${action.name} asks for the fields the note writes, and it writes none: add one per field, [${FORM_FIELD_KEY}::<name> <type>] (text, number, choice with its options a|b|c, property), e.g. [${FORM_FIELD_KEY}::mood choice good|meh|rough]`);
+    return [...declared, ...fields.map((field) => ({ ...field, fromBlock: true as const }))];
+  }
+
+  /** The note's form as the action is told it (`fields`, in the note's order): which of its `args` are the note's own. */
+  private formOf(action: ExtensionActionEntry, block: Block | null): { fields?: ExtensionActionArg[] } {
+    if (action.fieldsFrom !== "block") return {};
+    return { fields: this.argsOn(action, block).filter((arg) => arg.fromBlock).map(({ fromBlock: _, ...field }) => field) };
   }
 
   /** What may be chosen for an argument: a choice's options; a property's fixed options, then the keys `from` has. */
@@ -1165,7 +1193,7 @@ export class ExtensionCalls {
    */
   private resolveArgs(action: ExtensionActionEntry, given: Readonly<Record<string, string>> | undefined, block: Block | null): Record<string, string> | undefined {
     const out: Record<string, string> = { ...(given ?? {}) };
-    for (const arg of action.args ?? []) {
+    for (const arg of this.argsOn(action, block)) {
       const value = (Object.hasOwn(out, arg.name) ? out[arg.name]!.trim() : "") || this.defaultOf(arg, block);
       if (value === undefined) {
         delete out[arg.name];

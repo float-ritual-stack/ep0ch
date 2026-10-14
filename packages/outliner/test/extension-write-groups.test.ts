@@ -55,6 +55,7 @@ async function setup() {
         { name: "by", type: "property", options: ["title"], from: "children", required: true, defaultProperty: "sort-by" },
         { name: "order", type: "choice", options: ["asc", "desc"], default: "asc" },
       ] },
+      { id: "form", label: "log an entry", effects: "write", fieldsFrom: "block", args: [{ name: "order", type: "choice", options: ["asc", "desc"], default: "asc" }] },
     ],
   }));
   writeFileSync(join(folder, "main.ts"), GROUPER);
@@ -214,6 +215,29 @@ test("declared arguments: checked, filled in from the block's own property or th
   expect(JSON.parse((await act("sort", own.id)).message!)).toEqual({ by: "days", order: "asc" });
   const asked = await client.request<{ args: Array<{ name: string; choices?: string[]; value?: string }> }>({ action: "extensions.args", extension: "grouper", extensionAction: "sort", blockId: seeds.id });
   expect(asked.args.map((arg) => [arg.name, arg.choices, arg.value])).toEqual([["by", ["title", "price", "days"], undefined], ["order", ["asc", "desc"], "asc"]]);
+});
+
+test("a form's fields come from the note it runs on: two notes, one action, two forms, each checked like declared arguments", async () => {
+  const { act, note, client, store } = await setup();
+  const reading = await note("Reading log\n[form-field::book text required] [form-field::pages number] [form-field::mood choice gripping|slow|abandoned default=slow]");
+  const bugs = await note("Bug reports\n[form-field::area choice door|outliner|web required] [form-field::summary text required]");
+  const fields = async (id: string) => (await client.request<{ args: Array<{ name: string; type: string; choices?: string[]; value?: string; fromBlock?: true }> }>(
+    { action: "extensions.args", extension: "grouper", extensionAction: "form", blockId: id })).args.map((arg) => [arg.name, arg.type, arg.choices ?? null, arg.value ?? null, arg.fromBlock ?? false]);
+  // The action's own argument first, then the note's fields in its order.
+  expect(await fields(reading.id)).toEqual([["order", "choice", ["asc", "desc"], "asc", false], ["book", "text", null, null, true], ["pages", "number", null, null, true], ["mood", "choice", ["gripping", "slow", "abandoned"], "slow", true]]);
+  expect(await fields(bugs.id)).toEqual([["order", "choice", ["asc", "desc"], "asc", false], ["area", "choice", ["door", "outliner", "web"], null, true], ["summary", "text", null, null, true]]);
+  expect(JSON.parse((await act("form", reading.id, { book: "The Lantern Shed", pages: "212" })).message!)).toEqual({ book: "The Lantern Shed", pages: "212", order: "asc", mood: "slow" });
+  await expect(act("form", reading.id, { pages: "212" })).rejects.toThrow(/needs book=/);
+  await expect(act("form", reading.id, { book: "Moss", pages: "many" })).rejects.toThrow(/pages=many isn't a number/);
+  await expect(act("form", bugs.id, { area: "kitchen", summary: "x" })).rejects.toThrow(/area=kitchen isn't one of door, outliner, web/);
+  expect(JSON.parse((await act("form", bugs.id, { area: "web", summary: "the share page flickers" })).message!)).toMatchObject({ area: "web", summary: "the share page flickers" });
+
+  // A chip that can't be read is saved as written; the action refuses with what it may have meant.
+  const typo = await note("Sprint check\n[form-field::blocked choise yes|no]");
+  expect(store.get(typo.id)!.text).toContain("[form-field::blocked choise yes|no]");
+  await expect(act("form", typo.id)).rejects.toThrow(/choise isn't a field type \(text, number, choice, property\); did you mean choice\?/);
+  // A field may not take a declared argument's name.
+  await expect(act("form", (await note("Clash [form-field::order text]")).id)).rejects.toThrow(/field order has the name of an argument the action declares/);
 });
 
 test("undo is refused, with nothing changed, when a block it made has a proposal waiting under it", async () => {

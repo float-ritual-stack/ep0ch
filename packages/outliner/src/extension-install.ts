@@ -183,7 +183,7 @@ export function formatExtensionsList(list: ExtensionsListResult): string[] {
       ...entry.handlers.map((handler) => `${handler.key}:: (${handler.kind}, ${handler.effects})`),
       ...entry.tiles.map((tile) => `tile ${tile.kind}`),
       ...entry.actions.filter((action) => !action.builtIn).map((action) => `action ${action.name}${action.args?.length
-        ? ` ${action.args.map((arg) => `${arg.required ? "" : "["}--arg ${arg.name}=<${arg.type === "choice" ? arg.options!.join("|") : arg.type}>${arg.required ? "" : "]"}`).join(" ")}` : ""}`),
+        ? ` ${action.args.map((arg) => `${arg.required ? "" : "["}--arg ${arg.name}=<${arg.type === "choice" ? arg.options!.join("|") : arg.type}>${arg.required ? "" : "]"}`).join(" ")}` : ""}${action.fieldsFrom === "block" ? " [--arg <field>=<value> for each [form-field::…] the block writes]" : ""}`),
     ];
     lines.push(`${entry.id}\t${entry.state}\t${entry.origin}${entry.version !== undefined ? `\tv${entry.version}` : ""}\t${entry.directory}`);
     if (what.length) lines.push(`  serves ${what.join(", ")}`);
