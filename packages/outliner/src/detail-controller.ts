@@ -563,7 +563,6 @@ export interface DetailState {
   buffer: TextBuffer;
   referencedFile: ReferencedFile | null;
   previewOffset: number;
-  previewSourceLine?: number;
   editorVisualOffset: number;
   editorViewportManual?: boolean;
   draftPreviewLinked?: boolean;
@@ -1929,13 +1928,12 @@ export function createDetailController(
       clearDocumentPresentation();
     }
     refreshBreadcrumb();
-    if (!preserveAnnotationViewport) { state.previewOffset = 0; state.previewSourceLine = undefined; }
+    if (!preserveAnnotationViewport) state.previewOffset = 0;
     const fragmentId = document.target.fragmentId;
     if (!preserveAnnotationViewport && fragmentId && next.selected) {
       const fragment = resolveFragment(next.selected.text, fragmentId);
       if (fragment.status === "resolved") {
         state.previewOffset = fragment.anchor.lineIndex;
-        state.previewSourceLine = fragment.anchor.lineIndex;
       } else {
         state.status = fragment.status === "duplicate"
           ? `Duplicate fragment · ^${fragmentId}`
@@ -4580,7 +4578,6 @@ export function createDetailController(
               ? attentionSourceLine(selected.text, mark)
               : 0;
             state.previewOffset = state.attentionRevealSourceLine;
-            state.previewSourceLine = state.attentionRevealSourceLine;
             state.status = mark.target.anchor
               ? `Attention · source range ${mark.target.anchor.start}-${mark.target.anchor.end}`
               : `Attention · ${mark.target.sourceBlockId.slice(0, 8)}`;
