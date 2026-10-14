@@ -118,9 +118,20 @@ describe('freshness helpers', () => {
     expect(bashReadRefusal('systemctl --user list-units --all 2>/dev/null')).toBeNull()
     expect(bashReadRefusal("ssh laptop 'ep0ch status'")).toBeNull()
     expect(bashReadRefusal('git log --oneline -5 > /tmp/x')).toContain('redirection')
-    expect(bashReadRefusal('sed -i s/a/b/ CHANGELOG.md')).toContain('changes something')
+    expect(bashReadRefusal('sed -i s/a/b/ CHANGELOG.md')).toContain('`sed`')
     expect(bashReadRefusal('ep0ch install --apply')).toContain('changes something')
     expect(bashReadRefusal('rm -rf build')).toContain('`rm`')
+    // What can write or run a command anyway is refused.
+    for (const writes of [
+      'echo "$(touch /tmp/x)"', "bash -c 'echo changed > /tmp/x'", "sed 'w /tmp/x' f", 'find . -fprint0 /tmp/x',
+      'sort -o /tmp/x f', "rg --pre 'touch /tmp/x' p f", 'git branch sweep-write', 'git diff --output=/tmp/x',
+      'gh api repos/o/r/issues/1 -ftitle=changed', 'gh api --raw-field=title=x repos/o/r/issues/1',
+      "ssh -o 'ProxyCommand=touch /tmp/x' laptop 'echo ok'", 'journalctl --user --rotate', 'systemctl --user start status',
+      'env LD_PRELOAD=/tmp/p.so cat f', 'xargs cat', 'awk 1 f',
+    ]) expect(bashReadRefusal(writes)).not.toBeNull()
+    for (const reads of ['git branch -a', 'systemctl --user status outliner-host.service', 'gh api repos/o/r/pulls', 'git log --oneline 2>&1 | head -3']) {
+      expect(bashReadRefusal(reads)).toBeNull()
+    }
   })
 
   test('the brief carries the stale list; the report tells the main thread to act', () => {

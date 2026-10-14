@@ -13,11 +13,6 @@ export type GuardContext = { hostname: string }
 
 const MERGE = 'gh pr merge <n> --squash'
 
-/** Short-flag clusters (`-sd`) hold each letter; a long flag is itself. */
-function hasFlag(words: readonly string[], short: string, long: string): boolean {
-  return words.some(w => w === long || w.startsWith(`${long}=`) || (/^-[A-Za-z]+$/.test(w) && w.slice(1).includes(short)))
-}
-
 /** `gh pr merge …`'s words after `merge`, or null when this isn't one. */
 export function prMergeArgs(words: readonly string[]): string[] | null {
   return baseName(words[0] ?? '') === 'gh' && words[1] === 'pr' && words[2] === 'merge' ? words.slice(3) : null
@@ -25,6 +20,22 @@ export function prMergeArgs(words: readonly string[]): string[] | null {
 
 /** gh pr merge's options that take a value as the next word. */
 const MERGE_VALUED = new Set(['-t', '--subject', '-b', '--body', '-F', '--body-file', '-A', '--author-email', '--match-head-commit', '-R', '--repo'])
+
+/** gh pr merge's flags, without the values the valued ones take (a body of `-d` is not a flag). */
+function flagsOf(args: readonly string[]): string[] {
+  const flags: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i]!
+    if (MERGE_VALUED.has(w)) { i++; continue }
+    if (w.startsWith('-')) flags.push(w)
+  }
+  return flags
+}
+
+/** Short-flag clusters (`-sd`) hold each letter; a long flag is itself. */
+function hasFlag(flags: readonly string[], short: string, long: string): boolean {
+  return flags.some(w => w === long || w.startsWith(`${long}=`) || (/^-[A-Za-z]+$/.test(w) && w.slice(1).includes(short)))
+}
 
 /** The PR a `gh pr merge` names (a number, URL or branch), or null: the current branch's. */
 export function prNamed(args: readonly string[]): string | null {
@@ -64,7 +75,7 @@ function refusalOf(words: readonly string[], ctx: GuardContext): string | null {
     return null
   }
   const merge = prMergeArgs(words)
-  if (merge && hasFlag(merge, 'd', '--delete-branch')) {
+  if (merge && hasFlag(flagsOf(merge), 'd', '--delete-branch')) {
     const pr = prNamed(merge)
     return 'gh pr merge with -d/--delete-branch is refused: it also deletes the local branch and its worktree, which can be another agent\'s, ' +
       `and GitHub already deletes the remote branch. Run \`${pr ? MERGE.replace('<n>', pr) : MERGE}\`.`
@@ -88,13 +99,14 @@ export function guardOf(command: string, ctx: GuardContext): string | null {
   return null
 }
 
-/** The `gh pr merge` in `command`, its PR (null: the current branch's) and `--repo`, or null when it has none. */
-export function mergeIn(command: string): { pr: string | null; repo: string | null } | null {
-  for (const words of simpleCommands(command)) {
+export type Merge = { pr: string | null; repo: string | null }
+
+/** Each `gh pr merge` in `command`: its PR (null: the current branch's) and `--repo`. */
+export function mergesIn(command: string): Merge[] {
+  return simpleCommands(command).flatMap(words => {
     const merge = prMergeArgs(words)
-    if (merge) return { pr: prNamed(merge), repo: repoNamed(merge) }
-  }
-  return null
+    return merge ? [{ pr: prNamed(merge), repo: repoNamed(merge) }] : []
+  })
 }
 
 /** `export const PROTOCOL = N` in outline-core's protocol.ts, or null. */

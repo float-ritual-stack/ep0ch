@@ -5,7 +5,7 @@
  * counts, when to sweep, the brief and the read-only rule.
  */
 
-import { mergeIn } from './guards'
+import { mergesIn } from './guards'
 import { baseName, simpleCommands } from './shell'
 
 /** Deploys and merges between sweeps. */
@@ -22,7 +22,7 @@ export function isDeploy(command: string): boolean {
 }
 
 export function isMerge(command: string): boolean {
-  return mergeIn(command) !== null
+  return mergesIn(command).length > 0
 }
 
 /** An outline write by any of the outline tools (the mod's, the MCP gateway's). */
@@ -90,38 +90,54 @@ export const SWEEP_SYSTEM =
   'gives you read tools alone, and a Bash command that writes is refused. Check what the brief lists, quickly, and answer ' +
   'with findings only. Your answer is handed to the main thread, which makes the updates.'
 
-/** Bash programs the sweep may run, each with the check its arguments must pass. */
+/** The words after a program's name that aren't options. */
+const operands = (w: readonly string[]) => w.slice(1).filter(a => !a.startsWith('-'))
+const noneOf = (w: readonly string[], refused: RegExp) => !w.slice(1).some(a => refused.test(a))
+
+/**
+ * Bash programs the sweep may run, each with the check its arguments must pass. Deny by default: a program that can
+ * write a file or run another command (sed's `w` and `e`, sort's `-o`, rg's `--pre`, awk, xargs) isn't here.
+ */
 const READ_PROGRAMS: Record<string, (w: readonly string[]) => boolean> = {
-  cat: () => true, head: () => true, tail: () => true, wc: () => true, ls: () => true, grep: () => true, rg: () => true,
-  stat: () => true, date: () => true, pwd: () => true, echo: () => true, jq: () => true, sort: () => true, uniq: () => true,
-  cut: () => true, tr: () => true, hostname: () => true, uptime: () => true, df: () => true, free: () => true,
-  ps: () => true, pstree: () => true, which: () => true, basename: () => true, dirname: () => true, realpath: () => true,
-  find: w => !w.some(a => ['-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprintf', '-fls'].includes(a)),
-  sed: w => !w.some(a => a === '-i' || a.startsWith('-i') || a.startsWith('--in-place')),
-  git: w => ['log', 'show', 'diff', 'status', 'rev-parse', 'ls-files', 'blame', 'merge-base', 'describe', 'shortlog', 'cat-file'].includes(w[1] ?? '') ||
-    (w[1] === 'branch' && !w.some(a => /^-[A-Za-z]*[dDmMcC]/.test(a) || ['--delete', '--move', '--copy', '--force'].includes(a))),
-  gh: w => (w[1] === 'pr' && ['list', 'view', 'checks', 'diff', 'status'].includes(w[2] ?? '')) ||
-    (w[1] === 'run' && ['list', 'view'].includes(w[2] ?? '')) ||
-    (w[1] === 'api' && !w.some(a => ['-X', '--method', '-f', '-F', '--field', '--raw-field', '--input'].includes(a) || a.startsWith('--method=') || a.startsWith('-X'))),
-  ep0ch: w => ['show', 'find', 'where', 'status', 'ls', 'help'].includes(w[1] ?? '') || (w[1] === 'outline' && w[2] === 'list') || (w[1] === 'echo' && w[2] === 'status'),
-  systemctl: w => w.includes('--user') && w.some(a => ['status', 'is-active', 'is-enabled', 'list-units', 'list-timers', 'show', 'cat'].includes(a)),
-  journalctl: () => true,
-  tailscale: w => w[1] === 'status',
-  // ssh <machine> '<command>': as read-only as the command it runs there.
-  ssh: w => {
-    let i = 1
-    while (i < w.length && w[i]!.startsWith('-')) i += ['-o', '-p', '-i', '-J', '-l', '-F'].includes(w[i]!) ? 2 : 1
-    return i + 1 < w.length && bashReadRefusal(w.slice(i + 1).join(' ')) === null
+  cat: () => true, head: () => true, tail: () => true, wc: () => true, ls: () => true, grep: () => true,
+  stat: () => true, date: () => true, pwd: () => true, echo: () => true, cut: () => true, tr: () => true,
+  hostname: () => true, uptime: () => true, df: () => true, free: () => true, ps: () => true, pstree: () => true,
+  which: () => true, basename: () => true, dirname: () => true, realpath: () => true,
+  jq: w => noneOf(w, /^--(rawfile|slurpfile)$/),
+  rg: w => noneOf(w, /^--pre/),
+  sort: w => noneOf(w, /^(-o|--output)/),
+  find: w => noneOf(w, /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/),
+  git: w => {
+    const sub = w[1] ?? ''
+    if (!noneOf(w, /^--output/)) return false
+    if (['log', 'show', 'diff', 'status', 'rev-parse', 'ls-files', 'blame', 'merge-base', 'describe', 'shortlog', 'cat-file'].includes(sub)) return true
+    // git branch lists only: no branch name, no flag that changes one.
+    return sub === 'branch' && operands(w).length === 1 && w.slice(2).every(a => ['-a', '-r', '-v', '-vv', '--list', '--all', '--remotes', '--merged', '--no-merged', '--show-current'].includes(a))
   },
+  gh: w => {
+    if ((w[1] === 'pr' && ['list', 'view', 'checks', 'diff', 'status'].includes(w[2] ?? '')) || (w[1] === 'run' && ['list', 'view'].includes(w[2] ?? ''))) return true
+    // gh api reads only with no fields (a field makes it a POST) and no method of its own.
+    return w[1] === 'api' && noneOf(w, /^(-[fFX]|--(field|raw-field|input|method))/)
+  },
+  ep0ch: w => ['show', 'find', 'where', 'status', 'help'].includes(w[1] ?? '') || (w[1] === 'outline' && w[2] === 'list') || (w[1] === 'echo' && w[2] === 'status'),
+  // systemctl --user <read verb> …: the verb is its first operand.
+  systemctl: w => w.includes('--user') && ['status', 'is-active', 'is-enabled', 'is-failed', 'list-units', 'list-timers', 'show', 'cat'].includes(operands(w)[0] ?? ''),
+  journalctl: w => noneOf(w, /^--(rotate|vacuum|flush|sync|relinquish|setup-keys|update-catalog)/),
+  tailscale: w => w[1] === 'status',
+  // ssh <machine> '<command>', no options (an option can run a command here): as read-only as the command it runs there.
+  ssh: w => w.length >= 3 && !w[1]!.startsWith('-') && bashReadRefusal(w.slice(2).join(' ')) === null,
 }
 
 /** Why the sweep may not run `command`, or null when it only reads. */
 export function bashReadRefusal(command: string): string | null {
-  // A redirection writes a file whatever runs it; one to /dev/null, or of one stream to another, doesn't.
-  const bare = command.replace(/'[^']*'|"[^"]*"/g, '').replace(/\d*>>?\s*\/dev\/null|\d*>&\d/g, '')
-  if (bare.includes('>')) return 'a redirection writes a file'
-  for (const w of simpleCommands(command)) {
+  // A substitution runs a command the checks below can't see whole; process substitution too.
+  if (/\$\(|`|<\(|>\(/.test(command)) return 'a command substitution runs a command of its own'
+  // A redirection writes a file, quoted or not; one to /dev/null, or of one stream to another, doesn't.
+  if (command.replace(/\d*>>?\s*\/dev\/null|\d*>&\d/g, '').includes('>')) return 'a redirection writes a file (a `>` inside quotes counts too)'
+  // Wrappers are not looked through: `env`, `xargs`, `bash -c` aren't on the list.
+  for (const w of simpleCommands(command, { unwrap: false })) {
     const name = baseName(w[0] ?? '')
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0] ?? '')) return 'a variable set before a command changes what it runs'
     const check = READ_PROGRAMS[name]
     if (!check) return `\`${name}\` isn't one of the commands the sweep may run`
     if (!check(w)) return `\`${w.slice(0, 3).join(' ')}\` changes something`

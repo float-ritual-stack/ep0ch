@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { guardOf, mergeIn, protocolOf, protocolRefusal } from './guards'
-import { agentOfEp0ch, type Counts, dueOf, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
+import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
+import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
 const PROTOCOL_PATH = 'packages/outline-core/src/protocol.ts'
 /** The sweep's agent type, `ep0ch-repo:<name>`: registered by this mod, offered to no model. */
@@ -37,9 +37,7 @@ function sweepsHere($: EngineInterface): Promise<boolean> {
 }
 
 /** Why a merge's PROTOCOL is wrong (see protocolRefusal), or null: right, untouched, not into main, or not known in time. */
-async function protocolCheck($: EngineInterface, command: string): Promise<string | null> {
-  const merge = mergeIn(command)
-  if (!merge) return null
+async function protocolCheck($: EngineInterface, merge: Merge): Promise<string | null> {
   const cwd = await $.session.cwd()
   const gh = (args: string[]) => $.process.run(['gh', ...args], { cwd, timeoutMs: LOOKUP_MS })
     .then(r => r.exitCode === 0 ? r.stdout : null, () => null)
@@ -56,6 +54,15 @@ async function protocolCheck($: EngineInterface, command: string): Promise<strin
   return b === null || m === null ? null : protocolRefusal(m, b, merge.pr)
 }
 
+/** The first merge in `command` whose PROTOCOL is wrong, said; null when none is. */
+async function protocolChecks($: EngineInterface, command: string): Promise<string | null> {
+  for (const merge of mergesIn(command)) {
+    const why = await protocolCheck($, merge)
+    if (why) return why
+  }
+  return null
+}
+
 /**
  * Starts the sweep when this session sweeps: an agent type of this mod's own, read-only by the engine's rules (its
  * tools are read tools and Bash, each Bash command through scripts/read-only-bash.ts), given the brief from
@@ -64,7 +71,12 @@ async function protocolCheck($: EngineInterface, command: string): Promise<strin
  */
 async function startSweep($: EngineInterface): Promise<void> {
   try {
-    if (!(await sweepsHere($))) return
+    if (!(await sweepsHere($))) {
+      // Not the sweeper's session: nothing to count toward.
+      counts.changes = 0
+      counts.turns = 0
+      return
+    }
     // The file beside the mod: .claude/freshness.md, the mod being .claude/skills/ep0ch-repo.
     const freshness = String(await $.fs.read(`${$.plugin.root}/../../freshness.md`))
     const { agent } = await $.agent.register({
@@ -76,16 +88,20 @@ async function startSweep($: EngineInterface): Promise<void> {
       background: true,
       hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `bun ${$.plugin.root}/scripts/read-only-bash.ts` }] }] },
     })
-    const why = `It runs now because this session made ${counts.changes} deploys or merges and ${counts.turns} turns that wrote to the outline since the last sweep.`
+    const taken = { ...counts }
+    const why = `It runs now because this session made ${taken.changes} deploys or merges and ${taken.turns} turns that wrote to the outline since the last sweep.`
     const spawned = await $.agent.spawn({ subagentType: agent, description: 'freshness sweep', prompt: sweepBrief(freshness, why) })
     if ('deny' in spawned && spawned.deny) throw Error(spawned.deny)
     if (!spawned.agentId) throw Error('no agent was started')
     sweepId = spawned.agentId
-    counts.changes = 0
-    counts.turns = 0
+    // What came in while it started counts toward the next sweep.
+    counts.changes -= taken.changes
+    counts.turns -= taken.turns
     $.ui.toast('Freshness sweep: a read-only agent is checking .claude/freshness.md; its findings come back here.', { timeoutMs: 6000 })
   } catch (error) {
-    // No brief, or the agent was refused: said once, and tried again after the next change.
+    // No brief, or the agent was refused: said, and tried again after the next change (not the next turn).
+    counts.changes = Math.min(counts.changes, SWEEP_AFTER_CHANGES - 1)
+    counts.turns = Math.min(counts.turns, SWEEP_AFTER_TURNS - 1)
     $.ui.toast(`Freshness sweep couldn't start: ${error instanceof Error ? error.message : String(error)}`, { timeoutMs: 8000 })
   } finally {
     starting = false
@@ -121,7 +137,7 @@ export const register: Register = (on) => {
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const command = e.command
-    const why = guardOf(command, { hostname: await hostnameOf($) }) ?? await protocolCheck($, command)
+    const why = guardOf(command, { hostname: await hostnameOf($) }) ?? await protocolChecks($, command)
     if (why) return { deny: why }
     const result = await next(e)
     if (e.agentId === undefined && !('deny' in result && result.deny) && !result.isError && (isDeploy(command) || isMerge(command))) counts.changes++

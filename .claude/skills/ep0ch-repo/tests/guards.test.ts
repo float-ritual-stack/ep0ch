@@ -117,6 +117,19 @@ describe('what counts as the command', () => {
     expect(guardOf('grep -rn "gh pr merge -d" AGENTS.md', ctx)).toBeNull()
   })
 
+  test('a command inside a substitution, an if, sudo -u, xargs or bash -lc is still the command', () => {
+    expect(guardOf('echo "$(pkill -f victim)"', ctx)).toContain('pkill')
+    expect(guardOf('if true; then pkill node; fi', ctx)).toContain('pkill')
+    expect(guardOf('sudo -u root pkill node', ctx)).toContain('pkill')
+    expect(guardOf('ls | xargs -r pkill', ctx)).toContain('pkill')
+    expect(guardOf("bash -lc 'git stash'", ctx)).toContain('git stash')
+    expect(guardOf('git \\\nstash', ctx)).toContain('git stash')
+  })
+
+  test('a merge whose body says -d is not a delete', () => {
+    expect(guardOf("gh pr merge 512 --squash --body '-d'", ctx)).toBeNull()
+  })
+
   test('a command inside bash -c, env or agent-env is still the command', () => {
     expect(guardOf("bash -c 'pkill -f x'", ctx)).toContain('pkill')
     expect(guardOf('env FOO=1 git stash', ctx)).toContain('git stash')
