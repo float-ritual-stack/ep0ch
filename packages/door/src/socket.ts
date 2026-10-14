@@ -1507,7 +1507,8 @@ export class SocketBoard implements Board {
       const checklist = block && lines ? (r.checklists?.[n.blockId] ?? [])
         .filter(s => s.span.startLine >= lines.start && s.span.startLine <= lines.end)
         .map(s => ({ ...s, text: block.text.slice(s.span.start, s.span.end).trimEnd() })) : undefined;
-      return { ...n, ...(n.status === "ready" && block ? { block } : {}), ...(checklist ? { checklist } : {}), embeds: n.embeds?.map(node) };
+      // A missing fragment keeps its note too (the service sends it), for the anchors it does have (PIE-852).
+      return { ...n, ...((n.status === "ready" || n.status === "fragment-missing") && block ? { block } : {}), ...(checklist ? { checklist } : {}), embeds: n.embeds?.map(node) };
     };
     return { limits: r.limits, dependencies: r.dependencies, results: r.results.map(node) };
   }

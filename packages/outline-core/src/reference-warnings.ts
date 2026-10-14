@@ -148,7 +148,7 @@ export function anchorsOfText(text: string): string[] {
 }
 
 /** The anchor of `anchors` nearest `wanted`: one it starts, one that starts it, one it contains; else the first. */
-function nearestAnchor(wanted: string, anchors: readonly string[]): string | undefined {
+export function nearestAnchor(wanted: string, anchors: readonly string[]): string | undefined {
   const w = wanted.toLowerCase();
   return anchors.find(a => a.toLowerCase().startsWith(w)) ?? anchors.find(a => w.startsWith(a.toLowerCase()))
     ?? anchors.find(a => a.toLowerCase().includes(w)) ?? anchors[0];

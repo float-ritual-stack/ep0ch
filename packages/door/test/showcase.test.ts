@@ -559,6 +559,34 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 20_000);
 
+  test("an embed pasted in an edit is expanded in ctrl+p's preview (PIE-852); a wrong anchor says so there, with a did-you-mean", async () => {
+    ch("5"); press({ kind: "enter" });
+    const desk = () => S().stages.get(4).top;
+    ch("e"); press({ kind: "enter" });
+    await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
+    const d = ([...desk().panes.values()].find((p: any) => p.editing) as any).surface.draft;
+    const tap = (await board.get(seeded.notes.notebook.id))!.text.match(/!\(\(([0-9a-f-]{36})\^t-7a9c11\)\)/)![1]!;
+    d.row = d.lines.length - 1; press({ kind: "end" });
+    press({ kind: "paste", text: `\n!((${tap}^t-7a9c11))\n!((${tap}^t-7a9c1))` });
+    press({ kind: "char", ch: "p", ctrl: true });
+    // The edit's own preview: its rows under the rule, cut to its tile (the notebook beside has the same embed).
+    const preview = () => {
+      const rows = sc.render(app).lines.map(plain), rule = rows.findIndex(l => l.includes("preview · ctrl+p hides"));
+      if (rule < 0) return "";
+      const from = rows[rule]!.indexOf("──( preview"), to = rows[rule]!.indexOf("║", from);
+      return rows.slice(rule).map(l => l.slice(from, to)).join("\n");
+    };
+    // The step itself, framed as the reader frames it, while the text is still unsaved.
+    await until(() => preview().includes("» Kitchen tap ^t-7a9c11") && preview().includes("fix the dripping tap"), "the embed expanded in the preview", 10_000);
+    expect(preview()).not.toContain("embed not expanded here");
+    await until(() => preview().includes("^t-7a9c1)) · MISSING FRAGMENT in “Kitchen tap”") && preview().includes("did you mean ^t-7a9c11?"), "the wrong anchor said in the preview", 10_000);
+    // Nothing saved: the paste undone, the edit closes clean.
+    press({ kind: "char", ch: "z", ctrl: true });
+    expect(d.lines.join("\n")).not.toContain(tap);
+    press({ kind: "char", ch: "p", ctrl: true });
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
   test("pictures into a draft (PIE-592): a file dropped on the terminal, and the clipboard's by ctrl+v, are kept in the outline's folder and written as media lines; ctrl+z takes them out", async () => {
     ch("5"); press({ kind: "enter" });
     const desk = () => S().stages.get(4).top;
