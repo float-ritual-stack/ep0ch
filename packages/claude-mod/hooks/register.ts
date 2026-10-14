@@ -31,7 +31,7 @@ import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, compo
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
-import { projectOf, touchInputOf, touchOf } from './file-touches'
+import { fileTouchesOn, projectOf, touchInputOf, touchOf } from './file-touches'
 import { fileRefOf, threadedPathOf, threadsHeldNote } from './file-threads'
 import {
   FILE_DIFF_REF,
@@ -1663,7 +1663,10 @@ function queueTouch($: EngineInterface, option: PluginOptions, e: { tool: string
   try {
     if (result.deny || result.isError) return
     const touch = touchOf(e.tool, e, result.result)
-    if (touch) touchQueue = touchQueue.then(() => recordTouch($, option, touch)).catch(() => {})
+    // Off unless the `fileTouches` option or PI_OUTLINER_FILE_TOUCHES turns it on: nothing is recorded, the rows stay.
+    if (touch) touchQueue = touchQueue.then(async () => {
+      if (fileTouchesOn(option.fileTouches, await $.env.get('PI_OUTLINER_FILE_TOUCHES'))) await recordTouch($, option, touch)
+    }).catch(() => {})
   } catch { /* the call's answer is never touched */ }
 }
 

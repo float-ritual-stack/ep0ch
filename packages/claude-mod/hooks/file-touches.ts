@@ -7,6 +7,16 @@ import { FILE_TOOLS, lineCounts } from './tool-rows'
  * a call says was touched, and the project it belongs to; register.ts runs the commands, since only it is handed `$`.
  */
 
+/**
+ * Whether touches are recorded at all: the `fileTouches` option when set, otherwise `PI_OUTLINER_FILE_TOUCHES`;
+ * neither (or anything but on/true/yes/1): off. Recording was always on until Oct 14, when the edits of code drowned
+ * the plans and handoffs it was for (those land in the outline directly now).
+ */
+export function fileTouchesOn(option: unknown, environment: string | undefined): boolean {
+  const typed = typeof option === 'string' && option.trim() !== '' ? option.trim() : (environment ?? '').trim()
+  return ['on', 'true', 'yes', '1'].includes(typed.toLowerCase())
+}
+
 /** What one Edit or Write touched: the file, the lines it added and removed, and the file before it (first touch). */
 export type Touch = { path: string; added: number; removed: number; original?: string }
 
