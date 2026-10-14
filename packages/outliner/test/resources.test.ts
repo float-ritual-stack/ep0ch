@@ -20,6 +20,7 @@ import {
   normalizeResourceAddress,
   type ResourceSource,
 } from "../src/resources";
+import { rebindCommand } from "../src/resource-catalog";
 import { OutlinerStore } from "../src/store";
 import {
   BasicWebMarkdownExtractor,
@@ -941,4 +942,58 @@ test("web refresh validates redirects before requests and stops oversized stream
     store.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a file link keeps working after its folder is deleted and made again", () => {
+  withWorkspace((root, store) => {
+    const inbox = join(root, "inbox");
+    mkdirSync(inbox);
+    writeFileSync(join(inbox, "hub-16.md"), "# Before\n");
+    const { resource } = store.resources.internFilesystem({ path: join(inbox, "hub-16.md") });
+
+    // As a sync tool does it: the new folder is written beside the old one, then takes its name (a new inode).
+    mkdirSync(`${inbox}.new`);
+    writeFileSync(join(`${inbox}.new`, "hub-16.md"), "# After\n");
+    rmSync(inbox, { recursive: true });
+    renameSync(`${inbox}.new`, inbox);
+
+    expect(store.resources.readFilesystemReference(join(inbox, "hub-16.md")).text).toBe("# After\n");
+    const first = store.resources.describe(resource.id, true);
+    expect(first.filesystem?.text).toBe("# After\n");
+    // Said once, to the first reader after it.
+    expect(first.filesystemNotice).toBe(`${inbox} was made again; its files are read from it again`);
+    expect(store.resources.describe(resource.id, true).filesystemNotice).toBeUndefined();
+  });
+});
+
+test("a file link whose folder now resolves elsewhere is refused with the command that re-binds it", () => {
+  withWorkspace((root, store) => {
+    const inbox = join(root, "inbox");
+    const elsewhere = join(root, "elsewhere");
+    mkdirSync(inbox);
+    mkdirSync(elsewhere);
+    writeFileSync(join(inbox, "hub-16.md"), "# Mine\n");
+    writeFileSync(join(elsewhere, "hub-16.md"), "# Someone else's\n");
+    const { resource } = store.resources.internFilesystem({ path: join(inbox, "hub-16.md") });
+
+    rmSync(inbox, { recursive: true });
+    symlinkSync(elsewhere, inbox);
+
+    let refusal: unknown;
+    try { store.resources.readFilesystemReference(join(inbox, "hub-16.md")); } catch (error) { refusal = error; }
+    expect(refusal).toBeInstanceOf(ResourceCatalogError);
+    expect((refusal as ResourceCatalogError).code).toBe("source-moved");
+    expect((refusal as Error).message).toContain(`now leads to ${elsewhere}, not ${inbox}`);
+    expect((refusal as Error).message).toContain(rebindCommand(inbox, "workspace"));
+    // The link still leads to its Resource, whose reading says why and the command, in place of the file.
+    expect(store.resources.resolveAuthoredReference({ kind: "filesystem", path: join(inbox, "hub-16.md") }))
+      .toEqual({ kind: "ready", resourceId: resource.id });
+    const described = store.resources.describe(resource.id, true);
+    expect(described.filesystem).toBeNull();
+    expect(described.filesystemError).toContain(rebindCommand(inbox, "workspace"));
+
+    // The person's word that the folder it leads to now is the one to read.
+    store.resources.rebindFilesystemRoot(inbox);
+    expect(store.resources.readFilesystemReference(join(inbox, "hub-16.md")).text).toBe("# Someone else's\n");
+  });
 });

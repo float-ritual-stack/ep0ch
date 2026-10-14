@@ -28,6 +28,19 @@ describe("a Resource shown as a note", () => {
     expect(m.revision).toBe(0x0123456789ab);
   });
 
+  test("a file whose folder was made again says so above its text, once, and its quotes still land on its words (PIE-853)", () => {
+    const m = resourceNote(description({ filesystemNotice: "~/garden was made again; its files are read from it again" }));
+    expect(m.text).toContain("> ~/garden was made again; its files are read from it again\n\n");
+    expect(m.text.slice(m.resource!.sourceAt!)).toBe(RAW);
+  });
+
+  test("a file whose folder leads elsewhere now says why and the command that reads it there, where its text would be", () => {
+    const why = "~/garden now leads to ~/elsewhere, not ~/garden where its files were registered, so they aren't read from it. If ~/elsewhere is where they live now: ep0ch resource rebind ~/garden --ws plots";
+    const m = resourceNote(description({ filesystem: null, filesystemError: why }));
+    expect(m.text).toContain("ep0ch resource rebind ~/garden --ws plots");
+    expect(m.resource!.uncommentable).toContain("isn't read");
+  });
+
   test("another text file is drawn in a fence: the offset is after the fence's opening line", () => {
     const raw = "water: 3\nseeds: 12\n";
     const m = resourceNote(description({ resource: { ...description().resource, address: { kind: "filesystem", path: "/work/garden/seed-list.txt" } }, filesystem: { text: raw, capturedAt: "2026-10-01T00:00:00Z", contentHash: "ab".repeat(32) } }));

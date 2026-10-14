@@ -882,6 +882,10 @@ export interface ResourceDescription {
   readonly requestedRevision: ResourceRevisionRef | null;
   readonly capabilities: ResourceCapabilityReport;
   readonly filesystem?: FilesystemResourceDocument | null;
+  /** Said once, to the first reader after the file's folder was made again and its Source re-bound to it. */
+  readonly filesystemNotice?: string;
+  /** Why the file isn't read: its folder leads elsewhere now, with the command that re-binds it. */
+  readonly filesystemError?: string;
   readonly pdf?: PdfResourceDocument | null;
   readonly pdfHistory?: PdfResourceHistory | null;
   readonly nativePayload?: ResourceNativePayload;
@@ -907,6 +911,7 @@ export type ResourceCatalogErrorCode =
   | "outside-source"
   | "symlink-disallowed"
   | "source-unavailable"
+  | "source-moved"
   | "version-conflict"
   | "address-conflict"
   | "invalid-input"

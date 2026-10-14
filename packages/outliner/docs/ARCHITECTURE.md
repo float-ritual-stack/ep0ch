@@ -612,7 +612,7 @@ project-documentation mutations.
 - `work_id_allocator` — singleton workspace prefix and next monotonic sequence number.
 - `workflow_runs` — idempotent typed invocation, allowlist, limits, planner comparison, ordered source-anchor route, current step, provenance, cancellation, and linked results.
 - `workflow_promotions` — idempotent exact-preview publication receipt linking one workflow request to its canonical result block.
-- `resource_sources` — durable provider identity, provider-qualified boundary, workspace policy, immutable filesystem root binding when applicable, and timestamps.
+- `resource_sources` — durable provider identity, provider-qualified boundary, workspace policy, filesystem root binding when applicable (the root's real path, device and inode; re-bound when the same real path holds a new directory, by `resource-sources.rebind` when it leads elsewhere), and timestamps.
 - `resources` — durable Resource UUID, Source-qualified normalized provider address, optional media type, resource version, address version, and timestamps; `(source_id, canonical_key)` is unique without merging identities across Sources.
 - `computed_invocations` — invocation UUID, Resource and Source identity, producer version and declaration snapshot, canonical structured inputs, exact dependency revisions, input version, optimistic version, and timestamps.
 - `computed_resource_state` — one mutable row per computed Resource containing its generation, execution state, selected immutable representation or durable Resource pointer, and latest failure pointer.

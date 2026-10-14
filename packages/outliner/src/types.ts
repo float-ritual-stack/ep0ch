@@ -2001,6 +2001,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "resource-sources.create"; input: CreateResourceSourceInput }
   | { id: string; action: "resource-sources.list" }
   | { id: string; action: "resource-sources.get"; sourceId: string }
+  | { id: string; action: "resource-sources.rebind"; root: string }
   | {
       id: string;
       action: "computed.invocations.create";

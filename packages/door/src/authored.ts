@@ -66,6 +66,10 @@ export interface ResourceDescription {
   resource: { id: string; provider: string; mediaType: string | null; address: Record<string, unknown> & { kind: string }; createdAt: string; updatedAt: string };
   source: { id: string; name: string; provider: string; policy?: { deniedCapabilities?: string[] } };
   filesystem?: { text: string; capturedAt: string; contentHash?: string } | null;
+  /** The file's folder was made again and its Source re-bound to it: said to the first reader after (PIE-853). */
+  filesystemNotice?: string;
+  /** Why the file isn't read: its folder leads elsewhere now, with the command that re-binds it (PIE-853). */
+  filesystemError?: string;
   pdf?: unknown;
   web?: { markdown: string; sourceSnapshot?: { fetchedAt: string | null }; representation?: { contentHash: string } } | null;
   webError?: string;
@@ -174,13 +178,15 @@ export function resourceNote(d: ResourceDescription, from?: string): Msg {
   else if (d.pdf || r.mediaType === "application/pdf") { body = "A PDF: the door doesn't draw PDFs yet. Detail shows it."; why = "a PDF's passages are commented on in Detail"; }
   else if (d.source.policy?.deniedCapabilities?.includes("read")) { body = `The workspace's policy doesn't let ${d.source.name} be read.`; why = "the workspace's policy doesn't let this Resource be read"; }
   // The service reads a file each time it's asked; nothing means it couldn't (src/files.ts `readFileContents`).
+  else if (r.provider === "filesystem" && d.filesystemError) { body = readable(d.filesystemError); why = "the file isn't read from where its folder leads now"; }
   else if (r.provider === "filesystem") { body = `The file can't be read now: it's gone, isn't a regular file, or is over ${SERVICE_FILE_LIMIT / 1024 / 1024} MiB.`; why = "the file can't be read now: its threads stay, but nothing new can be quoted"; }
   else { body = readable(d.remoteError ?? d.webError ?? "Nothing is stored for this Resource yet."); why = "nothing is stored for this Resource yet"; }
   const provider = providerWords(r.provider);
   const said = [d.source.name, d.source.name.toLowerCase().startsWith(provider) ? "" : provider, where !== title ? where : "", when ? `read ${localTime(when)}` : ""].filter(Boolean).join(" · ");
   const at = Date.parse(r.updatedAt) || Date.now();
   const line = (t: string) => readable(t).replace(/\n/g, " ");
-  const header = `${line(title)}\n*${line(said)}*\n\n`;
+  // Said once, above the text: the service re-bound the file's folder for this read (PIE-853).
+  const header = `${line(title)}\n*${line(said)}*\n\n${d.filesystemNotice ? `> ${line(d.filesystemNotice)}\n\n` : ""}`;
   const commentable = !!source?.hash;
   if (source && !source.hash) why = "the service didn't say which version of the text this is";
   return {

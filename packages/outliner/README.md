@@ -546,6 +546,16 @@ Click a resolved block row's disclosure triangle or press Right to inspect its o
     service, including in remote mode. Line ranges and rendering stay in the
     client. Passive previews and completion do not create Sources or Resources;
     explicit activation still owns registration.
+    A registered file's folder is its Source's root, bound to the directory it
+    resolves to. A folder deleted and made again in the same place (a sync's
+    rename into place, an agent rewriting it) is re-bound on the next read and
+    its files read again; the first reader is told once ("~/notes was made
+    again; its files are read from it again"), and the host's log says the host
+    re-bound it. A folder whose path now leads to another directory (a symlink
+    retargeted, another folder moved over it) is not read: the link says where
+    it leads now and `ep0ch resource rebind <folder> --ws <outline>`, which reads
+    it there from then on. A save never re-binds: a folder replaced while a file
+    in it is being saved fails the save.
   - `[file::evan@evans-box/path/to/file]` addresses an SSH application
     Resource. The Source and Resource are created only when the row is opened.
   - `[web::https://example.com/guide]` addresses a web Resource.

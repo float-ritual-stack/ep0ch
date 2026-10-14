@@ -16,7 +16,8 @@ import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type M
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
+import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
 import { blockAnnotationRepresentation } from "./annotation-representations";
@@ -852,6 +853,7 @@ export class OutlinerStore {
       this.readMarks = new ReadMarks(this.database);
       this.resources = new ResourceCatalog(this.database, {
         workspaceRoot: dirname(path),
+        outline: outlineOfFile(basename(path)) ?? undefined,
         ...resourceOptions,
       }, (sequence) => this.changes.recordSequenceOnly(sequence, "resource-catalog"));
       this.annotations = new AnnotationRepository(this.database, this.resources, {
