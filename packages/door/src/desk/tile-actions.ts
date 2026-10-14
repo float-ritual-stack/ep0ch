@@ -400,7 +400,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run({ at }, { d, reader }, actor) { return d.tileMenu(reader, at, actor); },
   }),
   "tile.info": def({
-    summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note",
+    summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them)",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { d, reader }) { return d.tileInfo(reader); },

@@ -1442,6 +1442,36 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const heldCard = held.cards.find((c: any) => c.title === "Lift the dahlias");
     await pick({ id: heldCard.id, open: true });
     await until(() => shows("detail") === heldCard.id, "⏎ in the held list opens in the detail", 5000);
+    // What each list follows and where its opens land, in plain words (PIE-855): tile.info for an agent, ^W P's rows for the person.
+    const L2 = lists().find(t => t.name !== L).name as string;
+    expect(await app.act({ action: "tile.info", tile: L2, as: "test-agent" })).toMatchObject({ follows: "the #tags opened in detail", opens: expect.stringMatching(/^detail, its reader/) });
+    expect(await app.act({ action: "tile.info", tile: L, as: "test-agent" })).toMatchObject({ follows: expect.stringMatching(/^nothing: held on its tag/) });
+    // The following list's header says ◄ detail; a click on it opens ^W P at its follows row, and the unlink row holds it.
+    const rows = () => sc.render(app).lines.map(plain);
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    const mark = () => { const r = rows(), y = r.findIndex(l => l.includes("#frost-jobs") && l.includes("◄ deta")); return { y, x: y >= 0 ? r[y]!.indexOf("◄ deta") : -1 }; };
+    await until(() => mark().y >= 0, "◄ detail on the following list's header", 5000);
+    click(mark().x + 1, mark().y);
+    const panel = () => stage().overlays.top();
+    await until(() => panel()?.name === "policy", "^W P from the ◄ mark", 5000);
+    expect(panel().items[panel().sel].label).toBe(`${L2} follows: the #tags opened in detail`);
+    expect(rows().join("\n")).toContain(`${L2} opens into: detail, its reader`);
+    press({ kind: "char", ch: "j" }); press({ kind: "enter" });
+    await until(() => lists().find(t => t.name === L2)?.held === true, "unlinked from the panel: held", 5000);
+    expect(panel().items[0].label).toMatch(new RegExp(`^${L2} follows: nothing: held on its tag`));
+    // Opens into: ⏎ picks the tile its opens land in (tile.link), and a row unlinks it again.
+    const opens = () => panel().items.findIndex((r: any) => r.wire === "opens");
+    panel().sel = opens(); press({ kind: "enter" });
+    await until(() => stage().overlays.top()?.name === "link", "the tiles its opens may land in", 5000);
+    const link = stage().overlays.top(), to = link.items.findIndex((r: any) => r.args.to === P);
+    link.sel = to; press({ kind: "enter" });
+    await until(() => tiles().find(t => t.name === L2)?.link === P, `${L2} linked to ${P}`, 5000);
+    expect(panel().items[opens()].label).toMatch(new RegExp(`^${L2} opens into: ${P} \\(its link`));
+    panel().sel = opens() + 1; press({ kind: "enter" });
+    await until(() => panel().items[opens()]?.label.startsWith(`${L2} opens into: detail, its reader`), "unlinked: its opens land in its reader again", 5000);
+    press({ kind: "esc" });
+    expect(stage().overlays.top()?.name).not.toBe("policy");
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
   }, 30_000);
 

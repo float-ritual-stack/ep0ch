@@ -119,6 +119,10 @@ const REDRAW_MS = 100;
 const DRAG_KEYS: Record<string, [string, Record<string, unknown>]> = { f: ["tile.float", {}], p: ["tile.dock", {}], a: ["tile.drawer", {}] };
 /** A header pressed: the tile (a tab) it would drag, and where. A drag of a cell or more starts moving it. */
 interface HeadPress { id: number; x: number; y: number }
+/** A row of the policy panel (^W P): what it is, its value, what ⏎ or a click does, + and -; `wide` rows say it all in the label. */
+interface PanelRow { label: string; value: string; run?: () => void; adjust?: (by: number) => void; wide?: boolean; wire?: "follows" | "opens" }
+/** One of a tile's links as its panel and header say it (PIE-855): plain words, and what changes or cuts it (an action each). */
+export interface Wire { says: string; change?: { label: string; short?: string; run: () => void }; unlink?: { label: string; run: () => void } }
 
 /**
  * The only screen host (PIE-515), and final: every screen is a spec (src/desk/screen-spec.ts) on it, never a
@@ -291,6 +295,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Each tile's ⋯ (its menu, tile.menu), and how far its cell is from the tile's right edge (a float moves under it). */
   /** The fold glyphs drawn (◂ ▾) on tile frames, for a click: it folds the tile to a spine (alt+click the other way). */
   private foldButtons: { id: number; from: number; to: number; row: number }[] = [];
+  /** A header's ◄ (what the tile follows) and → or ⏎ (where its opens land) marks (PIE-855): a click opens that row of ^W P. */
+  private wireChips: { id: number; from: number; to: number; row: number; wire: "follows" | "opens" }[] = [];
   /** A holdable list's ○ (● held) on its frame (PIE-855): a click holds it or lets it go (tile.hold). */
   private holdButtons: { id: number; from: number; to: number; row: number }[] = [];
   private menuButtons: { id: number; from: number; to: number; row: number; right: number }[] = [];
@@ -1128,6 +1134,72 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       row: (it, _i, on, w) => [pickRow(` ${it.label}`, on, w)],
       choose: (it, _i, d) => void d.run(it.action ?? "reader.follow", it.args, name),
       frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 2), title: `what ${name} follows`, foot: "↑↓ pick · ⏎ or a click · esc" }),
+    }));
+  }
+
+  /**
+   * What tile `id` follows (PIE-855), in plain words from its real links: a reader's mode and the tile it follows by a
+   * link (reader.follow), a #tag's list's reader (tile.hold cuts it), a preview's or a links tile's source. Each change
+   * or unlink runs the action an agent would call. The tile's panel (^W P) and its header's ◄ mark say it.
+   */
+  followsOf(id: number): Wire {
+    const p = this.panes.get(id), k = kindOf(p), name = this.nameOf(id);
+    if (!p) return { says: "nothing" };
+    const run = (action: string, args: Record<string, unknown> = {}) => () => this.run(action, args, name);
+    if (p instanceof ReaderPane && p.follows) {
+      const src = this.followSource(p), change = { label: "change what it follows", run: run("reader.follow") };
+      const unlink = { label: "unlink: it stays on the note it shows (held)", run: run("reader.follow", { source: "none" }) };
+      if (src) return { says: `${src.name}'s selection (a link)${src.hidden ? ", out of sight" : ""}`, change, unlink };
+      if (p.followMode === "follows") return { says: "the current note, as it changes", change, unlink };
+      if (p.followMode === "pinned") return { says: `the page [[${p.pinPage}]]`, change, unlink };
+      return { says: "nothing: held on its note", change };
+    }
+    const home = k?.home?.(p) ?? null, held = p && k?.hold ? k.hold.held(p) : null;
+    if (held === false && home) return { says: `the #tags opened in ${home}`, unlink: { label: "unlink: hold it on its tag; the next tag opens a new list", run: run("tile.hold", { on: true }) } };
+    if (held === true) return { says: `nothing: held on its tag (${home ?? "its reader"}'s next tag opens a new list)`, change: { label: `follow ${home ?? "its reader"}'s tags again`, run: run("tile.hold", { on: false }) } };
+    const src = k?.follows?.(p);
+    if (src) return { says: `${src}'s selection (a preview follows its source)` };
+    if (home) return { says: `the note in ${home}` };
+    return { says: "nothing" };
+  }
+  /**
+   * Where an open from tile `id` lands (PIE-855), in plain words from `landing()` (the one landing rule): its own link
+   * (tile.link: change picks another tile, unlink takes it away), its container's opens-into, its home (a list's
+   * reader), a flow's next column, or, with none, the current note. The tile's panel (^W P) and its header say it.
+   */
+  opensOf(id: number): Wire {
+    const p = this.panes.get(id), name = this.nameOf(id);
+    const change = { label: "change: link it to another tile", short: "change", run: () => this.askLink(id) };
+    const unlink = { label: "unlink: its opens go by the screen's rule", run: () => this.run("tile.link", {}, name) };
+    const ext = this.extTarget(id);
+    if (ext) return { says: `${this.plainPath(this.pathTo(ext.pane))} (its link, across the drawer)`, change, unlink };
+    const to = landing(this.layout, id, this.facts(id));
+    if (to && "to" in to) {
+      const via = this.linkVia(id), target = this.nameOf(to.to);
+      if (via === "link") return { says: `${target} (its link: ${this.layout.linkRoles.get(id) === "target" ? "only what ⏎ opens" : "it follows the selection too"})`, change, unlink };
+      if (via === "home") return { says: `${target}, its reader (⏎ replaces its note, alt+⏎ a new detail beside it)`, change };
+      return { says: `${target} (its container's opens into)`, change };
+    }
+    if (to && "into" in to) return { says: `a detail in ${to.into} (its container's opens into)`, change };
+    if (to && "next" in to) return { says: "a new column after it (the flow's open rule: next)", change };
+    if (p instanceof ReaderPane && p.follows && p.holding) return { says: "itself (held: a link followed in it changes only it)", change };
+    return { says: "the current note (no link: the readers that follow show it)", change };
+  }
+  /** The person picks the tile tile `id`'s opens land in (the panel's change): a list of tiles, each tile.link to= (the tile itself unlinks), as alt+l then a click. */
+  askLink(id: number): void {
+    const name = this.nameOf(id), now = this.layout.links.get(id), ext = this.extTarget(id)?.pane;
+    const takes = (d: Desk) => d.all().map(z => d.panes.get(z)!).filter(q => q !== this.panes.get(id) && kindOf(q)?.accepts?.notes);
+    // In the drawer, the tiles of the screen shown too (alt+l's numbers there), by their path from here.
+    const rows = [...takes(this), ...(this.otherDesk() ? takes(this.otherDesk()!) : [])].flatMap(q => {
+      const path = this.pathTo(q);
+      return path === undefined ? [] : [{ label: `${this.plainPath(path)} · ${kindOf(q)?.kind ?? "tile"}${q === (now !== undefined ? this.panes.get(now) : ext) ? "  ·  now" : ""}`, args: { to: path } as Record<string, unknown> }];
+    });
+    if (now !== undefined || ext) rows.push({ label: "nothing: unlink it", args: {} });
+    this.overlay(new ListPicker<{ label: string; args: Record<string, unknown> }, Desk>({
+      name: "link", items: () => rows, clickChooses: true,
+      row: (it, _i, on, w) => [pickRow(` ${it.label}`, on, w)],
+      choose: (it, _i, d) => void d.run("tile.link", it.args, name),
+      frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), Math.max(n, 1) + 2), title: `where ${name}'s opens land`, foot: rows.length ? "↑↓ pick · ⏎ or a click · esc" : "no tile here takes notes · esc" }),
     }));
   }
 
@@ -2553,7 +2625,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // For the mouse: the top float first, then the top dock's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
     this.tileSpots = [];
-    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.linkChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.holdButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.linkChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.wireChips = []; this.holdButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
@@ -2785,6 +2857,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       : float ? pad(head, Math.max(1, fits - width(tail))) + tail : width(bare) <= fits ? bare : pad(head, fits);
     // A title the border cuts (it ends in …) is said whole in the status line when the person's keys come to the tile
     // (PIE-815): the header inside shows it wrapped, and tile.info gives it to an agent.
+    // A ◄ or → mark cut off by the title's end isn't a click (PIE-855): past it is the border, or the corner's controls.
+    const titleEnd = r.col + 3 + width(title);
+    this.wireChips = this.wireChips.flatMap(c => (c.id !== id || c.to <= titleEnd ? [c] : c.from < titleEnd - 1 ? [{ ...c, to: titleEnd - 1 }] : []));
     const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.msg) : null;
     if (shownTitle && !visibleText(title).includes(shownTitle)) this.cutTitles.add(id); else this.cutTitles.delete(id);
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
@@ -3042,6 +3117,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number): string {
+    // A list a #tag opened (PIE-855) follows its reader's tags until held: ◄ and the reader, a click opens ^W P's follows row.
+    const p = this.panes.get(id)!, home = kindOf(p)?.home?.(p);
+    if (home && kindOf(p)?.hold?.held(p) === false) { const from = xNow(); put(` ◄ ${home}`, fg(C.lmagenta)); this.wireChips.push({ id, row, from: from + 1, to: xNow(), wire: "follows" }); }
+    const opensMark = (text: string) => { const from = xNow() + (text.startsWith(" ") ? 1 : 0); put(text, fg(C.lmagenta)); this.wireChips.push({ id, row, from, to: xNow(), wire: "opens" }); };
     // A tile whose opens land in itself (the welcome's preview) says nothing about where they go.
     const link = this.layout.links.get(id);
     if (link !== undefined && link !== id && this.panes.has(link)) {
@@ -3049,18 +3128,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // In a narrow header the role's glyph leads, so the name being cut short never hides it.
       const to = this.nameOf(link), role = this.linkChoice(id) ? this.layout.linkRoles.get(id) ?? "preview" : null;
       const word = role === "target" ? "⏎ target" : "◌ preview";
+      // The → and its tile: a click opens ^W P's opens row (PIE-855), where it's changed or unlinked.
       if (role && ` → ${to} ${word}`.length <= max - xNow() - 10) {
-        put(` → ${to}`, fg(C.lmagenta));
+        opensMark(` → ${to}`);
         const from = xNow(); put(` ${word}`, fg(C.lmagenta)); this.linkChips.push({ id, row, from: from + 1, to: xNow() });
       } else if (role) {
         const from = xNow(); put(` ${word[0]}`, fg(C.lmagenta)); this.linkChips.push({ id, row, from: from + 1, to: xNow() });
-        put(`→ ${to}`, fg(C.lmagenta));
-      } else put(` → ${to}`, fg(C.lmagenta));
+        opensMark(`→ ${to}`);
+      } else opensMark(` → ${to}`);
     } else if (this.extTarget(id)) {
       const x = this.extTarget(id)!;
-      put(` → ${this.plainPath(this.pathTo(x.pane))}`, fg(C.lmagenta));
+      opensMark(` → ${this.plainPath(this.pathTo(x.pane))}`);
       if (this.linkChoice(id)) put(x.role === "target" ? " ⏎ target" : " ◌ preview", fg(C.lmagenta));
-    } else if (this.linkVia(id) === "home") put(` ⏎ ${this.nameOf(this.homeId(id)!)}`, fg(C.lmagenta));
+    } else if (this.linkVia(id) === "home") opensMark(` ⏎ ${this.nameOf(this.homeId(id)!)}`);
     // The chain it is in (PIE-700): the tiles whose links end here, and, for the reader an open from outside (the drawer's
     // what-changed list, `ep0ch open`) lands in, that it is that one: "reader10 ← reader9", "reader9 ⏎ drawer → reader10".
     const chain = this.chainWords(id);
@@ -3627,6 +3707,26 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw();
   }
 
+  /**
+   * The policy panel's rows for tile `tile` itself, above its containers' (PIE-855): what it follows and where its opens
+   * land, in plain words (`followsOf`, `opensOf`), each with a row that changes it and one that unlinks it where it can.
+   */
+  wireRows(tile: number): PanelRow[] {
+    if (!this.panes.has(tile)) return [];
+    const name = this.nameOf(tile), f = this.followsOf(tile), o = this.opensOf(tile);
+    const rows: PanelRow[] = [{ label: `${name} follows: ${f.says}${f.change ? ` · ⏎ ${f.change.label}` : ""}`, value: "", wide: true, wire: "follows", ...(f.change ? { run: f.change.run } : {}) }];
+    if (f.unlink) rows.push({ label: `  ${f.unlink.label}`, value: "", wide: true, run: f.unlink.run });
+    rows.push({ label: `${name} opens into: ${o.says}${o.change ? ` · ⏎ ${o.change.short ?? o.change.label}` : ""}`, value: "", wide: true, wire: "opens", ...(o.change ? { run: o.change.run } : {}) });
+    if (o.unlink) rows.push({ label: `  ${o.unlink.label}`, value: "", wide: true, run: o.unlink.run });
+    return rows;
+  }
+  /** ^W P opened at tile `tile`'s follows or opens row (a click on its header's ◄ or → mark). */
+  openWires(tile: number, wire: "follows" | "opens"): void {
+    const panel = policyPanel(this, tile);
+    panel.sel = Math.max(0, this.wireRows(tile).findIndex(r => r.wire === wire));
+    this.overlays.push(panel); this.redraw();
+  }
+
   /** The policy panel's containers over tile `tile`: the screen, then each one down to it. */
   policyNodes(tile: number): { label: string; node: Container | null }[] {
     if (!this.panes.has(tile)) return [{ label: "screen", node: null }];
@@ -3637,7 +3737,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * The policy panel's rows for container `node` (null: the screen): each field, what it is now, and what ⏎ or a
    * click does (the same `layout.policy`, `layout.lock` or `tile.dock` an agent calls); `adjust` is + and -.
    */
-  policyRows(tile: number, node: Container | null): { label: string; value: string; run?: () => void; adjust?: (by: number) => void }[] {
+  policyRows(tile: number, node: Container | null): PanelRow[] {
     const own: Policy = node ? node.policy ?? {} : this.layout.policy;
     const at = node ? policyOfNode(this.layout, node) : effective([{ by: "screen", policy: this.layout.policy }]);
     const id = node ? node.id ?? "" : "screen";
@@ -3659,7 +3759,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kinds = [...new Set((node ? leaves(node) : this.all()).map(i => this.panes.get(i)!.kind))];
     rows.push({ label: "accepts · the tile kinds it takes", value: own.accepts ? own.accepts.join(", ") || "nothing" : at.accepts ? `${at.accepts.join(", ")} (from ${at.by.accepts})` : "any", run: () => (own.accepts ? set({ clear: "accepts" }) : set({ accepts: kinds.join(",") })) });
     const notes = this.all().filter(i => kindOf(this.panes.get(i))?.accepts?.notes && !(node && leaves(node).includes(i))).map(i => this.nameOf(i));
-    rows.push({ label: "opens · the open rule (a flow's is next)", value: own.opens ?? `${at.opens}${at.by.opens ? ` (from ${at.by.opens})` : ""}`, run: () => (own.opens === undefined ? set({ opens: at.opens === "next" ? "current" : "next" }) : set({ clear: "opens" })) });
+    // The open rule in plain words (PIE-855): what an open from a tile with no link does.
+    const rule = (o: string) => (o === "next" ? "next: a new column after it" : "current: the current note moves");
+    rows.push({ label: "opens · an open from a tile with no link", value: own.opens ? rule(own.opens) : `${rule(at.opens)}${at.by.opens ? ` (from ${at.by.opens})` : ""}`, run: () => (own.opens === undefined ? set({ opens: at.opens === "next" ? "current" : "next" }) : set({ clear: "opens" })) });
     if (!node) {
       const order = ["over", "beside", "none"] as const, now = own.host ?? "over";
       rows.push({ label: "host · where the host layer may appear (the agent)", value: own.host ?? "over (the default)", run: () => set({ host: order[(order.indexOf(now) + 1) % order.length] }) });
@@ -4384,7 +4486,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { tile: name };
   }
 
-  tileInfo(sel: string | undefined): unknown { const t = this.tile(sel); return this.tileView(t.id); }
+  /** `tile.info`: the tile as `layout.get` lists it, with what it follows and where its opens land in plain words (PIE-855, ^W P's rows). */
+  tileInfo(sel: string | undefined): unknown {
+    const t = this.tile(sel), view = this.tileView(t.id) as Record<string, unknown>;
+    return { ...view, follows: this.followsOf(t.id).says, opens: this.opensOf(t.id).says };
+  }
 
   /**
    * `screen.save` (PIE-565): this screen, as it's laid out now, as the screen note named `name` (src/desk/screen-notes.ts):
@@ -5672,6 +5778,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // ⋯ on a tile's frame: its menu opens under it (tile.menu, as ^W . does), the keys given to the tile it's for.
       const mb = this.menuButtons.find(at);
       if (mb) { if (mb.id !== this.focus) this.run("tile.focus", {}, this.nameOf(mb.id)); return this.run("tile.menu", {}, this.nameOf(mb.id)); }
+      // ◄ → ⏎ marks on a header (PIE-855): ^W P opens on that row (what it follows, where its opens land).
+      const wc = this.wireChips.find(at);
+      if (wc) return this.openWires(wc.id, wc.wire);
       // A float: a press gives it the keys and brings it to the top; its title moves it, its ◢ corner sizes it.
       if (hit && this.isFloat(hit[0])) {
         const [id, r] = hit;
@@ -5916,21 +6025,23 @@ function choicePicker(title: string, items: { label: string; spec: Partial<TileS
 function policyPanel(d: Desk, tile: number): DeskPicker {
   let node = Number.MAX_SAFE_INTEGER, crumbs: { from: number; to: number; y: number; i: number }[] = [];
   const nodes = () => { const ns = d.policyNodes(tile); node = Math.min(node, ns.length - 1); return ns; };
-  const rows = () => d.policyRows(tile, nodes()[node]!.node);
-  const p: DeskPicker = new ListPicker<ReturnType<Desk["policyRows"]>[number], Desk>({
+  // The tile's own rows first (what it follows, where its opens land: PIE-855), then the container's.
+  const rows = () => [...d.wireRows(tile), ...d.policyRows(tile, nodes()[node]!.node)];
+  const first = () => d.wireRows(tile).length;
+  const p: DeskPicker = new ListPicker<PanelRow, Desk>({
     name: "policy", items: rows, closers: "q", stays: true,
-    row: (r, _i, on, w) => [pickRow(` ${r.label}`, on, Math.max(20, Math.min(52, w - 26))) + fg(C.lcyan) + ` ${r.value}` + RESET],
+    row: (r, _i, on, w) => [r.wide ? pickRow(` ${r.label}`, on, w, r.wire ? C.white : C.grey) : pickRow(` ${r.label}`, on, Math.max(20, Math.min(52, w - 26))) + fg(C.lcyan) + ` ${r.value}` + RESET],
     choose: r => r.run?.(),
     keys: k => {
       const c = ch(k);
-      if (k.kind === "left" || c === "h" || k.kind === "right" || c === "l") { node = Math.max(0, Math.min(nodes().length - 1, node + (k.kind === "left" || c === "h" ? -1 : 1))); p.sel = 0; return true; }
+      if (k.kind === "left" || c === "h" || k.kind === "right" || c === "l") { node = Math.max(0, Math.min(nodes().length - 1, node + (k.kind === "left" || c === "h" ? -1 : 1))); p.sel = first(); return true; }
       if (c === " ") { rows()[p.sel]?.run?.(); return true; }
       if (c === "+" || c === "-") { rows()[p.sel]?.adjust?.(c === "+" ? 1 : -1); return true; }
       return false;
     },
-    clicked: (x, y) => { const n = crumbs.find(h => h.y === y && x >= h.from && x < h.to); if (n) { node = n.i; p.sel = 0; } return !!n; },
+    clicked: (x, y) => { const n = crumbs.find(h => h.y === y && x >= h.from && x < h.to); if (n) { node = n.i; p.sel = first(); } return !!n; },
     frame: (a, n) => {
-      const rect = centred(a, Math.min(76, a.cols - 4), Math.min(a.rows - 4, n + 4));
+      const rect = centred(a, Math.min(96, a.cols - 4), Math.min(a.rows - 4, n + 4));
       let x = rect.col + 2, line = " ";
       crumbs = [];
       nodes().forEach((c, i) => {

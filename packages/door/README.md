@@ -1114,7 +1114,10 @@ away. Layouts saved before this in `layouts.json` come across once with `bun scr
 **Containers and policy (PIE-505).** A layout is a tree of tiles in containers: splits, tab sets and docks. A
 dock slides out from an edge (`act tile.dock tile=tree edge=left`, or the policy panel's edge row) and takes
 anything dropped into it: the tree, claude and a detail can share one. Every container, and the screen itself,
-carries a policy saved with the layout (`layout.policy`, `^W P`): `locked`, `draggable`, `droppable`,
+carries a policy saved with the layout (`layout.policy`, `^W P`; the panel's first rows say what the tile follows and
+where its opens land, with a row to change and one to unlink each, PIE-855; `tile.info` gives the same words as
+`follows=` and `opens=`; a click on a header's `◄` mark, what a tag's list follows, or its `→`/`⏎` mark opens the
+panel on that row): `locked`, `draggable`, `droppable`,
 `accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells, a dock's `collapsible`, `overlay` and edge, and
 `opensInto` (where its tiles' opens land when they have no link: a tile, or a container's key, where an open
 lands in a tile opened there), `readable` (growth by room, PIE-794: the width in cells a reader opened beside
