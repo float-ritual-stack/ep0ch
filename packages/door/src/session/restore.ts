@@ -91,7 +91,11 @@ export class Checkpoints {
   clear(): void { this.stop(); forgetSession(); }
 }
 
-export interface Restored { screens: number; held: string[]; reopened: number; comments?: number; tuned?: number; errors: string[] }
+export interface Restored {
+  screens: number; held: string[]; reopened: number;
+  /** Comments back as they were; `partly`: back with their words, but a step after (their place, size, cursor) refused. */
+  comments?: number; partly?: number; tuned?: number; errors: string[];
+}
 
 /** The steps that open an edit or a comment again (Screen.reopen's), and which they count as. */
 const OPENS: Record<string, "reopened" | "comments"> = { edit: "reopened", "passage.act": "comments", reply: "comments", "comment.edit": "comments" };
@@ -129,24 +133,28 @@ export async function restore(app: App, c: Checkpoint): Promise<Restored> {
  * string: why there's none), as the person. A reader reads its note again as its screen opens: a step waits for it (a
  * few seconds at most). A step that fails takes its tile's later steps with it: they were its (a comment's place).
  */
-export async function reopen(steps: readonly Step[], via: (s: Step) => Pick<App["dispatch"], "act"> | string, out: Pick<Restored, "reopened" | "comments" | "errors">): Promise<void> {
-  const failed = new Set<string>();
+export async function reopen(steps: readonly Step[], via: (s: Step) => Pick<App["dispatch"], "act"> | string, out: Pick<Restored, "reopened" | "comments" | "partly" | "errors">): Promise<void> {
+  const failed = new Set<string>(), opened = new Map<string, "reopened" | "comments">();
   for (const s of steps) {
     const where = `${s.drawer ? "drawer" : s.screen}:${s.tile}`;
-    if (failed.has(where)) continue;
+    // The keys given back to a tile (desk.reopen's last step) are never a step of what's in it.
+    if (failed.has(where) && s.action !== "tile.focus") continue;
     const d = via(s);
     if (typeof d === "string") { out.errors.push(`${s.action} in ${s.tile}: ${d}`); failed.add(where); continue; }
     for (let tries = 0; ; tries++) {
       try {
         await d.act({ action: s.action, args: s.args ?? {}, ...(s.tile !== undefined ? { tile: s.tile } : {}) }, USER);
         const n = OPENS[s.action];
-        if (n) out[n] = (out[n] ?? 0) + 1;
+        if (n) { out[n] = (out[n] ?? 0) + 1; opened.set(where, n); }
         break;
       } catch (e) {
         const why = (e as Error).message;
         if (tries < 50 && /shows no note|no note here|still reading/i.test(why)) { await Bun.sleep(100); continue; }
         out.errors.push(`${s.action} in ${s.tile}: ${why}`);   // the note moved on: its text stays put aside
+        if (s.action === "tile.focus") break;
         failed.add(where);
+        // Its comment opened, but isn't where it sat: said so, not "as you left it".
+        if (opened.get(where) === "comments") { out.comments = (out.comments ?? 1) - 1; out.partly = (out.partly ?? 0) + 1; opened.delete(where); }
         break;
       }
     }
@@ -159,6 +167,7 @@ export function restoredSaying(r: Restored, how: "upgrade" | "crash", adopted: n
     how === "upgrade" ? "the session was handed over to a new daemon" : "the session came back after its daemon stopped",
     // First after what happened: the person was typing it.
     r.comments ? `your comment${r.comments === 1 ? " is" : "s are"} as you left ${r.comments === 1 ? "it" : "them"} (ctrl+s sends)` : "",
+    r.partly ? `your comment${r.partly === 1 ? " is" : "s are"} back with ${r.partly === 1 ? "its" : "their"} words, not where ${r.partly === 1 ? "it" : "they"} sat (ctrl+o, ctrl+g move ${r.partly === 1 ? "it" : "them"})` : "",
     r.screens ? `${r.screens} screen${r.screens === 1 ? "" : "s"} reopened` : "",
     adopted ? `${adopted} program${adopted === 1 ? "" : "s"} kept running` : "",
     r.reopened ? `${r.reopened} edit${r.reopened === 1 ? "" : "s"} back (e or ⏎ in it carries on)` : "",

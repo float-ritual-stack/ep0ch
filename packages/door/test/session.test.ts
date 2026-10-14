@@ -824,7 +824,8 @@ describe("the checkpoint and the restore", () => {
   });
 
   test("a comment opened again sits where it sat, and the look's unsaved nudges come back; one whose words are gone takes its place and cursor with it (PIE-847)", async () => {
-    const { app, ran } = stubApp(req => (req.action === "passage.act" && req.tile === "gone" ? "no passage “the old gate” in the note now" : null));
+    const { app, ran } = stubApp(req => (req.action === "passage.act" && req.tile === "gone" ? "no passage “the old gate” in the note now"
+      : req.action === "comment.move" && req.tile === "narrow" ? "the comment is split, not floating" : null));
     const comment = (tile: string) => [
       { action: "open", tile, args: { id: "0a1b2c3d" } },
       { action: "passage.act", tile, args: { action: "comment", quote: "Beans, chard", near: 15 } },
@@ -833,13 +834,18 @@ describe("the checkpoint and the restore", () => {
       { action: "draft.place", tile, args: { line: 2, col: 4 } },
     ];
     const r = await restore(app, {
-      v: 2, at: 0, menu: true, screens: [], reopen: [...comment("gone"), ...comment("reader")],
+      // The keys were on the reader whose words are gone: they go back there all the same.
+      v: 2, at: 0, menu: true, screens: [], reopen: [...comment("gone"), ...comment("reader"), ...comment("narrow"), { action: "tile.focus", tile: "gone" }],
       tuning: [{ target: "screen:desk", field: "measure", value: "120", by: USER }],
     });
     expect(ran.filter(x => x.tile === "gone").map(x => x.action)).toEqual(["open"]);
     expect(ran.filter(x => x.tile === "reader")).toEqual(comment("reader"));
-    expect(r.errors).toEqual(["passage.act in gone: no passage “the old gate” in the note now"]);
+    expect(ran.filter(x => x.tile === "narrow").map(x => x.action)).toEqual(["open", "passage.act", "comment.place"]);
+    expect(ran.at(-1)).toEqual({ action: "tile.focus", tile: "gone", args: {} });
+    expect(r.errors).toEqual(["passage.act in gone: no passage “the old gate” in the note now", "comment.move in narrow: the comment is split, not floating"]);
+    // One as it sat, one with its words but not its place: said apart.
     expect(restoredSaying(r, "upgrade", 0)).toContain("your comment is as you left it");
+    expect(restoredSaying(r, "upgrade", 0)).toContain("your comment is back with its words, not where it sat");
     // Unsaved still: s in the tune inspector saves them, as before the handover.
     expect(tuningOf(app.board).unsaved()).toEqual([{ target: "screen:desk", fields: [["measure", "120"]] }]);
   });
