@@ -22,6 +22,7 @@ import { SocketBoard } from "../src/socket";
 import { subject } from "../src/board";
 import { extensionNamed } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
+import { makeTile } from "../src/desk/tiles";
 import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
 import { hyperOn, useHyper } from "../src/hyper";
@@ -1436,6 +1437,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Let go while the new one is the detail's list: refused, with what to do.
     await expect(person("tile.hold", { on: false }, L)).rejects.toThrow(/is detail's list now: close it or hold it/);
     expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:detail","mode":"held"`);
+    // A restarted door makes it from that save still held.
+    expect((makeTile({ kind: "query", query: "#compost", source: "tile:detail", mode: "held" }) as any).held).toBe(true);
     const heldCard = held.cards.find((c: any) => c.title === "Lift the dahlias");
     await pick({ id: heldCard.id, open: true });
     await until(() => shows("detail") === heldCard.id, "⏎ in the held list opens in the detail", 5000);
