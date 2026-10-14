@@ -204,3 +204,9 @@ reproduction that goes red before any fix. The `loki` skill (`.claude/skills/lok
 five default triage roles are `[triage::<role>]` properties and never set `work-stage`
 (`docs/agents/triage-labels.md`). The glossary is UI-GRAMMAR.md §1, and ADRs go in `docs/adr/`
 (`docs/agents/domain.md`).
+
+The repository's own Claude mod, `.claude/skills/ep0ch-repo/` (loaded for sessions in this repository only), turns the
+hard rules above into refusals that name the command to run instead: `pkill`/`killall`, `git stash`, `gh pr merge
+-d`/`--delete-branch`, `bun test --parallel` on float-2, and a merge into main whose `PROTOCOL` isn't main's plus one.
+In the deployer's sessions it also runs the freshness sweep: after every three deploys or merges, a read-only agent
+checks what `.claude/freshness.md` lists as stale and hands its findings to the main thread.

@@ -67,6 +67,14 @@ what needs him or what changed; if nothing changed and nothing's wrong, one line
    (`gh run rerun <id> --failed`); a second red means the diagnosing-bugs method (root cause and a reproduction
    before any fix), not another rerun.
 
+## The freshness sweep
+
+The repository's mod (`.claude/skills/ep0ch-repo/`) runs it in your sessions (the `.ep0ch` in `~/projects/ep0ch` says
+`agent = "loki"`). After every three deploys or merges (or ten turns that wrote to the outline), a read-only agent checks
+what `.claude/freshness.md` lists as stale, and its findings arrive as a prompt from the ep0ch-repo plugin. Check each
+finding, make the updates that hold up as yourself, and say which you skipped and why. What counts as stale is that
+file: edit it like any rule. `EP0CH_FRESHNESS=off` stops the sweep for a session; `on` runs it in any session.
+
 ## The build log
 
 One note per day in pie, `[type::build-log] [page::build-log-YYYY-MM-DD] [welcome::true]`, first in the Welcome
