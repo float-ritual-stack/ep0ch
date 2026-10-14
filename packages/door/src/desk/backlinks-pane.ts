@@ -392,7 +392,7 @@ export class BacklinksPane implements Pane {
     if (!agent && rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
     // Shown: the previews following this tile (and its link) only; the current note stays, or a reader that
     // follows it, whose links these are, would move to the row and the list with it.
-    if (how === "show" && desk.showFrom) desk.showFrom(this, m);
+    if (how === "show" && desk.showFrom) desk.showFrom(this, m, actor);
     else {
       // The person's open moves their selection there too: the preview following this tile shows it as well.
       if (!agent && desk.showFrom) desk.showFrom(this, m);

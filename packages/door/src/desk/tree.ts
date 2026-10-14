@@ -353,7 +353,7 @@ export class TreePane implements Pane {
     const m = await this.target(id, desk);
     if (!m) throw new ActionRefused(`nothing answers at ${shortId(id)}`);
     // Where the tree's selection goes (a desk's previews and link); a view without that, its tree's own preview.
-    if (desk.showFrom) desk.showFrom(this, m); else desk.setCurrent(m, { from: this, by: actor });
+    if (desk.showFrom) desk.showFrom(this, m, actor); else desk.setCurrent(m, { from: this, by: actor });
     return { row: i + 1, id: m.id };
   }
 

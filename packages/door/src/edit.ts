@@ -213,14 +213,20 @@ export class Draft {
     if (lines > BIG_PASTE_LINES || Buffer.byteLength(text) > BIG_PASTE_BYTES) this.note = `pasted ${lines} line${lines === 1 ? "" : "s"} · ctrl+z undoes`;
   }
 
-  /** The text becomes `to` (an undo or redo): the cursor at the end of what changed, the view following it. */
+  /**
+   * The text becomes `to` (an undo or redo): the person's own puts the cursor at the end of what changed, the view
+   * following it; an agent's leaves their cursor and selection on the text they were on (PIE-632).
+   */
   private jump(to: string, by: Actor) {
-    const c = changeOf(this.text, to);
-    this.lines = to.split("\n");
+    if (by.kind === "agent") this.carry(to);
+    else {
+      const c = changeOf(this.text, to);
+      this.lines = to.split("\n");
+      const p = this.placeOf(c.at + c.added);
+      this.row = p.row; this.col = p.col;
+      this.anchor = null; this.goal = null; this.follow = true;
+    }
     this.seen = to;
-    const p = this.placeOf(c.at + c.added);
-    this.row = p.row; this.col = p.col;
-    this.anchor = null; this.goal = null; this.follow = true;
     this.flashes = [];
     this.discardArmed = false;
     this.markWriter(by);
@@ -296,10 +302,26 @@ export class Draft {
     this.record(USER, "a change");
     const before = this.text;
     // An editor's file ends in a line break the draft never had; `exact` (an earlier revision) keeps the text as it was.
-    this.lines = (exact ? text : text.replace(/\n$/, "")).split("\n");
+    this.carry(exact ? text : text.replace(/\n$/, ""));
     if (this.text !== before) this.wrote(by, what);
-    this.row = Math.min(this.row, this.lines.length - 1);
-    this.col = Math.min(this.col, this.lines[this.row]!.length);
+  }
+
+  /**
+   * The text becomes `to` wholesale, by a change the cursor didn't make: the cursor and the selection stay on the text
+   * they were on (after what changed, they move with it; inside it, to its end, and a selection there is let go), so the
+   * next key types where the person is, never past the text's end (PIE-632).
+   */
+  private carry(to: string) {
+    const c = changeOf(this.text, to);
+    const at = (o: number) => (o < c.at ? o : o >= c.at + c.removed ? o - c.removed + c.added : c.at + c.added);
+    const cursor = at(this.offsetOf(this.row, this.col));
+    const a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : null;
+    const anchor = a === null || (a > c.at && a < c.at + c.removed) ? null : at(a);
+    this.lines = to.split("\n");
+    const p = this.placeOf(cursor);
+    this.row = p.row; this.col = p.col;
+    this.anchor = anchor === null || anchor === cursor ? null : this.placeOf(anchor);
+    this.goal = null;
   }
 
   /**
@@ -313,7 +335,9 @@ export class Draft {
     for (const [i, l] of Object.entries(lines)) if (this.lines[Number(i)] !== undefined) this.lines[Number(i)] = l;
     const line = this.line;
     this.lines[this.row] = line.slice(0, start) + text + line.slice(end);
+    // The cursor lands after the insert: a selection from before it is let go, or the next key would type over the insert.
     this.col = start + text.length;
+    this.anchor = null; this.goal = null;
     this.discardArmed = false;
     this.note = "";
     if (this.text !== before) this.wrote(by, "the insert");

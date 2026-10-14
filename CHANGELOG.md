@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An agent's pick stays the agent's; a replaced draft keeps the person's place (PIE-632)
+
+- **Fixed:** an agent's `tree.pick` (or a links-tile pick) showed its row where the tree's selection goes as if the
+  person had picked it: into a tile the screen limits for agents (edit only, hands off) too. Every open into a tile now
+  carries who made it through one guard, so a limited tile keeps its note and an agent's `open` into one is refused,
+  saying why and the command that frees it.
+- **Fixed:** text replaced under a selection (an agent's text, `$EDITOR`'s, a chosen completion) left the selection
+  pointing past the new text: the next key threw, or typed over the inserted reference. The selection now stays on the
+  text it was on, or is let go.
+- **Fixed:** an agent undoing or redoing its own edit moved the person's cursor and cleared their selection. Only the
+  person's own ctrl+z moves the cursor now.
+
 ### Dates and numbers on any property (PIE-769)
 
 - **Added:** a query compares any property, not only `created` and `updated`: `due <= +3d` (overdue too),

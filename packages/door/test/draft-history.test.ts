@@ -155,6 +155,36 @@ describe("a draft's history", () => {
     await expect(DRAFT_ACTIONS.run("draft.redo", {}, d, agent)).rejects.toThrow("an agent redoes only its own");
   });
 
+  test("an agent's undo and redo of its own step leave the person's cursor and selection on their text (PIE-632)", async () => {
+    const d = new Draft("b1", 1, "Seed list\n\nsow the peas");
+    const tidy = { kind: "agent" as const, id: "tidy" };
+    d.place(2, 4); d.place(2, 7, true);                                // the person has "the" selected, a block below
+    d.applyPatch({ patchId: "p1", patches: [{ observed: "Seed", replacement: "Spring seed", range: { start: 0, end: 4 }, unit: "utf16" }], revision: 1 }, tidy);
+    expect(d.selectedText()).toBe("the");
+    await DRAFT_ACTIONS.run("draft.undo", {}, d, tidy);
+    expect(d.text).toBe("Seed list\n\nsow the peas");
+    expect(d.selectedText()).toBe("the");
+    expect({ row: d.row, col: d.col }).toEqual({ row: 2, col: 7 });
+    await DRAFT_ACTIONS.run("draft.redo", {}, d, tidy);
+    expect(d.text).toBe("Spring seed list\n\nsow the peas");
+    expect(d.selectedText()).toBe("the");
+    type(d, "a");                                                      // typed over their own selection, nowhere else
+    expect(d.text).toBe("Spring seed list\n\nsow a peas");
+  });
+
+  test("text replaced under a selection (an agent's text, $EDITOR's, a chosen completion): the next key types where the person is, never throws (PIE-632)", () => {
+    const d = new Draft("b1", 1, "alpha\nbeta\ngamma delta");
+    d.place(2, 11); d.place(2, 6, true);                               // "delta" selected, from its end
+    d.replace("ab", { kind: "agent", id: "tidy" });
+    expect(() => type(d, "x")).not.toThrow();
+    expect(d.text).toBe("abx");
+    const c = new Draft("b1", 1, "see [[gar");
+    c.place(0, 0); c.place(0, 9, true);
+    c.splice(4, 9, "[[garden]]");
+    type(c, "!");
+    expect(c.text).toBe("see [[garden]]!");                            // the old selection doesn't eat the insert
+  });
+
   test("a history carried over (a save, then the note opened again unchanged) goes on back past it", async () => {
     const a = new Draft("b1", 1, "one");
     a.place(0, 3);

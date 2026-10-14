@@ -386,6 +386,29 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await act("tile.close", {}, "helper");
   });
 
+  test("an agent's tree pick shows its row where the tree's selection goes, as the agent: never in a tile limited for agents, never the person's keys (PIE-632)", async () => {
+    await mine("layout.load", { name: "terminal-day" });
+    const tree = D().panes.get([...D().names].find(([, v]: any) => v === "tree")[0]);
+    await until(() => tree.rows?.length > 3, "the tree's rows");
+    const n = (id: string) => tree.rows.findIndex((r: any) => r.m?.id === id) + 1;
+    D().focus = [...D().names].find(([, v]: any) => v === "now")[0];
+    const sel = tree.sel, middle = tile("middle").showing?.id ?? null, preview = tile("preview").showing?.id ?? null;
+    await mine("tile.agent", { policy: "off" }, "middle");
+    await mine("tile.agent", { policy: "off" }, "preview");
+    await act("tree.pick", { n: n(notes.shed.id) }, "tree");
+    // The pick is the agent's: the tiles the screen keeps from agents keep their notes, and the person's keys and selection stay.
+    expect(tile("middle").showing?.id ?? null).toBe(middle);
+    expect(tile("preview").showing?.id ?? null).toBe(preview);
+    expect(get().focus).toBe("now");
+    expect(tree.sel).toBe(sel);
+    await mine("tile.agent", { policy: "inherit" }, "middle");
+    await mine("tile.agent", { policy: "inherit" }, "preview");
+    await act("tree.pick", { n: n(notes.beans.id) }, "tree");
+    await until(() => tile("middle").showing?.id === notes.beans.id && tile("preview").showing?.id === notes.beans.id, "the agent's pick shown where the tree's selection goes");
+    expect(get().focus).toBe("now");
+    expect(tree.sel).toBe(sel);
+  });
+
   test("ctrl+e in a reader opens the editor in a tile beside it; the draft comes back when the editor exits", async () => {
     const script = join(scratch.root, "door", "fake-editor.sh");
     writeFileSync(script, `#!/bin/sh\nprintf '\\nWritten in the tile.\\n' >> "$1"\n`);

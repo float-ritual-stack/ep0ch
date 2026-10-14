@@ -72,7 +72,7 @@ export interface DeskApi {
   /** What tile `name` shows or has selected (a backlinks tile lists the backlinks of its source's note). */
   tileShowing?(name: string): Msg | null;
   /** A selection moved in `from`: the previews following it and its link show `m`; the current note stays. */
-  showFrom?(from: Pane, m: Msg): void;
+  showFrom?(from: Pane, m: Msg, by?: Actor): void;
   /**
    * Run an action as `by`, in tile `tile` (or the action's own default): the person's as their key does, an agent's as
    * its `act` does, a refusal said either way. A tile kind's code reaches another action (the brief steps to a day) by it.
