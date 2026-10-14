@@ -22,6 +22,7 @@ import { SocketBoard } from "../src/socket";
 import { subject } from "../src/board";
 import { extensionNamed } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
+import { makeTile } from "../src/desk/tiles";
 import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
 import { hyperOn, useHyper } from "../src/hyper";
@@ -1424,6 +1425,23 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(list().selected?.id).toBe(sel);
     // The list saves with the screen as written: its query and its home.
     expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:detail"`);
+    // Held (PIE-855: p, its ○, the menu), it keeps #compost and the next tag opens a list of its own; ⏎ still lands in the detail.
+    expect(await person("tile.hold", {}, L)).toMatchObject({ tile: L, held: true });
+    expect(list().held).toBe(true);
+    await person("element.open", { n: tagElem("frost-jobs").n });
+    const lists = () => tiles().filter(t => t.kind === "query");
+    await until(() => lists().length === 2 && lists().some(t => t.query === "#frost-jobs" && t.cards?.length === 4), "a second list for #frost-jobs", 8000);
+    const held = lists().find(t => t.name === L);
+    expect(held).toMatchObject({ query: "#compost", held: true, home: "detail" });
+    expect(held.cards).toHaveLength(2);
+    // Let go while the new one is the detail's list: refused, with what to do.
+    await expect(person("tile.hold", { on: false }, L)).rejects.toThrow(/is detail's list now: close it or hold it/);
+    expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:detail","mode":"held"`);
+    // A restarted door makes it from that save still held.
+    expect((makeTile({ kind: "query", query: "#compost", source: "tile:detail", mode: "held" }) as any).held).toBe(true);
+    const heldCard = held.cards.find((c: any) => c.title === "Lift the dahlias");
+    await pick({ id: heldCard.id, open: true });
+    await until(() => shows("detail") === heldCard.id, "⏎ in the held list opens in the detail", 5000);
     expect(S().focus).toBe("index");
   }, 30_000);
 

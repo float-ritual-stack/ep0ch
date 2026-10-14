@@ -24,6 +24,8 @@ const PLACE: Record<string, string> = { left: "left of", right: "right of", up: 
 /** A tile as its menu reads it (`Desk.tileNow`): where it is now, and why a tile operation would be refused there. */
 export interface TileNow {
   float: boolean; zoomed: boolean; collapsed: boolean; dock: boolean; inDrawer: boolean; flow: boolean; held: boolean;
+  /** A list held off its home (PIE-855): true or false where its kind can hold it, else null. */
+  listHeld: boolean | null;
   /** A close in its container shuts its dock instead (the board's outline). */
   shuts: boolean;
   /** The program running in it (a terminal tile), whose close ends it. */
@@ -279,10 +281,17 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.hold": def({
-    summary: "hold tile=<tile>'s column full in its flow so it resists compression (on=false lets it go; default toggles), the river's p. Refused outside a flow and where its flow is locked",
-    keys: "river column: p",
-    touches: "shape", replay: "safe", says: r => `${r.held ? "held" : "let go of"} ${r.tile}`,
-    menu: { label: "hold it full", group: TILE, key: "p", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return !n.flow ? { hide: true } : n.held ? { label: "let it go" } : { refused: n.refused("hold") }; } },
+    summary: "hold tile=<tile> (on=false lets it go; default toggles). A river column: its column stays full in its flow so it resists compression, the river's p; refused outside a flow and where its flow is locked. A #tag's list (PIE-855): it keeps its tag and stops being its reader's list, so the next tag opens a list of its own; its opens still land in that reader. Let go, it is the reader's list again, refused while another list is",
+    keys: "river column: p · a #tag's list: p, or a click on the ○ on its frame (● while held)",
+    touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.held ? "held" : "let go of"} ${r.tile}`),
+    menu: {
+      label: "hold it full", group: TILE, key: "p",
+      now: ({ d, reader }, _t, actor) => {
+        const n = d.tileNow(reader, actor);
+        if (n.listHeld !== null) return { label: n.listHeld ? "let it follow its reader's tags again" : "hold this list (a new tag opens its own)" };
+        return !n.flow ? { hide: true } : n.held ? { label: "let it go" } : { refused: n.refused("hold") };
+      },
+    },
     args: { on: { type: "boolean", optional: true, about: "true holds it, false lets it go; default toggles" } },
     run({ on }, { d, reader }, actor) { return d.holdTile(reader, on, actor); },
   }),
