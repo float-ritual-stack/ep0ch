@@ -54,7 +54,7 @@ test("an unchanged copy from an earlier version is refreshed in place: config.js
 
   const [before] = installedCopies(s.roots, s.builtIns);
   expect(before).toMatchObject({ id: "moon", where: "user", state: "stale", recorded: false });
-  expect(before!.news).toEqual([expect.stringContaining("Moon draws its phases from a table")]);
+  expect(before!.news).toEqual([expect.objectContaining({ subject: "Moon draws its phases from a table" })]);
 
   const said: string[] = [];
   const done = await updateExtensions(undefined, { roots: s.roots, builtIns: s.builtIns, say: (line) => said.push(line) });
@@ -122,12 +122,16 @@ test("a recorded copy says what's new since it was installed, across commits tha
   git(s.repo, "commit", "-qm", "Moon counts twelve phases");
   const [stale] = installedCopies(s.roots, s.builtIns);
   expect(stale).toMatchObject({ state: "stale", recorded: true });
-  expect(stale!.news).toEqual([expect.stringContaining("Moon counts twelve phases")]);
+  expect(stale!.news).toEqual([expect.objectContaining({ subject: "Moon counts twelve phases" })]);
+  // Brought up to date by hand: current, and its record follows, so the built-in's next change finds it unchanged.
+  cpSync(join(s.builtIns, "moon"), copy, { recursive: true });
+  expect(installedCopies(s.roots, s.builtIns)).toMatchObject([{ state: "current", recordCurrent: false }]);
+  await updateExtensions(undefined, { roots: s.roots, builtIns: s.builtIns });
+  expect(installedCopies(s.roots, s.builtIns)).toMatchObject([{ state: "current", recordCurrent: true }]);
   // A folder that links to the checkout's built-ins is never taken for a copy of them.
   const linked = join(s.root, "linked");
   symlinkSync(s.builtIns, linked);
   expect(installedCopies([{ path: linked, where: "user" }], s.builtIns)).toEqual([]);
-  expect(readFileSync(join(copy, "phases.ts"), "utf8")).toContain("PHASES = 8");
 });
 
 test("ext update --all --keep-forked --json: what ep0ch install reads", async () => {

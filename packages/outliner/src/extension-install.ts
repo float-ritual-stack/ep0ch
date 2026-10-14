@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { ExtensionLoadError, readExtensionFolder } from "./extension-manifest";
 import { cleanExtensionText } from "./extension-records";
 import { BUILT_IN_EXTENSIONS, extensionRoots, type ExtensionsListResult } from "./extension-registry";
-import { copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, whereWords, writeInstallRecord } from "./extension-update";
+import { type CopyUpdate, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, whereWords, writeInstallRecord } from "./extension-update";
 import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse } from "./resource-extensions";
 
@@ -175,19 +175,6 @@ export async function removeExtension(id: string, options: { outlineFolder?: str
   ];
 }
 
-/** What `ext update` did with one installed copy. */
-export interface CopyUpdate {
-  id: string;
-  where: string;
-  dir: string;
-  state: InstalledCopy["state"];
-  /** current: nothing to take; updated: refreshed in place; kept: left as it is (forked, not taken); took: a forked copy replaced, its files kept in `forkKept`. */
-  done: "current" | "updated" | "kept" | "took";
-  news: string[];
-  differs: string[];
-  forkKept?: string;
-}
-
 export interface UpdateOptions {
   /** Only this outline's own folder; otherwise the user folder and every outline's. */
   outlineFolder?: string;
@@ -239,16 +226,17 @@ export async function updateExtensions(name: string | undefined, options: Update
     const root = join(copy.dir, "..");
     const refresh = () => addExtension(join(builtInsDir, copy.id), { from: join(builtInsDir, copy.id), root, builtIns: builtInsDir });
     if (copy.state === "current") {
-      // A copy made before the record, already current: recorded now, so a later change shows as a fork.
-      if (!copy.recorded) await writeInstallRecord(copy.dir, builtInsDir, copy.id);
+      // Current without a record that says so (made before records, or refreshed by hand): recorded now, so the next
+      // change to the built-in finds it unchanged, and a change here shows as a fork.
+      if (!copy.recordCurrent) await writeInstallRecord(copy.dir, builtInsDir, copy.id);
       say(copyLine(copy));
     } else if (copy.state === "stale") {
       await refresh();
       result.done = "updated";
-      say(`updated ${copy.id} in ${whereWords(copy.where)} (an unchanged copy; config.json kept)${copy.news.length ? `: ${copy.news.join("; ")}` : ""}`);
+      say(`updated ${copy.id} in ${whereWords(copy.where)} (an unchanged copy; config.json kept)${copy.news.length ? `: ${newsWords(copy.news)}` : ""}`);
     } else {
       say(copyLine(copy));
-      if (copy.news.length) for (const line of copy.news) say(`  new in the built-in: ${line}`);
+      for (const n of copy.news) say(`  new in the built-in: ${n.commit.slice(0, 8)} ${n.subject}`);
       let take = false;
       if (!options.keepForked) {
         say(`the diff, your copy (a/, ${copy.dir}) against the built-in's (b/):`);

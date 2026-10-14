@@ -17,6 +17,7 @@ import { programStatusEmitter, type StatusEmitter } from "@ep0ch/outliner/progra
 import { writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { ep0ch } from "../session/place";
+import { copyName, type CopyUpdate, newsWords } from "@ep0ch/outliner/extension-update";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]";
@@ -257,14 +258,13 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       const cli = join(f.repo.outliner, "src", "cli.ts");
       const out = await must([process.execPath, cli, "ext", "update", "--all", "--keep-forked", "--json"],
         `the checkout is updated; refresh them by hand: ${ep0ch()}ext update --all`, { env: { ...env, EP0CH_OUTLINES: f.host.folder }, timeoutMs: 120_000 });
-      let copies: { id: string; where: string; done: string; news: string[] }[];
+      let copies: CopyUpdate[];
       try { copies = JSON.parse(out.trim().split("\n").at(-1) ?? "[]"); }
       catch { throw new StepFailed(`ext update said what this step can't read: ${out.slice(0, 200)}`, `run ${ep0ch()}ext update --all to see it`); }
-      const name = (c: { id: string; where: string }) => (c.where === "user" ? c.id : `${c.id} (${c.where})`);
-      for (const c of copies.filter(c => c.done === "updated")) say(`refreshed ${name(c)}${c.news.length ? `: ${c.news.length} change${c.news.length === 1 ? "" : "s"} (${c.news.map(n => n.slice(9)).join("; ")})` : ""}`);
+      for (const c of copies.filter(c => c.done === "updated")) say(`refreshed ${copyName(c)}${c.news.length ? `: ${c.news.length} change${c.news.length === 1 ? "" : "s"} (${newsWords(c.news)})` : ""}`);
       for (const c of copies.filter(c => c.done === "kept")) {
-        record(`${name(c)} was changed here: left as it is`);
-        show(`    ! ${name(c)} was changed here, so it's left as it is: \`${ep0ch()}ext update ${c.id}\` shows what's new and asks`);
+        record(`${copyName(c)} was changed here: left as it is`);
+        show(`    ! ${copyName(c)} was changed here, so it's left as it is: \`${ep0ch()}ext update ${c.id}\` shows what's new and asks`);
       }
       const current = copies.filter(c => c.done === "current").length;
       if (current) say(`${current} already current`);

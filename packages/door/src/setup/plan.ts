@@ -6,6 +6,7 @@
 // under it changed. Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
 // what they need is said.
 import { basename, join, resolve } from "node:path";
+import { copyName } from "@ep0ch/outliner/extension-update";
 import { ep0ch } from "../session/place";
 import { backupPlan } from "../backup/setup";
 import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, sh, type StaleLink } from "./links";
@@ -192,7 +193,7 @@ export function builtinsStep(f: Facts, updates: boolean): Step | null {
   const b = f.builtins;
   if (!b) return null;
   const title = "Refresh the installed built-in extensions";
-  const named = (cs: typeof b.copies) => cs.map(c => (c.where === "user" ? c.id : `${c.id} (${c.where})`)).join(", ");
+  const named = (cs: typeof b.copies) => cs.map(copyName).join(", ");
   if (b.error) return { id: "builtins", title, status: "skip", why: `couldn't read the installed copies: ${b.error}`, commands: [] };
   if (!b.copies.length) return { id: "builtins", title, status: "skip", why: "no installed copies of the built-ins", commands: [] };
   const stale = b.copies.filter(c => c.state === "stale"), forked = b.copies.filter(c => c.state === "forked");

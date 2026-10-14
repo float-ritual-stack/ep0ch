@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { userFolderOf } from "./extension-update";
+import { userFolderInUse, userFolderOf } from "./extension-folders";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { spawn } from "node:child_process";
@@ -93,7 +93,7 @@ export function userExtensionsDirectory(): string {
  * a folder too, so it never picks up the owner's real extensions and secrets.
  */
 export function userExtensionsFolderInUse(): boolean {
-  return !(process.env.OUTLINER_RESOURCE_EXTENSIONS !== undefined && process.env.OUTLINER_EXTENSIONS_DIR === undefined);
+  return userFolderInUse(process.env);
 }
 function label(provider: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);

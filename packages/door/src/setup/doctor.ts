@@ -1,6 +1,7 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
 import { basename, dirname, join, resolve } from "node:path";
+import { copyName, newsWords } from "@ep0ch/outliner/extension-update";
 import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";
 import { hyperOn } from "../hyper";
@@ -193,13 +194,13 @@ export function builtinChecks(f: Facts): Check[] {
   const add = (name: string, status: CheckStatus, detail: string, fix?: string) => out.push({ group: "extensions", name, status, detail, ...(fix ? { fix } : {}) });
   if (b.error) { add("built-ins", "unknown", `couldn't read the installed copies: ${b.error}`); return out; }
   const where = (w: string) => (w === "user" ? "the user folder" : `${w}'s folder`);
-  const news = (n: string[]) => (n.length ? `; new since: ${n.map(x => x.slice(9)).join("; ")}` : "");
+  const news = (n: typeof b.copies[number]["news"]) => (n.length ? `; new since: ${newsWords(n)}` : "");
   for (const c of b.copies) {
     if (c.state === "stale") add(c.id, "behind", `${c.dir} (${where(c.where)}) is an unchanged copy, behind the built-in${news(c.news)}`, `${ep0ch()}ext update ${c.id}   (or ep0ch install --apply)`);
     else if (c.state === "forked") add(c.id, "info", `${c.dir} (${where(c.where)}) was changed here, so install leaves it; the built-in differs in ${c.differs.join(", ")}${news(c.news)}`, `${ep0ch()}ext update ${c.id}   (shows the diff and asks)`);
   }
   const current = b.copies.filter(c => c.state === "current");
-  if (current.length) add("built-ins", "ok", `${current.length} installed ${current.length === 1 ? "copy" : "copies"} current: ${current.map(c => (c.where === "user" ? c.id : `${c.id} (${c.where})`)).join(" · ")}`);
+  if (current.length) add("built-ins", "ok", `${current.length} installed ${current.length === 1 ? "copy" : "copies"} current: ${current.map(copyName).join(" · ")}`);
   return out;
 }
 

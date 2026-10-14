@@ -660,7 +660,7 @@ async function builtinCopies(outliner: string, outlines: string, env: Record<str
   try {
     const m = await import("@ep0ch/outliner/extension-update");
     // A scratch environment pointed at another registry and no folder of its own reads no user folder (as the service).
-    const user = env.OUTLINER_RESOURCE_EXTENSIONS !== undefined && env.OUTLINER_EXTENSIONS_DIR === undefined ? null : m.userFolderOf(env, home);
+    const user = m.userFolderInUse(env) ? m.userFolderOf(env, home) : null;
     return { dir, copies: m.installedCopies(m.copyRoots({ user, outlines }), dir) };
   } catch (e) {
     return { dir, copies: [], error: (e as Error).message };

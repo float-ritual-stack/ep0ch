@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+export { userFolderInUse, userFolderOf } from "./extension-folders";
 
 /**
  * Installed copies of the built-in extensions, and whether each follows the built-in (PIE-861).
@@ -45,14 +46,29 @@ export interface InstalledCopy {
   state: CopyState;
   /** Whether it has an install record (one made before PIE-861 hasn't, until it is refreshed). */
   recorded: boolean;
+  /** Whether its record matches its files as they are now. */
+  recordCurrent: boolean;
   /** The commit it was installed from (the record's, or the one in history its files match), when known. */
   base?: string;
-  /** The built-in's commits since `base` (`<short sha> <subject>`), newest last; empty when `base` isn't known. */
-  news: string[];
+  /** The built-in's commits since `base`, oldest first; empty when `base` isn't known. */
+  news: BuiltInNews[];
   /** The files that differ between the copy and the built-in now (added, changed or gone). */
   differs: string[];
   /** The built-in's version now, and the copy's. */
   version: { builtIn: number | null; copy: number | null };
+}
+
+/** What `ext update` did with one installed copy. */
+export interface CopyUpdate {
+  id: string;
+  where: string;
+  dir: string;
+  state: CopyState;
+  /** current: nothing to take; updated: refreshed in place; kept: left as it is (forked, not taken); took: a forked copy replaced, its files kept in `forkKept`. */
+  done: "current" | "updated" | "kept" | "took";
+  news: BuiltInNews[];
+  differs: string[];
+  forkKept?: string;
 }
 
 /** A folder to look in: the user folder, or one outline's own. */
@@ -104,6 +120,8 @@ export function repoOf(builtIns: string): string | null {
   return git(builtIns, ["rev-parse", "--show-toplevel"])?.trim() || null;
 }
 
+export interface BuiltInNews { commit: string; subject: string }
+
 export interface BuiltInVersion { commit: string; subject: string; hash: string }
 
 /** The built-in's folder in the checkout, and before the outliner moved into packages/outliner (its own `extensions/<id>`). */
@@ -140,10 +158,10 @@ export function builtInHistory(repo: string, builtIns: string, id: string): Buil
   return versions;
 }
 
-/** The built-in's commits after `base` (not reachable from it), oldest first, as `<short sha> <subject>`. */
-function builtInNews(repo: string, builtIns: string, id: string, base: string): string[] {
-  const out = git(repo, ["log", "--reverse", "--format=%h %s", `${base}..HEAD`, "--", ...historyPaths(repo, builtIns, id)]);
-  return out ? out.split("\n").filter(Boolean) : [];
+/** The built-in's commits after `base` (not reachable from it), oldest first. */
+function builtInNews(repo: string, builtIns: string, id: string, base: string): BuiltInNews[] {
+  const out = git(repo, ["log", "--reverse", "--format=%H %s", `${base}..HEAD`, "--", ...historyPaths(repo, builtIns, id)]);
+  return (out ?? "").split("\n").filter(Boolean).map((line) => ({ commit: line.slice(0, line.indexOf(" ")), subject: line.slice(line.indexOf(" ") + 1) }));
 }
 
 /** The same files without what a copy never has (config.json, node_modules, dotfiles at its top). */
@@ -228,7 +246,7 @@ export function installedCopies(roots: readonly CopyRoot[], builtIns: string, op
       // The commits since the base that touched it; a base this checkout doesn't have says none.
       const news = state !== "current" && base && repo ? builtInNews(repo, builtIns, id, base) : [];
       copies.push({
-        id, dir, where: root.where, state, recorded: !!record, ...(base ? { base } : {}), news, differs,
+        id, dir, where: root.where, state, recorded: !!record, recordCurrent: record?.hash === hash, ...(base ? { base } : {}), news, differs,
         version: { builtIn: now.version, copy: manifestVersion(dir) },
       });
     }
@@ -250,11 +268,6 @@ export async function writeInstallRecord(dir: string, builtIns: string, id: stri
   await writeFile(join(dir, INSTALL_RECORD), `${JSON.stringify(record, null, 2)}\n`);
 }
 
-/** The user extensions folder: OUTLINER_EXTENSIONS_DIR, else `$XDG_CONFIG_HOME/pi-herdr-outliner/extensions` (or `~/.config/…`). */
-export function userFolderOf(env: Record<string, string | undefined>, home: string): string {
-  return env.OUTLINER_EXTENSIONS_DIR ?? join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "pi-herdr-outliner", "extensions");
-}
-
 /** The folders installed copies are in: the user folder (when this process reads one) and each outline's own. */
 export function copyRoots(options: { user: string | null; outlines: string; outlineFolder?: string }): CopyRoot[] {
   if (options.outlineFolder) return [{ path: join(options.outlineFolder, "extensions"), where: outlineName(options.outlineFolder) }];
@@ -272,6 +285,12 @@ export function copyRoots(options: { user: string | null; outlines: string; outl
 function outlineName(folder: string): string {
   return resolve(folder).split("/").filter(Boolean).at(-1) ?? folder;
 }
+
+/** A copy by name: its id, with the outline when it's an outline's own. */
+export const copyName = (copy: { id: string; where: string }) => (copy.where === "user" ? copy.id : `${copy.id} (${copy.where})`);
+
+/** What's new, for one line: each commit's subject. */
+export const newsWords = (news: readonly BuiltInNews[]) => news.map((n) => n.subject).join("; ");
 
 /** "the user folder" or "pie's folder", for people. */
 export const whereWords = (where: string) => (where === "user" ? "the user folder" : `${where}'s folder`);

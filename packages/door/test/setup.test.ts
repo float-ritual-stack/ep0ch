@@ -1072,10 +1072,10 @@ describe("the agent skills: their links where Claude Code (and ~/.agents) finds 
 describe("the installed copies of the built-in extensions (PIE-861)", () => {
   type Copy = NonNullable<Facts["builtins"]>["copies"][number];
   const copy = (id: string, state: Copy["state"], o: Partial<Copy> = {}): Copy => ({
-    id, dir: `${HOME}/.config/pi-herdr-outliner/extensions/${id}`, where: "user", state, recorded: false, news: [], differs: [],
+    id, dir: `${HOME}/.config/pi-herdr-outliner/extensions/${id}`, where: "user", state, recorded: false, recordCurrent: false, news: [], differs: [],
     version: { builtIn: 1, copy: 1 }, ...o });
   const withCopies = (copies: Copy[], f = current()): Facts => ({ ...f, builtins: { dir: `${REPO}/packages/outliner/extensions`, copies } });
-  const tarot = copy("tarot", "stale", { base: "e686c82c", news: ["e3e59390 tarot's client can't hang"], differs: ["request.ts"] });
+  const tarot = copy("tarot", "stale", { base: "e686c82c", news: [{ commit: "e3e59390aaaa", subject: "tarot's client can't hang" }], differs: ["request.ts"] });
   const tidy = copy("tidy", "forked", { where: "pie", dir: `${HOME}/outlines/pie/extensions/tidy`, differs: ["tidy.ts"] });
 
   test("an unchanged copy behind the built-in is refreshed by install; one changed here is said and left", () => {
