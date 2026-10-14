@@ -25,7 +25,8 @@ import { sessionEnv, startSession } from "../src/session/start";
 import { ancestors, detachedSaying, takeLock } from "../src/session/daemon";
 import { controlFor, ep0ch, pickSession, placeFor, placeOf, runningSessions, sessionFile, sessionFlags, sessionInfo as infoOn, sessionSocket, type Place } from "../src/session/place";
 import { ensurePtyHost, frame, HostFrames, HOST_PROTOCOL, ptyHostSocket } from "../src/session/pty-host";
-import { restore, screenSteps, type Checkpoint } from "../src/session/restore";
+import { restore, restoredSaying, screenSteps, type Checkpoint } from "../src/session/restore";
+import { tuningOf } from "../src/look";
 import { MainMenu } from "../src/screens";
 import { controlPlace, servingSocket } from "../src/control";
 import { homeState, useOutlineState } from "../src/state";
@@ -783,7 +784,7 @@ describe("the checkpoint and the restore", () => {
     const stack: any[] = [], ran: { action: string; tile?: string; args: Record<string, unknown> }[] = [];
     const declared: Record<string, "safe" | "ask"> = { "screen.open": "safe", "screen.back": "safe", "screen.shell": "ask", open: "safe", edit: "ask" };
     const app = {
-      background: [], screens: () => stack, push: (s: any) => { stack.push(s); }, flush() {},
+      background: [], screens: () => stack, push: (s: any) => { stack.push(s); }, flush() {}, board: {},
       dispatch: {
         list: () => ({ actions: Object.entries(declared).map(([name, replay]) => ({ name, replay })) }),
         act: async (req: { action: string; tile?: string; args: Record<string, unknown> }) => {
@@ -820,6 +821,27 @@ describe("the checkpoint and the restore", () => {
     expect(app.screens()[0]).toBeInstanceOf(MainMenu);
     expect(ran.map(x => x.action)).toEqual(["screen.open", "screen.back", "screen.open", "open", "edit"]);
     expect(r).toMatchObject({ screens: 2, held: ["screen.shell"], reopened: 1, errors: [] });
+  });
+
+  test("a comment opened again sits where it sat, and the look's unsaved nudges come back; one whose words are gone takes its place and cursor with it (PIE-847)", async () => {
+    const { app, ran } = stubApp(req => (req.action === "passage.act" && req.tile === "gone" ? "no passage “the old gate” in the note now" : null));
+    const comment = (tile: string) => [
+      { action: "open", tile, args: { id: "0a1b2c3d" } },
+      { action: "passage.act", tile, args: { action: "comment", quote: "Beans, chard", near: 15 } },
+      { action: "comment.place", tile, args: { place: "floating" } },
+      { action: "comment.move", tile, args: { row: 9, col: 12, cols: 50, rows: 8 } },
+      { action: "draft.place", tile, args: { line: 2, col: 4 } },
+    ];
+    const r = await restore(app, {
+      v: 2, at: 0, menu: true, screens: [], reopen: [...comment("gone"), ...comment("reader")],
+      tuning: [{ target: "screen:desk", field: "measure", value: "120", by: USER }],
+    });
+    expect(ran.filter(x => x.tile === "gone").map(x => x.action)).toEqual(["open"]);
+    expect(ran.filter(x => x.tile === "reader")).toEqual(comment("reader"));
+    expect(r.errors).toEqual(["passage.act in gone: no passage “the old gate” in the note now"]);
+    expect(restoredSaying(r, "upgrade", 0)).toContain("your comment is as you left it");
+    // Unsaved still: s in the tune inspector saves them, as before the handover.
+    expect(tuningOf(app.board).unsaved()).toEqual([{ target: "screen:desk", fields: [["measure", "120"]] }]);
   });
 
   test("a checkpoint from before anyone logged on restores nothing: the next daemon starts at the logon", async () => {
@@ -1028,6 +1050,46 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     // The shell's screen as the tests after this one know it.
     await control({ cmd: "act", action: "tile.type", tile, args: { text: "clear; echo chard-$((6*7))\\n" }, as: "test-agent" });
     await until(() => !b.screen().includes("followed-42") && b.screen().includes("chard-42"), "the shell cleared", 10_000);
+    b.close();
+  }, 60_000);
+
+  test("a comment being written comes back after a handover as it was: its text, floating where it was moved, its size and cursor (PIE-847)", async () => {
+    const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => a.screen().includes("chard-42"), "the desk", 10_000);
+    const commenting = async () => ((await control({ cmd: "peek" })).screen.state.panes as any[]).find(p => p?.commenting)?.commenting;
+    // The edit the restart test brought back is saved first: a reader holds an edit or a comment, not both.
+    a.type("\x13");
+    for (let i = 0; i < 50 && JSON.stringify((await control({ cmd: "peek" })).screen.state).includes(`"place":"edit:`); i++) await Bun.sleep(100);
+    a.type("2");
+    for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "reader"; i++) await Bun.sleep(100);
+    // C picks a passage (the first line with text), ⏎ writes on it; ctrl+o floats it, ctrl+g and the arrows move it.
+    a.type("C");
+    for (let i = 0; i < 50 && (await commenting())?.mode !== "select"; i++) await Bun.sleep(100);
+    a.type("\r");
+    for (let i = 0; i < 50 && (await commenting())?.mode !== "compose"; i++) await Bun.sleep(100);
+    a.type("onions by the gate"); a.type("\r"); a.type("and a sign for the leeks");
+    a.type("\x0f");
+    for (let i = 0; i < 50 && (await commenting())?.place !== "floating"; i++) await Bun.sleep(100);
+    a.type("\x07");
+    a.type("\x1b[C"); a.type("\x1b[C"); a.type("\x1b[B");
+    a.type("\r");
+    a.type("\x1b[A");
+    await until(() => a.screen().includes("onions by the gate"), "the comment written", 10_000);
+    for (let i = 0; i < 50 && !(await commenting())?.float; i++) await Bun.sleep(100);
+    const before = await commenting();
+    expect(before).toMatchObject({ mode: "compose", place: "floating", dirty: true, cursor: { line: 1 } });
+    expect(before.float).toBeTruthy();
+
+    expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
+    await until(() => a.closed, "the old daemon to let the terminal go", 5000);
+    const b = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => b.screen().includes("your comment is as you left it"), "the handover said", 15_000).catch(e => { console.log(b.screen()); throw e; });
+    await until(() => b.screen().includes("onions by the gate") && b.screen().includes("and a sign for the leeks"), "the comment's text", 10_000);
+    const after = await commenting();
+    expect(after).toMatchObject({ mode: "compose", place: "floating", dirty: true, float: before.float, cursor: before.cursor, quote: before.quote });
+    // Put aside (esc twice), so the tests after this one find the reader reading.
+    b.type("\x1b"); b.type("\x1b");
+    for (let i = 0; i < 50 && (await commenting()); i++) await Bun.sleep(100);
     b.close();
   }, 60_000);
 

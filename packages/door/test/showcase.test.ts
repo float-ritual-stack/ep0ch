@@ -16,7 +16,8 @@ import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
 import { spanBg } from "../src/surface/margin";
 import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, SHOWCASE_ASSETS, REMOTE_CLIENT, REMOTE_LINE, SEED, seedDay, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
-import { gardenRound, SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
+import { gardenRound, SECTIONS, SESSION_QUOTE, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
+import { reopen } from "../src/session/restore";
 import { SocketBoard } from "../src/socket";
 import { subject } from "../src/board";
 import { extensionNamed } from "../src/extensions";
@@ -1987,6 +1988,36 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // As it was: the comment let go of (its put-aside text with it).
     await stage().dispatch.press("comment.close", { discard: true }, "floating");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 60_000);
+
+  // PIE-847: a handover (a deploy, `ep0ch session restart`) brings a comment being written back as it sat. The session
+  // section's half-written comment, moved and sized, its cursor moved; put aside as a handover puts it and the reader
+  // reading again, as a new daemon has it; then opened again by the steps the checkpoint keeps, run as a restore runs them.
+  test("session: a half-written floating comment, moved and sized, comes back after a handover as it sat: its words, place, size and cursor", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "session" }, as: "test-agent" });
+    await until(() => marks.session!.every(m => screen().includes(m)), "the session section");
+    const stage = () => S().stages.get(S().sel).top as Desk;
+    const surf = () => (stage() as any).pane("reader").surface;
+    const cs = () => surf().session;
+    await until(() => cs()?.place === "floating" && screen().includes("Fill it from the tap by the gate") && !!surf().boxRect, "the half-written comment, floating");
+    await stage().dispatch.press("comment.move", { dx: 6, dy: 2, dcols: -10 }, "reader");
+    await stage().dispatch.press("draft.place", { line: 1, col: 9 }, "reader");
+    const now = () => ({ text: cs()?.composer?.text, place: cs()?.place, float: cs()?.float, cursor: cs()?.composer && [cs()!.composer!.row, cs()!.composer!.col], quote: cs()?.target?.passage?.quote });
+    const was = now();
+    expect(was).toMatchObject({ text: "Fill it from the tap by the gate", place: "floating", cursor: [0, 8], quote: SESSION_QUOTE });
+    expect(was.float).toBeTruthy();
+    const steps = stage().reopen();
+    expect(steps.map(x => x.action)).toEqual(["open", "passage.act", "comment.place", "comment.move", "draft.place"]);
+    stage().keepDrafts();
+    surf().closeSession();
+    await until(() => !screen().includes("Fill it from the tap by the gate"), "the comment put aside");
+    const out = { reopened: 0, errors: [] as string[] };
+    await reopen(steps, () => stage().dispatch, out);
+    expect(out.errors).toEqual([]);
+    expect(now()).toEqual(was);
+    await until(() => screen().includes("Fill it from the tap by the gate"), "the comment drawn again");
+    await stage().dispatch.press("comment.close", { discard: true }, "reader");
   }, 60_000);
 
   // PIE-761, Evan's workflow by keys and mouse in the real comment box: write, select a phrase with the mouse and delete

@@ -2419,8 +2419,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts()), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
   /** The edits open here, by tile: what a session's next daemon opens again (src/session/restore.ts). */
   reopen(): { action: string; tile: string; args?: Record<string, unknown> }[] {
-    // The note first (a reader that comes back shows what its layout says), then its edit.
-    return [...this.panes].flatMap(([id, p]) => (p instanceof ReaderPane && p.surface.draft && p.msg ? [{ action: "open", tile: this.nameOf(id), args: { id: p.msg.id } }, { action: "edit", tile: this.nameOf(id) }] : []));
+    // The note first (a reader that comes back shows what its layout says), then its edit or comment (PIE-847).
+    const steps = [...this.panes].flatMap(([id, p]) => {
+      const steps = p instanceof ReaderPane && p.msg ? p.surface.reopenSteps() : [];
+      return steps.length ? [{ action: "open", tile: this.nameOf(id), args: { id: (p as ReaderPane).msg!.id } }, ...steps.map(s => ({ ...s, tile: this.nameOf(id) }))] : [];
+    });
+    // Opening one gives it the keys: they go back to the tile that had them (the tune inspector beside a comment).
+    const at = this.nameOf(this.focus);
+    return steps.length && steps.at(-1)!.tile !== at ? [...steps, { action: "tile.focus", tile: at }] : steps;
   }
   /** ctrl+e editors still open when the door ends: their files copied to drafts/ (keepEditFile). */
   keepEdits() { return [...this.panes.values()].flatMap(p => p instanceof PtyPane && p.run.temp && p.run.file ? [keepEditFile(p.run.file)].filter((x): x is string => !!x) : []); }
