@@ -24,10 +24,11 @@ export interface EditFrame {
   /** Who else typed into this draft (an agent), shown so it is never silent. */
   by?: string | null;
   /**
-   * The host's reader renderer for a live preview of the draft (`draftPreview` in the note surface: the
-   * same body renderer every reader uses). With it the frame offers the preview (ctrl+p, or its control).
+   * The host's reader renderer for a live preview of the draft (`snippetDoc` or `draftPreview` in the note surface:
+   * the same body renderer every reader uses). With it the frame offers the preview (ctrl+p, or its control).
+   * `pending`: something in it (an embed) is still being read, so it is drawn again on the redraw its answer brings.
    */
-  preview?: (text: string, w: number, links: LinkTarget[]) => string[] | { lines: string[]; links: LinkRange[] };
+  preview?: (text: string, w: number, links: LinkTarget[]) => string[] | { lines: string[]; links: LinkRange[]; pending?: boolean };
   /**
    * The host follows a link: ctrl+l on the one the cursor is on, a click on one in the preview (PIE-592). Without it
    * the preview's links are only drawn.
@@ -99,7 +100,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
 /** Empty rows, so the preview under the text stays put while the text is short. */
 const pad0 = (n: number) => Array.from({ length: Math.max(0, n) }, () => "");
 
-const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[]; ranges: LinkRange[]; links: LinkTarget[] }>();
+const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[]; ranges: LinkRange[]; links: LinkTarget[]; pending: boolean }>();
 
 /**
  * The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. Its links are kept on
@@ -107,10 +108,14 @@ const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; b
  */
 function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: number, h: number, row: number): string[] {
   // Drawn again only when the text or width changed (a cursor move, a wheel or a blink repaints it for free),
-  // or after a moment, for link titles that arrived since.
+  // after a moment, for link titles that arrived since, and while an embed in it is being read (PIE-852).
   const text = d.text, pw = Math.max(1, w - 2), hit = previewCache.get(d), now = Date.now();
-  let shown = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 ? hit : null;
-  if (!shown) { const links: LinkTarget[] = [], r = render(text, pw, links), doc = Array.isArray(r) ? { lines: r, links: [] } : r; shown = { text, w: pw, at: now, body: doc.lines, ranges: doc.links, links }; previewCache.set(d, shown); }
+  let shown = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 && !hit.pending ? hit : null;
+  if (!shown) {
+    const links: LinkTarget[] = [], r = render(text, pw, links), doc = Array.isArray(r) ? { lines: r, links: [] } : r;
+    shown = { text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !Array.isArray(r) && !!r.pending };
+    previewCache.set(d, shown);
+  }
   const room = Math.max(0, h - 1), body = shown.body;
   const at = d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * Math.max(0, body.length - room)) : 0;
   if (d.frame) d.frame.links = shown.ranges.flatMap(r => {

@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The edit's preview expands embeds (PIE-852)
+
+- **Changed:** ctrl+p's preview under an edit (and under a comment being written in the reader's comment mode) draws
+  `!((id))` and `!((id^anchor))` as the reader does: the note or passage, framed and labelled, while the text is still
+  unsaved, so you can see you picked the right passage before saving. Each embed is read once and kept across
+  keystrokes; the preview is drawn again when the answer comes, and typing never waits for it.
+- **Added:** an embed whose anchor its note doesn't have says so wherever it's drawn (the preview and the reader):
+  `MISSING FRAGMENT in "<note>"`, then `did you mean ^<anchor>?` with the nearest anchor that note has (the save
+  warning's rule); a click on it opens that passage beside the edit.
+
 ### A link selected before a note is drawn is its current element
 
 - **Fixed:** `link.select` (or the surface's `selectLink`) on a note just shown again (back, a reread) and not yet

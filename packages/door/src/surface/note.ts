@@ -23,7 +23,7 @@ import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurre
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
-import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
+import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
@@ -1787,18 +1787,25 @@ export class NoteSurface {
    * at this revision (PIE-472).
    */
   /**
-   * Text written about the note (a comment's body, a reply, the composer's preview) drawn as the reader draws the note
-   * (PIE-770): references by their titles, `[[pages]]`, Markdown, and `!((embeds))` transcluded, through renderDoc and
+   * Text written about the note (a comment's body, a reply, the composer's preview, an edit's ctrl+p preview: PIE-852)
+   * drawn as the reader draws the note (PIE-770): references by their titles, `[[pages]]`, Markdown, and `!((embeds))` transcluded, through renderDoc and
    * presentLinks. Its links aren't elements: what's followable is the note's own.
    */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
-  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = []): { lines: string[]; links: LinkRange[] } {
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = []): { lines: string[]; links: LinkRange[]; pending: boolean } {
     const m = this.msg, src = this.src;
     const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 6), graphics: false, noImages: undefined, unfold: true };
-    const embed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
+    const drawEmbed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
+    // One of its own embeds still being read: an edit's preview draws it again when the answer's redraw comes (src/surface/editor.ts).
+    let pending = false;
+    const embed: DocEnv["embed"] = drawEmbed && m ? (id, fragment, n, w) => {
+      const out = drawEmbed(id, fragment, n, w);
+      pending ||= embedState(id, fragment, src, m.id).kind === "loading";
+      return out;
+    } : undefined;
     const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
-    return { lines: doc.lines, links: doc.links };
+    return { lines: doc.lines, links: doc.links, pending };
   }
 
   /** Text written about the note on one line, as a margin card says it: references by their titles (PIE-770). */
@@ -2150,10 +2157,10 @@ export class NoteSurface {
     return true;
   }
 
-  private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null, away = false): string[] {
+  private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false): string[] {
     const by = writtenBy(d, "save");
     return renderEditor(d, {
-      preview: (t, pw, links) => draftPreviewDoc(t, pw, src, links), pick: true, follow: true, ...(away ? { away } : {}),
+      preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links), pick: true, follow: true, ...(away ? { away } : {}),
       title: `editing · ${subject(m)}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
@@ -2513,7 +2520,7 @@ export class NoteSurface {
       click: (x, y, host) => this.writeClick(d, x, y, host),
       press: (x, y, _host, drag) => this.writePress(d, x, y, drag),
       wheel: dir => this.writeWheel(d, dir),
-      rows: (w, h, host) => (this.msg ? this.renderDraft(d, this.msg, w, h, this.use(host), (host?.entered ?? host?.focused) === false && this.keepsOnFocusAway()) : null),
+      rows: (w, h, host) => { this.use(host); return this.msg ? this.renderDraft(d, this.msg, w, h, (host?.entered ?? host?.focused) === false && this.keepsOnFocusAway()) : null; },
       leave: async (host, actor) => {
         const r = await s.leave(actor);
         host.redraw();
@@ -2575,7 +2582,7 @@ export class NoteSurface {
         if (c?.shown) { c.move(dir); return true; }
         return false;
       },
-      rows: (w, h, host) => { const src = this.use(host); return this.msg ? cs.render(w, h, subject(this.msg), (t, pw, links) => draftPreviewDoc(t, pw, src, links)) : null; },
+      rows: (w, h, host) => { this.use(host); return this.msg ? cs.render(w, h, subject(this.msg), (t, pw, links) => this.snippetDoc(t, pw, undefined, links)) : null; },
       leave: async (host, actor) => {
         const w = cs.writing;
         // An agent leaves only a comment it opened and alone typed in (the draft session's rule).
@@ -6091,7 +6098,10 @@ export const imagePlacements = (images: readonly DocImage[], col: number, cellW:
   });
 
 
-/** A draft's live preview (PIE-496): the readers' own body renderer, without folds or embeds. */
+/**
+ * A draft's live preview where no note is open (PIE-496): the readers' own body renderer, without folds or embeds. An
+ * edit's or a comment's preview on a note is `NoteSurface.snippetDoc`, its embeds expanded (PIE-852).
+ */
 export function draftPreview(text: string, w: number, src: Source | null = null): string[] { return draftPreviewDoc(text, w, src).lines; }
 /** `draftPreview` with where its links are drawn (PIE-592): their targets land in `links`, by `.links`' `n`. */
 export function draftPreviewDoc(text: string, w: number, src: Source | null = null, links: LinkTarget[] = []): { lines: string[]; links: LinkRange[] } {

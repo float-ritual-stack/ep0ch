@@ -10,6 +10,7 @@
 //
 // Steps inside an embed are the service's too (PIE-472): each ready projection carries the checklist steps
 // in what it shows, so the reader can offer their status controls where they're drawn.
+import { anchorsOfText, nearestAnchor } from "@ep0ch/outline-core/reference-warnings";
 import type { Msg } from "./board";
 import { subject } from "./board";
 import type { DocEnv } from "./doc";
@@ -295,6 +296,14 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     const calm = node.status === "cycle" || node.status === "depth-limit" || node.status === "limit" || node.status === "budget" || node.status === "too-large";
     // A target that doesn't exist yet gets the links' one quiet mark, not words (refs.ts MISSING_MARK).
     if (node.status === "missing") return [S(fg(C.dark) + `${ref} ${MISSING_MARK}` + RESET)];
+    // An anchor the note doesn't have names the note and the nearest anchor it has, as a save's warning does (PIE-852).
+    if (node.status === "fragment-missing" && node.fragmentId) {
+      const near = node.block ? nearestAnchor(node.fragmentId, anchorsOfText(node.block.text)) : undefined;
+      const title = node.title ? ` in “${printable(node.title)}”` : "";
+      const said = S(fg(C.lred) + `${ref} · ${printable(node.message ?? node.status)}${title}` + RESET);
+      // On a row of its own, so a narrow preview doesn't cut it; a click on it opens that passage.
+      return near ? [said, S(fg(C.lred) + "  did you mean " + LINK_ON + tagged(sink, { block: node.blockId, fragment: near }, `^${near}`) + LINK_OFF + fg(C.lred) + "?" + RESET)] : [said];
+    }
     return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status).slice(0, 240)}` + RESET)];
   }
   const target = node.block;
