@@ -407,6 +407,7 @@ test("ext ls reads as a table by default, in full with --long, and as the regist
   const header = short.find((line) => line.startsWith("EXTENSION"))!;
   const moon = short.find((line) => line.startsWith("moon"))!;
   const bad = short.find((line) => line.startsWith("bad"))!;
+  expect(short.find((line) => line.startsWith("EXTENSION"))).toBeDefined();
   expect(moon.indexOf("active")).toBe(header.indexOf("STATE"));
   expect(bad.indexOf("failed")).toBe(header.indexOf("STATE"));
   expect(moon).toContain("moon::, tile phase, action shout");

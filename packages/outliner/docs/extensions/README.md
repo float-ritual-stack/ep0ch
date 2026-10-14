@@ -82,7 +82,7 @@ handler horoscope:: is already served by horoscope (/home/you/outlines/pie/exten
 ### From a shell
 
 ```sh
-outliner ext ls [--long] [--json]                 # one row per extension; --long adds folders, arguments, schedules; --json for scripts
+outliner ext ls [--long] [--json]                 # one row per extension; --long adds folders, arguments, schedules; --json for scripts (with no service: the folders found, "service": false)
 outliner ext add horoscope                        # a built-in, into the user folder
 outliner ext add ./my-extension                   # any folder (checked first; a broken one is refused)
 outliner ext add moon --outline-folder ~/outlines/pie   # into that outline's own extensions/

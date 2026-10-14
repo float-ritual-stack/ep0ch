@@ -266,7 +266,9 @@ async function builtIns(): Promise<string[]> {
 }
 
 /** Rows laid out in columns: each column as wide as its longest cell, the last one left ragged. */
-function columns(rows: readonly (readonly string[])[]): string[] {
+function columns(raw: readonly (readonly string[])[]): string[] {
+  // Cleaned first, so what is measured is what is printed.
+  const rows = raw.map((row) => row.map((cell) => cleanExtensionText(cell).replace(/\t/g, " ")));
   const widths: number[] = [];
   for (const row of rows) row.forEach((cell, at) => { if (at < row.length - 1) widths[at] = Math.max(widths[at] ?? 0, cell.length); });
   return rows.map((row) => row.map((cell, at) => (at < row.length - 1 ? cell.padEnd(widths[at]!) : cell)).join("  ").trimEnd());
@@ -326,7 +328,7 @@ export function formatExtensionsList(list: ExtensionsListResult, long = false): 
     if (entry.lastRun && !entry.lastRun.ok) lines.push(`  last call ${entry.lastRun.call} failed ${entry.lastRun.at}: ${entry.lastRun.error ?? ""}`);
     if (entry.error) lines.push(`  ${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`);
   }
-  if (!long && list.extensions.some((entry) => entry.schedules?.length || entry.actions.some((action) => action.args?.length))) lines.push("", "ext ls --long adds each one's folder, action arguments and schedules.");
+  if (!long && list.extensions.length) lines.push("", "ext ls --long adds each one's folder, action arguments and schedules.");
   lines.push("", list.trust);
   // A folder's name and an extension's error are its own words: printed clean.
   return lines.map((line) => cleanExtensionText(line));
