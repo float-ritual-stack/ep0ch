@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 
@@ -70,7 +70,8 @@ export function folderFiles(dir: string): Map<string, string> {
   const files = new Map<string, string>();
   const walk = (at: string, top: boolean) => {
     for (const entry of readdirSync(at).sort()) {
-      if (top ? SKIP_TOP(entry) : entry === "node_modules") continue;
+      // node_modules below the top counts: a refresh replaces the folder it's in, so a copy with one isn't unchanged.
+      if (top && SKIP_TOP(entry)) continue;
       const path = join(at, entry);
       const st = statSync(path, { throwIfNoEntry: false });
       if (!st) continue;
@@ -105,49 +106,49 @@ export function repoOf(builtIns: string): string | null {
 
 export interface BuiltInVersion { commit: string; subject: string; hash: string }
 
+/** The built-in's folder in the checkout, and before the outliner moved into packages/outliner (its own `extensions/<id>`). */
+function historyPaths(repo: string, builtIns: string, id: string): string[] {
+  const now = relative(repo, join(builtIns, id));
+  return [now, ...(now.startsWith("packages/outliner/") ? [now.slice("packages/outliner/".length)] : [])];
+}
+
 /**
- * Every version of a built-in in the checkout's history, oldest first: each commit that touched its folder and the
- * hash of its files after it. Its folder moved once (the outliner's own `extensions/<id>` before it became
- * `packages/outliner/extensions/<id>`), so both paths are followed, replayed from git's raw diffs in one call.
+ * Every version of a built-in in the checkout's history: each commit that touched its folder (under either path), and
+ * the hash of its files in that commit's own tree, read with `git ls-tree`.
  */
 export function builtInHistory(repo: string, builtIns: string, id: string): BuiltInVersion[] {
-  const now = relative(repo, join(builtIns, id));
-  const paths = [now, ...(now.startsWith("packages/outliner/") ? [now.slice("packages/outliner/".length)] : [])];
-  const out = git(repo, ["log", "--topo-order", "--reverse", "--raw", "--no-renames", "--no-abbrev", "--format=C %H %s", "--", ...paths]);
-  if (!out) return [];
-  const files = new Map<string, string>();
+  const paths = historyPaths(repo, builtIns, id);
+  const log = git(repo, ["log", "--format=%H %s", "--", ...paths]);
+  if (!log) return [];
   const versions: BuiltInVersion[] = [];
-  let commit: { sha: string; subject: string; changes: [string, string, string][] } | null = null;
-  const settle = () => {
-    if (!commit) return;
-    // Deletions first: the move deletes one path and adds the same file under the other.
-    for (const [status, path, sha] of [...commit.changes].sort((a, b) => Number(b[0] === "D") - Number(a[0] === "D"))) {
-      if (status === "D") files.delete(path); else files.set(path, sha);
+  for (const line of log.split("\n").filter(Boolean)) {
+    const at = line.indexOf(" ");
+    const commit = line.slice(0, at), subject = line.slice(at + 1);
+    for (const path of paths) {
+      // <mode> blob <sha>\t<path>, for every file under the folder in that commit.
+      const tree = git(repo, ["ls-tree", "-r", "--full-tree", commit, "--", `${path}/`]);
+      if (!tree?.trim()) continue;
+      const files = new Map<string, string>();
+      for (const entry of tree.split("\n")) {
+        const m = /^(\d+) blob ([0-9a-f]+)\t(.+)$/.exec(entry);
+        if (m && m[1]!.startsWith("100")) files.set(m[3]!.slice(path.length + 1), m[2]!);
+      }
+      versions.push({ commit, subject, hash: filesHash(topFiltered(files)) });
+      break;
     }
-    versions.push({ commit: commit.sha, subject: commit.subject, hash: filesHash(topFiltered(files)) });
-  };
-  for (const line of out.split("\n")) {
-    if (line.startsWith("C ")) {
-      settle();
-      const [, sha, ...subject] = line.split(" ");
-      commit = { sha: sha!, subject: subject.join(" "), changes: [] };
-      continue;
-    }
-    // :100644 100644 <old> <new> M\t<path>
-    const m = /^:\d+ (\d+) [0-9a-f]+ ([0-9a-f]+) ([A-Z])\d*\t(.+)$/.exec(line);
-    if (!m || !commit) continue;
-    const [, mode, sha, status, path] = m;
-    const base = paths.find((p) => path!.startsWith(`${p}/`));
-    if (!base || (status !== "D" && !mode!.startsWith("100"))) continue;
-    commit.changes.push([status!, path!.slice(base.length + 1), sha!]);
   }
-  settle();
   return versions;
 }
 
-/** The same files without what a copy never has (config.json, node_modules, top-level dotfiles). */
+/** The built-in's commits after `base` (not reachable from it), oldest first, as `<short sha> <subject>`. */
+function builtInNews(repo: string, builtIns: string, id: string, base: string): string[] {
+  const out = git(repo, ["log", "--reverse", "--format=%h %s", `${base}..HEAD`, "--", ...historyPaths(repo, builtIns, id)]);
+  return out ? out.split("\n").filter(Boolean) : [];
+}
+
+/** The same files without what a copy never has (config.json, node_modules, dotfiles at its top). */
 function topFiltered(files: ReadonlyMap<string, string>): Map<string, string> {
-  return new Map([...files].filter(([path]) => { const top = path.split("/")[0]!; return !SKIP_TOP(top) && !path.split("/").includes("node_modules"); }));
+  return new Map([...files].filter(([path]) => !SKIP_TOP(path.split("/")[0]!)));
 }
 
 function readRecord(dir: string): InstallRecord | null {
@@ -194,15 +195,20 @@ export function installedCopies(roots: readonly CopyRoot[], builtIns: string, op
   };
   const copies: InstalledCopy[] = [];
   const seen = new Set<string>();
+  const builtInsReal = realpathSync(builtIns);
+  const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
   for (const root of roots) {
     if (!existsSync(root.path)) continue;
+    // Real paths: a folder that is (or links to) the checkout's built-ins is never a copy of them, and a root reached
+    // twice is read once.
     let real: string;
-    try { real = resolve(root.path); } catch { continue; }
-    if (seen.has(real) || real === resolve(builtIns)) continue;
+    try { real = realpathSync(root.path); } catch { continue; }
+    if (seen.has(real) || within(real, builtInsReal)) continue;
     seen.add(real);
     for (const id of readdirSync(root.path).sort()) {
       const dir = join(root.path, id);
       if (!existsSync(join(dir, "extension.json")) || !existsSync(join(builtIns, id, "extension.json"))) continue;
+      if (within(realpathSync(dir), builtInsReal)) continue;
       const now = builtIn(id);
       const files = folderFiles(dir);
       const hash = filesHash(files);
@@ -213,15 +219,14 @@ export function installedCopies(roots: readonly CopyRoot[], builtIns: string, op
       if (hash === now.hash) state = "current";
       else if (record) state = record.hash === hash ? "stale" : "forked";
       else {
-        // Made before the record: unchanged when it is some earlier version of the built-in (the newest that matches).
-        const match = [...history(id)].reverse().find((version) => version.hash === hash);
+        // Made before the record: unchanged when it is some earlier version of the built-in (the newest that matches;
+        // git log lists newest first).
+        const match = history(id).find((version) => version.hash === hash);
         state = match ? "stale" : "forked";
         base = match?.commit;
       }
-      const versions = state === "current" ? [] : history(id);
-      const from = base ? versions.findIndex((version) => version.commit.startsWith(base!) || base!.startsWith(version.commit)) : -1;
-      // The commits after the base that touched it; a base that isn't in history (a commit on another branch) says none.
-      const news = from >= 0 ? versions.slice(from + 1).map((version) => `${version.commit.slice(0, 8)} ${version.subject}`) : [];
+      // The commits since the base that touched it; a base this checkout doesn't have says none.
+      const news = state !== "current" && base && repo ? builtInNews(repo, builtIns, id, base) : [];
       copies.push({
         id, dir, where: root.where, state, recorded: !!record, ...(base ? { base } : {}), news, differs,
         version: { builtIn: now.version, copy: manifestVersion(dir) },

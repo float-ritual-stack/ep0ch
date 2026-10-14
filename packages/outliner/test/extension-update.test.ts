@@ -2,7 +2,7 @@
 // config.json kept, a changed one is left alone and said. The built-ins here are a scratch git repo of made-up
 // versions (CI's checkout is shallow, so the real history isn't there), and every folder is a temp dir.
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addExtension, updateExtensions } from "../src/extension-install";
@@ -107,6 +107,26 @@ test("a recorded copy that was edited after install is forked, even when it matc
   cpSync(join(s.builtIns, "moon"), own, { recursive: true });
   await addExtension(own, { root: s.user, builtIns: s.builtIns });
   expect(existsSync(join(copy, INSTALL_RECORD))).toBe(false);
+});
+
+test("a recorded copy says what's new since it was installed, across commits that never touched it", async () => {
+  const s = setup();
+  const copy = join(s.user, "moon");
+  await addExtension(join(s.builtIns, "moon"), { from: join(s.builtIns, "moon"), root: s.user, builtIns: s.builtIns });
+  writeFileSync(join(s.repo, "elsewhere.md"), "unrelated\n");
+  git(s.repo, "add", "-A");
+  git(s.repo, "commit", "-qm", "Something else entirely");
+  writeFileSync(join(s.builtIns, "moon", "phases.ts"), "export const PHASES = 12;\n");
+  git(s.repo, "add", "-A");
+  git(s.repo, "commit", "-qm", "Moon counts twelve phases");
+  const [stale] = installedCopies(s.roots, s.builtIns);
+  expect(stale).toMatchObject({ state: "stale", recorded: true });
+  expect(stale!.news).toEqual([expect.stringContaining("Moon counts twelve phases")]);
+  // A folder that links to the checkout's built-ins is never taken for a copy of them.
+  const linked = join(s.root, "linked");
+  symlinkSync(s.builtIns, linked);
+  expect(installedCopies([{ path: linked, where: "user" }], s.builtIns)).toEqual([]);
+  expect(readFileSync(join(copy, "phases.ts"), "utf8")).toContain("PHASES = 8");
 });
 
 test("ext update --all --keep-forked --json: what ep0ch install reads", async () => {
