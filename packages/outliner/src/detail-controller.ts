@@ -4048,7 +4048,8 @@ export function createDetailController(
         break;
       }
       case "backlinks.stage.cycle":
-        state.backlinks.stageFilter = nextBacklinkStageFilter(state.backlinks.stageFilter);
+        // All, open, then each value the backlinks actually carry (PIE-819), as written.
+        state.backlinks.stageFilter = nextBacklinkStageFilter(state.backlinks.stageFilter, detailBacklinkView(state.backlinks).stages);
         state.backlinks.selectedIndex = 0;
         state.status = state.backlinks.stageFilter === "all"
           ? "Backlinks: every stage"

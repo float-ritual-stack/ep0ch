@@ -1,5 +1,5 @@
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, parseAnnotationBlockContent } from "./annotations";
-import { getProperty } from "./properties";
+import { getProperty, stripPropertyTokens } from "./properties";
 import type { BacklinkSourceFacets, BacklinkStageBucket, Block, LinkTargetFacets } from "./types";
 
 /**
@@ -55,6 +55,43 @@ export const DEFAULT_BACKLINK_FACET_RULES: BacklinkFacetRules = {
     ],
   },
 };
+
+/** The property a rule note names a family with (PIE-819): `answered, fixed, shipped [status-family::done]`. */
+export const STATUS_FAMILY_PROPERTY = "status-family";
+/** Family words a rule note may use: the four buckets, and the census's words for them. */
+const FAMILY_WORDS: Readonly<Record<string, BacklinkStageBucket>> = {
+  waiting: "waiting", draft: "draft", active: "active", done: "done",
+  open: "active", decided: "done", never: "done",
+};
+
+/**
+ * The facet rules with the outline's own families (PIE-819: properties are open, so which status values are open or
+ * done is the outline's to say): each active block with `[status-family::<family>]` lists values in its text,
+ * comma-separated or a line each (`answered, fixed, shipped [status-family::done]`); each moves to that family, from wherever the defaults had it. Older notes
+ * first, so a later one wins. A family word it doesn't know is skipped; `problems` says which.
+ */
+export function facetRulesFromBlocks(
+  blocks: Iterable<Block>,
+  base: BacklinkFacetRules = DEFAULT_BACKLINK_FACET_RULES,
+): { rules: BacklinkFacetRules; problems: string[] } {
+  const notes = [...blocks]
+    .filter((b) => !b.deletedAt && !b.effectiveDeletedRootId && getProperty(b.properties, STATUS_FAMILY_PROPERTY) !== undefined)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  if (!notes.length) return { rules: base, problems: [] };
+  const buckets = Object.fromEntries((Object.keys(base.stageBuckets) as BacklinkStageBucket[]).map((k) => [k, [...base.stageBuckets[k]]])) as Record<BacklinkStageBucket, string[]>;
+  const problems: string[] = [];
+  for (const note of notes) {
+    const word = getProperty(note.properties, STATUS_FAMILY_PROPERTY)!.trim().toLowerCase();
+    const family = Object.hasOwn(FAMILY_WORDS, word) ? FAMILY_WORDS[word] : undefined;
+    if (!family) { problems.push(`${note.id}: status-family ${word || "(empty)"} isn't one of ${Object.keys(FAMILY_WORDS).join(", ")}`); continue; }
+    const values = stripPropertyTokens(note.text).split(/[,\n]/).map((v) => v.trim().toLowerCase()).filter(Boolean);
+    for (const value of values) {
+      for (const k of Object.keys(buckets) as BacklinkStageBucket[]) buckets[k] = buckets[k].filter((v) => v !== value);
+      buckets[family].push(value);
+    }
+  }
+  return { rules: { ...base, stageBuckets: buckets }, problems };
+}
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 

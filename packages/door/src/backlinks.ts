@@ -61,7 +61,11 @@ export const BACKLINK_QUERY_LIMIT = 200;
 
 export type BacklinkSortField = "updated" | "created" | "title";
 export type BacklinkSortDirection = "asc" | "desc";
-export type BacklinkStageFilter = "all" | "open" | BacklinkStageBucket;
+/**
+ * The Stage filter (PIE-819): `all`, `open` (any value in an open family), a family (`waiting`, `draft`, `active`,
+ * `done`), or a value as the notes write it (`answered`), matched case-insensitively.
+ */
+export type BacklinkStageFilter = string;
 export const BACKLINK_STAGE_FILTERS: readonly BacklinkStageFilter[] = ["all", "open", ...BACKLINK_STAGE_BUCKETS];
 export const BACKLINK_SORT_ORDER: ReadonlyArray<readonly [BacklinkSortField, BacklinkSortDirection]> = [
   ["updated", "desc"],
@@ -103,8 +107,13 @@ export interface BacklinkViewGroup {
   /** Every matching source in the group, open first, then by the chosen sort. */
   sources: BacklinkSource[];
   stageCounts: BacklinkStageCounts;
+  /** Each stage value its sources carry, as written (first spelling seen), with its family and count (PIE-819). */
+  stageValues: BacklinkStageValue[];
   openCount: number;
 }
+
+/** A stage value as the notes write it, its family (none when the outline's rules don't place it) and how many carry it. */
+export interface BacklinkStageValue { value: string; bucket?: BacklinkStageBucket; count: number }
 
 export interface BacklinkView {
   /** False when the service returned no facets; the view is then one flat list. */
@@ -120,10 +129,32 @@ export interface BacklinkView {
   matching: BacklinkSource[];
   /** Kinds present after default hiding, in group order, for the kind toggle. */
   kinds: Array<{ kind: string; label: string }>;
+  /** Stage values present after default hiding, families in order, for the Stage filter (PIE-819: what the rows have). */
+  stages: BacklinkStageValue[];
 }
 
 export function isOpenBacklinkStage(bucket: BacklinkStageBucket | undefined): boolean {
   return bucket === "waiting" || bucket === "draft" || bucket === "active";
+}
+
+/** Stage values in their families' order (waiting, draft, active, done, then unplaced), most first, then by name. */
+export function orderStageValues(values: Iterable<BacklinkStageValue>): BacklinkStageValue[] {
+  const rank = (b: BacklinkStageBucket | undefined) => (b ? BACKLINK_STAGE_BUCKETS.indexOf(b) : BACKLINK_STAGE_BUCKETS.length);
+  return [...values].sort((a, b) => rank(a.bucket) - rank(b.bucket) || b.count - a.count || a.value.localeCompare(b.value));
+}
+
+/** Count `sources`' stage values as written, one entry per value (case folded, first spelling kept). */
+export function countStageValues(sources: readonly BacklinkSource[]): BacklinkStageValue[] {
+  const by = new Map<string, BacklinkStageValue>();
+  for (const source of sources) {
+    const stage = source.facets?.stage;
+    if (!stage) continue;
+    const key = stage.value.trim().toLowerCase();
+    const had = by.get(key);
+    if (had) had.count += 1;
+    else by.set(key, { value: stage.value.trim(), ...(stage.bucket ? { bucket: stage.bucket } : {}), count: 1 });
+  }
+  return orderStageValues(by.values());
 }
 
 /** The filter: outline-core's one matcher (search-match.ts), on the fields Detail's filter reads. */
@@ -139,9 +170,22 @@ function matchesText(source: BacklinkSource, query: SearchQuery | null): boolean
 }
 
 function matchesStage(source: BacklinkSource, stage: BacklinkStageFilter): boolean {
-  if (stage === "all") return true;
-  const bucket = source.facets?.stage?.bucket;
-  return stage === "open" ? isOpenBacklinkStage(bucket) : bucket === stage;
+  return stageMatches(source.facets?.stage, stage);
+}
+
+/** The Stage filter's form for a value spelled like one of its keywords (`value:open`), so each stays a choice. */
+export const STAGE_VALUE = "value:";
+const STAGE_KEYWORDS: readonly string[] = ["all", "open", ...BACKLINK_STAGE_BUCKETS];
+
+/** Whether a stage (its value as written and its family) passes the Stage filter: a family's name, open, or the value itself. */
+export function stageMatches(stage: { value: string; bucket?: BacklinkStageBucket } | undefined, filter: BacklinkStageFilter): boolean {
+  const f = filter.trim().toLowerCase();
+  // `value:open`: the value as written, where it's spelled like a keyword (a status `open` a rule put in done).
+  if (f.startsWith(STAGE_VALUE)) return !!stage && stage.value.trim().toLowerCase() === f.slice(STAGE_VALUE.length);
+  if (f === "all") return true;
+  if (f === "open") return isOpenBacklinkStage(stage?.bucket);
+  if ((BACKLINK_STAGE_BUCKETS as readonly string[]).includes(f)) return stage?.bucket === f;
+  return !!stage && stage.value.trim().toLowerCase() === f;
 }
 
 function compareSources(options: BacklinkViewOptions, faceted: boolean) {
@@ -178,7 +222,7 @@ export function backlinkView(collection: BacklinkCollection | null, options: Rea
   const compare = compareSources(options, faceted);
   if (!faceted) {
     const matching = shown.filter(source => matchesText(source, query)).sort(compare);
-    return { faceted, total: all.length, hiddenRelated, hiddenResolved, filtered: shown.length - matching.length, groups: [], matching, kinds: [] };
+    return { faceted, total: all.length, hiddenRelated, hiddenResolved, filtered: shown.length - matching.length, groups: [], matching, kinds: [], stages: [] };
   }
 
   const group = (sources: readonly BacklinkSource[]): Map<string, BacklinkViewGroup> => {
@@ -187,7 +231,7 @@ export function backlinkView(collection: BacklinkCollection | null, options: Rea
       const facets = source.facets!;
       let entry = groups.get(facets.kind);
       if (!entry) {
-        entry = { kind: facets.kind, label: facets.kindLabel, sources: [], stageCounts: {}, openCount: 0 };
+        entry = { kind: facets.kind, label: facets.kindLabel, sources: [], stageCounts: {}, stageValues: [], openCount: 0 };
         groups.set(facets.kind, entry);
       }
       entry.sources.push(source);
@@ -209,11 +253,12 @@ export function backlinkView(collection: BacklinkCollection | null, options: Rea
     latest(right).localeCompare(latest(left)) ||
     left.label.localeCompare(right.label);
   const groups = [...byKind.values()].sort(orderGroups);
-  for (const group of groups) group.sources.sort(compare);
+  for (const group of groups) { group.sources.sort(compare); group.stageValues = countStageValues(group.sources); }
   const matching = groups.flatMap(group => group.sources);
   return {
     faceted, total: all.length, hiddenRelated, hiddenResolved, filtered: shown.length - matching.length, groups, matching,
     kinds: [...group(shown).values()].sort(orderGroups).map(({ kind, label }) => ({ kind, label })),
+    stages: countStageValues(shown),
   };
 }
 
@@ -227,9 +272,21 @@ export function nextBacklinkSort(field: BacklinkSortField, direction: BacklinkSo
   return BACKLINK_SORT_ORDER[(current + 1) % BACKLINK_SORT_ORDER.length]!;
 }
 
-export function nextBacklinkStageFilter(stage: BacklinkStageFilter): BacklinkStageFilter {
-  const index = BACKLINK_STAGE_FILTERS.indexOf(stage);
-  return BACKLINK_STAGE_FILTERS[(index + 1) % BACKLINK_STAGE_FILTERS.length]!;
+/**
+ * The Stage filter's next step: all, open, then each value the rows actually have (`stages`, PIE-819: facets, not a
+ * fixed list), round again. Without `stages`, the families (all, open, waiting, draft, active, done).
+ */
+export function nextBacklinkStageFilter(stage: BacklinkStageFilter, stages?: readonly { value: string; bucket?: BacklinkStageBucket }[]): BacklinkStageFilter {
+  // A value spelled like a keyword is its own choice, `value:open`, unless it is that very family (`done` in done);
+  // each value once, whatever its case.
+  const values = (stages ?? []).filter((x, i, all) => all.findIndex((y) => y.value.toLowerCase() === x.value.toLowerCase()) === i)
+    .map((s) => {
+      const v = s.value.toLowerCase();
+      return STAGE_KEYWORDS.includes(v) && v !== s.bucket ? `${STAGE_VALUE}${s.value}` : s.value;
+    });
+  const list = stages ? ["all", "open", ...values] : BACKLINK_STAGE_FILTERS;
+  const index = list.findIndex(x => x.toLowerCase() === stage.toLowerCase());
+  return list[(index + 1) % list.length]!;
 }
 
 export function nextBacklinkKindFilter(kind: string | null, kinds: readonly { kind: string }[]): string | null {
@@ -261,14 +318,18 @@ export function backlinkReferenceLabel(group: BacklinkReferenceGroup): string {
   return `${label} ×${group.count}`;
 }
 
-/** " (2 waiting · 1 draft · 7 done)", with "N no stage" for the rest; "" for a group without stages. */
+/**
+ * " (1 open · 2 answered)": each stage value as the notes write it (PIE-819), families in order; "" for a group
+ * without stages. A value the outline's rules don't place is named too, never lumped as "no stage".
+ */
 export function backlinkStageSummary(group: BacklinkViewGroup): string {
-  const parts = BACKLINK_STAGE_BUCKETS.filter(bucket => group.stageCounts[bucket]).map(bucket => `${group.stageCounts[bucket]} ${bucket}`);
-  if (parts.length === 0) return "";
-  const staged = BACKLINK_STAGE_BUCKETS.reduce((sum, bucket) => sum + (group.stageCounts[bucket] ?? 0), 0);
-  const unstaged = group.sources.length - staged;
-  if (unstaged > 0) parts.push(`${unstaged} no stage`);
-  return ` (${parts.join(" · ")})`;
+  const parts = group.stageValues.map(v => `${v.count} ${v.value}`);
+  return parts.length ? ` (${parts.join(" · ")})` : "";
+}
+
+/** A collapsed group's rows are its open sources: how many more it holds, said on its header (`· 2 more`). */
+export function backlinkGroupHidden(group: BacklinkViewGroup, expanded: boolean): number {
+  return expanded ? 0 : group.sources.length - backlinkGroupRows(group, false).length;
 }
 
 /** A row's dim suffix: stage, resolved, this note, the breadcrumb, Trash, then each reference kind ×N. */
@@ -299,6 +360,8 @@ export interface BacklinkAcross {
   /** Each group listed (a group the list doesn't show has no key): its counts, or null while it isn't read. */
   by: Partial<Record<"outlinks" | "resources" | "backlinks" | "children" | "matches", { matching: number; total: number; filtered: number } | null>>;
   kinds: Array<{ kind: string; label: string }>;
+  /** The stage values present anywhere, as written, families in order (the Stage filter's choices, PIE-819). */
+  stages: BacklinkStageValue[];
 }
 /** "→2/21 ♦0/2 ←3/8 ↓1/4": matching of all, per group listed (… while a group isn't read). */
 export function acrossWords(a: BacklinkAcross): string {
@@ -408,8 +471,9 @@ export function backlinkOptionsFrom(base: Readonly<BacklinkViewOptions>, args: {
     }
   }
   if (args.stage !== undefined) {
-    if (!BACKLINK_STAGE_FILTERS.includes(args.stage as BacklinkStageFilter)) throw new Error(`stage is one of ${BACKLINK_STAGE_FILTERS.join(", ")}, not ${args.stage}`);
-    o.stage = args.stage as BacklinkStageFilter;
+    // A family, open, all, or a value as the notes write it (PIE-819: properties are open).
+    if (!args.stage.trim()) throw new Error(`stage is ${BACKLINK_STAGE_FILTERS.join(", ")} or a stage value as the notes write it`);
+    o.stage = args.stage.trim();
   }
   if (args.resolved !== undefined) o.showResolved = args.resolved;
   if (args.related !== undefined) o.showRelated = args.related;

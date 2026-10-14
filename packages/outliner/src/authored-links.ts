@@ -25,7 +25,7 @@ import {
   isExtensionProvider,
   type ResourceSource,
 } from "./resources";
-import { linkTargetFacets } from "./backlink-facets";
+import { linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
 import type {
   Block,
   BacklinkStageBucket,
@@ -159,6 +159,8 @@ export interface AuthoredLinksDataSource {
   get(blockId: string): Block | null;
   resolvePageAddress(address: string): PageAddressResolution;
   workIdAllocatorStatus(): WorkIdAllocatorStatus;
+  /** The links' Kind and Stage rules, with the outline's own status families (PIE-819); default the built-in ones. */
+  facetRules?(): BacklinkFacetRules;
   readonly resources: {
     get(resourceId: string): Resource | null;
     getSource(sourceId: string): ResourceSource | null;
@@ -352,7 +354,7 @@ function resolveOutlink(
       label: presentation(candidate.label ?? title),
       firstSpan: { start: candidate.start, end: candidate.end },
       occurrenceCount: 1,
-      resolution: { kind: "ready", target, title, facets: linkTargetFacets(block, (id) => source.get(id)) },
+      resolution: { kind: "ready", target, title, facets: linkTargetFacets(block, (id) => source.get(id), source.facetRules?.()) },
     };
   }
 
@@ -385,7 +387,7 @@ function resolveOutlink(
       label: presentation(authoredLabel ?? candidate.address),
       firstSpan: { start: candidate.start, end: candidate.end },
       occurrenceCount: 1,
-      resolution: { kind: "ready", target, title, facets: linkTargetFacets(resolution.block, (id) => source.get(id)) },
+      resolution: { kind: "ready", target, title, facets: linkTargetFacets(resolution.block, (id) => source.get(id), source.facetRules?.()) },
     };
   }
 
@@ -616,7 +618,7 @@ function withRecords(source: AuthoredLinksDataSource, resources: readonly Author
     const found = entry.resourceId ? source.extensionRecords!({ resourceId: entry.resourceId, role: "record" })[0] : undefined;
     if (!found) return entry;
     const block = source.get(found.blockId);
-    return { ...entry, recordBlockId: found.blockId, ...(block ? { facets: linkTargetFacets(block, (id) => source.get(id)) } : {}) };
+    return { ...entry, recordBlockId: found.blockId, ...(block ? { facets: linkTargetFacets(block, (id) => source.get(id), source.facetRules?.()) } : {}) };
   });
 }
 

@@ -1173,7 +1173,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   await make(notes.swap.id, "Ana: runner beans to swap [type::offer] [status::waiting]\nTwo jars, saved from last year's best row.");
   await make(notes.swap.id, "Ben: took the leek seedlings [type::offer] [status::done]\nThank you, they're in.", SEED_AGENT);
   await make(notes.swap.id, "Cal: labels and a pencil [type::offer] [status::active]\nI'll write the labels on the day.");
-  await make(notes.swap.id, "Dee: a question about the time\nIs it ten or eleven?");
+  // A status the built-in families don't know (PIE-819): named as written, and a rule note in Rules puts it in done.
+  await make(notes.swap.id, "Dee: a question about the time [status::answered]\nIs it ten or eleven? Ten, said Ana.");
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
@@ -1328,6 +1329,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.rules = await make(notes.root.id, RULES_NOTE);
   await make(notes.rules.id, `Headings in the committee's notes are bands [rule-name::committee-bands] [rule-under::((${notes.rules.id}))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]`);
   await make(notes.rules.id, "Mend the water butt [status::todo]\nSetting its status to done stamps the day it was done (done-stamp); setting it back takes the stamp off.");
+  // The outline's own status families (PIE-819): `answered` is done here, so Dee's answered reply counts as done.
+  await make(notes.rules.id, "answered [status-family::done]");
   // A rule note whose settings card (`,`) sets its fields with pickers (PIE-786), and the job it badges.
   notes.settings = await make(notes.root.id, `${SEED.settings} [rule-name::bay-badges] [rule-match::type=bay-job] [rule-decorate::badge] [rule-label::{status}] [rule-tone::accent]\nA rule note is configured, not typed: , opens its card, each field a picker (the tone's values, a query over this outline's own properties, the actions extensions offer, whose saves set it off).`);
   await make(notes.settings.id, "Turn the compost bay [type::bay-job] [status::todo]");

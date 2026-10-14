@@ -6,9 +6,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import {
-  backlinkGroupRows, backlinkOptionsFrom, backlinkRows, backlinkRowSuffix, backlinkStageSummary, backlinkStatusParts, backlinkView,
+  backlinkGroupRows, backlinkOptionsFrom, backlinkRows, backlinkRowSuffix, backlinkGroupHidden, backlinkStageSummary, backlinkStatusParts, backlinkView,
   BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort,
-  nextBacklinkStageFilter, type BacklinkCollection, type BacklinkSource, type BacklinkSourceFacets, type BacklinkView, type BacklinkViewOptions,
+  nextBacklinkStageFilter, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkSourceFacets, type BacklinkView, type BacklinkViewOptions,
 } from "../src/backlinks";
 import { boardScreen } from "./board-view";
 import { Desk } from "../src/desk/desk";
@@ -66,8 +66,8 @@ const unfaceted = (): BacklinkCollection => { const c = fixture(); return { ...c
 
 const summary = (v: BacklinkView) => ({
   faceted: v.faceted, total: v.total, hiddenRelated: v.hiddenRelated, hiddenResolved: v.hiddenResolved, filtered: v.filtered,
-  groups: v.groups.map(g => ({ kind: g.kind, label: g.label, ids: g.sources.map(s => s.blockId), stageCounts: g.stageCounts, openCount: g.openCount })),
-  matching: v.matching.map(s => s.blockId), kinds: v.kinds,
+  groups: v.groups.map(g => ({ kind: g.kind, label: g.label, ids: g.sources.map(s => s.blockId), stageCounts: g.stageCounts, stageValues: g.stageValues, openCount: g.openCount })),
+  matching: v.matching.map(s => s.blockId), kinds: v.kinds, stages: v.stages,
 });
 
 function* grid(): Generator<BacklinkViewOptions> {
@@ -79,6 +79,34 @@ function* grid(): Generator<BacklinkViewOptions> {
             for (const filter of ["", "ana", "tmt tins", "waiting", "work-id", "Outbox", "related", "zzz"])
               yield { filter, sortField, sortDirection, stage, kind, showRelated, showResolved };
 }
+
+describe("stages as the notes write them (PIE-819)", () => {
+  test("a group names each value it carries; a folded one says how many more; the Stage filter steps through the values present", () => {
+    const q = (id: string, value: string, bucket?: BacklinkStageBucket): BacklinkSource => ({ blockId: id, title: `Question ${id}`, parentContext: "", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: `2026-10-0${id}T00:00:00.000Z`, referenceGroups: [], occurrences: [], facets: { kind: "question", kindLabel: "Question", placement: "other", stage: { property: "status", value, ...(bucket ? { bucket } : {}) } } } as unknown as BacklinkSource);
+    const c: BacklinkCollection = { targetBlockId: "t", sources: [q("1", "open", "active"), q("2", "answered"), q("3", "answered")], completeness: { kind: "complete" } };
+    const v = backlinkView(c, DEFAULT_BACKLINK_VIEW_OPTIONS), g = v.groups[0]!;
+    expect(backlinkStageSummary(g)).toBe(" (1 open · 2 answered)");
+    expect(backlinkGroupHidden(g, false)).toBe(2);
+    expect(backlinkGroupHidden(g, true)).toBe(0);
+    expect(v.stages.map(s => s.value)).toEqual(["open", "answered"]);
+    expect(nextBacklinkStageFilter("all", v.stages)).toBe("open");
+    expect(nextBacklinkStageFilter("open", v.stages)).toBe("value:open");  // the status `open` alone, apart from the open families
+    expect(nextBacklinkStageFilter("value:open", v.stages)).toBe("answered");
+    const answered = backlinkView(c, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "ANSWERED" });   // matched however it's spelled
+    expect(answered.matching.map(s => s.blockId).sort()).toEqual(["2", "3"]);
+    expect(nextBacklinkStageFilter("answered", v.stages)).toBe("all");
+    // A value spelled like a keyword (`Open`, `All`) never takes the keyword's place: it's its own choice, `value:Open`.
+    expect(nextBacklinkStageFilter("all", [{ value: "Open" }, { value: "All" }])).toBe("open");
+    expect(nextBacklinkStageFilter("open", [{ value: "Open" }, { value: "All" }])).toBe("value:Open");
+    expect(nextBacklinkStageFilter("value:Open", [{ value: "Open" }, { value: "All" }])).toBe("value:All");
+    expect(nextBacklinkStageFilter("value:All", [{ value: "Open" }, { value: "All" }])).toBe("all");
+    // A status `open` a rule put in done: `value:open` selects it alone; `open` is the open families.
+    const moved: BacklinkCollection = { ...c, sources: [q("4", "open", "done"), q("5", "waiting", "waiting")] };
+    expect(backlinkView(moved, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "value:open" }).matching.map(s => s.blockId)).toEqual(["4"]);
+    expect(backlinkView(moved, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" }).matching.map(s => s.blockId)).toEqual(["5"]);
+    expect(backlinkView(c, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "ALL" }).matching).toHaveLength(3);
+  });
+});
 
 describe.skipIf(!outliner)("the view is Detail's: parity with pi-herdr-outliner's backlink-view.ts", () => {
   let theirs: any;
@@ -144,7 +172,7 @@ describe.skipIf(!outliner)("the text is Detail's panel: status line, group heade
       expect(detail[0]).toBe(status);
       const columns = Math.max(8, width - 1) - 2;
       const mine = backlinkRows(view, o, new Set(open)).map(r => {
-        if (r.kind === "group") return `${r.expanded ? "−" : "+"} ${fitBacklinkRow(`${r.group.label} ${r.group.sources.length}`, "", columns).title}${backlinkStageSummary(r.group)}`;
+        if (r.kind === "group") { const more = backlinkGroupHidden(r.group, r.expanded); return `${r.expanded ? "−" : "+"} ${fitBacklinkRow(`${r.group.label} ${r.group.sources.length}`, "", columns).title}${backlinkStageSummary(r.group)}${more ? ` · ${more} more` : ""}`; }
         const f = fitBacklinkRow(r.source.title, backlinkRowSuffix(r.source), columns);
         return `+ ${f.title}${f.suffix ? ` — ${f.suffix}` : ""}`;
       });
@@ -180,7 +208,8 @@ describe("the door's own parts of the view", () => {
     ]);
     const filtered = { ...o, filter: "swap" };
     expect(backlinkRows(backlinkView(fixture(), filtered), filtered, new Set()).filter(r => r.kind === "group").every(r => r.kind === "group" && r.expanded)).toBe(true);
-    expect(backlinkStageSummary(backlinkView(fixture(), o).groups[0]!)).toBe(" (2 waiting · 1 draft · 2 done · 1 no stage)");
+    // Values as the notes write them (PIE-819): `sent` and `queued-ish` are named, never lumped as "no stage".
+    expect(backlinkStageSummary(backlinkView(fixture(), o).groups[0]!)).toBe(" (2 waiting · 1 draft · 2 sent · 1 queued-ish)");
   });
 
   test("an agent's or the person's options from the wire: kinds by key or label, sorts by field or field-direction, the rest refused", () => {
@@ -191,7 +220,9 @@ describe("the door's own parts of the view", () => {
     expect(backlinkOptionsFrom(base, { kind: "all", sort: "created-asc", related: true, filter: " beans " }, kinds))
       .toEqual({ ...base, sortField: "created", sortDirection: "asc", showRelated: true, filter: "beans" });
     expect(() => backlinkOptionsFrom(base, { kind: "tractor" }, kinds)).toThrow("no tractor among these backlinks");
-    expect(() => backlinkOptionsFrom(base, { stage: "later" }, kinds)).toThrow("stage is one of all, open, waiting, draft, active, done");
+    // A stage value as written is a stage (PIE-819: properties are open); only an empty one is refused.
+    expect(backlinkOptionsFrom(base, { stage: " Answered " }, kinds).stage).toBe("Answered");
+    expect(() => backlinkOptionsFrom(base, { stage: " " }, kinds)).toThrow("stage is all, open, waiting, draft, active, done or a stage value");
     expect(() => backlinkOptionsFrom(base, { sort: "size" }, kinds)).toThrow("sort is updated, created or title");
   });
 });
@@ -274,7 +305,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
       "← backlinks (7)", "Outbox item 4", "Offer spare onion sets", "Ask Ana about bean seed",   // open first, then updated ↓
       ...p.rows.slice(4).map((r: any) => r.text),
     ]);
-    expect(p.rows[1].context).toBe("(1 waiting · 1 draft · 2 done)");
+    expect(p.rows[1].context).toBe("(1 waiting · 1 draft · 2 done) · 2 more");    // folded to its open rows: how many more, said
     // the other kinds, folded (nothing open in them); then the note's children (PIE-693)
     const kids = p.rows.findIndex((r: any) => r.kind === "group" && r.group === "children");
     expect(p.rows.slice(4, kids).every((r: any) => r.kind === "kind" && r.open === false)).toBe(true);
@@ -327,7 +358,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     ch("w"); ch("w");
     expect(peek().options.stage).toBe("waiting");
     expect(peek().rows.filter((r: any) => r.id).map((r: any) => r.id)).toEqual([ids.waiting]);
-    ch("w"); ch("w"); ch("w"); ch("w");                                              // draft, active, done, all
+    ch("w"); ch("w"); ch("w");                                                       // the values the rows have (PIE-819): draft, done, all
     for (let i = 0; i < 20 && peek().options.kind !== null; i++) ch("K");           // every kind again
     expect(peek().options.kind).toBeNull();
     ch("s"); ch("s"); ch("s"); ch("s");
@@ -375,7 +406,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     clickText("backlinks", "Stage: all");
     expect(peek().options.stage).toBe("open");
     clickText("backlinks", "Stage: open");
-    for (let i = 0; i < 4; i++) clickText("backlinks", "Stage: ");
+    for (let i = 0; i < 3; i++) clickText("backlinks", "Stage: ");                // draft, done, all: the values the rows have
     expect(peek().options.stage).toBe("all");
     for (let i = 0; i < 6; i++) clickText("backlinks", "Sort: ");
     expect(peek().options).toMatchObject({ sortField: "updated", sortDirection: "desc" });
@@ -443,7 +474,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     expect(other.backlinks.rows.filter((x: any) => x.kind === "outlink").map((x: any) => x.id)).toEqual([target.id]);   // the rows are the ones the counts count
     expect(other.backlinks.across).toMatchObject({ outlinks: { matching: 1, total: 1 }, backlinks: { total: 0 } });
     expect(JSON.stringify(peek())).toBe(before);
-    await expect(b.dispatch.act({ action: "backlinks", args: { stage: "someday" } }, agent)).rejects.toThrow("stage is one of");
+    await expect(b.dispatch.act({ action: "backlinks", args: { stage: " " } }, agent)).rejects.toThrow("stage is all, open");
     const mine: any = await b.dispatch.act({ action: "backlinks", args: { stage: "done", sort: "title" } }, USER);
     expect(mine.backlinks.options).toMatchObject({ stage: "done", sortField: "title", sortDirection: "asc" });
     expect(peek().options).toMatchObject({ stage: "done", sortField: "title" });

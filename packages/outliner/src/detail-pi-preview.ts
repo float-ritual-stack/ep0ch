@@ -76,7 +76,6 @@ import {
   type SourceSpannedMarkdownRowRender,
 } from "./source-spanned-markdown";
 import {
-  BACKLINK_STAGE_BUCKETS,
   type AnnotationThread,
   type BacklinkReferenceGroup,
   type BacklinkSource,
@@ -709,16 +708,10 @@ export function detailBacklinkRegions(
   }, ...children];
 }
 
+/** " (1 open · 2 answered)": each stage value as the notes write it (PIE-819), families in order; "" without stages. */
 function backlinkStageSummary(group: BacklinkViewGroup): string {
-  const parts = BACKLINK_STAGE_BUCKETS
-    .filter((bucket) => group.stageCounts[bucket])
-    .map((bucket) => `${group.stageCounts[bucket]} ${bucket}`);
-  if (parts.length === 0) return "";
-  const staged = BACKLINK_STAGE_BUCKETS
-    .reduce((sum, bucket) => sum + (group.stageCounts[bucket] ?? 0), 0);
-  const unstaged = group.sources.length - staged;
-  if (unstaged > 0) parts.push(`${unstaged} no stage`);
-  return ` (${parts.join(" · ")})`;
+  const parts = group.stageValues.map((v) => `${v.count} ${v.value}`);
+  return parts.length ? ` (${parts.join(" · ")})` : "";
 }
 
 function fitColumns(text: string, columns: number): string {
@@ -821,7 +814,9 @@ export function renderBacklinksDocument(state: Readonly<DetailState>, width = 80
         const focused = section.group === focusedGroup;
         const header = fitBacklinkRow(`${section.group.label} ${section.group.sources.length}`, "", columns - 2).title;
         const line = `[${section.expanded ? "−" : "+"}](${uri}) ${focused ? "**▶ ACTIVE** " : ""}**[${
-          escapeGeneratedLinkLabel(header)}](${uri})**${escapeGeneratedMarkdown(backlinkStageSummary(section.group))}`;
+          escapeGeneratedLinkLabel(header)}](${uri})**${escapeGeneratedMarkdown(backlinkStageSummary(section.group))}${
+          // Folded, it lists only its open rows: how many more it holds (PIE-819).
+          section.expanded || section.group.sources.length === section.rows.length ? "" : escapeGeneratedMarkdown(` · ${section.group.sources.length - section.rows.length} more`)}`;
         lines.push(focused ? `~~${line}~~` : line);
       }
       for (const source of section.rows) {

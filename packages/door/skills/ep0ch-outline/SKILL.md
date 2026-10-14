@@ -188,6 +188,11 @@ one.
   <view> <id or Work ID>…` (those first, in that order) or the `view_order` tool. That is where a ranking such as a
   backlog belongs, not a numeric property. A view with `[sort::]` has no hand-set order: remove the sort first.
 - Before placing a block into a view, ask the service what patch would make it match; don't guess the query.
+- **Status families** (PIE-819): the links tile and Detail's backlinks count each `status::`, `stage::`, `outbox::` or
+  `work-stage::` value as the notes write it (`2 answered`) and colour it by family (waiting, draft, active, done). The
+  built-in list places the usual words; for any other, write a rule note: `answered, fixed, shipped
+  [status-family::done]` (families: waiting, draft, active or `open`, done or `decided`/`never`). Nothing needs a code
+  change, and a later note moves a value again.
 
 ## Pages, welcome and the briefing
 

@@ -1330,6 +1330,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "backlinks.view", tile: "replies", args: { stage: "open" }, as: "test-agent" });
     expect(childRows("replies").map((r: any) => r.text).sort()).toEqual(["Ana: runner beans to swap", "Cal: labels and a pencil"]);
     expect(tile("replies").backlinks.status).toContain("2 of 4 match");
+    // A status as the notes write it (PIE-819): Dee's `answered` is its own stage, and the outline's rule note puts it in
+    // done, with Ben's.
+    await app.act({ action: "backlinks.view", tile: "replies", args: { stage: "answered" }, as: "test-agent" });
+    expect(childRows("replies").map((r: any) => r.text)).toEqual(["Dee: a question about the time"]);
+    await app.act({ action: "backlinks.view", tile: "replies", args: { stage: "done" }, as: "test-agent" });
+    expect(childRows("replies").map((r: any) => r.text).sort()).toEqual(["Ben: took the leek seedlings", "Dee: a question about the time"]);
     await app.act({ action: "backlinks.view", tile: "replies", args: { stage: "all" }, as: "test-agent" });
     // An agent chooses the links tile's groups: said, saved with the layout, refused past the last one.
     const focus = S().focus;
