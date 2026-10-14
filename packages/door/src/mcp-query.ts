@@ -27,6 +27,8 @@ export interface QueryAnswer {
   more: boolean;
   nextOffset?: number;
   truncated?: string;
+  /** What the service said beside the rows: a key no note has, or values a date or number comparison couldn't read. */
+  hint?: string;
   rows: QueryRow[];
 }
 
@@ -81,7 +83,7 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
     ...(a.sort ? { sort: `${a.sort.field} ${a.sort.direction}` } : {}),
     limit: a.limit, offset: a.offset, total: folded.length, ...(a.fold ? { foldedFrom: ids.length } : {}), ...(ownOmitted ? { ownOmitted } : {}),
     more, ...(more ? { nextOffset: a.offset + a.limit } : {}),
-    ...(picked.truncated ? { truncated: picked.truncated } : {}),
+    ...(picked.truncated ? { truncated: picked.truncated } : {}), ...(picked.hint ? { hint: picked.hint } : {}),
     rows: page.flatMap(f => {
       const record = byId.get(f.id);
       return record ? [{ record, ...(f.changes ? { changes: f.changes } : {}), ...(pathOf && at.get(f.id) ? { path: pathOf(at.get(f.id)!) } : {}) }] : [];

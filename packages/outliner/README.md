@@ -115,7 +115,7 @@ No shared user host is used.
 - Atomic canonical roadmap-item creation discovers the single project work queue, validates UUID relationships and complete routing metadata, allocates the immutable Work ID, and returns matching virtual-branch memberships in one transaction.
 - Plain-clickable Work IDs, canonical UUIDs, exact references, and `[[address]]` links inside Tree/Detail, with OSC 8 `pi-outliner://` links retained for external terminal interoperability.
 - Tree can project a selected block's Outlinks, Resources and Backlinks as read-only generated branches. Enumeration never creates pages, Resources, Sources, or provider traffic. Explicit activation follows or creates unresolved ordinary `[[page]]` links and human-authored `[file::…]`, `[web::…]`, `[jira::…]`, and `[app::…]` Resources; unresolved Work IDs stay unavailable.
-- Property-driven virtual branches (saved views) evaluated by the service (`views.read`), with `OR`, `NOT`, parentheses and `created`/`updated` ranges in `[query::…]`, ranked or timestamp-sorted canonical roots, contextual descendants to `[child-depth::0..8]` (default 2), `[expanded::false]` and `[expand-when::…]` disclosure, a 1,000-row branch budget, canonical child creation from a branch, and persisted manual root ordering. `views.planWrite` tells a client what patch moves a block into a view.
+- Property-driven virtual branches (saved views) evaluated by the service (`views.read`), with `OR`, `NOT`, parentheses, `created`/`updated` ranges and date and number comparisons on any property (`due <= +3d`, `wait-until <= today`) in `[query::…]`, ranked or timestamp-sorted canonical roots, contextual descendants to `[child-depth::0..8]` (default 2), `[expanded::false]` and `[expand-when::…]` disclosure, a 1,000-row branch budget, canonical child creation from a branch, and persisted manual root ordering. `views.planWrite` tells a client what patch moves a block into a view.
 - Tree multi-select collects items for bulk ranking and canonical copy; the Advanced property filter accepts the same boolean grammar, and a filter can stay inside one branch.
 - The service owns fragment slices and nested transclusion (`fragments.read`, `transclusions.read`, used by the door and published pages); Detail shows one level of embeds with the same limits and wording.
 - Detail Backlinks are grouped by kind and stage from service facets, with the note itself, its descendants and resolved comments hidden by default.
@@ -1985,8 +1985,8 @@ work-stage::review type::roadmap-item
 Whitespace separates clauses outside double quotes. `key` checks property presence; `key=value` and `key::value` check case-insensitive exact equality. Double-quoted values preserve spaces and support only `\\` and `\"` escapes. Invalid syntax reports a character position instead of becoming an accidental query. Aggregation is not part of the query language; the relation atoms below reach links, subtrees, tags and text.
 
 Saved-view `[query::…]` values, CLI `list --query` and the `where` field of
-`blocks.query` / `outliner_query` also accept `OR`, `NOT`, parentheses and
-timestamp ranges:
+`blocks.query` / `outliner_query` also accept `OR`, `NOT`, parentheses,
+timestamp ranges and comparisons on any property:
 
 ```text
 work-stage=review OR work-stage=validate
@@ -1995,6 +1995,10 @@ type=task NOT priority
 type=task (priority=high OR due) updated > 2026-09-20
 updated >= -7d
 created < 2026-09-01T12:00Z
+type=follow-up due <= +3d
+wait-until <= today
+release-window = today
+rating > 3
 ```
 
 - **Precedence:** `NOT` binds tightest, then `AND` (written or implied by
@@ -2050,8 +2054,31 @@ created < 2026-09-01T12:00Z
   values resolve each time the service evaluates the query (every `views.read`
   or `blocks.query`). Tree re-reads a saved view when the workspace changes, not
   on a timer, so an open `updated >= -7d` view shows blocks aging out at the next
-  change or refresh. Only `created` and `updated` compare; `updated=…` is still
-  a property equality clause.
+  change or refresh. `updated=…` is still a property equality clause.
+- **Comparisons on any property** (PIE-769): a property key, then `<`, `<=`, `>` or `>=`, then a bound, with or
+  without spaces (`due <= +3d`, `rating>3`). The bound decides how values compare: a **date** when it reads as one
+  (`today`, `tomorrow`, `yesterday`, `now`, `-7d`, `+3d` and `+2w` (that calendar day), `-12h` (that moment), or any
+  date as people write one, below), a
+  **number** when it is a decimal (`3`, `-2.5`), and **text** otherwise (ignoring case, in the locale's order:
+  `stage >= beta`). A value that can't be read as the bound's kind doesn't match, and the answer's `hint` names it
+  (`due: 1 note has a value that isn't a date: “someday”`), counting only the notes the question asks of. A note
+  with several values for the key (repeated, or a comma list) matches when any does. Nothing is special-cased per key.
+  - **Dates as people write them** (outline-core `dates.ts`, the one reader of a date for the evaluator, sorts,
+    groups, figures and the save warning): `2026-10-20`, `2026/10/20`, `Oct 20`, `October 20, 2026`, `20 Oct`,
+    `10/20` (month first, unless the first number can't be a month: `20/10`), `10/20/26`, with a weekday before it
+    (`Tue Oct 20`) or a time after it (`2026-10-20 4:23 PM`, `2026-10-20T09:30Z`). A date without a year is in the year
+    that puts it nearest today. A span is `<date>..<date>` (`2026-10-20..2026-10-24`, `Oct 20..24`).
+  - **Days, not zones:** a property's date is a day on the person's calendar, and `today` is the day on the outline
+    host's clock (a time written with a zone is moved to that clock first). `created` and `updated` keep their UTC
+    days above.
+  - **Spans:** any day of a span counts. `release-window <= today` once it has begun, `>= today` until it is over,
+    `= today` while today is inside it, and an upcoming one is `release-window NOT release-window <= today`.
+  - **Equality on a date:** `key=<date>` (`due=today`, `due="Oct 20"`, `[due::2026-10-20]`) holds for the same text,
+    or a value on that day however it's written, or a span holding it. A value with a space is quoted
+    (`due <= "Oct 20"`).
+  - Watched answers (`watch`) are evaluated again when the host's day turns, so `wait-until <= today` on a board or a
+    Welcome note fills at midnight with no write. A save of a `[key::value]` shaped like a date that reads as none
+    (`[due::Oct 32]`) keeps the text and says so (outline-core `reference-warnings.ts`, `dateWarnings`).
 - **Compatibility:** a query with no keywords, parentheses or ranges keeps its
   exact meaning, including the special `deleted=true` Trash query.
   `deleted=true` cannot be combined with the boolean grammar.
@@ -2073,12 +2100,14 @@ Property filters and catalogs default to `block` scope, so body examples and lin
 `blocks.query` answers a question, the same everywhere (a `::links` block's `query`, a `::graph-*` figure's YAML,
 `outliner_query`), and the service does all of it: no client narrows, groups, sorts or counts rows itself.
 
-- `group`: a property name, or `created:day|week|month` / `updated:day|week|month`. The answer's `groups` are `{ value,
-  count, ids }`: `count` over every match, `ids` the returned rows in it. A property with several values puts a row in
-  each of their groups; matches without it are the `null` group, last. Groups follow the property's value order
-  (`work-stage` in the workboard's stage order, else numbers, then text); date buckets newest first.
+- `group`: a property name, or a date bucket: `<property>:day|week|month|year` (`due:week`, read by outline-core
+  `dates.ts` however the date is written; a span goes in its first day's bucket), `created:…` or `updated:…`. The
+  answer's `groups` are `{ value, count, ids }`: `count` over every match, `ids` the returned rows in it. A property
+  with several values puts a row in each of their groups; matches without it (or, for a date bucket, without a date
+  in it) are the `null` group, last. Groups follow the property's value order (`work-stage` in the workboard's stage
+  order, else numbers, dates, then text); a property's date buckets soonest first, `created`/`updated` newest first.
 - `sort`: `"<property|created|updated|title>[ asc|desc]"` (or `{ field, direction }`); `property:<name>` names a
-  property called `created`, `updated` or `title`. `work-stage` sorts in the workboard's order.
+  property called `created`, `updated` or `title`. `work-stage` sorts in the workboard's order; dates sort as dates however they're written (`Oct 20` before `2026-11-02`).
 - `facets`: `true` (every key the matches carry) or a list of keys: `{ key, count, values: [{ value, count }], more? }`,
   50 keys and 50 values each at most.
 - `hint`: when a key the question names (a clause, the group, the sort, a facet) is carried by no block in the

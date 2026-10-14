@@ -116,6 +116,7 @@ export function showQueryExpression(e: QueryExpression, nested = false): string 
   switch (e.kind) {
     case "property": return `${e.relation ? `${e.relation}${e.count && e.count > 1 ? `>=${e.count}` : ""}:` : ""}${e.value === undefined ? e.key : `${e.key}=${serializePropertyFilterValue(e.value)}`}`;
     case "time": return `${e.field} ${e.op} ${e.value}`;
+    case "compare": return `${e.key} ${e.op} ${serializePropertyFilterValue(e.value)}`;
     case "tag": case "links": case "linkedfrom": case "under": case "parent": case "title": case "text": case "call": case "unread": case "thread": return showQueryAtom(e);
     case "not": return `NOT ${showQueryExpression(e.operand, true)}`;
     case "and": { const s = e.operands.map(o => showQueryExpression(o, true)).join(" "); return nested ? `(${s})` : s; }
@@ -126,6 +127,7 @@ export function showQueryExpression(e: QueryExpression, nested = false): string 
 function keysOf(e: QueryExpression): string[] {
   switch (e.kind) {
     case "property": return e.relation ? [] : [e.key];
+    case "compare": return [e.key];
     case "time": case "tag": case "links": case "linkedfrom": case "under": case "parent": case "title": case "text": case "call": case "unread": case "thread": return [];
     case "not": return keysOf(e.operand);
     default: return [...new Set(e.operands.flatMap(keysOf))];

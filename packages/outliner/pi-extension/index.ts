@@ -3202,7 +3202,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     name: "outliner_query",
     label: "Outliner Query",
     description:
-      "Query blocks by text and scoped properties; property filters default to block metadata and return match context for broader scopes. `where` accepts the query grammar with OR, NOT, parentheses, created/updated ranges and the atoms (e.g. `work-stage=review OR work-stage=validate`, `NOT status=done`, `updated >= -7d`, `links:this NOT linkedfrom:this` with `this` a block id); it is ANDed with filters. `group` (a property name) answers groups with counts over every match; `facets: true` answers value counts",
+      "Query blocks by text and scoped properties; property filters default to block metadata and return match context for broader scopes. `where` accepts the query grammar with OR, NOT, parentheses, created/updated ranges, date, number and text comparisons on any property and the atoms (e.g. `work-stage=review OR work-stage=validate`, `NOT status=done`, `updated >= -7d`, `due <= +3d`, `wait-until <= today`, `links:this NOT linkedfrom:this` with `this` a block id); it is ANDed with filters. `group` (a property name) answers groups with counts over every match; `facets: true` answers value counts",
     promptSnippet: "Query shared blocks by text or scoped property",
     parameters: Type.Object({
       text: Type.Optional(Type.String()),
