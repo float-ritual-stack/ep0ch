@@ -39,9 +39,12 @@ export class CommentTilePane implements Pane {
     const v = r?.surface.composerTile(w, Math.max(1, h - 1), r.host(desk)) ?? null;
     if (!v) return null;
     this.sides = [];
-    let row = fg(C.dark) + " the note's ", x = width(" the note's ");
+    if (h < 2) return v;
+    // Narrow, the arrows alone.
+    const short = w < 48;
+    let row = short ? " " : fg(C.dark) + " the note's ", x = short ? 1 : width(" the note's ");
     for (const [side, label] of SIDES) {
-      const chip = `[${label}]`;
+      const chip = `[${short ? label.replace(/[a-z ]/g, "") : label}]`;
       this.sides.push({ from: x, to: x + chip.length, side });
       row += fg(C.lcyan) + chip + fg(C.dark) + " ";
       x += chip.length + 1;

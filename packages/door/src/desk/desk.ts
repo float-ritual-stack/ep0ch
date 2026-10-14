@@ -266,6 +266,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   dismiss(p: Pane) {
     const id = [...this.panes].find(([, q]) => q === p)?.[0];
     if (id === undefined) return;
+    // A comment's tile closing: the next opens the size this one was.
+    if (p instanceof CommentTilePane) this.commentShare = this.shareOf(id) ?? this.commentShare;
     try { this.closeTile(this.nameOf(id), USER); } catch { /* the screen keeps it (a locked one): it says it has no comment */ }
   }
   /**
@@ -280,7 +282,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (at === undefined) return null;
     const reader = this.nameOf(at);
     const mine = [...this.panes].filter(([, p]) => p instanceof CommentTilePane && p.source === reader).map(([id]) => id);
-    if (!on) { for (const id of mine) { try { this.closeTile(this.nameOf(id), USER); } catch { /* kept by the screen */ } } return { closed: mine.length }; }
+    if (!on) { for (const id of mine) { this.commentShare = this.shareOf(id) ?? this.commentShare; try { this.closeTile(this.nameOf(id), USER); } catch { /* kept by the screen */ } } return { closed: mine.length }; }
     if (side) this.commentSide = side;
     let id = mine[0];
     if (id === undefined) {
@@ -293,8 +295,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.openedFrom.set(id, at);
     } else if (side) {
       // To another side of the reader, its share kept (sized by its border, it stays that size).
-      const p = parentOf(this.root, id);
-      const share = p && p.parent.t === "split" && p.parent.pair ? p.parent.weights[p.i]! / p.parent.weights.reduce((a, w) => a + w, 0) : this.commentShare;
+      const share = this.shareOf(id) ?? this.commentShare;
       const ok = this.ask({ op: "move", tile: id, to: { kind: "split", target: at, dir: side, pair: true, weight: share } }, USER);
       if (!ok.ok) throw new ActionRefused(ok.refused);
       this.commit(ok);
@@ -319,8 +320,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The side of its reader a comment's own tile opens on (PIE-846): the one last chosen. */
   private commentSide: Dir = "right";
-  /** Its share of the pair it opens in. */
-  private readonly commentShare = 0.45;
+  /** Its share of the pair it opens in: the last one's, as it was sized when it closed. */
+  private commentShare = 0.45;
+  /** The share comment tile `id` has of the pair it's in, when it's in one. */
+  private shareOf(id: number): number | null {
+    const p = parentOf(this.root, id);
+    return p && p.parent.t === "split" && p.parent.pair ? p.parent.weights[p.i]! / p.parent.weights.reduce((a, w) => a + w, 0) : null;
+  }
   /**
    * The tune inspector (PIE-673) on tile `tile` (default the focused one): the one on this screen turns to it, else one
    * opens beside it. The person's keys go to it; an agent's leaves them where they are.
