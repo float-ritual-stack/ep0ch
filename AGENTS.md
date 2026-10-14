@@ -285,8 +285,8 @@ MacBook). It does not support every version a client ever connected with.
   scratch files in a private `mktemp -d` there, and re-read a body before `gh pr create/edit --body-file` (one
   agent's draft was once published on another's PR).
 - **Rebase on the way in, hand the sha on the way out.** main moves many times a day: rebase before the final test
-  run, keep `PROTOCOL` one above main's when you bump it (when several open PRs bump at once, the deployer
-  allocates the numbers: ask before you pick one), and after merging tell the deployer (the person, or the
+  run, set `PROTOCOL` to main's value plus one at the final rebase, right before merging, never earlier (numbers
+  picked in advance clashed; when several open PRs bump it at once, the deployer orders their merges), and after merging tell the deployer (the person, or the
   agent they made the deployer) the merge sha. A protocol or schema bump also says, in the PR, exactly what to
   run on each machine (migration commands with real values).
 - **A second opinion before merging** catches what one reviewer misses: pipe the diff to Codex
@@ -310,6 +310,15 @@ MacBook). It does not support every version a client ever connected with.
   plugin root, and draws a block through the door's (`ep0ch show --cells`, BlockView). A session's folder feeds
   the outline its nearest `.ep0ch` names, or nothing. Only `hooks/register.ts` is handed `$` (the engine
   refuses `$` passed across an import), so the other files are pure: parsing, argv and trees.
+
+## Agents and skills here
+
+`.claude/agents/` holds the agent definitions a brief starts from, so a brief is the task and not the rules:
+`ep0ch-builder` (a ticket or a wave slice end to end: branches, reviews, the workboard, PROTOCOL at merge, scratch
+testing, the kitchen sink), `ep0ch-verifier` (reproduce an old ticket, then close it with evidence or fix it
+test-first, leaving the close to the deployer), and the read-only `ep0ch-recon` and `ep0ch-auditor` (one findings note in an outline, `path:line`
+citations). For any bug or failing test the one debugging skill is `diagnosing-bugs` (`.agents/skills/`): a
+reproduction that goes red before any fix. The `loki` skill (`.claude/skills/loki/`) is the deployer's runbook.
 
 ## Agent skills
 

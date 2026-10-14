@@ -1,11 +1,14 @@
 ---
 name: diagnosing-bugs
-description: Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow.
+description: Diagnosis loop for bugs, failing or flaky tests, and performance regressions. Use when the user says "diagnose"/"debug this", reports something broken/throwing/failing/slow, or a test or CI run fails, before proposing any fix.
 ---
 
 # Diagnosing Bugs
 
-A discipline for hard bugs. Skip phases only when explicitly justified.
+A discipline for bugs and failing tests. Skip phases only when explicitly justified.
+
+**No fix without a root cause, and no fix without a reproduction that goes red on it.** A rerun that passes is
+not a fix; "it's probably X, let me change it" is not a root cause.
 
 When exploring the codebase, read `GLOSSARY.md` (if it exists) to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
 
@@ -16,6 +19,13 @@ This skill has you show commands, outputs and captured artifacts. **Redact every
 If the redacted output is not enough to diagnose the bug, say so and ask the user.
 
 ## Phase 1: Build a feedback loop
+
+### Start by looking (this is not hypothesising)
+
+- **Read the error in full**: the message, the whole stack trace, the file and line, the test's name. It often names the fix.
+- **Check what changed**: recent commits and merges in the area (`git log -p --since=… -- <path>`), dependencies, config, the environment (another machine, more load, CI).
+- **In a system of parts** (CLI → service → database, door → socket → host, CI → runner → test), find *where* it breaks before *why*: log what enters and leaves each boundary once, then dig into the part where good data goes in and bad comes out.
+- **Trace a bad value backwards** to where it was born, not where it blew up: [root-cause-tracing.md](root-cause-tracing.md). Fix it at the source.
 
 **This is the skill.** Everything else is mechanical. If you have a **tight** pass/fail signal for the bug (one that goes red on _this_ bug), you will find the cause; bisection, hypothesis-testing, and instrumentation all just consume it. If you don't have one, no amount of staring at code will save you.
 
@@ -49,6 +59,12 @@ A 30-second flaky loop is barely better than no loop; a 2-second deterministic o
 ### Non-deterministic bugs
 
 The goal is not a clean repro but a **higher reproduction rate**. Loop the trigger 100×, parallelise, add stress, narrow timing windows, inject sleeps. A 50%-flake bug is debuggable; 1% is not, so keep raising the rate until it's debuggable.
+
+On a shared machine, loop serially with a timeout through the machine's test slot (here: `scripts/agent-env <name> --test --`
+on float-2); parallel or heavy stress runs go to a machine of their own (here: float-box, `scripts/box-test`). Never
+stress a live service.
+
+Delays are for *reproducing* a race (hold one side back to force the bad order), never for *fixing* one. The fix waits on the condition itself: [condition-based-waiting.md](condition-based-waiting.md).
 
 ### When you genuinely cannot build a loop
 
@@ -89,6 +105,8 @@ Do not proceed until you have reproduced **and** minimised.
 
 Generate **3–5 ranked hypotheses** before testing any of them. Single-hypothesis generation anchors on the first plausible idea.
 
+A good source: **a working sibling**. Find the nearest similar code that works (another screen, another test, the same call from another caller), read it completely, and list every difference, however small.
+
 Each hypothesis must be **falsifiable**: state the prediction it makes.
 
 > Format: "If <X> is the cause, then <changing Y> will make the bug disappear / <changing Z> will make it worse."
@@ -127,6 +145,19 @@ If a correct seam exists:
 4. Watch it pass.
 5. Re-run the Phase 1 feedback loop against the original (un-minimised) scenario.
 
+**One fix at a time**, aimed at the root cause: no bundled refactors, no "while I'm here". If the fix doesn't turn
+the loop green, undo it and go back to Phase 3 with what it showed; don't stack another fix on top.
+
+**After three failed fixes for one cause, stop.** Each fix uncovering a new problem somewhere else is the sign of a
+wrong design, not a fourth hypothesis. Say so, and question the design with the person before trying again.
+
+### When it really is the environment
+
+If the investigation shows the cause is outside the code (a machine, a network, a dependency's timing), say what you
+checked, handle it where it lands (a clear error, a bounded retry, a wait on a condition), and add the logging that
+would catch it next time. Most "no root cause" findings are an investigation that stopped early: report "no root
+cause found" with what was checked, never a guess dressed as a cause.
+
 ## Phase 6: Cleanup
 
 Required before declaring done:
@@ -136,3 +167,22 @@ Required before declaring done:
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message, so the next debugger learns
+
+## Stop signs
+
+Back to Phase 1 when you catch yourself thinking any of these:
+
+- "Quick fix for now, investigate later." / "Just try changing X and see."
+- "Rerun it, it's probably a flake." (One rerun can show it's intermittent; a pass doesn't make the first failure harmless. Keep its evidence and diagnose or ticket it.)
+- "Several changes at once, then run the tests."
+- "Skip the test, I'll check it by hand."
+- "I don't fully understand it, but this might work."
+- "Just one more fix" when two have already failed: the third failure is the stop.
+
+## Sources
+
+Adapted for this repository from [mattpocock/skills](https://github.com/mattpocock/skills)
+(`skills/engineering/diagnosing-bugs`, MIT), with the start-by-looking steps, the working sibling, one fix at a
+time, the stop after three failed fixes, the stop signs and the two supporting files taken from
+[obra/superpowers](https://github.com/obra/superpowers) `skills/systematic-debugging` (MIT, © Jesse Vincent),
+fetched October 2026. It is no longer tracked in `skills-lock.json`, so a skills update leaves it alone.
