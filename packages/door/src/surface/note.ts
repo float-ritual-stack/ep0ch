@@ -643,6 +643,11 @@ export class NoteSurface {
   private elems: Element[] = [];
   /** The current element (its key): where `[ ]` is, what ⏎ acts on, what the ruler tints (PIE-441). */
   private cur: string | null = null;
+  /**
+   * A link selected (`selectLink`) while the note wasn't laid out yet (shown again, not yet drawn): its element becomes
+   * current at the next layout, unless the selection moved meanwhile.
+   */
+  private linkUnlaid: number | null = null;
   /** Bring the current element into view on the next render (after `[ ]`, `( )` or a fold). */
   private reveal = false;
   /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
@@ -3447,7 +3452,7 @@ export class NoteSurface {
   }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
-  letGo() { this.cur = null; this.link = -1; }
+  letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; }
 
   private setElem(e: Element) {
     this.cur = e.key;
@@ -4452,6 +4457,9 @@ export class NoteSurface {
    */
   private keepCurrent(host?: SurfaceHost) {
     const drawn = (key: string) => this.elems.some(e => e.key === key);
+    const unlaid = this.linkUnlaid !== null && this.cur === null && this.link === this.linkUnlaid ? this.links[this.link] : undefined;
+    if (unlaid) this.cur = this.elems.find(e => e.link && sameLink(e.link, unlaid))?.key ?? null;
+    if (this.elems.length) this.linkUnlaid = null;
     const loading = !!this.src && (stepsLoading(this.src.board) || embedsLoading(this.src.board));
     if (this.cur && !drawn(this.cur)) {
       const a = this.stepRenamed, cur = this.cur;
@@ -5809,6 +5817,7 @@ export class NoteSurface {
     // The element it's drawn as becomes current (the ruler and ⏎ agree); none when it isn't drawn.
     this.cur = this.elems.find(e => e.link && sameLink(e.link, l))?.key ?? null;
     this.link = i;
+    this.linkUnlaid = this.cur === null && !this.elems.length ? i : null;
   }
   goUp(host: SurfaceHost) { return this.up(host); }
   /** The `[[address]]` the selected link names (the current element's, else `[ ]`'s), for `page.create`. */
