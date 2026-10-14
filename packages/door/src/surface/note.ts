@@ -144,7 +144,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
-  composerTile?(on: boolean, keys?: boolean): Promise<unknown>;
+  composerTile?(on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** The comment's own tile is open now (composerTile's): false once it was closed by hand. */
   hasComposerTile?(): boolean;
   /**
@@ -1057,15 +1057,16 @@ export class NoteSurface {
     this.boxRect = null;
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
     const writing = this.composing(host);
-    // In a tile of its own (PIE-846) the note is drawn whole here, and the host is asked for the tile once (it opens
-    // after this frame); with no tile to be in, it's drawn split.
-    if (writing?.cs.place === "tile" && host?.composerTile) {
-      const cs = writing.cs;
+    // In a tile of its own (PIE-846) the comment (or the thread list) is drawn there and the note whole here; the host is
+    // asked for the tile once (it opens after this frame); with no tile to be in, a comment is drawn split.
+    const cs = this.session;
+    if (cs && cs.place === "tile" && host?.composerTile) {
       if (this.tileFor !== cs) {
         this.tileFor = cs;
-        const open = host.composerTile;
+        const open = host.composerTile, side = this.tileSide ?? undefined;
+        this.tileSide = null;
         // The person's keys go to it only when the comment is theirs: an agent's comment never takes them.
-        queueMicrotask(() => void open(true, cs.startedBy.kind === "user").then(() => { if (this.tileFor === cs) this.tileOpen = cs; }, e => {
+        queueMicrotask(() => void open(true, cs.startedBy.kind === "user", side).then(() => { if (this.tileFor === cs) this.tileOpen = cs; }, e => {
           // Refused (a locked screen): the comment stays in the reader, split, and says why.
           if (this.tileFor === cs) { this.tileFor = null; cs.place = "split"; }
           host.ctx.flash(`the comment stays in the reader: ${e instanceof Error ? e.message : String(e)}`);
@@ -2687,7 +2688,8 @@ export class NoteSurface {
     return {
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       // The passage picker and the thread list are drawn in place of the note; the composer is drawn in it (PIE-770).
-      editing: () => true, covers: () => cs.mode !== "compose",
+      // In its own tile (PIE-846) the list and the picker are drawn there, and the note here stays as it was.
+      editing: () => true, covers: () => cs.mode !== "compose" && cs.place !== "tile",
       key: (k, host) => this.commentKey(cs, k, host),
       // Beside the box, a click on a link, a comment mark or back and forward goes there, asking first (PIE-785).
       click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : cs.mode === "compose" && cs.place === "tile" ? this.followFromComposer(x, y, host) : false; },
@@ -2710,7 +2712,7 @@ export class NoteSurface {
         if (c?.shown) { c.move(dir); return true; }
         return !!at && !!wheelTarget(d, at.x, at.y) && this.writeWheel(d, dir, at);
       },
-      rows: (w, h, host) => { this.use(host); return this.msg ? cs.render(w, h, subject(this.msg), (t, pw, links) => this.snippetDoc(t, pw, undefined, links)) : null; },
+      rows: (w, h, host) => { this.use(host); return this.msg && !(cs.place === "tile" && host?.composerTile) ? cs.render(w, h, subject(this.msg), (t, pw, links) => this.snippetDoc(t, pw, undefined, links)) : null; },
       leave: async (host, actor) => {
         const w = cs.writing;
         // An agent leaves only a comment it opened and alone typed in (the draft session's rule).
@@ -3011,12 +3013,24 @@ export class NoteSurface {
   /** ctrl+g in a comment being written: its box floats, and the arrows move it and shift+arrows size it until ⏎ or esc (PIE-785). */
   private gripMode(cs: CommentSession): GripMode {
     const move = (args: ComposerMove, host: SurfaceHost) => void this.runKey("comment.move", args, host, true);
+    const side = (to: "left" | "right" | "up" | "down", host: SurfaceHost) => void this.runKey("comment.place", { place: "tile", side: to }, host, true);
+    const tiled = () => cs.place === "tile";
     return {
       name: "grip", of: cs, holdsKeys: true, word: "composer move",
       editing: () => false, covers: () => false,
-      ended: () => cs.mode !== "compose" || cs.place !== "floating",
+      ended: () => (cs.place === "tile" ? false : cs.mode !== "compose" || cs.place !== "floating"),
       key: (k, host) => {
         const c = ch(k);
+        // In its own tile (PIE-846): the arrows put it on that side of its reader; its border sizes it (or ^W < > + -).
+        if (tiled()) {
+          if (k.kind === "left" || c === "h") side("left", host);
+          else if (k.kind === "right" || c === "l") side("right", host);
+          else if (k.kind === "up" || c === "k") side("up", host);
+          else if (k.kind === "down" || c === "j") side("down", host);
+          else if (k.kind === "enter" || k.kind === "esc" || (k.kind === "char" && k.ctrl && k.ch === "g")) { this.modes.drop("grip"); host.redraw(); }
+          else { this.modes.drop("grip"); return this.modes.key(k, host) ?? false; }
+          return true;
+        }
         const step = (dx: number, dy: number) => move({ dx, dy }, host), size = (dcols: number, drows: number) => move({ dcols, drows }, host);
         const shift = "shift" in k && !!k.shift;
         if (k.kind === "left" || c === "h") shift ? size(-2, 0) : step(-2, 0);
@@ -3035,7 +3049,7 @@ export class NoteSurface {
       click: () => { this.modes.drop("grip"); return undefined; },
       rows: () => null,
       leave: async () => { this.modes.drop("grip"); return { left: "nothing" }; },
-      hint: () => "moving the comment · ← → ↑ ↓ or h j k l move · shift+arrows or H J K L size · 0 its usual place · ⏎ done",
+      hint: () => (tiled() ? "moving the comment round its note · ← → ↑ ↓ or h j k l: that side · drag its border (or ^W < > + -) to size it · ⏎ done" : "moving the comment · ← → ↑ ↓ or h j k l move · shift+arrows or H J K L size · 0 its usual place · ⏎ done"),
       state: () => "moving the comment",
       describe: () => ({ moving: true, float: cs.float }),
     };
@@ -3044,8 +3058,9 @@ export class NoteSurface {
   /** Open moving by keys (ctrl+g, comment.grip): the box floats first if it was elsewhere. */
   grip(host: SurfaceHost) {
     const cs = this.session;
-    if (!cs || cs.mode !== "compose" || !cs.composer) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
-    if (cs.place !== "floating") { cs.place = "floating"; cs.float = null; }
+    if (!cs || ((cs.mode !== "compose" || !cs.composer) && cs.place !== "tile")) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
+    // In its own tile it moves round its reader instead (PIE-846); anywhere else it floats to move.
+    if (cs.place !== "floating" && cs.place !== "tile") { cs.place = "floating"; cs.float = null; }
     this.modes.push(this.gripMode(cs));
     host.redraw();
   }
@@ -3123,8 +3138,11 @@ export class NoteSurface {
     if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
     // The comment's ctrl+r is the edit's: find the quote again. Its ctrl+x ctrl+e ($EDITOR) is the draft's chord (edit.external).
     if (sessionKey(s, k, "r")) { void this.runKey("comment.reload", {}, host, true); return true; }
-    // ctrl+o: the composer somewhere else (inline, floating, split, popup: PIE-770).
+    // ctrl+o: the composer somewhere else (inline, floating, split, popup: PIE-770); the thread list into its own tile
+    // beside the note and back over it (PIE-846).
     if (sessionKey(s, k, "o")) { void this.runKey("comment.place", {}, host, true); return true; }
+    if (s.mode !== "compose" && !s.busy && k.kind === "char" && k.ctrl && k.ch === "o" && host.composerTile) { void this.runKey("comment.place", { place: s.place === "tile" ? "inline" : "tile" }, host, true); return true; }
+    if (s.mode !== "compose" && s.place === "tile" && !s.busy && k.kind === "char" && k.ctrl && k.ch === "g") { void this.runKey("comment.grip", {}, host, true); return true; }
     // ctrl+g: move and size it by keys (it floats, PIE-785).
     if (sessionKey(s, k, "g")) { void this.runKey("comment.grip", {}, host, true); return true; }
     // Typing brings an inline composer (rows of the note) back into view after the wheel took the note elsewhere. A
@@ -3191,8 +3209,17 @@ export class NoteSurface {
    * placed. Null when nothing is being written here in a tile.
    */
   composerTile(w: number, h: number, host: SurfaceHost): { lines: string[]; placements: Placement[] } | null {
+    const cs = this.session;
+    if (!cs || cs.place !== "tile" || !this.msg) return null;
+    // Its thread list (or the passage picker) there too: reading the comments beside the note (PIE-846).
+    if (cs.mode !== "compose") {
+      this.use(host);
+      const lines = cs.render(w, h, subject(this.msg), (t, pw, links) => this.snippetDoc(t, pw, host, links, true)).map(l => pad(l, w) + RESET);
+      while (lines.length < h) lines.push("");
+      return { lines, placements: [] };
+    }
     const c = this.composing(host);
-    if (!c || c.cs.place !== "tile") return null;
+    if (!c) return null;
     const lines = renderEditor(c.d, c.f, w, h).map(l => pad(l, w) + RESET);
     while (lines.length < h) lines.push("");
     return { lines, placements: previewPictures(c.d, 0, h) };
@@ -3204,7 +3231,9 @@ export class NoteSurface {
    * scrolls the text or its preview. True when it was the comment's.
    */
   composerPointer(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, host: SurfaceHost): boolean {
-    const d = this.session?.mode === "compose" && this.session.place === "tile" ? this.session.composer : null;
+    const cs = this.session;
+    if (cs?.place === "tile" && cs.mode !== "compose" && (k.action === "wheel-up" || k.action === "wheel-down")) { cs.wheel(k.action === "wheel-down" ? 1 : -1); host.redraw(); return true; }
+    const d = cs?.mode === "compose" && cs.place === "tile" ? cs.composer : null;
     if (!d) return false;
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.writeWheel(d, k.action === "wheel-down" ? 1 : -1, { x, y }); host.redraw(); return true; }
     if (k.action === "down") { this.tileDrag = false; this.writePress(d, x, y, false); host.redraw(); return true; }
@@ -3218,6 +3247,8 @@ export class NoteSurface {
     }
     return false;
   }
+  /** The side its tile opens on, when comment.place named one before it opened (side=, PIE-846). */
+  tileSide: "left" | "right" | "up" | "down" | null = null;
   /** The comment left its own tile (comment.place): put back in one, the host is asked for it again. */
   leftTile() { this.tileFor = this.tileOpen = null; }
   /** A drag in the comment's own tile is selecting (its release copies, never clicks). */
@@ -7313,20 +7344,28 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "where the comment, question or reply being written sits (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer, or over it when narrow), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own beside the reader, the note whole beside it; it moves, sizes and docks to an edge as any tile does, ^W p). Left out, the next one. This composer only: composer.place sets where new ones open",
     keys: "ctrl+o while writing a comment; a click on the box's place chip",
     touches: "draft", draft: "type", replay: "ask",
-    args: { place: { type: "string", optional: true, about: `${COMPOSER_PLACES.join(", ")}; left out, the next one` } },
-    async run({ place }, { surface, host }) {
+    args: {
+      place: { type: "string", optional: true, about: `${COMPOSER_PLACES.join(", ")}; left out, the next one (with side=, tile)` },
+      side: { type: "string", optional: true, about: "left, right, up or down: which side of its note the comment's tile is on (PIE-846); kept for the next" },
+    },
+    async run({ place, side }, { surface, host }) {
       const s = surface.session;
-      if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
-      const want = place === undefined ? nextPlace(s.place, !!host.composerTile) : composerPlaceOf(place);
+      if (!s) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
+      // The thread list (m) goes into its tile beside the note and back over it (PIE-846); a comment anywhere.
+      if (s.mode !== "compose" && place !== undefined && place !== "tile" && s.place !== "tile") throw new ActionRefused("the thread list is drawn over the note, or in its own tile beside it: place=tile");
+      if (side !== undefined && !["left", "right", "up", "down"].includes(side)) throw new ActionRefused(`side is left, right, up or down, not ${JSON.stringify(side)}`);
+      const want = place === undefined ? (side !== undefined ? "tile" : nextPlace(s.place, !!host.composerTile)) : composerPlaceOf(place);
       if (!want) throw new ActionRefused(`place is ${COMPOSER_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
       if (want === "tile" && !host.composerTile) throw new ActionRefused("this reader has no tiles round it to put the comment in · split is the nearest (comment.place place=split)");
       const was = s.place;
       s.place = want;
-      // Out of its tile, back into the reader: the tile closes (into one, the next frame asks for it).
+      // Out of its tile, back into the reader: the tile closes (into one, the next frame asks for it). Already in it, to
+      // another side of the note.
       if (was === "tile" && want !== "tile") { surface.leftTile(); await host.composerTile?.(false); }
+      else if (want === "tile" && side !== undefined) { if (was === "tile") await host.composerTile!(true, s.startedBy.kind === "user", side as "left"); else surface.tileSide = side as "left"; }
       surface.revealComposerNext();
       host.redraw();
-      return { place: want };
+      return { place: want, ...(side !== undefined ? { side } : {}) };
     },
   }),
   "comment.grip": def({

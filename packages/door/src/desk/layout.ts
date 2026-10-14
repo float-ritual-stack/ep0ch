@@ -97,6 +97,12 @@ export type Split<I = number> = {
   /** A name the view finds it by ("readers"); a named split stays when one kid is left. */
   key?: string;
   /**
+   * A pair made for a tile beside another, in that tile's place (a comment beside the reader it's on, PIE-846): never
+   * flattened into its parent, never joined by a tile put beside it, and gone when one kid is left, that kid back in its
+   * place with its room. So a tile that was there before the pair is where it was when the pair goes.
+   */
+  pair?: true;
+  /**
    * Its stable id (PIE-491), given by the view that owns the tree (the desk's `s<n>`): it stays with the split
    * through every change that keeps the split, where its path doesn't. It changes nothing about the layout.
    */
@@ -386,8 +392,8 @@ export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
   // A flow stays with one column (it still opens into the next); empty, it's gone unless named.
   if (n.t === "flow") return kids.length || n.key ? tidyFlow({ ...n, kids, weights }) : null;
   if (!kids.length) return null;
-  // A split that carries a policy stays with one kid, as a named one does: its rule outlives the move.
-  if (kids.length === 1 && !n.key && !hasPolicy(n)) return kids[0]!;
+  // A split that carries a policy stays with one kid, as a named one does: its rule outlives the move. A pair never does.
+  if (kids.length === 1 && (n.t === "split" && n.pair || (!n.key && !hasPolicy(n)))) return kids[0]!;
   return { ...n, kids, weights };
 }
 
@@ -565,7 +571,11 @@ export function placeScreen<I>(s: ScreenLayout<I>, r: Rect, opts: PlaceOpts<I> =
 // ── tiles: move, tab, edge, normalise (PIE-413) ──────────────────────────────
 
 /** Where a moved tile goes: beside a tile (a split in that direction), into its tabs, or along an outer edge. */
-export type Place<I> = { kind: "split"; target: I; dir: Dir } | { kind: "tabs"; target: I; index?: number } | { kind: "edge"; dir: Dir };
+/**
+ * `pair`: beside the target in a pair of their own (Split.pair), taking `weight` of the target's room (default half); the
+ * target's room comes back to it whole when the tile goes (a comment beside its reader, PIE-846).
+ */
+export type Place<I> = { kind: "split"; target: I; dir: Dir; pair?: true; weight?: number } | { kind: "tabs"; target: I; index?: number } | { kind: "edge"; dir: Dir };
 
 const axisOf = (d: Dir): Axis => (d === "left" || d === "right" ? "row" : "col");
 const before = (d: Dir) => d === "left" || d === "up";
@@ -588,13 +598,15 @@ function mapSlot<I>(n: LNode<I>, id: I, f: (slot: LNode<I>) => LNode<I>): LNode<
 
 /**
  * Put `add` beside the slot holding `target` (its tab set, when it's in one), on the `dir` side, taking half
- * of the slot's room. Inside a split along the same axis it joins that split (n-ary) instead of nesting a pair.
+ * of the slot's room. Inside a split along the same axis it joins that split (n-ary) instead of nesting a pair, unless
+ * `pair` asks for one (Split.pair), or the split is one.
  */
-export function besideSlot<I>(root: LNode<I>, target: I, add: LNode<I>, dir: Dir, weight = 0.5): LNode<I> {
+export function besideSlot<I>(root: LNode<I>, target: I, add: LNode<I>, dir: Dir, weight = 0.5, pair = false): LNode<I> {
   const axis = axisOf(dir);
   const p = parentOf(root, target);
+  if (pair) return mapSlot(root, target, slot => ({ ...splitOf(axis, before(dir) ? [add, slot] : [slot, add], before(dir) ? [weight, 1 - weight] : [1 - weight, weight]), pair: true }));
   // Beside a tile in a split along the same axis (or in columns or a flow, across), it joins it: in a flow, a new column.
-  if (p && p.parent.dir === axis && (!p.parent.key || p.parent.t === "columns" || p.parent.t === "flow")) {
+  if (p && p.parent.dir === axis && !(p.parent.t === "split" && p.parent.pair) && (!p.parent.key || p.parent.t === "columns" || p.parent.t === "flow")) {
     const w = p.parent.weights[p.i]!;
     const at = before(dir) ? p.i : p.i + 1;
     p.parent.kids.splice(at, 0, add);
@@ -638,7 +650,7 @@ export function move<I>(root: LNode<I>, src: I, to: Place<I>): LNode<I> | null {
   if (!rest) return null;
   if (to.kind === "edge") return normalise(edge(rest, src, to.dir));
   if (target === null || !has(rest, target)) return null;
-  const out = to.kind === "tabs" ? tabInto(rest, target, src, to.index) : besideSlot(rest, target, leaf(src), to.dir);
+  const out = to.kind === "tabs" ? tabInto(rest, target, src, to.index) : besideSlot(rest, target, leaf(src), to.dir, to.weight ?? 0.5, !!to.pair);
   return normalise(out);
 }
 
@@ -901,14 +913,14 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
     // A tab set with no tabs left, a split with no kids, or a dock holding neither takes no room: it's gone.
     if (empty(k)) return;
     const w = good(n.weights[i]) ? n.weights[i]! : 1;
-    if (k.t === "split" && k.dir === n.dir && !k.key && !n.key && !k.policy) {
+    if (k.t === "split" && k.dir === n.dir && !k.key && !n.key && !k.policy && !k.pair && !n.pair) {
       const sum = k.weights.reduce((a, x) => a + x, 0) || 1;
       k.kids.forEach((kk, j) => { kids.push(kk); weights.push((w * k.weights[j]!) / sum); });
     } else { kids.push(k); weights.push(w); }
   });
   // A split left with one kid gives way to it, unless it's named or carries a policy (its rule stays with the
   // place: a tile moved back in is under it again).
-  if (kids.length === 1 && !n.key && !hasPolicy(n)) {
+  if (kids.length === 1 && (n.pair || (!n.key && !hasPolicy(n)))) {
     let only = kids[0]!;
     // At the top a lone dock has nothing to slide over: it's what it holds.
     if (top && only.t === "dock") only = only.kid;
@@ -926,7 +938,7 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
 
 /** The desk.json form before PIE-412: binary splits by ratio. The desk still writes it (it only makes pairs). */
 export type BinaryForm<L> = L | { t: "split"; dir: Axis; ratio: number; a: BinaryForm<L>; b: BinaryForm<L>; id?: string; policy?: Policy } | DockForm<L> | ColumnsForm<L> | FlowForm<L>;
-export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string; id?: string; policy?: Policy } | TabsForm<L> | DockForm<L> | ColumnsForm<L> | FlowForm<L>;
+export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string; pair?: true; id?: string; policy?: Policy } | TabsForm<L> | DockForm<L> | ColumnsForm<L> | FlowForm<L>;
 /**
  * A flow as saved (PIE-513): its columns, and its memory by column number (0 the first): the wide one, the one kept
  * full, the one read before, the held ones, and each column's way back (`from`) and forward (`ahead`).
@@ -1002,7 +1014,7 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
     const kids = x.kids.map((k: any) => revive(k, leafOf));
     // Weights that aren't positive, finite numbers (or don't match the kids) fall back to equal shares.
     const ok = Array.isArray(x.weights) && x.weights.length === kids.length && x.weights.every(good);
-    return { ...splitOf(dir, kids, ok ? [...x.weights] : undefined, typeof x.key === "string" ? x.key : undefined), ...savedId(x) };
+    return { ...splitOf(dir, kids, ok ? [...x.weights] : undefined, typeof x.key === "string" ? x.key : undefined), ...(x.pair === true ? { pair: true as const } : {}), ...savedId(x) };
   }
   const ratio = good(x.ratio) && x.ratio < 1 ? x.ratio : 0.5;
   return { ...pair(dir, ratio, revive(x.a, leafOf), revive(x.b, leafOf)), ...savedId(x) };
@@ -1027,7 +1039,7 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> 
     const memory = { ...(at(n.anchor) !== undefined ? { anchor: at(n.anchor) } : {}), ...(at(n.keep) !== undefined ? { keep: at(n.keep) } : {}), ...(at(n.read) !== undefined ? { read: at(n.read) } : {}), ...(held.length ? { held } : {}), ...(trail.length ? { trail } : {}) };
     return { t: "flow", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), ...memory, ...(n.key ? { key: n.key } : {}), ...idOf(n) };
   }
-  return { t: "split", dir: n.dir, kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.key ? { key: n.key } : {}), ...idOf(n) };
+  return { t: "split", dir: n.dir, kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.key ? { key: n.key } : {}), ...(n.pair ? { pair: true as const } : {}), ...idOf(n) };
 }
 
 /**

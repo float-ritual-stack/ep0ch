@@ -1906,7 +1906,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => !cs(), "the comment saved, the person reading", 8000);
     const mine = (await board.comments(note)).find(t => t.body === body);
     expect(mine?.quote).toBe("two new sheets");
-    expect(surf("inline").expanded.has(mine!.id)).toBe(true);
+    // Its thread open where the box was: waited for, not assumed by the time the session ended (it once raced under load).
+    await until(() => surf("inline").expanded.has(mine!.id), "the new thread shown open", 8000);
     await until(() => { const a = find("two new sheets of felt"); return a.y > 0 && rows().slice(a.y + 1, a.y + 12).some(l => l.includes("Buy a second water butt")); }, "the thread under its passage, the embed drawn", 8000);
     at = find("two new sheets of felt");
     r = rows().slice(at.y + 1, at.y + 12);
