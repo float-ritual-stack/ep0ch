@@ -838,7 +838,7 @@ describe("the checkpoint and the restore", () => {
       v: 2, at: 0, menu: true, screens: [], reopen: [...comment("gone"), ...comment("reader"), ...comment("narrow"), { action: "tile.focus", tile: "gone" }],
       tuning: [{ target: "screen:desk", field: "measure", value: "120", by: USER }],
     });
-    expect(ran.filter(x => x.tile === "gone").map(x => x.action)).toEqual(["open"]);
+    expect(ran.filter(x => x.tile === "gone").map(x => x.action)).toEqual(["open", "tile.focus"]);
     expect(ran.filter(x => x.tile === "reader")).toEqual(comment("reader"));
     expect(ran.filter(x => x.tile === "narrow").map(x => x.action)).toEqual(["open", "passage.act", "comment.place"]);
     expect(ran.at(-1)).toEqual({ action: "tile.focus", tile: "gone", args: {} });
