@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Recent files recording is off by default
+
+- **Changed:** the Claude mod no longer files each Edit and Write under `[[recent-files]]` unless asked: code edits were
+  more noise than signal there, and plans and handoffs land in the outline directly now. The file rows in Claude Code
+  are unchanged (a file outside git loses the first copy its `diff` compared with). Turn it back on with the mod's
+  `fileTouches` option set to `on`, or `PI_OUTLINER_FILE_TOUCHES=on` in Claude's environment. Existing notes stay.
+
 ### One Detail host (PIE-833)
 
 - **Removed:** the second, ANSI Detail host (`src/detail.ts`) and its selector (`detail-main.ts`,

@@ -1,7 +1,7 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 
-import { localDay, projectOf, touchInputOf, touchOf } from '../hooks/file-touches'
+import { fileTouchesOn, localDay, projectOf, touchInputOf, touchOf } from '../hooks/file-touches'
 import { fileRowOf, type ToolCallView, toolResultLineOf } from '../hooks/tool-rows'
 
 tier('user')
@@ -115,8 +115,21 @@ function sessionIn(on: On, env: Record<string, string> = {}) {
 const START = { surface: 'terminal', isInteractive: true, cwd: WORKSPACE } as const
 
 describe('each touch, recorded in the session\'s outline', () => {
+  test('off unless turned on: the option wins, else PI_OUTLINER_FILE_TOUCHES; nothing is recorded when off', async ($, on) => {
+    expect([fileTouchesOn(undefined, undefined), fileTouchesOn('', ''), fileTouchesOn('off', 'on'), fileTouchesOn('', 'on'), fileTouchesOn('ON', undefined), fileTouchesOn('maybe', undefined)])
+      .toEqual([false, false, false, true, true, false])
+    const s = sessionIn(on, { PI_OUTLINER_FILE_TOUCHES: '' })
+    await $.session.start(START)
+    await s.clock.settle()
+    const answered = await $.tool.call({ tool: 'Edit', file_path: FILE, old_string: 'Borlotti', new_string: 'Runner beans\nChard' } as any)
+    expect((answered as any).result).toEqual(EDITED)
+    await s.clock.settle()
+    expect(s.touches()).toEqual([])
+  })
+
+
   test('an Edit that ran is recorded by `agent touch-file` as this session, after the call answered; the copy from before goes with the first touch only', async ($, on) => {
-    const s = sessionIn(on)
+    const s = sessionIn(on, { PI_OUTLINER_FILE_TOUCHES: 'on' })
     await $.session.start(START)
     await s.clock.settle()
     const answered = await $.tool.call({ tool: 'Edit', file_path: FILE, old_string: 'Borlotti', new_string: 'Runner beans\nChard' } as any)
