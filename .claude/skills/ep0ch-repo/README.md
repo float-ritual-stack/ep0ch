@@ -44,6 +44,20 @@ instead (`hooks/guards.ts`):
 - **The answer:** the agent's answer comes back as a prompt from the ep0ch-repo plugin. The main thread checks the
   findings and makes the updates as itself. A toast says when a sweep starts, or why it couldn't.
 
+## Package rules for commands
+
+Claude Code loads a path-scoped rule (`.claude/rules/*.md`) when an agent reads a file its `paths:` match. It never
+loads one when the agent runs a command, so an agent that runs a test door from Bash without opening a door file would
+miss `door.md`. The mod closes that gap (`hooks/rules.ts`):
+- **What it looks at:** the paths a Bash command names, and the folder the shell is in. Relative paths are resolved
+  from that folder. An absolute path to another checkout counts by its tail (`~/projects/ep0ch/scripts/agent-env` →
+  `scripts/agent-env`). Wrappers count too (`scripts/agent-env … --`, `bash -c '…'`).
+- **What decides:** each rule's own `paths:`. A new rule file is picked up with no change here, and a narrow rule
+  (`outlines-by-name.md`) fires only for its own files.
+- **How it arrives:** the first command that touches a rule's files carries the rule's text after its result, as
+  context the agent reads. This happens once per loop: the main thread and each subagent get it once each, and again
+  after a compaction or `/clear`. A refused command carries nothing.
+
 ## Develop
 
 ```sh

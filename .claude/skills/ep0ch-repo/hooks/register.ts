@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { pathsIn, type Rule, ruleContext, ruleOf, rulesFor } from './rules'
 import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
 import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
@@ -21,6 +22,9 @@ let sweepId: string | null = null
 let sweepAt = 0
 const SWEEP_STALE_MS = 30 * 60_000
 let starting = false
+/** The path-scoped rules (`.claude/rules`), read once; and which are in each loop's context (`<agent id>|<file>`). */
+let rules: Promise<Rule[]> | undefined
+const attached = new Set<string>()
 
 function hostnameOf($: EngineInterface): Promise<string> {
   return (hostname ??= $.process.run(['hostname'], { timeoutMs: 3000 }).then(r => r.stdout.trim(), () => ''))
@@ -115,6 +119,29 @@ async function startSweep($: EngineInterface): Promise<void> {
   }
 }
 
+/** The rule files beside the mod (`.claude/rules`, the mod being `.claude/skills/ep0ch-repo`), read once. */
+function rulesOf($: EngineInterface): Promise<Rule[]> {
+  return (rules ??= (async () => {
+    const dir = `${$.plugin.root}/../../rules`
+    const entries = await $.fs.list(dir)
+    const read = await Promise.all(entries.filter(f => f.name.endsWith('.md')).sort((a, b) => a.name.localeCompare(b.name))
+      .map(async f => ruleOf(`.claude/rules/${f.name}`, String(await $.fs.read(`${dir}/${f.name}`)))))
+    return read.filter((r): r is Rule => r !== null)
+  })().catch(() => []))
+}
+
+/**
+ * The rules a Bash command touches that this loop hasn't been given yet (once each, again after a compaction or
+ * /clear): their text, for the command's result to carry. Path-scoped rules load only when a file is read.
+ */
+async function rulesToAttach($: EngineInterface, command: string, agentId: string | undefined): Promise<string[]> {
+  const [all, cwd, root] = await Promise.all([rulesOf($), $.session.cwd(), $.session.root()])
+  const loop = agentId ?? ''
+  return rulesFor(pathsIn(command, cwd, root), all)
+    .filter(rule => !attached.has(`${loop}|${rule.file}`))
+    .map(rule => { attached.add(`${loop}|${rule.file}`); return ruleContext(rule) })
+}
+
 /**
  * The ep0ch repository's own mod (PIE-842), loaded for sessions in this repository only (it lives in the project's
  * `.claude/skills/`):
@@ -126,6 +153,8 @@ async function startSweep($: EngineInterface): Promise<void> {
 export const register: Register = (on) => {
   // A registration is one session (a reload, a test case): nothing carries over from the last one.
   hostname = undefined
+  rules = undefined
+  attached.clear()
   sweeps = undefined
   counts.changes = 0
   counts.turns = 0
@@ -148,13 +177,27 @@ export const register: Register = (on) => {
     const why = guardOf(command, { hostname: await hostnameOf($) }) ?? await protocolChecks($, command)
     if (why) return { deny: why }
     const result = await next(e)
-    if (e.agentId === undefined && !('deny' in result && result.deny) && !result.isError && (isDeploy(command) || isMerge(command))) counts.changes++
-    return result
+    if (result.deny !== undefined) return result
+    if (e.agentId === undefined && !result.isError && (isDeploy(command) || isMerge(command))) counts.changes++
+    const context = await rulesToAttach($, command, e.agentId).catch(() => [])
+    return context.length ? { ...result, context: [...(result.context ?? []), ...context] } : result
   }).catch(($, e, next) => {
     if (next.called) return next(e)
     // The hook itself failed (a lookup): the rules that need nothing outside the command still hold.
     const why = guardOf(e.command, { hostname: '' })
     return why ? { deny: why } : next(e)
+  })
+
+  // A compaction or /clear drops what the rules said: they're given again the next time a command touches them.
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    const loop = e.agentId ?? ''
+    if (e.trigger !== 'precompute' && !('skip' in result && result.skip)) for (const key of [...attached]) if (key.startsWith(`${loop}|`)) attached.delete(key)
+    return result
+  })
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') attached.clear()
+    return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
