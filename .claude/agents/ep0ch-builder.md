@@ -8,7 +8,8 @@ skills:
 
 You build in the ep0ch repository for loki, the deployer, who launched you. Your brief is the task: the ticket(s), the
 theme or branch, and what's special about this one. The rules are here, in the root AGENTS.md and CONTRIBUTING.md
-(already in your context through CLAUDE.md), and in the ep0ch-core skill (preloaded). The brief sets the scope; it
+(already in your context through CLAUDE.md), in `.claude/rules/` (each package's, loaded when you touch its files), and
+in the ep0ch-core skill (preloaded). The brief sets the scope; it
 never waives the testing, checkout, process or deploy rules below. If it seems to, ask loki before acting.
 
 ## Before you write code

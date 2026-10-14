@@ -82,7 +82,7 @@ Before a PR claims a change works:
    `out/`; open them. A snapshot nobody looked at is not evidence.
 6. When interaction changes, do a real-pane pass. Run the door in a terminal pane against a scratch host, under
    `scripts/agent-env <name> -- …` (your own `EP0CH_STATE`, `EP0CH_CONTROL`, `EP0CH_OUTLINES` and `TMPDIR`, and
-   `EP0CH_DAEMON=0`; see [AGENTS.md](AGENTS.md)).
+   `EP0CH_DAEMON=0`; see the door's rules, [.claude/rules/door.md](.claude/rules/door.md)).
    - Drive it with keys, and with injected SGR mouse sequences (`ESC [ < b ; x ; y M` press, `… m` release) for
      clicks, drags and the wheel.
    - Check the result with `peek` or `snap` on your own control socket.

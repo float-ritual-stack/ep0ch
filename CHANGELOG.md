@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### AGENTS.md is a short core; package rules load where they apply (PIE-841)
+
+- **Changed:** `AGENTS.md` keeps the rules every agent needs (the repository map, real outlines and doors, tests on
+  shared machines, PROTOCOL and the schema, fixtures, merging) and drops from 26 KB to 17 KB (335 lines to 206). Each package's rules
+  moved to `.claude/rules/` (`door.md`, `outliner.md`, `outline-core.md`, `claude-mod.md`, and `outlines-by-name.md` for
+  the code that picks an outline or a machine), which Claude Code loads only when an agent touches those files.
+  Codex and other tools read `AGENTS.md`, which tells them to read the package's file before changing it.
+
 ### Recent files recording is off by default
 
 - **Changed:** the Claude mod no longer files each Edit and Write under `[[recent-files]]` unless asked: code edits were

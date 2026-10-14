@@ -10,7 +10,7 @@ Herdr clients Tree, Detail and Preview, the CLI and the publisher. **packages/do
 use every day: screens built from tiles, all over one note surface. **packages/outline-core** is the pure code
 both import (the property grammar, the draft.patch compare, the search matcher, `PROTOCOL` and the wire types,
 which outline a client opens). **packages/claude-mod** is the Claude Code mod. This skill is a map. The rules
-live in the repository's `AGENTS.md` and `CONTRIBUTING.md` and the packages' docs; read the ones a change
+live in the repository's `AGENTS.md` and `CONTRIBUTING.md`, each package's file in `.claude/rules/`, and the packages' docs; read the ones a change
 touches, and trust them over this page.
 
 For working *in* an outline for someone, rather than on the code, use `ep0ch-outline`. For driving a door,
@@ -26,10 +26,11 @@ use `ep0ch`.
 | change workboard state | the live **How this workboard works** block (the root `AGENTS.md` names it) and the `outliner-workflow` skill's roadmap reference |
 | build or change an extension | packages/outliner `docs/extensions/README.md` (the contract, the four kinds, `@name` agents, worked examples); the door draws what `extensions.list` gives (`src/extensions.ts`) |
 | change the protocol or the schema | the root `AGENTS.md`, "Schema and protocol: one version", and `CONTRIBUTING.md`, "Protocol and schema": one `PROTOCOL` in outline-core, bumped by any wire change, and a mismatch refused; a schema change bumps `SCHEMA_VERSION` with a one-off script in `packages/outliner/scripts/migrations/`, run by `ep0ch install --apply` on each machine and deleted. No runtime compat, ever |
-| change which outline a client opens | outline-core `src/outline-location.ts` (PIE-530): one rule for every client |
+| change which outline a client opens | outline-core `src/outline-location.ts` (PIE-530): one rule for every client; the details in `.claude/rules/outlines-by-name.md` |
 | need the whole picture | the architecture map, `packages/door/docs/architecture/map.json`: every structure in the door and the outliner, its ladder position and its open questions; `bun scripts/architecture-map.ts` in packages/door checks its citations and draws it; after code moves, `--sync` (in the push-review round, with `--check`) moves each citation to its marker and stamps the commit, and a new shared part gets a structure in the map |
 
-Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the contract.
+Then the root `AGENTS.md` and `CONTRIBUTING.md`, and the `.claude/rules/` file for each package you change. They are
+short and they are the contract.
 
 ## Rules that shape every change
 

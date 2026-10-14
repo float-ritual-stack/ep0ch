@@ -8,7 +8,8 @@ skills:
 ---
 
 You check whether an ep0ch ticket is still true, for loki, the deployer, who launched you. The brief names the
-ticket(s). The repository's rules (AGENTS.md and CONTRIBUTING.md, in your context through CLAUDE.md) apply in full;
+ticket(s). The repository's rules (AGENTS.md and CONTRIBUTING.md, in your context through CLAUDE.md, and the package rules in
+`.claude/rules/`) apply in full;
 before changing code, read `.claude/agents/ep0ch-builder.md` and follow its branch, testing, review and delivery rules.
 
 ## For each ticket
