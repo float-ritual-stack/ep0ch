@@ -265,19 +265,55 @@ async function builtIns(): Promise<string[]> {
   return existsSync(BUILT_INS) ? (await readdir(BUILT_INS)).filter((name) => existsSync(join(BUILT_INS, name, "extension.json"))).sort() : [];
 }
 
-/** `ext ls` from the service's own registry: states, errors and what each serves. */
-export function formatExtensionsList(list: ExtensionsListResult): string[] {
+/** Rows laid out in columns: each column as wide as its longest cell, the last one left ragged. */
+function columns(rows: readonly (readonly string[])[]): string[] {
+  const widths: number[] = [];
+  for (const row of rows) row.forEach((cell, at) => { if (at < row.length - 1) widths[at] = Math.max(widths[at] ?? 0, cell.length); });
+  return rows.map((row) => row.map((cell, at) => (at < row.length - 1 ? cell.padEnd(widths[at]!) : cell)).join("  ").trimEnd());
+}
+
+/** What an extension serves, in a few words: `moon::`, `tile moon`, `action shout`. */
+function serves(entry: ExtensionsListResult["extensions"][number]): string[] {
+  return [
+    ...entry.handlers.map((handler) => `${handler.key}::`),
+    ...entry.tiles.map((tile) => `tile ${tile.kind}`),
+    ...entry.actions.filter((action) => !action.builtIn).map((action) => `action ${action.name}`),
+  ];
+}
+
+/** The one thing wrong with an extension, if anything: its error, a failed last call, a failed schedule. */
+function problem(entry: ExtensionsListResult["extensions"][number]): string {
+  if (entry.error) return `${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`;
+  if (entry.lastRun && !entry.lastRun.ok) return `last call ${entry.lastRun.call} failed ${entry.lastRun.at}: ${entry.lastRun.error ?? ""}`;
+  const failed = (entry.schedules ?? []).find((schedule) => schedule.last && !schedule.last.ok);
+  return failed ? `schedule ${failed.entry} failed ${failed.last!.at}: ${failed.last!.error ?? ""}` : "";
+}
+
+/**
+ * `ext ls` from the service's own registry. By default one aligned row per extension (its id, state, where it
+ * lives, version, what it serves, and what is wrong); `long` adds each one's folder, arguments, schedules and
+ * last call. `--json` prints the registry's answer itself, never this text.
+ */
+export function formatExtensionsList(list: ExtensionsListResult, long = false): string[] {
   const lines: string[] = [];
   for (const root of list.roots) lines.push(`${root.origin} folder: ${root.path}${root.exists ? "" : " (not created yet)"}`);
   if (!list.extensions.length) lines.push("no extensions installed");
-  for (const entry of list.extensions) {
+  else {
+    lines.push("");
+    lines.push(...columns([
+      ["EXTENSION", "STATE", "FROM", "VERSION", "SERVES / PROBLEM"],
+      ...list.extensions.map((entry) => [entry.id, entry.state, entry.origin, entry.version !== undefined ? `v${entry.version}` : "",
+        [serves(entry).join(", "), problem(entry)].filter(Boolean).join("  |  ")]),
+    ]));
+  }
+  if (long) for (const entry of list.extensions) {
+    lines.push("", `${entry.id}  ${entry.directory}`);
     const what = [
       ...entry.handlers.map((handler) => `${handler.key}:: (${handler.kind}, ${handler.effects})`),
       ...entry.tiles.map((tile) => `tile ${tile.kind}`),
       ...entry.actions.filter((action) => !action.builtIn).map((action) => `action ${action.name}${action.args?.length
         ? ` ${action.args.map((arg) => `${arg.required ? "" : "["}--arg ${arg.name}=<${arg.type === "choice" ? arg.options!.join("|") : arg.type}>${arg.required ? "" : "]"}`).join(" ")}` : ""}${action.fieldsFrom === "block" ? " [--arg <field>=<value> for each [form-field::…] the block writes]" : ""}`),
     ];
-    lines.push(`${entry.id}\t${entry.state}\t${entry.origin}${entry.version !== undefined ? `\tv${entry.version}` : ""}\t${entry.directory}`);
     if (what.length) lines.push(`  serves ${what.join(", ")}`);
     // Its schedules (PIE-754): when each runs, when next, and what the last run did.
     for (const schedule of entry.schedules ?? []) {
@@ -290,34 +326,57 @@ export function formatExtensionsList(list: ExtensionsListResult): string[] {
     if (entry.lastRun && !entry.lastRun.ok) lines.push(`  last call ${entry.lastRun.call} failed ${entry.lastRun.at}: ${entry.lastRun.error ?? ""}`);
     if (entry.error) lines.push(`  ${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`);
   }
-  lines.push(list.trust);
+  if (!long && list.extensions.some((entry) => entry.schedules?.length || entry.actions.some((action) => action.args?.length))) lines.push("", "ext ls --long adds each one's folder, action arguments and schedules.");
+  lines.push("", list.trust);
   // A folder's name and an extension's error are its own words: printed clean.
   return lines.map((line) => cleanExtensionText(line));
 }
 
-/** `ext ls` without a service: each folder read and checked here. */
-export async function listExtensions(): Promise<string[]> {
-  const lines: string[] = [];
+/** One folder on disk, as `ext ls` finds it without a service. */
+interface FolderRow { readonly root: string; readonly origin: string; readonly exists: boolean; readonly id: string; readonly state: "ok" | "disabled" | "failed"; readonly version?: number; readonly directory: string; readonly error?: string }
+
+async function folderRows(): Promise<{ roots: { origin: string; path: string; exists: boolean }[]; rows: FolderRow[] }> {
+  const roots: { origin: string; path: string; exists: boolean }[] = [];
+  const rows: FolderRow[] = [];
   for (const root of extensionRoots(undefined)) {
-    const names = existsSync(root.path) ? (await readdir(root.path)).filter((name) => existsSync(join(root.path, name, "extension.json"))).sort() : [];
-    lines.push(`${root.origin} folder: ${root.path}${existsSync(root.path) ? "" : " (not created yet)"}`);
-    if (!names.length) lines.push("no extensions installed");
+    const exists = existsSync(root.path);
+    roots.push({ origin: root.origin, path: root.path, exists });
+    const names = exists ? (await readdir(root.path)).filter((name) => existsSync(join(root.path, name, "extension.json"))).sort() : [];
     for (const name of names) {
+      const directory = join(root.path, name);
       try {
-        const loaded = await readExtensionFolder(join(root.path, name), root.origin);
-        lines.push(`${name}\t${loaded.enabled ? "ok" : "disabled"}\tv${loaded.version}\t${join(root.path, name)}`);
+        const loaded = await readExtensionFolder(directory, root.origin);
+        rows.push({ root: root.path, origin: root.origin, exists, id: name, state: loaded.enabled ? "ok" : "disabled", version: loaded.version, directory });
       } catch (error) {
-        lines.push(`${name}\tfailed\t${join(root.path, name)}`, `  error: ${error instanceof Error ? error.message : String(error)}`);
+        rows.push({ root: root.path, origin: root.origin, exists, id: name, state: "failed", directory, error: error instanceof Error ? error.message : String(error) });
       }
     }
   }
-  if (existsSync(defaultRegistryPath())) lines.push(`legacy registry: ${defaultRegistryPath()} (used when no folder has the extension)`);
+  return { roots, rows };
+}
+
+/** `ext ls` without a service: each folder read and checked here. `--json` prints the folders found. */
+export async function listExtensions(long = false, json = false): Promise<string[]> {
+  const { roots, rows } = await folderRows();
+  const registry = existsSync(defaultRegistryPath()) ? defaultRegistryPath() : null;
+  if (json) return [JSON.stringify({ service: false, roots, extensions: rows.map(({ id, state, origin, version, directory, error }) => ({ id, state, origin, ...(version !== undefined ? { version } : {}), directory, ...(error ? { error } : {}) })), legacyRegistry: registry, builtIns: await builtIns() }, null, 2)];
+  const lines: string[] = [];
+  for (const root of roots) lines.push(`${root.origin} folder: ${root.path}${root.exists ? "" : " (not created yet)"}`);
+  if (!rows.length) lines.push("no extensions installed");
+  else lines.push("", ...columns([
+    ["EXTENSION", "STATE", "FROM", "VERSION", long ? "FOLDER / PROBLEM" : "PROBLEM"],
+    ...rows.map((row) => [row.id, row.state, row.origin, row.version !== undefined ? `v${row.version}` : "",
+      [long ? row.directory : "", row.error ? `error: ${row.error}` : ""].filter(Boolean).join("  |  ")]),
+  ]));
+  lines.push("");
+  if (registry) lines.push(`legacy registry: ${registry} (used when no folder has the extension)`);
   lines.push(`built-ins (outliner ext add <name>): ${(await builtIns()).join(", ")}`);
   lines.push("Extensions are trusted code, not a sandbox: they run as the service user.");
   return lines.map((line) => cleanExtensionText(line));
 }
 
-const USAGE = `usage: outliner ext ls
+const USAGE = `usage: outliner ext ls [--long] [--json]
+       (one row per extension; --long adds folders, action arguments and schedules; --json is the registry's own answer, for scripts)
        outliner ext add <name|path> [--outline-folder <outline root>]
        outliner ext update <name>|--all [--yes] [--keep-forked] [--outline-folder <outline root>] [--json]
        outliner ext remove <name> [--outline-folder <outline root>] [--demo keep|remove]
@@ -424,9 +483,11 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       return 0;
     }
     if (operation === "ls" || operation === "list") {
+      const { values } = parseArgs({ args: [...rest], allowPositionals: false, strict: true, options: { long: { type: "boolean" }, json: { type: "boolean" } } });
       const client = await connect();
-      const lines = client ? formatExtensionsList(await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })) : await listExtensions();
-      for (const line of lines) print(line);
+      if (values.json && client) { console.log(JSON.stringify(await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true }), null, 2)); return 0; }
+      const lines = client ? formatExtensionsList(await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true }), !!values.long) : await listExtensions(!!values.long, !!values.json);
+      for (const line of lines) values.json ? console.log(line) : print(line);
       return 0;
     }
     if (operation === "run") {

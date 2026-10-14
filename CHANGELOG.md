@@ -73,6 +73,12 @@ PROTOCOL 169: `annotations.tldr` takes `remove`, and an ask can be refused (an o
   `PI_OUTLINER_FILE_TOUCHES` are now only an off switch (`off`), and off wins. To record somewhere, add the property
   to the page; the globs are the outline's, so nothing to run on a machine.
 
+### `ep0ch ext ls` reads well (PIE-866)
+
+- **Changed:** `ep0ch ext ls` prints one aligned row per extension (state, where it comes from, version, what it serves,
+  and what is wrong: its error, a failed last call or a failed schedule). `--long` adds each one's folder, action
+  arguments, schedules and last call, as the old output did. **Added:** `--json`, the registry's own answer, for scripts.
+
 ### The comment editor: the whole note, a tile of its own, scrolling, pictures (PIE-846)
 
 From Evan's comments written in the floating editor while using it.

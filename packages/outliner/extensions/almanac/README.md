@@ -10,7 +10,7 @@ Almanac [page::almanac]
 ```
 
 - `write-day` is an action `on: "outline"` (no block) with `"schedule": { "cron": "5 6 * * *" }`: the service runs it
-  every morning and records the run (`ep0ch ext ls` shows `schedule action:write-day … next … last …`).
+  every morning and records the run (`ep0ch ext ls --long` shows `schedule action:write-day … next … last …`).
 - It writes through its own connection ([outline.ts](outline.ts), the helper to copy): `EP0CH_SOCKET`, `EP0CH_WS` and
   `EP0CH_EXT_GRANT` are in its environment, so the note is `ext:almanac`'s and no extension runs because of it.
 - Run it now: `ep0ch ext run almanac action:write-day`, or as any action: `ep0ch ext act almanac write-day`.
