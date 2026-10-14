@@ -199,7 +199,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
    */
   defArgs(name: string, raw: Record<string, unknown>, typed: boolean): Record<string, unknown> {
     const spec = this.argsOf(name);
-    return typed || !spec ? raw : coerce(name, spec, raw);
+    return typed || !spec ? raw : coerceActionArgs(name, spec, raw);
   }
 
   /** Run an action named on the wire: unknown names and wrong arguments are refused before it starts. */
@@ -209,7 +209,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   /** `runUntyped`, answering as the action does (see `call`). */
   callUntyped(name: string, raw: Record<string, unknown>, host: H, actor: Actor): unknown {
     if (!this.has(name)) throw new ActionRefused(`no action ${name} here; try: ${Object.keys(this.defs).join(", ")}`);
-    return this.call(name, coerce(name, this.argsOf(name)!, raw) as any, host, actor);
+    return this.call(name, coerceActionArgs(name, this.argsOf(name)!, raw) as any, host, actor);
   }
 }
 
@@ -430,7 +430,8 @@ export function checkedActionArgs(action: string, spec: Record<string, ArgSpec>,
   return checked.args;
 }
 
-function coerce(action: string, spec: Record<string, ArgSpec>, input: Record<string, unknown>): Record<string, unknown> {
+/** An action's arguments from the wire checked (unknown, missing, conflicting) and coerced to their types, or refused saying which. */
+export function coerceActionArgs(action: string, spec: Record<string, ArgSpec>, input: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const raw = checkedActionArgs(action, spec, input);
   for (const [k, s] of Object.entries(spec)) {

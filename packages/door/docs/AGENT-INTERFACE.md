@@ -284,7 +284,7 @@ panel) too.
 
 The person's palette over every screen (`ctrl+k`): tiles on every screen and in the drawer (indented as each layout
 tree), notes (the service's one search), actions (the focused tile's menu, then every action needing no argument; an action line typed or pasted with
-its arguments, `tile.open kind=query query="#seeds"` as `act` takes it, is a row of its own, first in the main list),
+its arguments, `tile.open kind=query query="#seeds"` as `act` takes it, is a row of its own, first in the main list, refused with the reason when its arguments don't fit),
 what changed, screens, and an extension's bar sources (`extensions.bar`). An agent reads and picks with a bar of its
 own; it never touches the person's.
 

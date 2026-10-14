@@ -223,6 +223,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "enter" });
     expect(peek().bar).toBeUndefined();
     await until(() => (desk as any).all().length === tiles + 1, "the query tile opened", 5000);
+    // An argument the action doesn't take is said on the row, typed key by key as well as pasted.
+    key(ctrlK); type("tile.open kind=query colour=red");
+    expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query colour=red" });
+    expect(peek().bar.rows[0].refused).toContain("colour");
+    key({ kind: "esc" });
     // An argument the bar asks for takes a paste the same way.
     let answered: Record<string, string> | null = null;
     await askInBar(app as any, "Name the bed", [{ name: "name", type: "text" }], {}, USER, async a => { answered = a; });

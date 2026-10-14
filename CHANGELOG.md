@@ -17,7 +17,8 @@ are its record. The outliner's entries from then are kept below, under
   names) now takes a paste whole, its line breaks as spaces and a trailing one dropped.
 - **Added:** an action line typed or pasted with its arguments, quoted as a shell quotes them
   (`tile.open kind=query query="#build-report"`, as `ep0ch act` takes it), is the bar's first row, `run …`; ⏎ runs
-  it as typed, and the action asks for anything it needs and wasn't given.
+  it as typed. An argument the action doesn't take, of the wrong type or missing is said on the row, with the
+  action's arguments and a call that works (the action's summary and arguments are on the right as you type).
 
 ### Keep a tag's list (PIE-855)
 

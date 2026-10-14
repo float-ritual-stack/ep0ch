@@ -11,7 +11,7 @@ import { tileKinds } from "../desk/tile-kinds";
 import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
 import { notConfigured, jevOff, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
-import { ActionRefused, actRequestOf, declaredKeys, lineWords, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
@@ -242,18 +242,22 @@ const ACTIONS: BarSource = {
 
 /**
  * What's typed as an action line, as `ep0ch act` takes it (PIE-856): an action this door has, then its `key=value`
- * words, quoted as a shell quotes them (`tile.open kind=query query="#build-report"`). Its row runs it as typed; the
- * action refuses what it can't take, and asks in the bar for what it needs and wasn't given. Anything else: none.
+ * words, quoted as a shell quotes them (`tile.open kind=query query="#build-report"`). Its row runs it as typed; an
+ * argument the action doesn't take, of the wrong type or missing is said on the row (refused). Anything else: none.
  */
 function actionLine(q: string, host: BarHost): BarRow | null {
   const words = lineWords(q);
   if (words.length < 2) return null;
   let req: ActRequest;
   try { req = actRequestOf(words); } catch { return null; }
-  if (req.as !== undefined || !host.dispatch.list().actions.some(a => a.name === req.action)) return null;
+  const info = req.as === undefined ? host.dispatch.list().actions.find(a => a.name === req.action) : undefined;
+  if (!info) return null;
+  // An argument it doesn't take, one of the wrong type or one it needs: the row says which, as `ep0ch act` would.
+  let refused: string | undefined;
+  try { coerceActionArgs(req.action, info.args, req.args ?? {}); } catch (e) { refused = e instanceof Error ? e.message : String(e); }
   const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
   const shown = [req.action, ...Object.entries(req.args ?? {}).map(([k, v]) => `${k}=${said(String(v))}`), ...(req.tile !== undefined ? [`tile=${said(req.tile)}`] : [])].join(" ");
-  return { key: `line:${shown}`, label: `run ${shown}`, detail: "as typed", exact: true, data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: "" } };
+  return { key: `line:${shown}`, label: `run ${shown}`, detail: "as typed", exact: true, ...(refused ? { refused } : {}), data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: "" } };
 }
 
 /**
