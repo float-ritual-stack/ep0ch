@@ -200,7 +200,7 @@ export function stagesFrom(spec: unknown): string[] | null {
 }
 /** The Stage filter's step for the values a list's `stages=` doesn't name. */
 export const STAGE_OTHER = "other";
-const STAGE_KEYWORDS: readonly string[] = ["all", "open", ...BACKLINK_STAGE_BUCKETS];
+const STAGE_KEYWORDS: readonly string[] = ["all", "open", "other", ...BACKLINK_STAGE_BUCKETS];
 
 /** Whether a stage (its value as written and its family) passes the Stage filter: a family's name, open, or the value itself. */
 export function stageMatches(stage: { value: string; bucket?: BacklinkStageBucket } | undefined, filter: BacklinkStageFilter, subset: readonly string[] | null = null): boolean {

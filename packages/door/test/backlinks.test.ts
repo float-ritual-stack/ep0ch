@@ -124,6 +124,10 @@ describe("a list that names its stages (stages=, PIE-819)", () => {
     expect(backlinkView(c, { ...o, stage: "other" }).matching.map(s => s.blockId)).toEqual(["4"]);
     // Without the list: the values the rows carry, as written, and nothing used elsewhere.
     expect(backlinkStageSummary(backlinkView(c, DEFAULT_BACKLINK_VIEW_OPTIONS).groups[0]!)).toBe(" (1 next · 1 parked · 2 doing)");
+    // A status literally named `other`, named by the list, is its own choice beside the aggregate.
+    const lit = backlinkView({ ...c, sources: [...c.sources, q("5", "other")] }, { ...o, stages: ["other", "next"] });
+    expect(nextBacklinkStageFilter("open", lit.stages)).toBe("value:other");
+    expect(backlinkView({ ...c, sources: [...c.sources, q("5", "other")] }, { ...o, stages: ["other", "next"], stage: "value:other" }).matching.map(s => s.blockId)).toEqual(["5"]);
     expect(stagesFrom("all")).toBeNull();
     expect(backlinkOptionsFrom(DEFAULT_BACKLINK_VIEW_OPTIONS, { stages: "next, doing" }, []).stages).toEqual(["next", "doing"]);
   });
