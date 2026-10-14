@@ -2758,8 +2758,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "enter" });
     await until(() => screen().includes("note · now") && screen().includes("make it start folded (-)"), "the type choice, every choice drawn", 5000);
     expect(screen()).toContain("note · now");
+    // The reader records the person's change once its save has answered, which can come after the service has the text
+    // (a loaded CI runner): ctrl+z before that has nothing of theirs to undo.
+    const stage = S().stages.get(SECTIONS.findIndex(s => s.key === "callouts")).top as any;
+    const mine = () => [...stage.panes.values()].map((p: any) => p.surface?.msg && p.surface.calloutHistory?.last("you", p.surface.msg.id)).find(Boolean);
+    const had = mine();
     ch("j"); press({ kind: "enter" });
     await reads(t => t.includes("> [!abstract] note"), "the type changed");
+    await until(() => mine() !== had, "the change recorded for undo");
     // ctrl+z: the last change here (the callout's) put back.
     press({ kind: "char", ch: "z", ctrl: true });
     await reads(t => t.includes("> [!note] note\n"), "the change undone");
