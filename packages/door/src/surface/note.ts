@@ -23,7 +23,7 @@ import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurre
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
-import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
+import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
@@ -1796,10 +1796,16 @@ export class NoteSurface {
   snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = []): { lines: string[]; links: LinkRange[]; pending: boolean } {
     const m = this.msg, src = this.src;
     const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 6), graphics: false, noImages: undefined, unfold: true };
-    const embed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
+    const drawEmbed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
+    // One of its own embeds still being read: an edit's preview draws it again when the answer's redraw comes (src/surface/editor.ts).
+    let pending = false;
+    const embed: DocEnv["embed"] = drawEmbed && m ? (id, fragment, n, w) => {
+      const out = drawEmbed(id, fragment, n, w);
+      pending ||= embedState(id, fragment, src, m.id).kind === "loading";
+      return out;
+    } : undefined;
     const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
-    // An embed still being read: an edit's preview draws it again when the answer's redraw comes (src/surface/editor.ts).
-    return { lines: doc.lines, links: doc.links, pending: !!embed && !!src && embedsLoading(src.board) };
+    return { lines: doc.lines, links: doc.links, pending };
   }
 
   /** Text written about the note on one line, as a margin card says it: references by their titles (PIE-770). */
