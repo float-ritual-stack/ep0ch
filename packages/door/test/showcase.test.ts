@@ -2117,8 +2117,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(surf().session.target).toMatchObject({ kind: "note" });
     press({ kind: "char", ch: "s", ctrl: true });
     await until(() => !tiles().includes("comment") && !surf().session, "sent, the tile closed");
-    const whole = (surf().comments as any[]).filter(c => c.start === null && !c.quote);
-    expect(whole.map(c => c.body)).toContain("The winter shelf needs a lock, please");
+    await until(() => (surf().comments as any[]).some(c => c.start === null && !c.quote && c.body === "The winter shelf needs a lock, please"), "its thread on the whole note");
     // C with nothing selected: another comment on the whole note, in the reader (the place new ones open).
     ch("C");
     await until(() => surf().session?.target?.kind === "note" && surf().session?.mode === "compose", "C opened a whole-note comment");

@@ -166,8 +166,8 @@ describe("the surface: summary, panel and embeds at any width", () => {
     await until(() => s.render(90, 40, h).lines.map(strip).join("\n").includes("» Garden plan"), "the embeds read");
     const lines = s.render(90, 40, h).lines.map(strip);
     expect(lines[1]!.trim()).toBe("Build the compost bin");          // the breadcrumb is the eyebrow above it (PIE-657)
-    // The byline ends with the way in to a comment on the whole note (PIE-846).
-    expect(lines[2]!.trim()).toBe("you · 01-01-70 (00:00) · i 6 properties · stage doing · priority high · track soil, tools · [comment]");
+    // The byline whole; the [comment] chip (PIE-846) only where it fits after it.
+    expect(lines[2]!.trim()).toBe("you · 01-01-70 (00:00) · i 6 properties · stage doing · priority high · track soil, tools");
     expect(lines.join("\n")).not.toContain("[work-stage::");
     expect(lines.join("\n")).toContain("A bin by Garden plan.");
     expect(lines.join("\n")).toContain("» Garden plan");

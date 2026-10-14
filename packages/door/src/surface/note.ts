@@ -1170,7 +1170,7 @@ export class NoteSurface {
     const open = this.comments?.filter(c => c.open).length ?? 0;
     // The way in to a comment on the whole note (PIE-846), by mouse: the same as C with nothing selected.
     const chip = !this.printed && (isOutlineNote(m) || (m.resource && !m.resource.uncommentable)) ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "";
-    const said = (this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "") + chip;
+    const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
     const own0 = host?.header, { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src, own0 ? C.lgreen : C.dark);
@@ -1204,6 +1204,9 @@ export class NoteSurface {
     // being cut off the end of the byline.
     const apart = !!summary && width(`${before}${summary}`) > w;
     const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
+    // The [comment] chip ends the first byline row, where it fits whole: never at the cost of the byline itself.
+    const chipped = !!chip && width(metaRows[0]! + chip) <= w;
+    if (chipped) metaRows[0] += chip;
     const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
     // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
     // here was the bug). The Work ID keeps the accent at the start of the first line.
@@ -1214,7 +1217,7 @@ export class NoteSurface {
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...(big ? [pad("", w)] : []), ...metas];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
-    const chipTo = chip ? width(metaRows[0]!) : 0, commentChip = chip && chipTo <= w ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
+    const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
     return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip } : {}) };
   }
 
