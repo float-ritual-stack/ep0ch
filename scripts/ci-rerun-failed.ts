@@ -46,7 +46,11 @@ if (import.meta.main) {
     summary(`No test report at ${report ?? "(none given)"} (a run that hung and was stopped writes none): nothing to run again.\n`);
     process.exit(0);
   }
-  const failed = cases(readFileSync(report, "utf8")).filter(c => c.outcome === "failed");
+  const all = cases(readFileSync(report, "utf8")).filter(c => c.outcome === "failed");
+  // A worker that crashed or was stopped (a hung run, ended by the workflow) is no test to run again: it's said once.
+  const crashed = all.filter(c => !c.file || c.name.includes("(worker crashed)"));
+  if (crashed.length) summary(`${crashed.length} test worker${crashed.length === 1 ? "" : "s"} crashed or ${crashed.length === 1 ? "was" : "were"} stopped before reporting (a hung run is stopped at 12 minutes: its report is in the log above).\n\n`);
+  const failed = all.filter(c => !crashed.includes(c));
   if (!failed.length) { summary("The run failed with no failed test in its report (an error between tests, or a crash): nothing to run again.\n"); process.exit(0); }
   const tmp = mkdtempSync(join(tmpdir(), "ci-rerun-"));
   const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 160);
