@@ -34,7 +34,7 @@ import { calloutExtension, CALLOUT_STYLE, publishedCalloutRegistry } from "./pub
 import { BUILTIN_CALLOUT_REGISTRY, type CalloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
-import { drawAnchors, placeAnchor } from "./publish-anchors";
+import { drawAnchors, lineAddresses, placeAnchor, replacementAddresses } from "./publish-anchors";
 import { drawSteps, placeStepSentinels, STEP_MENU_STYLE, STEP_STYLE, type PublishedStep } from "./publish-steps";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, webmcpScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
 import { completeAt, SEARCH_STYLE, searchForm, searchNotes, searchResultsHtml, searchScriptPath, summaryWords, type SearchHost } from "./publish-search";
@@ -522,6 +522,8 @@ mark.ann.on{outline:1px solid #6a7180}
 #mg-toast{position:fixed;left:1rem;right:1rem;bottom:5.5rem;z-index:12;max-width:30rem;margin:0 auto;background:#222220;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.55rem .9rem}
 #mg-margin{display:none}
 #ep0ch-agent{position:fixed;top:.75rem;right:.75rem;left:auto;z-index:13;max-width:min(26rem,calc(100% - 1.5rem));background:#1d2026;color:var(--fg);border:1px solid #4a4f5a;border-radius:.5rem;padding:.45rem .8rem;font-size:14px}
+.line-anchor{scroll-margin-block:35vh}
+article :is(p,li,h1,h2,h3,h4,h5,h6,td,th,figure,section,.callout-title):has(> .line-anchor:target){background:#1b1d21;outline:2px solid #6a7180}
 .ep0ch-pointed{outline:2px solid #6a7180;outline-offset:.25rem;background:#1b1d21}
 @media (min-width:65rem){
   main.reader{max-width:62rem;display:grid;grid-template-columns:minmax(0,42rem) 18rem;column-gap:2.25rem;align-items:start;position:relative}
@@ -1467,7 +1469,7 @@ export class Publisher {
     const owner = audience === "tailnet" && !share;
     if (asHtml || (audience === "tailnet" && view === "full")) {
       const browse = audience === "tailnet";
-      const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, owner, ...(share ? { share } : {}) });
+      const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, owner, anchors: [], ...(share ? { share } : {}) });
       const base = share?.base ?? this.basePathFor(audience);
       // A step's box changes from the owner's own page (PIE-811); a share's and a public page's are drawn, read-only.
       const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
@@ -1491,7 +1493,7 @@ export class Publisher {
       if ((await this.lockedIds([entry.blockId])).size) return notFound();
       const whole = await this.noteWithAnnotations(entry.blockId, !share || share.comments);
       if (!whole) return notFound();
-      const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, owner: !share, ...(share ? { share } : {}) });
+      const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, owner: !share, anchors: [], ...(share ? { share } : {}) });
       article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, true), rendered.anchors), rendered.steps, !share), rendered.index, base);
     }
     const listedHere = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
@@ -2105,7 +2107,7 @@ export class Publisher {
    */
   private async blockMarkdown(
     entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean,
-    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; owner?: boolean; format?: "markdown" | "html"; share?: PageShare } = {},
+    options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; owner?: boolean; format?: "markdown" | "html"; share?: PageShare; anchors?: string[] } = {},
   ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[]; anchors: string[]; steps: PublishedStep[] }> {
     const { share } = options;
     // The owner's own pages (the tailnet, signed in): `[publish::false]` and extensions' data aren't held back there.
@@ -2178,12 +2180,12 @@ export class Publisher {
         ? (artifacts.has(`${blockId}:${line}`) ? `${base}${artifactPagePath(blockId, line)}` : null)
         : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec));
-    // A tailnet page knows where each block is (publish-anchors.ts); Markdown and public pages carry nothing extra.
-    const anchors: string[] = [];
+    // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
+    const anchors = options.anchors;
     // An HTML page draws each step's box as its state (publish-steps.ts); Markdown keeps the box as written.
     const steps: PublishedStep[] = [];
-    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, options.browse ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined);
-    return { markdown, marks: order, index: linked, components, anchors, steps };
+    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse);
+    return { markdown, marks: order, index: linked, components, anchors: anchors ?? [], steps };
   }
 
   /**
@@ -2496,15 +2498,15 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   const code = codeLineSet(body);
   const inCode = (offset: number) => code.has(lineOf(body, offset));
   const byId = new Map(index.entries.map((entry) => [entry.blockId, entry]));
-  const link = (label: string, target: PublishedEntry | undefined) =>
-    target && !index.labelsOnly ? `[${label}](${basePath}${target.path})` : label;
+  const link = (label: string, target: PublishedEntry | undefined, fragment?: string) =>
+    target && !index.labelsOnly ? `[${label}](${basePath}${target.path}${fragment ? `#${encodeURIComponent(fragment)}` : ""})` : label;
   // Without an embed projection (a caller that has none), an embed reads as a link, never as
   // `![…](…)`, which markdown takes for an image.
   const embedStarts = new Set(embeds ? [] : embedMatches(body).map((match) => match.index));
   for (const occurrence of [...blockReferenceOccurrences(body)].reverse()) {
     if (inCode(occurrence.start)) continue;
     const target = byId.get(occurrence.blockId);
-    const replacement = link(occurrence.label?.trim() || target?.title || "unpublished note", target);
+    const replacement = link(occurrence.label?.trim() || target?.title || "unpublished note", target, occurrence.fragmentId);
     const start = embedStarts.has(occurrence.start - 1) ? occurrence.start - 1 : occurrence.start;
     body = body.slice(0, start) + replacement + body.slice(occurrence.end);
   }
@@ -2630,9 +2632,11 @@ const MAX_DECORATED_BLOCKS = 200;
  * above. One not drawn yet leaves the text as written. The service made the Markdown inert, so it adds no
  * properties or links.
  */
-export function decoratedText(text: string, decorations: readonly Decoration[] | undefined, under?: ReadonlyMap<number, string>, drawn?: ReadonlyMap<number, DrawnComponent>): string {
-  if (!decorations?.length && !under?.size && !drawn?.size) return text;
-  const lines = text.split("\n");
+export function decoratedText(text: string, decorations: readonly Decoration[] | undefined, under?: ReadonlyMap<number, string>, drawn?: ReadonlyMap<number, DrawnComponent>, addresses?: ReadonlyMap<number, readonly number[]>): string {
+  if (!decorations?.length && !under?.size && !drawn?.size && !addresses?.size) return text;
+  const code = addresses ? codeLineSet(text) : new Set<number>();
+  const plain = addresses ? stripFragmentAnchors(text).split("\n") : [];
+  const lines = text.split("\n").map((line, at) => addresses && !code.has(at) ? plain[at]! : line);
   const block = (decoration: Decoration) => ["", ...decoration.markdown!.split("\n"), ""];
   // Placed against the text as written, then emitted once: the first rule to take a line's place has it, as in the door.
   const before = lines.map((): string[][] => []), after = lines.map((): string[][] => []);
@@ -2658,11 +2662,13 @@ export function decoratedText(text: string, decorations: readonly Decoration[] |
     for (const group of before[i]!) out.push(...group);
     const replacing = replaced.get(i);
     if (replacing) {
+      const markers = Array.from({ length: replacing.end - i }, (_, n) => addresses?.get(i + n) ?? []).flat();
       out.push(...replacing.lines);
+      if (markers.length) out.push(replacementAddresses(markers));
       for (let j = i; j < replacing.end; j++) for (const group of after[j]!) out.push(...group);
       i = replacing.end - 1;
     } else {
-      out.push(lines[i]!);
+      out.push((addresses?.get(i) ?? []).reduce((line, at) => placeAnchor(line, at, code.has(i)), lines[i]!));
       for (const group of after[i]!) out.push(...group);
     }
     // The block's own decorations go under its title.
@@ -2768,6 +2774,7 @@ export function renderSubtreeMarkdown(
   drawn: ReadonlyMap<string, ReadonlyMap<number, DrawnComponent>> = new Map(),
   owner = false,
   steps?: PublishedStep[],
+  blockAnchors = true,
 ): string {
   const [rootRow, ...rows] = shownSubtree(subtree, owner);
   if (!rootRow) return "";
@@ -2783,13 +2790,15 @@ export function renderSubtreeMarkdown(
   };
   // A tailnet page's block anchors (`anchors` collects their ids, for drawAnchors).
   const anchored = (block: ProjectedVisibleBlock, text: string) => {
-    if (!anchors) return text;
+    if (!anchors || !blockAnchors) return text;
     anchors.push(block.id);
     return placeAnchor(text, anchors.length - 1);
   };
   // Each block's own step boxes, numbered page-wide (`steps` collects them, for drawSteps); the same length as the boxes.
   const stepped = (block: ProjectedVisibleBlock) => steps ? placeStepSentinels(block.text ?? "", { id: block.id, revision: block.revision ?? 0 }, steps) : block.text ?? "";
-  const rootText = marked(root, publishedText(decoratedText(stepped(root), decorations.get(root.id), under.get(root.id), drawn.get(root.id)), context, { title: true }));
+  const decorated = (block: ProjectedVisibleBlock) => decoratedText(stepped(block), decorations.get(block.id), under.get(block.id), drawn.get(block.id),
+    anchors ? lineAddresses(block.text ?? "", block.id === root.id ? "" : `${block.id}--`, anchors) : undefined);
+  const rootText = marked(root, publishedText(decorated(root), context, { title: true }));
   const [first = "", ...rest] = rootText.split("\n");
   // A note with a Work ID heads its title with it (PIE-809: `HOME-011 · <title>`), once; `accentWorkId` colours it.
   const workId = getProperty(parseProperties(root.text ?? ""), "work-id");
@@ -2801,7 +2810,7 @@ export function renderSubtreeMarkdown(
   lines[0] = anchored(root, lines[0]!);
   const listed: string[] = [];
   for (const { block, locked } of rows) {
-    const text = locked ? placeholder(LOCKED_NOTE) : anchored(block, marked(block, publishedText(decoratedText(stepped(block), decorations.get(block.id), under.get(block.id), drawn.get(block.id)), context)));
+    const text = locked ? placeholder(LOCKED_NOTE) : anchored(block, marked(block, publishedText(decorated(block), context)));
     const indent = "  ".repeat(Math.max(0, block.depth - root.depth - 1));
     const [head = "", ...tail] = text.split("\n");
     listed.push(`${indent}- ${head}`);
@@ -2820,8 +2829,11 @@ export function renderSubtreeMarkdown(
 export function htmlViewLinks(html: string, index: PublishedIndex, basePath: string): string {
   const to = new Map(index.entries.map((entry) => [escapeHtml(`${basePath}${entry.path}`), escapeHtml(entryHref(entry, basePath))]));
   return html.replace(/<a href="([^"]*)"/g, (whole, href: string) => {
-    const html = to.get(href);
-    return html ? `<a href="${html}"` : whole;
+    const hash = href.indexOf("#");
+    const path = hash < 0 ? href : href.slice(0, hash);
+    const fragment = hash < 0 ? "" : href.slice(hash);
+    const html = to.get(path);
+    return html ? `<a href="${html}${fragment}"` : whole;
   });
 }
 

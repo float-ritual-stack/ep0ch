@@ -66,6 +66,7 @@ applied. When upgrading Pi, retain or replace this hook, run `reader-copy.test.t
 and the document-folding application journey. Plain-text copying cannot establish
 source evidence or distinguish authored glyphs from controls.
 
+- `src/publish-anchors.ts` carries source-line and fragment addresses through the existing publisher sentinels; fragment grammar and heading ids come from `src/fragments.ts`.
 - `src/store.ts` owns persistence and canonical graph invariants.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
 - `src/loop-watch.ts` owns the host's one event loop (PIE-625): whose turn it is (`Turns`, the whole-outline reads

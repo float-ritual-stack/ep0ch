@@ -4,6 +4,7 @@
 // meaning: views are read with `views.read` (its order, limit and sort), queries with `blocks.query`, links with
 // `blocks.authored-links` and `references.backlinks`; nothing here evaluates a view or a query. A row the page may
 // not show (locked, outside a share, not public on a public page) is left out, never named.
+import { linkingLineId } from "./publish-anchors";
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
 import { asksPerItem, figureQuestion, liveAsk, liveProps, liveStatus, NONE, sortProblem, type FigureAnswer, type FigureItem, type FigureQuestion } from "@ep0ch/outline-core/figure-live";
 import { figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
@@ -228,7 +229,13 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
       return [r.kind === "ready" ? { text: r.addressLabel || entry.label, href, note: r.sourceName } : { text: entry.label, href, note: r.reason }];
     });
   }
-  rows.backlinks = (backlinks?.sources ?? []).filter(source => shown.has(source.blockId)).map(source => ({ text: source.title || "untitled", href: to(source.blockId), ...(source.occurrences[0]?.snippet ? { note: `“${source.occurrences[0].snippet}”` } : {}) }));
+  rows.backlinks = (backlinks?.sources ?? []).filter(source => shown.has(source.blockId)).map(source => {
+    // The door's backlinkLine selects the same occurrence: prefer the authored block link.
+    const occurrence = source.occurrences.find(o => o.kind === "block") ?? source.occurrences[0];
+    const href = to(source.blockId);
+    return { text: source.title || "untitled", href: href && occurrence ? `${href}#${linkingLineId(occurrence.start)}` : href,
+      ...(occurrence?.snippet ? { note: `“${occurrence.snippet}”` } : {}) };
+  });
   const listed = (found: ProjectedBlockCollection | null) => (found?.blocks ?? []).filter(block => shown.has(block.id)).map(block => ({ text: titles.get(block.id) || "untitled", href: to(block.id) }));
   rows.children = listed(children);
   rows.matches = listed(matches instanceof Error ? null : matches);

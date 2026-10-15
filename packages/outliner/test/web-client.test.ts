@@ -389,7 +389,7 @@ test("a page marks where each block is and loads the page helpers; Markdown and 
   const whole = await page("/pub/p/Field%20Notes?view=full");
   for (const block of [hub, survey, swap]) expect(whole).toContain(`<span class="bk" data-block="${block.id}"></span>`);
   // The anchor holds no text: the words a reader selects are the note's.
-  expect(whole).toContain(`<h1>Field notes<span class="bk" data-block="${hub.id}"></span></h1>`);
+  expect(whole.match(/<h1>(.*?)<\/h1>/)?.[1]?.replace(/<[^>]*>/g, "").trim()).toBe("Field notes");
   // A folder's rows are its children's.
   expect(await page("/pub/p/Field%20Notes")).toContain(`<li data-block="${swap.id}">`);
   expect(whole).toMatch(/<script src="\/pub\/_marginalia\/reader\.js\?v=\w+" defer><\/script><script src="\/pub\/_marginalia\/webmcp\.js\?v=\w+" defer><\/script>/);
