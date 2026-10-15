@@ -1261,7 +1261,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.scripts = await make(notes.root.id, [
     "Seed report [script::seed-report]",
     "Run seed-report from the power bar. Keep typing; its progress arrives below. One ext.undo takes back the run.",
-    "Record a layout with alt+Q (or the status bar’s ⇧⌥Q), do your actions, then alt+Q or REC stop. The saved script is editable action lines. Replace an argument value with {tag}; the power bar asks for it when you run the script.",
+    "Record a layout with alt+Q (or the status bar's ⇧⌥Q), do your actions, then alt+Q or REC stop. The saved script is editable action lines. Replace an argument value with {tag}; the power bar asks for it when you run the script.",
     "```ts",
     "const source = (await q('script=seed-report')).blocks[0];",
     "const dispatcher = await act('layout.get');",
