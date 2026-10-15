@@ -1,6 +1,7 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
-import { checkedInput, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL, actorOf, machineNameOf } from '../hooks/outline-tools'
+import { outputJsonOf } from '../hooks/tool-rows'
+import { checkedInput, droppedNote, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL, actorOf, machineNameOf } from '../hooks/outline-tools'
 import { WORK_TOOLS } from '../hooks/work-tools'
 
 tier('user')
@@ -332,10 +333,10 @@ describe('tool arguments', () => {
       for (const alias of ALIASES.filter(alias => alias !== 'item' || (tool as { aliases?: { ref?: readonly string[] } }).aliases?.ref?.includes('item'))) {
         const { ref, ...rest } = tool.example as Record<string, unknown>
         const checked = checkedInput(tool, { tool: tool.name, ...rest, [alias]: ref })
-        expect(checked, `${tool.name} ${alias}`).toEqual({ input: { ...rest, ref } })
+        expect(checked, `${tool.name} ${alias}`).toEqual({ input: { ...rest, ref }, dropped: [] })
       }
       // view_order's old name for it, view
-      if (tool.name === 'view_order') expect(checkedInput(tool, { view: 'PIE-1' })).toEqual({ input: { ref: 'PIE-1' } })
+      if (tool.name === 'view_order') expect(checkedInput(tool, { view: 'PIE-1' })).toEqual({ input: { ref: 'PIE-1' }, dropped: [] })
     }
   })
 
@@ -349,15 +350,28 @@ describe('tool arguments', () => {
       expect(conflict).toContain('`id` is "PIE-588"')
       expect(conflict).toContain('pass one `ref`')
       expect(conflict).toContain(`Example: ${tool.name} `)
-      expect(checkedInput(tool, { ...rest, ref: `((${NOTE}))`, id: NOTE })).toEqual({ input: { ...rest, ref: `((${NOTE}))` } })
+      expect(checkedInput(tool, { ...rest, ref: `((${NOTE}))`, id: NOTE })).toEqual({ input: { ...rest, ref: `((${NOTE}))` }, dropped: [] })
     }
   })
 
-  test('metadata the host adds to a tool event (agentId in a subagent) is not an unknown argument', () => {
+  test('metadata the host adds to a tool event (agentId in a subagent) never stops a call; a name that is no argument is said with the answer', () => {
     const complete = WORK_TOOLS.find(t => t.name === 'work_complete')!
-    expect(checkedInput(complete, { tool: 'x', agentId: 'a1b2', someHostField: 1, ref: 'PIE-1', allMerged: true, proof: 'Done' })).toEqual({ input: { ref: 'PIE-1', allMerged: true, proof: 'Done' } })
+    expect(checkedInput(complete, { tool: 'x', agentId: 'a1b2', someHostField: 1, ref: 'PIE-1', allMerged: true, proof: 'Done' })).toEqual({ input: { ref: 'PIE-1', allMerged: true, proof: 'Done' }, dropped: ['someHostField'] })
     // A real mistake beside it is still answered.
     expect(checkedInput(complete, { agentId: 'a1b2', item_id: 'PIE-1' })).toContain('Missing required `ref`')
+  })
+
+  test('outline_comment takes kind, and a name it has no argument for is said with the answer, not dropped silently (PIE-871)', () => {
+    const comment = OUTLINE_TOOLS.find(t => t.name === 'outline_comment')!
+    const checked = checkedInput(comment, { tool: 'x', agentId: 'a1', ref: 'PIE-8', body: 'Shipped in the door.', whole: true, kind: 'patch-note' }) as { input: Record<string, unknown>; dropped: string[] }
+    expect(comment.command(checked.input)).toEqual({ operation: 'comment', input: { ref: 'PIE-8', body: 'Shipped in the door.', whole: true, kind: 'patch-note' } })
+    expect(checked.dropped).toEqual([])
+    const odd = checkedInput(comment, { ref: 'PIE-8', body: 'Shipped.', whole: true, flavour: 'patch' }) as { input: Record<string, unknown>; dropped: string[] }
+    expect(odd.dropped).toEqual(['flavour'])
+    expect(droppedNote(comment, odd.dropped)).toMatch(/^Not used: `flavour` is no argument of outline_comment \(its arguments: ref, body, .*kind.*\); the call ran without it\.\n$/)
+    expect(droppedNote(comment, [])).toBe('')
+    // The transcript's row still reads the answer under the line.
+    expect(outputJsonOf(droppedNote(comment, odd.dropped) + JSON.stringify({ thread: 'c0ffee00' }))).toEqual({ thread: 'c0ffee00' })
   })
 
   test('an unknown argument is named with the closest valid one, the arguments, and a call that works', () => {

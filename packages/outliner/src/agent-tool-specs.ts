@@ -29,7 +29,7 @@ export const AGENT_OPERATION_SPECS: Readonly<Record<string, ToolArgsSpec>> = {
   resolve: spec("resolve", { ref }, ["ref"], { ref: "[[Seed Swap]]" }),
   edit: spec("edit", { ref, expectedRevision: revision, text: str, replaceSection: { type: "object" }, append: str, allowStructural: bool }, ["ref", "expectedRevision"], { ref: "PIE-123", expectedRevision: 3, append: "One more line." }),
   create: spec("create", { parent: str, text: str, position: int }, ["parent", "text"], { parent: "PIE-123", text: "Bring labels" }),
-  comment: spec("comment", { ref, body: str, quote: str, whole: bool, start: int, near: int, prefix: str, suffix: str, requestId: str, from: str, revision, properties: { type: "object" } }, ["ref"], { ref: "PIE-123", body: "Is this still true?", whole: true }),
+  comment: spec("comment", { ref, body: str, quote: str, whole: bool, start: int, near: int, prefix: str, suffix: str, requestId: str, from: str, revision, kind: str, properties: { type: "object" } }, ["ref"], { ref: "PIE-123", body: "Is this still true?", whole: true }),
   reply: spec("reply", { thread: str, body: str, requestId: str }, ["thread", "body"], { thread: THREAD, body: "Yes, checked today." }),
   "edit-comment": spec("edit-comment", { mark: str, body: str, observed: str, revision }, ["mark", "body"], { mark: THREAD, observed: "Is this still true?", body: "Is this still true in May?" }),
   "resolve-thread": spec("resolve-thread", { thread: str, resolved: bool }, ["thread", "resolved"], { thread: THREAD, resolved: true }),

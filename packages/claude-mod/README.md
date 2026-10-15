@@ -361,7 +361,7 @@ comes back as the tool's error with the reason.
 | `outline_resolve` | `ref` | `id`, `title`, `revision`, `workId`, `fragmentId` |
 | `outline_edit` | `ref`, `expectedRevision`, one of `text`, `replaceSection {heading, body}`, `append`; `allowStructural?` | the new `revision`, a short `diff`, and with `allowStructural` what it `dropped` |
 | `outline_create` | `parent` (a ref or `root`), `text`, `position?` | `id`, `ref`, `revision` |
-| `outline_comment` | `ref`, `body`, `quote` (with `start`/`prefix`/`suffix` when it repeats) or `whole: true`, `requestId?` | the `thread` id |
+| `outline_comment` | `ref`, `body`, `quote` (with `start`/`prefix`/`suffix` when it repeats) or `whole: true`, `kind?` (the thread's `[kind::…]`: `patch-note`, `question`…; the same as `properties.kind`; one no other thread has is kept and warned about, with the kinds in use), `properties?`, `requestId?` | the `thread` id |
 | `outline_reply` | `thread`, `body`; or `edit` (a posted comment's or reply's id), `observed` (its words as read), `body` | the `reply` id; an edit: the `mark`, its new `revision` and when it was `edited` (it stays its author's, shown as edited by you; a comment changed since you read it is refused) |
 | `outline_resolve_thread` | `thread`, `resolved` | the thread's `lifecycle` |
 | `outline_components` | `components?` (ids; all when left out) | `ep0ch library --brief` for this session's outline: per component its purpose, where it goes, each property as `key: values (default) — meaning`, a minimal example. Run from the bound folder, so the outline's own styles and types and its extensions' components appear |
@@ -381,7 +381,10 @@ find it with `outline_find` first.
 `hooks/tool-args.ts`, which every tool call passes before it runs. Two of them naming different notes (`{ref: "PIE-520",
 id: "PIE-588"}`) is refused as ambiguous, and nothing runs; the same note spelt two ways (`((id))` and the id) is
 accepted. A wrong call is answered with what was wrong and the right call: the unknown argument and the closest valid
-one, what is missing or the wrong type, the tool's arguments in one line, and a call that works. That file is the same
+one, what is missing or the wrong type, the tool's arguments in one line, and a call that works. A name near no argument
+(the host's own metadata, `agentId` in a subagent, or a name made up) doesn't stop the call, but it's said first in the
+answer, `Not used: \`flavour\` is no argument of outline_comment (its arguments: …)` (PIE-871: a `kind` dropped
+silently cost nine patch notes their kind). That file is the same
 code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the door's
 `test/tool-args.test.ts` fails when the two differ.
 

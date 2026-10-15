@@ -17,7 +17,7 @@ import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import { randomUUID } from "node:crypto";
-import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
+import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
@@ -688,9 +688,17 @@ function commentResult(record: AnnotationRecord, extra: Partial<CommentResult> =
  */
 export async function commentOn(
   client: AgentToolsClient,
-  input: { ref: string; body?: string; quote?: string; whole?: boolean; start?: number; near?: number; prefix?: string; suffix?: string; requestId?: string; from?: string; properties?: Record<string, string | string[]> },
+  input: { ref: string; body?: string; quote?: string; whole?: boolean; start?: number; near?: number; prefix?: string; suffix?: string; requestId?: string; from?: string; kind?: string; properties?: Record<string, string | string[]> },
   actor: AgentActor,
 ): Promise<CommentResult> {
+  // `kind` is the thread's `[kind::…]` (PIE-871: a patch note's was dropped), said here or in properties; open, as any property.
+  if (input.kind !== undefined) {
+    if (typeof input.kind !== "string" || !input.kind.trim()) throw new WorkToolRefusal(`kind is the thread's kind, a word (patch-note, question, highlight…); got ${JSON.stringify(input.kind)}`);
+    const said = input.properties?.kind, kind = input.kind.trim();
+    const same = typeof said === "string" ? said.trim() === kind : Array.isArray(said) && said.length === 1 && String(said[0]).trim() === kind;
+    if (said !== undefined && !same) throw new WorkToolRefusal(`kind is "${kind}" but properties.kind is ${JSON.stringify(said)}: give one`);
+    input = { ...input, properties: { ...(input.properties ?? {}), kind } };
+  }
   if ((input.whole === true) === (typeof input.quote === "string")) {
     throw new WorkToolRefusal("Give either quote (exact source text) or whole: true");
   }
@@ -701,7 +709,28 @@ export async function commentOn(
     if (problem) throw new WorkToolRefusal(`properties: ${problem}. Example: properties: { kind: "highlight", tags: ["soil"], color: "warn" }`);
   }
   const resource = resourceRefOf(input.ref);
-  if (resource) return commentOnResource(client, resource, { ...input, body }, actor);
+  const result = resource ? await commentOnResource(client, resource, { ...input, body }, actor) : await commentOnBlock(client, input, body, actor);
+  // A kind nobody else's thread has (a typo of one that's in use?): kept, as anything written is, and said (PIE-871).
+  const kind = input.properties?.kind;
+  const said = typeof kind === "string" ? await newKindWarning(client, kind.trim()) : null;
+  return said ? { ...result, warnings: [...(result.warnings ?? []), said] } : result;
+}
+
+/** What to say about a thread's kind no other thread in the outline has: the kinds in use, the nearest first. */
+async function newKindWarning(client: AgentToolsClient, kind: string): Promise<string | null> {
+  if (!kind) return null;
+  const answer = await client.request<{ facets?: { key: string; values: { value: string; count: number }[] }[] }>({
+    action: "blocks.query", query: { filters: [{ key: "type", value: "annotation" }], facets: ["kind"], limit: 1 },
+  } as never).catch(() => null);
+  const values = answer?.facets?.find(f => f.key === "kind")?.values ?? [];
+  if (!values.length || (values.find(v => v.value === kind)?.count ?? 0) > 1) return null;
+  const others = values.filter(v => v.value !== kind).sort((a, b) => b.count - a.count).map(v => v.value);
+  if (!others.length) return null;
+  const near = closest(kind, others);
+  return `kind "${kind}" is new in this outline (kinds in use: ${others.slice(0, 12).join(", ")})${near ? `; did you mean "${near}"?` : ""} It was kept; outline_set_property on the thread changes it.`;
+}
+
+async function commentOnBlock(client: AgentToolsClient, input: Parameters<typeof commentOn>[1], body: string, actor: AgentActor): Promise<CommentResult> {
   const block = await writableBlock(client, input.ref);
   const receipt = await createBlockComment(client, {
     requestId: input.requestId?.trim() || randomUUID(),

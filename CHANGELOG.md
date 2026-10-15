@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A comment keeps its kind (PIE-871)
+
+- **Fixed:** `outline_comment` with `kind: "patch-note"` stored the comment without `[kind::patch-note]`: the Claude mod
+  dropped the name silently. `kind` is now an argument of `outline_comment` (the mod, MCP and `outliner agent comment`),
+  the same as `properties.kind`; the two disagreeing is refused. A kind no other thread in the outline has is kept
+  (kinds are open) and said in the answer's warnings, with the kinds in use and a did-you-mean (`patch-notes` → `patch-note`).
+- **Changed:** a name a mod tool has no argument for still doesn't stop the call (a host's own metadata arrives that
+  way), but the answer now starts with `Not used: …`, naming it and the tool's arguments.
+
 ### Marks only, found and kept (PIE-873)
 
 - **Added:** the byline's comment count is the margin's switch: a click cycles it as `M` does (cards a row each, whole,

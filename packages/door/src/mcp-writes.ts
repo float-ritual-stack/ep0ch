@@ -240,7 +240,7 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
     case "outline_comment":
       if ((args.whole === true) === (typeof args.quote === "string")) return { error: "Give either quote (exact source text) or whole: true." };
       if (!nonEmpty(args.body) && (args.whole === true || (args.body !== undefined && args.body !== ""))) return { error: "Give a non-empty comment (only a quote with no body is a highlight)." };
-      return { tool, input: pick(args, ["body", "quote", "whole", "start", "near", "prefix", "suffix", "requestId", "from", "revision", "properties"]) };
+      return { tool, input: pick(args, ["body", "quote", "whole", "start", "near", "prefix", "suffix", "requestId", "from", "revision", "kind", "properties"]) };
     case "outline_reply":
       if (nonEmpty(args.edit)) {
         if (!nonEmpty(args.body) || typeof args.observed !== "string") return { error: "Give edit (a comment's or reply's id outline_threads returned), observed (its words as you read them) and the new, non-empty body." };
@@ -492,6 +492,7 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
         start: { type: "integer", minimum: 0 }, near: { type: "integer", minimum: 0, description: "When the quote repeats: the offset to be nearest" }, prefix: { type: "string" }, suffix: { type: "string" }, requestId: { type: "string" },
         from: { type: "string", description: "A Resource comment: the note whose link opened it (kept as the thread's reference context)" },
         revision: { type: "integer", minimum: 1, description: "A Resource comment: the revision outline_read returned; the comment is refused if the file changed since" },
+        kind: { type: "string", description: "The thread's kind, written as [kind::…] on it (patch-note, question, highlight…); the same as properties.kind" },
         properties: { type: "object", description: "The thread's own properties, open: kind (highlight, note, question, define…), tags, color (a theme tone: default, good, warn, bad, dim, accent), any other key" },
       }, []),
     },
