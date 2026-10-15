@@ -88,10 +88,12 @@ export class ScriptRuns {
         return captured(() => this.client.request(input));
       },
     };
+    // An agent's request keeps the dispatcher's focus rules even when the saved source belongs to the person.
+    const dispatchActor = requestedBy.author === "agent" ? { ...requestedBy, sessionId: undo, taskId: actor.taskId } : actor;
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
       mcpAccess: request.mcpAccess,
-      ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, actor, controller.signal) } : {}),
+      ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, dispatchActor, controller.signal) } : {}),
     });
     const task = (async () => {
       try {

@@ -3464,6 +3464,37 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("an agent running a person's script cannot move the draft the person is typing in", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top;
+    const target = await board.request<{id: string}>("create", {author: "user", text: "Draft at the desk\n\nKeep writing here."});
+    await app.act({action: "open", args: {id: target.id}, tile: "notes", as: "test-agent"});
+    await app.act({ action: "edit", tile: "notes", as: "test-agent" });
+    const reader = [...stage.panes.values()].find((p: any) => p.editing) as ReaderPane;
+    const draft = reader.surface.draft!;
+    press({ kind: "enter" });
+    press({ kind: "end" });
+    press({ kind: "paste", text: "\n\nStill writing this note." });
+    expect(draft.text).toContain("Still writing this note.");
+    const { idle: _idle, ...person } = app.person();
+    const source = await board.request<{id: string}>("create", {author: "user", text:
+      `Open the shed [script::open-the-shed]\n\`\`\`js\nawait act('open', {id:'${seeded.notes.shed.id}'});\n\`\`\``});
+    await board.request("extensions.list", {reload: true});
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "open-the-shed"), "open script bound");
+    const extension = extensionList()!.extensions.find(e => e.name === "open-the-shed")!;
+    const run = await app.act({action: `ext.${extension.id}.run`, as: "test-agent"}) as {written: string[]};
+    await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "open script done");
+    expect((await board.get(run.written[0]!))!.text).toContain("· done");
+    expect(reader.surface.draft).toBe(draft);
+    expect(reader.surface.msg!.id).toBe(target.id);
+    const { idle: _afterIdle, ...after } = app.person();
+    expect(after).toEqual(person);
+    expect(draft.text).toContain("Still writing this note.");
+    for (let i = 0; i < 5 && S().focus === "stage"; i++) press({kind: "esc"});
+  }, 30_000);
+
   test("extensions as programs (PIE-754): almanac's schedule is listed; its action, through act with no block, writes a dated note under the Almanac page as ext:almanac, once a day", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "extensions" }, as: "test-agent" })).toMatchObject({ key: "extensions" });
