@@ -3041,7 +3041,7 @@ export class OutlinerServer {
         case "blocks.resolve": {
           if (!Array.isArray(request.refs) || request.refs.length > 200 || request.refs.some(ref => typeof ref !== "string")) throw new Error("refs is a list of at most 200 strings");
           result = { resolved: request.refs.map(ref => {
-            try { return { ref, id: this.store.resolveBlockRef(ref).id }; } catch (error) { return { ref, error: error instanceof Error ? error.message : String(error) }; }
+            try { return { ref, id: this.store.resolveBlockRef(ref, "note").id }; } catch (error) { return { ref, error: error instanceof Error ? error.message : String(error) }; }
           }) };
           break;
         }

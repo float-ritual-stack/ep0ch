@@ -257,7 +257,7 @@ export async function resolveNotes(board: SocketBoard, refs: string[]): Promise<
   return refs.map(r => {
     if (isWholeBlockId(r)) return { id: blockIdOf(r).trim().toLowerCase() };
     const a = answered.get(r);
-    return a?.id ? { id: a.id } : { error: a?.error ? a.error.replace(/^No block /, "no note ") : `no note ${r} in this outline` };
+    return a?.id ? { id: a.id } : { error: a?.error ?? `no note ${r} in this outline` };
   });
 }
 

@@ -3216,9 +3216,10 @@ export class OutlinerStore {
 
   /**
    * A block named the way a person or agent types it: an id, ((id)), an id's first 8+ characters (one block), a
-   * Work ID or a [[page]] address. The one resolver behind `virtual.occurrences.move`; refuses with what it tried.
+   * Work ID or a [[page]] address. The one resolver behind `virtual.occurrences.move` and `blocks.resolve`; refuses with what it
+   * tried, calling the thing `noun` (a CLI says "note").
    */
-  resolveBlockRef(ref: string): Block {
+  resolveBlockRef(ref: string, noun = "block"): Block {
     // ((id)) and ((id|label)) name the id; [[page]] the page.
     const text = typeof ref === "string" ? referencedBlock(ref)?.blockId ?? ref.trim().replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
     if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
@@ -3239,7 +3240,7 @@ export class OutlinerStore {
     if (page?.status === "resolved" && page.block) return page.block;
     if (page?.status === "deleted") throw new Error(`${ref} is in Trash`);
     const mean = this.workIdDidYouMeanFromCurrentRead(text);
-    throw new Error(`No block ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`);
+    throw new Error(`No ${noun} ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`);
   }
 
   /**
