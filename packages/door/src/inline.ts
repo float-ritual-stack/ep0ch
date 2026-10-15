@@ -1,7 +1,7 @@
 // Inline Markdown in read mode, as Detail draws it: `**strong**` / `__strong__` bold, `*em*` / `_em_`
 // italic, `~~del~~` struck through, and `\*` an escaped character. Detail parses with marked
 // (pi-herdr-outliner src/attributed-markdown.ts); the door has no Markdown dependency, so this mirrors
-// CommonMark's delimiter-run rules (flanking, `_` not inside words, the rule of three) and
+// CommonMark's delimiter-run rules (flanking, `_` not inside words, the rule of three).
 // Code spans and links are atoms: emphasis may wrap
 // them but never reaches inside. The result carries style marks (src/style.ts) that colourBody turns into
 // SGR after wrapping.
