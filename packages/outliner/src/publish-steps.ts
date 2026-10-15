@@ -21,7 +21,7 @@ export const MAX_PUBLISHED_STEPS = 256 * 256;
  */
 export interface PublishedStep {
   block: string; revision: number; start: number; itemId?: string; evidence: string; status: ChecklistStatus;
-  live?: { note: string };
+  live?: { note: string; figure: number };
 }
 
 /** Step `index`'s sentinel, three characters: what a box is replaced by until drawSteps draws it. */
@@ -83,7 +83,7 @@ export function drawSteps(html: string, steps: readonly PublishedStep[], writabl
     return `<button type="button" class="step s-${step.status}" aria-haspopup="menu" aria-label="${attr(`${said}: change`)}"`
       + ` data-step-block="${attr(step.block)}" data-step-revision="${step.revision}" data-step-start="${step.start}"`
       + `${step.itemId ? ` data-step-id="${attr(step.itemId)}"` : ""} data-step-evidence="${attr(step.evidence)}" data-step-status="${step.status}" data-glyph="${glyph}"`
-      + `${step.live ? ` data-step-note="${attr(step.live.note)}"` : ""}></button>`;
+      + `${step.live ? ` data-step-note="${attr(step.live.note)}" data-step-figure="${step.live.figure}"` : ""}></button>`;
   });
 }
 

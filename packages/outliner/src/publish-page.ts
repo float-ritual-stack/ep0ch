@@ -384,12 +384,14 @@ export class PageMarginalia {
    */
   private async liveStep(status: ChecklistStatus, block: string, live: Record<string, unknown>, view: PageView): Promise<[number, Record<string, unknown>]> {
     const note = typeof live.note === "string" ? live.note : "", from = typeof live.from === "string" ? live.from : "";
-    if (!block || !isChecklistStatus(from)) return [400, { ok: false, error: "name the row: its note, the figure's note and the status drawn" }];
+    if (!block || !isChecklistStatus(from) || !Number.isInteger(live.figure) || !Number.isInteger(live.revision)) return [400, { ok: false, error: "name the row: its note, the figure's note and the status drawn" }];
     const figure = view.blocks.find((shown) => shown.id === note);
     if (!figure) return [404, { ok: false, error: "that row's figure isn't on this page now" }];
     try {
       // What's written is the figure's to say, and only for a row it lists now.
-      const mark = await liveRowMark(this.host, { id: figure.id, text: (await this.host.request<Block>({ action: "get", blockId: figure.id })).text }, block);
+      const source = await this.host.request<Block>({ action: "get", blockId: figure.id });
+      if (source.revision !== live.revision) return [409, { ok: false, stale: true, error: "the figure changed since this page drew it: choose again" }];
+      const mark = await liveRowMark(this.host, source, block, live.figure as number);
       if (!mark) return [404, { ok: false, error: "no live figure on this page lists that row with a done: of one key=value" }];
       const { key } = mark, value = liveMarkValue(mark, status);
       const row = await this.host.request<Block>({ action: "get", blockId: block });

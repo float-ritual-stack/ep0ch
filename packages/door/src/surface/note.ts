@@ -5104,6 +5104,7 @@ export class NoteSurface {
       if (choice === "copy-link" && actor.kind === "user") host.ctx.copy?.(link);
       said = choice === "copy-link" && actor.kind === "user" ? `copied ${link} · "${title}"` : `made "${title}" addressable: ${link}`;
     } else {
+      if (r.changed) this.stepHistory.advance(ref.block, (r.block.revision ?? 0) - 1, r.block.revision ?? 0);
       if (r.changed && before !== choice) this.stepHistory.push({ block: ref.block, ...(r.item.itemId ? { itemId: r.item.itemId } : { at: { start: r.item.span.start, revision: r.block.revision ?? 0 } }), evidence: r.item.evidence, status: before, to: choice, title, by: partyOf(actor), context: this.msg?.id ?? ref.block });
       said = r.changed ? `set "${title}" ${statusWord(before)} → ${statusWord(choice)}${where}` : `"${title}" is already ${statusWord(choice)}`;
     }
@@ -5213,17 +5214,11 @@ export class NoteSurface {
       host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
       return { block: e.block, step: null, status: e.status, from: e.to, revision: w.revision, recordedAs: mutationFor(actor) };
     }
-    // A step with an id by its id; a figure's row (no id, PIE-864) by where it starts in the revision the change left,
-    // or, the note having moved on since (another undo, another change), as the one step that still reads as it did.
+    // A row without an id stays at its recorded position only through our own box writes.
     let step: ChecklistStep = { ...(e.itemId ? { itemId: e.itemId } : {}), identity: e.itemId ? "unique" : "unassigned", status: e.to, evidence: e.evidence, span: { start: e.at?.start ?? 0, end: 0, startLine: 0, endLine: 0 }, depth: 0, text: e.title };
     let r: Awaited<ReturnType<SurfaceHost["ctx"]["board"]["changeStep"]>>;
     try {
       let revision = e.at?.revision ?? 0;
-      if (e.at) {
-        const now = await host.ctx.board.checklist(e.block, 1000), same = now.items.filter(i => i.evidence === e.evidence);
-        if (same.length !== 1) throw new Refused(same.length ? "more than one step reads as it did: change it from its box" : "the step changed since");
-        step = same[0]!; revision = now.revision;
-      }
       r = await host.ctx.board.changeStep(e.block, step, revision, { kind: "status", status: e.status }, actor);
     } catch (err) {
       if (err instanceof Refused) this.stepHistory.drop(e);
@@ -5234,6 +5229,7 @@ export class NoteSurface {
       throw new ActionRefused(why);
     }
     this.stepHistory.drop(e);
+    if (e.at) this.stepHistory.advance(e.block, e.at.revision, r.block.revision ?? 0);
     stepChanged(host.ctx.board, e.block, step, r.item, r.block.revision);
     embedStepChanged(host.ctx.board, r.block, step, r.item);
     outlineChanged([e.block]);

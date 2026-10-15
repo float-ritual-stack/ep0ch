@@ -97,7 +97,7 @@ function figureRows(note: { id: string; text: string; revision?: number }, first
           return item ? placeFigureStep(steps, { block: note.id, revision: note.revision ?? 0, start: item.span.start, evidence: item.evidence, status: item.status }) : null;
         }
         if (typeof it.block !== "string" || !it.mark) return null;
-        return placeFigureStep(steps, { block: it.block, revision: 0, start: 0, evidence: `live:${it.block}`, status: it.status ?? (it.done ? "done" : "todo"), live: { note: note.id } });
+        return placeFigureStep(steps, { block: it.block, revision: note.revision ?? 0, start: 0, evidence: `live:${it.block}`, status: it.status ?? (it.done ? "done" : "todo"), live: { note: note.id, figure: first - 1 } });
       } } : {}),
     };
   };
@@ -126,12 +126,12 @@ async function drawFigure(host: LiveHost, kind: string, body: readonly string[],
  * against its answer: the property its `done:` names, or null when no figure there lists that row with a `done:` of one
  * `key=value`. A page never takes the property from the request.
  */
-export async function liveRowMark(host: Pick<LiveHost, "request">, note: { id: string; text: string }, row: string): Promise<{ key: string; done: string } | null> {
+export async function liveRowMark(host: Pick<LiveHost, "request">, note: { id: string; text: string }, row: string, figure: number): Promise<{ key: string; done: string } | null> {
   const lines = note.text.split("\n");
   // Every row is asked about as is: whether the page may show it was settled when it was drawn.
   const all: LiveHost = { request: host.request, shown: async ids => new Set(ids), titles: async () => new Map(), href: () => null };
   for (const block of componentBlocks(lines)) {
-    if (block.end <= block.start || graphKind(block) !== "check") continue;
+    if (block.start !== figure || block.end <= block.start || graphKind(block) !== "check") continue;
     const read = figureProps("check", figureSource(lines.slice(block.start + 1, block.end), note.id));
     if ("error" in read) continue;
     const mark = liveMark(read.props), asking = liveAsk("check", read.props);

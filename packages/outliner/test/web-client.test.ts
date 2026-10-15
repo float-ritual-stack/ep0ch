@@ -685,17 +685,31 @@ test("a ::graph-check row on a page (PIE-864): its words drawn as the note's, it
   expect(answer.status).toBe(200);
   expect(store.get(plan.id)!.text).toContain("- [x] open `http://localhost:4175/register` — sign up as **Ana**\n");
   // The live row: the chore's own stage written, as the person; the property is the figure's done:, read from it.
-  answer = await write({ page: plan.id, action: "step", status: "done", block: chore.id, evidence: live.evidence, live: { note: plan.id, from: live.status } });
+  answer = await write({ page: plan.id, action: "step", status: "done", block: chore.id, evidence: live.evidence, live: { note: plan.id, figure: Number(live.figure), revision: store.get(plan.id)!.revision, from: live.status } });
   expect(await answer.json()).toMatchObject({ ok: true, said: "marked done (stage::done)" });
   expect(store.get(chore.id)!.text).toBe("Sweep the shed [type::web-chore] [stage::done]");
   expect(store.get(chore.id)!.author).toBe("user");
   // Drawn as to do, done since: refused as stale, never written over.
-  answer = await write({ page: plan.id, action: "step", status: "waiting", block: chore.id, evidence: live.evidence, live: { note: plan.id, from: "todo" } });
+  answer = await write({ page: plan.id, action: "step", status: "waiting", block: chore.id, evidence: live.evidence, live: { note: plan.id, figure: Number(live.figure), revision: store.get(plan.id)!.revision, from: "todo" } });
   expect(answer.status).toBe(409);
   expect(store.get(chore.id)!.text).toContain("[stage::done]");
   // A note the figure doesn't list, or a figure not on the page, can't be marked through it.
-  expect((await write({ page: plan.id, action: "step", status: "todo", block: survey.id, evidence: "x", live: { note: plan.id, from: "todo" } })).status).toBe(404);
-  expect((await write({ page: plan.id, action: "step", status: "todo", block: chore.id, evidence: "x", live: { note: survey.id, from: "done" } })).status).toBe(404);
+  expect((await write({ page: plan.id, action: "step", status: "todo", block: survey.id, evidence: "x", live: { note: plan.id, figure: Number(live.figure), revision: store.get(plan.id)!.revision, from: "todo" } })).status).toBe(404);
+  expect((await write({ page: plan.id, action: "step", status: "todo", block: chore.id, evidence: "x", live: { note: survey.id, figure: Number(live.figure), revision: store.get(survey.id)!.revision, from: "done" } })).status).toBe(404);
+});
+
+test("a page marks the clicked live figure when two figures list the same row (PIE-864)", async () => {
+  const chore = store.create("Wash the pot [type::shared-chore] [stage::todo] [review::todo]", null, "user");
+  const plan = store.create(['Pot plan', '', '::graph-check', '---', 'query: "type=shared-chore"', 'done: "stage=done"', '---', '::', '',
+    '::graph-check', '---', 'query: "type=shared-chore"', 'done: "review=done"', '---', '::'].join("\n"), null, "user");
+  const html = await page(`/pub/p/${plan.id}`);
+  const boxes = [...html.matchAll(/<button type="button" class="step s-(\w+)"[^>]*>/g)];
+  const attrs = Object.fromEntries([...boxes[1]![0].matchAll(/data-step-([\w-]+)="([^"]*)"/g)].map(m => [m[1]!, m[2]!]));
+  const answer = await write({ page: plan.id, action: "step", status: "done", block: chore.id, evidence: attrs.evidence,
+    live: { note: attrs.note, from: attrs.status, figure: Number(attrs.figure), revision: Number(attrs.revision) } });
+  expect(answer.status).toBe(200);
+  expect(store.get(chore.id)!.text).toContain("[review::done]");
+  expect(store.get(chore.id)!.text).toContain("[stage::todo]");
 });
 
 test("a step's box on a page is its state, a button on the owner's page: Approve and Reject land as the note's marks, a stale one is refused; a public page draws it read-only (PIE-811)", async () => {

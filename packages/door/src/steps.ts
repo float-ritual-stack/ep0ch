@@ -169,6 +169,13 @@ export class UndoHistory<E extends { by: string; context: string } = UndoEntry> 
   last(by: string, context: string): (E & { seq?: number }) | null {
     return this.entries.findLast(e => e.by === by && e.context === context) ?? null;
   }
+  /** Only our own box writes preserve a row's position; other edits leave its undo stale. */
+  advance(block: string, before: number, after: number) {
+    for (const e of this.entries) {
+      const step = e as E & Partial<UndoEntry>;
+      if (step.block === block && step.at?.revision === before) step.at.revision = after;
+    }
+  }
   drop(e: E) { const i = this.entries.lastIndexOf(e as E & { seq?: number }); if (i >= 0) this.entries.splice(i, 1); }
   get size() { return this.entries.length; }
 }

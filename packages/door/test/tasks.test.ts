@@ -439,4 +439,18 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     await expect(s.act("task.status", { n: paint, to: "waiting" }, host, agent)).rejects.toThrow("changed since it was drawn");
     expect(await textOf(job.id)).toContain("[status::done]");
   }, 30_000);
+  test("undo refuses a removed figure row even when an identical row remains (PIE-864)", async () => {
+    const plan = await create(['Duplicate plan', '', '::graph-check', '---', 'title: Steps', '---', '- [ ] wash the pot', '- [x] wash the pot', '::'].join("\n"));
+    connectFigures(board, () => {});
+    const { s, host, draw } = reader();
+    s.show(await board.get(plan.id), host);
+    await untilAsync(async () => { draw(); return ((await s.act("tasks", {}, host, { kind: "agent", id: AGENT })) as any).steps.length === 2; }, "the steps");
+    const agent = { kind: "agent" as const, id: AGENT };
+    await s.act("task.status", { n: 1, to: "done" }, host, agent);
+    const changed = (await board.get(plan.id))!;
+    await board.update(plan.id, changed.text.replace('- [x] wash the pot\n', ''), changed.revision!);
+    await expect(s.act("task.undo", {}, host, agent)).rejects.toThrow("couldn't undo");
+    expect(await textOf(plan.id)).toContain('- [x] wash the pot');
+  }, 30_000);
+
 });
