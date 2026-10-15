@@ -1,3 +1,4 @@
+import { blockTags, metadataLines } from "@ep0ch/outline-core/block-tags";
 import { closeOpenFences } from "@ep0ch/outline-core/component-block";
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
@@ -2438,6 +2439,17 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const match = matches[at]!;
     body = body.slice(0, match.index) + `\u0000${at}\u0000` + body.slice(match.index + match[0].length);
   }
+  // The block-level tags (PIE-880: the hashtags written on the metadata lines) are one row under the title, so taking the
+  // properties out doesn't leave them as a stray line; outline-core's blockTags says which they are. Read first, before
+  // anything rewrites a metadata line (a `[from::]` or `[file::]` there).
+  let tagRow = "";
+  if (!options.keepProperties && body.includes("#")) {
+    const records = parsePropertyRecords(body);
+    tagRow = blockTags(body, records).tags.map((tag) => `#${tag}`).join(" ");
+    // Every tag on a metadata line goes from it; the row holds the ones no hand-made first line already shows.
+    const hidden = metadataLines(body, records);
+    for (const record of records.filter((r) => r.syntax === "hashtag" && hidden.has(r.line)).reverse()) body = body.slice(0, record.start) + body.slice(record.end);
+  }
   // A media line no component drew (in an embed, or past a page's limit) is its alt text and its file's name, never an
   // empty bullet and never its path.
   if (!options.keepProperties) {
@@ -2468,6 +2480,11 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const anchored = codeLineSet(body);
     const plain = stripFragmentAnchors(body).split("\n");
     body = body.split("\n").map((line, at) => (anchored.has(at) ? line : plain[at]!.replace(/[ \t]+$/, ""))).join("\n");
+  }
+  if (tagRow) {
+    const lines = body.split("\n");
+    const subject = Math.max(0, lines.findIndex((line) => line.trim()));
+    body = [...lines.slice(0, subject + 1), "", tagRow, "", ...lines.slice(subject + 1)].join("\n");
   }
   // A #tag is a link to the notes carrying it (PIE-800), where the page has a search; never one inside a link's label.
   if (index.tagSearch && !options.keepProperties) {

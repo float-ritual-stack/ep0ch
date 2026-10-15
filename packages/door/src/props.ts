@@ -1,14 +1,12 @@
 // A note's properties the way Detail shows them: a one-line summary of chosen keys under the title, the
 // block's metadata lines kept out of the body, and every token (repeats and scope kept) for the property
 // panel. The service parses; the door only presents what `properties.preview` says the text holds.
-import { isMediaLine } from "@ep0ch/outline-core/media-line";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
 import type { PropertyRecord, SocketBoard } from "./socket";
 import { stateDir } from "./state";
 import { printable } from "./text";
-import { isPropertyTokenLine } from "@ep0ch/outline-core/property-grammar";
 
 /** Detail's default (`OUTLINER_PROPERTY_SUMMARY_KEYS`). */
 export const DEFAULT_SUMMARY_KEYS = ["status", "work-stage", "priority", "track"] as const;
@@ -141,21 +139,5 @@ export async function tokensFor(text: string, src: Source | null | undefined): P
   return r.done ?? { state: "error", tokens: [], error: "the property read was dropped" };
 }
 
-/**
- * The line numbers (0 = subject) the body leaves out because they hold block metadata only: the
- * preamble, the run of lines right after the subject (blank lines and media lines before it skipped) whose tokens the
- * service calls block-scope metadata lines (`[key::value]` runs, hashtags among them). Only that run: the
- * service gives a hashtag block scope wherever it is, so a `#tag` line further down is body text and
- * stays, as do bare `key:: value` lines (line scope). Without the service's answer, the documented rule:
- * the first run of `[key::value]`-only lines after the subject.
- */
-export function metadataLines(text: string, tokens: PropertyRecord[] | null): Set<number> {
-  const out = new Set<number>();
-  const meta = tokens ? new Set(tokens.filter(t => t.scope === "block" && t.placement === "metadata-line").map(t => t.line)) : null;
-  const lines = text.split("\n");
-  // Blank lines, and the media lines a note may open with (its picture: content, PIE-598), come before the preamble.
-  let i = 1;
-  while (i < lines.length && (!lines[i]!.trim() || isMediaLine(lines[i]!))) i++;
-  for (; i < lines.length && (meta ? meta.has(i) : isPropertyTokenLine(lines[i]!) && !isMediaLine(lines[i]!)); i++) out.add(i);
-  return out;
-}
+/** The lines the body leaves out because they hold block metadata only (outline-core's block-tags.ts, PIE-880). */
+export { metadataLines } from "@ep0ch/outline-core/block-tags";

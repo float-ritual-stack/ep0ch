@@ -159,7 +159,7 @@ export const PANTRY_PASTE = ["", "# Pantry inventory", "", ...Array.from({ lengt
 export const SECTIONS: Section[] = [
   {
     key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane; the BBS message reader)", files: "src/surface/note.ts, src/doc.ts, outline-core src/code-ranges.ts, src/inline.ts",
-    aside: "the notebook's embeds read quietly: a dim, clickable » source line and a dim bar (src/embeds.ts); only a problem heading stays loud · a link to the web (the allotment society) is the theme's blue-violet with a ↗, apart from the cyan of a link into the outline (theme.external, PIE-646) · open “A note left half-written” (act open id=…): a fence and a [[ left open cost only themselves, the fence its paragraph, and ⚠ rows above the note say each and how to close it (PIE-669)",
+    aside: "the notebook's tags, written with its properties (#allotment #beds), are one row of tag links under the byline · the notebook's embeds read quietly: a dim, clickable » source line and a dim bar (src/embeds.ts); only a problem heading stays loud · a link to the web (the allotment society) is the theme's blue-violet with a ↗, apart from the cyan of a link into the outline (theme.external, PIE-646) · open “A note left half-written” (act open id=…): a fence and a [[ left open cost only themselves, the fence its paragraph, and ⚠ rows above the note say each and how to close it (PIE-669)",
     stage(n, show) {
       const r = new ReaderPane();
       // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.

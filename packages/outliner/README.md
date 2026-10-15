@@ -940,6 +940,10 @@ listener is untouched (below): read-only, marked notes only.
   views use, so `#garden` finds `#garden/beds`), not a word search. Each row is the note's title, the line that carries
   the tag and its crumbs. Inside a share it lists only the share's notes. On the public listener there's no search, so a
   tag stays words.
+- **A note's block-level tags are one row under its title** (PIE-880): the `#tag`s written on its metadata lines
+  (`[status::draft] #fencing`) are not lost with the properties and not left as a stray line; the page draws them as a
+  row of tag links (outline-core's `blockTags`), as the door's reader does. Detail leaves a metadata line's tags in the
+  text, so it shows them in place.
 - **Completion in the comment and reply boxes** (PIE-789): `[[` a page, a Work ID or an alias (`pages.complete`), `((`
   a note (`tree.search`, as `((id))`), `#` a tag the outline already has (`properties.catalog`). The page sends the line
   being written and the cursor (`<base>/_marginalia/complete`); the outliner's own completion rules

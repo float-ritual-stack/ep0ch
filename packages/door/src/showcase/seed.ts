@@ -189,7 +189,7 @@ const mdFig = (kind: string, yaml: string[], md: string[]) => [`::graph-${kind}`
 function notebookText(whiteboardId: string, kettleId: string, tapId: string): string {
   return [
     `${SEED.notebook} [page::${SEED.notebook}]`,
-    "[season::autumn] [plot::14b] [to::the plot committee]",
+    "[season::autumn] [plot::14b] [to::the plot committee] #allotment #beds",
     "",
     `Our plot at the Elm Row allotments. Links: [[${SEED.shed}]], ((${kettleId}|the kettle job)), and a soft link: ${WORK_PREFIX}-001 is the gate latch.`,
     "The water butt is half full [level::half] after Sunday's rain.",

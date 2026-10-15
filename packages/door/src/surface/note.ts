@@ -28,6 +28,7 @@ import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, 
 import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
+import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
@@ -493,7 +494,11 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
   // Blank lines before the first line with text aren't drawn.
   let lead = 0;
   while (lead < rows.length - 1 && rows[lead]!.l === "") lead++;
-  const kept = rows.slice(lead);
+  const kept: { l: string; i: number; anchor?: string }[] = rows.slice(lead);
+  // The block-level tags (PIE-880, outline-core's blockTags) are the first row of the body, so hiding the properties
+  // doesn't hide them: one row under the byline, each a tag link, then a blank row. The row stands for its metadata line.
+  const row = blockTags(m.text, tokens?.state === "ready" ? tokens.tokens : null);
+  if (row.tags.length) kept.unshift({ l: row.tags.map(t => `#${t}`).join(" "), i: row.line }, ...(kept.length ? [{ l: "", i: row.line }] : []));
   const literal = new Set<number>();
   kept.forEach((r, k) => { if (lit.inside.has(r.i)) literal.add(k); });
   return { text: kept.map(r => r.l).join("\n"), lines: kept.map(r => r.i), anchors: kept.map(r => ("anchor" in r ? r.anchor : undefined)), literal, unterminated: lit.unterminated };

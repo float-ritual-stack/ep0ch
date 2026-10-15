@@ -1937,6 +1937,12 @@ element is current, and `esc` lets go of the element or selection; it never leav
 - **Which lines are metadata** is the service's call: `properties.preview` (PIE-401) says which tokens
   are block-scope metadata lines. Bare `key:: value` lines (line scope) and inline tokens stay in the body.
   Until it answers, the documented rule (the first run of property-only lines after the subject).
+- **Block-level tags are drawn, not hidden** (PIE-880). A `#tag` written on a metadata line (`[status::new] #pie-request`)
+  is the note's tag and goes with the properties; the reader draws those tags as one row of tag links (`[ ]`, ⏎ and a
+  click open the notes carrying one) right under the byline, before the text, and `i` still lists them as properties.
+  Which tags are block-level is outline-core's `blockTags` (`block-tags.ts`, with `metadataLines`); Detail and the web
+  pages show them the same way. A tag in the text stays where it was written, and so does a hand-made row (`- #a - #b` as
+  the first line): it is the row, so no second one is drawn for its tags.
 - **Links** read as Detail shows them: `((id))` as the target's title, `((id|label))` as its label,
   `[[page]]` as written, without delimiters. Titles, trash state and fragments come from
   `references.resolve`, pages and Work IDs from `pages.resolve` (read-only; nothing is created). A missing
