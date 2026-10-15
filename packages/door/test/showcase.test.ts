@@ -429,6 +429,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
     "facets": ["#frost-jobs", "uses▾", "facets"],
     "rich-edit": ["Seed inventory", "Beans", "Packets"],
+    asks: ["Keep writing while the answer arrives"],
     scripts: ["Seed report", "Press alt+S"],
   };
 
@@ -3471,6 +3472,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(d.text).toContain("Still writing");
     await until(() => screen().includes("Peas") && screen().includes("Beans"), "the script's table beside the note", 15_000);
     expect(JSON.stringify(await stage.dispatch.act({ action: "layout.get" }, USER))).toContain("answer");
+    await stage.dispatch.press("answer.follow", { n: 1 }, "answer");
+    await until(() => screen().includes("Seed counts"), "the answer's script source opened");
+    expect(reader.surface.draft).toBe(d);
     await stage.dispatch.press("edit.save", {}, "notes");
     expect((await board.get(seeded.notes.asks.id))!.text).toContain("Still writing");
   }, 40_000);

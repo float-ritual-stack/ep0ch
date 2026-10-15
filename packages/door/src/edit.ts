@@ -906,14 +906,35 @@ export class Draft {
   } | null = null;
 
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
-  layout(w: number): VRow[] {
-    const out: VRow[] = [];
+  answerFolds() {
     const text = this.text;
     if (this.foldCache?.text !== text) this.foldCache = { text, points: foldPoints(text) };
-    const closed = this.foldCache.points.filter(p => p.start === "folded" && !this.openedFolds.has(p.key));
-    for (const p of closed) if (this.row >= p.line - (this.asks.has(this.lines[p.line - 1] ?? "") ? 1 : 0) && this.row < p.end) this.openedFolds.add(p.key);
+    return this.foldCache.points.filter(p => this.asks.has(this.lines[p.line - 1] ?? ""));
+  }
+
+  toggleAnswer(p: FoldPoint) {
+    if (this.openedFolds.has(p.key)) {
+      this.openedFolds.delete(p.key);
+      if (this.row >= p.line && this.row < p.end) this.place(p.line - 1, 0);
+    } else this.openedFolds.add(p.key);
+    return !this.openedFolds.has(p.key);
+  }
+
+  hiddenAnswerLines(): Set<number> {
+    const hidden = new Set<number>();
+    for (const p of this.answerFolds()) {
+      // Entering the answer to edit it reveals it; selecting the ask alone does not.
+      if (this.row >= p.line && this.row < p.end) this.openedFolds.add(p.key);
+      if (!this.openedFolds.has(p.key)) for (let i = p.line; i < p.end; i++) hidden.add(i);
+    }
+    return hidden;
+  }
+
+  layout(w: number): VRow[] {
+    const out: VRow[] = [];
+    const hidden = this.hiddenAnswerLines();
     this.lines.forEach((line, i) => {
-      if (closed.some(p => !this.openedFolds.has(p.key) && i >= p.line + (this.asks.has(this.lines[p.line - 1] ?? "") ? 0 : 1) && i < p.end)) return;
+      if (hidden.has(i)) return;
       const chars = [...line];
       for (const r of wrapRows(chars, Math.max(4, w), hangOf(line, Math.max(4, w)))) out.push({ line: i, ...r });
     });

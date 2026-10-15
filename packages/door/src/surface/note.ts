@@ -458,7 +458,7 @@ const linkOf = (l: LinkOccurrence): Link => {
  * A link a draft's preview draws as `edit.follow`'s `ref=` (PIE-592): `((id^fragment))`, `[[page]]`, a URL or `#tag`;
  * null for one that has no such words (a resource token, a picture).
  */
-const refOfLink = (l: Link): string | null =>
+export const refOfLink = (l: Link): string | null =>
   l.block ? `((${l.block}${l.fragment ? `^${l.fragment}` : ""}))` : l.page !== undefined ? `[[${l.page}]]` : l.url !== undefined ? l.url : l.tag !== undefined ? `#${l.tag}` : null;
 /** `edit.follow`'s `ref=` back to the link it names: what `refOfLink` writes, or one link written whole. */
 function linkOfRef(ref: string): Link | null {
@@ -2361,7 +2361,7 @@ export class NoteSurface {
       answered: (ask, by) => { void this.run("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e))); },
       closed: how => this.draftClosed(s, how, host),
     });
-    s.draft.onAskSelected = ask => { void this.run("ask.beside", { ask }, host, USER); };
+    s.draft.onAskSelected = ask => { void this.runKey("ask.beside", { ask }, host); };
     this.msg = fresh;
     this.modes.push(this.draftMode(s));
     return s;
@@ -6878,7 +6878,7 @@ export const PROPOSAL_ACTIONS = actionSet<{ surface?: NoteSurface; host: Pick<Su
 export const NOTE_ACTIONS = actionSet<On>()("note", {
   "ask.beside": def({
     summary: "show this ask's answer beside the note, keeping the person's keys in the note",
-    touches: "nothing", replay: "safe",
+    touches: "shape", replay: "safe",
     args: { ask: { type: "string", about: "the ask line as written" } },
     async run({ ask }, { host }, actor) { return host.answerTile?.(ask, actor) ?? null; },
   }),
@@ -8239,6 +8239,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: FOLD_ARGS,
     async run(args, { surface, host }, actor) {
       const none = args.text === undefined && args.line === undefined && args.n === undefined;
+      const draft = surface.draft;
+      if (draft) {
+        const points = draft.answerFolds();
+        const p = args.n !== undefined ? points[args.n - 1] : points.find(p => args.text !== undefined ? p.text === args.text : p.line === (args.line ?? draft.row + 2) - 1);
+        if (!p) throw new ActionRefused("name an answer fold in the draft by its line or number");
+        const folded = draft.toggleAnswer(p);
+        host.redraw();
+        return { line: p.line + 1, folded };
+      }
       if (none && actor.kind === "agent") throw new ActionRefused("say which heading, list item or callout: one of text=, line= or n= (folds lists them)");
       const at = none ? surface.foldTargetAtKeys() : null;
       if (none && !at) throw new ActionRefused("nothing to fold here · ( ) pick a heading or a list item");

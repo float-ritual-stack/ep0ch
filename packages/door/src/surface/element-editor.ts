@@ -324,9 +324,12 @@ export class ElementEdit {
     const labels = [["[raw ^O]", "rich.toggle"], ["[+row]", "rich.change", "row.add"], ["[-row]", "rich.change", "row.remove"], ["[+col]", "rich.change", "column.add"], ["[-col]", "rich.change", "column.remove"]];
     let x = 0; this.controls = labels.map(([label, action, op]) => { const c = { from: x, to: x + label!.length, action: action as "rich.toggle" | "rich.change", op }; x += label!.length + 1; return c; });
     const body: string[] = [], spots: typeof this.spots = [];
+    const hidden = d.hiddenAnswerLines();
+    const source = (start: number, end: number) => d.lines.slice(start, end).filter((_, i) => !hidden.has(start + i)).join("\n");
     let at = 0, cursor = 0;
     for (const e of this.elements()) {
-      if (e.start > at) body.push(...draw(d.lines.slice(at, e.start).join("\n"), w));
+      if (hidden.has(e.start)) continue;
+      if (e.start > at) body.push(...draw(source(at, e.start), w));
       const values = e.fields.map(row => row.map(f => {
         // Source spelling while editing keeps escaped characters and the cursor honest.
         let text = d.lines[f.line]!.slice(f.start, f.end);
@@ -347,7 +350,7 @@ export class ElementEdit {
       }
       body.push(...rendered); at = e.end;
     }
-    if (at < d.lines.length) body.push(...draw(d.lines.slice(at).join("\n"), w));
+    if (at < d.lines.length) body.push(...draw(source(at, d.lines.length), w));
     const room = Math.max(1, h - 2);
     if (this.painted && this.painted.patch !== d.patches.at(-1)?.patchId && cur) this.top = Math.max(0, this.top + cursor - this.painted.cursor);
     this.painted = { patch: d.patches.at(-1)?.patchId, cursor };

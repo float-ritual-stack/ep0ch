@@ -317,7 +317,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const source = this.nameOf(at);
     const existing = [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === source);
     let id: number;
-    if (existing) { id = existing[0]; (existing[1] as AnswerTile).ask = ask; }
+    if (existing) {
+      id = existing[0];
+      if (actor.kind === "agent" && this.hasFocus(existing[1])) return { tile: this.nameOf(id), held: true };
+      (existing[1] as AnswerTile).ask = ask;
+      (existing[1] as AnswerTile).top = 0;
+    }
     else id = this.openPair(at, new AnswerTile(source, ask), "answer", false, actor);
     this.save(); this.redraw();
     return { tile: this.nameOf(id) };

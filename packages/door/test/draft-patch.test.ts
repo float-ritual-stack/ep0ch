@@ -646,12 +646,16 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect((await board.listExtensions(true))?.extensions.find(e => e.id === "gardener")?.state).toBe("active");
   }
 
-  test("an ask's reply lands under its line while typing continues in the same draft", async () => {
+  test.each([false, true])("an ask's reply lands under its line while typing continues (rich=%s)", async rich => {
     await gardener();
     const e = await editing("Garden\n\n");
     e.type("@gardener plan the beds");
     e.d.newline(false);
-    e.type("Still writing");
+    if (rich) {
+      e.s.key({ kind: "paste", text: "\n| Work |\n| --- |\n| Still writing |" }, e.h);
+      e.d.place(e.d.lines.length - 1, 15);
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    } else e.type("Still writing");
     const frameRow = () => e.s.render(70, 18, e.h).lines.findIndex(l => visible(l).includes("Still writing"));
     const row = frameRow();
     const untilReply = Date.now() + 8_000;
@@ -664,6 +668,12 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(e.d.text).toContain("Sow the peas.");
     expect(e.d.text.indexOf("Sow the peas.")).toBeGreaterThan(e.d.text.indexOf("@gardener plan the beds"));
     expect(frameRow()).toBe(row);
+    expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
+    const answerLine = e.d.answerFolds()[0]!.line + 1;
+    await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+    expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).toContain("Sow the peas.");
+    await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+    expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
     expect(e.d.writers.map(actorIdOf)).toContain("ext:gardener");
     expect((await board.get(e.id))!.text).toBe("Garden\n\n");
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
