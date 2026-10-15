@@ -1,3 +1,4 @@
+import type { ExtensionKeyLine } from "./secret-keys";
 import type { ExtensionRunStatus } from "./resource-extensions";
 import type { ResourceProviderEntry } from "./resource-references";
 import { extensionProvider } from "./resources";
@@ -150,6 +151,8 @@ export interface ExtensionEntry {
   readonly schedules?: readonly ScheduleListEntry[];
   /** Its last call of any kind since the service started (wave 2): when, which, and why it failed. Added by the service. */
   readonly lastRun?: ExtensionRunStatus;
+  /** The with-secrets keys its manifest names, each present or missing and who may have it (PIE-887). Names only. Added by the service. */
+  readonly keys?: readonly ExtensionKeyLine[];
 }
 
 export interface ExtensionsListResult {

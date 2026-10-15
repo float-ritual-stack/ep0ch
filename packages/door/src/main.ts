@@ -137,6 +137,10 @@ ${LIBRARY_USAGE}
                                    the outline's extensions: ls lists each folder, what it serves and each
                                    schedule (every or cron, next run, last run and what it did); act runs an
                                    action as the extension; run runs a schedule now (the outliner's ext command)
+  ep0ch keys list | check <KEY> | who <KEY> | set <group> <KEY> | grant|revoke <group>[/<KEY>] <scope>
+                                   which secrets (with-secrets groups) exist here, where, and who may have each:
+                                   names, places and modes, never a value; check exits 1 when a key isn't there;
+                                   set, grant and revoke are the person's (PIE-887; ep0ch keys with no word says more)
   ep0ch resource rebind <folder> [--ws <name>] [--json]
                                    read a file link's folder where it leads now, after a link in its path
                                    changed or another folder took its place: the command a refused file link
@@ -232,6 +236,13 @@ if (args[0] === "library") { const { libraryCommand } = await import("./library/
 if (args[0] === "web") {
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
   const run = Bun.spawn([process.execPath, cli, "web", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
+}
+if (args[0] === "keys") {
+  const at = args.indexOf("--ws");
+  if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "keys", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
 if (args[0] === "ext") {

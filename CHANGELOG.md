@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### `ep0ch keys`: which secrets exist, and who may have each (PIE-887)
+
+PROTOCOL 171: an `extensions.list` entry carries `keys` (names, state and scopes, never a value). After merging, restart the
+outline host and the publishers with `ep0ch install --apply`; a client on 170 is told to update.
+
+- **Added:** `ep0ch keys list` names every `with-secrets` group's keys, where each lives, its mode, its scope and which
+  extensions name it; `keys check <KEY>` says present or not and exits 1 when it isn't; `keys who <KEY>` says who may
+  receive it. They never print a value. `keys set <group> <KEY>` prompts for one (the person's; it wraps
+  `with-secrets --add`).
+- **Added:** scopes on a key, kept beside the groups in `scopes.json` (no values in it): `machine` (the default),
+  `outline:<name>`, `ext:<id>` or `ext:<id>@<outline>`, set with `keys grant` and `keys revoke`. The service checks the
+  scope before it hands a key to an extension (a manifest `secrets` entry or a `secretGroups` read); a refusal names the
+  command that grants it.
+- **Added:** an extension's page has a "Keys" section, and `ep0ch ext ls` (and `--long`) say each key it names as present,
+  missing or not allowed, by name.
+- **Docs:** a "Keys and secrets" section at the top of the extensions README and in the ep0ch-outline skill: check
+  `ep0ch keys list` before calling a key missing.
+
 ### A backlink says which line links, and opening it lands there (PIE-884)
 
 - **Added:** a backlink row in the links tile, the tree's `l` and an inline `::links` now quotes the line of the linking

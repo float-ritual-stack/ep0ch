@@ -9,6 +9,7 @@ import { Compile } from "typebox/compile";
 import { ResourceCatalogError } from "./resources";
 import { issueGrant, revokeGrant } from "./extension-grants";
 import { readGroupSecret } from "./extension-secrets";
+import { scopeProblem } from "./secret-keys";
 import type { MutationProvenance } from "./types";
 import {
   CredentialSchema,
@@ -575,6 +576,9 @@ export class ResourceExtensionRuntime {
     )) {
       let value: string | undefined;
       if ("group" in reference) {
+        // The person may have scoped the key to someone else (ep0ch keys grant): the call fails saying how to grant it.
+        const scoped = scopeProblem(reference.group, reference.key, { extension: loaded.manifest.id, ...(this.connection().outline ? { outline: this.connection().outline! } : {}) });
+        if (scoped) throw failure(`${loaded.manifest.name}'s ${name} secret: ${scoped}`);
         try {
           value = await readGroupSecret(reference.group, reference.key, `${loaded.manifest.name}'s ${name} secret`, process.platform === "darwin"
             ? (service) => keychainItem(service, loaded.directory, Math.min(this.timeoutMs, 3000))

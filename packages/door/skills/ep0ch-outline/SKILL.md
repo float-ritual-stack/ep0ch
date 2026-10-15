@@ -534,6 +534,37 @@ declaration named like a built-in restyles it.
 If you add a new component kind, add it here and to the showcase. A component agents don't know about doesn't
 exist for them.
 
+## Keys and secrets (for an extension that needs one)
+
+An extension that needs a token names it; the service hands it that one key, and only to a call that has the right.
+**Before you call a key missing, ask the machine**:
+
+```sh
+ep0ch keys list              # every with-secrets group's keys: where, mode, scope, which extensions name it
+ep0ch keys check TYPESAFE_API_KEY   # present and readable or not; exit 1 when not (for scripts)
+ep0ch keys who TYPESAFE_API_KEY     # its scopes, and the extensions that name it
+```
+
+These print names, places and modes, **never a value**; never read one into a note, a log, a test or a prompt. A key lives
+in a `with-secrets` group (`~/.config/secrets/<group>.env`, mode 600; `WITH_SECRETS_DIR` moves the folder). Your agent
+doesn't have the environment variable: the service reads the group when a call starts.
+
+- **A fixed key:** name it in the manifest's `secrets` (`"jev": { "group": "typesafe", "key": "JEV_API_KEY" }`). It reaches the
+  call as `credentials.jev` and as `JEV_API_KEY`.
+- **A group chosen at run time** (a runbook's `--secrets=deploy-demo`): `secretGroups: ["deploy-demo"]` (or `"*"`), then
+  `secrets.group` over the connection.
+- **Setting one is the person's:** `ep0ch keys set <group> <KEY>` prompts for the value (it wraps `with-secrets --add`).
+  Ask them to run it; you never see what they type.
+- **Scopes:** a key is `machine`'s (any extension that names it) until the person narrows it:
+  `ep0ch keys grant typesafe/TYPESAFE_API_KEY ext:requests --outline gurgle` (scopes: `machine`, `outline:<name>`,
+  `ext:<id>`, `ext:<id>@<outline>`; `keys revoke` takes one away). The service checks the scope before it hands a key over; a
+  refusal says the command that grants it. They live in `scopes.json` beside the groups, which holds no value. A scopes file that is there but
+  broken hands a key to no extension until it is fixed. Scopes keep extensions to their keys; they cover `with-secrets` keys
+  (a `config.json` credential pointing at an env variable or a file is the person's own wiring), and they don't sandbox the
+  person's agents, who run as the same user.
+- **Where you see it:** `ep0ch ext ls --long` and the extension's page (a "Keys" section) say each key it names as present,
+  missing or not allowed, by name.
+
 ## Extensions: adding one for a need
 
 Extensions are trusted user code, like editor plugins, run by the service. Their data behaves as if the

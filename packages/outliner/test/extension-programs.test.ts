@@ -2,6 +2,7 @@
 // service in every process (EP0CH_SOCKET, EP0CH_WS and a grant that makes its writes ext:<id>'s), writes anywhere
 // through the normal paths and guards, secrets by with-secrets group, collections, and an annotation's properties.
 // Scratch services in temp folders; every note, name, token and saying is made up.
+import { writeScopes } from "../src/secret-keys";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -238,6 +239,47 @@ test("a with-secrets group key reaches only the extension that names it, as its 
   await install("pondfeed", { secrets: { token: { group: "pondfeed", key: "MISSING_TOKEN" } }, actions: [{ id: "peek", label: "Peek", on: "outline" }] }, SHOW);
   await expect(client.request({ action: "extensions.act", extension: "pondfeed", extensionAction: "peek" })).rejects.toThrow("with-secrets --add pondfeed MISSING_TOKEN");
   expect(groupValue("A=1\nB='two'\n# B=no\n", "B")).toBe("two");
+});
+
+test("a key the person scoped (ep0ch keys grant) goes only to who it names: refused with the command, listed as not allowed, the group-wide read gives only the allowed keys (PIE-887)", async () => {
+  const secrets = realpathSync(mkdtempSync(join(tmpdir(), "outliner-secrets-")));
+  cleanups.push(() => rmSync(secrets, { recursive: true, force: true }));
+  writeFileSync(join(secrets, "pondfeed.env"), "POND_TOKEN=tok-made-up-123\nOTHER_TOKEN=tok-other-456\n", { mode: 0o600 });
+  const { client, install } = await setup({ secrets });
+  const SHOW = `${CALL}say({ message: JSON.stringify({ variable: process.env.POND_TOKEN ? "set" : "unset" }) });`;
+  const manifest = () => ({ secrets: { token: { group: "pondfeed", key: "POND_TOKEN" } }, actions: [{ id: "peek", label: "Peek", on: "outline" }] });
+  await install("pondfeed", manifest(), SHOW);
+  const listed = await install("pondtwo", manifest(), SHOW);
+  // Unscoped is machine's: both get it, and the list says present, by name.
+  expect(JSON.parse((await client.request<{ message: string }>({ action: "extensions.act", extension: "pondtwo", extensionAction: "peek" })).message)).toEqual({ variable: "set" });
+  expect((listed.extensions.find((entry) => entry.id === "pondfeed") as unknown as { keys: unknown[] }).keys).toMatchObject([{ name: "token", group: "pondfeed", key: "POND_TOKEN", state: "present", allowed: true, scopes: ["machine"] }]);
+  // The person scopes it to pondfeed in this outline.
+  writeScopes("pondfeed", "POND_TOKEN", ["ext:pondfeed@garden-scratch"]);
+  expect(JSON.parse((await client.request<{ message: string }>({ action: "extensions.act", extension: "pondfeed", extensionAction: "peek" })).message)).toEqual({ variable: "set" });
+  const refused = await client.request({ action: "extensions.act", extension: "pondtwo", extensionAction: "peek" }).then(() => "", (error: Error) => error.message);
+  expect(refused).toContain("POND_TOKEN in pondfeed is scoped to ext:pondfeed@garden-scratch, not pondtwo in garden-scratch");
+  expect(refused).toContain("ep0ch keys grant pondfeed/POND_TOKEN ext:pondtwo@garden-scratch");
+  expect(refused).not.toContain("tok-made-up");
+  const after = await client.request<ExtensionsListResult>({ action: "extensions.list" });
+  expect((after.extensions.find((entry) => entry.id === "pondtwo") as unknown as { keys: unknown[] }).keys).toMatchObject([{ key: "POND_TOKEN", state: "present", allowed: false }]);
+  // Its page says each key it names, present or not, by name: the card the person reads (names only).
+  const pages = (await client.request<ExtensionsListResult & { pages?: Record<string, string> }>({ action: "extensions.list", reload: true })).pages ?? {};
+  const pageId = /([0-9a-f-]{36})/.exec(pages.pondfeed ?? "")?.[1];
+  expect(pageId).toBeTruthy();
+  const page = await client.request<{ text: string }>({ action: "get", blockId: pageId! });
+  expect(page.text).toContain("## Keys");
+  expect(page.text).toContain("- pondfeed/POND_TOKEN present");
+  expect(page.text).not.toContain("tok-made-up");
+  // A run-time group read gives the keys it may have; asking for the scoped one by name is refused.
+  await install("groupie", { secretGroups: ["pondfeed"], actions: [{ id: "open", label: "Open", on: "outline" }] }, `${CALL}
+let all, named;
+try { all = Object.keys((await call({ action: "secrets.group", group: "pondfeed" })).values).sort().join(","); } catch (error) { all = String(error.message); }
+try { named = Object.keys((await call({ action: "secrets.group", group: "pondfeed", keys: ["POND_TOKEN"] })).values).join(","); } catch (error) { named = String(error.message); }
+say({ message: JSON.stringify({ all, named }) });`);
+  const group = JSON.parse((await client.request<{ message: string }>({ action: "extensions.act", extension: "groupie", extensionAction: "open" })).message);
+  expect(group.all).toBe("OTHER_TOKEN");
+  expect(group.named).toContain("may not have POND_TOKEN from the secret group pondfeed");
+  expect(JSON.stringify(group)).not.toContain("tok-");
 });
 
 // ── Schedules ────────────────────────────────────────────────────────────

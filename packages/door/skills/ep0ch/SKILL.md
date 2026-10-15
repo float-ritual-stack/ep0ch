@@ -224,6 +224,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `tile.preview tile=<reader>` (`where=right|down|left|up`) opens a reader beside it where its opens land, linked in
   one step: then `link.follow tile=<reader> n=…` lands there and the reader keeps its note. Called again it answers
   `existing: true` and shows that one; it never takes the person's keys (the person's `O`, `^W v`, `^W V`).
+- **Keys** (PIE-887): `ep0ch keys list`, `check <KEY>` (exit 1 when absent) and `who <KEY>` say which secrets exist on this
+  machine, where, and who may have each, never a value. Run them before you call a key missing; `keys set|grant|revoke`
+  are the person's. The contract is the extensions README's "Keys and secrets".
 - **Trashing a note** (PIE-878): `note.trash ref=<block id> confirm=<the same id>` (the note a tile points at when `ref`
   is left out: `tile=<a reader, list or tree>`) moves it and the notes under it to Trash, recorded as you; without
   `confirm` you are refused (the person's first press shows what would go, their second confirms). The Inbox and the other
