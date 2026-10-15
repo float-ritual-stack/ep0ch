@@ -1,5 +1,6 @@
 ---
 name: ep0ch-builder
+model: sonnet
 description: Builds one ep0ch ticket (PIE-n) or one slice of a wave end to end in its own worktree - code, tests, docs, kitchen-sink demo, review, merge - and reports the merge sha to loki, the deployer. Use for implementation work in this repository; the brief names the ticket(s), the branch and anything the rules here don't cover.
 skills:
   - ep0ch-core

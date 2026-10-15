@@ -1,5 +1,6 @@
 ---
 name: ep0ch-verifier
+model: sonnet
 description: Takes an old or disputed ep0ch ticket (a bug report, or work said to be done) and checks it against today's main on a scratch outline - reproduces the bug or exercises the feature, then either reports it closable with evidence or fixes it test-first through a PR. Use for backlog sweeps, validate-lane sweeps and "is this still broken?".
 skills:
   - ep0ch-core
