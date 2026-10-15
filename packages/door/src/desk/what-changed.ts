@@ -22,6 +22,7 @@ import { authorName, type Actor, type Change, type OutlineEvent, type SocketBoar
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 import type { RowPress } from "../scroll";
+import { OutlineStore } from "../outline-store";
 
 export const WHAT_CHANGED_KIND_NAME = "what-changed";
 const SEEN_FILE = "changes-seen.json";
@@ -62,22 +63,18 @@ export function kindWord(c: Change): string {
 /** Whether a change is the person's own: their edits are never news to them. */
 export const isOwn = (c: Change) => (c.actor?.author ?? "user") === "user" && !c.actor?.actorId?.startsWith("ext:");
 
-export class WhatChanged {
+export class WhatChanged extends OutlineStore {
   private readonly rows = new Map<string, ChangedRow>();
   /** The feed position the person last looked at: changes up to it are seen. */
   seenTo = 0;
   /** Whether extensions' writes count (`changes.extensions`). */
   includeExt = false;
-  private onChange: () => void = () => {};
   private ready: Promise<void> = Promise.resolve();
   /** Resolves once the changes since the kept position are read (looking before then would skip them). */
   settled(): Promise<void> { return this.ready; }
 
   /** The outline it reads (its seen position is kept under this name). */
   outline = "";
-
-  /** Tell `fn` when the rows changed (the status bar and the list redraw). */
-  subscribe(fn: () => void) { this.onChange = fn; }
 
   /**
    * Start from where the person last looked: the changes after that position are read from the feed (`changes.since`).
@@ -93,7 +90,7 @@ export class WhatChanged {
         if (page.kind === "reset") { this.seenTo = page.sequence; this.save(); return; }
         // Replayed oldest first, so each note ends on its latest.
         for (const c of page.changes) this.add(c);
-        this.onChange();
+        this.notify();
       } catch { /* the feed isn't reachable yet: live events fill the list */ }
     })();
     return this.ready;
@@ -130,11 +127,11 @@ export class WhatChanged {
 
   /** A live (or replayed) event from the service. A `reset` empties the list: the feed no longer reaches back. */
   heard(e: OutlineEvent) {
-    if (e.action === "reset") { this.rows.clear(); this.onChange(); return; }
+    if (e.action === "reset") { this.rows.clear(); this.notify(); return; }
     if (!e.change) return;
     const before = this.count();
     this.add(e.change);
-    if (this.count() !== before) this.onChange();
+    if (this.count() !== before) this.notify();
   }
 
   /** The ids of the notes not yet seen (taken just before the person's look marks them). */
@@ -158,7 +155,7 @@ export class WhatChanged {
       r.seen = true; r.created = false; top = Math.max(top, r.sequence);
     }
     if (top !== this.seenTo) { this.seenTo = top; this.save(); }
-    this.onChange();
+    this.notify();
   }
 
   /** Titles for rows that have none yet, read from the board (a trashed or purged note reads as gone). */
@@ -169,7 +166,7 @@ export class WhatChanged {
         if (m?.props["work-id"]) r.workId = m.props["work-id"]; else delete r.workId;
         if (m?.props.page) r.page = m.props.page; else delete r.page; } catch { r.title = "(unreadable)"; }
     }));
-    if (todo.length) this.onChange();
+    if (todo.length) this.notify();
   }
 
   /** A fresh store's rows as peek and `changes.list` give them. */
