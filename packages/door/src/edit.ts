@@ -733,7 +733,8 @@ export class Draft {
         // Rebase the intervening typing snapshots so undo keeps the answer together without taking the person's words.
         const span = p.patches[0]!;
         const advance = (text: string) => {
-          const found = locateSpans(text, [span]);
+          // The live range follows typing; older snapshots can have this answer much earlier.
+          const found = locateSpans(text, [{ observed: span.observed, replacement: span.replacement }]);
           return found.ok ? applyLocated(text, found.spans) : text;
         };
         const index = this.undos.indexOf(prior);

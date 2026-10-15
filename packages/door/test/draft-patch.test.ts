@@ -730,6 +730,26 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     } finally { writeFileSync(gate, "finish"); }
   }, 20_000);
 
+  test("undoing a paste above a streaming ask keeps the whole answer", async () => {
+    const gate = await streamingGardener();
+    const e = await editing("Moved ask\n\n");
+    e.type("@gardener plan the beds"); e.d.newline(false); e.type("Keep writing");
+    e.s.key({ kind: "paste", text: "\n" + "A later thought. ".repeat(100) }, e.h);
+    try {
+      await until(() => e.d.text.includes("Sow the peas."), "the first chunk", 8000);
+      e.d.place(0, 0);
+      e.s.key({ kind: "paste", text: "A long earlier thought. ".repeat(30) + "\n" }, e.h);
+      e.d.place(e.d.lines.length - 1, e.d.lines.at(-1)!.length);
+      writeFileSync(gate, "finish");
+      await until(() => e.d.text.includes("Water the beds."), "the moved answer's second chunk");
+      e.d.undo(USER);
+      expect(e.d.text).not.toContain("A long earlier thought.");
+      expect(e.d.text).toContain("Water the beds.");
+      e.d.undo(USER);
+      expect(e.d.text).not.toContain("Sow the peas.");
+    } finally { writeFileSync(gate, "finish"); }
+  }, 20000);
+
   test("the installed margin agent streams its answer command into an inline ask", async () => {
     const folder = join(scratch.workspace, "extensions", "marginalia");
     cpSync(join(outliner!, "extensions", "marginalia"), folder, { recursive: true });
