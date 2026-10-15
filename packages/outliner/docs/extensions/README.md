@@ -997,10 +997,10 @@ lands in the note while he goes on. That needs a door that says when he types in
   on the note asks the requests in it not answered yet (not asked, waiting, failed). Lines that were
   already there wait for `r`: the service keeps, per note, the `@name` lines it last saw (any name,
   across restarts; notes from before this feature get theirs once, at start), so installing an
-  extension doesn't wake old lines. A line an agent or an import wrote waits for a person's `r`, so
-  agents can't set each other off: an agent's `r` on it is refused. No agent's `draft.patch` may
-  write or reword a request line: one guard in `draft.patch` refuses it for every agent, with the
-  reason. A request a restart cut off says so and `r` asks again; one still waiting for quiet when
+  extension doesn't wake old lines. A line an agent, an extension or an import wrote waits for a person's `r`, so
+  agents can't set each other off: an agent's `r` on it is refused. Such a write is never refused for the line (capture
+  is more reliable than interpretation): the text lands as written, in a saved note or in a door's live draft, and the
+  line is kept as `waiting` with its reason (`held: ext:requests may not wake @kitty · r to send`, drawn under the line). A request a restart cut off says so and `r` asks again; one still waiting for quiet when
   the service stops waits for `r`.
 - **Who asked.** `r` takes the presser's `mutation` (`{ author: user }` or `{ author: agent,
   actorId }`; a person when absent) and records it as `requestedBy` (`user`, `agent:<id>`).
@@ -1213,7 +1213,7 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
   Every other call's connection reads only, as its answer may, and a write from it is refused saying so.
 - **No secret it was given lands in the outline**: a write's text is scrubbed of its secret values, as its answers are.
 - **No extension write sets an extension off**: handler lines it writes don't run, rules don't fire, an `@name` line
-  it writes waits for a person's `r`.
+  it writes lands held (`held: ext:<id> may not wake @name · r to send`) and waits for a person's `r`.
 - Anything else (purging Trash, settings, `extensions.act`) is refused with what it may do.
 - An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
   host serves (name it with `outline`).
