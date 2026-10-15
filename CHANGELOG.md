@@ -17,7 +17,7 @@ are its record. The outliner's entries from then are kept below, under
   reader now draws them as one row of tag links under the byline, before the text, and the web page as one row under the
   title (Detail already left them in the text). `i` still lists them as properties; what queries match is unchanged,
   and a tag in the text or a hand-made `- #a - #b` first line stays as written, with no second row for its tags.
-- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 170: outline-core's `blockTags` decides which tags are block-level,
+- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 173: outline-core's `blockTags` decides which tags are block-level,
   so both sides must run the same copy).
 
 ### EchoNet copies say whose words they hold, and everything it writes is marked (PIE-868)
