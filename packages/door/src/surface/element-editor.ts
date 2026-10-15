@@ -278,7 +278,7 @@ export class ElementEdit {
     run("draft.place", { line: s.field.line + 1, col: Math.min(s.field.end, s.field.start + offset) + 1, extend });
     return true;
   }
-  render(w: number, h: number, draw: (text: string, width: number) => string[]): string[] {
+  render(w: number, h: number, draw: (text: string, width: number) => string[], attribution?: string): string[] {
     const d = this.draft, cur = this.current();
     const labels = [["[raw ^O]", "rich.toggle"], ["[+row]", "rich.change", "row.add"], ["[-row]", "rich.change", "row.remove"], ["[+col]", "rich.change", "column.add"], ["[-col]", "rich.change", "column.remove"]];
     let x = 0; this.controls = labels.map(([label, action, op]) => { const c = { from: x, to: x + label!.length, action: action as "rich.toggle" | "rich.change", op }; x += label!.length + 1; return c; });
@@ -318,7 +318,7 @@ export class ElementEdit {
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
     d.frame = null;
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
-      fg(C.cyan) + pad(d.note || "Tab/↑↓ cells · alt+r/d row · alt+v/x column · ctrl+s save · ctrl+o raw", w) + RESET,
+      fg(C.cyan) + pad(d.note || attribution || "Tab/↑↓ cells · alt+r/d row · alt+v/x column · ctrl+s save · ctrl+o raw", w) + RESET,
       ...body.slice(this.top, this.top + room)];
   }
 }

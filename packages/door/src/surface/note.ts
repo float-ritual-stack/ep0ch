@@ -2289,8 +2289,8 @@ export class NoteSurface {
   }
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false): string[] {
-    if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippet(t, width));
     const by = writtenBy(d, "save");
+    if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippet(t, width), by ?? undefined);
     return renderEditor(d, {
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).

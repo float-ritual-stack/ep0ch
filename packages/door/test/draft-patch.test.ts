@@ -284,6 +284,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     });
     expect(r).toMatchObject({ outcome: "applied" });
     expect({ row: e.d.row, col: e.d.col }).toEqual(position);
+    expect(e.s.render(80, 30, e.h).lines.map(visible).join("\n")).toContain("an agent (tidy) typed this");
     const { elementEdit } = await import("../src/surface/element-editor");
     expect(elementEdit(e.d).elements()).toHaveLength(2);
     e.s.key({ kind: "paste", text: "Green | yellow" }, e.h);
