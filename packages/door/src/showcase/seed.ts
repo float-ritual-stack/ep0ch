@@ -1257,7 +1257,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.richEdit = await make(notes.root.id, [
     SEED.richEdit, "", "Edit the cells here. Ctrl+O switches the same draft to raw source and back.", "",
     "| Crop | Packets |", "| --- | ---: |", "| Beans | 4 |", "| Peas | 2 |", "",
-    "::graph-table", "---", "title: Next sowing", 'headers: ["Crop", "Trays"]', "rows:", '  - ["Lettuce", "3"]', '  - ["Radish", "1"]', "---", "::", "",
+    "::graph-table", "---", "title: Next sowing", 'headers: ["Crop", "Trays"]', "rows:", '  - ["Lettuce", "3"] # keep this row comment', '  - ["Radish", "1"]', "# keep this YAML comment", "---", "rows: keep this prose after the YAML", "headers: [These, are, prose]", "::", "",
     "Keep typing while an agent adds another table: its fields are editable in this same draft.",
   ].join("\n"));
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));

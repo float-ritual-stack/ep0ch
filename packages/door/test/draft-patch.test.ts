@@ -393,6 +393,62 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(e.id))!.text).toContain("| Ax\\|B | 2 |");
   });
 
+  test("rich tables: structural edits preserve all source outside the changed rows", async () => {
+    const prefix = 'Inventory\nBefore  the figure.\n::graph-table\n\n---\ntitle: Keep  this title\nheaders: [Crop, Count] # header comment\n# before rows\nrows:\n';
+    const rows = '  - [Beans, 2] # first row\n# between rows\n  - [Peas, 3] # second row\n';
+    const suffix = '# after rows\n\ncaption: |\n  Keep this caption.\n---\nrows: keep this sentence  \nheaders: [This, is, prose]\n\n::\nAfter  the figure.\n';
+    const cases = [
+      { op: "row.add", changed: rows.replace(' # first row\n', ' # first row\n  - ["",""]\n') },
+      { op: "row.remove", changed: rows.replace('  - [Beans, 2] # first row\n', '') },
+      { op: "row.move", to: 2, changed: '  - [Peas, 3] # second row\n# between rows\n  - [Beans, 2] # first row\n' },
+      { op: "column.add", changed: rows.replace('[Beans, 2]', '["Beans","","2"]').replace('[Peas, 3]', '["Peas","","3"]'), header: '["Crop","","Count"]' },
+      { op: "column.remove", changed: rows.replace('[Beans, 2]', '["2"]').replace('[Peas, 3]', '["3"]'), header: '["Count"]' },
+      { op: "column.move", to: 1, changed: rows.replace('[Beans, 2]', '["2","Beans"]').replace('[Peas, 3]', '["3","Peas"]'), header: '["Count","Crop"]' },
+    ];
+    for (const c of cases) {
+      const e = await editing(prefix + rows + suffix);
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+      e.s.key({ kind: "down" }, e.h);
+      await NOTE_ACTIONS.run("rich.change", { op: c.op, to: c.to }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+      expect((await board.get(e.id))!.text).toBe((c.header ? prefix.replace('[Crop, Count]', c.header) : prefix) + c.changed + suffix);
+    }
+  });
+
+  test("rich tables: removing the last graph row and adding one keeps surrounding source", async () => {
+    const source = 'Inventory\n::graph-table\n---\nheaders: [Crop, Count]\nrows: [] # keep list comment\n# keep this too\n---\nrows: prose\n::\n';
+    for (const empty of ["[]", "[ ]"]) {
+      const e = await editing(source.replace("rows: []", `rows: ${empty}`));
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("rich.change", { op: "row.add" }, { surface: e.s, host: e.h }, USER);
+      expect(e.d.text).toBe(source.replace("rows: [] # keep list comment\n", 'rows: # keep list comment\n  - ["",""]\n'));
+      await NOTE_ACTIONS.run("rich.change", { op: "row.remove" }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+      expect((await board.get(e.id))!.text).toBe(source);
+    }
+  });
+
+  test("rich tables: entering rich edit releases a raw selection outside the cell", async () => {
+    const source = 'Inventory\nKeep this prose.\n| Crop | Count |\n| --- | --- |\n| Beans | 2 |\nAfter the table.\n';
+    const e = await editing(source);
+    await NOTE_ACTIONS.run("draft.place", { line: 2, col: 1 }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("draft.place", { line: 5, col: 3, extend: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    e.s.key({ kind: "paste", text: "Green " }, e.h);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    expect((await board.get(e.id))!.text).toBe(source.replace('Beans', 'Green Beans'));
+  });
+
+  test("rich tables: cell edits preserve YAML comments and prose byte for byte", async () => {
+    const source = 'Inventory\nBefore  the figure.\n::graph-table\n---\nheaders: [Crop, Count]\nrows:\n  - [Beans, 2] # keep this comment\n---\nrows: keep this sentence  \nheaders: [This, is, prose]\n::\nAfter  the figure.\n';
+    const e = await editing(source);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    e.s.key({ kind: "down" }, e.h);
+    await NOTE_ACTIONS.run("rich.set", { value: "Peas" }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    expect((await board.get(e.id))!.text).toBe(source.replace('[Beans, 2]', '["Peas", 2]'));
+  });
+
   test("a component adapter edits and saves through the reader's draft", async () => {
     const { registerElementEditor } = await import("../src/surface/element-editor");
     const { componentBlocks } = await import("@ep0ch/outline-core/component-block");

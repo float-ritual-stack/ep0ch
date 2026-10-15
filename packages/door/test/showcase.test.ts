@@ -3254,10 +3254,11 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const graph = elementEdit(draft).elements()[1]!;
     await app.act({ action: "draft.place", args: { line: graph.fields[1]![1]!.line + 1, col: graph.fields[1]![1]!.start + 1 }, as: "rich-builder" });
     await app.act({ action: "rich.set", args: { value: "5" }, as: "rich-builder" });
+    for (const op of ["row.add", "row.remove"]) await app.act({ action: "rich.change", args: { op }, as: "rich-builder" });
     await app.act({ action: "edit.save", as: "rich-builder" });
     const saved = await board.get(seeded.notes.richEdit.id);
     expect(saved?.text).toContain("| Beans | 6 |");
-    expect(saved?.text).toContain('["Lettuce", "5"]');
+    expect(saved?.text).toContain('  - ["Lettuce", "5"] # keep this row comment\n  - ["Radish", "1"]\n# keep this YAML comment\n---\nrows: keep this prose after the YAML\nheaders: [These, are, prose]\n::');
     expect(reader.surface.draft).toBeNull();
   }, 20_000);
 

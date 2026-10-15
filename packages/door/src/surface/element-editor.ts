@@ -77,29 +77,43 @@ function graphData(lines: readonly string[], start: number, end: number) {
   if (p.query || p.view || p.source || !Array.isArray(p.rows) || !Array.isArray(p.headers)) return null;
   return [p.headers.map(String), ...p.rows.map((r: unknown) => (Array.isArray(r) ? r : [r]).map(String))] as string[][];
 }
-function graphWrite(lines: readonly string[], values: string[][]): string[] {
-  const out = [...lines];
-  const ranges: { key: string; start: number; end: number }[] = [];
-  for (let i = 0; i < out.length; i++) {
-    const key = /^(headers|rows):/.exec(out[i]!);
-    if (!key) continue;
-    let end = i + 1;
-    while (end < out.length && !/^(?:[^\s#][^:]*:|---\s*$|::\s*$)/.test(out[end]!)) end++;
-    ranges.push({ key: key[1]!, start: i, end });
+function graphYaml(lines: readonly string[]) {
+  const body = lines.slice(1, -1), yaml = figureSource(body).yaml;
+  const start = body.findIndex(line => /^\s*---\s*$/.test(line)) + 2;
+  return { start, end: start + (yaml ? yaml.split("\n").length : 0) };
+}
+function graphWrite(lines: readonly string[], values: string[][], op: ElementOperation, row: number, to?: number): string[] {
+  const out = [...lines], fields = graphFields(lines, 0), yaml = graphYaml(lines);
+  const rowsLine = lines.findIndex((line, i) => i >= yaml.start && i < yaml.end && /^rows:/.test(line));
+  if (op === "row.add") {
+    if (fields.length === 1) out[rowsLine] = out[rowsLine]!.replace(/ ?\[\s*\]/, "");
+    const after = row === 0 ? rowsLine : fields[row]![0]!.line;
+    out.splice(after + 1, 0, `  - ${JSON.stringify(values[row + 1])}`);
+  } else if (op === "row.remove") {
+    out.splice(fields[row]![0]!.line, 1);
+    if (fields.length === 2) out[rowsLine] = out[rowsLine]!.replace("rows:", "rows: []");
+  } else if (op === "row.move") {
+    // Move row source through the existing row slots; comments between them belong to the note.
+    const source = fields.slice(1).map(r => lines[r[0]!.line]!);
+    const [moved] = source.splice(row - 1, 1);
+    source.splice((to ?? row + 1) - 1, 0, moved!);
+    fields.slice(1).forEach((r, i) => { out[r[0]!.line] = source[i]!; });
+  } else {
+    fields.forEach((r, i) => {
+      const line = r[0]!.line, source = lines[line]!;
+      out[line] = source.slice(0, source.indexOf("[")) + JSON.stringify(values[i]) + source.slice(source.indexOf("]", r.at(-1)!.end) + 1);
+    });
   }
-  for (const r of ranges.reverse()) out.splice(r.start, r.end - r.start, ...(r.key === "headers"
-    ? [`headers: ${JSON.stringify(values[0] ?? [])}`]
-    : [values.length > 1 ? "rows:" : "rows: []", ...values.slice(1).map(row => `  - ${JSON.stringify(row)}`)]));
   return out;
 }
 function graphFields(lines: readonly string[], start: number): ElementField[][] {
-  const out: ElementField[][] = [];
+  const out: ElementField[][] = [], yaml = graphYaml(lines);
   let headers: ElementField[] = [];
   let rows = false;
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = yaml.start; i < yaml.end; i++) {
     const l = lines[i]!;
-    if (l === "rows:") { rows = true; continue; }
-    if (rows && /^\S/.test(l)) rows = false;
+    if (/^rows:\s*(?:#.*)?$/.test(l)) { rows = true; continue; }
+    if (rows && /^(?!#)\S/.test(l)) rows = false;
     if (!/^headers: \[/.test(l) && !(rows && /^  - \[/.test(l))) continue;
     const fields: ElementField[] = [];
     const from = l.indexOf("[") + 1, to = l.lastIndexOf("]");
@@ -136,7 +150,7 @@ registerElementEditor({
           const rows = values.map(r => `| ${r.map(v => T.encodeCell(JSON.stringify(v))).join(" | ")} |`);
           rows.splice(1, 0, `| ${values[0]!.map(() => "---").join(" | ")} |`);
           const changed = changeRows(rows, op, row, col, to);
-          return changed && graphWrite(source, changed.flatMap((r, i) => i === 1 ? [] : [T.tableCells(r).map(c => c.text ? JSON.parse(c.text) as string : "")]));
+          return changed && graphWrite(source, changed.flatMap((r, i) => i === 1 ? [] : [T.tableCells(r).map(c => c.text ? JSON.parse(c.text) as string : "")]), op, row, to);
         } }];
     });
   },
@@ -176,6 +190,8 @@ export class ElementEdit {
     const d = this.draft;
     if (d.busy) throw new Error("the save is still landing");
     this.on = true;
+    // A raw selection can cross prose and delimiters; rich input belongs to one field.
+    d.place(d.row, d.col);
     if (!this.current()) {
       const fields = this.elements().flatMap(e => e.fields.flat());
       const f = fields.find(f => f.line >= d.row) ?? fields[0];
