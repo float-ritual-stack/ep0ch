@@ -16,25 +16,25 @@ only the deployer does.
 After a merge to main (yours, or a sha an agent hands you):
 
 1. Check nothing is mid-flight: `uptime` (load), `ep0ch session list`, no migration or `install` already running.
-   Before `ep0ch install --apply`, peek the person's door (`door_peek`, or `ep0ch peek`); if they're typing, or have
-   an editor or a comment draft open (`person.typingIn` set, or `busy` true), wait and batch the pending deploys
-   into one once they're done: the handover to the new code once cost Evan his comment layout mid-draft.
-2. `ep0ch install` prints the plan; read it (outlines to migrate, what restarts). Then `ep0ch install --apply`: it
+2. Peek the person's door before `ep0ch install --apply` (`door_peek`, or `ep0ch peek`: `person.typingIn`, `busy`). If
+   they're typing in an editor, a comment or the drawer, wait or batch the pending deploys into one, unless they've
+   said to deploy: the handover to the new code once cost Evan his comment layout mid-draft.
+3. `ep0ch install` prints the plan; read it (outlines to migrate, what restarts). Then `ep0ch install --apply`: it
    backs up every outline, fast-forwards `~/projects/ep0ch`, links `ep0ch`, runs a schema step on every outline
    behind, and restarts the outline host when its code changed. It refuses before updating if an outline can't take
    the step; follow what it prints.
-3. `ep0ch doctor`: the host, the CLI and the doors on one `PROTOCOL`, nothing behind.
-4. Restart what install doesn't:
+4. `ep0ch doctor`: the host, the CLI and the doors on one `PROTOCOL`, nothing behind.
+5. Restart what install doesn't:
    - the publishers, after any deploy that touched the outliner, outline-core or the web pages:
      `systemctl --user restart outliner-publish.service outliner-publish-gurgle.service`;
    - the MCP gateway when `PROTOCOL` or the MCP server changed: `systemctl --user restart ep0ch-mcp.service`;
    - doors and agents that should run the new code (`ep0ch session upgrade`, `ep0ch act agent.restart`); say which.
-5. Check it took: the tailnet page answers (`curl -s https://float-2.tail2a183e.ts.net/pub/ | head`), and
+6. Check it took: the tailnet page answers (`curl -s https://float-2.tail2a183e.ts.net/pub/ | head`), and
    `systemctl --user status` for what you restarted.
-6. The laptop (float-hub) updates when it is reachable or when Evan runs `ep0ch install --apply` there. Inbound ssh to
+7. The laptop (float-hub) updates when it is reachable or when Evan runs `ep0ch install --apply` there. Inbound ssh to
    it is often off by work policy: that is normal, never work around it. A step only Evan can do goes on the build
    log's **Needs you** with the exact command.
-7. Write it up: a line in today's build log, patch notes on the requests it answers, and the release notes (below).
+8. Write it up: a line in today's build log, patch notes on the requests it answers, and the release notes (below).
 
 Never deploy over someone else's half-finished migration, and never kill the outline host or a publisher you didn't
 start except through its service.

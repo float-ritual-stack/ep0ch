@@ -82,6 +82,32 @@ describe("a thread's TL;DR, without a service (PIE-860)", () => {
   });
 });
 
+// PIE-873: marks only. The byline says so where the comments are counted, the cards go, and a comment on the whole note
+// folds to one mark after the title (not on the body's first row, where a passage's mark would share its cell).
+describe("marks only, without a service (PIE-873)", () => {
+  const TEXT = "Shed jobs\nOil the chain before the frost.\nThe pump lives by the door.";
+  const quote = "Oil the chain", at = TEXT.indexOf(quote);
+  const onWords = { id: "c0ffee00-1111-4222-8333-666666660001", author: "sam", body: "Use the dry lube.", quote, at: Date.now(), open: true, lifecycle: "open" as const, start: at, end: at + quote.length, replies: [] };
+  const onNote = { id: "c0ffee00-1111-4222-8333-666666660002", author: "sam", body: "A tidy list.", quote: "", at: Date.now(), open: true, lifecycle: "open" as const, start: null, end: null, replies: [] };
+  const note = { id: "5eed0000-1111-4222-8333-666666666666", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} };
+  const host = () => ({ ctx: { board: { ancestors: async () => [], comments: async () => [onWords, onNote] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
+
+  test("the count reads marks only, the cards go, and the whole-note thread's mark is after the title", async () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note as any, h);
+    await until(() => s.comments?.length === 2, "the comments");
+    const draw = () => s.render(70, 20, h).lines.map(plain);
+    expect(draw().join("\n")).toContain("A tidy list.");
+    s.marginMode = "off";
+    const rows = draw();
+    expect(rows.join("\n")).toContain("■ 2 comments · marks only (M)");
+    expect(rows.join("\n")).not.toContain("A tidy list.");
+    expect(rows.find(l => l.startsWith("Shed jobs"))).toMatch(/^Shed jobs ▐/);
+    // The passage keeps its own mark on its line.
+    expect(rows.find(l => l.includes("Oil the chain"))).toMatch(/^▐Oil the chain/);
+  });
+});
+
 describe("several threads on one passage, without a service (PIE-541)", () => {
   const TEXT = "Shed jobs\n_Oil the chain, see ((5eed0000-2222-4222-8333-444444444444|the rota))._\nThe pump lives by the door.";
   const quote = "Oil the chain";

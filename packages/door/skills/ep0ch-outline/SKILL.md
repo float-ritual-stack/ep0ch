@@ -255,6 +255,8 @@ have open or selected on any web page of the outline, read `reader_view` (`ep0ch
 needed: the publisher's tailnet URL plus `/p/<id>` (on pie, `https://my.ep0ch.sh/p/<id>`). It opens as a folder:
 the note's text, its children as links, breadcrumbs back up. They can highlight, comment and ask `@margin` there;
 it lands as their own threads in the outline, so "go check the notes I left" means reading the note's threads.
+In the door a reader draws its comments as cards in the margin; to keep just the marks, `M` (or a click on the
+comment count after the note's date) cycles cards a row each, whole, and **marks only**, kept with the tile.
 
 ## Shaping a note: a floor, not a ceiling
 

@@ -163,8 +163,8 @@ export interface SurfaceHost {
    * this reader: the BBS reader's screen stack, the river's columns. Without it the surface keeps its own.
    */
   history?: ReaderHistory;
-  /** This reader's back or forward stacks changed (PIE-643): the host saves them with its layout. */
-  navChanged?(): void;
+  /** What this reader keeps with its layout changed (its back and forward stacks, PIE-643; its margin, PIE-873): the host saves it. */
+  keptChanged?(): void;
   /**
    * The note shown went to the trash (an empty new note, PIE-544) and this reader had nowhere back to go: a screen
    * that was opened for it alone closes. Without it the reader stays on it.
@@ -314,6 +314,10 @@ interface HeaderBlock {
   crumbsRow?: number;
   /** The byline's [comment] (PIE-846): a click writes a comment on the whole note, as C with nothing selected does. */
   commentChip?: { row: number; from: number; to: number };
+  /** The byline's comment count (PIE-873): a click cycles the margin, as M does. */
+  marginChip?: { row: number; from: number; to: number };
+  /** Marks only (PIE-873): the whole-note threads' one mark after the title, and the thread a click opens. */
+  wholeMark?: { row: number; from: number; to: number; thread: string };
 }
 
 /** A note laid out by a reader (NoteSurface.layOut), and what it was laid out for (`m`, `key`). */
@@ -349,7 +353,7 @@ const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -822,8 +826,8 @@ export class NoteSurface {
   /** The view's own history, from the last host seen (SurfaceHost.history), for `peek` and the hint. */
   private kept: ReaderHistory | null = null;
   private tracking = 0;
-  /** The last host's note of a change to the stacks (SurfaceHost.navChanged). */
-  private navChanged: (() => void) | null = null;
+  /** The last host's note of a change to what the layout keeps (SurfaceHost.keptChanged). */
+  private keptChanged: (() => void) | null = null;
   /**
    * A step's status choice, open under its box (PIE-472): the step's element key, the choice the keys are
    * on, and what the last choice said. The person's alone (an agent sets a status by `task.status`); it
@@ -850,7 +854,7 @@ export class NoteSurface {
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
   private hostKeys = "";
   private use(host: SurfaceHost | undefined): Source | null {
-    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; this.navChanged = host.navChanged ?? null; this.hostKeys = host.ownKeys ?? ""; }
+    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; this.keptChanged = host.keptChanged ?? null; this.hostKeys = host.ownKeys ?? ""; }
     return this.src;
   }
 
@@ -1192,7 +1196,9 @@ export class NoteSurface {
     const open = this.comments?.filter(c => c.open).length ?? 0;
     // The way in to a comment on the whole note (PIE-846), by mouse: the same as C with nothing selected.
     const chip = !this.printed && (isOutlineNote(m) || (m.resource && !m.resource.uncommentable)) ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "";
-    const said = this.comments?.length ? `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments.length} resolved`} (m)` : "";
+    // Marks only (PIE-873): the margin's off mode said where the comments are counted, so it's found and its way back is.
+    const n = open || (this.comments?.length ?? 0), off = this.marginMode === "off" && !this.printed;
+    let said = !this.comments?.length ? "" : off ? `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} comment${n === 1 ? "" : "s"} · marks only (M)` : `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments!.length} resolved`} (m)`;
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
     const own0 = host?.header, { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src, own0 ? C.lgreen : C.dark);
@@ -1226,6 +1232,14 @@ export class NoteSurface {
     // being cut off the end of the byline.
     const apart = !!summary && width(`${before}${summary}`) > w;
     const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
+    // Marks only in a narrow tile: the short form, so its way back (M, or a click) is still on screen whole.
+    if (off && said && width(metaRows[0]!) > w) {
+      const short = `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} · marks only (M)`;
+      metaRows[0] = metaRows[0]!.slice(0, metaRows[0]!.length - said.length) + short;
+      said = short;
+    }
+    // The count ends the first byline row: a click on it cycles the margin (M), where it's drawn whole.
+    const saidTo = width(metaRows[0]!), marginChip = said && !this.printed && saidTo <= w ? { row: -1, from: saidTo - width(said) + 3, to: saidTo } : undefined;
     // The [comment] chip ends the first byline row, where it fits whole: never at the cost of the byline itself.
     const chipped = !!chip && width(metaRows[0]! + chip) <= w;
     if (chipped) metaRows[0] += chip;
@@ -1234,13 +1248,24 @@ export class NoteSurface {
     // here was the bug). The Work ID keeps the accent at the start of the first line.
     const lines = big || width(title) <= w ? [title] : wrap(title, w);
     const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
+    // Marks only (PIE-873): the comments on the whole note fold to one mark after the title, as a passage's do in the
+    // margin; a click (or ⏎ on it) opens the thread there.
+    const whole = off ? (this.comments ?? []).filter(isWholeNote) : [];
+    let wholeMark: HeaderBlock["wholeMark"];
+    if (whole.length && !big) {
+      const li = lines.length - 1, at = width(lines[li]!) + 1;
+      if (at + 1 <= w) {
+        titled[li] = pad(titled[li]!.slice(0, -RESET.length).trimEnd() + " " + fg(whole.some(c => c.open) ? C.yellow : C.dark) + "▐", w) + RESET;
+        wholeMark = { row: 1 + li, from: at, to: at + 1, thread: whole[0]!.id };
+      }
+    }
     const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...(big ? [pad("", w)] : []), ...metas];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
     const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip } : {}) };
+    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip } : {}), ...(marginChip ? { marginChip: { ...marginChip, row: first } } : {}), ...(wholeMark ? { wholeMark } : {}) };
   }
 
   /**
@@ -1386,7 +1411,7 @@ export class NoteSurface {
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
     this.lookAt(m, w, host);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, marginChip, wholeMark } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
@@ -1513,6 +1538,8 @@ export class NoteSurface {
     // The crumbs: a click shows the note in the outline (reader.reveal, PIE-794), where the host has one.
     if (crumbsRow !== undefined && host?.revealInOutline && isOutlineNote(m)) this.hits.push({ row: crumbsRow, from: 0, to: Math.max(1, Math.min(w, width(this.crumbs))), crumbs: true });
     if (commentChip) this.hits.push({ ...commentChip, start: "note" });
+    if (marginChip) this.hits.push({ ...marginChip, margin: true });
+    if (wholeMark) this.hits.push({ row: wholeMark.row, from: wholeMark.from, to: wholeMark.to, thread: wholeMark.thread, elem: `comment:${wholeMark.thread}` });
     const firstOf = new Map<number, string>();
     for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + bx}`) ?? "");
     for (const r of doc.links) {
@@ -1531,9 +1558,10 @@ export class NoteSurface {
         if (at >= 0 && at < room) this.hits.push({ row: top + at, from: bx + im.col, to: Math.min(w, bx + im.col + im.cols), image: e.key });
       }
     }
+    const byTitle = this.wholeByTitle();
     for (const k of marks) {
       const row = k.row - this.scroll;
-      if (row >= 0 && row < room) this.hits.push({ row: top + row, from: 0, to: 1, thread: k.thread, elem: `comment:${k.thread}` });
+      if (row >= 0 && row < room && !byTitle.has(k.thread)) this.hits.push({ row: top + row, from: 0, to: 1, thread: k.thread, elem: `comment:${k.thread}` });
     }
     for (const c of controls) {
       const row = c.row - this.scroll;
@@ -1737,7 +1765,9 @@ export class NoteSurface {
     // while any of them is open; each stays its own element.
     const marks = this.commentMarks(m, doc, noteLines);
     const margin = new Map<number, boolean>();
-    for (const k of marks) margin.set(k.row, (margin.get(k.row) ?? false) || k.open);
+    // Marks only: a whole-note thread's mark is after the title (headerBlock), not on the body's first row.
+    const byTitle = this.wholeByTitle();
+    for (const k of marks) if (!byTitle.has(k.thread)) margin.set(k.row, (margin.get(k.row) ?? false) || k.open);
     for (const [row, open] of margin) body[row] = fg(open ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
     const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
     // The side column's cards, each beside its passage, none overlapping (expanded threads are drawn in the body).
@@ -3770,6 +3800,11 @@ export class NoteSurface {
     if (this.expanded.has(thread)) void host.ctx.board.readThread(thread).catch(() => {});
   }
 
+  /** Marks only (PIE-873): the whole-note threads whose mark is after the title, not in the body's margin. */
+  private wholeByTitle(): Set<string> {
+    return this.marginMode === "off" && !this.printed ? new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id)) : new Set();
+  }
+
   /** A thread of the note shown, by id or its first 6+ characters. */
   threadId(named: string): string {
     const c = (this.comments ?? []).find(t => t.id === named || (named.length >= 6 && t.id.startsWith(named)));
@@ -4425,6 +4460,8 @@ export class NoteSurface {
     // The crumbs: the note in the outline (reader.reveal: the outline's cursor moves there, nothing else, PIE-794).
     if (h && "crumbs" in h) { host.revealInOutline?.(); return true; }
     // The byline's [comment] (PIE-846): as its key would, where the host keeps track of the person's session.
+    // The byline's comment count (PIE-873): the margin's next mode, as M.
+    if (h && "margin" in h) { void this.runKey("margin", {}, host); return true; }
     if (h && "start" in h) { if (host.startSession) void host.startSession(h.start); else void this.startAsPerson(h.start, host); return true; }
     // A chip of the passage toolbar (ADR 0004 contract 5): what its key after `a` does, on the person's selection.
     if (h && "passage" in h) { this.passageMenu = false; this.passagePick(h.passage, host); return true; }
@@ -5213,7 +5250,7 @@ export class NoteSurface {
       this.backs.push(from);
       if (this.backs.length > HISTORY) this.backs.shift();
       this.aheads = [];
-      this.navChanged?.();
+      this.keptChanged?.();
     }
     return out;
   }
@@ -5249,7 +5286,7 @@ export class NoteSurface {
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
     host.redraw();
-    this.navChanged?.();
+    this.keptChanged?.();
     return null;
   }
 
@@ -7328,14 +7365,16 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "margin": def({
-    summary: "the margin's cards (ADR 0004 contract 6): one row each (trim), whole with their replies (full), or off (the highlights stay on the words). A wide reader has them in a column beside the text; a narrow one under each passage. The person's reading state",
-    keys: "M cycles trim, full, off",
+    summary: "the margin's cards (ADR 0004 contract 6): one row each (trim), whole with their replies (full), or off: marks only (the highlights and marks stay on the words, the byline says \"marks only\"). A wide reader has them in a column beside the text; a narrow one under each passage. The person's reading state, kept with the tile (PIE-873) and taken by a reader opened from it",
+    keys: "M cycles trim, full, off (marks only); a click on the byline's comment count",
     touches: "tile", replay: "safe", person: "how the margin reads is the person's reading state; an agent reads threads with threads",
     args: { mode: { type: "string", optional: true, about: "trim, full or off; left out, the next one" } },
     run({ mode }, { surface, host }) {
       const next = mode === undefined ? MARGIN_MODES[(MARGIN_MODES.indexOf(surface.marginMode) + 1) % MARGIN_MODES.length]! : (MARGIN_MODES as readonly string[]).includes(mode) ? mode as MarginMode : null;
       if (!next) throw new ActionRefused("mode is trim, full or off");
       surface.marginMode = next;
+      // Kept with the tile (PIE-873): a handover, a restart and the next note read the same way.
+      host.keptChanged?.();
       host.ctx.flash(`margin: ${next === "trim" ? "cards a row each" : next === "full" ? "cards whole" : "off (highlights stay)"} · M`);
       host.redraw();
       return { margin: next };

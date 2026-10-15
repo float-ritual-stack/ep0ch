@@ -32,6 +32,8 @@ export interface TileSpec {
   mode?: "held" | "pinned";
   /** A reader's place and back and forward stacks (NoteSurface.saveNav, PIE-643): read by version, dropped when it isn't this one's. */
   nav?: unknown;
+  /** A reader's margin when it isn't trim (PIE-873): "off" (marks only) or "full". */
+  margin?: "full" | "off";
   /** A reader pinned to a page (`mode: pinned`): the note `[[page]]` names, asked for when the tile starts (the "now" tile). */
   page?: string;
   /** A terminal tile's program and its folder; `file`: the file it edits (a preview can follow it). */

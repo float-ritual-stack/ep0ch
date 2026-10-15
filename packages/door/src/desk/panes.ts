@@ -1,6 +1,7 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
 import { headedTitle } from "../board";
 import type { Look, TileLooks } from "../look";
+import { MARGIN_MODES, type MarginMode } from "../surface/margin";
 import type { StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { RowView, type RowPress } from "../scroll";
 import type { Art } from "../ansi";
@@ -416,7 +417,7 @@ export class ReaderPane implements Pane {
       // Whether the person types in it: an edit left open while they're elsewhere (a preview they read through) is drawn away.
       get entered() { return desk.isIn ? desk.isIn(pane) : undefined; },
       redraw: () => desk.redraw(),
-      ...(desk.keepLayout ? { navChanged: () => desk.keepLayout!() } : {}),
+      ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
       // link replaces its own note and moves nothing else; a following one moves the current note; alt+⏎ opens beside.
       navigate: (m, how) => desk.setCurrent(m, { reveal: true, from: this, ...how }),
@@ -477,10 +478,14 @@ export class ReaderPane implements Pane {
     const nav = this.wantNav ? this.wantNav : this.surface.saveNav();
     const note = this.msg && !this.msg.id.startsWith("file:") ? this.msg.id : this.want;
     // A pinned reader comes back on its page, not on the last note it held: no history to keep.
-    if (this.pinPage) return { mode: "pinned", page: this.pinPage };
-    if (this.follows && this.held) return { mode: "held", ...(note ? { note } : {}), ...(nav ? { nav } : {}) };
-    return nav ? { nav } : {};
+    if (this.pinPage) return { mode: "pinned", page: this.pinPage, ...this.marginSpec() };
+    if (this.follows && this.held) return { mode: "held", ...(note ? { note } : {}), ...(nav ? { nav } : {}), ...this.marginSpec() };
+    return { ...(nav ? { nav } : {}), ...this.marginSpec() };
   }
+  /** Its margin (PIE-873: marks only, or cards whole) when it isn't the default, kept with the layout as `margin`. */
+  marginSpec(): { margin?: MarginMode } { return this.surface.marginMode === "trim" ? {} : { margin: this.surface.marginMode }; }
+  /** A saved or inherited margin: one of the modes, else left as it is. */
+  takeMargin(mode: unknown) { if ((MARGIN_MODES as readonly unknown[]).includes(mode)) this.surface.marginMode = mode as MarginMode; }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
   /** The label a host gave it for the row it is in ("detail 1" in the board's readers row), or null. */
   detailLabel(): string | null { return this.kind === "reader" ? this.label : null; }

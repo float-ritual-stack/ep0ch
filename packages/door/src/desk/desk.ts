@@ -434,7 +434,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.spec.name === "detail") {
       // Its target is the note it holds now (`--screen detail <id>`, screen.open target=).
       const p = this.pane("detail");
-      if (p instanceof ReaderPane) { const { nav: _nav, mode: _mode, ...a } = p.spec(); return typeof a.note === "string" ? { target: a.note } : a; }
+      if (p instanceof ReaderPane) { const { nav: _nav, mode: _mode, margin: _margin, ...a } = p.spec(); return typeof a.note === "string" ? { target: a.note } : a; }
     }
     return this.screenOpenArgs;
   }
@@ -1431,6 +1431,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.put(makeTile(as));
     this.commit(r);
     this.startTile(id);
+    // A reader opened from a reader reads its margin the same way (PIE-873: marks only stays marks only).
+    const from = "target" in at ? at.target : "from" in at ? at.from : undefined, was = from === undefined ? undefined : this.panes.get(from);
+    if (was instanceof ReaderPane && as.margin === undefined) (this.panes.get(id) as ReaderPane).takeMargin(was.surface.marginMode);
     (this.panes.get(id) as ReaderPane).hold(m, this);
     this.makeRoom(id, actor);
     this.save();
