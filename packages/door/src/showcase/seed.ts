@@ -1298,7 +1298,7 @@ if (request.input.request === "describe the beds") {
   notes.scripts = await make(notes.root.id, [
     "Seed report [script::seed-report] [keys::alt+S]",
     "Press alt+S, or type seed-report in the power bar or / search. Keep typing; its progress arrives below. One ext.undo takes back the run. Keys never interrupt an edit; a clash says which action holds the key.",
-    "The Seed count example below runs from @seed-count in a note, or [rule-on::script:seed-count] on a rule. Agent-written asks wait for r unless an invocation grant permits them.",
+    "The Seed count example below runs from @seed-count in a note, or [rule-on::script:seed-count] on a rule. Agent-written asks run by default; loop guards can hold them for r.",
     "Record a layout with alt+Q (or the status bar's ⇧⌥Q), do your actions, then alt+Q or REC stop. The saved script is editable action lines. Replace an argument value with {tag}; the power bar asks for it when you run the script.",
     "```ts",
     "const source = (await q('script=seed-report')).blocks[0];",
