@@ -38,7 +38,7 @@ import type { SocketBoard } from "./socket";
 export type WriteBoard = SocketBoard & { address?: BoardAddress };
 
 /** The write tools, in the order tools/list offers them. */
-export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id"] as const;
+export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id", "outline_proposal_apply", "outline_proposal_dismiss"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
@@ -258,6 +258,7 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
 
 /** The outliner's agent operations, as much of them as a write uses (loaded by a name the door's checker doesn't follow). */
 interface AgentTools {
+  settleProposal(c: unknown, input: { ref: string }, op: "apply" | "dismiss", actor: WriteActor): Promise<unknown>;
   createBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ id: string; revision: number }>;
   commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; resourceId?: string; deduplicated?: boolean }>;
   replyTo(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; reply: string; deduplicated?: boolean }>;
@@ -352,6 +353,9 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
     const why = restoreRefusal(o.level) ?? (o.proposeOnly ? "outline_restore can't be proposed: the note changed since it was read." : null);
     if (why) throw Object.assign(new Error(why), { name: "WorkToolRefusal" });
   }
+  if ((write.tool === "outline_proposal_apply" || write.tool === "outline_proposal_dismiss") && o.level !== "full") {
+    throw new Error(`${write.tool} settles a proposal and can't be proposed: it needs full access (this outline's is ${o.level}).`);
+  }
   const propose = kind === "proposals" || o.proposeOnly ? "always" : "held";
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
     ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}${rebasedSaid(r.edits)}`, detail: r }
@@ -369,6 +373,12 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
     return { outcome: "applied", uri: o.uri(write.blockId), said: `commented on the whole of ${o.uri(write.blockId)} (thread ${c.thread}): the thread ${thread} was gone when it landed`, detail: c };
   };
   switch (write.tool) {
+    case "outline_proposal_apply":
+    case "outline_proposal_dismiss": {
+      const op = write.tool === "outline_proposal_apply" ? "apply" : "dismiss";
+      const r = await tools.settleProposal(client, { ref: write.blockId }, op, o.actor);
+      return { outcome: "applied", uri: o.uri(write.blockId), said: op === "apply" ? "applied the proposal" : "dismissed the proposal", detail: r };
+    }
     case "outline_reply": {
       if (write.input.edit !== undefined) {
         // A posted comment's or reply's words changed (PIE-763): at full access, applied; else a reply proposing them.

@@ -10,7 +10,7 @@ import type { ToolArgsSpec, ToolSchema } from './tool-args'
 /** The `outliner agent` operations a tool runs. */
 export type AgentToolOperation =
   | "read" | "find" | "resolve" | "edit" | "create" | "comment" | "reply" | "edit-comment" | "resolve-thread"
-  | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
+  | "proposal-apply" | "proposal-dismiss" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
 
 /**
  * How a surface names the block a tool acts on, filled into a description's `{note}` and `{parent}`: the mod says
@@ -357,6 +357,22 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       return { operation: "patch", input: { policy: "edit", ...inputOf(input, ["ref", "revision", "patches", "mark", "policy", "allowStructural"]) } };
     },
   },
+  ...(["apply", "dismiss"] as const).map(op => ({
+    name: `outline_proposal_${op}`,
+    operation: `proposal-${op}` as const,
+    example: { ref: NOTE },
+    writes: true,
+    target: "ref" as const,
+    description: op === "dismiss"
+      ? "Dismiss your own draft proposal {note} by id, without a reader: mark it dismissed and put it in Trash. Another agent's proposal is refused."
+      : "Apply draft proposal {note} by id, without a reader, under the agent's normal patch comparison and policy. An agent cannot force a proposal over changed text.",
+    properties: { ref: REF },
+    required: ["ref"],
+    command(input: Record<string, unknown>) {
+      if (!nonEmpty(input.ref)) return "Give the ref of the proposal: its id or ((id)).";
+      return { operation: `proposal-${op}` as const, input: inputOf(input, ["ref"]) };
+    },
+  })),
   {
     name: "outline_set_property",
     operation: "set-property",
@@ -504,6 +520,8 @@ export const AGENT_TOOL_SURFACES: Readonly<Record<string, Readonly<Record<AgentT
   view_order: { mod: true, gateway: "not yet on the gateway (PIE-720)" },
   outline_changes: { mod: true, gateway: "not yet on the gateway (PIE-720, PIE-689)" },
   outline_patch: { mod: true, gateway: true },
+  outline_proposal_apply: { mod: true, gateway: true },
+  outline_proposal_dismiss: { mod: true, gateway: true },
   outline_set_property: { mod: true, gateway: true },
   outline_assign_id: { mod: true, gateway: true },
   outline_move: { mod: true, gateway: true },

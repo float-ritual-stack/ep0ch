@@ -29,6 +29,8 @@ export const isTilePath = (sel: string | undefined): sel is string => !!sel && s
 export interface TileRef {
   /** Its name: what answers say, and what `tile=` matches first. */
   name: string;
+  /** A mounted screen: its tiles keep their own dispatcher and rules. */
+  mount?: Dispatcher;
   /** Its stable id (`t4`): the same tile while it lives. */
   id?: string;
   /** Its number on screen, from 1 (`#3`, or `3`): where it is now. */
@@ -286,6 +288,7 @@ export class Dispatcher {
 
   /** The set that owns a request's action: the first registered that claims it. */
   private owner(req: ActRequest): Registration | Delegation | null {
+    req = this.mountedRequest(req);
     for (const r of this.regs) {
       // A delegate is asked about the whole request: a screen in a tile is found by the tile it names.
       if (r.claims ? r.claims(req) : "set" in r ? r.set.has(req.action) : !!r.delegate(req)?.takes(r.request ? r.request(req) : req)) return r;
@@ -346,6 +349,7 @@ export class Dispatcher {
 
   /** One request, for one actor: who owns it, the revision, then that set's run. */
   private run(req: ActRequest, actor: Actor, typed = false): unknown {
+    req = this.mountedRequest(req);
     const args = { ...(req.args ?? {}) };
     // A path (`tile=<mount>/<tile>`, PIE-651) names a tile of a screen mounted in a tile: expected= is that screen's revision.
     if (this.host.revision && "expected" in args && !isTilePath(req.tile)) {
@@ -443,6 +447,28 @@ export class Dispatcher {
       }
     }
     return out;
+  }
+
+  /** Ownership discovery and execution must resolve the same mounted target. Local ids stay scoped here. */
+  private mountedRequest(req: ActRequest): ActRequest {
+    const sel = req.tile;
+    if (!sel || isTilePath(sel) || sel === "focused" || NUMBER.test(sel)) return req;
+    const local = this.named(sel, this.tilesNow());
+    if (local && local.by !== "name") return req;
+    const paths = this.mountedPaths(sel);
+    const choices = [...(local ? [local.t.id ?? local.t.name] : []), ...paths];
+    if (choices.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${choices.join(", ")}; name tile=<mount>/<tile> or the local tile's id`);
+    return !local && paths.length === 1 ? { ...req, tile: paths[0] } : req;
+  }
+
+  /** Names inside mounts resolve to paths; execution still goes through each mounted dispatcher. */
+  private mountedPaths(sel: string): string[] {
+    return this.tilesNow().flatMap(t => {
+      if (!t.mount) return [];
+      const hit = t.mount.named(sel, t.mount.tilesNow());
+      return [ ...(hit ? [`${t.id ?? t.name}/${hit.t.id ?? hit.t.name}`] : []),
+        ...t.mount.mountedPaths(sel).map(path => `${t.id ?? t.name}/${path}`) ];
+    });
   }
 
   private tilesNow(): TileRef[] { return this.host.tiles?.() ?? []; }

@@ -76,6 +76,56 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     await expect(act("tile.open", { kind: "screen", screen: "desk" }, get().focus)).rejects.toThrow(/isn't mounted in itself/);
   }, 20_000);
 
+  test("a mounted reader is reached by name and path", async () => {
+    await act("tile.open", { kind: "reader", name: "inside-898" }, get().focus);
+    await act("tile.open", { kind: "reader", name: "beside-898" }, get().focus);
+    const g = await act("tile.group", { with: "beside-898" }, "inside-898");
+    render();
+    const focus = get().focus;
+    for (const selector of ["beside-898", `${g.tile}/beside-898`]) {
+      await act("open", { id: seeded.cards[0]!.id }, selector);
+      const view = await act("view.get", {}, selector);
+      expect(JSON.stringify(view)).toContain(seeded.cards[0]!.id);
+    }
+    expect(get().focus).toBe(focus);
+    const lane = tile("kanban").mount.layout.tiles.find((t: any) => t.kind === "query").name;
+    expect(await act("card.select", { id: seeded.cards[0]!.id }, lane)).toBeDefined();
+    // Two mounted boards expose the same name: the refusal gives paths instead of choosing one.
+    await act("tile.open", { kind: "screen", screen: "board", target: seeded.notes.hub.id, name: "second-898" }, focus);
+    render();
+    await expect(act("view.get", {}, "preview")).rejects.toThrow(/several tiles named preview: .*\//);
+    expect(await act("view.get", {}, "kanban/preview")).toBeDefined();
+    await act("tile.close", {}, "second-898");
+    const local = await act("tile.open", { kind: "reader", name: "preview" }, focus);
+    await expect(act("view.get", {}, "preview")).rejects.toThrow(/several tiles named preview/);
+    expect(await act("view.get", {}, local.id)).toBeDefined();
+    await act("tile.close", {}, local.id);
+    await act("tile.group", { on: false }, g.tile);
+  });
+
+  test("a proposal id needs no reader, without changing the layout", async () => {
+    const previous = desk;
+    desk = new Desk({ name: "empty-898", title: "empty", layout: { root: { t: "leaf", kind: "tree", name: "outline" } } });
+    app.push(desk);
+    render();
+    const focus = get().focus;
+    const before = get().tiles.map(t => t.id);
+    for (const op of ["dismiss", "apply"]) {
+      const note = await board.request<any>("create", { parentId: null, text: "Seed plan\nPlant beans." });
+      const proposal = await board.request<any>("draft.patch", { blockId: note.id, revision: note.revision,
+        patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: "always",
+        mutation: { author: "agent", actorId: AS } });
+      await expect(act(`proposal.${op}`, { id: proposal.proposalId }, "missing-898")).rejects.toThrow("no tile missing-898");
+      expect((await board.get(proposal.proposalId))!.props["proposal-status"]).toBe("open");
+      expect(await act(`proposal.${op}`, { id: proposal.proposalId })).toMatchObject({ outcome: op === "apply" ? "applied" : "dismissed" });
+      expect((await board.get(proposal.proposalId))!.props["proposal-status"]).toBe(op === "apply" ? "applied" : "dismissed");
+      expect(get().focus).toBe(focus);
+    }
+    expect(get().tiles.map(t => t.id)).toEqual(before);
+    app.pop();
+    desk = previous;
+  });
+
   test("its layout is its own, saved with the desk's: a fold inside it comes back after a restart, under the same mount id", async () => {
     expect(await act("tile.collapse", { on: true }, "kanban/preview")).toMatchObject({ tile: "kanban/preview", collapsed: true });
     const id = tile("kanban").id;

@@ -232,6 +232,45 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       } finally { await setAccess("read"); }
     }, 60_000);
 
+    test("scripts, the mod CLI and MCP settle proposals without a reader", async () => {
+      const module = "@ep0ch/outliner/host-api";
+      const { hostApi } = await import(module);
+      const api = hostApi({ request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest), requireCompatibleService: () => board.info() }, { actorId: "garden-mod" });
+      const make = async (actorId: string) => {
+        const note = await board.request<any>("create", { parentId: null, text: "Seed plan\nPlant beans." });
+        const p = await board.request<any>("draft.patch", { blockId: note.id, revision: note.revision,
+          patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: "always", mutation: { author: "agent", actorId } });
+        return { note, id: p.proposalId as string };
+      };
+      for (const op of ["dismiss", "apply"]) {
+        const name = `outline_proposal_${op}`;
+        const script = await make("garden-mod");
+        expect(await api.call(name, { ref: script.id })).toMatchObject({ outcome: op === "apply" ? "applied" : "dismissed" });
+        const mod = await make("garden-mod");
+        const command = OUTLINE_TOOLS.find(t => t.name === name)!.command({ ref: mod.id });
+        if (typeof command === "string") throw new Error(command);
+        const child = Bun.spawn(["bun", "src/cli.ts", "agent", command.operation, "--json", JSON.stringify(command.input), "--actor", "garden-mod"], { cwd: outliner!, env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe" });
+        const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        expect(code, stderr || stdout).toBe(0);
+        expect(JSON.parse(stdout)).toMatchObject({ outcome: op === "apply" ? "applied" : "dismissed" });
+        await setAccess("full");
+        const remote = await make(`mcp:claude-desktop@${machine}`);
+        await setAccess("propose");
+        const denied = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: { ref: remote.id, outline: scratch.name } } }]);
+        expect(called(denied.find(r => r.id === 2))).toMatchObject({ isError: true });
+        expect((await board.get(remote.id))!.props["proposal-status"]).toBe("open");
+        await setAccess("full");
+        const response = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: { ref: remote.id, outline: scratch.name } } }]);
+        expect(called(response.find(r => r.id === 2))).toMatchObject({ isError: false, json: { outcome: "applied" } });
+        expect((await board.get(remote.id))!.props["proposal-status"]).toBe(op === "apply" ? "applied" : "dismissed");
+        expect((await board.get(remote.note.id))!.text).toContain(op === "apply" ? "Plant peas." : "Plant beans.");
+      }
+      const other = await make("another-agent");
+      await expect(api.call("outline_proposal_dismiss", { ref: other.id })).rejects.toThrow("only its own");
+      expect((await board.get(other.id))!.deleted).toBeFalsy();
+      await setAccess("read");
+    }, 60_000);
+
     test("EP0CH_MCP_PERSONAS maps the principal (the client on this machine) to a persona", async () => {
       await setAccess("full");
       const was = process.env.EP0CH_MCP_PERSONAS;
