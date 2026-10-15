@@ -12,6 +12,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ### TL;DR: none without a model, shown once, and it can be taken away (PIE-860)
 
+PROTOCOL 169: `annotations.tldr` takes `remove`, and an ask can be refused (an older host would write one instead).
+
 - **Fixed:** asking for a TL;DR when @margin has no model set up no longer posts the note's own sentences (or a
   stitched-together summary) as the thread's face. Nothing is posted, and it says how to set one up:
   `~/.config/pi-herdr-outliner/extensions/marginalia/config.json`: `{ "config": { "answer": ["claude", "-p"] } }`.
