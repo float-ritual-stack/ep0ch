@@ -26,6 +26,19 @@ are its record. The outliner's entries from then are kept below, under
   the same view. A door-side ElementEditor contract lets component authors supply source spans and drawing.
 - PROTOCOL: 179. On each machine: `ep0ch install --apply`.
 
+### The agent tools are defined once, and code can call them (PIE-720, scripting slice 1)
+
+- **Changed:** each outline tool an agent has (`outline_read` … `outline_restore`, `view_order`) is defined once, in
+  outline-core's `agent-tool-definitions.ts`: its words, arguments, a call that works and the check that refuses a wrong
+  call. The Claude mod and the MCP gateway register those definitions, so a tool on both answers a wrong call in the same
+  words (the mod's tools now also refuse an empty `observed` in a patch, and `position` with `before` or `after` in a
+  move, as the gateway did). Remaining surface gaps are listed with their reasons.
+- **Added:** the outliner's host API (`src/host-api.ts`): every one of those tools as a plain async function, plus
+  `q(query)` and `read(ref)`, for code. A script's call, a mod tool and an MCP write reach the same agent operation.
+  Each write is attributed to the API's actor; calls run side by side, and an `onStep` observer hears each start, end
+  and refusal as it happens, never holding the run. The runtime that runs a script is slice 2.
+- PROTOCOL: 180. On each machine: `ep0ch install --apply`. The shared definitions change the MCP tool schemas and argument checks.
+
 ### The drawer's own program leaves whole, and comes back (PIE-892)
 
 - **Fixed:** dragging the drawer's Claude onto the desk left a second tile in the drawer on the same Herdr pane,

@@ -1,5 +1,5 @@
-// Agent tool arguments across the door's surfaces (outline-core/src/tool-args.ts): the Claude mod carries a copy that
-// can't import it, so the two must stay byte-equal below the marker; the door's own `act` and `open` take `ref` and its
+// Agent tool arguments across the door's surfaces (outline-core/src/tool-args.ts, and the tool definitions in agent-tool-definitions.ts): the Claude mod carries copies that
+// can't import them, so each pair must stay byte-equal below its marker; the door's own `act` and `open` take `ref` and its
 // aliases for their `id`, refuse two that name different blocks, and answer a wrong call with the right one.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -13,12 +13,18 @@ const AGENT: Actor = { kind: "agent", id: "claude-7" };
 const BLOCK = "0f3c2a1b-1111-4222-8333-444455556666";
 const OTHER = "7a1e0c2d-2222-4333-8444-555566667777";
 
-describe("tool-args.ts is one file in two places", () => {
+describe("the mod's copies are one file in two places", () => {
   const MARK = "// --- tool-args shared code below this line ---";
   const below = (path: string) => readFileSync(join(import.meta.dir, path), "utf8").split(MARK)[1];
   test("the mod's copy equals outline-core's below the marker", () => {
     expect(below("../../claude-mod/hooks/tool-args.ts")).toBe(below("../../outline-core/src/tool-args.ts"));
     expect(below("../../outline-core/src/tool-args.ts")?.length).toBeGreaterThan(1000);
+  });
+  test("so is agent-tool-definitions.ts, the tools both surfaces register (PIE-720)", () => {
+    const mark = "// --- agent tool definitions below this line ---";
+    const after = (path: string) => readFileSync(join(import.meta.dir, path), "utf8").split(mark)[1];
+    expect(after("../../claude-mod/hooks/agent-tool-definitions.ts")).toBe(after("../../outline-core/src/agent-tool-definitions.ts"));
+    expect(after("../../outline-core/src/agent-tool-definitions.ts")?.length).toBeGreaterThan(1000);
   });
 });
 

@@ -1432,9 +1432,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => String((app as any).message).includes("brought back “Compost heap”"), "brought back, said");
     expect(await deleted(heap.id)).toBe(false);
     // An agent names the list's row (a note under the heap) and says it twice; its undo is its own.
-    const rows = tiles().find(t => t.name === "links").backlinks.rows as { id?: string }[];
     const lid = (await board.children(heap.id)).find(m => m.text.startsWith("Lid"))!;
-    expect(rows.some(r => r.id === lid.id)).toBe(true);
+    // The restore receipt precedes the links tile's subscription refresh.
+    await until(() => tiles().find(t => t.name === "links").backlinks.rows.some((r: { id?: string }) => r.id === lid.id), "the restored lid in the links tile");
     await expect(app.act({ action: "note.trash", tile: "links", args: { ref: lid.id }, as: "test-agent" })).rejects.toThrow("confirm=");
     expect(await app.act({ action: "note.trash", tile: "links", args: { ref: lid.id, confirm: lid.id }, as: "test-agent" })).toMatchObject({ trashed: lid.id, recordedAs: "agent test-agent" });
     expect(await deleted(lid.id)).toBe(true);

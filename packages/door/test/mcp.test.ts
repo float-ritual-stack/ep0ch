@@ -8,6 +8,7 @@ import { machineOutlines } from "../src/mcp-gateway";
 import { localAdmin } from "../src/mcp-outlines";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
+import { OUTLINE_TOOLS } from "../../claude-mod/hooks/outline-tools";
 
 interface RpcResponse { id: string | number | null; result?: unknown; error?: { message?: string } }
 interface ToolResult { content: { type: "text"; text: string }[]; isError?: boolean }
@@ -194,6 +195,41 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect(called(stale.find(r => r.id === 6)).json.outcome).toBe("proposed");
       expect((await board.records([target.id])).records[0]!.text).not.toContain("Overwritten");
       await setAccess("read");
+    }, 60_000);
+
+    test("scripts, the mod CLI and MCP patch the same note with each writer attributed", async () => {
+      // The outliner owns its type-check configuration, as with the gateway's agent-tools import.
+      const hostApiModule = "@ep0ch/outliner/host-api";
+      const { hostApi } = await import(hostApiModule);
+      const api = hostApi({
+        request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest),
+        requireCompatibleService: () => board.info(),
+      }, { actorId: "garden-script", sessionId: "script-run" });
+      const made = await api.tool.outline_create!({ parent: "root", text: "Seed ledger\nBring labels." }) as { id: string };
+      const record = async () => (await board.records([made.id])).records[0]!;
+      const edit = async (observed: string, replacement: string) => ({ ref: made.id, revision: (await record()).revision, patches: [{ observed, replacement }] });
+      await api.tool.outline_patch!(await edit("Bring labels.", "Bring twine."));
+      expect(await record()).toMatchObject({ text: "Seed ledger\nBring twine.", author: "agent", actor: "garden-script" });
+
+      const command = OUTLINE_TOOLS.find(t => t.name === "outline_patch")!.command(await edit("Bring twine.", "Bring pots."));
+      if (typeof command === "string") throw new Error(command);
+      const child = Bun.spawn(["bun", "src/cli.ts", "agent", command.operation, "--json", JSON.stringify(command.input), "--actor", "garden-mod"], {
+        cwd: outliner!, env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      expect(code, stderr || stdout).toBe(0);
+      expect(await record()).toMatchObject({ text: "Seed ledger\nBring pots." });
+
+      await setAccess("full");
+      try {
+        const response = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_patch", arguments: await edit("Bring pots.", "Bring seeds.") } }]);
+        expect(called(response.find(r => r.id === 2))).toMatchObject({ isError: false, json: { outcome: "applied" } });
+        expect(await record()).toMatchObject({ text: "Seed ledger\nBring seeds." });
+        for (const actorId of ["garden-script", "garden-mod", `mcp:claude-desktop@${machine}`]) {
+          const activity = await board.request<{ entries: { block: { id: string }; actorId?: string }[] }>("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId, limit: 100, kinds: ["text"] });
+          expect(activity.entries).toContainEqual(expect.objectContaining({ block: expect.objectContaining({ id: made.id }), actorId }));
+        }
+      } finally { await setAccess("read"); }
     }, 60_000);
 
     test("EP0CH_MCP_PERSONAS maps the principal (the client on this machine) to a persona", async () => {

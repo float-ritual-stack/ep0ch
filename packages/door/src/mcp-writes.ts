@@ -30,14 +30,15 @@ import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { actorLabel, composeActor, composeSessionId, CALL_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { sessionPersona, type LocationReader } from "@ep0ch/outline-core/outline-location";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, describeTool, type TargetWords } from "@ep0ch/outline-core/agent-tool-definitions";
 import type { BoardAddress } from "./notes-cli";
 import type { SocketBoard } from "./socket";
 
 /** The outline a write goes to: a board, and its address when it has one (for what a refusal says). */
 export type WriteBoard = SocketBoard & { address?: BoardAddress };
 
-export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_move", "outline_trash", "outline_restore"] as const;
+/** The write tools, in the order tools/list offers them. */
+export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
@@ -225,62 +226,34 @@ export interface WriteOutcome {
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
 const pick = (args: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]));
 
+/** Stands in for the block a write is addressed to (the caller's uri or ref, resolved later) while its definition checks the rest. */
+const ADDRESSED = "(the addressed block)";
+
 /**
- * A write tool's arguments checked for shape (the address is the caller's: `uri` or `ref`), as the Claude mod's
- * tools check theirs; the service checks the rest. The block is filled in once the address is resolved.
+ * A write tool's arguments checked for shape by its one definition (@ep0ch/outline-core/agent-tool-definitions, the
+ * check the Claude mod and the host API make); the address is the caller's (`uri` or `ref`), filled in once resolved.
+ * The service checks the rest.
  */
 export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): Omit<McpWrite, "blockId"> | { error: string } {
-  switch (tool) {
-    case "outline_create":
-      if (!nonEmpty(args.text)) return { error: "Give the new block's text." };
-      if (args.position !== undefined && !(Number.isInteger(args.position) && (args.position as number) >= 0)) return { error: "position is a whole number from 0 (first)." };
-      return { tool, input: pick(args, ["text", "position"]) };
-    case "outline_patch": {
-      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
-      if (!Array.isArray(args.patches) || !args.patches.length) return { error: "Give at least one patch: {observed, replacement}." };
-      for (const p of args.patches as DraftPatchSpan[]) if (!p || !nonEmpty(p.observed) || typeof p.replacement !== "string") return { error: "Each patch needs observed (the exact text you read, never empty) and replacement." };
-      if (args.policy !== undefined && args.policy !== "edit" && args.policy !== "prose") return { error: "policy is edit (the default) or prose." };
-      return { tool, revision: args.revision, input: { policy: "edit", ...pick(args, ["patches", "mark", "policy", "allowStructural"]) } };
-    }
-    case "outline_comment":
-      if ((args.whole === true) === (typeof args.quote === "string")) return { error: "Give either quote (exact source text) or whole: true." };
-      if (!nonEmpty(args.body) && (args.whole === true || (args.body !== undefined && args.body !== ""))) return { error: "Give a non-empty comment (only a quote with no body is a highlight)." };
-      return { tool, input: pick(args, ["body", "quote", "whole", "start", "near", "prefix", "suffix", "requestId", "from", "revision", "kind", "properties"]) };
-    case "outline_reply":
-      if (nonEmpty(args.edit)) {
-        if (!nonEmpty(args.body) || typeof args.observed !== "string") return { error: "Give edit (a comment's or reply's id outline_threads returned), observed (its words as you read them) and the new, non-empty body." };
-        return { tool, input: pick(args, ["edit", "observed", "body"]) };
-      }
-      if (!nonEmpty(args.thread) || !nonEmpty(args.body)) return { error: "Give the thread (an id outline_threads returned) and a non-empty reply, or edit: a comment's id to change its words." };
-      return { tool, input: pick(args, ["thread", "body", "requestId"]) };
-    case "outline_resolve_thread":
-      if (!nonEmpty(args.thread) || typeof args.resolved !== "boolean") return { error: "Give the thread (an id outline_threads returned) and resolved: true or false." };
-      return { tool, input: pick(args, ["thread", "resolved"]) };
-    case "outline_quote":
-      if (!Array.isArray(args.marks) || !args.marks.length || !args.marks.every(nonEmpty)) return { error: "Give marks: the ids of highlights, comments or replies on the note (outline_threads lists them)." };
-      if (args.where !== undefined && !nonEmpty(args.where)) return { error: "where is inbox (the default), note (under the note) or a block's ref." };
-      return { tool, input: pick(args, ["marks", "where", "text"]) };
-    case "outline_set_property":
-      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
-      if (!nonEmpty(args.key) || !nonEmpty(args.value)) return { error: "Give the key and a non-empty value." };
-      return { tool, revision: args.revision, input: pick(args, ["key", "value"]) };
-    case "outline_assign_id":
-      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
-      return { tool, revision: args.revision, input: {} };
-    case "outline_move": {
-      const places = ["parent", "before", "after"].filter(k => args[k] !== undefined);
-      if (places.length !== 1) return { error: "Give exactly one of parent (under it; or root), before or after (beside a note)." };
-      if (!nonEmpty(args[places[0]!])) return { error: `${places[0]} is a ref (or root, for parent); it is empty.` };
-      if (args.position !== undefined && (places[0] !== "parent" || !(Number.isInteger(args.position) && (args.position as number) >= 0))) return { error: "position is a whole number from 0 (first), and goes with parent." };
-      if (args.revision !== undefined && typeof args.revision !== "number") return { error: "revision is the number outline_read returned." };
-      return { tool, ...(typeof args.revision === "number" ? { revision: args.revision } : {}), input: pick(args, ["parent", "before", "after", "position"]) };
-    }
-    case "outline_trash":
-      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
-      return { tool, revision: args.revision, input: {} };
-    case "outline_restore":
-      return { tool, input: {} };
+  if (tool === "outline_quote") {
+    if (!Array.isArray(args.marks) || !args.marks.length || !args.marks.every(nonEmpty)) return { error: "Give marks: the ids of highlights, comments or replies on the note (outline_threads lists them)." };
+    if (args.where !== undefined && !nonEmpty(args.where)) return { error: "where is inbox (the default), note (under the note) or a block's ref." };
+    return { tool, input: pick(args, ["marks", "where", "text"]) };
   }
+  const definition = SHARED_WRITE_TOOLS.find(d => d.name === tool)!;
+  const target = definition.target ?? "ref";
+  const command = definition.command({ ...args, [target]: ADDRESSED });
+  if (typeof command === "string") return { error: command };
+  // outline_reply's edit runs the edit-comment operation: the gateway keeps it as the tool's own `edit`.
+  const { [target]: _address, ...input } = command.input;
+  if (command.operation === "edit-comment") {
+    const { mark, ...words } = input;
+    return { tool, input: { edit: mark, ...words } };
+  }
+  // A revision is the note's, checked where the write lands; a comment's is a Resource's, part of its input.
+  const { revision, ...rest } = input;
+  if (tool === "outline_comment" || typeof revision !== "number") return { tool, input };
+  return { tool, revision, input: rest };
 }
 
 /** The outliner's agent operations, as much of them as a write uses (loaded by a name the door's checker doesn't follow). */
@@ -502,11 +475,36 @@ const REF_ADDRESS = {
   uri: { type: "string", description: "The block's ep0ch:// URI (it names its outline)" },
   ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123); for outline_read and outline_comment also a Resource: resource:<id> or a [file::path] token" },
 };
-const REVISION = { type: "integer", minimum: 1, description: "The revision outline_read returned. A note that changed since gets a proposal, never an overwrite." };
+
+/** How the gateway names the block a shared tool acts on (outline-core agent-tool-definitions' `{note}` and `{parent}`). */
+const GATEWAY_WORDS: TargetWords = { note: "the note (its uri, or ref in `outline`)", parent: "the parent (its uri, or ref in `outline`)" };
+
+/** What the outline's access setting makes of each shared write, said after its description. */
+const ACCESS_NOTES: Readonly<Record<string, string>> = {
+  outline_create: "At propose access it becomes a comment on the parent carrying the text.",
+  outline_comment: "A comment changes nothing but its thread, so propose access allows it.",
+  outline_reply: "A reply changes nothing but its thread, so propose access allows it; with edit, at propose access it's a reply in the thread proposing the new words. If the thread is gone by the time a queued reply lands, it becomes a comment on the whole note saying so.",
+  outline_resolve_thread: "Settling a thread changes only the thread, never the note, so propose access allows it.",
+  outline_move: "At propose access it becomes a comment on the note naming the move.",
+  outline_trash: "At propose access it becomes a comment on the note proposing it.",
+  outline_restore: "It needs full access (a restore is no proposal).",
+  outline_assign_id: "It stamps the note, so it can't be a proposal: it needs full access, and a note that changed since is refused.",
+};
+
+/** The shared write tools the gateway registers (PIE-720): each defined once, addressed the gateway's way. */
+const SHARED_WRITE_TOOLS = AGENT_TOOL_DEFINITIONS.filter(d => d.writes && AGENT_TOOL_SURFACES[d.name]?.gateway === true);
+
+/** A shared tool's call as the gateway takes it: the block it acts on as `ref` (the note a thread is on, for a thread tool). */
+export function gatewayExample(name: string): Record<string, unknown> | undefined {
+  const definition = SHARED_WRITE_TOOLS.find(d => d.name === name);
+  if (!definition) return undefined;
+  const { [definition.target ?? "ref"]: target, ...rest } = definition.example;
+  return { ref: target ?? "PIE-123", ...rest };
+}
 
 /** The write tools' definitions, for tools/list. `outline`: the outline property the read tools describe. */
 export function writeToolDefinitions(outline: Record<string, unknown>) {
-  const addressed = (properties: Record<string, unknown>, required: string[]) => ({
+  const addressed = (properties: Record<string, unknown>, required: readonly string[]) => ({
     type: "object",
     properties: { ...REF_ADDRESS, outline, ...properties, call: CALL_PROPERTY },
     required,
@@ -515,81 +513,23 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
   });
   const answer = "The answer says applied, proposed (with why and the proposal's URI) or queued (an outline whose home is another machine: it lands when that machine pulls it), with the block's URI. " +
     "An outline at `propose` access takes proposals only; `full` applies; `read` takes no writes (list_outlines shows each one's access).";
-  const threadWrite = { thread: { type: "string", description: "The thread's id, from outline_threads or outline_comment. The uri or ref is the note it is on." } };
-  return [
-    {
-      name: "outline_create",
-      description: `Create a block under a parent (the uri or ref is the parent), at position among its siblings (0 is first; default last). At propose access it becomes a comment on the parent carrying the text. ${answer}`,
-      inputSchema: addressed({ text: { type: "string" }, position: { type: "integer", minimum: 0 } }, ["text"]),
-    },
-    {
-      name: "outline_patch",
-      description: "Small edits to a note (draft.patch): each patch names the exact observed text (never empty) and its replacement, against the revision outline_read returned; all apply as one edit or none. " +
-        "A note that changed under it, or one open in someone's draft, gets one proposal for its owner instead. policy edit (the default) refuses dropping a [page::…] or a linked ^anchor unless allowStructural; prose keeps every link, anchor and property. " + answer,
-      inputSchema: addressed({
-        revision: REVISION,
-        patches: { type: "array", minItems: 1, items: { type: "object", properties: { observed: { type: "string" }, replacement: { type: "string" }, range: { type: "object", properties: { start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 0 } }, required: ["start", "end"] } }, required: ["observed", "replacement"] } },
-        mark: { type: "string", description: "The @request line the patch answers: spans must end above it" },
-        policy: { type: "string", enum: ["edit", "prose"], default: "edit" },
-        allowStructural: { type: "boolean" },
-      }, ["revision", "patches"]),
-    },
-    {
-      name: "outline_comment",
-      description: `Start a comment thread on a note: on an exact quote of its source text (add start, near, prefix or suffix when the quote repeats), or on the whole note. ${"With a quote and no body it's a highlight. properties (open: kind, tags, color as a theme tone, or any key) are written on the thread; an @name line in the body asks an agent that answers in threads, in the thread."} A requestId makes a retry return the same thread. A comment changes nothing but its thread, so propose access allows it. ` +
-        `ref may name a Resource instead (resource:<id>, or a [file::path] token): the quote is then exact text of the file as outline_read returned it, from names the note whose link opened it, and the file is never written. ${answer}`,
-      inputSchema: addressed({
-        body: { type: "string" }, quote: { type: "string", description: "Exact source text the comment is about" }, whole: { type: "boolean" },
-        start: { type: "integer", minimum: 0 }, near: { type: "integer", minimum: 0, description: "When the quote repeats: the offset to be nearest" }, prefix: { type: "string" }, suffix: { type: "string" }, requestId: { type: "string" },
-        from: { type: "string", description: "A Resource comment: the note whose link opened it (kept as the thread's reference context)" },
-        revision: { type: "integer", minimum: 1, description: "A Resource comment: the revision outline_read returned; the comment is refused if the file changed since" },
-        kind: { type: "string", description: "The thread's kind, written as [kind::…] on it (patch-note, question, highlight…); the same as properties.kind" },
-        properties: { type: "object", description: "The thread's own properties, open: kind (highlight, note, question, define…), tags, color (a theme tone: default, good, warn, bad, dim, accent), any other key" },
-      }, []),
-    },
-    {
-      name: "outline_reply",
-      description: `Reply in a comment thread of a note (the uri or ref is the note; thread is the id outline_threads returned). A requestId makes a retry return the same reply. A reply changes nothing but its thread, so propose access allows it. If the thread is gone by the time a queued reply lands, it becomes a comment on the whole note saying so. With edit (a posted comment's or reply's id, from outline_threads) instead of thread, it changes those words to body: give observed, its words as you read them, so an edit made meanwhile is refused. It stays its author's, shown as edited by you. At full access it's applied; at propose access it's a reply in the thread proposing the new words. ${answer}`,
-      inputSchema: addressed({ ...threadWrite, body: { type: "string" }, requestId: { type: "string" }, edit: { type: "string", description: "A posted comment's or reply's id: change its words instead of replying" }, observed: { type: "string", description: "With edit: its words as you read them" } }, ["body"]),
-    },
-    {
-      name: "outline_resolve_thread",
-      description: `Resolve a comment thread of a note (resolved: true), or reopen it (false). Settling a thread changes only the thread, never the note, so propose access allows it. ${answer}`,
-      inputSchema: addressed({ ...threadWrite, resolved: { type: "boolean" } }, ["thread", "resolved"]),
-    },
+  const shared = SHARED_WRITE_TOOLS.map(definition => {
+    // The block it acts on is the gateway's address (uri, or ref in outline); a thread tool's address is the note it is on.
+    const { [definition.target ?? ""]: _target, ...properties } = definition.properties;
+    return {
+      name: definition.name,
+      description: [describeTool(definition, GATEWAY_WORDS), definition.target ? "" : "The uri or ref is the note the thread is on.", ACCESS_NOTES[definition.name], answer].filter(Boolean).join(" "),
+      inputSchema: addressed(properties, definition.required.filter(key => key !== definition.target)),
+    };
+  });
+  const tools = [
+    ...shared,
     {
       name: "outline_quote",
       description: `Quote marks into a new block (the margin's quote-tweet): highlights, comments or replies on a note (the uri or ref is the note; marks are ids outline_threads returned), each transcluded as !((mark)) under one [from::((mark))] line, so the new block traces back to where it was said and each mark lists it as quoted in. where: inbox (the top of the Inbox, the default), note (under the note) or a block's ref to put it under. text: the new block's own words above the quotes (its first line is its title). The marks stay where they are. At propose access it becomes a comment on the note proposing it. ${answer}`,
       inputSchema: addressed({ marks: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } }, where: { type: "string" }, text: { type: "string" } }, ["marks"]),
     },
-    {
-      name: "outline_set_property",
-      description: `Set one [key::value] property on a note's header line (the chips that end its first line): the value replaced where the key is, or the chip added at the line's end, against the revision outline_read returned, as one outline_patch span. A key written more than once is a list: edit it with outline_patch. ${answer}`,
-      inputSchema: addressed({ key: { type: "string" }, value: { type: "string", description: "One line, without ]" }, revision: REVISION }, ["key", "value", "revision"]),
-    },
-    {
-      name: "outline_move",
-      description: "Move a note (the uri or ref; with what is under it) to a new place: under `parent` (a ref, or root) at `position` among its children (0 is first; default last), or just `before` or `after` a sibling note. Give exactly one of parent, before, after. With `revision` it is refused if the note changed since. The note keeps its id, text and links. Refused, with what to give instead: a system note (the Inbox, Trash, Bookmarks), a place under one (the Inbox excepted), a place inside the note itself, a note in Trash, a ref that doesn't resolve (with the nearest notes). At propose access it becomes a comment on the note naming the move. " + answer,
-      inputSchema: addressed({
-        parent: { type: "string", description: "The new parent: a ref, or root" }, before: { type: "string", description: "A note to go just before (a ref)" }, after: { type: "string", description: "A note to go just after (a ref)" },
-        position: { type: "integer", minimum: 0, description: "With parent: among its children, 0 first (default last)" }, revision: { ...REVISION, description: "Optional: the revision outline_read returned; the move is refused if the note changed since" },
-      }, []),
-    },
-    {
-      name: "outline_trash",
-      description: "Put a note (the uri or ref) in Trash with what is under it, against the revision outline_read returned: a note that changed since is refused and stays. outline_restore brings it back. For a duplicate or a stray, never to hide a note someone may want; a system note is refused. At propose access it becomes a comment on the note proposing it. " + answer,
-      inputSchema: addressed({ revision: REVISION }, ["revision"]),
-    },
-    {
-      name: "outline_restore",
-      description: "Bring a trashed note (the uri or ref: its id, a trashed note has no page address) back from Trash, with what went under it. A note that went to Trash inside another is restored with that one: the refusal names it. It needs full access (a restore is no proposal). " + answer,
-      inputSchema: addressed({}, []),
-    },
-    {
-      name: "outline_assign_id",
-      description: "Give an existing note the outline's next work id (its prefix, whatever the outline has), against the revision outline_read returned. The id is the note's page address, so [[HUB-002]] reaches it: no [page::…] needed. " +
-        "For notes that aren't roadmap items, such as an outbox draft. A note that already has an id answers with it, unchanged. It stamps the note, so it can't be a proposal: it needs full access, and a note that changed since is refused. " + answer,
-      inputSchema: addressed({ revision: REVISION }, ["revision"]),
-    },
   ];
+  const at = (name: string) => (MCP_WRITE_TOOLS as readonly string[]).indexOf(name);
+  return tools.sort((a, b) => at(a.name) - at(b.name));
 }
