@@ -724,27 +724,32 @@ export class Draft {
       }
     }
     if (p.replyTo && !p.replyGroup) this.asks.set(p.replyTo, { line: p.replyTo, state: "replied", blocks: 1, beside: true });
+    this.settle();
+    this.record(USER, "a change");
     const prior = p.replyGroup ? this.undos.find(step => step.unit?.group === p.replyGroup && sameParty(step.by, by)) : undefined;
+    const rebased: { step: Step; before: string; after: string }[] = [];
+    if (prior?.unit) {
+      // Check every snapshot before changing any: an ambiguous copy must not leave half-rebased undo history.
+      const span = p.patches[0]!;
+      const advance = (text: string) => {
+        // The live range follows typing; older snapshots can have this answer much earlier.
+        const found = locateSpans(text, [{ observed: span.observed, replacement: span.replacement }]);
+        return found.ok ? applyLocated(text, found.spans) : null;
+      };
+      for (const step of this.undos.slice(this.undos.indexOf(prior))) {
+        const before = step === prior ? step.before : advance(step.before), after = advance(step.after);
+        if (before === null || after === null) return no("the answer's undo history changed; keep or dismiss the proposed continuation");
+        rebased.push({ step, before, after });
+      }
+    }
     this.commitPatch(located.spans, by, p.patchId);
-    const latest = this.undos.at(-1)!;
-    if (p.replyGroup && latest.unit) {
+    const latest = this.undos.at(-1);
+    if (p.replyGroup && latest?.unit) {
       latest.unit.group = p.replyGroup;
       if (prior?.unit && prior !== latest) {
-        // Rebase the intervening typing snapshots so undo keeps the answer together without taking the person's words.
-        const span = p.patches[0]!;
-        const advance = (text: string) => {
-          // The live range follows typing; older snapshots can have this answer much earlier.
-          const found = locateSpans(text, [{ observed: span.observed, replacement: span.replacement }]);
-          return found.ok ? applyLocated(text, found.spans) : text;
-        };
-        const index = this.undos.indexOf(prior);
-        prior.after = advance(prior.after);
-        for (const step of this.undos.slice(index + 1, -1)) {
-          step.before = advance(step.before);
-          step.after = advance(step.after);
-        }
+        for (const { step, before, after } of rebased) { step.before = before; step.after = after; }
         prior.unit = { ...prior.unit, patchIds: [...(prior.unit.patchIds ?? [prior.unit.patchId]), p.patchId],
-          spans: prior.unit.spans.map(sp => ({ ...sp, text: span.replacement })) };
+          spans: prior.unit.spans.map(sp => ({ ...sp, text: p.patches[0]!.replacement })) };
         this.undos.pop();
       }
     }

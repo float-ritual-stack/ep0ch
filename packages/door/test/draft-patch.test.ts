@@ -730,6 +730,23 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     } finally { writeFileSync(gate, "finish"); }
   }, 20_000);
 
+  test("a copied answer stops streaming rather than leaving stale undo snapshots", async () => {
+    const gate = await streamingGardener();
+    const e = await editing("Copied answer\n\n");
+    e.type("@gardener plan the beds"); e.d.newline(false); e.type("Keep writing");
+    try {
+      await until(() => e.d.text.includes("Sow the peas."), "the first chunk", 8000);
+      const answer = e.d.text.slice(e.d.text.indexOf("@gardener"), e.d.text.indexOf("\nKeep writing"));
+      e.s.key({ kind: "paste", text: "\n" + answer + "\nAfter the copy" }, e.h);
+      writeFileSync(gate, "finish");
+      await until(() => ["replied", "failed"].includes(e.d.asks.get("@gardener plan the beds")?.state ?? ""), "the stream to settle");
+      expect(e.d.text).not.toContain("Water the beds.");
+      e.d.undo(USER);
+      expect(e.d.text).not.toContain("After the copy");
+      expect(e.d.text).toContain("Sow the peas.");
+    } finally { writeFileSync(gate, "finish"); }
+  }, 20000);
+
   test("undoing a paste above a streaming ask keeps the whole answer", async () => {
     const gate = await streamingGardener();
     const e = await editing("Moved ask\n\n");
