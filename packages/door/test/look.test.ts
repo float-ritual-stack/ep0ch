@@ -377,6 +377,37 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     } finally { d.close(); }
   }, 40_000);
 
+  test("PIE-886: a preview that follows a tree has no frame and a tinted ground that runs to its edges, as part of the tree; border=line gives it back its frame, and border=joined joins any tile", async () => {
+    const d = await door(140);
+    try {
+      expect(await d.app.act({ action: "tile.open", args: { kind: "tree", name: "outline", where: "left" }, as: "look-agent" })).toMatchObject({ tile: "outline" });
+      expect(await d.app.act({ action: "tile.open", args: { kind: "preview", source: "tile:outline", name: "peek", where: "down" }, tile: "outline", as: "look-agent" })).toMatchObject({ tile: "peek" });
+      const raw = () => d.desk.render((d.desk as any).ctx).lines;
+      const edges = (name: string) => { raw(); const r = (d.desk as any).drawnAt(name)!; const rows = raw(); return { r, top: plain(rows[r.row]!).slice(r.col, r.col + r.cols), side: plain(rows[r.row + 2]!)[r.col], tint: rows[r.row + 2]!.includes(surfaceBg("raised", 2)) }; };
+      const FRAME = /[┌┐└┘─│╭╮╰╯═║╔╗╚╝┏┓┗┛━┃]/;
+      // The tree keeps its frame; the preview of it has none, and its tint is under its edges too.
+      expect(FRAME.test(edges("outline").top)).toBe(true);
+      const joined = edges("peek");
+      expect(FRAME.test(joined.top)).toBe(false);
+      expect(joined.side).toBe(" ");
+      expect(joined.tint).toBe(true);
+      // A reader that follows the current note, beside a tree, is joined too; border=line frames it.
+      await d.reader().setMode("follows", d.desk);
+      (d.desk as any).focusTile("outline", { kind: "user" });
+      const readerName = (d.desk as any).nameOf([...(d.desk as any).panes].find(([, p]: any) => p.kind === "reader")[0]);
+      expect(FRAME.test(edges(readerName).top)).toBe(false);
+      (d.desk as any).tileLooks.set((d.desk as any).tileId((d.desk as any).idNamed(readerName)), { border: "line" });
+      expect(FRAME.test(edges(readerName).top)).toBe(true);
+      // The tile's own look wins: border=line frames it again.
+      (d.desk as any).tileLooks.set((d.desk as any).tileId((d.desk as any).idNamed("peek")), { border: "line" });
+      expect(FRAME.test(edges("peek").top)).toBe(true);
+      // And border=joined joins a tile that follows nothing (the tree itself, the keys elsewhere).
+      (d.desk as any).focusTile(readerName, { kind: "user" });
+      (d.desk as any).tileLooks.set((d.desk as any).tileId((d.desk as any).idNamed("outline")), { border: "joined" });
+      expect(FRAME.test(edges("outline").top)).toBe(false);
+    } finally { d.close(); }
+  }, 30_000);
+
   test("PIE-675: a level picked shows its own values; a row something nearer wins is marked, and a nudge there asks (anyway, instead, clear); the width trap: narrow, then all widths", async () => {
     // A connection of its own: its own session of the inspector.
     const b2 = new SocketBoard(scratch.sock);

@@ -1029,7 +1029,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const row = raw.find(l => plain(l).includes("The pump's spare valves"))!;
     const at = row.indexOf("the kitchen whiteboard");
     expect(row.slice(0, at)).toContain("\x1b[3m");
-    expect(row.slice(0, at).split("\x1b[").at(-1)).toBe(fg(C.lcyan).slice(2));
+    // (The reader here is joined to the tree, PIE-886: its ground's escape may come after the colour's.)
+    expect(row.slice(0, at).match(/\x1b\[38;[\d;]*m/g)!.at(-1)).toBe(fg(C.lcyan));
     // The note's first link is the one in italics.
     expect(JSON.stringify(await app.act({ action: "link.select", tile: "reader", args: { n: 1 }, as: "test-agent" }))).toContain("the kitchen whiteboard");
     const f = await app.act({ action: "link.follow", tile: "reader", args: { n: 1 }, as: "test-agent" }) as any;

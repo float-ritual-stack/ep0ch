@@ -73,7 +73,7 @@ export const SURFACES = ["none", "raised", "sunken", ...CALLOUT_TONES] as const;
 export type Surface = (typeof SURFACES)[number];
 export const SURFACE_STEPS = 6;
 /** A frame's lines: `auto` is the place's own (a tile: its screen's frame; a box: none). */
-export const BORDERS = ["auto", "none", "line", "round", "heavy", "double"] as const;
+export const BORDERS = ["auto", "none", "joined", "line", "round", "heavy", "double"] as const;
 export type Border = (typeof BORDERS)[number];
 /** An edge's accent in the tone: a bar down the left side, or the whole frame. */
 export const EDGES = ["none", "bar", "box"] as const;
@@ -99,7 +99,7 @@ export const STYLE_TOKENS = {
   "bg": { base: "none", what: "a tile's or a box's surface: raised, sunken or a tone (yields under a header's picture)", type: { kind: "enum", values: SURFACES } },
   "bg.strength": { base: 2, what: "how far the surface is off the ground (1 to 6, capped dark)", type: { kind: "int", min: 1, max: SURFACE_STEPS, step: 1 } },
   "tone": { base: "neutral", what: "the colour family of an edge and a frame: blue, green, violet, amber, coral or neutral", type: { kind: "enum", values: CALLOUT_TONES } },
-  "border": { base: "auto", what: "a frame's lines: line, round, heavy, double, none (auto: a tile's screen's, a box none)", type: { kind: "enum", values: BORDERS } },
+  "border": { base: "auto", what: "a frame's lines: line, round, heavy, double, none, or joined: no frame, a tinted pane run up against the tile it follows (auto: a tile's screen's, a box none, and a preview of a tree joined)", type: { kind: "enum", values: BORDERS } },
   "edge": { base: "none", what: "an accent in the tone: a bar down the left side, or the whole frame (box)", type: { kind: "enum", values: EDGES } },
   "header.bg": { base: "none", what: "a reader's sticky header's surface (title, byline, crumbs): raised, sunken or a tone", type: { kind: "enum", values: SURFACES } },
   "header.bg.opacity": { base: 60, what: "how much of the header's surface shows over the ground or its picture (0 to 100, capped dark)", type: { kind: "int", min: 0, max: 100, step: 10 } },
