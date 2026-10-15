@@ -12,7 +12,7 @@
 // A figure's YAML stays its data form: when both give the same field, the YAML's wins (each kind says which fields
 // its Markdown gives).
 
-import { boxStatus, STEP_BOX, stepDone } from "./checklist-marks";
+import { boxStatus, STEP_BOX, stepDone, type ChecklistStatus } from "./checklist-marks";
 import { closesCodeFence, codeFenceOpen } from "./code-fence";
 
 /** How a row is marked: bold (now, chosen, the accent) or italic (next, rejected, receding). */
@@ -28,6 +28,8 @@ export interface FigureRow {
   ordinal: number | null;
   /** Done (`[x]`, or approved `[✓]`) true, any other box false, no box null. */
   done: boolean | null;
+  /** Its box's status (PIE-864: a `::graph-check` row takes a checklist step's marks), or null when it has none. */
+  status: ChecklistStatus | null;
   /** What it says, without its bullet, box, emphasis markers or side note. */
   text: string;
   /** Before the first `: `, or null when it has none. */
@@ -88,9 +90,9 @@ export function expandRuns(list: string): string[] {
  * note, emphasis around the whole row, the label, emphasis around the label or the value, the path, the values.
  */
 export function figureRow(source: string, line = 0, depth = 0, ordinal: number | null = null): FigureRow {
-  let rest = source.trim(), done: boolean | null = null;
+  let rest = source.trim(), done: boolean | null = null, status: ChecklistStatus | null = null;
   const box = BOX.exec(rest);
-  if (box) { done = stepDone(boxStatus(box[1]!)!); rest = rest.slice(box[0].length); }
+  if (box) { status = boxStatus(box[1]!)!; done = stepDone(status); rest = rest.slice(box[0].length); }
   // Emphasis around the whole row, its side note inside (`**a — b**`): the row is marked, the note still its own.
   const outer = unwrapEmphasis(rest);
   const wrapped = outer.emphasis && NOTE.test(outer.text) ? outer.emphasis : null;
@@ -115,7 +117,7 @@ export function figureRow(source: string, line = 0, depth = 0, ordinal: number |
   } else if (text.endsWith(":") && !text.includes(" ")) { label = text.slice(0, -1); value = ""; }
   const steps = value.split(PATH).map(s => s.trim());
   const path = steps.length > 1 && steps.every(Boolean) ? steps : null;
-  return { line, depth, ordinal, done, text, label, value, emphasis, note, path, values: expandRuns(value) };
+  return { line, depth, ordinal, done, status, text, label, value, emphasis, note, path, values: expandRuns(value) };
 }
 
 /**

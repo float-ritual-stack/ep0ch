@@ -1374,6 +1374,8 @@ export interface ChecklistItem {
   text: string;
   /** Only this item's properties: descendants and the plan's metadata do not inherit. */
   properties: PropertyRecord[];
+  /** A `::graph-check` figure's row (PIE-864): never given an id, addressed by where it starts. */
+  figure?: true;
 }
 
 export interface ChecklistQuery {

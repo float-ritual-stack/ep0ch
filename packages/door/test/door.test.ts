@@ -207,12 +207,12 @@ describe("live figures answer from the outline", () => {
     expect(renderGraph("check", yaml, 60).map(strip).join("\n")).toContain("asking the outline");
     await Bun.sleep(10);
     let out = renderGraph("check", yaml, 60).map(strip).join("\n");
-    expect(out).toContain("[ ]  Nudge Sumit");
+    expect(out).toContain("[~]  Nudge Sumit");
     expect(out).toContain("live · 1 result");
     // A paint asks nothing; the service's queries.changed does.
     stage = "done";
     renderGraph("check", yaml, 60); await Bun.sleep(10);
-    expect(renderGraph("check", yaml, 60).map(strip).join("\n")).toContain("[ ]  Nudge Sumit");
+    expect(renderGraph("check", yaml, 60).map(strip).join("\n")).toContain("[~]  Nudge Sumit");
     generation = 1;
     // Both answers changed: the results' (a property moved) and done:'s.
     fake.watched.changed([{ key: watch, generation: 1 }, { key: matchesWatch, generation: 1 }]);

@@ -14,8 +14,28 @@ const SENTINEL = /([-])([-])/g;
 /** At most this many steps on one page: two private-use characters each. */
 export const MAX_PUBLISHED_STEPS = 256 * 256;
 
-/** A step as a page drew it: the note it's in, the revision read, and how `checklist.update` addresses it. */
-export interface PublishedStep { block: string; revision: number; start: number; itemId?: string; evidence: string; status: ChecklistStatus }
+/**
+ * A step as a page drew it: the note it's in, the revision read, and how `checklist.update` addresses it. `live` (PIE-864):
+ * a live `::graph-check` row, `block` its own note and `note` the one the figure is in; a choice writes the property its
+ * figure's `done:` names (outline-core's liveMark, read again from the figure when the choice comes) to the row's note.
+ */
+export interface PublishedStep {
+  block: string; revision: number; start: number; itemId?: string; evidence: string; status: ChecklistStatus;
+  live?: { note: string };
+}
+
+/** Step `index`'s sentinel, three characters: what a box is replaced by until drawSteps draws it. */
+const stepSentinel = (index: number) => `${MARK}${String.fromCharCode(BASE + (index >> 8))}${String.fromCharCode(BASE + (index & 0xFF))}`;
+
+/**
+ * A figure's row as a step on the page (PIE-864: a `::graph-check` row, written or live): numbered after the page's
+ * others, its sentinel to draw in its box's place; null past the page's limit.
+ */
+export function placeFigureStep(steps: PublishedStep[], step: PublishedStep): string | null {
+  if (steps.length >= MAX_PUBLISHED_STEPS) return null;
+  steps.push(step);
+  return stepSentinel(steps.length - 1);
+}
 
 /** How each state is drawn on a page, and said. */
 export const STEP_GLYPHS: Readonly<Record<ChecklistStatus, string>> = {
@@ -39,8 +59,7 @@ export function placeStepSentinels(text: string, block: { id: string; revision: 
     steps.push({ block: block.id, revision: block.revision, start: item.span.start, ...(item.itemId && item.identity === "unique" ? { itemId: item.itemId } : {}), evidence: item.evidence, status: item.status });
   }
   for (const { at, index } of placed.reverse()) {
-    const sentinel = `${MARK}${String.fromCharCode(BASE + (index >> 8))}${String.fromCharCode(BASE + (index & 0xFF))}`;
-    out = `${out.slice(0, at)}${sentinel}${out.slice(at + 3)}`;
+    out = `${out.slice(0, at)}${stepSentinel(index)}${out.slice(at + 3)}`;
   }
   return out;
 }
@@ -63,7 +82,8 @@ export function drawSteps(html: string, steps: readonly PublishedStep[], writabl
     if (!writable) return `<span class="step s-${step.status}" role="img" aria-label="${attr(said)}" data-glyph="${glyph}"></span>`;
     return `<button type="button" class="step s-${step.status}" aria-haspopup="menu" aria-label="${attr(`${said}: change`)}"`
       + ` data-step-block="${attr(step.block)}" data-step-revision="${step.revision}" data-step-start="${step.start}"`
-      + `${step.itemId ? ` data-step-id="${attr(step.itemId)}"` : ""} data-step-evidence="${attr(step.evidence)}" data-step-status="${step.status}" data-glyph="${glyph}"></button>`;
+      + `${step.itemId ? ` data-step-id="${attr(step.itemId)}"` : ""} data-step-evidence="${attr(step.evidence)}" data-step-status="${step.status}" data-glyph="${glyph}"`
+      + `${step.live ? ` data-step-note="${attr(step.live.note)}"` : ""}></button>`;
   });
 }
 

@@ -35,7 +35,7 @@ import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, page
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { changeOf, liveRowStep, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
@@ -50,9 +50,10 @@ import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { markReveal, revealOn } from "../reveal";
+import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -1940,7 +1941,7 @@ export class NoteSurface {
     return stripMarks(stripTags(presentLinks(named, false, this.src, named)));
   }
 
-  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task"> & { preview?: (id: string, width: number) => string[] } {
+  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep"> & { preview?: (id: string, width: number) => string[] } {
     const inner: EmbedBody = (target, part, width, hooks) => {
       let text: string, lines: number[], lit: Set<number>;
       if (part) {
@@ -1956,13 +1957,19 @@ export class NoteSurface {
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
+        present: presenter(target.text), liveStep,
       }).lines;
     };
+    // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
+    const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
+    // A live ::graph-check row's box: a step of its own note, whose mark writes the property its `done:` names.
+    const liveStep: DocEnv["liveStep"] = (row, box) => LINK_ON + tagged(drawn, { role: "task", block: row.block, task: { block: row.block, revision: 0, step: liveRowStep(row), live: row.mark } }, box) + LINK_OFF;
     // A Resource or a file shown as a note has no steps, and its `!((…))` isn't the outline's to transclude.
     const outline = isOutlineNote(m);
     const steps = outline ? stepsOf(m, src) : null;
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     return {
+      present: presenter(m.text), ...(outline ? { liveStep } : {}),
       ...(outline ? { embed: (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id) } : {}),
       // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
       ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m.id) } : {}),
@@ -5070,6 +5077,7 @@ export class NoteSurface {
    * of it redraws from the change.
    */
   async changeStep(ref: StepRef, choice: StepChoice, host: SurfaceHost, actor: Actor) {
+    if (ref.live) return this.markLiveRow(ref, ref.live, choice, host, actor);
     const before = ref.step.status, title = stepTitle(ref.step);
     let r: Awaited<ReturnType<SurfaceHost["ctx"]["board"]["changeStep"]>>;
     try {
@@ -5096,7 +5104,7 @@ export class NoteSurface {
       if (choice === "copy-link" && actor.kind === "user") host.ctx.copy?.(link);
       said = choice === "copy-link" && actor.kind === "user" ? `copied ${link} · "${title}"` : `made "${title}" addressable: ${link}`;
     } else {
-      if (r.changed && before !== choice) this.stepHistory.push({ block: ref.block, itemId: r.item.itemId!, evidence: r.item.evidence, status: before, to: choice, title, by: partyOf(actor), context: this.msg?.id ?? ref.block });
+      if (r.changed && before !== choice) this.stepHistory.push({ block: ref.block, ...(r.item.itemId ? { itemId: r.item.itemId } : { at: { start: r.item.span.start, revision: r.block.revision ?? 0 } }), evidence: r.item.evidence, status: before, to: choice, title, by: partyOf(actor), context: this.msg?.id ?? ref.block });
       said = r.changed ? `set "${title}" ${statusWord(before)} → ${statusWord(choice)}${where}` : `"${title}" is already ${statusWord(choice)}`;
     }
     // An agent's host says who it is (asActor); the person's says it plainly.
@@ -5104,6 +5112,51 @@ export class NoteSurface {
     this.noteAgent(actor, said);
     host.redraw();
     return { block: ref.block, step: r.item.itemId ?? null, status: r.item.status, from: before, changed: r.changed, revision: r.block.revision ?? null, ...(link ? { link } : {}), recordedAs: mutationFor(actor) };
+  }
+
+  /**
+   * A mark on a live `::graph-check` row (PIE-864): the row's own note gets the property its figure's `done:` names
+   * (`x` that query's value, any other mark its status word), one attributed `properties.patch` at the revision its
+   * tokens were read at. The figure redraws from the outline; Undo writes back what the property held.
+   */
+  private async markLiveRow(ref: StepRef, live: { key: string; done: string }, choice: StepChoice, host: SurfaceHost, actor: Actor) {
+    const title = stepTitle(ref.step), before = ref.step.status;
+    try {
+      if (choice === "copy-link" || choice === "address") throw new ActionRefused(`a live row is its own note: its link is ((${ref.block})), and ⏎ on its words opens it`);
+      const value = liveMarkValue(live, choice);
+      // Checked against the row as drawn: a status changed since (elsewhere) is never written over.
+      const w = await this.writeLive(ref.block, live.key, value, now => liveRowStatus(false, live, now ?? undefined) === before ? null : `its ${live.key}:: changed since it was drawn (it's ${now ?? "unset"} now): it's drawn again, choose again`, host, actor);
+      if (w.changed) this.stepHistory.push({ block: ref.block, evidence: ref.step.evidence, status: before, to: choice, title, by: partyOf(actor), context: this.msg?.id ?? ref.block, live: { key: live.key, before: w.before, after: value } });
+      const said = w.changed ? `set "${title}" ${live.key}::${value} (${statusWord(before)} → ${statusWord(choice)})` : `"${title}" already has ${live.key}::${value}`;
+      host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
+      return { block: ref.block, step: null, status: choice, from: before, changed: w.changed, revision: w.revision, property: { key: live.key, value }, recordedAs: mutationFor(actor) };
+    } catch (e) {
+      outlineChanged([ref.block]);
+      const why = `not changed: ${e instanceof Error ? e.message : String(e)}`;
+      host.ctx.flash(why); host.redraw();
+      throw new ActionRefused(why);
+    }
+  }
+
+  /**
+   * Set (or, null, remove) note `block`'s own `key` property: its first block token replaced, else one appended.
+   * `refuse`: why what it holds now (null: none) can't be written over, or null when it can. Answers what it held
+   * before and whether anything changed.
+   */
+  private async writeLive(block: string, key: string, value: string | null, refuse: (now: string | null) => string | null, host: SurfaceHost, actor: Actor) {
+    const board = host.ctx.board;
+    const no = agentRefusal(actor, { board, blockId: block });
+    if (no) throw new ActionRefused(no);
+    const t = await board.propertyTokens(block, key);
+    const own = t.tokens.filter(x => x.scope === "block"), before = own[0]?.value ?? null;
+    const no2 = refuse(before);
+    if (no2) throw new ActionRefused(no2);
+    const operations: PropertyPatch[] = value === null ? own.map(x => ({ op: "remove" as const, ordinal: x.ordinal }))
+      : own.length ? (own[0]!.value === value ? [] : [{ op: "replace" as const, ordinal: own[0]!.ordinal, value }]) : [{ op: "append" as const, key, value }];
+    if (!operations.length) return { before, changed: false, revision: t.revision };
+    const saved = await board.patchProperties(block, t.revision, operations, actor);
+    outlineChanged([block]);
+    return { before, changed: true, revision: saved.revision ?? null };
   }
 
   /**
@@ -5144,10 +5197,34 @@ export class NoteSurface {
     // Never underneath a draft someone has open on that note (the draft session's agent rule).
     const no = agentRefusal(actor, { board: host.ctx.board, blockId: e.block });
     if (no) { host.ctx.flash(no); throw new ActionRefused(no); }
-    const step: ChecklistStep = { itemId: e.itemId, identity: "unique", status: e.to, evidence: e.evidence, span: { start: 0, end: 0, startLine: 0, endLine: 0 }, depth: 0, text: e.title };
+    if (e.live) {
+      // A live row's mark (PIE-864): its property back to what it held, refused if it changed again since.
+      const live = e.live;
+      let w: Awaited<ReturnType<NoteSurface["writeLive"]>>;
+      try { w = await this.writeLive(e.block, live.key, live.before, now => (now === live.after ? null : `${live.key}:: changed since (it's ${now ?? "unset"} now)`), host, actor); }
+      catch (err) {
+        this.stepHistory.drop(e);
+        const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`;
+        host.ctx.flash(why); host.redraw();
+        throw new ActionRefused(why);
+      }
+      this.stepHistory.drop(e);
+      const said = `undid: "${e.title}" ${live.key}::${live.after} → ${live.before ?? "unset"}`;
+      host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
+      return { block: e.block, step: null, status: e.status, from: e.to, revision: w.revision, recordedAs: mutationFor(actor) };
+    }
+    // A step with an id by its id; a figure's row (no id, PIE-864) by where it starts in the revision the change left,
+    // or, the note having moved on since (another undo, another change), as the one step that still reads as it did.
+    let step: ChecklistStep = { ...(e.itemId ? { itemId: e.itemId } : {}), identity: e.itemId ? "unique" : "unassigned", status: e.to, evidence: e.evidence, span: { start: e.at?.start ?? 0, end: 0, startLine: 0, endLine: 0 }, depth: 0, text: e.title };
     let r: Awaited<ReturnType<SurfaceHost["ctx"]["board"]["changeStep"]>>;
     try {
-      r = await host.ctx.board.changeStep(e.block, step, 0, { kind: "status", status: e.status }, actor);
+      let revision = e.at?.revision ?? 0;
+      if (e.at) {
+        const now = await host.ctx.board.checklist(e.block, 1000), same = now.items.filter(i => i.evidence === e.evidence);
+        if (same.length !== 1) throw new Refused(same.length ? "more than one step reads as it did: change it from its box" : "the step changed since");
+        step = same[0]!; revision = now.revision;
+      }
+      r = await host.ctx.board.changeStep(e.block, step, revision, { kind: "status", status: e.status }, actor);
     } catch (err) {
       if (err instanceof Refused) this.stepHistory.drop(e);
       outlineChanged([e.block]);
@@ -5166,14 +5243,15 @@ export class NoteSurface {
     host.ctx.flash(said);
     this.noteAgent(actor, said);
     host.redraw();
-    return { block: e.block, step: e.itemId, status: r.item.status, from: e.to, revision: r.block.revision ?? null, recordedAs: mutationFor(actor) };
+    return { block: e.block, step: e.itemId ?? null, status: r.item.status, from: e.to, revision: r.block.revision ?? null, recordedAs: mutationFor(actor) };
   }
 
   /** The steps this reader draws, in reading order, as `tasks` lists them. */
   describeSteps() {
     return this.elems.filter(e => e.kind === "task" && e.task).map((e, i) => {
       const t = e.task!;
-      return { n: i + 1, id: t.step.itemId ?? null, block: t.block, in: t.via ?? "this note", status: t.step.status, text: printable(stepTitle(t.step)), line: t.step.span.startLine + 1, current: e.key === this.cur };
+      // A live figure's row (PIE-864) is a note of its own: it has no line here.
+      return { n: i + 1, id: t.step.itemId ?? null, block: t.block, in: t.live ? "a live figure" : t.via ?? "this note", status: t.step.status, text: printable(stepTitle(t.step)), line: t.live ? null : t.step.span.startLine + 1, current: e.key === this.cur };
     });
   }
 

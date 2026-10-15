@@ -97,6 +97,23 @@ test("approved and rejected steps (PIE-811): read from their marks and the keybo
   expect(store.require(block.id).text).toContain("- [✓] The hinge ^hinge");
 });
 
+test("a ::graph-check row with a box is a step (PIE-864): queried in its note, its box rewritten in place, never given an id", () => {
+  const store = makeStore();
+  const text = ["Shed test plan", "- [ ] plain step", "", "::graph-check", "---", "title: You test", "---", "- [ ] open `http://localhost:4175/x` — sign up as Ana", "- **checked by eye**", "- [~] wait for the email", "::"].join("\n");
+  const block = store.create(text);
+  const steps = store.queryChecklist(block.id, {limit: 20}).items;
+  expect(steps.map(item => [item.span.startLine, item.status, item.figure ?? false])).toEqual([[1, "todo", false], [7, "todo", true], [9, "waiting", true]]);
+  // The readers that address steps by id (comments, transclusions, tallies) don't see a figure's rows.
+  expect(checklistItems(text).length).toBe(1);
+  const row = steps[1]!;
+  store.updateChecklist(block.id, {target: {start: row.span.start, expectedRevision: block.revision}, expectedEvidence: row.evidence, change: {kind: "status", status: "done"}}, {author: "user"});
+  // Only the box changed: no anchor is added to a figure's line.
+  expect(store.require(block.id).text).toBe(text.replace("- [ ] open", "- [x] open"));
+  const again = store.queryChecklist(block.id, {limit: 20}).items[1]!;
+  expect(() => store.updateChecklist(block.id, {target: {start: again.span.start, expectedRevision: store.require(block.id).revision}, expectedEvidence: again.evidence, change: {kind: "ensure-id"}}, {author: "user"}))
+    .toThrow("can't take an id of its own");
+});
+
 test("workspace checklist search correlates canonical items across plans with bounded, collapse-independent results", () => {
   const store=makeStore();
   const folder=store.create('Plans');
@@ -243,7 +260,7 @@ test("short checklist anchors extend on collision with any anchor in the note", 
   const edit = updateChecklistText(text, 1, {
     target: {start: item!.span.start, expectedRevision: 1}, expectedEvidence: item!.evidence, change: {kind: "ensure-id"},
   }, random);
-  expect(edit).toEqual({text: "# Plan ^t-daca0f\n\n- [ ] Step ^t-daca0f1", itemId: "t-daca0f1"});
+  expect(edit).toEqual({text: "# Plan ^t-daca0f\n\n- [ ] Step ^t-daca0f1", itemId: "t-daca0f1", start: item!.span.start});
 });
 
 test("whole-note writes preserve list addresses unless an exact-revision identity change is declared", () => {

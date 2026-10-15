@@ -31,6 +31,13 @@ rejected is their no, closed but not done. Only actual Markdown list
 items with these leading marks are tasks. Unmarked items, legends and code
 examples remain ordinary content. “Next:” prose never overrides the mark.
 
+A `::graph-check` figure's rows with a box are steps too (PIE-864; outline-core's
+`figureSteps` finds them): `checklist.query` returns them with `figure: true`,
+and `checklist.update` rewrites only their box. They are addressed by `start` and
+`expectedRevision`, never by an ID: a figure's lines stay as written, so
+`ensure-id` is refused for them. The readers that address steps by ID (comments,
+transclusions, tallies, `checklist.search`) leave them out.
+
 An ID on an item's first line addresses that item plus its continuations and
 nested list subtree. `((block-id^deploy))` follows it;
 `!((block-id^deploy))` embeds it. Renumbering, rewording and moving the item

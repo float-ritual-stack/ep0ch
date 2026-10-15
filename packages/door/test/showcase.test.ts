@@ -24,7 +24,7 @@ import { extensionNamed, extensionList } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
 import { makeTile } from "../src/desk/tiles";
 import type { ReaderPane } from "../src/desk/panes";
-import { C, fg } from "../src/style";
+import { C, fg, tailFrom } from "../src/style";
 import { jevOff } from "../src/surface/completer";
 import { hyperOn, useHyper } from "../src/hyper";
 import { KeyDecoder, type Key } from "../src/term";
@@ -366,6 +366,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
     // The build log: its two open calls under Needs you, the decided ones drawn as their marks.
     steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
+    "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
     "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
     // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
     marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
@@ -467,7 +468,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     }
     expect(screen()).toContain("copies of ~/.claude/~/projects/x at the same paths");
     expect(screen()).toContain("~178 orphaned … ~ stays as written; only this is struck through.");
-    expect(painted.join("\n")).toContain("\x1b[9mthis");
+    expect(sc.render(app).lines.join("\n")).toContain("\x1b[9mthis");
   });
 
   test("the note section quotes the syntax (PIE-764): the reader's links skip what backticks and a fence hold; an agent following one by number reaches only real ones", async () => {
@@ -3973,6 +3974,58 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await board.update(id, text.text.replace("- [✓] felt", "- [ ] felt").replace("- [✗] patch", "- [ ] patch"), text.revision!);
   }, 30_000);
 
+  test("figure steps (PIE-864): a ::graph-check row's code span copies by a click and its link is an element, as on the plain line; its box takes x by keys and an agent's mark; a live row's mark writes its note's status; ctrl+z undoes", async () => {
+    const id = seeded.notes.testPlan.id, before = (await board.get(id))!.text;
+    const jobs = (await board.children(id)).filter(j => j.text.includes("[type::door-job]"));
+    const plane = jobs.find(j => j.text.startsWith("Plane"))!;
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "figure-steps" }, as: "test-agent" })).toMatchObject({ key: "figure-steps" });
+    await until(() => screen().includes("lift the latch twice") && screen().includes("Plane the door"), "the test plan, its live jobs", 8000);
+    // The row reads as the line above it does: the backticks aren't drawn, emphasis is, and its link is the note's title.
+    expect(screen()).toContain("open http://localhost:4175/gate?code=7");
+    expect(screen()).not.toContain("`http://localhost:4175");
+    const tasks = async () => ((await app.act({ action: "tasks", tile: "test plan", as: "test-agent" })) as any).steps.map((t: any) => `${t.status} ${t.text}`);
+    await untilAsync(async () => (await tasks()).length === 6, "the steps read: the plain line, three rows, two live jobs");
+    expect((await tasks()).slice(0, 4)).toEqual([
+      "todo the same step on a plain line: open `http://localhost:4175/gate?code=7`",
+      "todo open `http://localhost:4175/gate?code=7` — as **Ana**, from [[Shed roof build log]]",
+      "todo lift the latch twice", "waiting the new hinge pins",
+    ]);
+    // The live rows, in the outline's order: each job's box is its status.
+    expect((await tasks()).slice(4).sort()).toEqual(["done Oil the hinges", "todo Plane the door's bottom edge"]);
+    const planeN = String((await tasks()).indexOf("todo Plane the door's bottom edge") + 1);
+    const els = ((await app.act({ action: "elements", tile: "test plan", as: "test-agent" })) as any).elements as { n: number; kind: string; label: string }[];
+    // Its code span copies as the line's does, and its [[link]] is an element as the line's is.
+    expect(els.filter(e => e.label === "code · http://localhost:4175/gate?code=7")).toHaveLength(3);
+    expect(els.filter(e => e.kind === "link" && e.label.includes("Shed roof build log"))).toHaveLength(2);
+    const sent = written.length;
+    const rows = screen().split("\n"), y = rows.findIndex(l => l.includes("open http://localhost:4175/gate?code=7") && l.includes("┊")), x = rows[y]!.indexOf("http://");
+    press({ kind: "mouse", action: "down", button: 0, x: x + 3, y }); press({ kind: "mouse", action: "up", button: 0, x: x + 3, y });
+    await until(() => written.slice(sent).some(w => w.includes("\x1b]52;")), "the click copied");
+    expect(written.slice(sent).filter(w => w.includes("\x1b]52;")).at(-1)).toBe(osc52("http://localhost:4175/gate?code=7"));
+    // Keys: into the reader, [ ] to the latch row's box, x through its choices marks it done; the line keeps its words.
+    press({ kind: "enter" });
+    for (let i = 0; i < 30 && !screen().includes("step [ ] lift the latch twice"); i++) ch("]");
+    expect(screen()).toContain("step [ ] lift the latch twice");
+    press({ kind: "enter" });
+    await until(() => screen().includes("Mark done"), "the choices");
+    ch("x");
+    await untilAsync(async () => (await board.get(id))!.text.includes("- [x] lift the latch twice\n"), "the latch row ticked");
+    // An agent marks the live job done: the job's own status is written, as the agent.
+    expect(await app.act({ action: "task.status", tile: "test plan", args: { n: planeN, to: "done" }, as: "test-agent" })).toMatchObject({ status: "done", property: { key: "status", value: "done" } });
+    await untilAsync(async () => (await board.get(plane.id))!.text.includes("[status::done]"), "the job's status");
+    await untilAsync(async () => (await tasks()).includes("done Plane the door's bottom edge"), "the figure redrawn from the outline");
+    // ctrl+z undoes the person's own mark (the agent's stays theirs).
+    press({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => (await board.get(id))!.text.includes("- [ ] lift the latch twice\n"), "the undo");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    // Put back for the sections after this one.
+    const job = (await board.get(plane.id))!;
+    await board.update(plane.id, job.text.replace("[status::done]", "[status::todo]"), job.revision!);
+    const now = (await board.get(id))!;
+    if (now.text !== before) await board.update(id, before, now.revision!);
+  }, 40_000);
+
   test("tabs: a live figure's tabs and density, switched through act, by keys and by click; the note never written", async () => {
     const id = seeded.notes.plotJobs.id, before = (await board.get(id))!.text;
     (app as any).lastInput = 0;
@@ -4153,7 +4206,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => screen().includes("winter") || screen().includes("valves"), "the links, read", 8000);
     const raw = () => sc.render(app).lines as string[];
     const sgr = (row: string, word: string, from = 0) => { const at = row.indexOf(word, from); return at < 0 ? null : row.slice(0, at).split("\x1b[").at(-1)!.split("m")[0]!; };
-    const rowsWith = (word: string) => raw().map((r, y) => ({ r, y })).filter(x => plain(x.r).includes(word));
+    // The index can name the same words (the figure-steps section says "test plan"). Check the readers only.
+    const rowsWith = (word: string) => raw().map((r, y) => ({ r: tailFrom(r, (S() as any).stageRect.col), y })).filter(x => plain(x.r).includes(word));
     // The first row of each link says its colour; every later word of it is drawn in the same one.
     const lead = (word: string) => sgr(rowsWith(word)[0]!.r, word)!;
     for (const [first, rest] of [["whiteboard,", ["valves", "Oct 9", "plan"]], ["Tyre pressures", ["winter", "summer", "valve notes"]]] as const) {

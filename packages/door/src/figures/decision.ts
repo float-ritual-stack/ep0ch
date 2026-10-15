@@ -17,11 +17,11 @@ import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
 import { decisionState, type DecisionState } from "@ep0ch/outline-core/figure-props";
 export { decisionState, type DecisionState };
-import { ACCENT, DIM, HI, INK, rowLink, tier, type Props, type RowLink } from "./palette";
+import { ACCENT, DIM, HI, INK, inlineRows, rowLink, tier, type Props, type RowInline, type RowLink } from "./palette";
 
 const GLYPH: Record<DecisionState, string> = { chosen: "●", rejected: "×", open: "○" };
 
-export function drawDecision(p: Props, w: number, link?: RowLink): string[] {
+export function drawDecision(p: Props, w: number, link?: RowLink, ui?: { rows?: RowInline }): string[] {
   const options: Props[] = p.options ?? [];
   // Narrow (PIE-581): the reason goes under its option, so neither wraps word by word in a thin column.
   const narrow = tier(w) === "narrow";
@@ -30,19 +30,20 @@ export function drawDecision(p: Props, w: number, link?: RowLink): string[] {
   for (const o of options) {
     const state = decisionState(o.state), label = String(o.label ?? "");
     const glyph = (state === "chosen" ? fg(ACCENT) : state === "rejected" ? fg(DIM) : fg(INK)) + GLYPH[state];
-    const ink = state === "chosen" ? fg(HI) + BOLD : state === "rejected" ? fg(DIM) : fg(INK);
-    const labels = wrap(label, lw);
-    const reason = o.reason ? wrap(String(o.reason), narrow ? Math.max(6, w - 6) : Math.max(6, w - lw - 6)) : [];
+    const strong = state === "chosen" ? BOLD : "";
+    // Its words, reason and prose through the reader's inline drawing (PIE-864), as a check row's are.
+    const labels = inlineRows(label, lw, state === "chosen" ? HI : state === "rejected" ? DIM : INK, ui?.rows, typeof o.block === "string");
+    const reason = o.reason ? inlineRows(String(o.reason), narrow ? Math.max(6, w - 6) : Math.max(6, w - lw - 6), DIM, ui?.rows) : [];
     const n = narrow ? labels.length : Math.max(labels.length, reason.length);
     for (let i = 0; i < n; i++) {
       const l = labels[i] ?? "", head = i ? "  " : glyph + RESET + " ";
-      const text = ink + (narrow ? (i ? l : rowLink(link, o.block, l)) : pad(i ? l : rowLink(link, o.block, l), lw)) + UNBOLD + RESET;
+      const text = strong + (narrow ? (i ? l : rowLink(link, o.block, l)) : pad(i ? l : rowLink(link, o.block, l), lw)) + UNBOLD + RESET;
       out.push(head + text + (!narrow && reason[i] ? `  ${fg(DIM)}${i ? "  " : "— "}${reason[i]}${RESET}` : ""));
     }
     if (narrow) for (const [i, r] of reason.entries()) out.push(`    ${fg(DIM)}${i ? "  " : "— "}${r}${RESET}`);
   }
   const prose: string[] = Array.isArray(p.text) ? p.text.map(String) : p.text ? [String(p.text)] : [];
-  if (prose.length) { out.push(""); for (const para of prose) out.push(...wrap(para, w).map(l => fg(INK) + l + RESET), ...(para === prose.at(-1) ? [] : [""])); }
+  if (prose.length) { out.push(""); for (const para of prose) out.push(...inlineRows(para, w, INK, ui?.rows), ...(para === prose.at(-1) ? [] : [""])); }
   const meta = [p.status, p.date].filter(Boolean).map(String);
   if (meta.length) out.push("", fg(DIM) + meta.join(" · ") + RESET);
   return out;

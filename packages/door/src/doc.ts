@@ -7,7 +7,7 @@ import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, fgRgb, headOf, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
-import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
+import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv, type RowInline } from "./graphs";
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
@@ -21,7 +21,7 @@ import { dividerLine, gapSlots } from "./list-look";
 import { zebraBg } from "./surface/selection";
 import { theme } from "./theme";
 import { headingComponentLayer, listLayers, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
-import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+import { STEP_BOX, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -100,6 +100,19 @@ export interface DocEnv {
    * draft's preview) boxes are text.
    */
   task?: (line: number, box: string) => string | null;
+  /**
+   * A live `::graph-check` row's box (PIE-864): the row's note `block`, its status, its words and what a mark writes
+   * (outline-core's liveMark: the property its `done:` names). The text to draw in its place (the reader tags it as a
+   * step, so the choice opens on it and a mark writes that property), or null to leave it text.
+   */
+  liveStep?: (row: { block: string; status: ChecklistStatus; label: string; mark: { key: string; done: string } }, box: string) => string | null;
+  /**
+   * A component's words as the reader presents a line of the note (PIE-864: presentLinks with the reader's sink), so a
+   * figure row's links follow, its `#tags` and `[[pages]]` open and its code spans copy. `linked`: the row is itself a
+   * link to its note, so its links aren't elements of their own. Without it (an embed, a draft's preview, an export) a
+   * row is drawn as written.
+   */
+  present?: (text: string, linked: boolean) => string;
   /**
    * Keep link tags in the returned lines (and leave `links` empty): an embed's body, drawn inside the
    * note's own document, whose tags the note's render turns into places (src/embeds.ts).
@@ -532,7 +545,15 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // Its YAML and its Markdown rows; the note's figure block (the first line of a note's own body) takes its child
       // bullets as rows too.
       const block = !env.nested && src.slice(0, i).every(l => !l.trim());
-      out.push(...renderGraph(gk, figureSource(src.slice(i + 1, figure.end), env.note, block), W, env.link, env.figures));
+      const source = figureSource(src.slice(i + 1, figure.end), env.note, block), at = i + 1 + (source.at ?? 0);
+      // Its rows' words drawn as the note's are, and a check row's box a step (PIE-864): a written row's by its body
+      // line (the service reads it as a step), a live row's by its note and what its `done:` names.
+      const rows: RowInline | undefined = env.present && {
+        present: env.present,
+        box: (it, box) => typeof it.line === "number" ? env.task?.(at + it.line, box) ?? null
+          : typeof it.block === "string" && it.mark && env.liveStep ? env.liveStep({ block: it.block, status: it.status ?? (it.done ? "done" : "todo"), label: String(it.label ?? ""), mark: it.mark }, box) : null,
+      };
+      out.push(...renderGraph(gk, source, W, env.link, env.figures, rows));
       i = figure.end;
       continue;
     }

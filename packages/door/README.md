@@ -2133,6 +2133,13 @@ choice is open, the choice stays on that step, or closes ("that step changed…"
 and never acts on another. Your `[ ]` position stays on a step while the note is read again after a
 change (yours or an agent's).
 
+A `::graph-check` figure's rows are steps too (PIE-864), with the same choices and keys. A row written in the
+figure (`- [ ] open the page — as Ana`) has its box rewritten in the note, as a step's is; it never gets an id
+(Copy step link and Make addressable say so). A live row (`query:` + `done: "status=done"`) is a step of its own
+note: `x` writes the property `done:` names (`[status::done]`), any other mark its status word
+(`[status::waiting]`, `[status::todo]`), and its box shows that value. `ctrl+z` takes either back. A figure's words
+are drawn as the note's: a code span in a row copies on a click and a `[[link]]` in it is an element.
+
 | Keys | Action |
 |---|---|
 | `⏎`, a click (or right-click) on a step's box | the status choice opens under it: Detail's choices, in its order |

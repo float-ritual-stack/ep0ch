@@ -66,7 +66,19 @@ export const stepLink = (block: string, itemId: string) => `((${block}^${itemId}
  * addressed by where it starts in exactly that revision), and the step as the service read it. `via`: the
  * embed it's drawn in (`!((…))`), or undefined in the note itself.
  */
-export interface StepRef { block: string; revision: number; step: ChecklistStep; via?: string }
+export interface StepRef {
+  block: string; revision: number; step: ChecklistStep; via?: string;
+  /**
+   * A live `::graph-check` row (PIE-864): `block` is the row's own note and the step stands for it; a mark writes the
+   * property its figure's `done:` names (outline-core's liveMark), not a box in any note's text.
+   */
+  live?: { key: string; done: string };
+}
+
+/** A live `::graph-check` row as a step (PIE-864): its status and words; it has no box in any text, so no place. */
+export function liveRowStep(row: { block: string; status: StepStatus; label: string }): ChecklistStep {
+  return { identity: "unassigned", status: row.status, evidence: `live:${row.block}`, span: { start: 0, end: 0, startLine: 0, endLine: 0 }, depth: 0, text: `- ${CHECKLIST_MARKS[row.status]} ${row.label}` };
+}
 
 // ── the steps of a note, as the service reads them ────────────────────────────────────────────────────
 
@@ -134,7 +146,13 @@ export function stepStillOn(step: ChecklistStep, text: string, line: number): bo
  * (so Undo is refused if it changed again since), the status it had before, who made the change and the
  * note the reader showed (Undo reverses changes made while reading that note, as Detail's does).
  */
-export interface UndoEntry { block: string; itemId: string; evidence: string; status: StepStatus; to: StepStatus; title: string; by: string; context: string }
+export interface UndoEntry {
+  block: string; itemId?: string; evidence: string; status: StepStatus; to: StepStatus; title: string; by: string; context: string;
+  /** A step with no id (a `::graph-check` row, PIE-864): where it starts in the revision the change left. */
+  at?: { start: number; revision: number };
+  /** A live row's change (PIE-864): the property written, what it held before (null: none) and what was written. */
+  live?: { key: string; before: string | null; after: string };
+}
 
 /** Who a change is for Undo: the person, or the agent by its id (each party undoes only its own). */
 export const partyOf = (a: Actor) => (a.kind === "agent" ? `agent:${a.id}` : "you");

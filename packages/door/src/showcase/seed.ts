@@ -66,6 +66,7 @@ export const SEED = {
   scriptTarget: "Planting checklist",
   remoteWrites: "Remote writes and the netmail queue",
   buildLog: "Shed roof build log",
+  testPlan: "Shed door test plan",
   overscroll: "The long row of runner beans",
   halfWritten: "A note left half-written",
   labels: "Jar labels",
@@ -1180,6 +1181,25 @@ const BUILD_LOG = [
   "- [~] the merchant's delivery slot",
 ].join("\n");
 
+/**
+ * A test plan whose steps are a `::graph-check` (PIE-864): its rows' code spans copy, its links follow and its boxes
+ * take a checklist step's marks, as the same words on a plain line above do. The live figure lists the note's own jobs;
+ * a mark on one writes that job's `status`.
+ */
+const TEST_PLAN = [
+  `${SEED.testPlan} [page::${SEED.testPlan}]`,
+  "Open `http://localhost:4175/gate?code=7` and lift the latch, as [[Shed roof build log]] says.",
+  "- [ ] the same step on a plain line: open `http://localhost:4175/gate?code=7`",
+  "",
+  ...mdFig("check", ["title: You test"], [
+    "- [ ] open `http://localhost:4175/gate?code=7` — as **Ana**, from [[Shed roof build log]]",
+    "- [ ] lift the latch twice",
+    "- [~] the new hinge pins",
+  ]),
+  ...fig("check", ["title: The door's jobs (live)", 'query: "parent:this type=door-job"', 'done: "status=done"']),
+].join("\n");
+const TEST_PLAN_JOBS = ["Plane the door's bottom edge [type::door-job] [status::todo]", "Oil the hinges [type::door-job] [status::done]"];
+
 /** What `seedShowcase` wrote: each seeded note by name, the lanes, cards and chores in order. */
 export interface Seeded {
   notes: Record<SeedName, Msg>;
@@ -1384,6 +1404,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   }
   notes.remoteWrites = await make(notes.root.id, REMOTE_WRITES);
   notes.buildLog = await make(notes.root.id, BUILD_LOG);
+  notes.testPlan = await make(notes.root.id, TEST_PLAN);
+  for (const job of TEST_PLAN_JOBS) await make(notes.testPlan.id, job);
   const race = await seedRace(board, await make(notes.root.id, RACE));
   notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.

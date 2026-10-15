@@ -5,6 +5,7 @@ import { markdownListItems } from "./markdown-structure";
 import { matchesFilters, parsePropertyRecords } from "./properties";
 import type { ChecklistIdentityChange, ChecklistItem, ChecklistQuery, ChecklistStatus, ChecklistUpdateInput, PropertyRecord } from "./types";
 import { boxStatus, CHECKLIST_MARKS, CHECKLIST_STATUSES, isChecklistStatus, STEP_BOX_CHARS } from "@ep0ch/outline-core/checklist-marks";
+import { figureSteps } from "@ep0ch/outline-core/figure-props";
 
 // The box grammar is outline-core's (checklist-marks.ts, PIE-811): read here, written back canonical.
 export { CHECKLIST_MARKS };
@@ -15,8 +16,34 @@ function requireStatus(value: unknown): asserts value is ChecklistStatus {
 
 const STEP_MARK = new RegExp(`^([ \\t]*(?:[-+*]|\\d+[.)])[ \\t]+)\\[([${STEP_BOX_CHARS}])\\](?=[ \\t\\r\\n]|$)`);
 
-/** Parse actual Markdown list nodes, never legends, fences or checkbox-shaped prose. */
-export function checklistItems(text: string, properties = parsePropertyRecords(text)): ChecklistItem[] {
+/**
+ * Parse actual Markdown list nodes, never legends, fences or checkbox-shaped prose. `figures` (PIE-864): a
+ * `::graph-check` figure's rows with a box are steps too (`figure: true`), each one line, never given an id: a figure's
+ * lines keep their text as written, so a status change rewrites only the box. Off for the readers that address steps by id.
+ */
+export function checklistItems(text: string, properties = parsePropertyRecords(text), { figures = false }: { figures?: boolean } = {}): ChecklistItem[] {
+  const listed = listChecklistItems(text, properties);
+  if (!figures || !text.includes("::graph-check")) return listed;
+  return [...listed, ...figureChecklistItems(text, properties)].sort((a, b) => a.span.start - b.span.start);
+}
+
+/** A `::graph-check` figure's rows with a box, as steps (outline-core's figureSteps finds them). */
+function figureChecklistItems(text: string, properties: PropertyRecord[]): ChecklistItem[] {
+  const lines = text.split("\n"), starts: number[] = [];
+  for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) starts.push(at);
+  return figureSteps(lines).map(({ line, box }) => {
+    const source = lines[line]!.replace(/\r$/, ""), start = starts[line]!, end = start + source.length;
+    return {
+      identity: "unassigned" as const, status: boxStatus(source.slice(box, box + 3))!, figure: true as const,
+      evidence: createHash("sha256").update(source.trimEnd()).digest("hex"),
+      span: { start, end, startLine: line, endLine: line }, markerStart: start + box,
+      depth: Math.floor(source.replace(/\t/g, "  ").search(/\S/) / 2), text: source.trimEnd(),
+      properties: properties.filter(property => property.start >= start && property.end <= end),
+    };
+  });
+}
+
+function listChecklistItems(text: string, properties: PropertyRecord[]): ChecklistItem[] {
   const lists = markdownListItems(text);
   const anchors = fragmentAnchors(text);
   const anchorByLine = new Map(anchors.filter(anchor => anchor.kind === "list-item").map(anchor => [anchor.lineIndex, anchor]));
@@ -47,7 +74,7 @@ export function checklistItems(text: string, properties = parsePropertyRecords(t
   return items;
 }
 
-export function queryChecklistItems(text: string, query: ChecklistQuery, properties: PropertyRecord[]) {
+export function queryChecklistItems(text: string, query: ChecklistQuery, properties: PropertyRecord[], options: { figures?: boolean } = {}) {
   if (!query || typeof query !== "object" || Array.isArray(query)) throw new Error("Checklist query is required");
   if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 1000) {
     throw new Error("Checklist query limit must be between 1 and 1000");
@@ -61,7 +88,7 @@ export function queryChecklistItems(text: string, query: ChecklistQuery, propert
   }
   if (query.filters !== undefined && !Array.isArray(query.filters)) throw new Error("Checklist filters must be an array");
   const filters = (query.filters ?? []).map(normalizePropertyFilter);
-  const matches = checklistItems(text, properties).filter(item =>
+  const matches = checklistItems(text, properties, options).filter(item =>
     (query.nested !== "top-level" || item.depth === 0) &&
     (!query.statuses || query.statuses.includes(item.status)) &&
     !query.excludeStatuses?.includes(item.status) &&
@@ -94,11 +121,11 @@ export function shortChecklistItemId(usedIds: ReadonlySet<string>, random = () =
 
 /** Produces a minimal source edit after checking the current item, not the whole-note hash. */
 export function updateChecklistText(text: string, revision: number, input: ChecklistUpdateInput,
-  random?: () => string): {text: string; itemId: string} {
+  random?: () => string): {text: string; itemId?: string; start: number} {
   if (!input || typeof input !== "object") throw new Error("Checklist update input is required");
   const target = input.target;
   if (!target || typeof target !== "object") throw new Error("Checklist update target is required");
-  const items = checklistItems(text);
+  const items = checklistItems(text, undefined, {figures: true});
   let item: ChecklistItem | undefined;
   if ("itemId" in target) {
     const matches = items.filter(candidate => candidate.itemId === target.itemId);
@@ -119,6 +146,11 @@ export function updateChecklistText(text: string, revision: number, input: Check
   if (item.evidence !== input.expectedEvidence) throw new Error("Checklist item changed; query and review the current item before retrying");
   if (input.change.kind !== "ensure-id" && input.change.kind !== "status") throw new Error("Unknown checklist change");
   if (input.change.kind === "status") requireStatus(input.change.status);
+  if (item.figure) {
+    // A figure's row keeps its line as written (no anchor): only its box changes, and it's addressed by where it starts.
+    if (input.change.kind === "ensure-id") throw new Error("A ::graph-check row can't take an id of its own: its figure's lines stay as written. Link the figure (an anchor after its ::), or make the row a checklist step");
+    return {text: text.slice(0, item.markerStart) + CHECKLIST_MARKS[input.change.status] + text.slice(item.markerStart + 3), start: item.span.start};
+  }
   let next = text;
   const usedIds = new Set(fragmentAnchors(text).map(anchor => anchor.id));
   let itemId = item.itemId;
@@ -133,7 +165,7 @@ export function updateChecklistText(text: string, revision: number, input: Check
   if (input.change.kind === "status") {
     next = next.slice(0, item.markerStart) + CHECKLIST_MARKS[input.change.status] + next.slice(item.markerStart + 3);
   }
-  return {text: next, itemId};
+  return {text: next, itemId, start: item.span.start};
 }
 
 /** Whole-note writes must not silently discard list-item addresses used by links and comments. */

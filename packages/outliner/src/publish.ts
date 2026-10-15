@@ -382,6 +382,11 @@ export function accentWorkId(html: string): string {
   return html.replace(/(<h1\b[^>]*>(?:<a\b[^>]*><\/a>)?)([A-Za-z][A-Za-z0-9]*-\d+)( · )/, `$1<span class="wid">$2</span>$3`);
 }
 
+/** One line of Markdown as inline HTML (no paragraph around it): a figure row's words (PIE-864). */
+export function renderInlineHtml(markdown: string): string {
+  return markdownRenderer.parseInline(markdown, { async: false }) as string;
+}
+
 export function renderMarkdownHtml(markdown: string, callouts: CalloutRegistry = BUILTIN_CALLOUT_REGISTRY): string {
   const before = activeCallouts;
   activeCallouts = callouts;
@@ -2148,9 +2153,13 @@ export class Publisher {
     // An HTML page draws the built-in components (figures, links components, embedded views) from the service's
     // answers; Markdown keeps their source as written.
     let drawn = new Map<string, Map<number, DrawnComponent>>();
+    // An HTML page draws each step's box as its state (publish-steps.ts); Markdown keeps the box as written. A figure's
+    // check rows are steps too (PIE-864), their words drawn as the note's are.
+    const steps: PublishedStep[] = [];
     if ((options.format ?? "html") === "html") {
       const host = this.liveHost(audience, linked, base, share);
-      drawn = await drawNoteComponents(host, rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, { id: entry.blockId, title: entry.title });
+      const inline = (text: string) => renderInlineHtml(publishedText(text, { index: linked, basePath: base, pages }));
+      drawn = await drawNoteComponents(host, rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "", revision: row.block.revision ?? 0 })), components, { id: entry.blockId, title: entry.title }, { steps, inline });
       if (embeds) embeds.views = await this.embeddedViews(host, embeds, components);
     }
     // Its images: served from this page's address when the file may leave the machine, else their words. Its artifacts
@@ -2184,8 +2193,6 @@ export class Publisher {
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec));
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
-    // An HTML page draws each step's box as its state (publish-steps.ts); Markdown keeps the box as written.
-    const steps: PublishedStep[] = [];
     const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse);
     return { markdown, marks: order, index: linked, components, anchors: anchors ?? [], steps };
   }

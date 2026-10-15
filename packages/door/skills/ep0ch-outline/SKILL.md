@@ -134,7 +134,10 @@ revision, so concurrent edits rarely collide.
   **`[✗]` rejected is their no**: don't do it, and don't ask again unless something changed. `[x]` on a question is
   "done" (seen, handled), not a yes; when the answer matters, ask for Approve or Reject. Read them with
   `checklist.query` (`statuses: ["approved"]`), never by matching `[x]` yourself. Approved counts as done in a tally;
-  rejected is closed, not done.
+  rejected is closed, not done. A `::graph-check` figure's boxed rows are steps too (`figure: true`, PIE-864): a test
+  plan or a build report's "You test" can be a figure and still be worked through in place. Its rows take inline
+  Blockdown (code spans, links, emphasis) as a line of the note does. A live check with `done: "key=value"` is
+  marked by writing that property on each row's note.
 - **Readable.** Short sections, bold leads, one fact per bullet, a summary callout on long notes, history
   labelled as history. Fictional example of the shape:
 

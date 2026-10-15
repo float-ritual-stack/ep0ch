@@ -83,7 +83,7 @@ const FIGURES: Kind[] = [
     example: { title: "the garden", nodes: "[{ label: garden, children: [{ label: beds, meta: 4 }, { label: shed, accent: true }] }]" }, sweep: ["nodes"],
   },
   {
-    kind: "check", title: "Checklist", intro: "A list with boxes: `- [x] done`, `- [ ] open`, or a bold row without a box for done; a muted side note after an em dash. Live, each result is an item and a note's `done:` is the results that are done, `now:` those under way." + LIVE_WORDS,
+    kind: "check", title: "Checklist", intro: "A list with boxes: `- [x] done`, `- [ ] open` (any of a checklist step's six marks: `[~]` waiting, `[!]` problem, `[✓]` approved, `[✗]` rejected), or a bold row without a box for done; a muted side note after an em dash. A boxed row is a step: a reader's x o + - w ! marks it, rewriting its box. Its words take inline Blockdown (code spans, links, emphasis). Live, each result is an item and a note's `done:` is the results that are done, `now:` those under way; with `done: \"key=value\"`, a mark writes that property on the result's own note." + LIVE_WORDS,
     props: [TITLE, ...LIVE, yaml("note", "text", "a live figure's property whose value is each item's side note", { samples: ["owner", "when"] })],
     rows: "- [x] Order the seed\n- [x] Dig the beds — before the frost\n- [ ] Water at nine\n- [ ] Cover the tomatoes",
     example: { title: "Saturday" }, sweep: [],

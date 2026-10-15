@@ -29,11 +29,13 @@ import { annotationKind, annotationTone, isTldr } from "@ep0ch/outline-core/anno
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { ExtensionsListResult } from "./extension-registry";
 import { onItsPage, plainBody } from "./publish-marginalia";
-import { stripPropertyTokens } from "./properties";
+import { parsePropertyRecords, stripPropertyTokens } from "./properties";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
 import { extractAnnotationBody } from "./annotations";
 import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, ChecklistUpdateReceipt, MarkQuoteReceipt, ProjectedBlockCollection } from "./types";
-import { CHECKLIST_STATUSES, isChecklistStatus, statusWord } from "@ep0ch/outline-core/checklist-marks";
+import { CHECKLIST_STATUSES, isChecklistStatus, statusWord, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
+import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
+import { liveRowMark } from "./publish-live";
 import { passageAt } from "@ep0ch/outline-core/passage";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { SEARCH_SCRIPT, type CompletionAnswer } from "./publish-search";
@@ -358,6 +360,7 @@ export class PageMarginalia {
     if (share) return [403, { ok: false, error: "a link takes comments, not changes to its notes: change the step from your own page or the door" }];
     const status = text(input.status), block = text(input.block), evidence = text(input.evidence), itemId = text(input.itemId);
     if (!isChecklistStatus(status)) return [400, { ok: false, error: `status is ${CHECKLIST_STATUSES.join(", ")}` }];
+    if (input.live && typeof input.live === "object") return this.liveStep(status, block, input.live as Record<string, unknown>, view);
     if (!view.blocks.some((shown) => shown.id === block)) return [404, { ok: false, error: "that step's note isn't on this page now" }];
     const start = Number(input.start), revision = Number(input.revision);
     if (!itemId && (!Number.isSafeInteger(start) || !Number.isSafeInteger(revision))) return [400, { ok: false, error: "name the step: its itemId, or its start and the revision drawn" }];
@@ -371,6 +374,35 @@ export class PageMarginalia {
       // The step moved on since the page drew it: the page reads the note again and the reader chooses again.
       const why = error instanceof Error ? error.message : String(error);
       return [409, { ok: false, error: /changed|missing|location/i.test(why) ? "the step changed since this page drew it: it's drawn again now, choose again" : why, stale: true }];
+    }
+  }
+
+  /**
+   * A mark on a live `::graph-check` row (PIE-864): the row's own note gets the property its figure's `done:` names (`x`
+   * that query's value, any other mark its status word), one `properties.patch` as the person, as the door's is. The
+   * figure's note must be on this page; the row's note is whatever the figure listed.
+   */
+  private async liveStep(status: ChecklistStatus, block: string, live: Record<string, unknown>, view: PageView): Promise<[number, Record<string, unknown>]> {
+    const note = typeof live.note === "string" ? live.note : "", from = typeof live.from === "string" ? live.from : "";
+    if (!block || !isChecklistStatus(from)) return [400, { ok: false, error: "name the row: its note, the figure's note and the status drawn" }];
+    const figure = view.blocks.find((shown) => shown.id === note);
+    if (!figure) return [404, { ok: false, error: "that row's figure isn't on this page now" }];
+    try {
+      // What's written is the figure's to say, and only for a row it lists now.
+      const mark = await liveRowMark(this.host, { id: figure.id, text: (await this.host.request<Block>({ action: "get", blockId: figure.id })).text }, block);
+      if (!mark) return [404, { ok: false, error: "no live figure on this page lists that row with a done: of one key=value" }];
+      const { key } = mark, value = liveMarkValue(mark, status);
+      const row = await this.host.request<Block>({ action: "get", blockId: block });
+      const own = parsePropertyRecords(row.text).filter((record) => record.key === key && record.scope === "block");
+      // Checked against the row as drawn: a status changed since is never written over.
+      if (liveRowStatus(false, mark, own[0]?.value) !== from) return [409, { ok: false, stale: true, error: "the row changed since this page drew it: it's drawn again now, choose again" }];
+      if (own[0]?.value === value) return [200, { ok: true, block, status, changed: false, said: `already ${key}::${value}` }];
+      const operations = own.length ? [{ op: "replace", ordinal: own[0]!.ordinal, value }] : [{ op: "append", key, value }];
+      await this.host.request<Block>({ action: "properties.patch", blockId: block, expectedRevision: row.revision, operations, mutation: { author: "user" } });
+      return [200, { ok: true, block, status, changed: true, said: `marked ${statusWord(status)} (${key}::${value})` }];
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      return [409, { ok: false, error: /revision|changed/i.test(why) ? "the row's note changed since this page drew it: it's drawn again now, choose again" : why, stale: true }];
     }
   }
 

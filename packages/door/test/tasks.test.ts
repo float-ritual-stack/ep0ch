@@ -16,6 +16,7 @@ import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { outlineChanged as outlineChangedForTest } from "../src/refs";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { connectFigures } from "../src/graphs";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -409,4 +410,33 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
       await until(() => draw().includes("[ ] Net the") && !draw().includes("Mark waiting"), "back to to do");
     } finally { app.pop(); }
   }, 40_000);
+  test("a ::graph-check row's marks undo one after another (PIE-864): each found again as it reads, the note having moved on; a live row's stale status is refused", async () => {
+    const plan = await create(["Gate test plan", "", "::graph-check", "---", "title: You test", "---", "- [ ] lift the latch", "- [ ] oil the hinge", "::", "",
+      "::graph-check", "---", "title: Gate jobs", 'query: "parent:this type=gate-job"', 'done: "status=done"', "---", "::"].join("\n"));
+    const job = await board.request<any>("create", { parentId: plan.id, text: "Paint the gate [type::gate-job] [status::todo]", author: "user" });
+    connectFigures(board, () => {});
+    const { s, host, draw } = reader();
+    s.show(await board.get(plan.id), host);
+    await settle(draw, t => t.includes("Paint the gate") && t.includes("oil the hinge"), "the figures");
+    const agent = { kind: "agent" as const, id: AGENT };
+    const steps = async () => ((await s.act("tasks", {}, host, agent)) as any).steps as { n: number; text: string; status: string }[];
+    await untilAsync(async () => (await steps()).length === 3, "the rows as steps");
+    const nOf = async (t: string) => (await steps()).find(x => x.text === t)!.n;
+    await s.act("task.status", { n: await nOf("lift the latch"), to: "done" }, host, agent);
+    await untilAsync(async () => (await steps()).find(x => x.text === "oil the hinge")?.status === "todo" && (await textOf(plan.id)).includes("- [x] lift the latch"), "the latch");
+    await s.act("task.status", { n: await nOf("oil the hinge"), to: "problem" }, host, agent);
+    await untilAsync(async () => (await textOf(plan.id)).includes("- [!] oil the hinge"), "the hinge");
+    // Two undos: the second's revision is past, so its row is found again by what it reads.
+    await s.act("task.undo", {}, host, agent);
+    await untilAsync(async () => (await textOf(plan.id)).includes("- [ ] oil the hinge"), "the hinge undone");
+    await s.act("task.undo", {}, host, agent);
+    await untilAsync(async () => (await textOf(plan.id)).includes("- [ ] lift the latch"), "the latch undone");
+    expect(await textOf(plan.id)).not.toContain("^t-");
+    // The live row drawn as to do, done elsewhere since: the mark is refused, the job's done stays.
+    const paint = await nOf("Paint the gate");
+    const j = (await board.get(job.id))!;
+    await board.update(job.id, j.text.replace("[status::todo]", "[status::done]"), j.revision!);
+    await expect(s.act("task.status", { n: paint, to: "waiting" }, host, agent)).rejects.toThrow("changed since it was drawn");
+    expect(await textOf(job.id)).toContain("[status::done]");
+  }, 30_000);
 });

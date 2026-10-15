@@ -15,10 +15,22 @@ const pct = (frac: number) => `${Math.max(0, Math.min(100, Math.round(frac * 100
 /** Where a row's note opens on this page, or null when it isn't shown here (locked, outside a share). */
 export type RowHref = (blockId: string) => string | null;
 
-/** A row's words, a link to its note when it has one shown here. */
+/**
+ * What the page lends a figure's rows (PIE-864) while it's drawn: `inline`, a row's words as the page draws a line of
+ * the note (code spans, links, emphasis); `box`, a check row's box as a step's (its sentinel, drawSteps' button), or
+ * null to draw it as a glyph. Set for one synchronous draw, as the callouts are.
+ */
+export interface FigureRows { inline?: (text: string) => string; box?: (item: Props) => string | null }
+let activeRows: FigureRows = {};
+
+/** Words a figure draws as written by its author (a side note, a reason): as the page draws the note's, else escaped. */
+const words = (text: unknown) => (activeRows.inline ? activeRows.inline(String(text ?? "")) : esc(text));
+
+/** A row's words, a link to its note when it has one shown here (the links in its words as text then: a link holds no other). */
 function rowText(text: unknown, block: unknown, href: RowHref): string {
-  const to = typeof block === "string" ? href(block) : null;
-  return to ? `<a href="${esc(to)}">${esc(text)}</a>` : esc(text);
+  if (typeof block !== "string") return words(text);
+  const to = href(block), drawn = words(text).replace(/<a\b[^>]*>|<\/a>/g, "");
+  return to ? `<a href="${esc(to)}">${drawn}</a>` : drawn;
 }
 
 /** A figure's frame: its title over it, its status (live · 12 results, or why not) under it. */
@@ -76,9 +88,10 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
   },
   kpi: (p, href) => KINDS.stat!(p, href),
 
+  // A row's box is a checklist step's where the page lends it (PIE-864: a button on the owner's page), else a glyph.
   check: (p, href) => `<ul class="fig-list fig-check">${records(p.items).map(it =>
-    `<li class="${it.done ? "done" : ""}"><span class="box" aria-label="${it.done ? "done" : "open"}">${it.done ? "☑" : "☐"}</span> ${rowText(it.label, it.block, href)}` +
-    `${it.note ? ` <span class="dim">— ${esc(it.note)}</span>` : ""}</li>`).join("")}</ul>`,
+    `<li class="${it.done ? "done" : ""}">${activeRows.box?.(it) ?? `<span class="box" aria-label="${it.done ? "done" : "open"}">${it.done ? "☑" : "☐"}</span>`} ${rowText(it.label, it.block, href)}` +
+    `${it.note ? ` <span class="dim">— ${words(it.note)}</span>` : ""}</li>`).join("")}</ul>`,
 
   rank: (p, href) => {
     const items: Props[] = records(p.items);
@@ -90,7 +103,7 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
 
   timeline: (p, href) => `<ol class="fig-timeline">${records(p.events).map(e =>
     `<li class="${e.state === "now" ? "now" : e.state === "next" ? "next" : ""}"><span class="d">${esc(e.date)}</span><span class="t">${rowText(e.label, e.block, href)}` +
-    `${e.note ? ` <span class="dim">— ${esc(e.note)}</span>` : ""}</span></li>`).join("")}</ol>`,
+    `${e.note ? ` <span class="dim">— ${words(e.note)}</span>` : ""}</span></li>`).join("")}</ol>`,
 
   meter: (p) => {
     if (p.limit === undefined) {
@@ -114,11 +127,11 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     const options = records(p.options).map(o => {
       const state = decisionState(o.state);
       return `<li class="${state}"><span class="g" aria-label="${state}">${glyph[state]}</span> <span class="t">${rowText(o.label, o.block, href)}</span>` +
-        `${o.reason ? ` <span class="dim">— ${esc(o.reason)}</span>` : ""}</li>`;
+        `${o.reason ? ` <span class="dim">— ${words(o.reason)}</span>` : ""}</li>`;
     }).join("");
     const prose: string[] = Array.isArray(p.text) ? p.text.map(String) : p.text ? [String(p.text)] : [];
     const meta = [p.status, p.date].filter(Boolean).map(String);
-    return `<ul class="fig-list fig-decision">${options}</ul>${prose.map(t => `<p>${esc(t)}</p>`).join("")}${meta.length ? `<p class="dim">${esc(meta.join(" · "))}</p>` : ""}`;
+    return `<ul class="fig-list fig-decision">${options}</ul>${prose.map(t => `<p>${words(t)}</p>`).join("")}${meta.length ? `<p class="dim">${esc(meta.join(" · "))}</p>` : ""}`;
   },
 
   uptime: (p, href) => {
@@ -239,11 +252,14 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
 export const HTML_FIGURE_KINDS: readonly string[] = Object.keys(KINDS);
 
 /** A figure's body in HTML, or null when this kind isn't drawn on a page yet. */
-export function figureBodyHtml(kind: string, props: Props, href: RowHref): string | null {
+export function figureBodyHtml(kind: string, props: Props, href: RowHref, rows: FigureRows = {}): string | null {
   const draw = KINDS[kind];
   if (!draw) return null;
+  const before = activeRows;
+  activeRows = rows;
   try { return draw(props, href); }
   catch (e) { return `<p class="fig-error">couldn't draw: ${esc((e as Error).message)}</p>`; }
+  finally { activeRows = before; }
 }
 
 // ── saved views: a view's rows, a hub's lanes ──────────────────────────────────────────────────────────

@@ -666,6 +666,38 @@ test("a card's quote is drawn as the note's words: a reference by its title, lin
   expect(listed[0]!.quoteHtml).not.toContain("((");
 });
 
+test("a ::graph-check row on a page (PIE-864): its words drawn as the note's, its box a step button; a written row's mark rewrites its box, a live row's writes its note's property", async () => {
+  const chore = store.create("Sweep the shed [type::web-chore] [stage::open]", null, "user");
+  const plan = store.create(["Shed test plan", "", "::graph-check", "---", "title: You test", "---",
+    "- [ ] open `http://localhost:4175/register` — sign up as **Ana**", "- [~] wait for the email", "::", "",
+    "::graph-check", "---", "title: Chores", 'query: "type=web-chore"', 'done: "stage=done"', "---", "::"].join("\n"), null, "user");
+  const html = await page(`/pub/p/${plan.id}`);
+  // The row's code span and emphasis drawn as the note's would be, not as typed.
+  expect(html).toContain("<code>http://localhost:4175/register</code>");
+  expect(html).toContain("<strong>Ana</strong>");
+  const boxes = [...html.matchAll(/<button type="button" class="step s-(\w+)"[^>]*>/g)];
+  expect(boxes.map((box) => box[1])).toEqual(["todo", "waiting", "todo"]);
+  const attrs = (tag: string) => Object.fromEntries([...tag.matchAll(/data-step-([\w-]+)="([^"]*)"/g)].map((m) => [m[1]!, m[2]!]));
+  const open = attrs(boxes[0]![0]), live = attrs(boxes[2]![0]);
+  expect(live).toMatchObject({ block: chore.id, status: "todo", note: plan.id });
+  // The written row: its box rewritten in the note, nothing else on its line.
+  let answer = await write({ page: plan.id, action: "step", status: "done", block: plan.id, start: Number(open.start), revision: Number(open.revision), evidence: open.evidence });
+  expect(answer.status).toBe(200);
+  expect(store.get(plan.id)!.text).toContain("- [x] open `http://localhost:4175/register` — sign up as **Ana**\n");
+  // The live row: the chore's own stage written, as the person; the property is the figure's done:, read from it.
+  answer = await write({ page: plan.id, action: "step", status: "done", block: chore.id, evidence: live.evidence, live: { note: plan.id, from: live.status } });
+  expect(await answer.json()).toMatchObject({ ok: true, said: "marked done (stage::done)" });
+  expect(store.get(chore.id)!.text).toBe("Sweep the shed [type::web-chore] [stage::done]");
+  expect(store.get(chore.id)!.author).toBe("user");
+  // Drawn as to do, done since: refused as stale, never written over.
+  answer = await write({ page: plan.id, action: "step", status: "waiting", block: chore.id, evidence: live.evidence, live: { note: plan.id, from: "todo" } });
+  expect(answer.status).toBe(409);
+  expect(store.get(chore.id)!.text).toContain("[stage::done]");
+  // A note the figure doesn't list, or a figure not on the page, can't be marked through it.
+  expect((await write({ page: plan.id, action: "step", status: "todo", block: survey.id, evidence: "x", live: { note: plan.id, from: "todo" } })).status).toBe(404);
+  expect((await write({ page: plan.id, action: "step", status: "todo", block: chore.id, evidence: "x", live: { note: survey.id, from: "done" } })).status).toBe(404);
+});
+
 test("a step's box on a page is its state, a button on the owner's page: Approve and Reject land as the note's marks, a stale one is refused; a public page draws it read-only (PIE-811)", async () => {
   const log = store.create(["Shed roof build log [publish::public]", "## Needs you", "- [ ] felt from the merchant ^t-felt01", "- [ ] patch the gutter until spring", "- [x] measure the roof", "- [-] paint it green"].join("\n"), null, "user");
   const html = await page(`/pub/p/${log.id}`);
