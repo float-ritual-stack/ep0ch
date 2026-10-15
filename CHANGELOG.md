@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A link in a property's value is an edge (PIE-874)
+
+PROTOCOL 174: outline-core's property grammar now finds links in values (`propertyValueLinks`).
+
+- **Added:** `[via::[[HUB-023]]]`, `((id))` inside a value, the outline's Work IDs in a value's words and a value item
+  that is exactly a ticket key (`[ticket::PC-582]`, whatever the key) are references: the target's backlinks (the
+  links tile, Detail, `::backlinks`, the web), the source's links out and `ep0ch find --json` all see them, labelled by
+  the property. One scanner, outline-core's `propertyValueLinks`; `[page::…]` and `[work-id::…]` name the note itself and
+  never link. Backlinks are read at query time, so nothing needs reindexing: the host's restart on deploy is enough.
+
 ### EchoNet's ledger gets its mark on the next toss (PIE-868)
 
 - **Fixed:** a ledger written before the `[echonet::<node>]` mark kept none until an entry changed; the next toss writes it

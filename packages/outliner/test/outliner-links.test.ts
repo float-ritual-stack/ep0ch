@@ -807,7 +807,7 @@ test('URL spans own embedded ticket keys while adjacent bare keys still resolve 
     'https://example.test/path_(DEMO-123)',
     'www.example.test/DEMO-123',
   ]) {
-    const text = `${url}, DEMO-456. [jira::DEMO-789] \`DEMO-999\``;
+    const text = `${url}, DEMO-456. \`DEMO-999\``;
     const demo = { prefix: null, prefixesInUse: ['DEMO'] };
     expect(outlinerReferenceOccurrences(text, demo).map(r => r.kind === 'work-id' ? r.address : r.kind)).toEqual(['DEMO-456']);
     const linked = linkOutlinerMarkdown(text, text, demo);

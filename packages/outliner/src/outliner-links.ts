@@ -529,7 +529,8 @@ export function firstOutlinerReference(
   text: string,
   workIdPrefix: TicketPrefixes = null,
 ): OutlinerLinkTarget | null {
-  const first = outlinerReferenceOccurrences(text, workIdPrefix)[0];
+  // The note's own text: a link in a property's value labels the note, it isn't what the note is a link to.
+  const first = outlinerReferenceOccurrences(text, workIdPrefix).find(o => o.propertyKey === undefined);
   if (!first) return null;
   if (first.kind === "block") {
     return {

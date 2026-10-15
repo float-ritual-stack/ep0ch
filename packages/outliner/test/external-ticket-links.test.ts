@@ -25,8 +25,9 @@ test('external keys preserve provider spelling without widening allocator recogn
 });
 
 test('shared link recognition respects Markdown and property boundaries',()=>{
- const text='PC-7 `PC-8` [link](https://example.test/PC-9) [jira::PC-10] [[PC-11]]\n```\nPC-12\n```\nPC-13';
- expect(outlinerReferenceOccurrences(text,{prefix:'HUB',prefixesInUse:['HUB','PC']}).map(r=>r.kind==='block'?r.blockId:r.address)).toEqual(['PC-7','PC-11','PC-13']);
+ // A key in a property's words links too (PIE-874); code and a Markdown link's URL stay text.
+ const text='PC-7 `PC-8` [link](https://example.test/PC-9) [note::see PC-10] [[PC-11]]\n```\nPC-12\n```\nPC-13';
+ expect(outlinerReferenceOccurrences(text,{prefix:'HUB',prefixesInUse:['HUB','PC']}).map(r=>r.kind==='block'?r.blockId:r.address)).toEqual(['PC-7','PC-10','PC-11','PC-13']);
  const linker=createOutlinerTextLinker([],()=>false,'HUB');
  expect(getOsc8LinkAtColumn(linker.link('HUB-001'),2)).toBe(outlinerLinkUri('work','HUB-001'));
 });

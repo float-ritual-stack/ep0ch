@@ -1291,7 +1291,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   await make(notes.root.id, "Lift the dahlias\nDry the tubers in the shed; the stems go on the heap. #frost-jobs #compost");
   await make(notes.root.id, "Lag the standpipe\nThe lagging is in the shed, top shelf. #frost-jobs/water");
   // A thread whose replies carry stages (PIE-693): the links tile's Children group, narrowed by Stage like any other group.
-  notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread]\nWho brings what to the seed swap on Saturday. The table goes by [[${SEED.shed}]].`);
+  // Where it meets is a property whose value is a link (PIE-874): the shed lists the swap among its backlinks, as "meets-at".
+  notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread] [meets-at::[[${SEED.shed}]]]\nWho brings what to the seed swap on Saturday.`);
   await make(notes.swap.id, "Ana: runner beans to swap [type::offer] [status::waiting]\nTwo jars, saved from last year's best row.");
   await make(notes.swap.id, "Ben: took the leek seedlings [type::offer] [status::done]\nThank you, they're in.", SEED_AGENT);
   await make(notes.swap.id, "Cal: labels and a pencil [type::offer] [status::active]\nI'll write the labels on the day.");

@@ -1035,6 +1035,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(JSON.stringify(await app.act({ action: "link.select", tile: "reader", args: { n: 1 }, as: "test-agent" }))).toContain("the kitchen whiteboard");
     const f = await app.act({ action: "link.follow", tile: "reader", args: { n: 1 }, as: "test-agent" }) as any;
     expect(f.opened).toBe(seeded.notes.whiteboard.id);
+    // A link in a property's value is a backlink too (PIE-874), labelled by the property: the swap meets at the shed.
+    const swap = (await board.backlinks(seeded.notes.shed.id)).sources.find(s => s.blockId === seeded.notes.swap.id);
+    expect(swap?.referenceGroups).toEqual([{ kind: "property", propertyKey: "meets-at", count: 1 }]);
     expect(S().focus).toBe("index");
   }, 20_000);
 

@@ -1,6 +1,8 @@
 import {Lexer, type Token} from "marked";
 import { codeHides, protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import { pageAddressReferences, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
+import { propertyValueLinks } from "@ep0ch/outline-core/property-grammar";
+import { isResourcePropertyKey } from "./resource-references";
 import { parsePropertyRecords } from "./properties";
 import type { PropertyRecord } from "./types";
 import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -11,7 +13,11 @@ export interface TextRange {
   end: number;
 }
 
-export type OutlinerReferenceOccurrence =
+/**
+ * A reference in a note's text, or (with `propertyKey`) inside one of its property values (PIE-874: `[via::[[X-2]]]`,
+ * `[ticket::PC-1]`), an edge labelled by that property.
+ */
+export type OutlinerReferenceOccurrence = { propertyKey?: string } & (
   | {
       kind: "block";
       blockId: string;
@@ -33,7 +39,7 @@ export type OutlinerReferenceOccurrence =
       address: string;
       start: number;
       end: number;
-    };
+    });
 
 export interface PropertyReferenceOccurrence {
   kind: "property";
@@ -140,12 +146,27 @@ export function outlinerReferenceOccurrences(
   ];
   // Code is opaque (PIE-764): outline-core's one rule, which the link scans above already applied to their own.
   const code = protectedCodeRanges(text);
-  return candidates
-    .filter((candidate) =>
-      (candidate.kind === "block" ||
-        !blockReferenceRanges.some((range) => rangesOverlap(candidate, range))) &&
-      !protectedRanges.some((range) => rangesOverlap(candidate, range)) &&
-      !codeHides(candidate, code)
-    )
-    .sort((left, right) => left.start - right.start);
+  const inText = candidates.filter((candidate) =>
+    (candidate.kind === "block" ||
+      !blockReferenceRanges.some((range) => rangesOverlap(candidate, range))) &&
+    !protectedRanges.some((range) => rangesOverlap(candidate, range)) &&
+    !codeHides(candidate, code)
+  );
+  return [...inText, ...propertyValueOccurrences(text, workIdPrefix, propertyRecords)].sort((left, right) => left.start - right.start);
+}
+
+/**
+ * The references inside property values (PIE-874), each labelled by its property: outline-core's one scan of values
+ * (`propertyValueLinks`: references, page links, an item that is exactly a ticket key), and the outline's Work IDs
+ * written inside a value's words (`[waiting-on::review of PIE-12]`), as they are in a note's text.
+ */
+function propertyValueOccurrences(text: string, workIdPrefix: TicketPrefixes, propertyRecords: readonly PropertyRecord[]): OutlinerReferenceOccurrence[] {
+  // A Resource's key (`[jira::PC-7]`, `[file::…]`) names a Resource: its value is the Resource path's, never an outline link.
+  const records = propertyRecords.filter((record) => record.syntax !== "hashtag");
+  return propertyValueLinks(text, records, { prefixes: workIdPrefix, skip: (key) => isResourcePropertyKey(key) }).map((link): OutlinerReferenceOccurrence => {
+    const propertyKey = link.key;
+    if (link.kind === "block") return { kind: "block", ...link.reference, propertyKey };
+    if (link.kind === "page") return { kind: "page", address: link.reference.displayAddress, normalizedAddress: link.reference.normalizedAddress, ...(link.reference.label ? { label: link.reference.label } : {}), start: link.reference.start, end: link.reference.end, propertyKey };
+    return { kind: "work-id", address: link.workId, ...link.reference, propertyKey };
+  });
 }

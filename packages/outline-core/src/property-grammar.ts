@@ -11,7 +11,8 @@
 // balanced inside it (`[related::[[PC-967]], ((id|plan step 6))]`), and a list of values splits at commas outside links
 // (`splitPropertyValue`).
 
-import { blockReferenceOccurrences, pageLinkRanges } from "./link-syntax";
+import { blockReferenceEnvelopeRanges, blockReferenceOccurrences, pageAddressReferences, pageLinkRanges, type BlockReferenceOccurrence, type PageAddressReference } from "./link-syntax";
+import { isTicketKey, ticketKeyReferences, type TicketPrefixes } from "./work-ids";
 import { codeHides, codeSpanRanges } from "./code-ranges";
 
 /** A property key: a letter, then letters, digits, `_`, `.` or `-` (`plot.row`, `bed_2`; not `2nd-pass`). */
@@ -202,4 +203,72 @@ export function propertyValueHolds(value: string, wanted: string): boolean {
   const lower = wanted.trim().toLowerCase();
   if (value.trim().toLowerCase() === lower) return true;
   return isLinkValue(wanted) && splitPropertyValue(value).some(item => item.toLowerCase() === lower);
+}
+
+/**
+ * A link written inside a property's value (PIE-874): a `((id))` or `[[page]]` anywhere in it, or an item of the value
+ * that is exactly a ticket key (`[ticket::PC-582]`, `[blocks::PIE-12, PIE-14]`), whatever the key: properties are open.
+ * Offsets are the whole text's. Anything else in a value stays text.
+ */
+export type PropertyValueLink =
+  | { key: string; kind: "block"; reference: BlockReferenceOccurrence }
+  | { key: string; kind: "page"; reference: PageAddressReference }
+  | { key: string; kind: "ticket"; workId: string; reference: { start: number; end: number } };
+
+/**
+ * The keys whose value names the note itself (its page address, its Work ID), never a link out: `[page::Seeds]` is
+ * the note being Seeds, `[work-id::PIE-12]` the note being PIE-12. Owned by the page addresses and the workboard.
+ */
+export const ADDRESS_KEYS: ReadonlySet<string> = new Set(["page", "work-id"]);
+/** The keys whose value is the views' query grammar (`[query::links:[[garden]]]`): a question about links, not one. */
+export const QUERY_KEYS: ReadonlySet<string> = new Set(["query"]);
+
+/** Where a token's value is in its raw text: after `::`, to its closing `]` (a `[key::value]`) or its end (`key:: value`); null for a hashtag. */
+export function propertyValueSpan(raw: string): { start: number; end: number } | null {
+  const open = raw.indexOf("::");
+  if (open < 0) return null;
+  return { start: open + 2, end: raw.startsWith("[") && raw.endsWith("]") ? raw.length - 1 : raw.length };
+}
+
+/**
+ * Every link written in the values of `tokens` (the tokens of `text` that are properties: the service's parser says
+ * which; the grammar's own by default), in order: the one scanner for links in values, as `blockReferenceOccurrences`
+ * and `pageAddressReferences` are for a note's text. A value item that is exactly a ticket key links whatever its prefix;
+ * with `prefixes`, the outline's Work IDs in a value's words do too (`[waiting-on::review of PIE-12]`), as in a note's
+ * text, never inside a link's own syntax. Values of the address keys (`ADDRESS_KEYS`), the query keys (`QUERY_KEYS`)
+ * and `skip` (a client's own keys that aren't links: the service's Resource keys, `[jira::PC-7]`) are skipped.
+ */
+export function propertyValueLinks(
+  text: string,
+  tokens: readonly Pick<RawPropertyToken, "key" | "start" | "raw">[] = propertyTokenMatches(text),
+  o: { prefixes?: TicketPrefixes; skip?: (key: string) => boolean } = {},
+): PropertyValueLink[] {
+  const out: PropertyValueLink[] = [];
+  for (const token of tokens) {
+    const key = token.key.toLowerCase();
+    if (ADDRESS_KEYS.has(key) || QUERY_KEYS.has(key) || o.skip?.(token.key)) continue;
+    const span = propertyValueSpan(token.raw);
+    if (!span) continue;
+    const base = token.start + span.start, value = token.raw.slice(span.start, span.end);
+    const at = (start: number, end: number) => ({ start: base + start, end: base + end });
+    for (const r of blockReferenceOccurrences(value, [])) out.push({ key: token.key, kind: "block", reference: { ...r, ...at(r.start, r.end) } });
+    for (const r of pageAddressReferences(value, [])) if (!r.nested) out.push({ key: token.key, kind: "page", reference: { ...r, ...at(r.start, r.end) } });
+    // An item that is exactly a ticket key, wherever the value's commas put it; then the outline's in its words.
+    const tickets = new Set<number>();
+    let from = 0;
+    for (const item of splitPropertyValue(value)) {
+      const i = value.indexOf(item, from);
+      if (i < 0) continue;
+      from = i + item.length;
+      if (isTicketKey(item)) { tickets.add(i); out.push({ key: token.key, kind: "ticket", workId: item, reference: at(i, i + item.length) }); }
+    }
+    if (o.prefixes !== undefined) {
+      const syntax = [...pageLinkRanges(value), ...blockReferenceEnvelopeRanges(value)];
+      for (const r of ticketKeyReferences(value, o.prefixes)) {
+        if (tickets.has(r.start) || syntax.some(s => r.start < s.end && s.start < r.end)) continue;
+        out.push({ key: token.key, kind: "ticket", workId: r.workId, reference: at(r.start, r.end) });
+      }
+    }
+  }
+  return out.sort((a, b) => a.reference.start - b.reference.start);
 }
