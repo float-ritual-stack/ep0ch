@@ -83,6 +83,28 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await until(() => links().target?.id === hall.id, "b: the list lists what its home shows now");
   }, 20_000);
 
+  test("a reload of the links that lands after the person moved the selection leaves it where they put it", async () => {
+    await setup();
+    await pickRow(porch.id);
+    // The service's answer is held, as a loaded runner holds it; an outline change makes the list ask again.
+    const real = board.backlinks.bind(board);
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    let answer: Promise<unknown> | null = null;
+    (board as any).backlinks = (id: string) => { answer = real(id).then(async d => { await gate; return d; }); return answer; };
+    try {
+      D().onEvent({ action: "changed" });
+      await until(() => answer !== null, "the list asking again (500 ms after a change)");
+      await pickRow(hall.id);
+      const on = () => { const r = links().rows()[links().sel]; return r?.kind === "backlink" ? r.source.blockId : undefined; };
+      expect(on()).toBe(hall.id);
+      release();
+      await answer;
+      await Bun.sleep(0);
+      expect(on()).toBe(hall.id);
+    } finally { release(); (board as any).backlinks = real; }
+  }, 20_000);
+
   test("alt+⏎ opens it in a new detail beside the origin: the origin keeps its note, the list keeps the keys", async () => {
     await setup();
     const before = get().tiles.length;
