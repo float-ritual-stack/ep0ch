@@ -1609,6 +1609,7 @@ What changed in the outline after `sequence` (a cursor you keep), oldest first: 
 |---|---|---|
 | `sequence` | `number` | The cursor: the changes after it are answered. The last page's `nextSequence`. To start from now, ask with `Number.MAX_SAFE_INTEGER`: the `reset` it answers has the current `sequence`. |
 | `limit?` | `number` | At most this many changes (default 200, at most 1000); a page never splits one sequence. |
+| `machinery?` | `MachineryMode` | `hide` (the default) leaves out changes to notes tools stamped `[machine::…]`; `only` holds just those; `show` everything (PIE-867). |
 
 Answers `ChangeFeedPage`.
 
@@ -1693,6 +1694,7 @@ Answers `RenderedNote`.
 | `facets?` | `true \| string[]` | `true`: value counts for every key the matches carry; or these keys. |
 | `facetValues?` | `number` | Values a facet lists per key: 50 when left out, at most 1000. |
 | `facetKeys?` | `number` | Keys `facets: true` lists: 50 when left out, at most 1000. |
+| `machinery?` | `MachineryMode` | `hide` leaves out what tools write for their own bookkeeping (`[machine::…]`, outline-core `machinery.ts`), `only` holds just that, `show` everything (PIE-867). The service's requests answer `hide` when it is left out; asked of the store directly, left out means unfiltered. |
 
 **`VisibleBlockCollection`**
 
@@ -1700,6 +1702,7 @@ Answers `RenderedNote`.
 |---|---|---|
 | `blocks` | `VisibleBlock[]` |  |
 | `completeness` | `BlockCollectionCompleteness` |  |
+| `machineryHidden?` | `number` | How many notes `machinery: hide` left out of the answer (at most 50: then there are more), when it left any (PIE-867). |
 | `generation?` | `number` |  |
 | `groups?` | `QuestionGroup[]` |  |
 | `facets?` | `QuestionFacet[]` |  |
@@ -1862,6 +1865,8 @@ Answers `RenderedNote`.
 | `deleted?` | `boolean` | True when the block is in Trash after the change. |
 | `actor?` | `MutationProvenance` | Declared provenance of the request; absent when the request carried none. |
 | `requestedBy?` | `MutationProvenance` | Who asked for the change when that isn't its writer: an extension's action (`actor` `ext:<id>`) run for the person or an agent (`extensions.act`'s `mutation`). Absent when the writer acted on its own. |
+| `bookkeeping?` | `true` | An edit that moved only `[key::value]` tokens (a stage move, a stamp, a sync): the words are as they were (PIE-867). |
+| `machinery?` | `true` | The note is one a tool stamped `[machine::…]`: what it wrote for its own bookkeeping, hidden from the readers' lists by default (PIE-867). |
 | `recordedAt` | `string` |  |
 
 **`NoteAddress`**: A note's address (`notes.address`, PIE-767): the outline and this host's machine name (what an `ep0ch://` URI names), the note's URI, and where it is published when it is.

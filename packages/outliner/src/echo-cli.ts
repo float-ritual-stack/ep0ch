@@ -90,7 +90,7 @@ export async function runEchoCommand(args: readonly string[], env: NodeJS.Proces
       }
       results.push({ node, ok: true, message: run.message ?? "done" });
       if (operation === "nodelist" && !flags.json) {
-        const found = await client(node).request<{ blocks: Array<{ text: string }> }>({ action: "blocks.query", query: { where: "type=nodelist", limit: 1 } });
+        const found = await client(node).request<{ blocks: Array<{ text: string }> }>({ action: "blocks.query", query: { where: "type=nodelist", limit: 1, machinery: "show" } });
         results.at(-1)!.message += `\n\n${found.blocks[0]?.text ?? "(no nodelist)"}`;
       }
     }
@@ -121,7 +121,7 @@ async function subscribe(client: Client, positionals: string[], flags: { under?:
 
 /** This outline's areas and subscriptions, and the other nodes' areas as its nodelist last wrote them. */
 async function areas(client: Client, outline: string, json: boolean): Promise<number> {
-  const query = (where: string) => client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where, limit: 1000 } }).then((r) => r.blocks);
+  const query = (where: string) => client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where, limit: 1000, machinery: "show" } }).then((r) => r.blocks);
   const offered = [...areasIn(await query("echo")).values()].map((area) => ({
     name: area.name,
     views: area.blocks.map((block) => ({ id: block.id, title: firstLine(block.text), query: prop(block, "query") })),

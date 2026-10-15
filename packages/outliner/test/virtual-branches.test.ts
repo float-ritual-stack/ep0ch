@@ -372,6 +372,7 @@ describe("virtual branch projection", () => {
       async (query) => {
         expect(query).toEqual({
           filters: [{ key: "status", value: "Done" }],
+          machinery: "hide",
           sort: { field: "updated", direction: "desc" },
           limit: 1_000,
         });

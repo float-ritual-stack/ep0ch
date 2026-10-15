@@ -2111,7 +2111,7 @@ export class NoteSurface {
       extensions: () => listed().map(e => e.id),
       // EchoNet's nodelist (one note per outline, `type=nodelist`), read with its own parser.
       nodes: async () => {
-        const { notes } = await host.ctx.board.queryNotes(NODELIST_QUERY, 10).catch(() => ({ notes: [] as Msg[] }));
+        const { notes } = await host.ctx.board.queryNotes(NODELIST_QUERY, 10, "show").catch(() => ({ notes: [] as Msg[] }));
         const whole = await Promise.all(notes.map(n => host.ctx.board.get(n.id).catch(() => null)));
         return [...new Set(whole.flatMap(n => (n ? nodesOf(n.text).map(e => e.node) : [])))];
       },

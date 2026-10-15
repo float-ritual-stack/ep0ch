@@ -2316,7 +2316,7 @@ Bodies render with `src/doc.ts`:
   - `uptime`: a glyph a day (ok █, degraded ▒, down ·, none -), wrapped every 30 (`wrap:`), with the % ok and
     `from`/`to`. Rows: `- 2026-09-01: ok*20 degraded down`. Live: `query:` with `date: <property>` and
     `state: <property>` (date, status), the worst run of a day counting; `last: 30` is the thirty days to today; `source: backups` is
-    `query: "type=backup-run"`, the notes `scripts/backup-runs.ts` writes (below).
+    `query: "type=backup-run"` with `machinery: show` (backup runs are stamped `[machine::backup]`, which a query leaves out unless it says so), the notes `scripts/backup-runs.ts` writes (below).
   - `activity`: a contribution grid, weeks as columns, ·░▒▓█. Rows: `- 2026-03-02: 0 1 4 2 0*3` (that day and the
     days after). Live: `query:` with `count: created|updated` (or a date property), `weeks: 26`.
   - `calendar`: one month, marked days in the accent, today in `[brackets]`, `- 12: launch` listed under it;
@@ -2324,7 +2324,7 @@ Bodies render with `src/doc.ts`:
   - `annotate`: a fence whose lines end in `// (1)` or `# (1)`, then `1. what it is`: marked lines bright with `[1]`
     in the gutter, the rest dim.
   - **Backup runs:** `bun scripts/backup-runs.ts --ws pie --source restic -- ~/.local/bin/ep0ch-snapshot` runs the
-    backup and adds one note under `Backup runs [type::backup-log]` (`[type::backup-run] - [status::ok] -
+    backup and adds one note under `Backup runs [type::backup-log]` (`[type::backup-run] - [machine::backup] - [status::ok] -
     [date::…] - [source::restic] - [took::…]`), exiting as the backup did; `--status degraded` records a run it was
     told about. It never reads the backup's secrets, only its exit code.
 - **Live figures** (`src/live.ts`): give a figure `query: "type=outbox-item ticket=PC-762"` or `view: ((block-ref))`
@@ -2575,7 +2575,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `projection.refresh` | `tile=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note), `line=` (one line: an extension's output or component runs again, an `@name` request is asked again, a record fetched). Without `line=`, every line, and every `@name` request not answered yet. Fetches its tickets and runs its extension lines now; the service writes as the extension (`ext:jira`, `ext:moon`), and whoever ran it is who asked (`asked by you`, `asked by an agent (<id>)`) | `r`, a click on a ticket's age or a line's `[r run again]` |
 | `extensions.install`, `extensions.uninstall` | `id=` (an extension's id); uninstall's `demo=keep\|remove` (no default: its demo notes never go silently). The service installs one of the repo's extensions (`ep0ch ext add`) and writes its page and demo notes under the outline's Extensions hub before answering; or removes one, its demo notes kept or moved to Trash (what someone changed is kept) | ⏎ or a click on its row in the power bar's extensions scope (`ctrl+k` then `&`) |
 | `ext.<extension>.<action>` | `block=` (the note with the handler line, or the block it acts on), `line=` (when the note has several of that handler's lines). An extension's action as the service lists it (`ext.fancy-horror.ward`, the built-in `ext.<id>.keep`); the service runs it and what it writes is `ext:<id>`. A tile's actions (`ext.tarot.draw`, `ext.tarot.keep`) are its tile kind's: `tile=<the tile>`, `block=` defaults to the tile's own | the action's key on its line (`w`), a click on its control (`[w ward]`); in a tile, the program's own keys |
-| `changes.extensions` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N ext` |
+| `changes.machinery` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes machinery: what tools wrote for their own bookkeeping (notes stamped `[machine::…]`: tosses, file touches, deliveries, backup runs) and what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N machine` |
 | `backlinks.groups` | `tile=<backlinks tile>`; `show=` (outlinks, resources, backlinks, children, comma-separated, or all), `toggle=<group>`, `choose=true` (yours: the list of groups). At least one group stays; saved with the layout | `v`, a click on the counters |
 | `backlinks.pick`, `backlinks.open`, `backlinks.view` | `tile=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true` (pick; open's `where=home\|new` says the same); `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
 | `focus` | `tile=<tile>` or `tile=lanes`. An agent's is refused while you're typing, and within 2s of your last key. On the desk it is `tile.focus` | `Tab`, `Shift+Tab`, a click, `esc`/`q` back to the lanes |

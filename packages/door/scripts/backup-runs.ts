@@ -21,7 +21,7 @@ export const STATUSES = ["ok", "degraded", "down"] as const;
 
 /** The note a run is: its title line, its properties between ` - ` as a header line writes them. */
 export function runNote(run: { source: string; status: string; date: string; took?: string }): string {
-  const chips = [`[type::backup-run]`, `[status::${run.status}]`, `[date::${run.date}]`, `[source::${run.source}]`, ...(run.took ? [`[took::${run.took}]`] : [])];
+  const chips = [`[type::backup-run]`, `[machine::backup]`, `[status::${run.status}]`, `[date::${run.date}]`, `[source::${run.source}]`, ...(run.took ? [`[took::${run.took}]`] : [])];
   return `${run.source} backup ${run.date} ${chips.join(" - ")}`;
 }
 

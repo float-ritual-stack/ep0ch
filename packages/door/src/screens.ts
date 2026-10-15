@@ -228,7 +228,7 @@ export class Logon implements Screen {
 interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: string; action?: "screen.shell" | "session.end" | "note.new" }
 
 const ITEMS: MenuItem[] = [
-  { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n, !!ctx.extensionChanges), "since your last call") },
+  { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n, !!ctx.machineryChanges), ctx.machineryChanges ? "since your last call, machinery too" : "since your last call, by people") },
   { key: "J", label: "Join", open: () => new Conferences() },
   { key: "K", label: "Kanban", open: () => openScreen("board"), one: "board" },
   { key: "R", label: "Read", open: ctx => new MessageList("recent", n => ctx.board.changedSince(0, n), "most recently changed") },
@@ -326,7 +326,12 @@ export class MainMenu implements Screen {
       }
       if (row.length) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, row, { centre: true }));
     }
-    lines.push(center(paint(`|08${ctx.events ? `|14changes on the outline since you logged on: ${ctx.events} · ` : ""}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`), ctx.t.cols));
+    // The newscan line (PIE-867): every change since logon, and how many of them were by people; a click is the N key.
+    const total = ctx.eventsAll ?? ctx.events, people = ctx.events;
+    const news = total ? `|14changes on the outline since you logged on: ${total}${total !== people ? ` · ${people} by people` : ""} · ` : "";
+    const scan = `|08${news}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`;
+    if (total) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [[scan, char("N"), ITEMS.findIndex(i => i.key === "N")]], { centre: true }));
+    else lines.push(center(paint(scan), ctx.t.cols));
     return { lines, placements: frame };
   }
   key(k: Key, ctx: Ctx): void {
@@ -459,18 +464,18 @@ const SCREEN_NAMES: Record<string, string[]> = {
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q on every BBS screen, run these, as `act` does. */
 export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
-  "changes.extensions": def({
-    summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes what extensions wrote (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
-    keys: "a click on the status bar's +N ext",
+  "changes.machinery": def({
+    summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes machinery: what tools wrote for their own bookkeeping (notes stamped [machine::…], tosses, file touches, deliveries) and extensions' writes (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
+    keys: "a click on the status bar's +N machine",
     touches: "screen", replay: "safe",
-    person: "what the person's \"what changed\" shows is theirs; an agent reads changes itself (changes.since, activity.recent with extensions)",
-    args: { include: { type: "boolean", optional: true, about: "true to include extension changes, false to leave them out; default: toggle" } },
+    person: "what the person's \"what changed\" shows is theirs; an agent reads changes itself (changes.since, activity.recent, both take machinery)",
+    args: { include: { type: "boolean", optional: true, about: "true to include machinery, false to leave it out; default: toggle" } },
     run({ include }, { ctx }) {
-      ctx.extensionChanges = include ?? !ctx.extensionChanges;
-      if (ctx.whatChanged) ctx.whatChanged.includeExt = !!ctx.extensionChanges;
-      ctx.flash(ctx.extensionChanges ? "what changed includes extension writes (refreshed tickets)" : "what changed leaves extension writes out");
+      ctx.machineryChanges = include ?? !ctx.machineryChanges;
+      if (ctx.whatChanged) ctx.whatChanged.showMachinery = !!ctx.machineryChanges;
+      ctx.flash(ctx.machineryChanges ? "what changed includes machinery (tosses, file touches, deliveries, refreshed tickets)" : "what changed leaves machinery out");
       ctx.redraw();
-      return { include: ctx.extensionChanges };
+      return { include: ctx.machineryChanges };
     },
   }),
   "backups.alert": def({

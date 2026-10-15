@@ -89,7 +89,7 @@ function canonical(id: string): string {
 
 const mine = <T>(request: OutlineRequest) => outline<T>(request);
 /** The mark on every block this tosser writes (PIE-868): `[echonet::<node>]`, so what EchoNet wrote can be told apart. */
-const byEchonet = () => `[echonet::${self.id}]`;
+const byEchonet = () => `[echonet::${self.id}] [machine::echonet]`;
 const remote = (machine: string) => !selfMachine(machine);
 
 /** This host's outlines folder, from its socket (`<outlines>/.host/host.sock`); undefined when it isn't laid out so. */
@@ -351,7 +351,7 @@ async function nodesFor(masks: readonly NodeMask[], named: readonly string[]): P
 // ── blocks ──
 
 const query = (call: typeof mine, where: string, extra: Record<string, unknown> = {}) =>
-  call<{ blocks: Block[] }>({ action: "blocks.query", query: { where, limit: LIMIT, ...extra } }).then((r) => r.blocks);
+  call<{ blocks: Block[] }>({ action: "blocks.query", query: { where, limit: LIMIT, machinery: "show", ...extra } }).then((r) => r.blocks);
 const quoteOf = (mark: Mark) => {
   const target = mark.resolvedTarget ?? mark.originalTarget;
   return target?.passage?.quote ?? (target?.anchor?.kind === "text-quote" ? target.anchor.exact : undefined);

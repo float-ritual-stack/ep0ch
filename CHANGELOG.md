@@ -147,6 +147,25 @@ PROTOCOL 175: `agents.held`, and `extensions.list` answers `grants` and each ext
 - **Added:** the door's waiting-on-you list (`alt+w`) shows the requests held for your `r` after the terminals' programs,
   and the status bar counts them (`‼2`): `⏎` or a click opens the note, `r` sends it (`held.open`, `held.send`).
 
+### Machinery hides by default (PIE-867)
+
+Since Oct 11, about two thirds of the new notes in pie were tools' bookkeeping, and no one property marked them.
+- **Added:** `[machine::<producer>]`, one stamp on what a tool writes for its own bookkeeping: file touches and their
+  folders, EchoNet's nodelist, tosses, ledger and seen-by receipts, delivery records, intake's prior art, backup runs.
+  One flag, `machinery: hide|only|show`, on `blocks.query`, `tree.search`, `activity.recent` and `changes.since`, and
+  `[machinery::show|only]` on a saved view or a live figure. Hidden is the default of every reader (`changes.since`
+  excepted: it is also how a client catches up, so it holds everything unless asked, and each change says
+  `machinery: true`). `outline_find` and `outline_changes` take `machinery` too. Change rows say `bookkeeping: true` when
+  an edit moved only `[key::value]` tokens.
+- **Added:** the atoms `by:user|agent|system|<actor id>` and `revision >= 2`: "what did a person write today" is
+  `by:user updated >= today`.
+- **Changed:** the main menu's newscan line reads `changes on the outline since you logged on: 73 · 12 by people`, and a
+  click on it opens the new scan of the people's changes. The what-changed list and the status bar hold machinery back
+  as `+N machine` (it was `+N ext`); the action is `changes.machinery` (it was `changes.extensions`).
+- **Added:** `ep0ch machinery backfill [--ws <name>] [--apply]` stamps what tools wrote before they stamped (a dry run
+  first). A kitchen-sink section, `machinery`, asks one query twice.
+- **Protocol:** PROTOCOL 177 (new request fields and atoms). No schema change.
+
 ### A backlink says which line links, and opening it lands there (PIE-884) (#556)
 
 - **Added:** a backlink row in the links tile, the tree's `l` and an inline `::links` now quotes the line of the linking

@@ -79,12 +79,12 @@ function ask(p: Props, note: string | undefined, group?: string): Entry | null {
     read = watched.read("views.read", { viewId: question.viewId, format: "tree" }, (r: any) => {
       const view = viewReadOf({ ...r, blocks: b.toMsgs(r.blocks ?? []) });
       if (view.status !== "ready") throw new Error(`view ${view.status}: ${view.errors.join("; ")}`);
-      return { items: view.items, truncated: view.truncated };
+      return { items: view.items, truncated: view.truncated, ...(r.machineryHidden ? { hint: `${r.machineryHidden > 50 ? "50+" : r.machineryHidden} machinery note${r.machineryHidden === 1 ? "" : "s"} hidden · machinery=show` } : {}) };
     });
   } else {
-    const { where, limit, sort, direction } = question;
+    const { where, limit, sort, direction, machinery } = question;
     // `this` in the query is the note the figure sits in (`links:this`).
-    const query = { where, ...(note ? { this: note } : {}), limit, sort: `${sort} ${direction}`, ...(group ? { group } : {}) };
+    const query = { where, ...(note ? { this: note } : {}), limit, sort: `${sort} ${direction}`, ...(group ? { group } : {}), ...(machinery ? { machinery } : {}) };
     read = watched.read("blocks.query", { query }, (r: { blocks: any[]; completeness?: { kind: string }; groups?: QuestionGroup[]; hint?: string }) =>
       ({ items: b.toMsgs(r.blocks), truncated: r.completeness?.kind === "truncated", ...(r.groups ? { groups: r.groups } : {}), ...(r.hint ? { hint: r.hint } : {}) }));
     if (read.state === "error") read = { ...read, error: sortProblem(read.error, sort, direction) };

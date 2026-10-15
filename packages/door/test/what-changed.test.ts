@@ -168,11 +168,25 @@ describe.skipIf(!outliner)("what changed", () => {
     expect(w.count()).toBe(1);
     w.markSeen();
     expect(w.count()).toBe(0);
-    expect(w.extCount()).toBe(1);
-    w.includeExt = true;
+    expect(w.machineryCount()).toBe(1);
+    w.showMachinery = true;
     expect(w.count()).toBe(1);
     for (let i = 0; i < 250; i++) w.heard(ev(1000 + i, `m${i}`, { author: "agent", actorId: "fern-agent" }));
     expect(w.count()).toBe(251);
+  });
+
+  test("a note a tool stamped [machine::…] is held back like an extension's write: counted apart, in the all count, shown when asked (PIE-867)", () => {
+    const w = new WhatChanged();
+    const ev = (sequence: number, blockId: string, machinery = false) => ({ domain: "content", action: "block.update", sequence, change: { sequence, changeId: sequence, action: "block.update", kind: "edit", blockId, actor: { author: "agent", actorId: "claude-code@float-2" }, ...(machinery ? { machinery: true } : {}), recordedAt: new Date().toISOString() } }) as any;
+    w.heard(ev(900, "gate"));
+    for (let i = 0; i < 3; i++) w.heard(ev(901 + i, `touch${i}`, true));
+    expect([w.count(), w.machineryCount(), w.allCount()]).toEqual([1, 3, 4]);
+    expect(w.list().map(r => r.blockId)).toEqual(["gate"]);
+    w.markSeen();
+    expect([w.count(), w.allCount()]).toEqual([0, 3]);
+    w.showMachinery = true;
+    expect(w.list().length).toBe(4);
+    expect(w.list().find(r => r.blockId === "touch0")?.machine).toBe(true);
   });
 
   test("changes already read remain visible if the host stops between feed pages", async () => {
@@ -198,5 +212,4 @@ describe.skipIf(!outliner)("what changed", () => {
       expect(visible).toEqual([first.id]);
     } finally { reader.close(); }
   }, 20_000);
-
 });

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Database } from "bun:sqlite";
+import { bookkeepingOnly, MACHINE_KEY, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import type { Block, BlockAuthor, ChangeFeedPage, MutationProvenance, OutlinerChange, OutlinerChangeKind } from "./types";
 
 export const CHANGE_FEED_DEFAULT_LIMIT = 200;
@@ -106,7 +107,20 @@ function change(row: ChangeRow): OutlinerChange {
 }
 
 function sameChange(left: OutlinerChange, right: OutlinerChange): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  // What the feed derives when it is read (machinery, bookkeeping) can differ between two reads of one row.
+  const stored = ({ machinery: _m, bookkeeping: _b, ...rest }: OutlinerChange) => rest;
+  return JSON.stringify(stored(left)) === JSON.stringify(stored(right));
+}
+
+/**
+ * What `machinery` adds to a feed query (PIE-867): `[sql, ...parameters]`. A change to a note a tool stamped
+ * `[machine::…]` is machinery, read now (a backfilled stamp covers the changes before it). Changes with no note
+ * (a sequence-only row) are never machinery.
+ */
+export function machineryClause(mode: MachineryMode, blockColumn: string): [string, ...string[]] {
+  if (mode === "show") return [""];
+  const stamped = `EXISTS (SELECT 1 FROM block_properties machine WHERE machine.block_id = ${blockColumn} AND machine.scope = 'block' AND machine.key = ? AND TRIM(machine.value) <> '')`;
+  return mode === "only" ? [` AND ${stamped}`, MACHINE_KEY] : [` AND NOT ${stamped}`, MACHINE_KEY];
 }
 
 /**
@@ -136,6 +150,26 @@ export class ChangeFeed {
   constructor(private readonly database: Database, private readonly currentSequence: () => number) {
     // The feed has no history before the sequence it starts at.
     if (this.metadata(FLOOR_KEY) === null) this.setMetadata(FLOOR_KEY, currentSequence());
+  }
+
+  /**
+   * A stored row as a change record. An edit that moved only `[key::value]` tokens (a stage move, a stamp, a sync) says
+   * `bookkeeping: true`: the words are as they were, read from the text each revision kept.
+   */
+  private describe(row: ChangeRow): OutlinerChange {
+    const record = change(row);
+    if (row.block_id === null) return record;
+    // A change to a note a tool stamped `[machine::…]` says so, as the feed is read now (PIE-867).
+    const stamped = this.database.query("SELECT 1 AS found FROM block_properties WHERE block_id = ? AND scope = 'block' AND key = ? AND TRIM(value) <> '' LIMIT 1").get(row.block_id, MACHINE_KEY) as { found: number } | null;
+    const marked = stamped ? { ...record, machinery: true as const } : record;
+    if (row.kind !== "edit" || row.revision === null || row.revision < 2) return marked;
+    // The text a revision had: the one a later save kept when it replaced it (the first row at or after it, since a save
+    // that left the text alone leaves no row), else the note's text now. A revision whose earlier text is gone is unknown.
+    const before = this.database.query("SELECT text FROM block_revisions WHERE block_id = ? AND revision = ?").get(row.block_id, row.revision - 1) as { text: string } | null;
+    if (!before) return marked;
+    const after = (this.database.query("SELECT text FROM block_revisions WHERE block_id = ? AND revision >= ? ORDER BY revision LIMIT 1").get(row.block_id, row.revision)
+      ?? this.database.query("SELECT text FROM blocks WHERE id = ?").get(row.block_id)) as { text: string } | null;
+    return after && bookkeepingOnly(before.text, after.text) ? { ...marked, bookkeeping: true } : marked;
   }
 
   get floor(): number {
@@ -265,11 +299,11 @@ export class ChangeFeed {
         new Date().toISOString(),
       ) as ChangeRow;
       this.prune(row.change_id);
-      return change(row);
+      return this.describe(row);
     })();
   }
 
-  since(sequence: number, limit = CHANGE_FEED_DEFAULT_LIMIT): ChangeFeedPage {
+  since(sequence: number, limit = CHANGE_FEED_DEFAULT_LIMIT, machinery: MachineryMode = "show"): ChangeFeedPage {
     if (!Number.isSafeInteger(sequence) || sequence < 0) {
       throw new Error("changes.since sequence must be a non-negative safe integer");
     }
@@ -282,16 +316,17 @@ export class ChangeFeed {
       this.verifyCoverage(sequence, current);
       const floor = this.floor;
       if (sequence < floor) return { kind: "reset", reason: "history-unavailable", oldestSequence: floor, sequence: current };
+      const [mode, ...modeParameters] = machineryClause(machinery, "change_feed.block_id");
       const rows = this.database.query(`
-        SELECT * FROM change_feed WHERE sequence > ? AND visible = 1 ORDER BY sequence, change_id LIMIT ?
-      `).all(sequence, limit + 1) as ChangeRow[];
+        SELECT * FROM change_feed WHERE sequence > ? AND visible = 1${mode} ORDER BY sequence, change_id LIMIT ?
+      `).all(sequence, ...modeParameters, limit + 1) as ChangeRow[];
       if (rows.length <= limit) {
         // Every sequence through `current` was checked, including hidden rows, so
         // the cursor advances to it. Stopping at the last visible row would leave
         // a client behind hidden activity until pruning resets it.
         return {
           kind: "changes",
-          changes: rows.map(change),
+          changes: rows.map(row => this.describe(row)),
           nextSequence: current,
           completeness: { kind: "complete" },
           sequence: current,
@@ -302,12 +337,12 @@ export class ChangeFeed {
       // A cursor is a sequence, so a page must end on a whole sequence.
       if (rows[limit]!.sequence === last.sequence) {
         page.push(...this.database.query(`
-          SELECT * FROM change_feed WHERE sequence = ? AND change_id > ? AND visible = 1 ORDER BY change_id
-        `).all(last.sequence, last.change_id) as ChangeRow[]);
+          SELECT * FROM change_feed WHERE sequence = ? AND change_id > ? AND visible = 1${mode} ORDER BY change_id
+        `).all(last.sequence, last.change_id, ...modeParameters) as ChangeRow[]);
       }
       return {
         kind: "changes",
-        changes: page.map(change),
+        changes: page.map(row => this.describe(row)),
         nextSequence: last.sequence,
         completeness: { kind: "truncated", limit },
         sequence: current,
@@ -340,7 +375,7 @@ export class ChangeFeed {
     const rows = this.database.query(
       `SELECT * FROM change_feed WHERE change_id IN (${changes.map(() => "?").join(", ")})`,
     ).all(...changes.map(entry => entry.changeId)) as ChangeRow[];
-    const byId = new Map(rows.map(row => [row.change_id, change(row)]));
+    const byId = new Map(rows.map(row => [row.change_id, this.describe(row)]));
     // AUTOINCREMENT ids of rolled-back rows can be reused, so compare the whole record.
     return changes.filter(entry => {
       const stored = byId.get(entry.changeId);

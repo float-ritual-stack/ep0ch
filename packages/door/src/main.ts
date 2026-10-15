@@ -141,6 +141,10 @@ ${LIBRARY_USAGE}
                                    which secrets (with-secrets groups) exist here, where, and who may have each:
                                    names, places and modes, never a value; check exits 1 when a key isn't there;
                                    set, grant and revoke are the person's (PIE-887; ep0ch keys with no word says more)
+  ep0ch machinery backfill [--ws <name>] [--apply] [--json]
+                                   stamp [machine::<producer>] on what tools wrote before they stamped (file
+                                   touches, EchoNet's logs and receipts, deliveries, prior art, backup runs): a dry
+                                   run says how many; --apply stamps them (PIE-867)
   ep0ch resource rebind <folder> [--ws <name>] [--json]
                                    read a file link's folder where it leads now, after a link in its path
                                    changed or another folder took its place: the command a refused file link
@@ -262,6 +266,12 @@ if (args[0] === "resource") {
 if (args[0] === "echo") {
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
   const run = Bun.spawn([process.execPath, cli, "echo", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
+}
+// Machinery (PIE-867): `ep0ch machinery backfill`, the outliner's own command.
+if (args[0] === "machinery") {
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "machinery", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));

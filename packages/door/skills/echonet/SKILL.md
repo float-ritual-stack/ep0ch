@@ -100,7 +100,7 @@ Nodes mail; they never write each other's notes (ADR 0005, `docs/adr/0005-agents
 1. `ep0ch echo areas --ws <reader>`: does the subscription list a board for the node, with copies or `waiting`?
 2. Is the tosser running? `ep0ch echo status --ws <reader>` ("tossed 4 min ago"; a warning with the command when it
    is late; `ep0ch doctor` says it too). A toss that moved nothing writes no log, so no new log isn't trouble.
-3. The last toss log (`outline_find` with `query: "type=toss"`; its `[at::]` says when): each node with a board, or
+3. The last toss log (`outline_find` with `query: "type=toss"`, `machinery: "show"`; its `[at::]` says when): each node with a board, or
    named outright, has a line saying what it saw, copied, held back, refused or couldn't reach; the netmail lines say
    what went out, came in or queued and why. A `*` mask's nodes without a matching area aren't said.
 4. The nodelist: `## <node>` sections, `- reachable`, `- unreachable: <why>`, or `- dials in · last call <when>` with
@@ -153,7 +153,7 @@ the owner to run the install lines above; don't run them for them unasked).
    [since::all] [cap::25]"}`. Use `[since::all]` only if they want the backlog; otherwise leave it out.
 3. Toss: ask them to run `ep0ch echo toss --ws pie`, or wait for the half-hour run.
 4. Check: `outline_read` the subscription with `depth: 2`: a board `gurgle@float-2 [echo-source::gurgle@float-2]` with
-   copies under it. If not, `outline_find {"query": "type=toss"}` and read the newest log's lines, then the table above.
+   copies under it. If not, `outline_find {"query": "type=toss", "machinery": "show"}` and read the newest log's lines, then the table above.
 5. Tell them what landed, linking the subscription (`((id|ep0ch requests))`), and that comments on a copy reach the
    gurgle's note at the next toss.
 

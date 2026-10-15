@@ -141,11 +141,11 @@ async function ask(host: LiveHost, question: FigureQuestion, note: string): Prom
     const items = await itemsOf(host, read.blocks);
     return { items, truncated: read.completeness?.kind === "truncated" || read.nextOffset !== undefined };
   }
-  const { where, limit, sort, direction, group } = question;
+  const { where, limit, sort, direction, group, machinery } = question;
   // Asked without a projection: the service's groups and hint come with whole blocks.
   let found: VisibleBlockCollection & { groups?: QuestionGroup[]; hint?: string };
   try {
-    found = await host.request({ action: "blocks.query", query: { where, this: note, limit, sort: `${sort} ${direction}`, ...(group ? { group } : {}) } });
+    found = await host.request({ action: "blocks.query", query: { where, this: note, limit, sort: `${sort} ${direction}`, ...(group ? { group } : {}), ...(machinery ? { machinery } : {}) } });
   } catch (e) { throw new Error(sortProblem((e as Error).message, sort, direction)); }
   const items = await itemsOf(host, found.blocks);
   const kept = new Set(items.map(item => item.id));

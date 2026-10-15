@@ -403,18 +403,18 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     expect(all.some(m => m.author === "ext:jira")).toBe(true);
     expect(people.some(m => m.author === "ext:jira")).toBe(false);
     expect(people.map(m => m.id)).toContain(n.call.id);
-    const before = { events: app.events, ext: app.extEvents };
+    const before = { events: app.events, ext: app.whatChanged.machineryCount() };
     app.event({ domain: "content", action: "ext.jira.sync", sequence: 1, change: { sequence: 1, changeId: 1, action: "ext.jira.sync", kind: "edit", blockId: "t", actor: { author: "agent", actorId: "ext:jira" }, recordedAt: "" } } as any);
     expect(app.events).toBe(before.events);
-    expect(app.extEvents).toBe(before.ext + 1);
+    expect(app.whatChanged.machineryCount()).toBe(before.ext + 1);
     const { SHELL_ACTIONS } = await import("../src/screens");
-    await expect(app.act({ action: "changes.extensions", as: "helper" })).rejects.toThrow("an agent reads changes itself");
-    const held = app.whatChanged.extCount();
-    await SHELL_ACTIONS.run("changes.extensions", { include: true }, { ctx: app as any }, { kind: "user" });
-    expect(app.extensionChanges).toBe(true);
+    await expect(app.act({ action: "changes.machinery", as: "helper" })).rejects.toThrow("an agent reads changes itself");
+    const held = app.whatChanged.machineryCount();
+    await SHELL_ACTIONS.run("changes.machinery", { include: true }, { ctx: app as any }, { kind: "user" });
+    expect(app.machineryChanges).toBe(true);
     expect(app.events).toBe(before.events + held);
-    await SHELL_ACTIONS.run("changes.extensions", {}, { ctx: app as any }, { kind: "user" });
-    expect(app.extensionChanges).toBe(false);
+    await SHELL_ACTIONS.run("changes.machinery", {}, { ctx: app as any }, { kind: "user" });
+    expect(app.machineryChanges).toBe(false);
     expect(app.events).toBe(before.events);
   }, 20_000);
 

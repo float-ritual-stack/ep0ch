@@ -73,6 +73,22 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     expect(s.top()).toBeInstanceOf(Conferences);
   });
 
+  test("the newscan line says every change and how many were by people (PIE-867), and a click on it opens the new scan", () => {
+    const d = door();
+    Object.assign(d.ctx, { events: 12, eventsAll: 73, lastCall: Date.parse("2026-10-13T03:02:00Z") });
+    const s = on(new MainMenu(), d);
+    expect(s.lines().join("\n")).toContain("since you logged on: 73 · 12 by people · last call");
+    s.click("12 by people");
+    expect(s.top()).toBeInstanceOf(MessageList);
+    expect(s.top().title).toBe("new scan");
+    // With nothing but people's changes it says the one number.
+    const quiet = door();
+    Object.assign(quiet.ctx, { events: 5, eventsAll: 5 });
+    const q = on(new MainMenu(), quiet);
+    expect(q.lines().join("\n")).toContain("since you logged on: 5 · last call");
+    expect(q.lines().join("\n")).not.toContain("by people");
+  });
+
   test("T Today and X Showcase, which have no slot in the art, are clickable on the key line", () => {
     const s = on(new MainMenu());
     const drawn = s.lines().slice(0, 23).join("\n");

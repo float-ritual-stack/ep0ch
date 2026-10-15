@@ -127,7 +127,9 @@ test("content events carry parent, revision, actor and kind while keeping existi
   // Tree relies on every outline change advancing the sequence.
   content.slice(1).forEach((event, index) => expect(event.sequence).toBeGreaterThan(content[index]!.sequence));
   // The live event and the durable feed entry are the same record.
-  expect(await readAll(client, start, 1000)).toEqual(changes);
+  // (`bookkeeping` and `machinery` are worked out from the note as the feed is read, which is gone once it is purged.)
+  const stored = (list: OutlinerChange[]) => list.map(({ bookkeeping: _b, machinery: _m, ...rest }) => rest);
+  expect(stored(await readAll(client, start, 1000))).toEqual(stored(changes));
   expect(store.sequence).toBe(content.at(-1)!.sequence);
 });
 

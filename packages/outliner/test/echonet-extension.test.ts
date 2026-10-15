@@ -51,7 +51,7 @@ function speaker(socket: string) {
   const children = (outline: string, parentId: string) => call<Block[]>(outline, { action: "children", parentId });
   const threads = (outline: string, blockId: string) =>
     call<Thread[]>(outline, { action: "annotations.list", query: { subject: { kind: "block", blockId }, includeResolved: true } });
-  const where = (outline: string, w: string) => call<{ blocks: Block[] }>(outline, { action: "blocks.query", query: { where: w } }).then((r) => r.blocks);
+  const where = (outline: string, w: string) => call<{ blocks: Block[] }>(outline, { action: "blocks.query", query: { where: w, machinery: "show" } }).then((r) => r.blocks);
   const edit = async (outline: string, blockId: string, change: (text: string) => string) => {
     const block = await get(outline, blockId);
     return call<Block>(outline, { action: "update", blockId, expectedRevision: block.revision, text: change(block.text), author: "user" });
@@ -399,7 +399,7 @@ test("netmail both ways; nothing bounces between nodes that read each other; an 
   expect(await toss("cafe")).toContain("undeliverable 1");
   const note = (await where("cafe", "type=echo-undeliverable"))[0]!;
   expect(note.parentId).toBe(copy.parentId);
-  expect(note.text).toContain(`Undeliverable: “still there?” [type::echo-undeliverable] [echonet::cafe@${machine}] [netmail::${late.id}]`);
+  expect(note.text).toContain(`Undeliverable: “still there?” [type::echo-undeliverable] [echonet::cafe@${machine}] [machine::echonet] [netmail::${late.id}]`);
   expect(note.text).toContain(`Netmail on ((${copy.id}))`);
   expect(await toss("cafe")).toContain("undeliverable 0");
   // Back from Trash, the original gets nothing that was left undeliverable.
@@ -643,7 +643,7 @@ test("one node, one name: a machine given a name keeps its marks made under its 
   await far.toss("field");
   expect(await far.threads("field", hedge.id)).toHaveLength(2);
   const nodelist = (await where("cafe", "type=nodelist"))[0]!.text;
-  expect(nodelist).toStartWith("Nodelist [type::nodelist] [node::cafe@box-a]");
+  expect(nodelist).toStartWith("Nodelist [type::nodelist] [machine::echonet] [node::cafe@box-a]");
   expect(nodelist).toContain(`## cafe@box-a\n- this node\n- also known as: cafe@${hostForm}`);
   // One node, one heading: what it reads of ours and what we read of its, under the name the cafe reaches it by.
   expect(nodelist).toContain(`## field@box-b\n- reachable · we read its field.*, reads our areas\n- also known as: field@${hostForm}`);

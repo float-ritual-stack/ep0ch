@@ -1,3 +1,4 @@
+import { DEFAULT_MACHINERY, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import {
   BlockQuerySyntaxError,
   compileQueryExpression,
@@ -82,6 +83,8 @@ export interface VirtualBranchConfig {
   sort: BlockQuerySort | null;
   /** The view's `[sort::]` and `[direction::]` as written, for the refusal that names them (handOrderRefusal). */
   sortWritten?: string[];
+  /** The view's `[machinery::]`: hide (the default), only or show. */
+  machinery?: MachineryMode;
   limit: number;
   create: BlockProperty | null;
   createParentId: string | null;
@@ -291,6 +294,14 @@ export function parseVirtualBranchConfig(
     }
   }
 
+  // Machinery (PIE-867): a view leaves out what tools stamped `[machine::…]` unless its note says `[machinery::show]`
+  // (or `only`): the file-touch and backup views hold nothing but that.
+  const machineryProperty = singleProperty(definition, "machinery", false, configurationErrors);
+  let machinery: MachineryMode = DEFAULT_MACHINERY;
+  if (machineryProperty) {
+    try { machinery = parseMachineryMode(machineryProperty.value, "Virtual branch machinery"); } catch (error) { configurationErrors.push(errorMessage(error)); }
+  }
+
   const depthProperty = singleProperty(definition, "child-depth", false, configurationErrors);
   const childDepth = depthProperty ? Number(depthProperty.value) : undefined;
   if (childDepth !== undefined && (!/^\d+$/.test(depthProperty!.value) || !Number.isInteger(childDepth) || childDepth < 0 || childDepth > 8)) {
@@ -368,6 +379,7 @@ export function parseVirtualBranchConfig(
       ...(where ? { where } : {}),
       sort,
       ...(sortWritten ? { sortWritten } : {}),
+      ...(machineryProperty ? { machinery } : {}),
       limit,
       ...(expandWhen ? {expandWhen} : {}),
       ...(childDepth === undefined ? {} : {childDepth}),
@@ -667,11 +679,12 @@ interface ProjectedVirtualBranch<T extends ProjectionBlock = VisibleBlock> {
 /** The canonical query whose results a saved view ranks, deduplicates and bounds. */
 export function virtualBranchMembershipQuery(
   viewId: string,
-  config: Pick<VirtualBranchConfig, "filters" | "where" | "sort">,
+  config: Pick<VirtualBranchConfig, "filters" | "where" | "sort" | "machinery">,
   limit: number = MAX_BLOCK_QUERY_LIMIT,
 ): BlockSearchQuery {
   return {
     filters: config.filters,
+    machinery: config.machinery ?? DEFAULT_MACHINERY,
     ...(config.where ? { predicate: config.where } : {}),
     ...(config.sort ? { sort: config.sort } : { rankViewId: viewId }),
     limit,

@@ -575,7 +575,7 @@ export const SECTIONS: Section[] = [
       const plan = RECENT_FILES()[0]!;
       return deskOf({ title: "showcase · resource comments", panes: [note, res], layout: ([a, b]) => row(0.4, a!, b!) }, show, [], d => {
         void (async () => {
-          const block = (await d.ctx.board.byProp("file", plan.file, 1))[0];
+          const block = (await d.ctx.board.byProp("file", plan.file, 1, "show"))[0];
           if (!block) return;
           note.show(block, d);
           const opened = await openResource(d.ctx.board, { reference: { kind: "filesystem", path: plan.file } }, USER, block.id);
@@ -664,6 +664,17 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane();
       return deskOf({ title: "showcase · gallery", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.gallery]]);
+    },
+  },
+  {
+    key: "machinery", need: "leave out what tools write for their own bookkeeping (tosses, file touches, deliveries, backup runs) so a list shows what people wrote, and find it again when you want it",
+    part: "machinery (outline-core machinery.ts, PIE-867): a producer stamps its records [machine::<producer>]; one flag, machinery: hide|only|show, on blocks.query, tree.search, activity.recent, changes.since and a saved view's [machinery::] answers it in the service, and the door only passes it on. The main menu's newscan line reads \"73 · 12 by people\" (every change since logon, and the part that is not machinery); a click on it is the N key. The what-changed list and the status bar's +N machine hold it back until changes.machinery shows it. ep0ch machinery backfill stamps what was written before",
+    files: "outline-core/src/machinery.ts, outliner src/block-query.ts (queryPredicate), src/change-feed.ts (machineryClause, bookkeeping), src/store.ts (recentEditActivity, searchTree), src/virtual-branches.ts, src/machinery-backfill.ts, src/desk/what-changed.ts, src/screens.ts (MainMenu, changes.machinery)",
+    aside: "one question asked twice, of the same chores, tosses, backup runs and file touches: left, the people's view (machinery hidden, the default); right, the same query with [machinery::only]. The view notes carry nothing but their query; the stamps are on the tools' own notes",
+    stage(n, show) {
+      const people = new ReaderPane(), tools = new ReaderPane();
+      return deskOf({ title: "showcase · machinery", panes: [people, tools], names: ["people", "tools"],
+        layout: ([a, b]) => row(0.5, a!, b!) }, show, [[people, n.machineryPeople], [tools, n.machineryTools]]);
     },
   },
   {
