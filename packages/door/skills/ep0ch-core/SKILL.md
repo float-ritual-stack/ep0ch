@@ -189,6 +189,10 @@ tmux kill-session -t try; ../../scripts/agent-env me --clean   # then check no h
   into a Herdr pane you didn't make; kill only your own pids.
 - **Short paths.** Unix sockets fail past about 104 bytes. The scratchpad folders agents get are too long:
   agent-env's `~/.agent-env/<name>/` is short, or use `mktemp -d /tmp/…`.
+- **Cleaning up.** `scripts/scratch-clean <dir>…` removes a `mktemp -d`, an agent-env tmp folder or a finished worktree
+  (`~/wt/<name>`, through `git worktree remove`) and refuses any other path with why; `scripts/agent-env <name> --clean`
+  is the whole agent's folders. Never `rm -rf` in a command: Claude Code's dangerous-command check can stop it for a
+  permission prompt even under bypass, and the prompt waits in loki's session.
 - **Mode 700.** The door serves no control socket in a folder others can reach, and says why.
 - **SGR mouse** is `ESC [ < button ; col ; row M` for a press and `… m` for the release, 1-based; drags
   add 32 to the button. In Herdr, `herdr pane send-text <pane> …` sends the same bytes.

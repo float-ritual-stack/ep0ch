@@ -13,7 +13,7 @@ disagreements with evidence and plans the fixes.
 
 ## Read-only means
 
-- No file edits in any checkout, and no shell command that writes one. Scratch files go in a `mktemp -d` of your own.
+- No file edits in any checkout, and no shell command that writes one. Scratch files go in a `mktemp -d` of your own (remove it with `scripts/scratch-clean <dir>`, never `rm -rf`).
 - Read other branches with `git show <ref>:<path>` and `git diff <a>...<b>`, not a checkout.
 - To confirm a behaviour, you may run a focused test or a scratch door under `scripts/agent-env <your name> --test -- …`
   (never `--parallel`, never a whole suite on float-2, never updating snapshots), and never against a real outline or the person's door.

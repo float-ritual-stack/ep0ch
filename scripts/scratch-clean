@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Remove scratch directories without an `rm -rf` in the command line (Claude Code's dangerous-command check stops
+# on one, even under bypass permissions, and a builder's prompt lands in the deployer's session). Only these go:
+#
+#   /tmp/claude-<uid>/…         a Claude session's scratchpad and tmp folders
+#   /tmp/ep0ch-agent-<uid>/…    an agent-env temp folder (EP0CH_AGENT_TMP moves it)
+#   ~/.agent-env/…              an agent-env folder (EP0CH_AGENT_ROOT moves it); `scripts/agent-env <name> --clean` is the whole-agent form
+#   ~/wt/<name>                 a git worktree: removed with `git worktree remove --force`, so git forgets it too
+#
+# scripts/scratch-clean <dir>...
+#
+# Anything else is refused with why, and nothing is removed: the root folders themselves, a path with `..`, a ~/wt
+# folder that isn't a worktree, a link pointing out of the roots. A path that is already gone is fine.
+set -euo pipefail
+
+[ $# -ge 1 ] || { sed -n '12,12p;2,3p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+uid=$(id -u)
+scratch_roots=("/tmp/claude-$uid" "${EP0CH_AGENT_TMP:-/tmp}/ep0ch-agent-$uid" "${EP0CH_AGENT_ROOT:-$HOME/.agent-env}")
+wt_root=${EP0CH_WORKTREES:-$HOME/wt}
+status=0
+
+refuse() { echo "scratch-clean: refused $1: $2" >&2; status=1; }
+
+under() { case $2 in "$1"/?*) return 0;; esac; return 1; }
+
+# Everything is checked first: one refused path and nothing is removed.
+dirs=(); trees=()
+for arg in "$@"; do
+  case $arg in
+    '') refuse "an empty path" "nothing to remove"; continue;;
+    ..|*/..|../*|*/../*) refuse "$arg" "a path with .. can leave the scratch roots; name the folder itself"; continue;;
+  esac
+  # The folder's parent resolved (symlinks and all), its own name kept: a link to elsewhere is removed as a link.
+  case $arg in "~") arg=$HOME;; "~/"*) arg=$HOME/${arg#"~/"};; esac
+  parent=$(dirname -- "$arg")
+  if [ ! -d "$parent" ]; then
+    if [ -e "$arg" ] || [ -L "$arg" ]; then refuse "$arg" "its folder isn't there"; fi
+    continue
+  fi
+  full=$(cd -- "$parent" && pwd -P)/$(basename -- "$arg")
+  ok=0
+  for r in "${scratch_roots[@]}"; do
+    rr=$(cd -- "$r" 2>/dev/null && pwd -P) || continue
+    under "$rr" "$full" && ok=1
+  done
+  if [ $ok = 1 ]; then dirs+=("$full"); continue; fi
+  wr=$(cd -- "$wt_root" 2>/dev/null && pwd -P) || wr=
+  if [ -n "$wr" ] && [ "$(dirname -- "$full")" = "$wr" ]; then
+    [ -e "$full" ] || [ -L "$full" ] || { echo "scratch-clean: $full is already gone"; continue; }
+    [ ! -L "$full" ] || { refuse "$full" "it is a link; a worktree is removed by its own folder"; continue; }
+    if [ -f "$full/.git" ]; then trees+=("$full"); else refuse "$full" "it isn't a git worktree (a worktree's .git is a file)"; fi
+    continue
+  fi
+  refuse "$arg" "it is not under ${scratch_roots[*]} or a folder of $wt_root. Scratch files belong in a mktemp -d under \$TMPDIR; anything else is for the person to remove"
+done
+[ $status = 0 ] || { echo "scratch-clean: nothing was removed" >&2; exit 1; }
+for full in ${dirs[@]+"${dirs[@]}"}; do rm -rf -- "$full"; echo "scratch-clean: removed $full"; done
+for full in ${trees[@]+"${trees[@]}"}; do
+  common=$(git -C "$full" rev-parse --path-format=absolute --git-common-dir)
+  git --git-dir="$common" worktree remove --force -- "$full" && echo "scratch-clean: removed worktree $full" || status=1
+done
+exit $status

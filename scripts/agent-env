@@ -8,6 +8,7 @@
 #   scripts/agent-env <name> --test -- <cmd …>   the same, queued for a test slot and capped (CPU, memory)
 #   scripts/agent-env <name> --print             the settings, as export lines for a shell
 #   scripts/agent-env <name> --clean             remove the agent's folder
+#   (any other scratch folder: scripts/scratch-clean <dir>)
 #
 # The folder is $EP0CH_AGENT_ROOT/<name> (default ~/.agent-env/<name>, mode 700), short enough for sockets; its temp
 # folder is $EP0CH_AGENT_TMP/ep0ch-agent-<uid>/<name> (default under /tmp, outside $HOME and its ~/.ep0ch). The
@@ -23,7 +24,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
-usage() { sed -n '6,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n "6,9p" "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 [ $# -ge 1 ] || usage
 name=$1; shift
 case $name in ''|*/*|.*|-*) echo "agent-env: a name is letters, digits, - and _ (got \"$name\")" >&2; exit 2;; esac

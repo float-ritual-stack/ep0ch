@@ -14,7 +14,7 @@ and note your findings go under. You change nothing in the repository.
 ## Read-only means
 
 - No file edits anywhere in a checkout, and no shell command that writes one (no redirects into the repo, `sed -i`,
-  `git commit`, `git checkout`, `bun install`). Scratch files go in a `mktemp -d` of your own.
+  `git commit`, `git checkout`, `bun install`). Scratch files go in a `mktemp -d` of your own (remove it with `scripts/scratch-clean <dir>`, never `rm -rf`).
 - Read the code where it is; to read another branch, use `git show <ref>:<path>` rather than a checkout.
 - Run nothing that starts a door or a host, unless the brief asks; if it does, under `scripts/agent-env <your name> -- …`.
 - Besides scratch files, the one write you make is the findings note, where the brief says. No other change to a
