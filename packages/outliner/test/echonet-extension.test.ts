@@ -762,3 +762,16 @@ test("ep0ch echo: subscribe writes a subscription, toss runs the tosser, areas r
   expect(cafe.out).toContain(`cafe reads:\n  recon from shack@${machine}  (recon from shack@${machine}; since all, cap 10)\n    shack@${machine}: 1 copies`);
   expect(cafe.out).toContain(`Other nodes, as the nodelist last saw them:\n  shack@${machine}: ideas (1 posted); recon (Recon)`);
 }, 60_000);
+
+test("a ledger written before the echonet mark gets it on the next toss, with no entry changed (PIE-868)", async () => {
+  const { toss, where, call, get } = await setup();
+  await toss("shack");
+  const ledger = (await where("shack", "type=echo-ledger"))[0]!;
+  expect(ledger.text.split("\n")[0]).toContain("[echonet::");
+  // As an older tosser left it: the same ledger without the mark.
+  const old = ledger.text.replace(/ \[echonet::[^\]]*\]/, "");
+  await call("shack", { action: "update", blockId: ledger.id, text: old, expectedRevision: ledger.revision, author: "user" });
+  expect((await get("shack", ledger.id)).text).not.toContain("[echonet::");
+  await toss("shack");
+  expect((await get("shack", ledger.id)).text.split("\n")[0]).toContain("[echonet::");
+}, 60_000);
