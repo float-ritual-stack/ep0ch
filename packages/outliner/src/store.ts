@@ -1,6 +1,6 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { isLinkValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
-import {handOrderRefusal, isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
+import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
@@ -3934,7 +3934,7 @@ export class OutlinerStore {
           .map(problem => ({ code: "view-invalid", ...problem })));
       }
       const effectiveLimit = limit ?? parsed.config.limit;
-      Object.assign(result, { configuredLimit: parsed.config.limit, effectiveLimit, offset });
+      Object.assign(result, { configuredLimit: parsed.config.limit, effectiveLimit, childDepth: parsed.config.childDepth ?? VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, offset });
       let selected: VirtualBranchMembers<VisibleBlock>;
       try {
         const query = normalizeBlockSearchQuery(virtualBranchMembershipQuery(viewId, parsed.config, 1));

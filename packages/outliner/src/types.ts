@@ -1659,6 +1659,8 @@ export interface SavedViewReadResult<B = VisibleBlock> {
   sequence: number;
   configuredLimit?: number;
   effectiveLimit?: number;
+  /** How many levels of children each member shows under it: the view's `[child-depth::]`, else the default (PIE-882). */
+  childDepth?: number;
   offset?: number;
   /** Every eligible member of the view, beyond the authored limit and this page. */
   total?: number;
