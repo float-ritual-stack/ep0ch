@@ -376,6 +376,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const trashed = await tool("outline_trash", { uri: uri("dup"), revision: read.revision });
     expect(trashed.json).toMatchObject({ outcome: "applied", uri: uri("dup"), by: "chat.example.test" });
     expect((await board.request<{ deletedAt?: string }>("get", { blockId: ids.dup })).deletedAt).toBeDefined();
+    expect((await tool("outline_trash", { uri: uri("dup"), revision: read.revision })).json).toMatchObject({ outcome: "unchanged" });
     const restored = await tool("outline_restore", { uri: uri("dup") });
     expect(restored.json, restored.text).toMatchObject({ outcome: "applied", uri: uri("dup") });
     expect((await board.request<{ deletedAt?: string }>("get", { blockId: ids.dup })).deletedAt).toBeUndefined();

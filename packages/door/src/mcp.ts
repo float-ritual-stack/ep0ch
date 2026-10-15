@@ -997,10 +997,10 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
   if (tool === "outline_assign_id") { const why = assignIdRefusal(status.level); if (why) return toolError(why); }
   if (tool === "outline_restore") { const why = restoreRefusal(status.level); if (why) return toolError(why); }
-  // A trashed note has no record in a read; outline_restore is the one write that is about one.
+  // A trashed note has no record in a read; outline_restore is about one, and outline_trash on one answers unchanged.
   const found = (await board.records([target.id])).records.find(r => r.id === target.id);
   if (!found && tool === "outline_restore" && target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: a trashed note isn't in its mirror, so outline_restore isn't queued; restore it there.`);
-  const record = found ?? (tool === "outline_restore" ? { id: target.id, text: "", revision: undefined } : undefined);
+  const record = found ?? (tool === "outline_restore" || (tool === "outline_trash" && !target.home) ? { id: target.id, text: "", revision: undefined } : undefined);
   if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`);
   const actor = actorOf(caller);
   // How old the base a write was made against is: a mirror lags the laptop, so a revision read from it may be behind.
