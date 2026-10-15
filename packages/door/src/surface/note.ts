@@ -6755,7 +6755,7 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
 
 export const NOTE_ACTIONS = actionSet<On>()("note", {
   "rich.toggle": def({
-    summary: "edit components where they are drawn, or return to raw source; both views use the same draft",
+    summary: "switch rich/raw edit; both views use the same draft",
     keys: "ctrl+o while editing, esc in rich edit", touches: "draft", draft: "type", replay: "safe",
     menu: noteRow("rich edit", "", {}),
     args: { on: { type: "boolean", optional: true, about: "rich view on or off" } },
@@ -6767,7 +6767,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "rich.move": def({
-    summary: "move between a component's fields; up/down leave a table at its edges",
+    summary: "move between cells; up/down leave a table at its edges",
     keys: "tab, shift+tab, up, down, enter in rich edit", touches: "draft", draft: "type", replay: "ask",
     args: { direction: { type: "string", about: "next, previous, up, down, left or right" } },
     run({ direction }, { surface, host }) {
@@ -6777,7 +6777,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "rich.erase": def({
-    summary: "delete an escaped character without breaking its cell",
+    summary: "erase a cell character; keep its delimiters",
     keys: "backspace, delete in rich edit", touches: "draft", draft: "type", replay: "ask",
     args: { backward: { type: "boolean", about: "delete before the cursor" } },
     run({ backward }, { surface, host }, actor) {

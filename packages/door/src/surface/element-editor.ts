@@ -291,7 +291,7 @@ export class ElementEdit {
         let text = d.lines[f.line]!.slice(f.start, f.end);
         if (f.line === d.row && d.col >= f.start && d.col <= f.end) {
           const offset = d.col - f.start;
-          text = text.slice(0, offset) + "▏" + text.slice(offset);
+          text = text.slice(0, offset) + "│" + text.slice(offset);
           text = SELECT_BG + text + RESET;
         }
         return text;
