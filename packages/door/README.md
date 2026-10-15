@@ -2055,6 +2055,19 @@ draws the note's body through the surface's renderer inside its own column (its 
 the river's; folds and elements are the reader's), so `[ ]` steps its links, embeds and steps, `⏎` or `alt+⏎`
 opens a link or an embed beside or in a new column, and a step's box opens its status choice.
 
+### Editing tables where they are drawn
+
+Choose **rich edit** in a reader tile's menu, or press **Ctrl+O** in its edit.
+Click a cell, use **Tab / Shift+Tab** between cells or **Up / Down** between rows, and type.
+**Alt+R / Alt+D** add/remove a row; **Alt+V / Alt+X** add/remove a column.
+The buttons above the table do the same. **Ctrl+Z** undoes and **Ctrl+S** saves.
+**Ctrl+O** or **[raw]** returns to source on the same draft.
+
+Markdown tables and static `::graph-table` flow-array rows work, including tables an agent streams into
+the draft. Query tables and other component formats keep raw editing as the escape hatch.
+Try `ep0ch --showcase`, `act section name=rich-edit`.
+The [adapter contract](docs/UI-GRAMMAR.md#rich-component-editing-pie-593) explains the door-side extension seam.
+
 ### Extensions in a note
 
 An extension the outline service runs ([the outliner's extensions guide](../outliner/docs/extensions/README.md), PIE-507) answers a

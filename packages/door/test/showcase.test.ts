@@ -427,6 +427,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
     // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
     "facets": ["#frost-jobs", "uses▾", "facets"],
+    "rich-edit": ["Seed inventory", "Beans", "Packets"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -3228,6 +3229,36 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       if ((app as any).bar) press({ kind: "esc" });
       if (S().focus === "stage") press({ kind: "esc" });
     }
+  }, 20_000);
+
+  test("rich-edit: edit both tables through actions, undo, save and read back", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "rich-edit" }, as: "rich-builder" });
+    screen();
+    await app.act({ action: "rich.toggle", args: { on: true }, as: "rich-builder" });
+    expect(screen()).toContain("[+row]");
+    await app.act({ action: "rich.move", args: { direction: "down" }, as: "rich-builder" });
+    await app.act({ action: "rich.move", args: { direction: "next" }, as: "rich-builder" });
+    await app.act({ action: "rich.set", args: { value: "6" }, as: "rich-builder" });
+    for (const op of ["row.add", "row.remove", "column.add", "column.remove"]) {
+      await app.act({ action: "rich.change", args: { op }, as: "rich-builder" });
+    }
+    await app.act({ action: "rich.change", args: { op: "column.add" }, as: "rich-builder" });
+    await app.act({ action: "draft.undo", as: "rich-builder" });
+    await app.act({ action: "rich.toggle", args: { on: false }, as: "rich-builder" });
+    await app.act({ action: "rich.toggle", args: { on: true }, as: "rich-builder" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "rich-edit")).top;
+    const reader = [...desk.panes.values()][0] as ReaderPane;
+    const draft = reader.surface.draft!;
+    const { elementEdit } = await import("../src/surface/element-editor");
+    const graph = elementEdit(draft).elements()[1]!;
+    await app.act({ action: "draft.place", args: { line: graph.fields[1]![1]!.line + 1, col: graph.fields[1]![1]!.start + 1 }, as: "rich-builder" });
+    await app.act({ action: "rich.set", args: { value: "5" }, as: "rich-builder" });
+    await app.act({ action: "edit.save", as: "rich-builder" });
+    const saved = await board.get(seeded.notes.richEdit.id);
+    expect(saved?.text).toContain("| Beans | 6 |");
+    expect(saved?.text).toContain('["Lettuce", "5"]');
+    expect(reader.surface.draft).toBeNull();
   }, 20_000);
 
   test("edit (PIE-626): completion on every line: a property's value and a filter's words, through act, from the same completer", async () => {

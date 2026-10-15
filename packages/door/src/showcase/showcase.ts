@@ -910,6 +910,16 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · tags", panes: [t, r], names: ["tags", "reader"], layout: ([x, y]) => row(0.45, x!, y!) }, show, [[r, n.notebook]], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
+  {
+    key: "rich-edit", need: "edit component fields where they are drawn, using the same draft as raw edit",
+    part: "ElementEditor source spans and drawing over DraftSession; Markdown tables and static graph-table rows, one history and one cursor, including streamed draft patches",
+    files: "src/surface/element-editor.ts, src/surface/note.ts, outline-core/src/table-shape.ts",
+    aside: "open the tile menu's rich edit, or edit then ctrl+o · click a cell or Tab/Shift+Tab and ↑↓ between cells · type, select and delete with the draft's editor · alt+r adds a row, alt+d removes it, alt+v adds a column, alt+x removes it; the buttons do the same · ctrl+z undoes, ctrl+s saves · ctrl+o or [raw] returns to source on the same draft",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · rich edit", panes: [r] }, show, [[r, n.richEdit]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */

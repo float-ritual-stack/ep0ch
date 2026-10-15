@@ -95,6 +95,8 @@ three layout models and four searches (§4).
 | list, find and press the desk's `^W` keys; keep the keys box, the hint row, the tile menu and the power bar saying the same (PIE-704) | the **`^W` key table** (`src/desk/wkeys.ts`, `W_KEYS`): one row per key after `^W`, each with its action, group and (for the short box) a word; `Desk.command` reads its binding there, `Desk.wRows` joins each key's label and summary from its action's def (`Dispatcher.defOf`: the table's own label, else the tile menu's `ctrl+w <key>` row, else the summary), `wBoxLines` draws the keys box, and the power bar's `>actions` scope on the `^W` prefix lists them (`wKeyRows`, `^W ?`). A new `^W` key is a row there, with its action; its binding, hint, menu row and bar row follow | a second hand-written hint string; a key bound in `Desk.command` and not in the table (`test/wkeys.test.ts` fails on both); a popup of the desk's own for the same list | the `wkeys` section |
 | reach the door's own actions from anywhere, even while typing in a draft or a terminal tile; see exactly what a chord arrives as (PIE-699) | the **hyper layer**: ⌃⌥⇧⌘ held together (Kitty modifiers 15), read by `reportKey` as a `hyper` key only while the layer is on (off by default: `EP0CH_HYPER=1` or `hyper.set`), taken by the App before any tile's keys (and by the decoder before a terminal tile's program), each chord pressing an existing action through the door's dispatcher; the whole keymap is `HYPER_KEYS`; hints and the power bar show `✦`. **`keys.probe`** describes the next keys instead of running them: their bytes, modifiers and the key the door read | `src/hyper.ts`, `src/key-probe.ts`, `src/kbd.ts` (`reportKey`), `src/term.ts` (`KeyDecoder`), `src/app.ts` (`App.hyper`, `probeKeys`); the hyper section of the showcase |
 
+| edit a component where it is drawn | `ElementEdit` projects the existing `DraftSession.draft`; `ElementEditor` adapters map fields to source spans and supply drawing and structural edits. Markdown tables use outline-core's `table-shape` for both reading and editing; static graph-table flow rows use the same table drawing. `rich.*` actions own keys, clicks and agent requests, and `Ctrl+O` returns to raw source on that draft. | `src/surface/element-editor.ts`, `src/surface/note.ts`, `outline-core/src/table-shape.ts`; the rich-edit showcase |
+
 - **Don't copy the parallel versions:** the `colourBody` bodies left in the desk's search preview and
   the river's cards (F1), the river's pane code (F2), the extra searches (F6).
 - **Don't re-derive meaning the service owns** (view membership, property parsing, query evaluation,
@@ -683,6 +685,36 @@ Rules that follow from the audit:
 - **Pane operations use one key layer** across views.
 - **Extensions register actions into `ActionSet`s.** They don't intercept keys before the
   shell does.
+
+### Rich component editing (PIE-593)
+
+The reader's edit mode has two views of one draft. The tile menu's **rich edit** opens the drawn view;
+**Ctrl+O** switches views. **Tab / Shift+Tab**, **Up / Down**, or a click selects a field.
+**Alt+R / Alt+D** add/remove a row; **Alt+V / Alt+X** add/remove a column; the top buttons do the same.
+Alt+C remains copy. Ctrl+S, Ctrl+Z and raw editing retain the session's save and undo paths.
+The wheel and PageUp/PageDown scroll without moving the cell cursor.
+
+A Markdown table and a static `::graph-table` with `headers: [a, b]` and `rows:` followed by
+flow-array rows are editable. Query-backed tables remain service projections; edit their source notes.
+Other YAML layouts and malformed components remain available through raw edit. Entering rich edit
+does not rewrite source. A cell edit preserves the surrounding source; a graph-table structural edit
+rewrites its headers and rows as JSON flow arrays while retaining the other properties.
+
+The door-side adapter contract is exported by `src/surface/element-editor.ts`:
+
+- Register `{ id, read(lines): EditableElement[] }` with `registerElementEditor`; its return value unregisters it.
+- Return each element's half-open source-line range and its rows of fields. Each field gives its source line,
+  half-open UTF-16 offsets, value, and optionally its own encoder/decoder and escape pattern. A field with
+  trailing padding gives `paddingEnd` so typing spaces stays in that field. The component supplies a default encoder.
+- `draw(values, width)` calls the component's renderer and reports the field rectangles it drew.
+  `drawTableFields` is the shared table renderer adapter.
+- `change(op, row, col, to)` returns replacement lines for this element, or null for an unavailable operation.
+  It never saves or retains a second buffer. The draft owns selection, history, attribution and incoming patches.
+
+The Markdown and graph-table adapters implement this contract. This is a door-side TypeScript registration
+seam, not a new subprocess-extension loading protocol. Adapters read current draft lines on every paint and action,
+so an agent's `draft.patch` is immediately editable. Draft owns caret relocation; the rich viewport compensates
+for inserted rows above its current cell. Returning to raw uses the same source and caret.
 
 ### The reusable editing component
 
