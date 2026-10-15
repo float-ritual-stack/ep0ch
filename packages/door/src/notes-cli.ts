@@ -29,7 +29,7 @@ import { previewTitle, SocketBoard, type IndexBlock } from "./socket";
 import { readState } from "./state";
 import { MARKS, TAGS, visible } from "./style";
 import { NoteSurface, type SurfaceHost } from "./surface/note";
-import { blockIdOf, paintable, printable } from "./text";
+import { blockIdOf, isWholeBlockId, paintable, printable } from "./text";
 import { setTheme, startTheme } from "./theme";
 import type { Ctx } from "./app";
 import { recordJson } from "@ep0ch/outline-core/block-record";
@@ -42,6 +42,8 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    Goto, the door's / and (( use, asked from no note and without Jev; at
                                    most 30); --recent, its newest 30; --tree, the outline (or the notes under
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
+                                   A <note> here is an id, ((id)), an id's first 8+ characters, a Work ID of
+                                   any prefix the outline has (PIE-870) or a [[page]], resolved by the service.
                                    --query takes the saved views' grammar, evaluated by the outline
                                    ("type=chore area=garden", OR, NOT, ( ), created/updated ranges such as
                                    "updated >= -7d", and any property compared as a date, number or text:
@@ -244,12 +246,38 @@ export const selectionQuery = (s: Pick<Selection, "query" | "dates">) =>
 export const selects = (s: Selection) => !!(s.query || s.view || s.under || s.dates.length || s.words.length);
 
 /**
+ * Notes named as a person types them (PIE-875): a whole id or ((id)) needs no question; a short id, a Work ID of any
+ * prefix the outline has or a [[page]] goes to the service's one resolver (`blocks.resolve`), which says why not, with a
+ * did-you-mean. Each answer is an id or the refusal's words, in the order given.
+ */
+export async function resolveNotes(board: SocketBoard, refs: string[]): Promise<({ id: string } | { error: string })[]> {
+  const ask = refs.filter(r => !isWholeBlockId(r));
+  const answered = new Map<string, { id?: string; error?: string }>();
+  if (ask.length) for (const r of await board.resolveRefs(ask)) answered.set(r.ref, r);
+  return refs.map(r => {
+    if (isWholeBlockId(r)) return { id: blockIdOf(r).trim().toLowerCase() };
+    const a = answered.get(r);
+    return a?.id ? { id: a.id } : { error: a?.error ?? `no note ${r} in this outline` };
+  });
+}
+
+/** `resolveNotes` for one ref. */
+async function resolveNote(board: SocketBoard, ref: string): Promise<{ id: string } | { error: string }> {
+  return (await resolveNotes(board, [ref]))[0]!;
+}
+
+/**
  * The notes a selection names, in order: the ids given, then a view's members in the view's order (narrowed by the
  * query, the subtree and words through `query.matches`), or else the notes a query, a subtree and words hold for, in
  * outline order (`blocks.query`). The outline evaluates all of it. `truncated` says what was cut at its limits.
  */
 export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string } | { error: string }> {
-  const ids = s.ids.map(blockIdOf);
+  const named = await resolveNotes(board, [...s.ids, ...(s.view ? [s.view] : []), ...(s.under ? [s.under] : [])]);
+  const bad = named.find((n): n is { error: string } => "error" in n);
+  if (bad) return { error: bad.error };
+  const ids = named.slice(0, s.ids.length).map(n => (n as { id: string }).id);
+  if (s.view) s = { ...s, view: (named[s.ids.length] as { id: string }).id };
+  if (s.under) s = { ...s, under: (named.at(-1) as { id: string }).id };
   const expression = selectionQuery(s), text = s.words.join(" ").trim() || undefined;
   const filtered = !!(expression || text || s.under || s.sort);
   let truncated: string | undefined, hint: string | undefined;
@@ -305,7 +333,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   const asked = !!(sel.query || sel.view || sel.under || sel.sort || sel.dates.length);
   // --tree takes the root's id as its value when one follows.
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
-  const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? blockIdOf(args[treeAt + 1]!) : undefined;
+  const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? args[treeAt + 1]! : undefined;
   const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids"]);
   // --recent and --tree keep their own order: a refusal names what it was given and the same find without them (a
   // --tree root becomes --under, which lists a subtree in outline order).
@@ -320,7 +348,13 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     if (tree) {
-      const rows = withUris(board, treeOf(await board.index(), root) ?? []);
+      let rootId = root;
+      if (root !== undefined) {
+        const named = await resolveNote(board, root);
+        if ("error" in named) { io.err(`ep0ch: ${named.error}`); return 1; }
+        rootId = named.id;
+      }
+      const rows = withUris(board, treeOf(await board.index(), rootId) ?? []);
       if (root && !rows.length) { io.err(`ep0ch: no note ${root} in this outline`); return 1; }
       if (idsOut) { for (const f of rows) io.out(`((${f.id}))`); }
       else if (json) io.out(recordJson(rows).trimEnd());
@@ -427,7 +461,9 @@ export async function revisionsCommand(argsIn: string[], io: Out = { out: consol
   const board = await boardFor(args);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
-    const blockId = blockIdOf(id);
+    const named = await resolveNote(board, id);
+    if ("error" in named) { io.err(`ep0ch: ${named.error}`); return 1; }
+    const blockId = named.id;
     if (n === undefined) {
       const list = await board.revisions(blockId);
       if (json) { io.out(JSON.stringify(list)); return 0; }
@@ -471,14 +507,18 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
     // The person's theme, as their door draws in it (EP0CH_THEME, else the one last chosen).
     if (!source) setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
     let code = 0, shown = 0;
-    for (const id of ids) {
+    const named = await resolveNotes(board, ids);
+    for (const [at, id] of ids.entries()) {
+      const found = named[at]!;
+      if ("error" in found) { io.err(`ep0ch: ${found.error}`); code = 1; continue; }
+      const noteId = found.id;
       // --source: the note's text as written; else the drawing (a JSON object a line with --cells).
-      const text = source ? (await board.get(blockIdOf(id)))?.text : undefined;
-      const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, blockIdOf(id), width);
+      const text = source ? (await board.get(noteId))?.text : undefined;
+      const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, noteId, width);
       if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
       // A preview asks for its first rows: a long note's whole drawing is never encoded or sent.
       const kept = lines.slice(0, rows);
-      if (cells) { const noteId = blockIdOf(id); io.out(JSON.stringify({ id: noteId, uri: blockUri(board, noteId), ...linesToCells(kept, width) })); continue; }
+      if (cells) { io.out(JSON.stringify({ id: noteId, uri: blockUri(board, noteId), ...linesToCells(kept, width) })); continue; }
       // Notes apart: a blank line, and a --- line between sources (a Markdown file's rule).
       if (shown++) { io.out(""); if (source) { io.out("---"); io.out(""); } }
       // --source is the text as written; to a terminal, what a terminal would act on (an escape in a note) is taken out.

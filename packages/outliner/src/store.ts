@@ -3216,9 +3216,10 @@ export class OutlinerStore {
 
   /**
    * A block named the way a person or agent types it: an id, ((id)), an id's first 8+ characters (one block), a
-   * Work ID or a [[page]] address. The one resolver behind `virtual.occurrences.move`; refuses with what it tried.
+   * Work ID or a [[page]] address. The one resolver behind `virtual.occurrences.move` and `blocks.resolve`; refuses with what it
+   * tried, calling the thing `noun` (a CLI says "note").
    */
-  resolveBlockRef(ref: string): Block {
+  resolveBlockRef(ref: string, noun = "block"): Block {
     // ((id)) and ((id|label)) name the id; [[page]] the page.
     const text = typeof ref === "string" ? referencedBlock(ref)?.blockId ?? ref.trim().replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
     if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
@@ -3238,7 +3239,27 @@ export class OutlinerStore {
     try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(text)); } catch { /* not an address: said below */ }
     if (page?.status === "resolved" && page.block) return page.block;
     if (page?.status === "deleted") throw new Error(`${ref} is in Trash`);
-    throw new Error(`No block ${ref}: give an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]]`);
+    const mean = this.workIdDidYouMeanFromCurrentRead(text);
+    throw new Error(`No ${noun} ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`);
+  }
+
+  /**
+   * For a Work ID nothing has: the prefix's nearest numbers that exist (PIE-875), or the prefixes this outline has when
+   * the prefix is unknown. Null when `text` isn't a Work ID or the outline has none to offer.
+   */
+  private workIdDidYouMeanFromCurrentRead(text: string): string | null {
+    const wanted = parseWorkId(text);
+    if (!wanted) return null;
+    const rows = this.database.query(`
+      SELECT DISTINCT upper(trim(property.value)) AS value FROM block_properties property JOIN blocks block ON block.id = property.block_id
+      WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL
+    `).all() as Array<{ value: string }>;
+    const parsed = rows.map(row => parseWorkId(row.value)).filter((id): id is NonNullable<typeof id> => id !== null);
+    const same = parsed.filter(id => id.prefix === wanted.prefix)
+      .sort((a, b) => Math.abs(a.number - wanted.number) - Math.abs(b.number - wanted.number) || a.number - b.number).slice(0, 3);
+    if (same.length) return `${wanted.workId} isn't in this outline; did you mean ${same.map(id => id.workId).join(", ")}?`;
+    const prefixes = [...new Set(parsed.map(id => id.prefix))].sort();
+    return prefixes.length ? `no Work ID starts ${wanted.prefix}- here (this outline has ${prefixes.join(", ")})` : null;
   }
 
   /** `virtual.occurrences.move` (VirtualOccurrenceMoveInput): read, plan and write a hand-set order in one step. */

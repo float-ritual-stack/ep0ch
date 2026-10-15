@@ -275,6 +275,32 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     expect((await run(["show", ids.shed!, "--source", "--cells"], env)).code).toBe(2);
   });
 
+  test("a Work ID of any prefix, a short id or a [[page]] names a note the way a link in a note does, with a did-you-mean (PIE-875)", async () => {
+    const board = new SocketBoard(sock, undefined, scratch.name);
+    await board.request("work-ids.configure", { prefix: "SHED" });
+    const latch = await board.request<{ id: string }>("create", { parentId: null, text: "Replace the latch", author: "agent" });
+    const given = await board.request<{ workId: string; block: { revision: number } }>("work-ids.allocate", { blockId: latch.id, expectedRevision: 1 });
+    board.close();
+    const work = given.workId;
+    for (const ref of [work, work.toLowerCase(), `[[${work}]]`, latch.id.slice(0, 8)]) {
+      const shown = await run(["show", "--source", ref], env);
+      expect([ref, shown.code, shown.err]).toEqual([ref, 0, ""]);
+      expect(shown.out).toContain("Replace the latch");
+    }
+    // find --under and export take them too.
+    const under = await run(["find", "--under", work, "--ids"], env);
+    expect([under.code, under.out]).toEqual([0, `((${latch.id}))\n`]);
+    const exported = await run(["export", work, "--out", "-"], env);
+    expect(exported.code).toBe(0);
+    expect(exported.out).toContain("Replace the latch");
+    // A number the outline lacks: the nearest it has. A prefix it lacks: the prefixes it has.
+    const near = await run(["show", "SHED-9"], env);
+    expect([near.code, near.err]).toEqual([1, expect.stringContaining(`did you mean ${work}`)]);
+    const other = await run(["show", "BOAT-1"], env);
+    expect([other.code, other.err]).toEqual([1, expect.stringContaining("this outline has SHED")]);
+    expect((await run(["revisions", "SHED-9"], env)).code).toBe(1);
+  });
+
   test("refusals: no such note, a bad width, nothing to show, an outline nobody names", async () => {
     const none = await run(["show", "00000000-0000-4000-8000-000000000000"], env);
     expect([none.code, none.err]).toEqual([1, expect.stringContaining("no note")]);

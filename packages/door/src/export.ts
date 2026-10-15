@@ -24,7 +24,7 @@ import { liveSettled } from "./live";
 import { titleLine } from "./board";
 import { metadataLines } from "./props";
 import type { SocketBoard } from "./socket";
-import { blockIdOf, printable } from "./text";
+import { printable } from "./text";
 
 export const EXPORT_USAGE = `  ep0ch export [<id>…] [--query "<expression>"] [--view <id>] [--under <id>] [<date flags>]
                [--children] [--format md|json] [--out <dir>|-] [--split] [--resolve-links] [--manifest] [--source]
@@ -211,7 +211,7 @@ export async function exportCommand(argsIn: string[], io: Out = { out: s => proc
   const ids = picked.rest.filter(a => !bare.includes(a));
   const unknown = ids.find(a => a.startsWith("--"));
   if (unknown) { io.err(`ep0ch: export doesn't take ${unknown}\n${EXPORT_USAGE}`); return 2; }
-  const sel = { ids: ids.map(blockIdOf), words: [] as string[], ...picked.selection };
+  const sel = { ids, words: [] as string[], ...picked.selection };
   if (!sel.ids.length && !selects(sel)) { io.err(`ep0ch: export takes notes' ids or find's flags (--query, --view, --under)\n${EXPORT_USAGE}`); return 2; }
   const board = await boardFor(args);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
