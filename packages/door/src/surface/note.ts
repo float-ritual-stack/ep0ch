@@ -2282,6 +2282,8 @@ export class NoteSurface {
     const by = writtenBy(d, "save");
     return renderEditor(d, {
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links), pick: true, follow: true, ...(away ? { away } : {}),
+      // A new note says where it lands, a click to move it (PIE-883).
+      ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
       title: `editing · ${subject(m)}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
@@ -2415,6 +2417,16 @@ export class NoteSurface {
   }
   /** The draft open here is a new note's (`note.new`) with nothing typed in it yet (PIE-591): a click away leaves it open. */
   newAndUntouched(): boolean { const s = this.drafting, id = s?.target.blockId; return !!s && !!id && this.newNotes.has(id) && !s.dirty; }
+  /** Where the note shown is now, read again (after a move): its path, as the reader's crumbs say it. */
+  async rereadPlace(host: SurfaceHost): Promise<string> {
+    const m = this.msg;
+    if (!m) return this.crumbs;
+    const a = await host.ctx.board.ancestors(m.id);
+    if (this.msg?.id === m.id) { this.crumbs = a.map(subject).join(" › ") || "top level"; host.redraw(); }
+    return this.crumbs;
+  }
+  /** Whether the note shown is a new one being written (`note.new`). */
+  isNew(): boolean { return !!this.msg && this.newNotes.has(this.msg.id); }
   /** `editNew` by a host that starts the edit its own way (the desk's session start): mark it first, or unmark it. */
   markNew(id: string, on = true) { if (on) this.newNotes.add(id); else this.newNotes.delete(id); }
 
@@ -3207,7 +3219,7 @@ export class NoteSurface {
     if (completerOf(d)?.click(y)) return true;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
-    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true), follow }, host.freshClick ? 8 : 0);
+    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true), lands: () => void this.runKey("note.place", {}, host, true), follow }, host.freshClick ? 8 : 0);
     if (this.editPress) host.redraw();
     return this.editPress;
   }
@@ -7606,6 +7618,37 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       surface.noteAgent(actor, "asked for a comment's TL;DR");
       host.redraw();
       return { asked };
+    },
+  }),
+  "note.place": def({
+    summary: "move the note shown under another note (PIE-883: where a new note lands, its edit's `→ Inbox › …` row says, and a click there moves it): parent= inbox (the top of the Inbox), or a note's id, ((ref)), [[page]] or Work ID; it goes first under it. The person's, left out, is asked in the power bar: the Inbox, or any note by its words. Its edit stays open. Recorded as whoever asks",
+    keys: "a click on the `→ …` row of a new note's edit",
+    touches: "nothing", replay: "ask",
+    args: { parent: { type: "string", optional: true, about: "inbox, or the note to put it under: an id, ((ref)), [[page]] or Work ID" } },
+    async run({ parent }, { surface, host }, actor) {
+      const m = surface.requireNote();
+      const run = async (answers: Record<string, string>) => {
+        const to = answers.parent!.trim();
+        // A ref by the outliner's own reading (the one the mod's and MCP's tools use), loaded when it's needed.
+        const parentId = to === "inbox" ? await host.ctx.board.inboxId().catch(() => null) : (await (await import("../mcp-writes")).resolveBoardRef(host.ctx.board, to).catch(() => null))?.id;
+        if (!parentId) throw new ActionRefused(to === "inbox" ? "this outline has no Inbox to put it in: parent=<a note's id>" : `no note ${to} to put it under: parent= takes an id, ((ref)), [[page]] or Work ID`);
+        if (parentId === m.id) throw new ActionRefused("a note can't go under itself");
+        // An agent's goes by outline_move's own rules (the outliner's moveBlock); the person's as a drag in the tree would.
+        if (actor.kind === "agent") await (await import("../mcp-writes")).moveAsAgent(host.ctx.board, m.id, parentId, { actorId: recordedActorId(actor) });
+        else await host.ctx.board.move(m.id, parentId, actor);
+        const now = await surface.rereadPlace(host);
+        asActor(host.ctx, actor).flash(`moved: → ${now}`);
+        surface.noteAgent(actor, `moved the note to ${now}`);
+        return { moved: m.id, parent: parentId, now };
+      };
+      if (parent !== undefined || actor.kind === "agent") {
+        if (parent === undefined) throw new ActionRefused("say where: parent=inbox or a note's id, ((ref)), [[page]] or Work ID");
+        return run({ parent });
+      }
+      return askInBar(host.ctx as never, "Move the note", [{
+        name: "parent", type: "note", label: "where it goes", description: "It goes first under the note you pick. The Inbox, or type to find any note.",
+        choices: ["inbox"], says: { inbox: "the top of the Inbox" }, found: "under this note",
+      }], {}, actor, run);
     },
   }),
   "quote": def({

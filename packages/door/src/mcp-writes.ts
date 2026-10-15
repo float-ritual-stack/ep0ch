@@ -321,6 +321,14 @@ export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{
 }
 
 /**
+ * An agent's move of note `ref` under `parent` (inbox resolved by the caller to its id), first: the outliner's own
+ * `moveBlock`, the one outline_move runs, with its rules (no system note moved, none but the Inbox a parent), attributed.
+ */
+export async function moveAsAgent(board: WriteBoard, ref: string, parent: string, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>> {
+  return (await loadAgentTools()).moveBlock(clientOf(board), { ref, parent, position: 0 }, actor);
+}
+
+/**
  * Whether `ref` names a Resource (`resource:<id>`, or a `[file::path]` token) instead of a block, by the outliner's own
  * reading of it (PIE-650). A Resource is read and commented on live, in the outline it is registered in.
  */

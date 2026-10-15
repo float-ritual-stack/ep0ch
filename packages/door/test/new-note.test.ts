@@ -270,6 +270,63 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     } finally { desk.dispose?.(); }
   }, 30_000);
 
+  // PIE-883: the new note's float is a tile like any other while it's written: its header drags it (to an edge docks it),
+  // its ⋯ opens its menu, the edit stays open through all of it; and it says where the note lands, a click to move it.
+  test("a new note being written (PIE-883): its header drags and docks it, its ⋯ opens its menu, the edit kept; the → row says where it lands and note.place moves it", async () => {
+    let key: (k: Key) => void = () => {};
+    const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    const desk = new Desk() as any;
+    app.push(desk);
+    const plain = (x: string) => x.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
+    const screen = () => (desk.render(desk.ctx).lines as string[]).map(plain);
+    const mouse = (action: "down" | "drag" | "up", x: number, y: number) => key({ kind: "mouse", action, button: 0, x, y });
+    try {
+      desk.render(desk.ctx);
+      await until(() => desk.panes.size > 0, "the desk's tiles", 10_000);
+      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotp" } });
+      await until(() => (desk.panes.get(desk.idNamed("plotp")) as any)?.msg?.id === notes.plot.id, "the detail on the plot notes");
+      desk.focusOn("plotp");
+      key(ctrl("n"));
+      const float = () => (desk.describe().floats as any[]).find(f => f.newNote);
+      await until(() => !!float()?.writing, "the new note's float, written in", 8000);
+      const { tile, id } = float();
+      for (const c of "Bean poles") key(char(c));
+      const pane = () => desk.panes.get(desk.idNamed(tile)) as any;
+      // It says where it lands: under the plot notes.
+      await until(() => screen().some(l => l.includes("→ Plot notes") && l.includes("[move ▸]")), "where it lands", 5000);
+      // Its header, pressed and dragged while it's written: the float moves, the words still in its edit.
+      let r = desk.rectsNow().get(desk.idNamed(tile));
+      mouse("down", r.col + 6, r.row); mouse("drag", r.col + 8, r.row); screen(); mouse("drag", r.col + 16, r.row + 4); screen(); mouse("up", r.col + 16, r.row + 4);
+      const moved = desk.rectsNow().get(desk.idNamed(tile));
+      expect([moved.col, moved.row]).toEqual([r.col + 10, r.row + 4]);
+      expect(pane().surface.draft?.text).toBe("Bean poles");
+      // Its ⋯: the tile's menu opens over it.
+      const rows = screen(), hx = rows[moved.row]!.indexOf("⋯", moved.col);
+      expect(hx).toBeGreaterThan(moved.col);
+      mouse("down", hx, moved.row); mouse("up", hx, moved.row);
+      expect(desk.overlays.get("tile menu")).toBeTruthy();
+      key({ kind: "esc" });
+      // Where it lands, changed: the person's click asks in the power bar; named, it's moved at once.
+      expect(await desk.dispatch.press("note.place", { parent: "inbox" }, tile)).toMatchObject({ moved: id, parent: inbox });
+      expect((await board.get(id))!.parentId).toBe(inbox);
+      await until(() => screen().some(l => l.includes("→ Inbox") && l.includes("[move ▸]")), "the → row after the move", 5000);
+      // An agent names where, and is recorded as itself.
+      expect(await app.act({ action: "note.place", tile, args: { parent: notes.plot.id }, as: "gardener" })).toMatchObject({ parent: notes.plot.id });
+      await expect(app.act({ action: "note.place", tile, args: {}, as: "gardener" })).rejects.toThrow("say where");
+      // An agent's goes by outline_move's rules: never under a system note but the Inbox.
+      const trash = (await board.roots()).find(r => r.text.startsWith("Trash"))!.id;
+      await expect(app.act({ action: "note.place", tile, args: { parent: trash }, as: "gardener" })).rejects.toThrow("system note");
+      // Dragged to the right edge: docked there, its edit still open.
+      r = desk.rectsNow().get(desk.idNamed(tile));
+      const cols = desk.area.cols;
+      mouse("down", r.col + 6, r.row); mouse("drag", r.col + 8, r.row); screen(); mouse("drag", cols - 1, r.row + 6); screen(); mouse("up", cols - 1, r.row + 6);
+      await until(() => !(desk.describe().floats as any[]).some(f => f.tile === tile), "no longer a float", 5000);
+      expect(JSON.stringify((await desk.dispatch.press("layout.get") as any).tree)).toContain(`"${tile}"`);
+      expect(pane().surface.draft?.text).toBe("Bean poles");
+    } finally { desk.dispose?.(); }
+  }, 30_000);
+
   test("ctrl+n in a BBS message reader: under the note it reads, in a reader over it; esc on it empty trashes it and that reader goes", async () => {
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});

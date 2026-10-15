@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A new note is a tile while you write it, and says where it lands (PIE-883)
+
+- **Fixed:** a new note's float couldn't be dragged, docked or its `⋯` opened while you wrote in it: a press on its
+  header went to the edit. Its header and edges are the tile's now; the edit stays open through a drag, a dock and the
+  menu.
+- **Added:** under a new note's edit, `→ Inbox › 2026-10-14 [move ▸]` says where it is; a click asks in the power bar
+  where it should go and moves it (`note.place parent=inbox|<note>`; an agent's by outline_move's rules, attributed).
+
 ### Typing in a tile's menu filters it (PIE-879)
 
 - **Added:** open a tile's menu (the ⋯, a right-click, `^W .`) and type: the rows narrow to the ones that match (the

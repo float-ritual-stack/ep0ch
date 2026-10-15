@@ -873,7 +873,7 @@ export class Draft {
   previewScroll: { top: number; text: string } | null = null;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
   frame: {
-    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" }[];
+    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" | "lands" }[];
     /**
      * The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls.
      * `placements`: its pictures (PIE-846), on the rows they're drawn, for the host to put out with its own.

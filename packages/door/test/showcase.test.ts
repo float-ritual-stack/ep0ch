@@ -3944,6 +3944,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const id = writing().surface.draft.blockId;
     expect((await board.get(id))!.parentId).toBe(guide);
     expect(writing()).not.toBe(reader());
+    // It says where it lands (PIE-883); the person's note.place (a click on that row, in a door) asks in the power bar
+    // where to move it; esc there and it stays.
+    await until(() => /→ Kitchen sink › New notes from anywhere +\[move ▸\]/.test(screen()), "where it lands");
+    expect(await stage().dispatch.press("note.place", {}, writing().surface.draft && stage().nameOf(stage().focus))).toMatchObject({ asking: "parent" });
+    const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
+    await until(() => asking()?.scope === "ask" && asking()!.rows[0]?.label === "the top of the Inbox", "the power bar asking where", 5000);
+    press({ kind: "esc" });
+    await until(() => asking()?.scope !== "ask", "the bar put away");
+    expect((await board.get(id))!.parentId).toBe(guide);
     for (const c of "[page::2026-03-12]") press({ kind: "char", ch: c });
     press({ kind: "enter" });
     expect(writing().surface.draft.text).toBe("2026-03-12 [page::2026-03-12]\n");

@@ -3562,8 +3562,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // border, a press elsewhere: PIE-812 re-enters the edit on that press) stay the desk's.
         const desks = k.action !== "down" && !this.editPressed && !!(this.headPress || this.pressed || this.dragging || this.mouseTile || this.drag || this.floatDrag || this.outDrag);
         if (focused.editing && !desks && k.action !== "wheel-up" && k.action !== "wheel-down") {
+          if (k.action === "down") this.floatsWhereTheyAre();
           if ((k.action === "down" || k.action === "drag" || k.action === "up") && this.clickIn(focused, k)) return this.redraw();
-          // A click in the edit's own tile (its frame, its hint rows) stays in it. A click anywhere else leaves
+          // Its own header and edges are the tile's, as any tile's (PIE-883: a new note's float couldn't be dragged, docked
+          // or its ⋯ opened while it was being written): a press there is the desk's, and the edit stays open.
+          if (k.action === "down" && this.topTileAt(k.x, k.y) === this.focus && this.onFrame(this.focus, k.x, k.y)) return this.mouse(k);
+          // A click in the edit's own tile (its hint rows) stays in it. A click anywhere else leaves
           // it as any editor does (session.leave: saved, closed, or kept as unsent) and then does what it does.
           if (k.action !== "down" || this.topTileAt(k.x, k.y) === this.focus || !this.leaveSession(focused)) return;
         }
@@ -5611,6 +5615,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return true;
   }
 
+  /** A float moved since the last paint is where the layout has it now (paints are coalesced; a press may come first). */
+  private floatsWhereTheyAre() {
+    this.hits = this.hits.map(([id, r]) => { const f = this.floats.find(x => x.id === id); return [id, f ? this.floatRect(f) : r]; });
+    // Its ⧉ too: where the float is now, not where it was last drawn.
+    this.floatButtons = this.floatButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + 2, to: r.col + 5 }; });
+    this.closeButtons = this.closeButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + r.cols - 2, to: r.col + r.cols - 1 }; });
+    this.menuButtons = this.menuButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + r.cols - b.right, to: r.col + r.cols - b.right + 1 }; });
+  }
+  /** Whether (x, y) is on tile `id`'s frame as drawn: its header row or an edge (where a drag moves or sizes it). */
+  private onFrame(id: number, x: number, y: number): boolean {
+    const r = this.hits.find(([hid]) => hid === id)?.[1];
+    return !!r && y >= r.row && y < r.row + r.rows && x >= r.col && x < r.col + r.cols && (y === r.row || y === r.row + r.rows - 1 || x === r.col || x === r.col + r.cols - 1);
+  }
   /** A click inside the reader the person is editing in: the surface's (a completion candidate), or false. */
   private clickIn(pane: ReaderPane, k: Extract<Key, { kind: "mouse" }>): boolean {
     const at = this.hits.find(([id]) => this.panes.get(id) === pane);
@@ -5806,14 +5823,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (p) { const at = this.pressedAt(p, k); return p.pane.drag(at.x, at.y, this); }
       return;
     }
-    // A float moved since the last paint is where the layout has it now (paints are coalesced; a press may come first).
-    if (k.action === "down") {
-      this.hits = this.hits.map(([id, r]) => { const f = this.floats.find(x => x.id === id); return [id, f ? this.floatRect(f) : r]; });
-      // Its ⧉ too: where the float is now, not where it was last drawn.
-      this.floatButtons = this.floatButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + 2, to: r.col + 5 }; });
-      this.closeButtons = this.closeButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + r.cols - 2, to: r.col + r.cols - 1 }; });
-      this.menuButtons = this.menuButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + r.cols - b.right, to: r.col + r.cols - b.right + 1 }; });
-    }
+    if (k.action === "down") this.floatsWhereTheyAre();
     const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
     // The sideways wheel: a tile that takes the mouse has it (a terminal, the board's lanes); else the tile's kind says
     // what a step means where its content is horizontal (the river's columns: the one beside), one step a swipe
