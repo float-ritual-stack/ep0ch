@@ -93,7 +93,7 @@ PROTOCOL moves: `agents.held`, and `extensions.list` answers `grants` and each e
   and a held line says which limit it met. A grant an agent or extension wrote counts for nothing. `ep0ch ext ls` lists
   the grants and each extension's held requests.
 - **Added:** the door's waiting-on-you list (`alt+w`) shows the requests held for your `r` after the terminals' programs,
-  and the status bar counts them (`‖2`): `⏎` or a click opens the note, `r` sends it (`held.open`, `held.send`).
+  and the status bar counts them (`‼2`): `⏎` or a click opens the note, `r` sends it (`held.open`, `held.send`).
 
 ### A backlink says which line links, and opening it lands there (PIE-884)
 

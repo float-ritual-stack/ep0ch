@@ -75,8 +75,8 @@ export class WaitingYouPane implements Pane {
         if (n >= rows.length) {
           const a = held[n - rows.length]!, age = ago(Date.parse(a.at)).padStart(4);
           // The row's last words are its send: a click on them is r.
-          const plain = pad(` ‖ @${a.agent} · ${a.title} · ${a.why}  ${age}`, Math.max(0, w - SEND.length)) + SEND;
-          return n === this.at ? selected(focused) + plain + RESET : pad(` ${fg(C.yellow)}‖ ${fg(C.lcyan)}@${a.agent}${fg(C.dark)} · ${fg(C.grey)}${a.title}${fg(C.dark)} · ${fg(C.grey)}${a.why}  ${dim(age)}`, Math.max(0, w - SEND.length)) + fg(C.lcyan) + SEND + RESET;
+          const plain = pad(` ‼ @${a.agent} · ${a.title} · ${a.why}  ${age}`, Math.max(0, w - SEND.length)) + SEND;
+          return n === this.at ? selected(focused) + plain + RESET : pad(` ${fg(C.yellow)}‼ ${fg(C.lcyan)}@${a.agent}${fg(C.dark)} · ${fg(C.grey)}${a.title}${fg(C.dark)} · ${fg(C.grey)}${a.why}  ${dim(age)}`, Math.max(0, w - SEND.length)) + fg(C.lcyan) + SEND + RESET;
         }
         const r = rows[n]!, m = statusMark(r.record), age = ago(r.at).padStart(4);
         const who = r.record.id ? `${r.name}/${r.record.title ? r.record.title : r.record.id}` : r.name;

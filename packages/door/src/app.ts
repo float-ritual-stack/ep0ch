@@ -1343,8 +1343,8 @@ export class App implements Ctx {
  * `plain` is "" when nothing waits.
  */
 export function waitingText(n: { blocked: number; error: number; done: number; held?: number }): { plain: string; styled: string } {
-  // `‖`: requests an agent or an extension wrote that wait for the person's r (held asks, PIE-888).
-  const parts = ([["◆", n.blocked, C.lmagenta], ["✗", n.error, C.lred], ["✓", n.done, C.lgreen], ["‖", n.held ?? 0, C.yellow]] as const).filter(p => p[1] > 0);
+  // `‼`: requests an agent or an extension wrote that wait for the person's r (held asks, PIE-888).
+  const parts = ([["◆", n.blocked, C.lmagenta], ["✗", n.error, C.lred], ["✓", n.done, C.lgreen], ["‼", n.held ?? 0, C.yellow]] as const).filter(p => p[1] > 0);
   if (!parts.length) return { plain: "", styled: "" };
   return { plain: `${parts.map(p => `${p[0]}${p[1]}`).join(" ")} on you`, styled: `${parts.map(p => `${fg(p[2])}${p[0]}${p[1]}`).join(" ")}${fg(C.lcyan)} on you` };
 }

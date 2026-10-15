@@ -2902,7 +2902,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => app.heldAsks.count() === 1, "the held request", 8000);
     const held = () => (stage().pane("waiting").describe() as any[]).filter(r => r.kind === "held");
     expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: "Reply to the seed swap thread", why: "showcase-seed may not wake @tidy · r to send" }]);
-    await until(() => bar().includes("‖1"), "the count in the status bar");
+    await until(() => bar().includes("‼1"), "the count in the status bar");
     await until(() => screen().includes("@tidy · Reply to the seed swap thread"), "the row");
     // An agent opens it, never sends it.
     await expect(app.act({ action: "held.send", tile: "waiting", args: { id: held()[0].block }, as: "test-agent" })).rejects.toThrow("waits for a person");
@@ -2910,7 +2910,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The person sends it (r on its row): its agent tidies the line, and the request leaves the list.
     await stage().dispatch.press("held.send", { id: held()[0].block }, "waiting");
     await until(() => app.heldAsks.count() === 0, "sent: nothing held", 15_000);
-    expect(bar()).not.toContain("‖");
+    expect(bar()).not.toContain("‼");
     app.heldAsks.stop();
   }, 60_000);
 

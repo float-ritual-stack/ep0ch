@@ -16,7 +16,7 @@ const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, w
 
 test("the status bar counts held requests beside what the terminals say", () => {
   expect(waitingText({ blocked: 0, error: 0, done: 0, held: 0 }).plain).toBe("");
-  expect(waitingText({ blocked: 1, error: 0, done: 2, held: 3 }).plain).toBe("◆1 ✓2 ‖3 on you");
+  expect(waitingText({ blocked: 1, error: 0, done: 2, held: 3 }).plain).toBe("◆1 ✓2 ‼3 on you");
 });
 
 describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, against a scratch outline", () => {
