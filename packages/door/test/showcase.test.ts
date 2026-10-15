@@ -18,7 +18,7 @@ import { spanBg } from "../src/surface/margin";
 import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, SHOWCASE_ASSETS, REMOTE_CLIENT, REMOTE_LINE, SEED, seedDay, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, SESSION_QUOTE, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { reopen } from "../src/session/restore";
-import { SocketBoard, USER } from "../src/socket";
+import { DRAFT_LEASE_MS, SocketBoard, USER } from "../src/socket";
 import { subject } from "../src/board";
 import { extensionNamed, extensionList } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
@@ -3462,6 +3462,41 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((await board.children(target)).some(n => n.text === "Extra envelopes")).toBe(false);
     expect((await board.get(source.id))!.text).toContain("script::draft-labels");
     for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+  test("a draft opened by a script keeps receiving agent patches after the run finishes", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top;
+    const target = await board.request<{id: string}>("create", {author: "user", text: "Seed plan\n\nPrepare the labels."});
+    await app.act({action: "open", args: {id: target.id}, tile: "notes", as: "test-agent"});
+    await board.request("create", {author: "user", text: "Open seed plan [script::open-seed-plan]\n```js\nawait act('edit');\n```"});
+    await board.request("extensions.list", {reload: true});
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "open-seed-plan"), "edit script bound");
+    const extension = extensionList()!.extensions.find(e => e.name === "open-seed-plan")!;
+    const run = await app.dispatch.act({action: `ext.${extension.id}.run`}, USER) as {written: string[]};
+    try {
+      await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "edit script done");
+      expect((await board.get(run.written[0]!))!.text).toContain("· done");
+      const reader = [...stage.panes.values()].find((p: any) => p.editing) as ReaderPane;
+      const draft = reader.surface.draft!;
+      press({kind: "enter"});
+      press({kind: "end"});
+      press({kind: "paste", text: "\n\nStill typing."});
+      // The first lease must expire unless the script-created heartbeat remains usable after completion.
+      await Bun.sleep(DRAFT_LEASE_MS + 1000);
+      const patched = await board.request("draft.patch", {
+        blockId: target.id, revision: (await board.get(target.id))!.revision,
+        patches: [{observed: "Prepare", replacement: "Sort"}], mutation: {author: "agent", actorId: "seed-helper"},
+      });
+      expect(patched).toMatchObject({outcome: "applied", edits: [{blockId: target.id, route: "draft"}]});
+      expect(draft.text).toContain("Sort the labels.");
+      expect(draft.text).toContain("Still typing.");
+      expect((await board.get(target.id))!.text).toContain("Prepare the labels.");
+    } finally {
+      for (let i = 0; i < 5 && S().focus === "stage"; i++) press({kind: "esc"});
+    }
   }, 30_000);
 
   test("an agent running a person's script cannot move the draft the person is typing in", async () => {

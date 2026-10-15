@@ -1605,16 +1605,19 @@ export class SocketBoard implements Board {
     if (old) this.letGo(old);
     const h = { blockId, revision, holdId: null as string | null, answer, timer: null as Timer | null, touch: null as Timer | null, gone: false };
     this.drafts.set(blockId, h);
-    void this.holdOn(h);
-    h.timer = setInterval(() => void this.renew(h), DRAFT_HEARTBEAT_MS);
-    (h.timer as { unref?: () => void }).unref?.();
+    // A draft can outlive the script that opened it; its lease belongs to the door.
+    this.scriptRun.exit(() => {
+      void this.holdOn(h);
+      h.timer = setInterval(() => void this.renew(h), DRAFT_HEARTBEAT_MS);
+      (h.timer as { unref?: () => void }).unref?.();
+    });
     return {
-      revise: revision => { h.revision = revision; void this.renew(h); },
+      revise: revision => { h.revision = revision; this.scriptRun.exit(() => void this.renew(h)); },
       release: () => this.letGo(h),
       touched: () => {
         if (h.gone) return;
         if (h.touch) clearTimeout(h.touch);
-        h.touch = setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS);
+        h.touch = this.scriptRun.exit(() => setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS));
         (h.touch as { unref?: () => void }).unref?.();
       },
     };
@@ -1639,7 +1642,7 @@ export class SocketBoard implements Board {
 
   private async holdOn(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
     try {
-      const r = await this.request<{ holdId: string }>("drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS });
+      const r = await this.scriptRun.exit(() => this.request<{ holdId: string }>("drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS }));
       if (h.gone) { void this.request("drafts.release", { holdId: r.holdId }).catch(() => {}); return; }
       h.holdId = r.holdId;
     } catch { h.holdId = null; /* tried again at the next heartbeat */ }
