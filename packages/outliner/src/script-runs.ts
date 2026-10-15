@@ -97,7 +97,7 @@ export class ScriptRuns {
     });
     const task = (async () => {
       try {
-        const result = await runScript(source.code, api, controller.signal);
+        const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined);
         const current = this.registry.extension(extension.id);
         if (!current || current.stamp !== extension.stamp) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}]`;

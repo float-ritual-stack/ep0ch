@@ -494,6 +494,8 @@ export class SocketBoard implements Board {
 
   /** `timeoutMs`: this request's own wait, for one the service answers slowly on purpose (a tunnel coming up). */
   private readonly scriptRun = new AsyncLocalStorage<string>();
+  /** A replayed action is not another physical command to record in a macro. */
+  get inScriptRun(): boolean { return this.scriptRun.getStore() !== undefined; }
 
   request<T = any>(action: string, params: Record<string, unknown> = {}, timeoutMs = this.timeoutMs): Promise<T> {
     const id = `d${++this.seq}`;

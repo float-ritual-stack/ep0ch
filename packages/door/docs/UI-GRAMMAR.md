@@ -97,7 +97,7 @@ three layout models and four searches (§4).
 
 | edit a component where it is drawn | `ElementEdit` projects the existing `DraftSession.draft`; `ElementEditor` adapters map fields to source spans and supply drawing and structural edits. Markdown tables use outline-core's `table-shape` for both reading and editing; static graph-table flow rows use the same table drawing. `rich.*` actions own keys, clicks and agent requests, and `Ctrl+O` returns to raw source on that draft. | `src/surface/element-editor.ts`, `src/surface/note.ts`, `outline-core/src/table-shape.ts`; the rich-edit showcase |
 
-| run code from an authored block without waiting | QuickJS runs the host API on a worker; extension actions expose scripts to act and the power bar; progress is a child block and ExtensionWrites owns run undo | outliner `src/script-runs.ts`, `src/script-runtime.ts`, `src/script-sources.ts`; the scripts showcase |
+| run code from an authored block without waiting | `macro.record` / `macro.stop` capture the person’s successful dispatcher actions as an `actions` fence in a `[script::]` block; outline-core’s `action-line.ts` is the power bar and runtime’s one word grammar. `{slot}` values become the extension action’s arguments and the existing power bar asks for them. `alt+Q` and the status bar’s `⇧⌥Q` / `REC stop` call the same ActionSet. QuickJS runs the host API on a worker; extension actions expose scripts to act and the power bar; progress is a child block and ExtensionWrites owns run undo | outliner `src/script-runs.ts`, `src/script-runtime.ts`, `src/script-sources.ts`; the scripts showcase |
 
 - **Don't copy the parallel versions:** the `colourBody` bodies left in the desk's search preview and
   the river's cards (F1), the river's pane code (F2), the extra searches (F6).
@@ -765,6 +765,10 @@ From a look at shiki, strata and mirador (all MIT). Where each fits:
 ---
 
 ## 7. Tiles: drag, tab, link, preview, layouts (PIE-413, PIE-417, PIE-473, PIE-474)
+
+`alt+Q` starts/stops a macro (`macro.record`, `macro.stop`); its status-bar chip is the mouse path.
+It leaves `q` (back) and `alt+m` (marks) unchanged. A terminal keeps its keys.
+
 
 The desk is tiles in containers on the layout tree (splits, tab sets and docks, each with its policy, PIE-505). Everything below is an action first (`TILE_ACTIONS` in
 `src/desk/tile-actions.ts`, `PANE_ACTIONS`); the key, the drag and `act` call the same code, and an agent's

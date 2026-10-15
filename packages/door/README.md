@@ -282,6 +282,16 @@ The **scripts** section runs `seed-report`: use the power bar's Run seed-report 
 action through `act`. The checklist changes through the dispatcher, a result note streams under the script,
 and `ext.undo` takes back the run. The adjacent reader stays available for typing.
 
+**Record a macro:** `Alt+Shift+Q` (shown as `alt+Q`) or the status bar's `⇧⌥Q` starts recording;
+press it again or click `REC stop` to save. `macro.record name=planting` and `macro.stop` are the same actions.
+Only your successful actions are recorded; agent actions and power-bar navigation stay out.
+The new `[script::planting]` block contains an `actions` fence using the power bar's action-line grammar.
+Edit it normally, replacing a value with `{tag}` or another `{slot}`. Run it from the power bar to fill its
+slots, or pass them as `act ext.<script-id>.run tag=beans`. Replay uses the script runtime, stops at the
+first refusal, and leaves a run note with the failed step. It does not roll earlier steps back automatically.
+The recording stays in this door until stopped; stop before ending the session.
+
+
 Adding a shared part means adding its section (`SECTIONS` in `src/showcase/showcase.ts`) and the seed
 content it needs; the review checklist's "The map" item covers both.
 
@@ -2578,6 +2588,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `brief.step`, `brief.newest`, `brief.date`, `brief.show` | `by=-1\|1`; `date=YYYY-MM-DD`; `id=<brief>` (the daily brief) | `,` `.`; a link to another day's brief |
 | `screen.spec` | none: the screen shown as its spec, the data a screen note holds (PIE-515) | |
 | `search` | `query=` (2 characters or more), `limit=`: the desk's search. An agent's answers numbered hits and opens nothing; yours opens the power bar in its notes scope, and its `⏎` runs `open` | `/` |
+| `macro.record`, `macro.stop` | Start with optional `name=`; stop saves editable action lines as a script block. Person only; replay is the script’s `ext.<id>.run` action | `alt+Q`, status bar’s `⇧⌥Q` / `REC stop`, power bar |
 | `bar.open`, `bar.pick`, `bar.close` | `query=`, `scope=tiles\|notes\|actions\|recent\|screens\|extensions\|<an extension's>` (or its prefix); `n=` (from 1), `alt=true`. The power bar (PIE-656): yours opens it with your keys in it and picks from it; an agent's `bar.open` answers the rows and opens nothing, its `bar.pick` lists for itself (`query=`, `scope=`) and picks as itself (a tile on another screen refused; a note lands where an agent's opens land); `bar.close` is yours | `ctrl+k`, `cmd+k`, `^K`; ⏎, alt+⏎; esc |
 | `tile.enter`, `tile.leave` | `send=` (enter: a key to pass on, the second `ctrl+]`): type in a terminal tile, or leave it. The person's only: an agent uses `tile.type` | `e`, `⏎` or a click on a terminal tile; `ctrl+]` |
 | `reader.reveal` | `tile=<a reader>` (default the focused one): its note in the outline, the outline's cursor on its row (its dock slides open); the person's only | `alt+r`, a click on the reader's crumbs |

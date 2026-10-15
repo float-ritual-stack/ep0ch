@@ -803,6 +803,7 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
 }
 
 export interface ScriptSource {
+  readonly format?: "actions";
   readonly code: string;
   readonly blockId?: string;
   readonly file?: string;

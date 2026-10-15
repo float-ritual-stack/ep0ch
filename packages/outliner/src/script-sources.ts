@@ -1,3 +1,4 @@
+import { actionSlots } from "@ep0ch/outline-core/action-line";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
@@ -14,7 +15,7 @@ export async function scriptSources(store: OutlinerStore): Promise<ManifestSourc
     const id = `script-${hash(identity).slice(0, 24)}`;
     sources.push({
       expectedId: id, idFrom: identity, origin: "outline", directory: store.workspaceRoot ?? "",
-      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as ${script.author.actorId ?? script.author.author}; progress goes into a run note`, on: "outline", effects: "write" }] }),
+      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as ${script.author.actorId ?? script.author.author}; progress goes into a run note`, on: "outline", effects: "write", ...(script.format === "actions" ? { args: actionSlots(script.code).map(name => ({ name, type: "text", required: true })) } : {}) }] }),
       configRaw: "{}", script, stamp: hash(JSON.stringify(script)),
     });
   };
@@ -24,10 +25,10 @@ export async function scriptSources(store: OutlinerStore): Promise<ManifestSourc
     const name = block.properties.find(p => p.key === "script")?.value;
     if (!name) continue;
     const lines = block.text.split("\n");
-    const fence = codeBlocks(lines).fences.find(f => ["js", "javascript", "ts", "typescript"].includes(f.fence.info));
+    const fence = codeBlocks(lines).fences.find(f => ["js", "javascript", "ts", "typescript", "actions"].includes(f.fence.info));
     const code = fence?.closed ? lines.slice(fence.start + 1, fence.end).map(line => line.slice(Math.min(fence.fence.indent, line.length))).join("\n") : "";
     const revision = store.revisions(block.id).revisions[0]!;
-    add(block.id, name, { code, blockId: block.id, revision: block.revision,
+    add(block.id, name, { code, ...(fence?.fence.info === "actions" ? { format: "actions" as const } : {}), blockId: block.id, revision: block.revision,
       author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } });
   }
   if (store.workspaceRoot) {

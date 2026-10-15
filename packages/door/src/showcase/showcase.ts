@@ -921,8 +921,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "scripts", need: "run a block's code without waiting", part: "QuickJS, the host API, extension actions and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
-    aside: "^K then Run seed-report, or act ext.<script-id>.run · results stream under the script · ext.undo on the source takes back the run together",
+    key: "scripts", need: "record actions and run editable scripts without waiting", part: "the dispatcher, action lines, QuickJS and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
+    aside: "alt+Q or click ⇧⌥Q starts recording · open a query tile with ^K tile.open kind=query query=\"#beans\" · alt+Q or REC stop saves a [script::] note · edit #beans to #{tag}; Run recording from ^K asks for tag · agent actions stay out · Run seed-report streams results below its source; ext.undo takes back its writes together",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · scripts", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.scriptTarget], [b, n.scripts]]);

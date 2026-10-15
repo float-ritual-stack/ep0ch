@@ -1,8 +1,10 @@
+import { actionScript } from "@ep0ch/outline-core/action-line";
 import { CodemodeSandbox, type CodemodeResult } from "@earendil-works/pi-codemode";
 import type { HostApi } from "./host-api";
 
 /** The VM runs on a worker so a computing script never holds the outline's event loop. */
-export async function runScript(source: string, api: HostApi, signal?: AbortSignal): Promise<CodemodeResult> {
+export async function runScript(source: string, api: HostApi, signal?: AbortSignal, actions?: Record<string, string>): Promise<CodemodeResult> {
+  if (actions) source = actionScript(source, actions);
   const sandbox = new CodemodeSandbox({
     tools: api.tools.map(name => ({ name, execute: args => api.call(name, args as Record<string, unknown>) })),
     globals: [
