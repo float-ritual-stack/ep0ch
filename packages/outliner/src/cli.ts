@@ -491,9 +491,15 @@ function parseAuthor(value: string | undefined): "user" | "agent" | "system" {
   throw new Error("--author must be user, agent, or system");
 }
 
-/** An agent must say which agent it is; the CLI's own `cli` label would hide it. */
+/**
+ * The one place the CLI decides who is writing. `--author` says; left out, a writer that says who it is (`--actor <id>`) is
+ * an agent, and only one that says nothing is the person at the terminal (PIE-890: `--actor loki` alone used to be recorded
+ * `author=user`, so an agent's edit read as the person's). An agent must say which agent it is; the CLI's own `cli` label
+ * would hide it.
+ */
 function writerAuthor(value: string | undefined, actor: string | undefined): "user" | "agent" | "system" {
-  const author = parseAuthor(value);
+  const named = !!actor?.trim();
+  const author = value === undefined ? (named ? "agent" : "user") : parseAuthor(value);
   if (author === "agent" && !actor?.trim()) throw new Error("--author agent requires --actor <agent id>");
   return author;
 }
@@ -538,10 +544,10 @@ async function textInput(values: Record<string, unknown>, fileOption: string, la
 }
 
 function workActor(values: Record<string, unknown>): WorkActor {
-  const author = (values.author as string | undefined) ?? "user";
-  if (author !== "user" && author !== "agent") throw new Error("--author must be user or agent");
   const actorId = (values.actor as string | undefined) ?? "cli";
   if (!actorId.trim()) throw new Error("--actor requires an actor ID");
+  const author = writerAuthor(values.author as string | undefined, values.actor as string | undefined);
+  if (author === "system") throw new Error("--author must be user or agent");
   const sessionId = values.session as string | undefined;
   return { author, actorId, ...(sessionId ? { sessionId } : {}) };
 }
@@ -557,7 +563,7 @@ const WORK_USAGE = [
   "  work body <item> --file F|--stdin [--expected N]",
   "  work link <note> <item> [--expected N]   (the note, a request copy, names its ticket: [ticket::PIE-n])",
   "  note section <block> <heading> --file F|--stdin [--expected N]",
-  "  Writers: --author user|agent --actor ID [--session ID]. <item> is a Work ID or block UUID.",
+  "  Writers: --actor ID [--session ID] is an agent (recorded author=agent as that actor); --author user|agent says it outright; with neither it is the person at the terminal. <item> is a Work ID or block UUID.",
 ].join("\n");
 
 const ACTOR_OPTIONS = {
@@ -857,7 +863,7 @@ switch (command) {
       id: {type: "string"}, expected: {type: "string"}, text: {type: "string"}, stdin: {type: "boolean"},
       "request-id": {type: "string"}, quote: {type: "string"}, start: {type: "string"},
       prefix: {type: "string"}, suffix: {type: "string"}, item: {type: "string"}, whole: {type: "boolean"},
-      author: {type: "string", default: "user"}, actor: {type: "string"}, session: {type: "string"},
+      author: {type: "string"}, actor: {type: "string"}, session: {type: "string"},
     }});
     if (!values.id || !values["request-id"]) throw new Error("comment requires --id and a stable --request-id");
     if (values.whole === (values.quote !== undefined) || (!values.whole && values.quote === undefined)) {
@@ -919,7 +925,7 @@ switch (command) {
       options: {
         text: { type: "string" },
         parent: { type: "string" },
-        author: { type: "string", default: "user" },
+        author: { type: "string" },
         actor: { type: "string" },
         session: { type: "string" },
       },
@@ -942,7 +948,7 @@ switch (command) {
       options: {
         text: { type: "string" },
         near: { type: "string" },
-        author: { type: "string", default: "user" },
+        author: { type: "string" },
         actor: { type: "string" },
         session: { type: "string" },
       },
@@ -971,7 +977,7 @@ switch (command) {
         id: { type: "string" },
         text: { type: "string" },
         expected: { type: "string" },
-        author: { type: "string", default: "user" },
+        author: { type: "string" },
         actor: { type: "string" },
         session: { type: "string" },
       },
@@ -994,7 +1000,7 @@ switch (command) {
         id: { type: "string" },
         parent: { type: "string" },
         position: { type: "string" },
-        author: { type: "string", default: "user" },
+        author: { type: "string" },
         actor: { type: "string" },
         session: { type: "string" },
       },
@@ -1041,7 +1047,7 @@ switch (command) {
       args: rest,
       options: {
         id: { type: "string" },
-        author: { type: "string", default: "user" },
+        author: { type: "string" },
         actor: { type: "string" },
         session: { type: "string" },
         expected: { type: "string" },

@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An agent's CLI write is recorded as the agent (PIE-890)
+
+- **Fixed:** `--actor <id>` without `--author agent` on the outliner CLI's write commands (`work set|stage|link|body|create`,
+  `update`, `move`, `create`, `new`, `comment`, `delete`, `restore`) was recorded `author=user`, so an agent's property edit
+  read as the person's. A writer that names itself is an agent now; only one that says nothing is the person at the
+  terminal. The mod's tools already passed `--author agent`; this is the form an agent types in a shell.
+- Past rows stay as they are (the change feed is history). They are recognisable: `author=user` with an actor that
+  isn't `cli`, e.g. `loki`.
+
 ### A note's block-level tags show in its body (PIE-880)
 
 - **Fixed:** a `#tag` written with a note's properties (`[status::new] #pie-request`) counted as the note's tag and was
