@@ -12,6 +12,9 @@ are its record. The outliner's entries from then are kept below, under
 
 ### `ep0ch keys`: which secrets exist, and who may have each (PIE-887)
 
+PROTOCOL 171: an `extensions.list` entry carries `keys` (names, state and scopes, never a value). After merging, restart the
+outline host and the publishers with `ep0ch install --apply`; a client on 170 is told to update.
+
 - **Added:** `ep0ch keys list` names every `with-secrets` group's keys, where each lives, its mode, its scope and which
   extensions name it; `keys check <KEY>` says present or not and exits 1 when it isn't; `keys who <KEY>` says who may
   receive it. They never print a value. `keys set <group> <KEY>` prompts for one (the person's; it wraps
