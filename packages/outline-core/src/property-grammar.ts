@@ -220,6 +220,8 @@ export type PropertyValueLink =
  * the note being Seeds, `[work-id::PIE-12]` the note being PIE-12. Owned by the page addresses and the workboard.
  */
 export const ADDRESS_KEYS: ReadonlySet<string> = new Set(["page", "work-id"]);
+/** The keys whose value is the views' query grammar (`[query::links:[[garden]]]`): a question about links, not one. */
+export const QUERY_KEYS: ReadonlySet<string> = new Set(["query"]);
 
 /** Where a token's value is in its raw text: after `::`, to its closing `]` (a `[key::value]`) or its end (`key:: value`); null for a hashtag. */
 export function propertyValueSpan(raw: string): { start: number; end: number } | null {
@@ -231,13 +233,15 @@ export function propertyValueSpan(raw: string): { start: number; end: number } |
 /**
  * Every link written in the values of `tokens` (the tokens of `text` that are properties: the service's parser says
  * which; the grammar's own by default), in order: the one scanner for links in values, as `blockReferenceOccurrences`
- * and `pageAddressReferences` are for a note's text. Values of the address keys are skipped (`ADDRESS_KEYS`).
+ * and `pageAddressReferences` are for a note's text. Values of the address keys (`ADDRESS_KEYS`) and the query keys
+ * (`QUERY_KEYS`) are skipped; a client with keys of its own that aren't links (the service's Resource keys) leaves
+ * their tokens out.
  */
 export function propertyValueLinks(text: string, tokens: readonly Pick<RawPropertyToken, "key" | "start" | "raw">[] = propertyTokenMatches(text)): PropertyValueLink[] {
   const out: PropertyValueLink[] = [];
   for (const token of tokens) {
     const key = token.key.toLowerCase();
-    if (ADDRESS_KEYS.has(key)) continue;
+    if (ADDRESS_KEYS.has(key) || QUERY_KEYS.has(key)) continue;
     const span = propertyValueSpan(token.raw);
     if (!span) continue;
     const base = token.start + span.start, value = token.raw.slice(span.start, span.end);

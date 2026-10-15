@@ -309,6 +309,11 @@ export function providerKeyOccurrences(
     .map((match) => ({ key: match[0], start: match.index, end: match.index + match[0].length }));
 }
 
+/** Whether `key`'s value names a Resource (`[file::…]`, `[web::…]`, `[jira::PC-7]`), never an outline link (PIE-874). */
+export function isResourcePropertyKey(key: string, providers: readonly ResourceDirectiveProvider[] = table): boolean {
+  return key === "file" || key === "web" || key === "app" || key === "raw-capture" || key === "before-rewrite" || !!resourceDirectiveProvider(key, providers);
+}
+
 export function authoredResourceReferenceOccurrences(
   text: string,
   providers: readonly ResourceDirectiveProvider[] = table,
@@ -331,10 +336,7 @@ export function authoredResourceReferenceOccurrences(
       continue;
     }
     const entity = resourceDirectiveProvider(property.key, providers);
-    if (
-      property.key !== "file" && property.key !== "web" && !entity &&
-      property.key !== "app" && property.key !== "raw-capture" && property.key !== "before-rewrite"
-    ) continue;
+    if (!isResourcePropertyKey(property.key, providers)) continue;
     const value = property.value.trim();
     const range = { start: property.start, end: property.end };
     if (value.length > MAX_AUTHORED_RESOURCE_LOCATOR_UNITS) {

@@ -1,7 +1,8 @@
 import {Lexer, type Token} from "marked";
 import { codeHides, protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import { pageAddressReferences, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
-import { ADDRESS_KEYS, propertyValueLinks, propertyValueSpan } from "@ep0ch/outline-core/property-grammar";
+import { ADDRESS_KEYS, propertyValueLinks, propertyValueSpan, QUERY_KEYS } from "@ep0ch/outline-core/property-grammar";
+import { isResourcePropertyKey } from "./resource-references";
 import { parsePropertyRecords } from "./properties";
 import type { PropertyRecord } from "./types";
 import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -163,14 +164,16 @@ export function outlinerReferenceOccurrences(
  */
 function propertyValueOccurrences(text: string, workIdPrefix: TicketPrefixes, propertyRecords: readonly PropertyRecord[]): OutlinerReferenceOccurrence[] {
   const out: OutlinerReferenceOccurrence[] = [];
-  for (const link of propertyValueLinks(text, propertyRecords)) {
+  // A Resource's key (`[jira::PC-7]`, `[file::…]`) names a Resource: its value is the Resource path's, never an outline link.
+  const records = propertyRecords.filter((record) => record.syntax !== "hashtag" && !isResourcePropertyKey(record.key));
+  for (const link of propertyValueLinks(text, records)) {
     const propertyKey = link.key;
     if (link.kind === "block") out.push({ kind: "block", ...link.reference, propertyKey });
     else if (link.kind === "page") out.push({ kind: "page", address: link.reference.displayAddress, normalizedAddress: link.reference.normalizedAddress, ...(link.reference.label ? { label: link.reference.label } : {}), start: link.reference.start, end: link.reference.end, propertyKey });
     else out.push({ kind: "work-id", address: link.workId, start: link.start, end: link.end, propertyKey });
   }
-  for (const record of propertyRecords) {
-    if (ADDRESS_KEYS.has(record.key.toLowerCase())) continue;
+  for (const record of records) {
+    if (ADDRESS_KEYS.has(record.key.toLowerCase()) || QUERY_KEYS.has(record.key.toLowerCase())) continue;
     const span = propertyValueSpan(record.raw);
     if (!span) continue;
     const base = record.start + span.start, value = record.raw.slice(span.start, span.end);
