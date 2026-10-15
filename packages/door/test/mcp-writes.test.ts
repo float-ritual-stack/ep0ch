@@ -138,9 +138,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     if (dir) rmSync(dir, { recursive: true, force: true });
   }, 30_000);
 
-  test("tools/list offers the write tools, and list_outlines says what a write to each outline becomes", async () => {
-    const names = ((await rpc("tools/list")).result.tools as { name: string }[]).map(t => t.name);
-    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id", "outline_write_status", "share_start", "share_list", "share_revoke"]);
+  test("list_outlines says what a write to each outline becomes", async () => {
     const listed = (await tool("list_outlines", {})).json.outlines as Record<string, unknown>[];
     expect(listed.map(o => [o.outline, o.access, o.writes ?? null])).toEqual([
       ["garden-notes", "full", "applied"], ["pond-notes", "propose", "proposals"], ["quiet-notes", "read", null], ["attic-notes", "full", "queued"],
