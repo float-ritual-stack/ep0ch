@@ -557,7 +557,8 @@ export class CommentSession {
       }
       return r.asked ?? null;
     } catch (e) {
-      this.error = `no TL;DR: ${e instanceof Error ? e.message : String(e)}`;
+      const why = e instanceof Error ? e.message : String(e);
+      this.error = why.startsWith("no TL;DR") ? why : `no TL;DR: ${why}`;
       env.redraw();
       return null;
     }

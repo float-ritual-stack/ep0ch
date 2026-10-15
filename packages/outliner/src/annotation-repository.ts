@@ -3,7 +3,7 @@ import {observeDocument} from "./document-provenance";
 import {resourceDocumentObservation} from "./document-resources";
 import { blockCommentTarget } from "./block-comments";
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
-import { isMarkLifecycle, markCurrent } from "@ep0ch/outline-core/annotation-marks";
+import { isMarkLifecycle, markCurrent, TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { resourceCommentSource, resourceCommentTarget } from "./resource-comments";
 import type { SequenceChange } from "./change-feed";
 import { blockAnnotationRepresentation } from "./annotation-representations";
@@ -1325,8 +1325,9 @@ export class AnnotationRepository {
       author,
       provenance,
     );
-    // A new reply brings a thread that was put away back to its page (PIE-791): seen isn't closed.
-    if (root.lifecycle === "seen") this.setLifecycle({ annotationId: root.block.id, lifecycle: "open" }, { author, ...(provenance ?? {}) });
+    // A new reply brings a thread that was put away back to its page (PIE-791): seen isn't closed. A TL;DR doesn't: it
+    // sums up a thread the person may be putting away (PIE-860), and nothing new was said in it.
+    if (root.lifecycle === "seen" && input.properties?.kind?.[0] !== TLDR_KIND) this.setLifecycle({ annotationId: root.block.id, lifecycle: "open" }, { author, ...(provenance ?? {}) });
     return this.materialize(parseAnnotationBlockContent(block), this.targetRow(root.block.id));
   }
 

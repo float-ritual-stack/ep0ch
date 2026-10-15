@@ -369,7 +369,7 @@ export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "contr
  * The controls of a comment thread expanded inline (PIE-420): Select, Reply, Seen (or Bring back), Keep (or Unkeep), TL;DR;
  * Quote (the thread's mark, or a reply's: `value` names the reply); a "quoted in" line opens the block quoting it.
  */
-export type ThreadControl = "select" | "reply" | "edit" | "seen" | "keep" | "tldr" | "card" | "quote" | "quoted";
+export type ThreadControl = "select" | "reply" | "edit" | "seen" | "keep" | "tldr" | "untldr" | "card" | "quote" | "quoted";
 /**
  * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
  * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
@@ -567,7 +567,7 @@ const PAGE_OFFER_MS = 60_000;
 /** Agent actions that open an edit or a comment session on the note. */
 const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "comment.edit", "resolve", "thread.seen", "thread.keep", "thread.tldr"]);
 /** The thread list's attention keys (PIE-791): s seen, p keep (k is up there), t TL;DR. */
-const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tldr"> = { s: "thread.seen", p: "thread.keep", t: "thread.tldr" };
+const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tldr"> = { s: "thread.seen", p: "thread.keep", t: "thread.tldr", T: "thread.tldr" };
 
 export class NoteSurface {
   msg: Msg | null = null;
@@ -1632,7 +1632,7 @@ export class NoteSurface {
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
     // The margin's side column (ADR 0004 contract 6): when the reader is wide and the note has cards to show.
     // The margin's default (PIE-791): current threads only; seen and resolved are on the thread list's earlier shelf.
-    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => c.start !== null && c.open && hasCard(c));
+    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => (c.start !== null || isWholeNote(c)) && c.open && hasCard(c));
     // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
     const mcols = marginColumn(w, this.printed ? "off" : this.marginMode, cardThreads.length);
 
@@ -3152,7 +3152,7 @@ export class NoteSurface {
     // floating, split or popup one is in view already: the note stays where it was scrolled (PIE-846).
     if (s.mode === "compose" && s.place === "inline") this.revealComposer = true;
     const verb = s.mode === "threads" && !s.busy && s.threads[s.sel] ? ATTENTION_KEYS[ch(k) ?? ""] : undefined;
-    if (verb) { void this.runKey(verb, { thread: s.threads[s.sel]!.id }, host, true); return true; }
+    if (verb) { void this.runKey(verb, { thread: s.threads[s.sel]!.id, ...(ch(k) === "T" ? { remove: true } : {}) }, host, true); return true; }
     // e edits the current thread's comment in the same editor (PIE-763); a reply's words: its [Edit] on the expanded thread.
     if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === "e") { void this.runKey("comment.edit", { thread: s.threads[s.sel]!.id }, host, true); return true; }
     // q quotes the current thread (or the ones space picked) into a new block; space picks.
@@ -3802,7 +3802,8 @@ export class NoteSurface {
       const c = cs.find(x => x.id === k.thread);
       // Its comment and replies drawn as the reader draws a note, pictures too (PIE-846).
       if (c && this.expanded.has(k.thread)) return [{ at: k.rows[1], thread: c.id, ...threadPanel(c, W, this.cur, (t, w) => this.snippetDoc(t, w, host, [], true)) }];
-      if (!c || !folding || !hasCard(c)) return [];
+      // Folded under its passage, as in the side column: current threads only (PIE-860: a seen thread's TL;DR lingered).
+      if (!c || !folding || !c.open || !hasCard(c)) return [];
       const rows = cardRows(c, Math.max(8, Math.min(W, 72) - 2), this.marginMode, t => this.said(t)).map(l => "  " + l);
       // The whole card is one control: a click or ⏎ on it expands its thread.
       return [{ at: k.rows[1], thread: c.id, lines: rows, images: [] as DocImage[], controls: [{ thread: c.id, control: "card" as Control["control"], row: 0, from: 0, to: Math.min(W, 72), label: `${kindOf(c)} card` }] as Control[] }];
@@ -3846,6 +3847,8 @@ export class NoteSurface {
     // Quote: the thread's mark, or the reply the control is on; the power bar asks where it goes.
     if (e.control === "quote") return this.runKey("quote", { threads: e.value ?? c.id }, host);
     if (e.control === "quoted" && e.value) return this.followTarget({ block: e.value } as Link, host, { link: true, fresh: false });
+    // No TL;DR (PIE-860): it goes, and the discussion is the thread's face again.
+    if (e.control === "untldr") return this.runKey("thread.tldr", { thread: c.id, remove: true }, host);
     // Seen, Keep and TL;DR from the expanded thread: what the list's s, p and t do, without opening the list over the note.
     const s = new CommentSession(this.msg, this.comments ?? [], "threads");
     s.sel = s.threads.findIndex(t => t.id === c.id);
@@ -6188,7 +6191,8 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     }
   };
   quotedIn(c.quotedIn, "");
-  for (const r of c.replies) {
+  // A TL;DR is shown once, as the face above (PIE-860): its reply (and any it replaced) isn't listed again under it.
+  for (const r of c.replies.filter(x => !x.tldr)) {
     // Each reply is a mark too: its own [Quote].
     // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
     const head = "└ " + printable(authorName(r.author)) + " · " + ago(r.at) + editedMark(r);
@@ -6206,12 +6210,19 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   // The controls on one row, or as many as a narrow reader needs: each is whole, never cut off.
   let row = edge + "│ ", col = 2;
   // A thread on the whole note has no words to select (PIE-846).
-  ([...(isWholeNote(c) ? [] : [["select", "Select"] as const]), ["reply", "Reply"], ...(c.body.trim() ? [["edit", "Edit"] as const] : []), ["seen", c.open ? "Seen" : "Bring back"], ["keep", c.lifecycle === "kept" ? "Unkeep" : "Keep"], ["tldr", "TL;DR"], ["quote", "Quote"]] as const).forEach(([k, label]) => {
-    const shown = `[${label}]`, on = cur === controlKey(c.id, k);
+  // With a TL;DR: edit it, ask for it again, or take it away (PIE-860).
+  const all: [ThreadControl, string, string?][] = [
+    ...(isWholeNote(c) ? [] : [["select", "Select"] as [ThreadControl, string]]), ["reply", "Reply"], ...(c.body.trim() ? [["edit", "Edit"] as [ThreadControl, string]] : []),
+    ["seen", c.open ? "Seen" : "Bring back"], ["keep", c.lifecycle === "kept" ? "Unkeep" : "Keep"],
+    ...(c.tldr ? [["edit", "Edit TL;DR", c.tldr.id], ["tldr", "TL;DR again"], ["untldr", "No TL;DR"]] as [ThreadControl, string, string?][] : [["tldr", "TL;DR"] as [ThreadControl, string]]),
+    ["quote", "Quote"],
+  ];
+  all.forEach(([k, label, value]) => {
+    const shown = `[${label}]`, on = cur === controlKey(c.id, k, value);
     if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
     if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
     row += (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET;
-    controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label });
+    controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label, ...(value ? { value } : {}) });
     col += shown.length;
   });
   lines.push(row + RESET, edge + "└" + "─".repeat(Math.max(0, W - 1)) + RESET);
@@ -7027,7 +7038,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
-      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
+      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : e.control === "untldr" || e.control === "tldr" ? `thread.tldr thread=${e.thread!.slice(0, 8)}${e.control === "untldr" ? " remove=true" : ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
       // person's property panel, which would take the keys meant for it).
       if (e.kind === "comment" && actor.kind === "agent") {
@@ -7510,11 +7521,24 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "thread.tldr": def({
-    summary: "a comment thread's TL;DR (PIE-791): @margin writes a short summary as a reply with [kind::tldr], which becomes the thread's face, its discussion folded behind it. body= writes it instead (yours, or an edit of @margin's)",
-    keys: "t in the thread list (m); [TL;DR] on an expanded thread",
+    summary: "a comment thread's TL;DR (PIE-791): @margin writes a short summary as a reply with [kind::tldr], which becomes the thread's face, its discussion folded behind it. body= writes it instead (yours, or an edit of @margin's). With no model set up for @margin none is written, and it says how to set one up (PIE-860). remove=true takes it away: the discussion is the face again",
+    keys: "t in the thread list (m), T takes it away; [TL;DR] on an expanded thread, [TL;DR again], [No TL;DR]",
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent asks in another reader (tile=)",
-    args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the TL;DR itself; left out, @margin writes it" } },
-    async run({ thread, body }, { surface, host }, actor) {
+    args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the TL;DR itself; left out, @margin writes it" }, remove: { type: "boolean", optional: true, about: "take its TL;DR away" } },
+    async run({ thread, body, remove }, { surface, host }, actor) {
+      // Taken away from an expanded thread or the list: the thread changes, the person's view doesn't (no list opens).
+      if (remove) {
+        await surface.whole();
+        const id = surface.threadId(thread), c = surface.comments?.find(x => x.id === id);
+        if (!c?.tldr) throw new ActionRefused("this thread has no TL;DR to take away");
+        await host.ctx.board.tldr(id, actor, undefined, true);
+        await surface.loadComments(host);
+        if (surface.session?.mode === "threads") surface.session.threads = surface.comments ?? surface.session.threads;
+        asActor(host.ctx, actor).flash("took the TL;DR away");
+        surface.noteAgent(actor, "took a comment's TL;DR away");
+        host.redraw();
+        return { removed: true };
+      }
       const s = await surface.ensureSession(host, "threads");
       const i = findThread(s, thread);
       s.sel = i;

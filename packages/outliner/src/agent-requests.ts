@@ -36,6 +36,10 @@ import { parsePropertyRecords } from "./properties";
  */
 
 /** What a thread's agent is asked for a TL;DR (PIE-791). */
+/** How long a TL;DR ask waits for its agent before saying it's being written (an agent that can't refuses at once). */
+export const TLDR_WAIT_MS = 4000;
+/** What answering an ask came to: refused (a TL;DR not written, and why), else it landed. */
+type TurnOutcome = { refused: string };
 export const TLDR_REQUEST = "TL;DR: summarize this thread in two or three short lines: what it was about, and where it landed.";
 
 export interface RequestLine {
@@ -560,34 +564,38 @@ export class AgentRequests {
   }
 
   /** Each thread's answers, one at a time: a second `@margin` waits for the first, so it resumes the same session. */
-  private readonly threadTurns = new Map<string, Promise<void>>();
+  private readonly threadTurns = new Map<string, Promise<TurnOutcome | void>>();
 
-  private answerInThread(record: AnnotationRecord, line: RequestLine): Promise<void> {
-    return this.queueTurn(record.parentAnnotationId ?? record.block.id, record.block.id, line);
+  private async answerInThread(record: AnnotationRecord, line: RequestLine): Promise<void> {
+    await this.queueTurn(record.parentAnnotationId ?? record.block.id, record.block.id, line);
   }
 
   /**
    * A TL;DR of a thread (PIE-791), asked by the person (the door's `t`, the web's TL;DR): the agent that answers in
    * threads writes a short summary as a reply with `[kind::tldr]`, which becomes the thread's face. Runs in the
    * background like any answer; says which agent was asked. With no such agent it's refused, saying how to write one.
+   * An agent that can't write one (no model set up, PIE-860) answers with no reply: nothing is posted, and when that
+   * answer comes within `wait` ms the ask is refused with what it said (the fix), so no reader waits for a face.
    */
-  tldr(rootId: string): string {
+  async tldr(rootId: string, wait = TLDR_WAIT_MS): Promise<string> {
     const name = [...this.registry.threadAgentNames()][0];
     if (!name) throw new Error(`no agent answers in threads in this outline, so none can write a TL;DR: write it yourself (annotations.tldr with body)`);
     const request = TLDR_REQUEST;
-    void this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}` }, { kind: [TLDR_KIND] });
+    const turn = this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}` }, { kind: [TLDR_KIND] });
+    const done = await Promise.race([turn, Bun.sleep(wait).then(() => undefined)]);
+    if (done && "refused" in done) throw new Error(done.refused);
     return name;
   }
 
-  private queueTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>): Promise<void> {
-    const turn = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => this.answerTurn(rootId, asked, line, properties)).catch(() => {});
+  private queueTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>): Promise<TurnOutcome | void> {
+    const turn: Promise<TurnOutcome | void> = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => this.answerTurn(rootId, asked, line, properties)).catch(() => {});
     this.threadTurns.set(rootId, turn);
     void turn.finally(() => { if (this.threadTurns.get(rootId) === turn) this.threadTurns.delete(rootId); });
     return turn;
   }
 
   /** One ask answered: `asked` is the comment or reply that asked (a later turn may have landed after it). */
-  private async answerTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>): Promise<void> {
+  private async answerTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>): Promise<TurnOutcome | void> {
     const bound = this.registry.agent(line.agent);
     if (!bound || this.stopped) return;
     const { extension, agent } = bound;
@@ -614,6 +622,7 @@ export class AgentRequests {
     // The page's other comments, every time (the capability's finding: an answer once said it had none).
     const comments = pageComments(threads.filter((t) => t.block.id !== rootId), author);
     const key = sessionKey(line.agent);
+    const tldr = properties?.kind?.[0] === TLDR_KIND;
     const session = root.properties?.[key]?.[0];
     const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
     let reply: string;
@@ -635,9 +644,13 @@ export class AgentRequests {
       }, durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS);
       const respond = validateRespond(result.value);
       if (respond.patches.length) throw new Error("an answer in a thread can't edit the note: reply only");
+      // A TL;DR is the thread's face: one the agent didn't write (no reply, only a message saying why) is never posted.
+      if (tldr && !respond.reply?.trim()) return { refused: respond.message?.trim() || `@${line.agent} wrote no TL;DR` };
       reply = this.checkedQueries(respond.reply?.trim() || respond.message?.trim() || "(no answer)");
       next = respond.session;
     } catch (error) {
+      // Nor is an error: it would become the face.
+      if (tldr) return { refused: `@${line.agent} couldn't write the TL;DR: ${message(error)}` };
       reply = `@${line.agent} couldn't answer: ${message(error)}`;
     }
     if (this.stopped) return;

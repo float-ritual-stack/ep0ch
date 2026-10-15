@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### TL;DR: none without a model, shown once, and it can be taken away (PIE-860)
+
+- **Fixed:** asking for a TL;DR when @margin has no model set up no longer posts the note's own sentences (or a
+  stitched-together summary) as the thread's face. Nothing is posted, and it says how to set one up:
+  `~/.config/pi-herdr-outliner/extensions/marginalia/config.json`: `{ "config": { "answer": ["claude", "-p"] } }`.
+  An agent that errors writing one posts nothing either.
+- **Added:** take a TL;DR away: `[No TL;DR]` on an expanded thread, `T` in the thread list, `thread.tldr remove=true`
+  (the service's `annotations.tldr remove: true`). `[TL;DR again]` asks for a new one, `[Edit TL;DR]` edits its words.
+- **Fixed:** an expanded thread shows its TL;DR once, as its face, not again as a reply under it.
+- **Fixed:** a thread you put away (seen) leaves no card under its passage in a narrow reader, TL;DR or not, as the
+  side column already did; and asking for a TL;DR doesn't bring a seen thread back.
+
 ### Installed built-in extensions follow updates (PIE-861)
 
 - **Fixed:** a built-in extension copied in with `ep0ch ext add` (tarot, marginalia, tidy, echonet…) never got the

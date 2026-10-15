@@ -43,6 +43,45 @@ describe("a thread inline, without a service", () => {
   });
 });
 
+// PIE-860: a TL;DR is said once (the face, not again as a reply under it), can be edited, asked for again or taken away
+// from the thread, and a thread put away (seen) leaves no card behind in a narrow reader, TL;DR or not.
+describe("a thread's TL;DR, without a service (PIE-860)", () => {
+  const TEXT = "Shed jobs\nOil the chain before the frost.\nThe pump lives by the door.";
+  const quote = "Oil the chain", at = TEXT.indexOf(quote);
+  const thread = (id: string, lifecycle: "open" | "seen") => ({
+    id, author: "sam", body: "Which lube?", quote, at: Date.now() - 60_000, open: lifecycle === "open", lifecycle, start: at, end: at + quote.length,
+    replies: [{ id: `${id.slice(0, -4)}aaaa`, author: "user", body: "The dry one.", at: Date.now() - 30_000 }, { id: `${id.slice(0, -4)}bbbb`, author: "ext:marginalia", body: "Dry lube on the chain, before the frost.", at: Date.now(), tldr: true }],
+    tldr: { id: `${id.slice(0, -4)}bbbb`, author: "ext:marginalia", body: "Dry lube on the chain, before the frost.", at: Date.now() },
+  });
+  const note = { id: "5eed0000-1111-4222-8333-555555555555", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} };
+  const host = (comments: unknown[]) => ({ ctx: { board: { ancestors: async () => [], comments: async () => comments }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
+
+  test("expanded: the TL;DR once, at the top, with Edit TL;DR, TL;DR again and No TL;DR; the discussion under it", async () => {
+    const c = thread("c0ffee00-1111-4222-8333-555555550000", "open"), s = new NoteSurface(), h = host([c]);
+    s.show(note, h);
+    await until(() => s.comments?.length === 1, "the comment");
+    s.setExpanded(c.id, true);
+    const text = s.render(90, 40, h).lines.map(plain).join("\n");
+    expect(text.split("Dry lube on the chain").length - 1).toBe(1);
+    expect(text).toContain("TL;DR Dry lube on the chain");
+    expect(text).toContain("The dry one.");
+    for (const control of ["[Edit TL;DR]", "[TL;DR again]", "[No TL;DR]"]) expect(text).toContain(control);
+    // Each is an element ([ ] reaches it, ⏎ uses it).
+    const labels = s.describeElements().filter(e => e.kind === "control").map(e => e.label).join(" | ");
+    for (const l of ["Edit TL;DR", "TL;DR again", "No TL;DR"]) expect(labels).toContain(l);
+  });
+
+  test("narrow, a current thread folds its card under its passage, TL;DR and all; a seen one leaves none", async () => {
+    for (const [lifecycle, shown] of [["open", true], ["seen", false]] as const) {
+      const c = thread(`c0ffee00-1111-4222-8333-55555555${lifecycle === "open" ? "1111" : "2222"}`, lifecycle), s = new NoteSurface(), h = host([c]);
+      s.show(note, h);
+      await until(() => s.comments?.length === 1, "the comment");
+      const text = s.render(50, 30, h).lines.map(plain).join("\n");
+      expect({ lifecycle, face: text.includes("TL;DR Dry lube") }).toEqual({ lifecycle, face: shown });
+    }
+  });
+});
+
 describe("several threads on one passage, without a service (PIE-541)", () => {
   const TEXT = "Shed jobs\n_Oil the chain, see ((5eed0000-2222-4222-8333-444444444444|the rota))._\nThe pump lives by the door.";
   const quote = "Oil the chain";
