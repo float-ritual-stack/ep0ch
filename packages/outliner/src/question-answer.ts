@@ -63,25 +63,29 @@ export function questionGroups(matches: readonly Block[], rows: readonly Block[]
 
 /**
  * Value counts over every match: for `keys`, or (`true`) every key the matches carry. Keys by how many matches carry
- * them, then by name; values by count, then in the key's value order. At most QUESTION_FACET_CAP keys and values each;
+ * them, then by name; values by count, then in the key's value order. At most QUESTION_FACET_CAP keys, and `valueCap` values each (QUESTION_FACET_CAP unless the question says);
  * a key's `more` says how many values were left out.
  */
-export function questionFacets(matches: readonly Block[], keys: true | readonly string[], valuesOf: ValuesOf, keysOf: (block: Block) => string[]): QuestionFacet[] {
+export function questionFacets(matches: readonly Block[], keys: true | readonly string[], valuesOf: ValuesOf, keysOf: (block: Block) => string[], valueCap = QUESTION_FACET_CAP, keyCap = QUESTION_FACET_CAP): QuestionFacet[] {
   const wanted = keys === true ? [...new Set(matches.flatMap(keysOf))] : [...keys];
   const facets = wanted.map((key): QuestionFacet => {
-    const counts = new Map<string, number>();
+    const counts = new Map<string, { n: number; last: string }>();
     let count = 0;
     for (const block of matches) {
       const values = [...new Set(valuesOf(block, key).map(v => v.trim()).filter(Boolean))];
       if (!values.length) continue;
       count += 1;
-      for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+      for (const value of values) {
+        const seen = counts.get(value);
+        if (!seen) counts.set(value, { n: 1, last: block.updatedAt });
+        else { seen.n += 1; if (block.updatedAt > seen.last) seen.last = block.updatedAt; }
+      }
     }
     const order = valueOrder(key);
-    const values = [...counts].sort((a, b) => b[1] - a[1] || order(a[0], b[0])).map(([value, n]) => ({ value, count: n }));
-    return { key, count, values: values.slice(0, QUESTION_FACET_CAP), ...(values.length > QUESTION_FACET_CAP ? { more: values.length - QUESTION_FACET_CAP } : {}) };
+    const values = [...counts].sort((a, b) => b[1].n - a[1].n || order(a[0], b[0])).map(([value, seen]) => ({ value, count: seen.n, last: seen.last }));
+    return { key, count, values: values.slice(0, valueCap), ...(values.length > valueCap ? { more: values.length - valueCap } : {}) };
   });
-  return facets.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)).slice(0, QUESTION_FACET_CAP);
+  return facets.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)).slice(0, keyCap);
 }
 
 /** Edit distance, for the nearest keys a hint names. */

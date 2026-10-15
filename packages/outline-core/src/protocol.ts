@@ -119,7 +119,11 @@ export interface BlockRevisions {
  * - `sort`: `"<property|created|updated|title>[ asc|desc]"`; `property:<name>` for a property so named. `work-stage`
  *   sorts in the workboard's stage order.
  * - `limit`: rows returned, 200 when left out, at most 1000. Groups and facets count every match.
- * - `facets`: value counts for every key the matches carry (`true`), or these keys.
+ * - `facets`: value counts for every key the matches carry (`true`), or these keys; each value also says when a match carrying
+ *   it was last updated (`last`).
+ * - `facetKeys`: how many keys `facets: true` lists, QUESTION_FACET_CAP when left out, at most QUESTION_MAX_LIMIT.
+ * - `facetValues`: how many values a facet lists per key, QUESTION_FACET_CAP when left out, at most QUESTION_MAX_LIMIT (a
+ *   tags list wants them all).
  * - `watch` (beside `query` on the request): keep the question on this connection under that key (`QueriesChanged`).
  */
 export interface QuestionFields {
@@ -129,6 +133,8 @@ export interface QuestionFields {
   sort?: string | { field: string; direction: "asc" | "desc" };
   limit?: number;
   facets?: true | string[];
+  facetValues?: number;
+  facetKeys?: number;
 }
 
 /** The most rows a question returns (a handler's input, a figure). */
@@ -146,7 +152,7 @@ export const QUESTION_FACET_CAP = 50;
 export interface QuestionGroup { value: string | null; count: number; ids: string[] }
 
 /** A key's value counts over every match (`facets=`): `count` matches carry the key; `more` values were left out. */
-export interface QuestionFacet { key: string; count: number; values: { value: string; count: number }[]; more?: number }
+export interface QuestionFacet { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }
 
 /** What a question adds to `blocks.query`'s answer. `generation` is the watch's (0 when it registers). */
 export interface QuestionAnswerFields {

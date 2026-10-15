@@ -107,9 +107,43 @@ describe("groups, sorts, facets and hints", () => {
   test("facets count values over every match; a list asks only those keys", () => {
     hub();
     const all = ask({ where: "area", facets: true, limit: 1 });
-    expect(all.facets!.find(f => f.key === "area")).toEqual({ key: "area", count: 3, values: [{ value: "beds", count: 2 }, { value: "paths", count: 1 }, { value: "shed", count: 1 }] });
+    expect(all.facets!.find(f => f.key === "area")).toEqual({ key: "area", count: 3, values: [{ value: "beds", count: 2, last: expect.any(String) }, { value: "paths", count: 1, last: expect.any(String) }, { value: "shed", count: 1, last: expect.any(String) }] });
     expect(all.facets!.map(f => f.key)).toEqual(["area", "type", "work-stage"]);
-    expect(ask({ where: "area", facets: ["type"] }).facets).toEqual([{ key: "type", count: 3, values: [{ value: "task", count: 2 }, { value: "note", count: 1 }] }]);
+    expect(ask({ where: "area", facets: ["type"] }).facets).toEqual([{ key: "type", count: 3, values: [{ value: "task", count: 2, last: expect.any(String) }, { value: "note", count: 1, last: expect.any(String) }] }]);
+  });
+
+  test("a tags list (PIE-881): tag facets say when each tag was last used, a selection narrows them to the tags that still narrow, and facetValues lists them all", () => {
+    const a = store.create("Fence plan #fencing #timber"), b = store.create("Gate #fencing #metal"), c = store.create("Shed roof #roofing");
+    store.database.query("UPDATE blocks SET updated_at = ? WHERE id = ?").run("2026-03-05T10:00:00.000Z", a.id);
+    store.database.query("UPDATE blocks SET updated_at = ? WHERE id = ?").run("2026-05-05T10:00:00.000Z", b.id);
+    store.database.query("UPDATE blocks SET updated_at = ? WHERE id = ?").run("2026-01-05T10:00:00.000Z", c.id);
+    const values = (query: Record<string, unknown>) => ask({ facets: ["tag"], ...query }).facets![0]!.values.map(v => `${v.value}:${v.count}:${v.last.slice(0, 7)}`);
+    expect(values({ where: "#fencing OR #roofing OR #timber OR #metal" }).sort()).toEqual(["fencing:2:2026-05", "metal:1:2026-05", "roofing:1:2026-01", "timber:1:2026-03"]);
+    // #roofing picked: no note carries it with another tag, so none remains to pick; #fencing picked: its notes' other tags.
+    expect(values({ where: "#roofing" })).toEqual(["roofing:1:2026-01"]);
+    expect(values({ where: "#fencing #timber" })).toEqual(["fencing:1:2026-03", "timber:1:2026-03"].sort());
+    expect(values({ where: "#fencing" }).sort()).toEqual(["fencing:2:2026-05", "metal:1:2026-05", "timber:1:2026-03"]);
+    // The default lists 50 values a key and says how many it left out; facetValues lifts that.
+    for (let i = 0; i < 52; i++) store.create(`Note ${i} #many${String(i).padStart(2, "0")}`);
+    const capped = ask({ where: "#many00 OR #many51 OR tag", facets: ["tag"], limit: 1 }).facets![0]!;
+    expect([capped.values.length, capped.more]).toEqual([50, expect.any(Number)]);
+    expect(ask({ where: "tag", facets: ["tag"], facetValues: 1000, limit: 1 }).facets![0]!.more).toBeUndefined();
+    expect(() => ask({ where: "tag", facets: ["tag"], facetValues: 0 })).toThrow(/facetValues/);
+  });
+
+  test("facets over any property (PIE-881): a path value matches what is below it with /*, groups and exclusions combine, and facetKeys lifts the key cap", () => {
+    store.create("Standup [plot::garden/beds] [week::3]");
+    store.create("Retro [plot::garden/paths] [week::5]");
+    store.create("Audit [plot::house/shed] [week::9]");
+    store.create("Fencing [plot::garden] [week::4]");
+    const titles = (where: string) => ask({ where, limit: 50 }).blocks.map(b => b.text.split(" [")[0]).sort();
+    expect(titles("plot=garden/*")).toEqual(["Fencing", "Retro", "Standup"]);
+    expect(titles("plot=garden")).toEqual(["Fencing"]);
+    expect(titles("(plot=garden/* OR plot=house/*) NOT week=3 NOT week=9")).toEqual(["Fencing", "Retro"]);
+    for (let i = 0; i < 60; i++) store.create(`Key note ${i} [facetkey${String(i).padStart(2, "0")}::x]`);
+    expect(ask({ where: "facetkey00 OR facetkey59", facets: true }).facets!.length).toBeLessThanOrEqual(50);
+    expect(ask({ facets: true, facetKeys: 1000, limit: 1 }).facets!.filter(f => f.key.startsWith("facetkey")).length).toBe(60);
+    expect(() => ask({ facets: true, facetKeys: 0 })).toThrow(/facetKeys/);
   });
 
   test("a key nobody carries is a hint with the nearest keys; a known key with no matches isn't", () => {

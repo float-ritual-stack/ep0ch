@@ -514,6 +514,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["desk: backlinks tile", desk, [k("1"), { kind: "enter" }, CTRL_W, k("o"), k("l"), k("5")]],
     ["desk: who tile", desk, [CTRL_W, k("o"), k("w"), k("5")]],
     ["desk: art tile", desk, [CTRL_W, k("o"), k("b"), k("5")]],
+    ["desk: facets tile", desk, [CTRL_W, k("o"), k("f"), k("5")]],
+    ["desk: tags tile", desk, [CTRL_W, k("o"), k("#"), k("5")]],
     ["desk: daily", () => new Desk(undefined, { layout: "daily" })],
     ["desk: a terminal", () => new Desk(undefined, { layout: "daily" }), [k("1")]],
     ["showcase: section 3", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3")]],

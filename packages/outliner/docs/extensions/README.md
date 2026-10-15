@@ -1691,6 +1691,8 @@ Answers `RenderedNote`.
 | `limit?` | `number` | Rows returned: 200 when left out, at most 1000. |
 | `group?` | `string` | A property name, or created:day\|week\|month, updated:day\|week\|month: the answer's `groups`, over every match. |
 | `facets?` | `true \| string[]` | `true`: value counts for every key the matches carry; or these keys. |
+| `facetValues?` | `number` | Values a facet lists per key: 50 when left out, at most 1000. |
+| `facetKeys?` | `number` | Keys `facets: true` lists: 50 when left out, at most 1000. |
 
 **`VisibleBlockCollection`**
 

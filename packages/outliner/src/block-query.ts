@@ -1110,6 +1110,15 @@ export function normalizeBlockSearchQuery(
     } else throw new BlockQueryError("facets is true (every key the matches carry) or a list of property names");
   }
 
+  if (query.facetValues !== undefined && !(Number.isInteger(query.facetValues) && query.facetValues >= 1 && query.facetValues <= QUESTION_MAX_LIMIT)) {
+    throw new BlockQueryError(`facetValues is how many values each facet lists, 1 to ${QUESTION_MAX_LIMIT}`);
+  }
+  if (query.facetKeys !== undefined && !(Number.isInteger(query.facetKeys) && query.facetKeys >= 1 && query.facetKeys <= QUESTION_MAX_LIMIT)) {
+    throw new BlockQueryError(`facetKeys is how many keys facets lists, 1 to ${QUESTION_MAX_LIMIT}`);
+  }
+  const facetValues = facets && query.facetValues !== undefined ? query.facetValues : undefined;
+  const facetKeys = facets && query.facetKeys !== undefined ? query.facetKeys : undefined;
+
   const filters: PropertyFilter[] = [];
   const seen = new Set<string>();
   let includeDeleted = query.includeDeleted;
@@ -1153,6 +1162,8 @@ export function normalizeBlockSearchQuery(
     ...(sort ? { sort } : {}),
     ...(group ? { group } : {}),
     ...(facets ? { facets } : {}),
+    ...(facetValues ? { facetValues } : {}),
+    ...(facetKeys ? { facetKeys } : {}),
     limit,
   };
 }
