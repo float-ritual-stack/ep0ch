@@ -267,45 +267,6 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return d.collapseTile(reader, on, actor, dir as "v" | "h" | undefined);
     },
   }),
-  "note.trash": def({
-    summary: "move the note the tile points at (a reader's note, a list's or the tree's selected row; or ref=<block id>) and the notes under it to Trash, recorded as the actor's, where note.untrash (ctrl+z) brings it back. The person's first press says what would go in a two-row choice (d again, Delete or ⏎ trashes it, any other key or esc keeps it); an agent passes confirm=<the note's id>, the same note said twice. Refused with why: a system note (the Inbox, Trash, Bookmarks), a note already in the Trash, a note with a draft open on it",
-    keys: "d then d again (Delete the same), a click on the tile menu's row",
-    touches: "draft", draft: "write", replay: "ask",
-    says: r => `trashed “${r.title}”`,
-    menu: { label: "trash this note", group: "Note", key: "d", now: ({ d, reader }: On) => (d.subjectOf(reader).id ? null : { hide: true }) },
-    args: {
-      ref: { type: "string", optional: true, about: "the note's block id; default the note the tile points at" },
-      confirm: { type: "string", optional: true, about: "the note's id (or its first 8+ characters): the same note, said twice" },
-    },
-    async run({ ref, confirm }, { d, reader }, actor) {
-      const board = d.ctx.board, s = d.subjectOf(reader), id = ref ?? s.id;
-      if (!id) throw new ActionRefused(`${s.tile} points at no note; ref=<a block id> names one`);
-      if (confirm === undefined) {
-        if (actor.kind === "agent") throw new ActionRefused("note.trash needs confirm=<the note's id>: the same note, said twice");
-        // A second d typed before the first one's answer is back is the confirmation: the choice never opens for it.
-        const asked = asking.get(d);
-        if (asked?.id === id) { asked.again = true; return { armed: id, say: "asked already; confirming" }; }
-        const now = { id, again: false };
-        asking.set(d, now);
-        let plan: Awaited<ReturnType<typeof trashPlan>>;
-        try { plan = await trashPlan(board, id); } finally { asking.delete(d); }
-        const { note, notesUnder } = plan;
-        if (now.again) return d.dispatch.press("note.trash", { ref: note.id, confirm: note.id }, reader);
-        d.overlay(trashConfirm({ title: subject(note), notesUnder, trash: () => d.run("note.trash", { ref: note.id, confirm: note.id }, reader) }));
-        return { armed: note.id, title: subject(note), notesUnder, say: "d again, Delete or ⏎ trashes it" };
-      }
-      if (!(confirm === id || (confirm.length >= 8 && id.startsWith(confirm)))) throw new ActionRefused(`confirm=${confirm} doesn't name ${id.slice(0, 8)}; pass that note's id to trash it`);
-      return trashNote(board, id, actor, msg => asActor(d.ctx, actor).flash(msg));
-    },
-  }),
-  "note.untrash": def({
-    summary: "bring back the note the actor trashed last (or id=<a Trash root's block id>), where it was, with the page names it had to change",
-    keys: "ctrl+z when the tile has nothing of its own to undo, the tile menu's row",
-    touches: "nothing", replay: "ask",
-    menu: { label: "bring back the note trashed last", group: "Note", key: "ctrl+z", now: ({ d }: On, _t, actor) => (lastTrashed(d.ctx.board, actor) ? null : { hide: true }) },
-    args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the note this actor trashed last" } },
-    run: ({ id }, { d }, actor) => untrashNote(d.ctx.board, id, actor, msg => asActor(d.ctx, actor).flash(msg), renamedPagesNote),
-  }),
   "tile.expand": def({
     summary: "open tile=<tile> from its spine, back at the size it had (tile.collapse on=false); what was in it is as it was left",
     keys: "alt+h, - + = or ⏎ space on a spine; a click on a spine; dragging a tile onto it",
@@ -627,4 +588,43 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     async run({ name }, { d }, actor) { return await d.deleteScreen(name, actor); },
   }),
   "layout.load": loadLayout,
+  "note.trash": def({
+    summary: "move the note the tile points at (a reader's note, a list's or the tree's selected row; or ref=<block id>) and the notes under it to Trash, recorded as the actor's, where note.untrash (ctrl+z) brings it back. The person's first press says what would go in a two-row choice (d again, Delete or ⏎ trashes it, any other key or esc keeps it); an agent passes confirm=<the note's id>, the same note said twice. Refused with why: a system note (the Inbox, Trash, Bookmarks), a note already in the Trash, a note with a draft open on it",
+    keys: "d then d again (Delete the same), a click on the tile menu's row",
+    touches: "draft", draft: "write", replay: "ask",
+    says: r => `trashed “${r.title}”`,
+    menu: { label: "trash this note", group: "Trash", key: "d", now: ({ d, reader }: On) => (d.subjectOf(reader).id ? null : { hide: true }) },
+    args: {
+      ref: { type: "string", optional: true, about: "the note's block id; default the note the tile points at" },
+      confirm: { type: "string", optional: true, about: "the note's id (or its first 8+ characters): the same note, said twice" },
+    },
+    async run({ ref, confirm }, { d, reader }, actor) {
+      const board = d.ctx.board, s = d.subjectOf(reader), id = ref ?? s.id;
+      if (!id) throw new ActionRefused(`${s.tile} points at no note; ref=<a block id> names one`);
+      if (confirm === undefined) {
+        if (actor.kind === "agent") throw new ActionRefused("note.trash needs confirm=<the note's id>: the same note, said twice");
+        // A second d typed before the first one's answer is back is the confirmation: the choice never opens for it.
+        const asked = asking.get(d);
+        if (asked?.id === id) { asked.again = true; return { armed: id, say: "asked already; confirming" }; }
+        const now = { id, again: false };
+        asking.set(d, now);
+        let plan: Awaited<ReturnType<typeof trashPlan>>;
+        try { plan = await trashPlan(board, id); } finally { asking.delete(d); }
+        const { note, notesUnder } = plan;
+        if (now.again) return d.dispatch.press("note.trash", { ref: note.id, confirm: note.id }, reader);
+        d.overlay(trashConfirm({ title: subject(note), notesUnder, trash: () => d.run("note.trash", { ref: note.id, confirm: note.id }, reader) }));
+        return { armed: note.id, title: subject(note), notesUnder, say: "d again, Delete or ⏎ trashes it" };
+      }
+      if (!(confirm === id || (confirm.length >= 8 && id.startsWith(confirm)))) throw new ActionRefused(`confirm=${confirm} doesn't name ${id.slice(0, 8)}; pass that note's id to trash it`);
+      return trashNote(board, id, actor, msg => asActor(d.ctx, actor).flash(msg));
+    },
+  }),
+  "note.untrash": def({
+    summary: "bring back the note the actor trashed last (or id=<a Trash root's block id>), where it was, with the page names it had to change",
+    keys: "ctrl+z when the tile has nothing of its own to undo, the tile menu's row",
+    touches: "nothing", replay: "ask",
+    menu: { label: "bring back the note trashed last", group: "Trash", key: "ctrl+z", now: ({ d }: On, _t, actor) => (lastTrashed(d.ctx.board, actor) ? null : { hide: true }) },
+    args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the note this actor trashed last" } },
+    run: ({ id }, { d }, actor) => untrashNote(d.ctx.board, id, actor, msg => asActor(d.ctx, actor).flash(msg), renamedPagesNote),
+  }),
 });

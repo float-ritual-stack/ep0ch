@@ -115,7 +115,7 @@ export function trashConfirm<H>(o: { title: string; notesUnder: number; trash: (
     row: (r, _i, on, w) => [pickRow(` ${r}`, on, w)],
     choose: (_r, i, h) => { if (i === 0) o.trash(h); },
     keys: (k, h) => { if (!yes(k)) return false; p.close(h, "letter"); o.trash(h); return true; },
-    frame: a => ({ rect: centred(a, Math.min(a.cols, Math.max(34, ellipsize(o.title, 40).length + 6, rows[0]!.length + 4)), 5), title: `trash “${ellipsize(o.title, 40)}”?`, foot: "d again or ⏎ trashes · esc keeps" }),
+    frame: a => ({ rect: centred(a, Math.min(a.cols, Math.max(40, ellipsize(o.title, 40).length + 10, rows[0]!.length + 4)), 5), title: `trash “${ellipsize(o.title, 40)}”?`, foot: "d again or ⏎ trashes · esc keeps" }),
   });
   return p;
 }
