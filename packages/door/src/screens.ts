@@ -327,7 +327,7 @@ export class MainMenu implements Screen {
       if (row.length) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, row, { centre: true }));
     }
     // The newscan line (PIE-867): every change since logon, and how many of them were by people; a click is the N key.
-    const total = ctx.eventsAll ?? ctx.events, people = ctx.events;
+    const total = ctx.eventsAll ?? ctx.events, people = ctx.whatChanged?.count(false) ?? ctx.events;
     const news = total ? `|14changes on the outline since you logged on: ${total}${total !== people ? ` · ${people} by people` : ""} · ` : "";
     const scan = `|08${news}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`;
     if (total) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [[scan, char("N"), ITEMS.findIndex(i => i.key === "N")]], { centre: true }));
