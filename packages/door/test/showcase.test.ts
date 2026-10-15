@@ -3150,6 +3150,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     ch("j"); press({ kind: "enter" });
     await reads(t => t.includes("> [!abstract] note"), "the type changed");
     await until(() => mine() !== had, "the change recorded for undo");
+    // The type choice holds the keys until the change has answered (it is recorded a little before): ctrl+z before it closes is its.
+    await until(() => !screen().includes("make it start folded (-)"), "the type choice closed");
     // ctrl+z: the last change here (the callout's) put back.
     press({ kind: "char", ch: "z", ctrl: true });
     await reads(t => t.includes("> [!note] note\n"), "the change undone");

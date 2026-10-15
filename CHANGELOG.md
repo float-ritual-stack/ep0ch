@@ -37,6 +37,12 @@ PROTOCOL 169: `annotations.tldr` takes `remove`, and an ask can be refused (an o
 - **Fixed:** an expanded thread shows its TL;DR once, as its face, not again as a reply under it.
 - **Fixed:** a thread you put away (seen) leaves no card under its passage in a narrow reader, TL;DR or not, as the
   side column already did; and asking for a TL;DR doesn't bring a seen thread back.
+### The links list keeps the row you moved to (PIE-854)
+
+- **Fixed:** a links tile re-reads its list after an outline change (the list asks again, half a second after the
+  last change). If you moved the selection (a key, a click) while that read was out, its answer put the selection
+  back on the row you had left, and the click's preview was dropped. The re-read now keeps the row selected when the
+  answer arrives.
 
 ### Installed built-in extensions follow updates (PIE-861)
 

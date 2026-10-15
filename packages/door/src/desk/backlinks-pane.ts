@@ -243,7 +243,6 @@ export class BacklinksPane implements Pane {
 
   /** Ask the service for `m`'s backlinks (the list keeps its view options, as Detail's panel does). */
   load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
-    const was = keepSel ? rowKey(this.rows()[this.sel]) : undefined;
     // Another note: its groups start as a first read opens them. `openedFor` goes with `expanded`: a read cut short (the
     // person moved on before it came) never left them shut on the way back to a note opened before.
     if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); this.openedFor = null; this.headerPicked = false; }
@@ -269,6 +268,8 @@ export class BacklinksPane implements Pane {
     const backlinks = this.groups.includes("backlinks") ? desk.ctx.board.backlinks(m.id) : Promise.resolve<BacklinkCollection>({ targetBlockId: m.id, sources: [], completeness: { kind: "complete" } } as BacklinkCollection);
     return backlinks.then(data => {
       if (n !== this.asked) return;
+      // A re-read keeps the selected row: the one selected now, not when it was asked (the person may have moved since).
+      const was = keepSel ? rowKey(this.rows()[this.sel]) : undefined;
       this.data = data;
       // Opened once per note (a later read keeps what the person folded).
       if (this.openGroups && this.openedFor !== m.id) { this.openedFor = m.id; for (const k of backlinkView(data, { ...this.options, kind: null }).kinds) this.expanded.add(k.kind); }

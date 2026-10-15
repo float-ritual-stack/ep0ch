@@ -128,6 +128,8 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     const end = Date.now() + 5000;
     while ((await board.children(inbox)).length !== before && Date.now() < end) await Bun.sleep(30);
     expect((await board.children(inbox)).length).toBe(before);
+    // It says so once the trash has answered (a little after the note is gone): a message of the next test's must not be overwritten by it.
+    await until(() => String((app as any).message).includes("the empty new note went to the trash"), "the empty note's trashing said");
     // The keys back where the screen opened them, for what follows.
     top().focusTile("detail", { kind: "user" });
   }, 30_000);
