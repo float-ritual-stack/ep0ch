@@ -3018,14 +3018,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * Whether tile `id` previews a tree's selection: it follows one (a preview tile's source), or a tree's opens land in it
-   * as its preview (the link's role): the default for a joined tile (PIE-886).
+   * Whether tile `id` previews a tree's selection: it follows one (a preview tile's source), a tree's opens land in it as
+   * its preview (the link's role), or it is a reader following the current note on a desk with a tree: the default for a
+   * joined tile (PIE-886).
    */
   private followsTree(id: number, pane: Pane): boolean {
     const bound = boundSource.get(pane), f = kindOf(pane)?.follows?.(pane);
     const src = bound && bound !== NO_SOURCE ? bound : !bound && f ? (f.includes("/") ? this.paneAtPath(f) : this.panes.get(this.idNamed(f) ?? -1)) : undefined;
     // A follower is what it is bound to; only a tile that follows nothing of its own can be a tree's preview by its link.
     if (f !== undefined && f !== null) return src?.kind === "tree";
+    // A reader that follows the current note (the screen's rule: the tree's selection moves it), with a tree on the desk.
+    if (pane instanceof ReaderPane && pane.followMode === "follows" && !this.followSource(pane) && [...this.panes.values()].some(q => q.kind === "tree")) return true;
     return [...this.layout.links].some(([z, to]) => to === id && z !== id && this.layout.linkRoles.get(z) === "preview" && this.panes.get(z)?.kind === "tree");
   }
 

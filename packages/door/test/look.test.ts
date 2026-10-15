@@ -391,10 +391,18 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(FRAME.test(joined.top)).toBe(false);
       expect(joined.side).toBe(" ");
       expect(joined.tint).toBe(true);
+      // A reader that follows the current note, beside a tree, is joined too; border=line frames it.
+      await d.reader().setMode("follows", d.desk);
+      (d.desk as any).focusTile("outline", { kind: "user" });
+      const readerName = (d.desk as any).nameOf([...(d.desk as any).panes].find(([, p]: any) => p.kind === "reader")[0]);
+      expect(FRAME.test(edges(readerName).top)).toBe(false);
+      (d.desk as any).tileLooks.set((d.desk as any).tileId((d.desk as any).idNamed(readerName)), { border: "line" });
+      expect(FRAME.test(edges(readerName).top)).toBe(true);
       // The tile's own look wins: border=line frames it again.
       (d.desk as any).tileLooks.set((d.desk as any).tileId((d.desk as any).idNamed("peek")), { border: "line" });
       expect(FRAME.test(edges("peek").top)).toBe(true);
-      // And border=joined joins a tile that follows nothing (the tree itself).
+      // And border=joined joins a tile that follows nothing (the tree itself, the keys elsewhere).
+      (d.desk as any).focusTile(readerName, { kind: "user" });
       (d.desk as any).tileLooks.set((d.desk as any).tileId((d.desk as any).idNamed("outline")), { border: "joined" });
       expect(FRAME.test(edges("outline").top)).toBe(false);
     } finally { d.close(); }
