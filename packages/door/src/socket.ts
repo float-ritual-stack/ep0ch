@@ -1122,14 +1122,19 @@ export class SocketBoard implements Board {
     await this.request("annotations.lifecycle", { input: { annotationId, lifecycle }, mutation: mutationFor(actor) });
   }
 
-  /**
-   * A thread's TL;DR (PIE-791): with `body`, the one written (a reply with `[kind::tldr]`); without, the agent that
-   * answers in threads is asked to write it (it lands in the background). Says which agent was asked.
-   */
   /** Note `id` moved under `parentId`, first among its children (`move`; PIE-883: where a new note lands). */
   async move(id: string, parentId: string, actor: Actor = USER): Promise<void> {
     await this.request("move", { blockId: id, parentId, position: 0, mutation: mutationFor(actor) });
   }
+  /** The outline's Inbox: the root the service made it as (`[system-view::inbox]`), or null. */
+  async inboxId(): Promise<string | null> {
+    return (await this.roots()).find(r => [r.props["system-view"]].flat().includes("inbox"))?.id ?? null;
+  }
+
+  /**
+   * A thread's TL;DR (PIE-791): with `body`, the one written (a reply with `[kind::tldr]`); without, the agent that
+   * answers in threads is asked to write it (it lands in the background). Says which agent was asked.
+   */
 
   async tldr(annotationId: string, actor: Actor = USER, body?: string, remove = false): Promise<{ asked?: string; removed?: string[] }> {
     return this.request("annotations.tldr", { annotationId, ...(body ? { body } : {}), ...(remove ? { remove: true } : {}), mutation: mutationFor(actor) });

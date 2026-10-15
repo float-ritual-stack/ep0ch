@@ -5614,12 +5614,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return true;
   }
 
-  /** A click inside the reader the person is editing in: the surface's (a completion candidate), or false. */
   /** Whether (x, y) is on tile `id`'s frame as drawn: its header row or an edge (where a drag moves or sizes it). */
   private onFrame(id: number, x: number, y: number): boolean {
     const r = this.hits.find(([hid]) => hid === id)?.[1];
     return !!r && y >= r.row && y < r.row + r.rows && x >= r.col && x < r.col + r.cols && (y === r.row || y === r.row + r.rows - 1 || x === r.col || x === r.col + r.cols - 1);
   }
+  /** A click inside the reader the person is editing in: the surface's (a completion candidate), or false. */
   private clickIn(pane: ReaderPane, k: Extract<Key, { kind: "mouse" }>): boolean {
     const at = this.hits.find(([id]) => this.panes.get(id) === pane);
     const hit = at?.[1];

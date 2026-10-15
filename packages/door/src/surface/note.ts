@@ -7629,8 +7629,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const m = surface.requireNote();
       const run = async (answers: Record<string, string>) => {
         const to = answers.parent!.trim();
-        // The Inbox is the service's own (the root it made with [system-view::inbox]).
-        const parentId = to === "inbox" ? (await host.ctx.board.roots()).find(r => [r.props["system-view"]].flat().includes("inbox"))?.id : (await (await import("../mcp-writes")).resolveBoardRef(host.ctx.board, to).catch(() => null))?.id;
+        // A ref by the outliner's own reading (the one the mod's and MCP's tools use), loaded when it's needed.
+        const parentId = to === "inbox" ? await host.ctx.board.inboxId() : (await (await import("../mcp-writes")).resolveBoardRef(host.ctx.board, to).catch(() => null))?.id;
         if (!parentId) throw new ActionRefused(to === "inbox" ? "this outline has no Inbox to put it in: parent=<a note's id>" : `no note ${to} to put it under: parent= takes an id, ((ref)), [[page]] or Work ID`);
         if (parentId === m.id) throw new ActionRefused("a note can't go under itself");
         await host.ctx.board.move(m.id, parentId, actor);
