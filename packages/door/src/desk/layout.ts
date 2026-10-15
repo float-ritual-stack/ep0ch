@@ -271,7 +271,7 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
     : k.t === "dock" && !(opts.asPinned === true || (typeof opts.asPinned === "function" && opts.asPinned(k))) && (!k.open || k.policy?.overlay !== false) ? 0 : cells(k.policy?.fixed)));
   // A container's fixed size with nothing beside it to take the rest (the screen's only row, a dock sliding over it) would
   // leave the rest of the screen to nobody and squeeze its tiles: ignored, the last such one taking the room (PIE-869).
-  if (!fixed.some(f => f === undefined)) {
+  if (!fixed.some(f => f === undefined) && fixed.reduce<number>((a, f) => a + f!, 0) !== S) {
     const i = n.kids.map((k, j) => j).reverse().find(j => { const k = n.kids[j]!; // The size came from its policy (a tab set's folded active tile sizes it otherwise).
       const byTile = k.t === "tabs" && k.ids[k.active] !== undefined && opts.fixed?.(k.ids[k.active]!, n.dir) !== undefined;
       return k.t !== "leaf" && k.t !== "dock" && !byTile && cells(k.policy?.fixed) !== undefined && fixed[j] === cells(k.policy?.fixed); });

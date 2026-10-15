@@ -3861,9 +3861,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         run: () => (own[k] === undefined ? set({ [k]: measured() }) : set({ clear: k })),
         adjust: (by: number) => set({ [k]: Math.max(1, (own[k] ?? measured()) + by) }),
       }));
-      // A size that's set goes first, under locked: the lock that shapes the screen is the one to see.
-      rows.splice(1, 0, ...sizes.filter((_, i) => own[(["fixed", "min", "max"] as const)[i]!] !== undefined));
-      rows.push(...sizes.filter((_, i) => own[(["fixed", "min", "max"] as const)[i]!] === undefined));
+      // The sizes go first, under locked: a lock that shapes the screen is the one to see. Always there, so a row set
+      // by ⏎ stays under the selection for the ⏎ that clears it.
+      rows.splice(1, 0, ...sizes);
     }
     if (node?.t === "dock") {
       rows.push(flag("collapsible", "it slides shut"));

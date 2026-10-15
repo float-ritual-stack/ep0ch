@@ -342,6 +342,10 @@ describe("dock containers and policy (PIE-505)", () => {
     const kept = place(splitOf("row", [readers, leaf("b")]), r);
     expect(kept.rects.get("d3")!.col + kept.rects.get("d3")!.cols - kept.rects.get("p")!.col).toBe(10);
     expect(kept.unfixed).toBeUndefined();
+    // Sizes that fill the room exactly are kept as they are.
+    const exact = place(splitOf("row", [{ ...readers, policy: { fixed: r.cols - 30 } }, { ...splitOf("col", [leaf("x")], undefined, "side"), policy: { fixed: 30 } }]), r);
+    expect(exact.rects.get("x")!.cols).toBe(30);
+    expect(exact.unfixed).toBeUndefined();
   });
 
   test("the saved form keeps docks and policies; a stray field in a hand-edited policy is dropped", () => {

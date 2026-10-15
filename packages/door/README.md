@@ -1125,7 +1125,7 @@ carries a policy saved with the layout (`layout.policy`, `^W P`; the panel's fir
 where its opens land, with a row to change and one to unlink each, PIE-855; `tile.info` gives the same words as
 `follows=` and `opens=`; a click on a header's `◄` mark, what a tag's list follows, or its `→`/`⏎` mark opens the
 panel on that row): `locked`, `draggable`, `droppable`,
-`accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells (PIE-869: a set one is listed first in `^W P`, with
+`accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells (PIE-869: listed first in `^W P`, a set one with
 `⏎ clears`; `⏎` on an unset one takes the container's size as laid out, a zoom aside; a `fixed` that would leave the
 rest of the screen to nobody, the only row beside a dock that slides over, is ignored and the panel says so; a border it
 holds says `layout.policy node=… clear=fixed`), a dock's `collapsible`, `overlay` and edge, and

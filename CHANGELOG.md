@@ -17,7 +17,7 @@ are its record. The outliner's entries from then are kept below, under
   aside, and refuses with the command when there's nothing to measure.
 - **Fixed:** a `fixed` size that would leave the rest of the screen to nobody (the only row beside a dock that slides
   over) is ignored; `^W P` says "10 · ignored: nothing beside · ⏎ clears".
-- **Changed:** a size lock that's set is listed first in `^W P`, with how to clear it; a border a fixed size holds says
+- **Changed:** the size locks are listed first in `^W P`, a set one with how to clear it; a border a fixed size holds says
   `layout.policy node=… clear=fixed`.
 
 ### A comment keeps its kind (PIE-871)
