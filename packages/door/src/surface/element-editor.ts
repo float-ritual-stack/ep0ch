@@ -86,7 +86,7 @@ function graphWrite(lines: readonly string[], values: string[][], op: ElementOpe
   const out = [...lines], fields = graphFields(lines, 0), yaml = graphYaml(lines);
   const rowsLine = lines.findIndex((line, i) => i >= yaml.start && i < yaml.end && /^rows:/.test(line));
   if (op === "row.add") {
-    if (fields.length === 1) out[rowsLine] = out[rowsLine]!.replace(/ ?\[\]/, "");
+    if (fields.length === 1) out[rowsLine] = out[rowsLine]!.replace(/ ?\[\s*\]/, "");
     const after = row === 0 ? rowsLine : fields[row]![0]!.line;
     out.splice(after + 1, 0, `  - ${JSON.stringify(values[row + 1])}`);
   } else if (op === "row.remove") {
@@ -113,7 +113,7 @@ function graphFields(lines: readonly string[], start: number): ElementField[][] 
   for (let i = yaml.start; i < yaml.end; i++) {
     const l = lines[i]!;
     if (/^rows:\s*(?:#.*)?$/.test(l)) { rows = true; continue; }
-    if (rows && /^\S/.test(l)) rows = false;
+    if (rows && /^(?!#)\S/.test(l)) rows = false;
     if (!/^headers: \[/.test(l) && !(rows && /^  - \[/.test(l))) continue;
     const fields: ElementField[] = [];
     const from = l.indexOf("[") + 1, to = l.lastIndexOf("]");
