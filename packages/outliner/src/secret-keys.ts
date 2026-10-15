@@ -76,14 +76,15 @@ export function readScopesFile(env: NodeJS.ProcessEnv = process.env): { scopes: 
   try { text = readFileSync(path, "utf8"); } catch (error) {
     return (error as NodeJS.ErrnoException)?.code === "ENOENT" ? { scopes: {} } : { scopes: {}, problem: `${path} can't be read` };
   }
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { return { scopes: {}, problem: `${path} isn't valid JSON` }; }
+  {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { scopes: {}, problem: `${path} isn't an object of scopes by group/KEY` };
     const entries = Object.entries(parsed as Record<string, unknown>);
     const bad = entries.find(([, value]) => !Array.isArray(value) || value.some((scope) => typeof scope !== "string" || checkScope(scope) !== null));
     if (bad) return { scopes: {}, problem: `${path}: ${bad[0]} isn't a list of scopes` };
     return { scopes: Object.fromEntries(entries.map(([name, value]) => [name, value as string[]])) };
-  } catch { return { scopes: {}, problem: `${path} isn't valid JSON` }; }
+  }
 }
 
 export const readScopes = (env: NodeJS.ProcessEnv = process.env): Record<string, string[]> => readScopesFile(env).scopes;

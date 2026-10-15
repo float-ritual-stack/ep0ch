@@ -120,7 +120,7 @@ test("a scopes file that is there but broken hands a key to nobody; grant rewrit
   writeFileSync(join(dir, "scopes.json"), JSON.stringify({ "typesafe/JEV_API_KEY": ["somebody"] }));
   expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toContain("typesafe/JEV_API_KEY isn't a list of scopes");
   writeFileSync(join(dir, "scopes.json"), JSON.stringify(["machine"]));
-  expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toContain("isn't a list of scopes");
+  expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toContain("isn't an object of scopes");
   // No file at all is the default, machine's.
   rmSync(join(dir, "scopes.json"));
   expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toBeNull();
