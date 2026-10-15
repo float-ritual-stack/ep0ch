@@ -67,6 +67,15 @@ PROTOCOL 174: outline-core's property grammar now finds links in values (`proper
 - Past rows stay as they are (the change feed is history). They are recognisable: `author=user` with an actor that
   isn't `cli`, e.g. `loki`.
 
+### The what-changed list catches up after a restart (PIE-891)
+
+- **Fixed:** a door that started long after the person last looked (a session handover, `ep0ch session upgrade`) read only
+  the first 500 changes of the feed since then, the oldest, so the what-changed list showed rows from the session's start
+  (14 to 23 hours old) and missed the recent ones. It now reads the feed on, page by page, until it reaches now.
+  After 400 pages, or if the feed resets, it clears the list and starts from the current feed position.
+- **Fixed:** a note purged from the trash, and the notes that went with it, stayed in the list as a stack of `(gone)`
+  rows. They leave it; a trashed note is still one row, with its title.
+
 ### A note's block-level tags show in its body (PIE-880)
 
 - **Fixed:** a `#tag` written with a note's properties (`[status::new] #pie-request`) counted as the note's tag and was
