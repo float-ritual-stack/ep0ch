@@ -1839,7 +1839,7 @@ in the lanes comments in the preview.
 | a click on another tile, then back | the box stays as it was, unsent text and all; the keys are in it again when the reader has them (PIE-785) |
 | a link, a comment mark, back or forward while the comment is unsent | asks in the power bar: save and continue (kept as unsent), keep writing, discard (a copy stays on disk); `⏎` or a click on a row, esc keeps writing (`comment.leaving`). An agent's action never asks |
 | `C`, nothing selected; or a click on `[comment]` after the note's date | write a comment on the whole note (PIE-846, `comment.note`): the box opens at the top of the note, where whole-note threads sit (their card on the margin's first row); everything else is as above |
-| `m` | the note's comment threads: `j k` pick, `r` reply, `e` edit the comment's words, `s` seen, `p` keep, `t` TL;DR, `C` a new comment |
+| `m` | the note's comment threads: `j k` pick, `r` reply, `e` edit the comment's words, `s` seen, `p` keep, `t` TL;DR (with no model set up for @margin, it says how to set one up; nothing is written), `T` takes the TL;DR away, `C` a new comment |
 | `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it; its `[Edit]` (and each reply's) edits those words |
 | `Esc` | back a step; with unsent text it asks for a second `Esc`, which puts the comment aside (`C` brings it back, on selected words or the whole note) |
 

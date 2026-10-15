@@ -29,7 +29,8 @@ or click the chips on the selection's line. `M` in a reader changes how the marg
 - **Suggested queries are checked.** An answer that writes `[query::…]`, `[sort::…]` or `[group::…]` has it asked of the
   outline before it lands; one that wouldn't work is marked under the answer with why.
 - **No model by default.** Set `config.answer` to a command that reads a prompt on stdin and prints an answer
-  (`["claude", "-p"]`, in `config.json`); without one `@margin` answers from the note's own sentences and says so.
+  (`["claude", "-p"]`, in `config.json`); without one `@margin` answers from the note's own sentences and says so,
+  and writes no TL;DR (PIE-860): a summary is a model's to write, so the ask says so with this fix and nothing is posted.
 - **Works on files too**: a Resource's passage (a `[file::]` the note links, opened in a reader) is annotated in the
   outline; the file is never written.
 

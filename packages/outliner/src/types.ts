@@ -2361,6 +2361,8 @@ export type OutlinerRequestAction =
       action: "annotations.tldr";
       annotationId: string;
       body?: string;
+      /** Take its TL;DR away (PIE-860): the discussion is its face again. */
+      remove?: boolean;
       requestId?: string;
       mutation: MutationProvenance;
     }

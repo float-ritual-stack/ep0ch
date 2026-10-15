@@ -899,7 +899,9 @@ listener is untouched (below): read-only, marked notes only.
 - **Seen, Keep and TL;DR** (PIE-791), not Resolve: an open card's one row is Reply, Seen, Keep, TL;DR and ⋯ (Quote,
   Pick). Seen puts a thread on the foot's **Earlier** shelf (one line each, opened in place, with Back); a new reply
   brings it back. Keep keeps it. TL;DR asks @margin for a summary (or edits it: his words are the newest), which
-  becomes the card's face, the discussion folded under it. The **margin** setting (this browser's own), a bar held at
+  becomes the card's face, the discussion folded under it; with no model set up for @margin none is written and the
+  ask says how to set one up, and a TL;DR doesn't bring a seen thread back (PIE-860). `annotations.tldr remove: true`
+  takes it away (to the Trash), the discussion the face again. The **margin** setting (this browser's own), a bar held at
   the bottom of the window so a long page never hides it (PIE-800): off (no cards, the marks stay), current (the
   default) or all (the seen ones as cards too). A highlight's card offers
   Comment, Ask, Keep and Remove. Card words are drawn as the note's are (bold, links by title, page links). Define on

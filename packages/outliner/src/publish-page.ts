@@ -713,7 +713,10 @@ export class PageMarginalia {
           // Written (his own, or an edit of @margin's), else @margin is asked and it lands in the margin.
           const body = text(input.body).trim();
           if (!body && !kitAgent(await this.kit())) return refused(409, "no agent here writes a TL;DR: write it yourself");
-          const answer = await this.host.request<{ asked?: string }>({ action: "annotations.tldr", annotationId: thread, ...(body ? { body, requestId } : {}), mutation: { author: "user" } });
+          // An agent that can't write one (no model set up, PIE-860) says why at once, and nothing is posted.
+          let answer: { asked?: string };
+          try { answer = await this.host.request<{ asked?: string }>({ action: "annotations.tldr", annotationId: thread, ...(body ? { body, requestId } : {}), mutation: { author: "user" } }); }
+          catch (error) { return refused(409, error instanceof Error ? error.message : String(error)); }
           return said(200, { ok: true, thread, said: body ? "TL;DR saved" : `@${answer.asked ?? "margin"} is writing the TL;DR` });
         }
         // Seen, Keep and their undoing (PIE-791); a highlight's Remove is resolve (it leaves the page).

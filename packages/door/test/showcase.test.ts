@@ -18,7 +18,7 @@ import { spanBg } from "../src/surface/margin";
 import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, SHOWCASE_ASSETS, REMOTE_CLIENT, REMOTE_LINE, SEED, seedDay, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, SESSION_QUOTE, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { reopen } from "../src/session/restore";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { subject } from "../src/board";
 import { extensionNamed } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
@@ -1158,6 +1158,37 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => screen().includes("2 current · 1 earlier"), "the thread back", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
+
+  // PIE-860: the kept thread's TL;DR shown once when expanded, taken away by a click on [No TL;DR]; asked again with no
+  // model set up for @margin, none is written and the ask says how to set one up.
+  test("margin attention: a TL;DR once, as the face; [No TL;DR] by a click takes it away; with no model none is written and it says why (PIE-860)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "margin-attention" }, as: "test-agent" });
+    await until(() => screen().includes("TL;DR Sewing"), "the rota's margin", 8000);
+    const stage = () => S().stages.get(S().sel).top;
+    const rota = seeded.notes.attention;
+    const oil = async () => (await board.comments(rota.id)).find(t => t.body.startsWith("Which oil"))!;
+    const cs = () => stage().pane("rota").surface.session;
+    if (cs()) await stage().dispatch.press("comment.close", {}, "rota");
+    await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: true }, "rota");
+    const rows = () => sc.render(app).lines.map(plain);
+    await until(() => rows().some(l => l.includes("[No TL;DR]")), "the thread expanded, its TL;DR controls");
+    expect(rows().join("\n").split("Sewing machine oil on the hose reel").length - 1).toBe(1);
+    const y = rows().findIndex(l => l.includes("[No TL;DR]")), x = rows()[y]!.indexOf("[No TL;DR]") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    for (let i = 0; i < 80 && (await oil()).tldr; i++) await Bun.sleep(100);
+    expect((await oil()).tldr).toBeUndefined();
+    await until(() => !rows().some(l => l.includes("[No TL;DR]")) && rows().some(l => l.includes("[TL;DR]")), "the thread without one");
+    // Asked again: this showcase's @margin has no model, so none is written and it says how to set one up.
+    await stage().dispatch.press("thread.tldr", { thread: (await oil()).id }, "rota");
+    await until(() => /no TL;DR: no model is set up to write one · name one in .*config\.json/.test(cs()?.error ?? ""), "why, with the fix");
+    expect((await oil()).tldr).toBeUndefined();
+    // As it was: the seed's TL;DR back (the person's own, written), for the tests after.
+    await board.tldr((await oil()).id, USER, "Sewing machine oil on the hose reel, each spring.");
+    if (cs()) await stage().dispatch.press("comment.close", {}, "rota");
+    await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: false }, "rota");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
 
   test("margin attention: a posted comment edited by keys (m, e) and a reply by a click on its [Edit], in the comment editor; both show as edited; an agent's edit is attributed, a stale one refused (PIE-763)", async () => {
     (app as any).lastInput = 0;

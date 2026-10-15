@@ -596,13 +596,18 @@ test("seen puts a thread away and a new reply brings it back; kept stays current
   expect((await listed(false)).map((t) => t.block.id)).toContain(thread);
   await expect(set("closed")).rejects.toThrow(/open, seen, kept or resolved/);
 
-  expect(await client.request<unknown>({ action: "annotations.tldr", annotationId: thread, mutation: { author: "user" } })).toEqual({ asked: "margin" });
-  const tldr = await until("@margin's TL;DR", async () => (await state()).replies.find((reply) => reply.properties?.kind?.[0] === "tldr"));
-  expect(tldr.block.author).toBe("agent");
-  expect(tldr.body).toContain("Check it again on Sunday.");
+  // No model set up for @margin (this service's marginalia has none): no TL;DR, said with the fix, and nothing posted
+  // (PIE-860: its fallback once posted the note's own sentences as the thread's face).
+  await expect(client.request<unknown>({ action: "annotations.tldr", annotationId: thread, mutation: { author: "user" } })).rejects.toThrow(/no TL;DR: no model is set up.*config\.json/);
+  await Bun.sleep(200);
+  expect((await state()).replies.filter((reply) => reply.properties?.kind?.[0] === "tldr")).toEqual([]);
   await client.request({ action: "annotations.tldr", annotationId: thread, body: "Warm after rain; check Sundays.", mutation: { author: "user" } });
   const mine = (await state()).replies.filter((reply) => reply.properties?.kind?.[0] === "tldr").at(-1)!;
   expect(mine).toMatchObject({ body: "Warm after rain; check Sundays.", block: { author: "user" } });
+  // Taken away: the TL;DR goes, and the thread's face is its discussion again.
+  expect(await client.request<{ removed: string[] }>({ action: "annotations.tldr", annotationId: thread, remove: true, mutation: { author: "user" } })).toEqual({ removed: [mine.block.id] });
+  expect((await state()).replies.filter((reply) => reply.properties?.kind?.[0] === "tldr")).toEqual([]);
+  await expect(client.request({ action: "annotations.tldr", annotationId: thread, remove: true, mutation: { author: "user" } })).rejects.toThrow(/no TL;DR to take away/);
   expect((await state()).lifecycle).toBe("kept");
 });
 
@@ -618,8 +623,9 @@ test("the page's verbs: Seen puts a thread on the Earlier shelf and Back brings 
     expect(answer).toMatchObject({ ok: true, lifecycle });
     expect((await card()).lifecycle).toBe(lifecycle);
   }
-  expect(await (await write({ page: note.id, action: "tldr", thread })).json()).toMatchObject({ ok: true, said: "@margin is writing the TL;DR" });
-  await until("the TL;DR face", async () => (await card()).tldr);
+  // No model set up: refused with the fix, no face (PIE-860).
+  expect(await (await write({ page: note.id, action: "tldr", thread })).json()).toMatchObject({ ok: false });
+  expect((await card()).tldr).toBeUndefined();
   expect(await (await write({ page: note.id, action: "tldr", thread, body: "Late again; check the hedge in May.", requestId: "verbs-0002" })).json()).toMatchObject({ ok: true, said: "TL;DR saved" });
   const face = await card();
   expect(face.replies.find((reply) => reply.id === face.tldr)).toMatchObject({ body: "Late again; check the hedge in May.", tldr: true });

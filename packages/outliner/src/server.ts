@@ -1803,6 +1803,17 @@ export class OutlinerServer {
     if (connection && "watch" in request && request.watch !== undefined && isWatchable(request.action)) {
       return this.watches.ask(connection, request as unknown as Parameters<QueryWatches["ask"]>[1]);
     }
+    // A TL;DR asked of the agent that answers in threads waits a moment for it: one that can't write one (no model,
+    // PIE-860) says so at once, and nothing is posted.
+    if (request.action === "annotations.tldr" && request.remove !== true && !(typeof request.body === "string" && request.body.trim())) {
+      try {
+        if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.tldr needs mutation: who asks for it");
+        const root = this.store.getAnnotation(String(request.annotationId ?? ""));
+        if (root.parentAnnotationId) throw new Error("a TL;DR belongs to the thread: give its first annotation's id");
+        const result = { asked: await this.agentRequests.tldr(root.block.id) };
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+    }
     if(request.action==="resources.describe"){
       try {
         // This built-in only reads an immutable Inbox before-image. It cannot
@@ -2787,12 +2798,24 @@ export class OutlinerServer {
           if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.tldr needs mutation: who asks for it");
           const root = this.store.getAnnotation(String(request.annotationId ?? ""));
           if (root.parentAnnotationId) throw new Error("a TL;DR belongs to the thread: give its first annotation's id");
+          // remove: its TL;DR goes (to the Trash, its revisions kept), and the discussion is the thread's face again (PIE-860).
+          if (request.remove === true) {
+            const target = root.resolvedTarget ?? root.originalTarget, subject = target.representation.subject;
+            const thread = this.store.listAnnotationThreads({ subject: subject.kind === "resource" ? { kind: "resource", resourceId: subject.resourceId } : { kind: "block", blockId: (subject as { blockId: string }).blockId }, includeResolved: true }).find(t => t.block.id === root.block.id);
+            const faces = (thread?.replies ?? []).filter(r => r.properties?.kind?.[0] === TLDR_KIND);
+            // One being written now isn't posted either.
+            this.agentRequests.tldrRemoved(root.block.id);
+            if (!faces.length) throw new Error("this thread has no TL;DR to take away");
+            for (const r of faces) this.store.delete(r.block.id, request.mutation.author === "agent" ? { author: "agent", ...(request.mutation.actorId ? { actorId: request.mutation.actorId } : {}) } : { author: "user" });
+            result = { removed: faces.map(r => r.block.id) };
+            break;
+          }
           if (typeof request.body === "string" && request.body.trim()) {
             const by = request.mutation.author === "agent" ? "agent" : "user";
             result = { written: this.store.replyToAnnotation(request.requestId ?? crypto.randomUUID(),
               { annotationId: root.block.id, body: request.body.trim(), source: by, properties: { kind: TLDR_KIND } },
               by, by === "agent" && request.mutation.actorId ? { actorId: request.mutation.actorId } : undefined).annotations[0] };
-          } else result = { asked: this.agentRequests.tldr(root.block.id) };
+          } else throw new Error("annotations.tldr asking @margin requires asynchronous dispatch");
           break;
         }
         case "marks.quote": {

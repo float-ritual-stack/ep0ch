@@ -1126,8 +1126,8 @@ export class SocketBoard implements Board {
    * A thread's TL;DR (PIE-791): with `body`, the one written (a reply with `[kind::tldr]`); without, the agent that
    * answers in threads is asked to write it (it lands in the background). Says which agent was asked.
    */
-  async tldr(annotationId: string, actor: Actor = USER, body?: string): Promise<{ asked?: string }> {
-    return this.request("annotations.tldr", { annotationId, ...(body ? { body } : {}), mutation: mutationFor(actor) });
+  async tldr(annotationId: string, actor: Actor = USER, body?: string, remove = false): Promise<{ asked?: string; removed?: string[] }> {
+    return this.request("annotations.tldr", { annotationId, ...(body ? { body } : {}), ...(remove ? { remove: true } : {}), mutation: mutationFor(actor) });
   }
 
   /** Replace a block's whole text, if it is still at `expectedRevision`. Throws EditConflict when it isn't. */

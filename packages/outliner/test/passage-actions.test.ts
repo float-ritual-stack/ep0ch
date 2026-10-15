@@ -3,7 +3,7 @@
 // nearest match otherwise), annotates the words with open properties, never edits a Resource, and `@margin` in a
 // person's comment on a passage is answered in its thread. Scratch services in temp folders; the notes are made up.
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { passageAt, type Passage } from "@ep0ch/outline-core/passage";
@@ -38,7 +38,8 @@ const PLAN = [
   "- cold frame — a low glass box that hardens seedlings off.",
 ].join("\n");
 
-async function setup() {
+/** `answer`: the command marginalia runs for a model (its config.answer); left out, it has none. */
+async function setup(answer?: string[]) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-passage-")));
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
@@ -46,6 +47,7 @@ async function setup() {
   const outline = join(root, "outline");
   mkdirSync(join(outline, "extensions"), { recursive: true });
   cpSync(join(import.meta.dir, "..", "extensions", "marginalia"), join(outline, "extensions", "marginalia"), { recursive: true });
+  if (answer) writeFileSync(join(outline, "extensions", "marginalia", "config.json"), JSON.stringify({ config: { answer } }));
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
   const socket = join(root, "outliner.sock");
   const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80 });
@@ -151,6 +153,39 @@ test("@margin in a person's comment on a passage is answered in its thread, from
   });
   await Bun.sleep(400);
   expect((await threads()).find(t => t.body.includes("and the peppers"))!.replies).toEqual([]);
+});
+
+// PIE-860: a TL;DR is a model's to write. Without one, nothing is posted and the ask says how to set one up; with one,
+// its summary is the thread's face.
+test("TL;DR: with no model none is posted and the ask is refused with the fix; with one, its summary lands as the face", async () => {
+  const thread = async (client: OutlinerClient, note: Block) => {
+    const at = note.text.indexOf("cold frame");
+    const r = await client.request<AnnotationBatchReceipt>({
+      action: "annotations.batch", requestId: `t-${note.id}`, author: "user",
+      operations: [{ operationId: "c", type: "block-comment", input: { blockId: note.id, expectedRevision: note.revision, body: "Move it to the south wall?", source: "user", passage: { quote: "cold frame", start: at } } }],
+    });
+    return r.annotations[0]!.block.id;
+  };
+  const none = await setup();
+  const bare = await thread(none.client, none.note);
+  await expect(none.client.request({ action: "annotations.tldr", annotationId: bare, mutation: { author: "user" } })).rejects.toThrow(/no TL;DR: no model is set up to write one · name one in .*marginalia\/config\.json/);
+  await Bun.sleep(300);
+  expect((await none.threads()).find(t => t.block.id === bare)!.replies).toEqual([]);
+
+  // A model that says nothing: no TL;DR either, not a placeholder for a face.
+  const mute = await setup(["sh", "-c", "cat > /dev/null"]);
+  const quiet = await thread(mute.client, mute.note);
+  await expect(mute.client.request({ action: "annotations.tldr", annotationId: quiet, mutation: { author: "user" } })).rejects.toThrow("no TL;DR: the answer command said nothing");
+  expect((await mute.threads()).find(t => t.block.id === quiet)!.replies).toEqual([]);
+
+  const modelled = await setup(["sh", "-c", "cat > /dev/null; echo 'South wall, for the afternoon sun.'"]);
+  const id = await thread(modelled.client, modelled.note);
+  // Put away first: summing it up doesn't bring it back (a TL;DR says nothing new).
+  await modelled.client.request({ action: "annotations.lifecycle", input: { annotationId: id, lifecycle: "seen" } as never, mutation: { author: "user" } });
+  expect(await modelled.client.request<unknown>({ action: "annotations.tldr", annotationId: id, mutation: { author: "user" } })).toEqual({ asked: "margin" });
+  const face = await until("the TL;DR", async () => (await modelled.threads()).find(t => t.block.id === id)?.replies.find(r => r.properties?.kind?.[0] === "tldr"));
+  expect(face.body).toBe("South wall, for the afternoon sun.");
+  expect((await modelled.threads()).find(t => t.block.id === id)!.lifecycle).toBe("seen");
 });
 
 test("a comment read at an older revision lands where its words are when it says what's around them", async () => {
