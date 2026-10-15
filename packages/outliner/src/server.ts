@@ -417,6 +417,8 @@ export class OutlinerServer {
       outlinesFolder?: string;
       /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
       scheduleTickMs?: number; scheduleNow?: () => number;
+      /** The clock an extension's calls are told (`context.now`; tests pin a date-seeded extension's answer). */
+      extensionNow?: () => number;
       /** Providers a store's own remote-entity client serves without an extension folder (a test's fixture client). */
       resourceProviders?: readonly ResourceProviderEntry[] } = {},
   ) {
@@ -504,6 +506,7 @@ export class OutlinerServer {
       // A group that also makes, moves or orders blocks: one transaction, or one proposal while a draft holds a part.
       patchGroup: (input) => this.draftPatches.patchGroup(input),
       held: (blockId) => this.draftPatches.isHeld(blockId),
+      ...(options.extensionNow ? { now: options.extensionNow } : {}),
       here: () => ({ ...(this.outline?.name ? { outline: this.outline.name } : {}), machines: [localMachineName(this.outlinesFolder), ...localMachineAliases(this.outlinesFolder)] }),
       changed: (blockId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,
