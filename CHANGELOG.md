@@ -92,7 +92,7 @@ PROTOCOL 170: `views.read` answers `childDepth` (an older host leaves the tree's
   note does: an id, `((id))`, an id's first 8+ characters, a Work ID of any prefix the outline has (`PIE-870`,
   `HUB-021`) or a `[[page]]`, through the service's one resolver (`blocks.resolve`). A Work ID nothing has says the
   nearest it does (`did you mean PIE-870, PIE-871?`), or the prefixes the outline has.
-- **Protocol:** `PROTOCOL` 171 (a new read action, `blocks.resolve`): restart the host with `ep0ch install --apply`; a door or CLI on the old code is refused until then. No schema change.
+- **Protocol:** `PROTOCOL` 172 (a new read action, `blocks.resolve`): restart the host with `ep0ch install --apply`; a door or CLI on the old code is refused until then. No schema change.
 
 ### A size lock can't squeeze the screen (PIE-869)
 
