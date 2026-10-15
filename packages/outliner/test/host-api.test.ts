@@ -202,7 +202,7 @@ await tools.outline_create({ parent: parent.id, text: 'Own label' });
   expect(store.get(foreign.id)?.effectiveDeletedRootId).toBeUndefined();
 });
 
-test("script asks run from a person's line and hold an agent's line", async () => {
+test("script asks run from a person's line and an agent's line by default", async () => {
   const { client, store } = await setup();
   const source = store.create("Count seeds [script::count-seeds]\n```js\nreturn 'Seeds counted';\n```", null, "user");
   await client.request({ action: "extensions.list", reload: true });
@@ -211,9 +211,10 @@ test("script asks run from a person's line and hold an agent's line", async () =
   while (!store.children(source.id).some(n => n.text.includes("· done")) && Date.now() < deadline) await Bun.sleep(20);
   expect(store.children(source.id).map(n => n.text).join("\n")).toContain("Seeds counted");
   expect(store.get(ask.id)?.text).toContain("@count-seeds");
-  const held = await client.request<{ id: string }>({ action: "create", text: "Another plan\n@count-seeds", author: "agent", provenance: { actorId: "seed-helper" } });
-  expect(store.agentRequests(held.id)[0]?.status).toBe("waiting");
-  expect(store.agentRequests(held.id)[0]?.message).toContain("held");
+  const automatic = await client.request<{ id: string }>({ action: "create", text: "Another plan\n@count-seeds", author: "agent", provenance: { actorId: "seed-helper" } });
+  while (store.agentRequests(automatic.id)[0]?.status === "running" && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.agentRequests(automatic.id)[0]).toMatchObject({ status: "replied", requestedBy: "agent:seed-helper" });
+  expect(store.children(source.id).filter(n => n.text.includes("· done") && n.text.includes("Seeds counted"))).toHaveLength(2);
 }, 10_000);
 
 test("a rule names a script through the existing trigger path", async () => {
