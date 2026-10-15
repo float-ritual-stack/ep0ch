@@ -1260,7 +1260,7 @@ export class NoteSurface {
       }
     }
     // Where the title couldn't take it (double height, or no room), the mark stays in the body's margin.
-    if (sized) this.titleMarked = !!wholeMark;
+    if (sized) this.titleMarked = wholeMark ?? null;
     const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
@@ -3803,9 +3803,10 @@ export class NoteSurface {
   }
 
   /** Marks only (PIE-873): the whole-note threads whose mark is after the title, not in the body's margin. */
-  private titleMarked = false;
+  /** Where the title carries the whole-note threads' mark (headerBlock), or null: none there. */
+  private titleMarked: { row: number; from: number; to: number } | null = null;
   private wholeByTitle(): Set<string> {
-    return this.marginMode === "off" && !this.printed && this.titleMarked ? new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id)) : new Set();
+    return this.marginMode === "off" && !this.printed && this.titleMarked !== null ? new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id)) : new Set();
   }
 
   /** A thread of the note shown, by id or its first 6+ characters. */
@@ -4023,7 +4024,11 @@ export class NoteSurface {
       const lines = b.text.split("\n").length;
       out.push({ key: `block:${b.kind}:${b.line}`, kind: "block", row: top + b.row, from: this.bx, to: this.bx + Math.max(1, b.col), ruler: [top + b.row, top + b.row + b.rows], label: `${b.kind === "code" ? "code block" : "quote"}, ${lines} line${lines === 1 ? "" : "s"}`, block: n });
     });
-    for (const k of marks) out.push({ key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
+    // A whole-note thread's mark after the title (marks only, PIE-873): `[ ]` stops there, where it's drawn.
+    const byTitle = this.wholeByTitle(), t = this.titleMarked;
+    for (const k of marks) out.push(t && byTitle.has(k.thread)
+      ? { key: `comment:${k.thread}`, kind: "comment", row: t.row, from: t.from, to: t.to, ruler: [t.row, t.row + 1], label: k.label, thread: k.thread }
+      : { key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
     const quoteOf = new Map(marks.map(k => [k.thread, k.label.split(" · ")[0]!]));
     for (const c of controls) out.push({ key: controlKey(c.thread, c.control, c.value), kind: "control", row: top + c.row, from: c.from + this.bx, to: c.to + this.bx, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control, ...(c.value !== undefined ? { value: c.value } : {}) });
     return out.sort((a, b) => a.row - b.row || a.from - b.from);

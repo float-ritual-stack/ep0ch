@@ -1533,6 +1533,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       to = this.openNewIn(key, actor);
       if (to === undefined) return undefined;
+      // A new detail opened from a reader reads its margin the same way (PIE-873), as one opened beside it does.
+      const was = from === undefined ? undefined : this.panes.get(from);
+      if (was instanceof ReaderPane) (this.panes.get(to) as ReaderPane).takeMargin(was.surface.marginMode);
       this.makeRoom(to, actor);
       ids = this.openedTiles(key);
     }

@@ -103,6 +103,9 @@ describe("marks only, without a service (PIE-873)", () => {
     expect(rows.join("\n")).toContain("■ 2 comments · marks only (M)");
     expect(rows.join("\n")).not.toContain("A tidy list.");
     expect(rows.find(l => l.startsWith("Shed jobs"))).toMatch(/^Shed jobs ▐/);
+    // `[ ]` stops on that mark, where it's drawn.
+    const e = (s as any).elems.find((x: any) => x.kind === "comment" && x.thread === onNote.id);
+    expect(rows[e.row]!.slice(e.from, e.to)).toBe("▐");
     // The passage keeps its own mark on its line.
     expect(rows.find(l => l.includes("Oil the chain"))).toMatch(/^▐Oil the chain/);
     // A tile too narrow for the mark after the title: it stays in the margin, never lost.
