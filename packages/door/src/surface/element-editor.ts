@@ -211,7 +211,15 @@ export class ElementEdit {
   erase(backward: boolean, by: Actor) {
     const c = this.current(); if (!c) return;
     const d = this.draft, atom = this.atom(c.field, backward ? d.col - 1 : d.col);
-    if (atom) d.splice(atom.start, atom.end, "", {}, by);
+    if (c.field.encode) {
+      if (!d.anchor) {
+        if (backward ? d.col <= c.field.start : d.col >= c.field.end) return;
+        // Select with the draft's cursor rules, then encode the remaining value as typing does.
+        if (atom) d.place(d.row, backward ? atom.start : atom.end, true);
+        else d.key({ kind: backward ? "left" : "right", shift: true });
+      }
+      this.input("", by);
+    } else if (atom) d.splice(atom.start, atom.end, "", {}, by);
   }
   input(text: string, by: Actor, cut = false) {
     const c = this.current(); if (!c) return;
@@ -253,6 +261,9 @@ export class ElementEdit {
     if (k.kind === "paste" || (k.kind === "char" && !k.ctrl && (c.field.encode || c.element.encode(k.ch) !== k.ch)) || k.kind === "alt-enter" || (k.kind === "enter" && "pasted" in k)) {
       run("rich.input", { text: k.kind === "paste" ? k.text : k.kind === "char" ? k.ch : "\n" }); return true;
     }
+    if ((k.kind === "backspace" || k.kind === "delete") && c.field.encode) {
+      run("rich.erase", { backward: k.kind === "backspace" }); return true;
+    }
     if (["backspace", "delete", "left", "right"].includes(k.kind)) {
       const backward = k.kind === "backspace" || k.kind === "left";
       const atom = this.atom(c.field, this.draft.col - (backward ? 1 : 0));
@@ -286,7 +297,9 @@ export class ElementEdit {
     let offset = s.offset, used = 0;
     for (const ch of s.text) { if (used + width(ch) > cellX) break; used += width(ch); offset += ch.length; }
     if (s.caret !== undefined && offset > s.caret) offset--;
-    run("draft.place", { line: s.field.line + 1, col: Math.min(s.field.end, s.field.start + offset) + 1, extend });
+    const col = Math.min(s.field.end, s.field.start + offset);
+    const atom = this.atom(s.field, col);
+    run("draft.place", { line: s.field.line + 1, col: (atom?.start ?? col) + 1, extend });
     return true;
   }
   render(w: number, h: number, draw: (text: string, width: number) => string[], attribution?: string): string[] {

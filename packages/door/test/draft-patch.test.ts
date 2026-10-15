@@ -358,6 +358,38 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(e.id))!.text).toContain("| O'Brien | 2 |");
   });
 
+  test("rich tables: replacing an unquoted graph cell keeps it editable", async () => {
+    const e = await editing('Inventory\n::graph-table\n---\nheaders: [Crop, Count]\nrows:\n  - [Beans, 2]\n---\n::\n');
+    const { elementEdit } = await import("../src/surface/element-editor");
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    e.s.key({ kind: "down" }, e.h);
+    e.s.key({ kind: "home" }, e.h);
+    e.s.key({ kind: "end", shift: true }, e.h);
+    e.s.key({ kind: "delete" }, e.h);
+    e.type("Peas");
+    expect(elementEdit(e.d).on).toBe(true);
+    expect(elementEdit(e.d).current()?.field.value).toBe("Peas");
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    expect((await board.get(e.id))!.text).toContain('["Peas", 2]');
+  });
+
+  test("rich tables: clicking an escaped pipe keeps the column whole while typing", async () => {
+    const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n| A\\|B | 2 |\n");
+    const { elementEdit } = await import("../src/surface/element-editor");
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    e.s.key({ kind: "down" }, e.h);
+    const view = elementEdit(e.d);
+    const lines = view.render(70, 20, text => text.split("\n")).map(visible);
+    const y = lines.findIndex(line => line.includes("A\\|B"));
+    expect(y).toBeGreaterThan(1);
+    view.click(lines[y]!.indexOf("A\\|B") + 2, y, (action, args = {}) => {
+      void NOTE_ACTIONS.run(action as any, args as any, { surface: e.s, host: e.h }, USER);
+    });
+    e.type("x");
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    expect((await board.get(e.id))!.text).toContain("| Ax\\|B | 2 |");
+  });
+
   test("a component adapter edits and saves through the reader's draft", async () => {
     const { registerElementEditor } = await import("../src/surface/element-editor");
     const { componentBlocks } = await import("@ep0ch/outline-core/component-block");
