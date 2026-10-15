@@ -7,6 +7,31 @@ Every installed extension has a [page](#an-extensions-page-and-its-demo-notes) i
 hub: its README, what it adds, and its demo notes, live. The service runs the extension's
 code; clients (Detail, the door, the publisher, agents) only draw what the service returns.
 
+## Script blocks and files (PIE-601)
+
+A block with `[script::name]` and a closed `js` or `ts` fence loads through the same registry as folder
+extensions. Files in the outline folder's `scripts/` directory (`.js` or `.ts`) use that load path too.
+The door offers Run name in the power bar and `ext.<id>.run` through `act`.
+
+QuickJS codemode runs on a worker. Code has the host API's `tools.*`, `q(query)`, `read(ref)` and
+`act(name, args)`; `act` uses the connected door's dispatcher. Disk, network and imports stay in folder
+extensions. Saving a malformed source still saves the block; the registry reports its problem.
+
+Starting a run returns immediately with its progress note and undo receipt. Each completed host call
+updates that child note; the run shows its author, source revision and the source diff since the previous
+run in this host. A source changed during a run stops its remaining host calls. Writes are attributed to
+the source author, with the requester recorded beside them. There is no text-approval gate.
+
+`extensions.undo` with the returned receipt takes back saved writes, writes through door actions and live
+draft patches together. The draft's own patch comparison preserves intervening typing; a conflict refuses
+undo. Receipts last for this host process, as extension undo does. A run that could not prepare its draft
+inverse says why in its result note.
+
+Outside agents use MCP `script_run` with a script block's `ref` or `uri`. They run as the MCP caller;
+the gateway's existing access setting and proposal handler apply to each write. Propose access produces
+proposals, full access applies writes, and read/none cannot start a run. Macros, key/rule/@name bindings,
+and automatic agent-written views remain later scripting slices.
+
 ## Keys and secrets
 
 An extension that needs a token names it; the service hands it that one key, and only to a call that has the right.

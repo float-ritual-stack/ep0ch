@@ -64,16 +64,18 @@ export interface AgentToolsClient extends WorkToolsClient {
 export interface AgentActor {
   actorId: string;
   sessionId?: string;
+  author?: "user" | "agent" | "system";
+  taskId?: string;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function mutationOf(actor: AgentActor): MutationProvenance {
-  return { author: "agent", actorId: actor.actorId, ...(actor.sessionId ? { sessionId: actor.sessionId } : {}) };
+  return { author: actor.author ?? "agent", ...provenanceOf(actor) };
 }
 
 function provenanceOf(actor: AgentActor) {
-  return { actorId: actor.actorId, ...(actor.sessionId ? { sessionId: actor.sessionId } : {}) };
+  return { actorId: actor.actorId, ...(actor.sessionId ? { sessionId: actor.sessionId } : {}), ...(actor.taskId ? { taskId: actor.taskId } : {}) };
 }
 
 function requireText(value: unknown, what: string): string {
@@ -603,7 +605,7 @@ export async function createBlock(
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
   const position = input.position === undefined ? undefined : boundedInteger(input.position, "position", 0, 0, 1_000_000);
-  let block = await client.request<Block>({ action: "create", text, parentId, author: "agent", provenance: provenanceOf(actor) });
+  let block = await client.request<Block>({ action: "create", text, parentId, author: actor.author ?? "agent", provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor) });
   if (position !== undefined) {
     await client.requireCompatibleService();
     block = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) });
@@ -739,8 +741,8 @@ async function commentOnBlock(client: AgentToolsClient, input: Parameters<typeof
   const block = await writableBlock(client, input.ref);
   const receipt = await createBlockComment(client, {
     requestId: input.requestId?.trim() || randomUUID(),
-    author: "agent",
-    provenance: provenanceOf(actor),
+    author: actor.author ?? "agent",
+    provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor),
     input: {
       blockId: block.id,
       expectedRevision: block.revision,
@@ -785,8 +787,8 @@ async function commentOnResource(
   const receipt = await client.request<AnnotationBatchReceipt>({
     action: "annotations.batch",
     requestId: input.requestId?.trim() || randomUUID(),
-    author: "agent",
-    provenance: provenanceOf(actor),
+    author: actor.author ?? "agent",
+    provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor),
     operations: [{ operationId: "comment", type: "resource-comment", input: {
       resourceId, expectedRevision: input.revision ?? resourceTextRevision(hash), body: input.body, source: "agent",
       passage: {
@@ -823,8 +825,8 @@ export async function replyTo(
     action: "annotations.reply",
     requestId: input.requestId?.trim() || randomUUID(),
     input: { annotationId, body, source: "agent" },
-    author: "agent",
-    provenance: provenanceOf(actor),
+    author: actor.author ?? "agent",
+    provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor),
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no reply");

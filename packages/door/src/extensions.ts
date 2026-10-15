@@ -129,6 +129,9 @@ export interface ExtensionInstalled { id: string; lines: string[]; page?: string
 /** What `extensions.uninstall` answers: whether a folder went, and what became of its demo notes. */
 export interface ExtensionUninstalled { id: string; lines: string[]; removed: boolean; demo: { trashed: number; kept: string[]; left: number } }
 export interface ExtensionActResult {
+  /** Scripts write as their author and keep run undo on their source (or their run note for files). */
+  writtenAs?: string;
+  undoOn?: string;
   extension: string; action: string; message?: string; written: string[];
   /** Text for the clipboard (copy with a citation): the client copies it. */
   copy?: string;
@@ -311,6 +314,11 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
  * extension's (`ext:<id>`), whoever asked; an agent's run is said as the agent's on the status bar.
  */
 export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+  ctx.board.scriptAction = call => {
+    if (!ctx.dispatch) return Promise.reject(new Error("The door dispatcher is unavailable"));
+    return ctx.dispatch.act({ action: call.action, args: call.args }, call.actor.author === "user"
+      ? { kind: "user" } : { kind: "agent", id: call.actor.actorId ?? call.actor.author });
+  };
   const say = asActor(ctx, actor);
   const name = extensionNamed(extension)?.name ?? oneLine(extension);
   say.flash(`${name}: ${a.label.toLowerCase()}…`);
@@ -319,10 +327,10 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     const r = await ctx.board.actExtension(extension, a.id, target, actor);
     // The extension's own words (its message) are drawn as text, never as escapes.
     const message = r.message !== undefined ? oneLine(r.message) : undefined;
-    const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ext:${oneLine(extension)}` : ""}${r.undo ? " · ctrl+z undoes it" : ""}`;
+    const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ${oneLine(r.writtenAs ?? `ext:${extension}`)}` : ""}${r.undo ? " · ctrl+z undoes it" : ""}`;
     say.flash(said);
     // One undo step (PIE-784): kept for whoever asked, against the note it acted on, for that reader's ctrl+z (ext.undo).
-    const on = target.blockId ?? target.passage?.subject;
+    const on = r.undoOn ?? target.blockId ?? target.passage?.subject;
     if (r.undo && on) EXT_UNDO.push({ undo: r.undo, label: a.label, by: partyOf(actor), context: on });
     // What it asks to have opened (PIE-754): a block or a Resource, where this actor's opens land.
     if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)
@@ -359,7 +367,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
   return {
-    summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${a.fieldsFrom === "block" ? ` It also asks for the fields the note writes as [form-field::<name> <type> …] (read the note for them): give them as with='{"<field>":"<value>"}'.` : ""}${unbound}`,
+    summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it and attributes its writes${a.effects === "write" ? "" : " (it only answers)"}.${a.fieldsFrom === "block" ? ` It also asks for the fields the note writes as [form-field::<name> <type> …] (read the note for them): give them as with='{"<field>":"<value>"}'.` : ""}${unbound}`,
     ...(key ? { keys: `${key}, click` } : { keys: "click" }),
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",

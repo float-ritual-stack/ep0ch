@@ -62,6 +62,8 @@ export const SEED = {
   looksLab: "Looks lab",
   rules: "Allotment committee, Saturday",
   settings: "Compost bay jobs get a badge",
+  scripts: "Seed report",
+  scriptTarget: "Planting checklist",
   remoteWrites: "Remote writes and the netmail queue",
   buildLog: "Shed roof build log",
   overscroll: "The long row of runner beans",
@@ -1253,6 +1255,18 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const welcomeView = await make(landing.id, WELCOME_VIEW_TEXT);
   await board.moveInView({ view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, { kind: "user" });
 
+  notes.scriptTarget = await make(notes.root.id, "Planting checklist\n- [ ] Prepare the seed labels");
+  notes.scripts = await make(notes.root.id, [
+    "Seed report [script::seed-report]",
+    "Run seed-report from the power bar. Keep typing; its progress arrives below. One ext.undo takes back the run.",
+    "```ts",
+    "const source = (await q('script=seed-report')).blocks[0];",
+    "const dispatcher = await act('layout.get');",
+    "await act('task.status', { n: 1, to: 'done' });",
+    "await tools.outline_create({ parent: source.id, text: 'Labels for planting' });",
+    "return { message: 'Ready for planting', dispatcher };",
+    "```", '::links{preview=below title="Runs"}',
+  ].join("\n"));
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [
     SEED.richEdit, "", "Edit the cells here. Ctrl+O switches the same draft to raw source and back.", "",

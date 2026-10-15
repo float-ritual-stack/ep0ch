@@ -18,9 +18,9 @@ import { spanBg } from "../src/surface/margin";
 import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARGIN_LINES, MARGINALIA_FILE, MARKDOWN_KINDS, loadShowcase, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, RECENT_FILES, RECENT_SESSION, SHOWCASE_ASSETS, REMOTE_CLIENT, REMOTE_LINE, SEED, seedDay, seedShowcase, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../src/showcase/seed";
 import { gardenRound, SECTIONS, SESSION_QUOTE, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { reopen } from "../src/session/restore";
-import { SocketBoard, USER } from "../src/socket";
+import { DRAFT_LEASE_MS, SocketBoard, USER } from "../src/socket";
 import { subject } from "../src/board";
-import { extensionNamed } from "../src/extensions";
+import { extensionNamed, extensionList } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
 import { makeTile } from "../src/desk/tiles";
 import type { ReaderPane } from "../src/desk/panes";
@@ -428,6 +428,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
     "facets": ["#frost-jobs", "uses▾", "facets"],
     "rich-edit": ["Seed inventory", "Beans", "Packets"],
+    scripts: ["Seed report", "Run seed-report"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -3384,6 +3385,149 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(copies().at(-1)).toBe(osc52(whole.text));
     expect((app as any).message).toContain(`copied the note, ${whole.lines} lines`);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+  test("a script in the showcase calls the dispatcher and streams an undoable result", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "seed-report"), "the script bound");
+    const extension = extensionList()?.extensions.find(e => e.name === "seed-report")!;
+    const run = await app.act({ action: `ext.${extension.id}.run`, as: "test-agent" }) as { written: string[]; undo: string };
+    await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "the script finished");
+    const log = (await board.get(run.written[0]!))!;
+    expect(log.text).toContain("· done");
+    expect(log.text).toContain("Ready for planting");
+    expect(log.text).toContain("dispatcher");
+    expect((await board.get(seeded.notes.scriptTarget.id))!.text).toContain("- [x] Prepare the seed labels");
+    const made = (await board.children(seeded.notes.scripts.id)).find(n => n.text === "Labels for planting")!;
+    expect(made).toBeDefined();
+    await app.act({ action: "ext.undo", tile: "source", as: "test-agent" });
+    expect((await board.get(seeded.notes.scriptTarget.id))!.text).toContain("- [ ] Prepare the seed labels");
+    expect((await board.children(seeded.notes.scripts.id)).some(n => n.id === made.id || n.id === log.id)).toBe(false);
+  }, 30_000);
+
+  test.each(["open", "saved", "roundtrip", "proposal", "dismiss"])("one script undo preserves typing across draft changes: %s", async (mode) => {
+    const saveBeforeEnd = mode === "saved";
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top;
+    await app.act({ action: "edit", tile: "notes", as: "test-agent" });
+    const draft = ([...stage.panes.values()].find((p: any) => p.editing) as any).surface.draft;
+    press({ kind: "enter" });
+    press({ kind: "end" });
+    press({ kind: "paste", text: "\n\nKeep typing here." });
+    const target = seeded.notes.scriptTarget.id;
+    const proposed = mode === "proposal" || mode === "dismiss" ? await board.request<{proposalId: string}>("draft.patch", {
+      blockId: target, revision: (await board.get(target))!.revision,
+      patches: [{observed: "Prepare", replacement: "Sort"}], propose: "always", mutation: {author: "agent", actorId: "seed-writer"},
+    }) : null;
+    if (mode === "dismiss") press({kind: "paste", text: `\n!((${proposed!.proposalId}))\n`});
+    const source = await board.request<{ id: string }>("create", { author: "agent", provenance: { actorId: "seed-writer" }, text: [
+      `Draft labels [script::draft-labels-${mode}]`, "```js",
+      `const note = await read('${target}');`,
+      mode === "proposal" ? `await act('proposal.apply', {id:'${proposed!.proposalId}'});` : `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'Prepare', replacement:'Sort'}]});`,
+      `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'seed labels', replacement:'seed envelopes'}]});`,
+      ...(mode === "dismiss" ? [`await act('proposal.dismiss', {id:'${proposed!.proposalId}'});`] : []),
+      ...(mode === "roundtrip" ? [`await tools.outline_patch({ref:note.id, revision:note.revision, patches:[{observed:'Sort the seed envelopes',replacement:'Prepare the seed labels'}]});`] : []),
+      `await tools.outline_create({parent: '${target}', text: 'Extra envelopes'});`,
+      `while (!(await q('signal=draft-ready')).blocks.length) {}`,
+      "```",
+    ].join("\n") });
+    await board.request("extensions.list", { reload: true });
+    await until(() => !!extensionList()?.extensions.find(e => e.name === `draft-labels-${mode}`), "draft script bound");
+    const extension = extensionList()!.extensions.find(e => e.name === `draft-labels-${mode}`)!;
+    const run = await app.act({ action: `ext.${extension.id}.run`, as: "test-agent" }) as { written: string[]; undo: string };
+    press({ kind: "paste", text: " Still here." });
+    await untilAsync(async () => (await board.children(target)).some(n => n.text === "Extra envelopes"), "draft patched");
+    if (saveBeforeEnd) {
+      press({ kind: "char", ch: "s", ctrl: true });
+      await until(() => ![...stage.panes.values()].some((p: any) => p.editing), "draft saved and closed").catch(error => { throw new Error(`${error.message}; draft: ${draft.note}\n${screen()}`); });
+    }
+    const signal = await board.request<{id: string}>("create", { author: "user", text: "Continue [signal::draft-ready]" });
+    await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "draft script done");
+    await board.request("delete", { blockId: signal.id });
+    expect((await board.get(run.written[0]!))!.text).toContain("· done");
+    expect(draft.text).toContain(mode === "roundtrip" ? "Prepare the seed labels" : "Sort the seed envelopes");
+    expect(draft.text).toContain(mode === "dismiss" ? "Keep typing here." : "Keep typing here. Still here.");
+    if (mode === "dismiss") {
+      press({ kind: "char", ch: "s", ctrl: true });
+      await until(() => ![...stage.panes.values()].some((p: any) => p.editing), "dismissed draft saved");
+    }
+    await board.request("extensions.undo", { undo: run.undo });
+    const undone = saveBeforeEnd || mode === "dismiss" ? (await board.get(target))!.text : draft.text;
+    expect(undone).toContain("Prepare the seed labels");
+    expect(undone).toContain(mode === "dismiss" ? "Keep typing here." : "Keep typing here. Still here.");
+    if (mode === "dismiss") expect(undone).toContain(`!((${proposed!.proposalId}))`);
+    expect((await board.children(target)).some(n => n.text === "Extra envelopes")).toBe(false);
+    expect((await board.get(source.id))!.text).toContain("script::draft-labels");
+    for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+  test("a draft opened by a script keeps receiving agent patches after the run finishes", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top;
+    const target = await board.request<{id: string}>("create", {author: "user", text: "Seed plan\n\nPrepare the labels."});
+    await app.act({action: "open", args: {id: target.id}, tile: "notes", as: "test-agent"});
+    await board.request("create", {author: "user", text: "Open seed plan [script::open-seed-plan]\n```js\nawait act('edit');\n```"});
+    await board.request("extensions.list", {reload: true});
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "open-seed-plan"), "edit script bound");
+    const extension = extensionList()!.extensions.find(e => e.name === "open-seed-plan")!;
+    const run = await app.dispatch.act({action: `ext.${extension.id}.run`}, USER) as {written: string[]};
+    try {
+      await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "edit script done");
+      expect((await board.get(run.written[0]!))!.text).toContain("· done");
+      const reader = [...stage.panes.values()].find((p: any) => p.editing) as ReaderPane;
+      const draft = reader.surface.draft!;
+      press({kind: "enter"});
+      press({kind: "end"});
+      press({kind: "paste", text: "\n\nStill typing."});
+      // The first lease must expire unless the script-created heartbeat remains usable after completion.
+      await Bun.sleep(DRAFT_LEASE_MS + 1000);
+      const patched = await board.request("draft.patch", {
+        blockId: target.id, revision: (await board.get(target.id))!.revision,
+        patches: [{observed: "Prepare", replacement: "Sort"}], mutation: {author: "agent", actorId: "seed-helper"},
+      });
+      expect(patched).toMatchObject({outcome: "applied", edits: [{blockId: target.id, route: "draft"}]});
+      expect(draft.text).toContain("Sort the labels.");
+      expect(draft.text).toContain("Still typing.");
+      expect((await board.get(target.id))!.text).toContain("Prepare the labels.");
+    } finally {
+      for (let i = 0; i < 5 && S().focus === "stage"; i++) press({kind: "esc"});
+    }
+  }, 30_000);
+
+  test("an agent running a person's script cannot move the draft the person is typing in", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top;
+    const target = await board.request<{id: string}>("create", {author: "user", text: "Draft at the desk\n\nKeep writing here."});
+    await app.act({action: "open", args: {id: target.id}, tile: "notes", as: "test-agent"});
+    await app.act({ action: "edit", tile: "notes", as: "test-agent" });
+    const reader = [...stage.panes.values()].find((p: any) => p.editing) as ReaderPane;
+    const draft = reader.surface.draft!;
+    press({ kind: "enter" });
+    press({ kind: "end" });
+    press({ kind: "paste", text: "\n\nStill writing this note." });
+    expect(draft.text).toContain("Still writing this note.");
+    const { idle: _idle, ...person } = app.person();
+    const source = await board.request<{id: string}>("create", {author: "user", text:
+      `Open the shed [script::open-the-shed]\n\`\`\`js\nawait act('open', {id:'${seeded.notes.shed.id}'});\n\`\`\``});
+    await board.request("extensions.list", {reload: true});
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "open-the-shed"), "open script bound");
+    const extension = extensionList()!.extensions.find(e => e.name === "open-the-shed")!;
+    const run = await app.act({action: `ext.${extension.id}.run`, as: "test-agent"}) as {written: string[]};
+    await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "open script done");
+    expect((await board.get(run.written[0]!))!.text).toContain("· done");
+    expect(reader.surface.draft).toBe(draft);
+    expect(reader.surface.msg!.id).toBe(target.id);
+    const { idle: _afterIdle, ...after } = app.person();
+    expect(after).toEqual(person);
+    expect(draft.text).toContain("Still writing this note.");
+    for (let i = 0; i < 5 && S().focus === "stage"; i++) press({kind: "esc"});
   }, 30_000);
 
   test("extensions as programs (PIE-754): almanac's schedule is listed; its action, through act with no block, writes a dated note under the Almanac page as ext:almanac, once a day", async () => {

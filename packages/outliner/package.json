@@ -10,6 +10,7 @@
   "type": "module",
   "exports": {
     "./agent-tools": "./src/agent-tools.ts",
+    "./mcp-write": "./src/mcp-write.ts",
     "./host-api": "./src/host-api.ts",
     "./draft-patch": "./src/draft-patch.ts",
     "./echo-health": "./src/echo-health.ts",
@@ -64,6 +65,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.84.2",
+    "@earendil-works/pi-codemode": "^1.2.0",
     "@earendil-works/pi-coding-agent": "^0.84.2",
     "@earendil-works/pi-tui": "0.84.2",
     "@ep0ch/outline-core": "workspace:*",

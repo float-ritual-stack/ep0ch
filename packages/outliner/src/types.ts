@@ -1928,7 +1928,7 @@ export interface ComputedExecutionResult {
  * `grant` (PIE-754): an extension's own process passes its `EP0CH_EXT_GRANT`, which makes the request the
  * extension's (`ext:<id>`) while that process runs (src/extension-grants.ts).
  */
-export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string };
+export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string };
 
 export type OutlinerRequestAction =
   | { id: string; action: "properties.preview"; text: string }
@@ -2442,6 +2442,8 @@ export type OutlinerRequestAction =
    * `{ undone, extension, action, written }`.
    */
   | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
+  | { id: string; action: "scripts.run"; blockId: string; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance }
+  | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }
   /**
    * What an action asks for (its declared `args`, PIE-784), each with the choices it has on `blockId` and its value
    * when not given: what a client prompts with. `{ extension, action, args: [{ name, type, …, choices?, value? }] }`.
@@ -2464,7 +2466,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */
   | {
-      id: string; action: "extensions.act"; extension: string; extensionAction: string; blockId?: string; line?: number; args?: Record<string, string>; passage?: import("@ep0ch/outline-core/passage").Passage;
+      id: string; action: "extensions.act"; extension: string; extensionAction: string; blockId?: string; line?: number; args?: Record<string, string>; passage?: import("@ep0ch/outline-core/passage").Passage; clientId?: string;
       /**
        * Capability `extensions.act.requester`: who asks (the person, or an agent with its actor id). The writes
        * stay `ext:<id>`'s; the change feed records this beside them as `requestedBy`. `author`/`provenance`
@@ -2762,6 +2764,7 @@ export type OutlinerEventDomain =
   | "browsing-context"
   /** A request to the door holding a live draft (`draft`), sent only to that client. */
   | "draft"
+  | "script"
   /** Share sessions started or ended (`shares.changed`), sent to publishers: a tunnel to start or stop. */
   | "shares"
   /** The extension registry changed (`extensions.changed`): read `extensions.list` again. */
@@ -2784,6 +2787,7 @@ export interface OutlinerEvent {
   attentionInstruction?: AttentionInstruction;
   /** On a `draft` event: what the service asks the door holding the draft (PIE-501). */
   draft?: DraftHolderRequest;
+  script?: import("@ep0ch/outline-core/protocol").ScriptActionCall;
   /** On a `queries.changed` event: the watches whose answer changed, or that were dropped. */
   changes?: QueryChange[];
   /**

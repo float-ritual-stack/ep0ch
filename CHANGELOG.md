@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Script blocks run through the host API while typing continues (PIE-601) (#583)
+
+- **Added:** QuickJS runs for script blocks and outline script files, reached through extension actions and the power bar, with attributed progress in a child note.
+- **Added:** MCP script runs reuse the gateway's proposal path; run undo groups saved writes, dispatcher writes and live draft patches. The scripts showcase exercises these paths.
+
+
 ### A published backlink lands on the line it names (PIE-889) (#575)
 
 - **Changed:** published HTML keeps anchor and heading destinations; a backlink opens at its source line and marks the passage, phone screens included.

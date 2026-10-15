@@ -278,6 +278,10 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
+The **scripts** section runs `seed-report`: use the power bar's Run seed-report action, or its `ext.<id>.run`
+action through `act`. The checklist changes through the dispatcher, a result note streams under the script,
+and `ext.undo` takes back the run. The adjacent reader stays available for typing.
+
 Adding a shared part means adding its section (`SECTIONS` in `src/showcase/showcase.ts`) and the seed
 content it needs; the review checklist's "The map" item covers both.
 

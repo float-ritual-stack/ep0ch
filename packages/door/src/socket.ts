@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 // Board over the outliner's JSON-lines socket, on outline-core's PROTOCOL: a service on another number is refused.
 // Reads use the service's safe-read actions. Writes are guarded by the service, never by retrying:
 // `update` (a saved edit) and `properties.patch` (a card moved between lanes) name the revision they
@@ -160,9 +161,9 @@ import type { Passage } from "@ep0ch/outline-core/passage";
  */
 export type DraftRequest =
   | { kind: "read"; requestId: string; holdId: string; blockId: string }
-  | { kind: "patch"; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
+  | { kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string };
-export type DraftAnswer = { text: string; revision: number } | { applied: true } | { applied: false; reason: string } | { reverted: boolean };
+export type DraftAnswer = { text: string; revision: number } | { applied: true; inverse?: { before: string; text: string; revision: number } } | { applied: false; reason: string } | { reverted: boolean };
 /** A live draft's hold on the service: renewed while the draft is open, let go when it closes. */
 export interface DraftHoldHandle {
   revise(revision: number): void; release(): void;
@@ -175,6 +176,7 @@ export const DRAFT_TOUCH_MS = 1000;
 export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
 
 export interface OutlineEvent {
+  script?: import("@ep0ch/outline-core/protocol").ScriptActionCall;
   domain: string; action: string; blockId?: string; sequence: number;
   /** The Resource a `resource-catalog` event names (a registration, a refresh). */
   resourceId?: string;
@@ -491,6 +493,8 @@ export class SocketBoard implements Board {
   }
 
   /** `timeoutMs`: this request's own wait, for one the service answers slowly on purpose (a tunnel coming up). */
+  private readonly scriptRun = new AsyncLocalStorage<string>();
+
   request<T = any>(action: string, params: Record<string, unknown> = {}, timeoutMs = this.timeoutMs): Promise<T> {
     const id = `d${++this.seq}`;
     if (this.sent.length > 5000) this.sent.splice(0, 2500);
@@ -499,7 +503,7 @@ export class SocketBoard implements Board {
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, timeoutMs);
       const sock = this.conn();
       this.waiting.set(id, { resolve, reject, timer, sock });
-      sock.write(jsonLine({ id, action, ...params, ...(this.outline ? { outline: this.outline } : {}) }));
+      sock.write(jsonLine({ id, action, ...params, ...(this.scriptRun.getStore() ? { scriptRun: this.scriptRun.getStore() } : {}), ...(this.outline ? { outline: this.outline } : {}) }));
     }));
   }
 
@@ -562,7 +566,20 @@ export class SocketBoard implements Board {
    * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`.
    */
   async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
-    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, mutation: requesterOf(actor) });
+    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, clientId: this.clientId, mutation: requesterOf(actor) });
+  }
+
+  scriptAction?: (call: import("@ep0ch/outline-core/protocol").ScriptActionCall) => Promise<unknown>;
+
+  private async answerScript(call: import("@ep0ch/outline-core/protocol").ScriptActionCall): Promise<void> {
+    if (call.targetClientId !== this.clientId) return;
+    try {
+      if (!this.scriptAction) throw new Error("This door has no active dispatcher; run the script from its power bar");
+      const result = await this.scriptRun.run(call.actor.sessionId!, () => this.scriptAction!(call));
+      await this.request("scripts.answer", { requestId: call.requestId, clientId: this.clientId, result });
+    } catch (error) {
+      await this.request("scripts.answer", { requestId: call.requestId, clientId: this.clientId, error: error instanceof Error ? error.message : String(error) }).catch(() => {});
+    }
   }
 
   /**
@@ -1305,6 +1322,7 @@ export class SocketBoard implements Board {
       if (!r.event) return;
       // A request to the door about a draft it holds is answered here, never queued behind a catch-up.
       if (r.event.domain === "draft") { void this.answerDraft(r.event.draft); return; }
+      if (r.event.domain === "script" && r.event.script) { void this.answerScript(r.event.script); return; }
       if (held) held.push(r.event); else this.deliver(r.event);
     });
     s.on("data", d => lines.feed(d));
@@ -1587,16 +1605,19 @@ export class SocketBoard implements Board {
     if (old) this.letGo(old);
     const h = { blockId, revision, holdId: null as string | null, answer, timer: null as Timer | null, touch: null as Timer | null, gone: false };
     this.drafts.set(blockId, h);
-    void this.holdOn(h);
-    h.timer = setInterval(() => void this.renew(h), DRAFT_HEARTBEAT_MS);
-    (h.timer as { unref?: () => void }).unref?.();
+    // A draft can outlive the script that opened it; its lease belongs to the door.
+    this.scriptRun.exit(() => {
+      void this.holdOn(h);
+      h.timer = setInterval(() => void this.renew(h), DRAFT_HEARTBEAT_MS);
+      (h.timer as { unref?: () => void }).unref?.();
+    });
     return {
-      revise: revision => { h.revision = revision; void this.renew(h); },
+      revise: revision => { h.revision = revision; this.scriptRun.exit(() => void this.renew(h)); },
       release: () => this.letGo(h),
       touched: () => {
         if (h.gone) return;
         if (h.touch) clearTimeout(h.touch);
-        h.touch = setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS);
+        h.touch = this.scriptRun.exit(() => setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS));
         (h.touch as { unref?: () => void }).unref?.();
       },
     };
@@ -1621,7 +1642,7 @@ export class SocketBoard implements Board {
 
   private async holdOn(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
     try {
-      const r = await this.request<{ holdId: string }>("drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS });
+      const r = await this.scriptRun.exit(() => this.request<{ holdId: string }>("drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS }));
       if (h.gone) { void this.request("drafts.release", { holdId: r.holdId }).catch(() => {}); return; }
       h.holdId = r.holdId;
     } catch { h.holdId = null; /* tried again at the next heartbeat */ }

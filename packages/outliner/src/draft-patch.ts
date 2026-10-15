@@ -140,7 +140,7 @@ export interface DraftHolderProposal { id: string; op: "apply" | "dismiss" }
 export type DraftHolderRequest =
   | { kind: "read"; requestId: string; holdId: string; blockId: string; targetClientId: string }
   | {
-      kind: "patch"; requestId: string; holdId: string; blockId: string; targetClientId: string;
+      kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; targetClientId: string;
       patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance;
       mark?: string; force?: boolean;
       /** Set when the patch applies or dismisses a proposal, so the door says which it was, not guessing from the patch. */
@@ -150,7 +150,7 @@ export type DraftHolderRequest =
 
 export type DraftHolderAnswer =
   | { text: string; revision: number }
-  | { applied: true }
+  | { applied: true; inverse?: { before: string; text: string; revision: number } }
   | { applied: false; reason: string }
   | { reverted: boolean };
 

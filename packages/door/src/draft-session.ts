@@ -406,7 +406,7 @@ export class DraftSession {
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();
     }
-    return a;
+    return a.applied && r.undoPatches ? { ...a, inverse: { before: d.text, text: d.withoutPatches([...r.undoPatches, r.patchId]), revision: d.base } } : a;
   }
 
   // ── invitations: an `@name` line asks one agent for one range ─────────────

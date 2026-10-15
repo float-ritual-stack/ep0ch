@@ -920,6 +920,14 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · rich edit", panes: [r] }, show, [[r, n.richEdit]]);
     },
   },
+  {
+    key: "scripts", need: "run a block's code without waiting", part: "QuickJS, the host API, extension actions and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
+    aside: "^K then Run seed-report, or act ext.<script-id>.run · results stream under the script · ext.undo on the source takes back the run together",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · scripts", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.scriptTarget], [b, n.scripts]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */

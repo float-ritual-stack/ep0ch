@@ -1,4 +1,6 @@
 import { DEFAULT_MACHINERY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
+import { scriptSources } from "./script-sources";
+import { ScriptRuns } from "./script-runs";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { PERSON_READER, queryRequestProblem } from "./block-query";
 import { readerKey } from "./read-marks";
@@ -391,6 +393,8 @@ export class OutlinerServer {
   readonly extensionRegistry: ExtensionRegistry;
   /** Handler lines, their results, and actions (src/extension-calls.ts). */
   readonly extensionCalls: ExtensionCalls;
+  readonly scriptRuns: ScriptRuns;
+  private readonly scriptAnswers = new Map<string, { clientId: string; resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   /** `@name` request lines and what their agents did (src/agent-requests.ts). */
   readonly agentRequests: AgentRequests;
   /** User-land rules: match, decorate, and change triggers (src/extension-rules.ts, PIE-600). */
@@ -466,6 +470,8 @@ export class OutlinerServer {
     const roots = extensionRoots(store.workspaceRoot);
     this.extensionRegistry = new ExtensionRegistry({
       roots,
+      sources: () => scriptSources(store),
+      watchPaths: store.workspaceRoot ? [join(store.workspaceRoot, "scripts")] : [],
       outlineName: () => this.outline?.name,
       socketPath: () => this.socketPath,
       onChange: () => {
@@ -505,6 +511,8 @@ export class OutlinerServer {
       ...(options.agentRequestQuietMs !== undefined ? { quietMs: options.agentRequestQuietMs } : {}),
     });
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
+      undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
+      script: (extension, request) => this.scriptRuns.start(extension, request),
       // An action's update goes where an @agent's edit goes: draft.patch, the edit policy's guard.
       patch: (input) => this.draftPatches.patch(input),
       // A group that also makes, moves or orders blocks: one transaction, or one proposal while a draft holds a part.
@@ -517,6 +525,28 @@ export class OutlinerServer {
       }),
       // A trigger's new block asking the extension's own agent: asked as r would, by whoever set the trigger off.
       ask: (blockId, requestedBy) => this.agentRequests.refresh(blockId, undefined, requestedBy),
+    });
+    this.scriptRuns = new ScriptRuns(store, this.extensionRegistry, this.extensionCalls.writes, {
+      requireCompatibleService: async () => undefined,
+      request: async <T>(input: RequestInput): Promise<T> => {
+        const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+        if (!response.ok) throw new Error(response.error);
+        return response.result as T;
+      },
+    }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal) => {
+      if (![...this.subscribers.values()].some(client => client.clientId === clientId)) return Promise.reject(new Error("The door disconnected; run the script from a connected door"));
+      const requestId = crypto.randomUUID();
+      return new Promise((resolve, reject) => {
+        const abort = () => { this.scriptAnswers.delete(requestId); reject(new Error("The script run ended")); };
+        signal.addEventListener("abort", abort, { once: true });
+        this.scriptAnswers.set(requestId, {
+          clientId,
+          resolve: value => { signal.removeEventListener("abort", abort); resolve(value); },
+          reject: error => { signal.removeEventListener("abort", abort); reject(error); },
+        });
+        this.broadcast({ id: requestId, domain: "script", action: "scripts.act", sequence: store.sequence,
+          script: { requestId, targetClientId: clientId, action, args, actor } });
+      });
     });
     this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
       // A trigger's action runs where any action runs: extensions.act, attributed to the extension, with who asked.
@@ -720,6 +750,7 @@ export class OutlinerServer {
     useResourceDirectiveProviders(this.providersOwner, []);
     this.extensionRegistry.stop();
     this.extensionCalls.stop();
+    await this.scriptRuns.stop();
     this.extensionRules.stop();
     this.extensionSchedules.stop();
     this.agentRequests.stop();
@@ -1806,6 +1837,21 @@ export class OutlinerServer {
     subscribedClient?: OutlinerClientRegistration,
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
+    if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (request.action === "scripts.run") {
+      try {
+        const levels = ["none", "read", "propose", "full"] as const;
+        const access = levels[Math.min(levels.indexOf(request.access), levels.indexOf(this.store.mcpAccessStatus().level))];
+        if (access !== "propose" && access !== "full") throw new Error(`MCP access is ${access}: no script runs`);
+        await this.extensionRegistry.reload();
+        const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === request.blockId);
+        if (!extension) throw new Error("This block has no runnable script; add [script::name] and a closed js or ts fence");
+        const result = this.scriptRuns.start(extension, { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation });
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     // A watched read is kept on the connection that asked (ADR 0004); without one (in-process) it is just answered.
     if (connection && "watch" in request && request.watch !== undefined && isWatchable(request.action)) {
       return this.watches.ask(connection, request as unknown as Parameters<QueryWatches["ask"]>[1]);
@@ -1906,7 +1952,7 @@ export class OutlinerServer {
         if (request.action === "extensions.undo") {
           // An action's write group taken back whole (PIE-784), as whoever asks: the person, or an agent.
           if (typeof request.undo !== "string") throw new Error("extensions.undo needs undo: the id an action's answer gave (its undo)");
-          result = this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" });
+          result = await this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" });
         } else if (request.action === "extensions.args") {
           // What an action asks for (PIE-784), with the choices it has on this block: what a client prompts with.
           if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.args needs extension and extensionAction");
@@ -1967,6 +2013,7 @@ export class OutlinerServer {
           if (request.passage !== undefined && (!request.passage || typeof request.passage !== "object" || Array.isArray(request.passage))) throw new Error("passage is { subject, revision, quote, start, end, prefix, suffix }");
           const requestedBy = declaredRequester(request, "extensions.act");
           result = await this.extensionCalls.act({
+            ...(request.clientId ? { clientId: request.clientId } : {}),
             ...(request.passage !== undefined ? { passage: request.passage } : {}),
             extension: request.extension, action: request.extensionAction,
             ...(requestedBy ? { requestedBy } : {}),
@@ -2192,6 +2239,15 @@ export class OutlinerServer {
       let result: unknown;
       const action = request.action;
       switch (action) {
+        case "scripts.answer": {
+          const waiting = this.scriptAnswers.get(request.requestId);
+          if (!waiting || waiting.clientId !== request.clientId) throw new Error("No script action waits for this door's answer");
+          this.scriptAnswers.delete(request.requestId);
+          if (request.error !== undefined) waiting.reject(new Error(request.error));
+          else waiting.resolve(request.result);
+          result = { accepted: true };
+          break;
+        }
         case "ping":
           result = {
             status: "ready",
@@ -2449,6 +2505,7 @@ export class OutlinerServer {
           );
           break;
         }
+        case "scripts.run":
         case "extensions.list":
         case "extensions.act":
         case "extensions.bar":
@@ -3568,6 +3625,10 @@ export class OutlinerServer {
    * event, whose fields (domain aside) the change events keep.
    */
   private publishChanges(base: OutlinerEvent | undefined, changes: readonly OutlinerChange[]): OutlinerEvent[] {
+    if (changes.some(change => change.blockId && (
+      this.store.get(change.blockId)?.properties.some(p => p.key === "script") ||
+      this.extensionRegistry.serving().some(e => e.script?.blockId === change.blockId)
+    ))) void this.extensionRegistry.reload();
     const events: OutlinerEvent[] = changes.map(change => ({
       ...(base ?? {}),
       id: crypto.randomUUID(),
@@ -3584,7 +3645,7 @@ export class OutlinerServer {
       // A saved provider line fetches its ticket in the background; the extension's own writes don't loop
       // (they run nothing), but what they leave is still the request lines a later save is compared with.
       if (event.domain === "content" && event.blockId && (event.change?.kind === "create" || event.change?.kind === "edit")) {
-        if (isExtensionActor(event.change.actor?.actorId)) {
+        if (isExtensionActor(event.change.actor?.actorId) || event.change.actor?.taskId?.startsWith("trigger:script:")) {
           this.agentRequests.observe(event.blockId, event.change.actor, event.change.kind === "create");
         } else {
           this.extensionSync.blockChanged(event.blockId);
@@ -3596,7 +3657,7 @@ export class OutlinerServer {
       // (an edit, a child added, moved, trashed or restored) may redraw the line. An extension's own writes don't, so
       // nothing loops.
       if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")
-        && !isExtensionActor(event.change!.actor?.actorId)) {
+        && !isExtensionActor(event.change!.actor?.actorId) && !event.change!.actor?.taskId?.startsWith("trigger:script:")) {
         this.extensionCalls.inputChanged(event.blockId, [event.change!.parentId, event.change!.previousParentId]);
       }
       // Rules (PIE-600) see every save, a move, a restore and a trash too (a block moved under another may start matching;
@@ -3664,6 +3725,7 @@ export class OutlinerServer {
       if (event.domain === "draft" && event.draft?.targetClientId !== client.clientId) {
         continue;
       }
+      if (event.domain === "script" && event.script?.targetClientId !== client.clientId) continue;
       if (event.domain === "browsing-context") {
         if (event.contextId === client.contextId) subscriber.write(contextLine);
         if (event.command?.targetClientId === client.clientId) {

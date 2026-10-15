@@ -1,3 +1,4 @@
+import { wholeTextSpan } from "./extension-writes";
 /**
  * Where a `draft.patch` goes (PIE-501). Routing is the service's job, not the
  * agent's: a note a door holds a live draft of is patched in that draft (the
@@ -71,7 +72,7 @@ import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
 /** What a request to a holding door carries besides its ids, which the server fills in. */
 export type DraftHolderAsk =
   | { kind: "read" }
-  | { kind: "patch"; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; mark?: string; force?: boolean; proposal?: DraftHolderProposal }
+  | { kind: "patch"; undoPatches?: string[]; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; mark?: string; force?: boolean; proposal?: DraftHolderProposal }
   | { kind: "revert"; patchId: string };
 
 export interface DraftPatchRouterDeps {
@@ -493,6 +494,8 @@ export class DraftPatchRouter {
       const hostId = block.parentId;
       let embedRemoved: DraftPatchRoute | null = null;
       let revert: (() => Promise<void>) | null = null;
+      const scriptRun = who.taskId?.startsWith("trigger:script:") ? who.sessionId : undefined;
+      let scriptPatch: { hold: DraftHold; patchId: string; inverse?: DraftPatchEdit } | undefined;
       const { hold, many } = hostId ? this.routeOf(hostId) : { hold: null, many: false };
       if (hostId && many) {
         throw new Error("More than one door holds a live draft of the note it is under; its embed line can't come out of both. The proposal wasn't dismissed");
@@ -511,7 +514,7 @@ export class DraftPatchRouter {
           const patchId = crypto.randomUUID();
           let patched: DraftHolderAnswer;
           try {
-            patched = await this.deps.ask(hold, { kind: "patch", patchId, revision: hold.revision, patches: [span], mutation: who, force: true, proposal: { id: proposalId, op: "dismiss" } });
+            patched = await this.deps.ask(hold, { kind: "patch", patchId, revision: hold.revision, patches: [span], mutation: who, force: true, ...(scriptRun ? { undoPatches: this.scriptPatches.get(scriptRun)?.get(hostId)?.ids ?? [] } : {}), proposal: { id: proposalId, op: "dismiss" } });
           } catch (error) {
             void this.deps.ask(hold, { kind: "revert", patchId }).catch(() => undefined);
             throw new Error(`The door holding a draft of its note didn't answer (${error instanceof Error ? error.message : String(error)}); the proposal wasn't dismissed`);
@@ -519,6 +522,8 @@ export class DraftPatchRouter {
           if (!("applied" in patched) || !patched.applied) {
             throw new Error(`Its embed line couldn't come out of the draft (${"reason" in patched && patched.reason ? patched.reason : "the draft refused it"}); the proposal wasn't dismissed`);
           }
+          const inverse = patched.inverse && wholeTextSpan(patched.inverse.before, patched.inverse.text);
+          scriptPatch = { hold, patchId, ...(inverse && patched.inverse ? { inverse: { blockId: hostId, revision: patched.inverse.revision, patches: [inverse] } } : {}) };
           embedRemoved = "draft";
           revert = async () => { await this.deps.ask(hold, { kind: "revert", patchId }).catch(() => undefined); };
         }
@@ -543,6 +548,7 @@ export class DraftPatchRouter {
         await revert?.();
         throw new Error(`Couldn't dismiss it: ${error instanceof Error ? error.message : String(error)}`);
       }
+      if (scriptRun && scriptPatch) this.rememberScriptPatch(scriptRun, scriptPatch);
       this.settled(proposalId, "dismissed", who);
       return { outcome: "dismissed", proposalId, embedRemoved };
     });
@@ -562,6 +568,29 @@ export class DraftPatchRouter {
    * Check every note, patch the drafts, then write the saved notes together.
    * Any failure reverts what was patched and says why.
    */
+  private readonly scriptPatches = new Map<string, Map<string, { hold: DraftHold; ids: string[]; inverse?: DraftPatchEdit }>>();
+
+  private rememberScriptPatch(run: string, patch: { hold: DraftHold; patchId: string; inverse?: DraftPatchEdit }): void {
+    let holds = this.scriptPatches.get(run);
+    if (!holds) this.scriptPatches.set(run, holds = new Map());
+    let entry = holds.get(patch.hold.blockId);
+    if (!entry) holds.set(patch.hold.blockId, entry = { hold: patch.hold, ids: [] });
+    entry.ids.push(patch.patchId);
+    entry.inverse = patch.inverse;
+  }
+
+  async scriptInverse(run: string): Promise<DraftPatchEdit[]> {
+    const holds = this.scriptPatches.get(run);
+    this.scriptPatches.delete(run);
+    return [...holds?.values() ?? []].flatMap(entry => entry.inverse ? [entry.inverse] : []);
+  }
+
+  /** The ordinary patch transaction rolls drafts back if the saved half of a run's undo refuses. */
+  async undoScript(edits: DraftPatchEdit[], mutation: MutationProvenance, write: () => void): Promise<void> {
+    const result = await this.run(edits, { mutation, policy: "edit", current: true, alongside: write });
+    if (!result.ok) throw new Error(`${result.reason}; nothing was undone`);
+  }
+
   private async run(edits: DraftPatchEdit[], options: RunOptions): Promise<Outcome> {
     const { store } = this.deps;
     const plan = edits.map(edit => ({ edit, ...this.routeOf(edit.blockId) }));
@@ -608,7 +637,8 @@ export class DraftPatchRouter {
       const refusal = await this.policyFailure(edits, edit, answer.text, options);
       if (refusal) return refusal;
     }
-    const patched: Array<{ hold: DraftHold; patchId: string }> = [];
+    const patched: Array<{ hold: DraftHold; patchId: string; inverse?: DraftPatchEdit }> = [];
+    const scriptRun = options.mutation.taskId?.startsWith("trigger:script:") ? options.mutation.sessionId : undefined;
     const applied: DraftPatchApplied["edits"] = [];
     // An agent's `@name` lines in these patches were decided before they went in: settled once they landed or were taken back.
     const settling: Array<(landed: boolean) => void> = [];
@@ -629,6 +659,7 @@ export class DraftPatchRouter {
         answer = await this.deps.ask(hold, {
           kind: "patch", patchId, revision: options.force || options.current ? hold.revision : edit.revision, patches: edit.patches,
           mutation: options.mutation,
+          ...(scriptRun ? { undoPatches: this.scriptPatches.get(scriptRun)?.get(hold.blockId)?.ids ?? [] } : {}),
           ...(options.mark && options.mark.blockId === edit.blockId ? { mark: options.mark.text } : {}),
           ...(options.force ? { force: true } : {}),
           ...(options.proposal ? { proposal: options.proposal } : {}),
@@ -643,7 +674,8 @@ export class DraftPatchRouter {
         await undo();
         return { ok: false, reason: "reason" in answer && answer.reason ? answer.reason : "the draft refused it" };
       }
-      patched.push({ hold, patchId });
+      const span = answer.inverse && wholeTextSpan(answer.inverse.before, answer.inverse.text);
+      patched.push({ hold, patchId, ...(span && answer.inverse ? { inverse: { blockId: hold.blockId, revision: answer.inverse.revision, patches: [span] } } : {}) });
       applied.push({ blockId: edit.blockId, route: "draft", holder: hold.clientId });
 
     }
@@ -670,6 +702,7 @@ export class DraftPatchRouter {
     const order = new Map(edits.map((edit, index) => [edit.blockId, index]));
     applied.sort((left, right) => order.get(left.blockId)! - order.get(right.blockId)!);
     settle(true);
+    if (scriptRun) for (const patch of patched) this.rememberScriptPatch(scriptRun, patch);
     return { ok: true, applied };
   }
 

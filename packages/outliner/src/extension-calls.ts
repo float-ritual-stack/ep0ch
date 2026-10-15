@@ -65,6 +65,8 @@ import { createHash } from "node:crypto";
  */
 
 export interface ExtensionCallsOptions {
+  readonly undoDrafts?: import("./extension-writes").ExtensionWritesDeps["undoDrafts"];
+  readonly script?: (extension: LoadedExtension, request: ExtensionActRequest) => ExtensionActResult;
   readonly now?: () => number;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
   readonly changed?: (blockId: string) => void;
@@ -112,6 +114,8 @@ interface PassOptions {
 export type { BlockWrite, ExtensionWrite };
 
 export interface ExtensionActRequest {
+  readonly mcpAccess?: import("@ep0ch/outline-core/protocol").McpAccessLevel;
+  readonly clientId?: string;
   readonly extension: string;
   readonly action: string;
   /** The block it acts on (and, for a handler's action, its line). Optional for an action on a tile. */
@@ -140,6 +144,9 @@ export interface ExtensionActRequest {
 }
 
 export interface ExtensionActResult {
+  /** Scripts write as their author and keep run undo on their source (or their run note for files). */
+  writtenAs?: string;
+  undoOn?: string;
   readonly extension: string;
   readonly action: string;
   readonly message?: string;
@@ -391,7 +398,7 @@ export class ExtensionCalls {
     private readonly runtime: ResourceExtensionRuntime,
     private readonly options: ExtensionCallsOptions = {},
   ) {
-    this.writes = new ExtensionWrites(store, { ...(options.patch ? { patch: options.patch } : {}), ...(options.patchGroup ? { patchGroup: options.patchGroup } : {}), ...(options.held ? { held: options.held } : {}), ...(options.here ? { here: options.here } : {}) });
+    this.writes = new ExtensionWrites(store, { undoDrafts: options.undoDrafts, ...(options.patch ? { patch: options.patch } : {}), ...(options.patchGroup ? { patchGroup: options.patchGroup } : {}), ...(options.held ? { held: options.held } : {}), ...(options.here ? { here: options.here } : {}) });
   }
 
   /** An action's writes as one group, and the undo steps of the groups that landed (src/extension-writes.ts). */
@@ -938,6 +945,7 @@ export class ExtensionCalls {
     if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
     const action = this.registry.action(extension.id, request.action);
     if (!action) throw new Error(`${extension.name} has no action ${request.action}`);
+    if (extension.script) return this.options.script!(extension, request);
     if (action.on === "passage") return this.actOnPassage(extension, action, request);
     if (request.passage) throw new Error(`${action.name} acts on ${action.on ?? "a block"}, not a passage`);
     const block = request.blockId ? this.store.get(request.blockId) : null;
@@ -1214,8 +1222,8 @@ export class ExtensionCalls {
   }
 
   /** Undo an action's write group whole (`extensions.undo`), as `by`; refused with nothing changed when it changed since. */
-  undo(id: string, by: MutationProvenance): ReturnType<ExtensionWrites["undo"]> {
-    const done = this.writes.undo(id, by);
+  async undo(id: string, by: MutationProvenance): Promise<ReturnType<ExtensionWrites["undo"]>> {
+    const done = await this.writes.undoRun(id, by);
     for (const blockId of done.written) this.options.changed?.(blockId);
     return done;
   }

@@ -11,9 +11,12 @@
  * Every write is `author: agent`, attributed to `actor`; a wrong call is refused with the tool's arguments and a call
  * that works, as the tools answer an agent.
  */
-import { AGENT_TOOL_DEFINITIONS, toolArgsSpec, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
+import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, toolArgsSpec, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
-import { runAgentOperation, type AgentActor, type AgentToolsClient } from "./agent-tools";
+import { runAgentOperation, resolveRef, type AgentActor, type AgentToolsClient } from "./agent-tools";
+import { applyWrite, type McpWriteTool } from "./mcp-write";
+import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import type { AnnotationRecord, AnnotationThread } from "./types";
 import { WorkToolRefusal } from "./work-tools";
 
 export type HostTool = (input?: Record<string, unknown>) => Promise<unknown>;
@@ -35,11 +38,14 @@ export interface HostStep {
 }
 
 export interface HostApiOptions {
+  mcpAccess?: McpAccessLevel;
+  act?(name: string, args: Record<string, unknown>): Promise<unknown>;
   /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
   onStep?(step: HostStep): void;
 }
 
 export interface HostApi {
+  act(name: string, args?: Record<string, unknown>): Promise<unknown>;
   /** Every tool, by its name (`outline_read`, `outline_patch`, `view_order`…). */
   readonly tool: Readonly<Record<string, HostTool>>;
   /** The tools this API offers, by name. */
@@ -53,7 +59,7 @@ export interface HostApi {
 }
 
 /** One tool as a function: its arguments checked as every surface checks them, then its agent operation. */
-function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, definition: AgentToolDefinition, step: (s: Omit<HostStep, "seq">, seq?: number) => number): HostTool {
+function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, definition: AgentToolDefinition, step: (s: Omit<HostStep, "seq">, seq?: number) => number, options: HostApiOptions): HostTool {
   return async (input = {}) => {
     const seq = step({ tool: definition.name, writes: definition.writes, phase: "start", input });
     const said = (phase: "done" | "refused", more: Partial<HostStep>) => step({ tool: definition.name, writes: definition.writes, phase, input, ...more }, seq);
@@ -62,7 +68,27 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
       if (!checked.ok) throw new WorkToolRefusal(checked.error);
       const command = definition.command(checked.args);
       if (typeof command === "string") throw new WorkToolRefusal(`${definition.name}: ${command}`);
-      const result = await runAgentOperation(client, command.operation, command.input, actor);
+      let result: unknown;
+      if (options.mcpAccess && definition.writes) {
+        if (!actor || !AGENT_TOOL_SURFACES[definition.name]?.gateway) throw new WorkToolRefusal(`${definition.name} is not an MCP write tool`);
+        const target = definition.target ?? "ref";
+        const { [target]: ref, ...writeInput } = checked.args;
+        let blockId: string;
+        if (definition.name === "outline_reply" || definition.name === "outline_resolve_thread") {
+          const mark = await client.request<AnnotationRecord>({ action: "annotations.get", annotationId: String(writeInput.edit ?? writeInput.thread) });
+          const subject = mark.originalTarget.representation.subject;
+          if (subject.kind !== "block") throw new WorkToolRefusal("MCP script replies need a note's thread");
+          blockId = subject.blockId;
+        } else blockId = (await resolveRef(client, String(ref))).id;
+        const outcome = await applyWrite({
+          request: (action, args) => client.request({ action, ...args } as Parameters<AgentToolsClient["request"]>[0]),
+          info: () => client.requireCompatibleService(),
+          comments: async id => (await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: id }, includeResolved: true } }))
+            .map(t => ({ id: t.block.id, replies: t.replies.map(r => ({ id: r.block.id })) })),
+        }, { tool: definition.name as McpWriteTool, blockId, input: writeInput, ...(typeof writeInput.revision === "number" ? { revision: writeInput.revision } : {}) },
+        { level: options.mcpAccess, actor, uri: id => `((${id}))` });
+        result = outcome.outcome === "proposed" ? outcome : outcome.detail;
+      } else result = await runAgentOperation(client, command.operation, command.input, actor);
       said("done", { result });
       return result;
     } catch (e) {
@@ -87,7 +113,7 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     return seq;
   };
   const tools: Record<string, HostTool> = Object.create(null);
-  for (const definition of AGENT_TOOL_DEFINITIONS) tools[definition.name] = toolFunction(client, actor, definition, step);
+  for (const definition of AGENT_TOOL_DEFINITIONS) tools[definition.name] = toolFunction(client, actor, definition, step, options);
   const names = Object.keys(tools);
   const call = (name: string, input?: Record<string, unknown>) => {
     const tool = Object.hasOwn(tools, name) ? tools[name] : undefined;
@@ -102,5 +128,8 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   };
   const q = (query: string, opts: { under?: string; limit?: number } = {}) => call("outline_find", { query, ...opts });
   const read = (ref: string, opts: { depth?: number; limit?: number } = {}) => call("outline_read", { ref, ...opts });
-  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read });
+  const act = (name: string, args: Record<string, unknown> = {}) => options.act
+    ? options.act(name, args)
+    : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));
+  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act });
 }
