@@ -147,6 +147,9 @@ test("a slicer-copied request remains the person's ask and wakes kitty despite a
   expect(row.status).not.toBe("waiting");
   await until("copied ask answered", () => store.agentRequests(made.written[0]!)[0]?.status === "replied");
   expect(store.get(made.written[0]!)!.text).toContain("> noted");
+  const carried = await act("child", made.written[0]!, { text: "a second copy\n@kitty pick this up" }, { mutation: LOKI });
+  expect(store.agentRequests(carried.written[0]!)[0]?.status).not.toBe("nothing");
+  await until("carried ask answered", () => store.agentRequests(carried.written[0]!)[0]?.status === "replied");
   const autonomous = await act("child", note.id, { text: "new ask\n@kitty invented by the slicer" }, { mutation: LOKI });
   await until("new ask denied", () => store.agentRequests(autonomous.written[0]!)[0]?.status === "nothing");
   expect(store.agentRequests(autonomous.written[0]!)[0]?.message).toContain("invoke-deny");

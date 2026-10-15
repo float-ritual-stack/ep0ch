@@ -198,6 +198,8 @@ export function personRequestKeys(store: OutlinerStore, blockId: string): string
     if (revision.author === "user") for (const key of keys) if (!previous.has(key)) personal.add(key);
     previous = keys;
   }
+  // A copied ask's durable receipt outlives revision retention and carries its origin to another copy.
+  for (const row of store.agentRequests(blockId)) if (row.requestedBy === "user" && previous.has(row.requestKey)) personal.add(row.requestKey);
   return [...personal];
 }
 
