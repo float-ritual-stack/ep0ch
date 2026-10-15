@@ -498,7 +498,7 @@ function parseAuthor(value: string | undefined): "user" | "agent" | "system" {
  * would hide it.
  */
 function writerAuthor(value: string | undefined, actor: string | undefined): "user" | "agent" | "system" {
-  const named = !!actor?.trim() && actor.trim() !== "cli";
+  const named = !!actor?.trim();
   const author = value === undefined ? (named ? "agent" : "user") : parseAuthor(value);
   if (author === "agent" && !actor?.trim()) throw new Error("--author agent requires --actor <agent id>");
   return author;
