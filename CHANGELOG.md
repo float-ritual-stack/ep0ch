@@ -31,6 +31,8 @@ are its record. The outliner's entries from then are kept below, under
   as `#x` already matched `x/…` for tags.
 - **Changed (protocol):** `blocks.query` facets say when each value was last updated (`last`), and a question can ask for more
   than 50 keys and values (`facetKeys`, `facetValues`, at most 1000), so a client lists a whole outline's facets from the service.
+- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 176: facet values carry `last`, `facetKeys` and `facetValues` are
+  question fields, and `property=x/*` is a query form; both sides must run the same copy).
 
 ### Runbook steps no longer take 1.5 s longer than their command (PIE-893)
 
