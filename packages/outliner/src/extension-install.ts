@@ -288,6 +288,7 @@ function serves(entry: ExtensionsListResult["extensions"][number]): string[] {
 
 /** The one thing wrong with an extension, if anything: its error, a failed last call, a failed schedule. */
 function problem(entry: ExtensionsListResult["extensions"][number]): string {
+  if (!entry.error && entry.held) return `${entry.held} request${entry.held === 1 ? "" : "s"} held for a person's r (the door's waiting-on-you list)`;
   if (entry.error) return `${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`;
   if (entry.lastRun && !entry.lastRun.ok) return `last call ${entry.lastRun.call} failed ${entry.lastRun.at}: ${entry.lastRun.error ?? ""}`;
   const failed = (entry.schedules ?? []).find((schedule) => schedule.last && !schedule.last.ok);
@@ -335,6 +336,8 @@ export function formatExtensionsList(list: ExtensionsListResult, long = false): 
     for (const key of entry.keys ?? []) lines.push(`  key ${keyLineWords(key)}`);
     if (entry.error) lines.push(`  ${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`);
   }
+  // Who may wake whom without a person's r (PIE-888): the notes the person wrote, and what is wrong with any.
+  for (const grant of list.grants ?? []) lines.push(grant.problem ? `grant “${grant.title}”: ${grant.problem}` : `grant “${grant.title}”: ${grant.from.join(", ")} may wake ${grant.to.map((to) => to === "all" ? "any agent" : `@${to}`).join(", ")} (${grant.maxHops} hop${grant.maxHops === 1 ? "" : "s"}${grant.budget ? `, budget ${grant.budget}` : ""}${grant.cap ? `, ${grant.cap}/day` : ""})`);
   if (!long && list.extensions.length) lines.push("", "ext ls --long adds each one's folder, action arguments and schedules.");
   lines.push("", list.trust);
   // A folder's name and an extension's error are its own words: printed clean.

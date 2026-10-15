@@ -1321,7 +1321,10 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   the status bar counts what waits on you (`◆1 ✓2 on you`). A click on that count, or `alt+w`, opens the
   **waiting-on-you list** as a tab in your drawer (`host.waiting`): every terminal's blocked, failed and finished work,
   most urgent first; `⏎` or a click goes to that terminal, `x` marks it seen. Being back in a tile (a key, a click)
-  is seeing it: its done goes. Claude Code reports through the ep0ch mod (a permission dialog, a question, done at its
+  is seeing it: its done goes. After the programs the list shows the **requests held for your `r`** (`‼` in the count): an
+  `@name` line an agent or an extension wrote that no grant lets wake its agent, with the note, the agent and why
+  (`ext:requests may not wake @kitty`); `⏎` or a click opens the note, `r` or a click on its `[r send]` sends it (`held.open`, `held.send`; an agent
+  can open one, never send it). Claude Code reports through the ep0ch mod (a permission dialog, a question, done at its
   answer), and so do `ep0ch install --apply`, `ep0ch backup run`, `scripts/box-test` and `scripts/agent-env --test`;
   without reports, the chip still guesses from the program's output, as before. The door reports its own to the
   terminal it runs in when that terminal speaks the protocol (Ghostty, Rex): the most urgent across its tiles, and each

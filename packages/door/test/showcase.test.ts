@@ -2892,6 +2892,28 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
   }, 30_000);
 
+  test("held requests (PIE-888): an agent's @tidy line is listed after the programs and counted in the status bar; ⏎ opens its note, r sends it as the person, an agent's send is refused", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "status" }, as: "test-agent" });
+    await until(() => marks.status!.every(m => screen().includes(m)), "the status section");
+    const stage = () => S().stages.get(S().sel).top;
+    const bar = () => { (app as any).paint(); return plain(painted.at(-1) ?? ""); };
+    void app.heldAsks.seed(board);
+    await until(() => app.heldAsks.count() === 1, "the held request", 8000);
+    const held = () => (stage().pane("waiting").describe() as any[]).filter(r => r.kind === "held");
+    expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: "Reply to the seed swap thread", why: "showcase-seed may not wake @tidy · r to send" }]);
+    await until(() => bar().includes("‼1"), "the count in the status bar");
+    await until(() => screen().includes("@tidy · Reply to the seed swap thread"), "the row");
+    // An agent opens it, never sends it.
+    await expect(app.act({ action: "held.send", tile: "waiting", args: { id: held()[0].block }, as: "test-agent" })).rejects.toThrow("waits for a person");
+    expect(app.heldAsks.count()).toBe(1);
+    // The person sends it (r on its row): its agent tidies the line, and the request leaves the list.
+    await stage().dispatch.press("held.send", { id: held()[0].block }, "waiting");
+    await until(() => app.heldAsks.count() === 0, "sent: nothing held", 15_000);
+    expect(bar()).not.toContain("‼");
+    app.heldAsks.stop();
+  }, 60_000);
+
   test("the agent sessions section (PIE-737): fern in your drawer, moss docked here, the panel listing both; moving one keeps its process and its conversation", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "sessions" }, as: "test-agent" });

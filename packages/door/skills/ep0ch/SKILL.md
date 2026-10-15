@@ -262,7 +262,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
   bar is open (`peek`'s `bar`), they're busy: don't wait on them, and never close it (`bar.close` is theirs).
 - **What waits on the person** (PIE-614): terminal tiles report status with OSC 7501. `peek` gives each terminal's
   `status` records, `status.list` reads the list the person opens with `alt+w`, `host.waiting` opens it. Marking a
-  done as seen (`status.seen`) is theirs; yours is refused.
+  done as seen (`status.seen`) is theirs; yours is refused. The list also holds the requests held for the person's `r`
+  (`peek` rows with `kind: held`; `held.open` shows the note, `held.send` is theirs and refused to you): an `@name` line you
+  or an extension wrote lands held unless the person's grant note lets you wake that agent (`[invoke-from::…]`).
 - **Reading a note to its end:** `scroll to=end` goes to the last line, then past it; `view.get` says `atEnd` and
   `past`. `reader.overscroll rows=none|half|<n>` is the person's setting.
 - **The door moves under you:** a session handover or restart doesn't strand a Claude in a tile. `EP0CH_PLACE`

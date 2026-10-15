@@ -87,7 +87,7 @@ export interface DraftPatchRouterDeps {
    * An agent's patch is about to go into a door's draft: the `@name` lines its spans add are held for a person's `r`
    * (PIE-888) before it lands, so the person's later save or typing doesn't send them.
    */
-  heldInDraft?(blockId: string, patches: readonly DraftPatchSpan[], by: MutationProvenance): void;
+  heldInDraft?(blockId: string, patches: readonly DraftPatchSpan[], by: MutationProvenance): (landed: boolean) => void;
   /** A proposal was applied or dismissed: whatever answered with it (an `@name` request) says so now. */
   proposalSettled?(proposalId: string, status: Exclude<DraftProposalStatus, "open">, by: MutationProvenance): void;
   /**
@@ -610,7 +610,11 @@ export class DraftPatchRouter {
     }
     const patched: Array<{ hold: DraftHold; patchId: string }> = [];
     const applied: DraftPatchApplied["edits"] = [];
+    // An agent's `@name` lines in these patches were decided before they went in: settled once they landed or were taken back.
+    const settling: Array<(landed: boolean) => void> = [];
+    const settle = (landed: boolean) => { for (const done of settling.splice(0)) done(landed); };
     const undo = async () => {
+      settle(false);
       for (const { hold, patchId } of patched.reverse()) {
         await this.deps.ask(hold, { kind: "revert", patchId }).catch(() => undefined);
       }
@@ -619,7 +623,8 @@ export class DraftPatchRouter {
       if (!hold) continue;
       const patchId = crypto.randomUUID();
       let answer: DraftHolderAnswer;
-      if (options.mutation.author === "agent") this.deps.heldInDraft?.(edit.blockId, edit.patches, options.mutation);
+      const settled = options.mutation.author === "agent" ? this.deps.heldInDraft?.(edit.blockId, edit.patches, options.mutation) : undefined;
+      if (settled) settling.push(settled);
       try {
         answer = await this.deps.ask(hold, {
           kind: "patch", patchId, revision: options.force || options.current ? hold.revision : edit.revision, patches: edit.patches,
@@ -664,6 +669,7 @@ export class DraftPatchRouter {
     }
     const order = new Map(edits.map((edit, index) => [edit.blockId, index]));
     applied.sort((left, right) => order.get(left.blockId)! - order.get(right.blockId)!);
+    settle(true);
     return { ok: true, applied };
   }
 

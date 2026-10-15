@@ -333,7 +333,7 @@ function asAgentSource<T>(input: T): T {
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "agents.held", "blocks.query", "views.read", "query.matches"]);
 /**
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
@@ -1937,6 +1937,9 @@ export class OutlinerServer {
           }
           // The rules (PIE-600): the extensions' and the outline's rule notes, with what's wrong with any note.
           const listed = this.extensionRegistry.list();
+          // Requests held for a person's r, per extension that would answer them, and the grants that let writers wake agents (PIE-888).
+          const heldByExtension = new Map<string, number>();
+          for (const ask of this.agentRequests.held()) heldByExtension.set(ask.extensionId, (heldByExtension.get(ask.extensionId) ?? 0) + 1);
           // Each extension's schedules (PIE-754): when each runs next, and what its last run did.
           const extensions = listed.extensions.map((entry) => {
             const schedules = entry.state === "active" || entry.state === "failed" ? this.extensionSchedules.list(entry.id) : [];
@@ -1945,10 +1948,11 @@ export class OutlinerServer {
             // Which keys it names, present or missing (names only, PIE-887).
             const loaded = this.extensionRegistry.loaded(entry.id);
             const keys = loaded ? extensionKeyLines(loaded, this.outline?.name) : [];
-            return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}), ...(keys.length ? { keys } : {}) };
+            const held = heldByExtension.get(entry.id);
+            return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}), ...(keys.length ? { keys } : {}), ...(held ? { held } : {}) };
           });
           // Resource providers: the folders' (listed) and the legacy registry's.
-          result = { ...listed, extensions, resourceProviders: this.resourceProviders, ...this.extensionRules.list(), ...this.extensionPagesListed() };
+          result = { ...listed, extensions, resourceProviders: this.resourceProviders, grants: this.agentRequests.grants(), ...this.extensionRules.list(), ...this.extensionPagesListed() };
         } else if (request.action === "extensions.schedule.run") {
           // Run a schedule now (PIE-754), recorded like any run of it.
           if (typeof request.extension !== "string" || typeof request.entry !== "string") throw new Error("extensions.schedule.run needs extension and entry (action:<id> or handler:<key>)");
@@ -2227,6 +2231,9 @@ export class OutlinerServer {
           break;
         case "mcp.access.status":
           result = this.store.mcpAccessStatus();
+          break;
+        case "agents.held":
+          result = { held: this.agentRequests.held() };
           break;
         case "mcp.access.configure":
           result = this.store.configureMcpAccess(request.level);

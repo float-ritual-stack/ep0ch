@@ -2110,6 +2110,11 @@ export class OutlinerStore {
       row.proposalId ?? null, row.requestedBy, row.requestedAt, row.answeredAt ?? null);
   }
 
+  /** Every request held for a person's `r` (waiting, written by an agent or an extension), oldest first (PIE-888). */
+  heldAgentRequests(): AgentRequestRow[] {
+    return (this.database.query("SELECT * FROM agent_requests WHERE status = 'waiting' AND requested_by <> 'user' ORDER BY requested_at, block_id").all() as AgentRequestDbRow[]).map(agentRequestRow);
+  }
+
   /**
    * The `@name` lines a block had when the service last looked (any name), so
    * a save can tell a request it adds from one already there, across restarts.

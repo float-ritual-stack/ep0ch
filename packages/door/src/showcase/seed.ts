@@ -1107,6 +1107,9 @@ async function seedTickets(board: SocketBoard, ticketsConfig?: string) {
   await refreshTicket(board, ready);
 }
 
+/** A note an agent wrote with an `@tidy` line (held for the person's r: the waiting-on-you list shows it, PIE-888). */
+const HELD_ASK = ["Reply to the seed swap thread", "*  thanks   for   the  leeks", "@tidy"].join("\n");
+
 /**
  * The four extension kinds (PIE-507, drawn by the door since PIE-512): a record (`moon::`), an inline output
  * (`horoscope::`), a rich component (`fancy-horror::`, its `w` wards an omen) and an `@tidy` request that
@@ -1397,6 +1400,12 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
       if (settled(read?.projections.find(p => p.kind === "agent")?.agent?.status)) break;
       await Bun.sleep(200);
     }
+  }
+  // An agent wrote a request for @tidy: no grant lets it, so it is held for the person's r (PIE-888), listed with the programs waiting on them.
+  const tidyFrom = opts.outliner ?? opts.rulesFrom;
+  if (examples || (opts.ticketsConfig && tidyFrom && installExamples(opts.ticketsConfig, tidyFrom, ["tidy"]).length > 0)) {
+    if (!examples) await board.listExtensions(true);
+    await make(notes.root.id, HELD_ASK, SEED_AGENT);
   }
   notes.briefBefore = await make(notes.root.id, BRIEF_BEFORE, SEED_AGENT);
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);

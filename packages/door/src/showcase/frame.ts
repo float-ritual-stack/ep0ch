@@ -91,6 +91,7 @@ function frameCtx(f: FramedScreen): Ctx {
     get video(): Video { return o().video; },
     get graphics() { return o().graphics; },
     get whatChanged() { return o().whatChanged; },
+    get heldAsks() { return o().heldAsks; },
     get lastCall() { return o().lastCall; },
     set lastCall(v: number) { o().lastCall = v; },
     get events() { return o().events; },

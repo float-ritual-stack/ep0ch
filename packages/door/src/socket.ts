@@ -17,7 +17,7 @@ import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
 import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
-import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, type PageRename, protocolMismatch } from "@ep0ch/outline-core/protocol";
+import { type BlockRevisionEntry, type HeldAsk, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, type PageRename, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
 import { Watched } from "./watched";
@@ -243,7 +243,7 @@ export interface ReferenceResolution {
 }
 /** How the service reads one `[[address]]` or Work ID (`pages.resolve`). Read-only: nothing is created. */
 export interface PageResolution { address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
-export type { NotePlacement } from "@ep0ch/outline-core/protocol";
+export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
@@ -913,6 +913,11 @@ export class SocketBoard implements Board {
   async readSavedView(viewId: string, page: { limit?: number; offset?: number } = {}): Promise<SavedViewRead> {
     const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree", ...page });
     return { ...r, blocks: r.blocks.map(b => toMsg(b)) };
+  }
+
+  /** The requests held for a person's `r` (`agents.held`): what the waiting-on-you list shows beside the terminals'. */
+  async heldAsks(): Promise<HeldAsk[]> {
+    return (await this.request<{ held: HeldAsk[] }>("agents.held", {})).held;
   }
 
   /**
