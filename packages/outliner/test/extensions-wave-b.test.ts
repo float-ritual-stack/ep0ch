@@ -32,7 +32,7 @@ async function until<T>(what: string, check: () => T | undefined | null | false 
 }
 
 /** A scratch service whose outline root (and so its `extensions/` folder) is a temp folder. */
-async function setup(options: { install?: string[]; userInstall?: string[] } = {}) {
+async function setup(options: { install?: string[]; userInstall?: string[]; now?: () => number } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-ext-b-")));
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
@@ -43,7 +43,7 @@ async function setup(options: { install?: string[]; userInstall?: string[] } = {
   for (const name of options.userInstall ?? []) cpSync(join(REPO_EXTENSIONS, name), join(root, "user-extensions", name), { recursive: true });
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outlineFolder });
   const socket = join(root, "outliner.sock");
-  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0 });
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, ...(options.now ? { extensionNow: options.now } : {}) });
   await server.start();
   const client = new OutlinerClient(socket);
   const events: Array<{ domain: string; action: string; blockId?: string }> = [];
@@ -348,7 +348,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes } }));`);
 // ── Kind 4: a whole tile ─────────────────────────────────────────────────
 
 test("tarot (a tile kind): listed for the door's registry; its program keeps a reading through the service's action, attributed", async () => {
-  const { store, client, create, list } = await setup({ install: ["tarot"] });
+  // The card is seeded by the date the service tells the call: pinned, so the answer is the same every day.
+  const { store, client, create, list } = await setup({ install: ["tarot"], now: () => Date.parse("2026-01-01T12:00:00Z") });
   const { tileKinds, extensions } = await list(true);
   expect(extensions.find((entry) => entry.id === "tarot")?.state).toBe("active");
   const tile = tileKinds.find((kind) => kind.kind === "tarot.reading")!;
@@ -363,8 +364,7 @@ test("tarot (a tile kind): listed for the door's registry; its program keeps a r
 
   // An agent draws without a tile.
   const drawn = await client.request<{ message: string }>({ action: "extensions.act", extension: "tarot", extensionAction: "draw" });
-  // Today's card (seeded by the date): any of the deck, as `<name>[ (reversed)]: <meaning>`. Not every name starts "The".
-  expect(drawn.message).toMatch(/^[A-Z][A-Za-z ]+( \(reversed\))?: \S/);
+  expect(drawn.message).toBe("The Hermit: a lamp, a long walk, an early night");
 
   // The tile program, run as the door would run it (its command, cwd, env and saved args), keeps a reading.
   const journal = await create("Journal");
@@ -374,7 +374,7 @@ test("tarot (a tile kind): listed for the door's registry; its program keeps a r
   await program.stdin.flush();
   const kept = await until("a kept reading", () => store.children(journal.id)[0]);
   expect(kept).toMatchObject({ author: "agent", actorId: "ext:tarot" });
-  expect(kept.text).toMatch(/^Tarot, \d{4}-\d{2}-\d{2}: /);
+  expect(kept.text).toStartWith("Tarot, 2026-01-01: The Hermit");
   program.stdin.write("q");
   await program.stdin.flush();
   expect(await program.exited).toBe(0);
