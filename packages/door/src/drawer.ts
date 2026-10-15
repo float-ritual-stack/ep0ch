@@ -825,6 +825,8 @@ export class AgentDrawer {
    */
   restart(): Promise<RestartDone> {
     if (this.restarting) return this.restarting;
+    // Its program is out on a screen (PIE-892): restarting here would start a second one; it's restarted where it is.
+    if (this.p instanceof DrawerTile && this.p.away) return Promise.reject(new ActionRefused(`${this.p.away.says}: bring it back first (agent.back), or restart it there`));
     const p = this.pane();
     const run = async (): Promise<RestartDone> => {
       const was = this.knows?.state ?? null;
@@ -997,7 +999,8 @@ export class AgentDrawer {
     const a = this.prog;
     const h = new DrawerTile({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true }, shows);
     h.tileId = DRAWER_TILE_ID; h.place = "drawer";
-    h.away = { says: `${shows} is on ${where}`, back: () => this.bringBack(USER) };
+    // ⏎ or a click on it is the person's agent.back (the action an agent and the keys reach too).
+    h.away = { says: `${shows} is on ${where}`, back: () => void this.run?.("agent.back", {}) };
     return h;
   }
   /** The drawer's own program while it's out on a screen (`take`), and that screen. */
@@ -1005,20 +1008,22 @@ export class AgentDrawer {
   /** ⏎ or a click on the own tab while its program is out: that tile back from wherever it is now (any screen it was put on). */
   bringBack(actor: Actor): TileDone | null {
     if (!this.out) return null;
-    // Its program is gone (closed on its screen, or ended with a door before a handover could adopt it): the tab is
-    // the drawer's own again, and runs its program as any own tab does.
-    if (!this.outAlive()) { this.free(); return null; }
-    const screens = [this.left?.screen, tilesOf(this.host.screen?.())].filter((s): s is Desk => !!s);
+    const screens = [this.left?.screen, tilesOf(this.host.screen?.())].filter((s): s is Desk => !!s && s !== this.desk);
     for (const s of screens) {
       const name = s.layoutGet().tiles.map((t: { name: string }) => t.name).find((n: string) => this.isOwnOut(s.pane(n)));
       if (name) return this.put(s, name, actor, true);
     }
+    // Its program is gone (closed on its screen, or ended with a door before a handover could adopt it): the tab is
+    // the drawer's own again, and runs its program as any own tab does.
+    if (!this.outAlive()) { this.free(); return null; }
     this.host.flash(`${this.p instanceof DrawerTile ? this.p.shows : "your drawer's program"} isn't on the screen shown · go to its screen, then ^W a on it brings it back`);
     return null;
   }
-  /** Whether the drawer's program that's out still runs somewhere: the tile that left, else one with its key. */
+  /** Whether the drawer's own program is out on a screen, its tab holding the place. */
+  isAway(): boolean { return !!this.out; }
+  /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile that left, else one with its key. */
   private outAlive(): boolean {
-    if (this.left) return this.left.pane.running || this.left.pane.exited !== null;
+    if (this.left) return this.left.pane.running;
     return livePrograms().some(p => p.home === this.out);
   }
   /** The own tab no longer holding a place: its program starts as any own tab's does (when it's drawn). */
@@ -1027,7 +1032,10 @@ export class AgentDrawer {
     this.out = null; this.left = null; this.save();
     if (h instanceof DrawerTile && h.away) {
       h.away = null;
-      if (this.persist) h.home = this.gen ? `drawer.json#${this.gen}` : "drawer.json"; this.host.flash(`${h.shows} isn't running any more · your drawer's own program starts here again`); this.host.redraw(); }
+      if (this.persist) h.home = this.gen ? `drawer.json#${this.gen}` : "drawer.json";
+      this.host.flash(`${h.shows} isn't running any more · your drawer's own program starts here again`);
+      this.host.redraw();
+    }
   }
   /** Whether `p` is the drawer's own program, out on a screen: the tile that left, or (after a handover) the one with its key. */
   private isOwnOut(p: Pane | undefined): p is PtyPane {
@@ -1045,7 +1053,8 @@ export class AgentDrawer {
     if (!(moved.pane instanceof DrawerTile)) Object.assign(Object.setPrototypeOf(moved.pane, DrawerTile.prototype), { shows: this.prog.name, next: null, away: null });
     const own = moved.pane as DrawerTile;
     own.reown();
-    const holder = d.takeOut(DRAWER_TILE_ID, actor, own, false);
+    // The swap in its own tab is the drawer's, whoever asked: what leaves is the holder, which nobody types in.
+    const holder = d.takeOut(DRAWER_TILE_ID, USER, own, false);
     holder.pane.dispose?.();
     this.p = own; this.left = null; this.out = null;
     this.save();
@@ -1219,6 +1228,8 @@ export class AgentDrawer {
       if (isAlt(k, "g")) { run("agents.open", {}); return true; }
       const d = this.desk;
       if (!d) return true;
+      // The holder has no terminal to enter; its Enter returns the program through the same action as a click.
+      if (k.kind === "enter" && d.focusedName() === DRAWER_TILE_ID && this.p instanceof DrawerTile && this.p.away && !d.overlaid()) { run("agent.back", {}); return true; }
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them; never the screen's back.
       // A terminal there that exited isn't using them either.
       if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
@@ -1401,7 +1412,7 @@ export function nextStep(share: number): number {
 }
 
 /** How the drawer's keys and clicks run its actions: as the person, a refusal said on the status bar. */
-export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent" | "agents.open", args: Record<string, unknown>) => void;
+export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.back" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent" | "agents.open", args: Record<string, unknown>) => void;
 
 /** What `agent.restart` answers once the agent runs again. */
 export interface RestartDone { restarted: boolean; herdr?: string; was: AgentKnows["state"] | null }
@@ -1567,6 +1578,18 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       if (!(share > 0 && share <= 1)) throw new ActionRefused(`share is a fraction of the screen, 0.2 to 0.9, not ${share}`);
       drawer.height(share, actor);
       return { share: drawer.share, open: drawer.open };
+    },
+  }),
+  "agent.back": def({
+    summary: "bring the drawer's own program back into its tab while it's out on a screen (PIE-892: it left whole, by ^W a or a drag; its tab holds the place, starting nothing): the same tile, its program running on, nothing restarted. Once that program is gone (closed), the tab runs the drawer's own program again",
+    keys: "⏎ or a click on the drawer's own tab while it says where its program went; ^W a on the program's tile, or tile.drawer from its screen",
+    // Like tile.drawer, the layout move checks the source program; the holder has no input to protect.
+    touches: "shape", replay: "ask",
+    says: (out: { tile?: string } | null) => (out?.tile ? { text: "· brought the drawer's program back into its tab", ms: 5000 } : null),
+    args: {},
+    run(_, { drawer }, actor) {
+      if (!drawer.isAway()) throw new ActionRefused(`${drawer.name} is in its tab already`);
+      return drawer.bringBack(actor) ?? { tile: null };
     },
   }),
   "agent.restart": def({
