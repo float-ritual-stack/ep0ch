@@ -68,6 +68,8 @@ loki says several bumps are queued, wait for its go before that rebase. A schema
 - Never `pkill`, and never kill a process you didn't start; stop your own by its pid or `scripts/agent-env <name> --clean`.
 - Clean up scratch with `scripts/scratch-clean <dir>…` (a `mktemp -d`, an agent-env tmp folder, your worktree when the PR has
   merged), never `rm -rf`: the dangerous-command check can stop that for a permission prompt that waits in loki's session.
+  Never inside a `bash -c`/`sh -c` string either (nor a tmux, ssh or `agent-env --` one): an `rm` of a variable there
+  always asks, and nothing can allow it.
 - Never `git stash`: stashes are shared by every worktree of the repo. Commit to your branch instead (a `wip:`
   commit is fine; squash-merge hides it).
 - Fixtures are made up. Never copy content from a real outline (pie, float-hub, a client's) into a test, snapshot,
