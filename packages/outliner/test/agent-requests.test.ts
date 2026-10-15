@@ -286,6 +286,12 @@ test("one rule: an agent's draft.patch may write a request line, in a live draft
     patches: [{ observed: "@tidy", replacement: "@tidy all" }] });
   expect(store.get(saved.id)!.text).toBe("Ledger\n@tidy all\nentry");
   expect(store.agentRequests(saved.id)).toMatchObject([{ agent: "tidy", request: "all", status: "waiting", message: "held: claude-test may not wake @tidy · r to send" }]);
+  // The person's own save of the note, later, sends nothing the agent wrote.
+  const mine = store.get(saved.id)!;
+  await client.request({ action: "update", blockId: saved.id, text: `${mine.text}\nmore`, expectedRevision: mine.revision, mutation: PERSON });
+  await Bun.sleep(300);
+  expect(store.agentRequests(saved.id)).toMatchObject([{ request: "all", status: "waiting" }]);
+  store.update(saved.id, mine.text, store.get(saved.id)!.revision, PERSON);
   // Other edits still apply; `@name` mid-sentence is prose.
   const now = store.get(saved.id)!;
   await client.request({ action: "draft.patch", blockId: saved.id, revision: now.revision, mutation: AGENT, patches: [{ observed: "entry", replacement: "entry for @tidy" }] });

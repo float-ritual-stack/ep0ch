@@ -316,7 +316,8 @@ export class AgentRequests {
     const who = actor?.actorId?.trim() || actor?.author || "system";
     let held = false;
     for (const line of lines) {
-      if (before.has(line.requestKey) || answered.has(line.requestKey)) continue;
+      // A person's line still waiting out its quiet is theirs, even in a save that an agent made too.
+      if (before.has(line.requestKey) || answered.has(line.requestKey) || this.timers.has(this.key(blockId, line.requestKey))) continue;
       const bound = this.registry.agent(line.agent)!;
       if (own?.actorId && `ext:${bound.extension.id}` === own.actorId.trim()) continue;
       answered.add(line.requestKey);
