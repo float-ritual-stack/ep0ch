@@ -24,7 +24,7 @@ are its record. The outliner's entries from then are kept below, under
 - Rich edit draws Markdown and static graph-table flow rows over the existing draft. Click or navigate cells,
   type, add/remove rows and columns, undo and save; Ctrl+O returns to raw source. Streamed draft tables use
   the same view. A door-side ElementEditor contract lets component authors supply source spans and drawing.
-- PROTOCOL: needs main+1 at merge (loki assigns); the number is deliberately unchanged on this branch.
+- PROTOCOL: 179. On each machine: `ep0ch install --apply`.
 
 ### The drawer's own program leaves whole, and comes back (PIE-892)
 
