@@ -67,7 +67,8 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   let x = tw + 1;
   for (const c of ctls) { controls.push({ row: 0, from: x, to: x + c.text.length, action: c.action }); x += c.text.length + 1; }
   // Where a new note lands, under the status: the whole row is its control.
-  const lands = f.lands ? (() => { const t = `${f.lands}  [move ▸]`; controls.push({ row: 1 + f.status.length, from: 0, to: Math.min(w, width(t)), action: "lands" }); return [fg(C.lcyan) + pad(t, w) + RESET]; })() : [];
+  // The destination gives way first, so [move ▸] is always there to see.
+  const lands = f.lands ? (() => { const mv = "  [move ▸]", room = Math.max(1, w - mv.length), at = width(f.lands) > room ? `${f.lands.slice(0, Math.max(0, room - 1))}…` : f.lands, t = `${at}${mv}`; controls.push({ row: 1 + f.status.length, from: 0, to: Math.min(w, width(t)), action: "lands" }); return [fg(C.lcyan) + pad(t, w) + RESET]; })() : [];
   const top = [
     fg(C.yellow) + pad(`» ${f.title}`, tw) + ctls.map(c => " " + fg(C.lcyan) + c.text).join("") + RESET,
     ...f.status,

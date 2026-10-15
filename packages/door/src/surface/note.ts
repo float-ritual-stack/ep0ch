@@ -7630,7 +7630,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const run = async (answers: Record<string, string>) => {
         const to = answers.parent!.trim();
         // A ref by the outliner's own reading (the one the mod's and MCP's tools use), loaded when it's needed.
-        const parentId = to === "inbox" ? await host.ctx.board.inboxId() : (await (await import("../mcp-writes")).resolveBoardRef(host.ctx.board, to).catch(() => null))?.id;
+        const parentId = to === "inbox" ? await host.ctx.board.inboxId().catch(() => null) : (await (await import("../mcp-writes")).resolveBoardRef(host.ctx.board, to).catch(() => null))?.id;
         if (!parentId) throw new ActionRefused(to === "inbox" ? "this outline has no Inbox to put it in: parent=<a note's id>" : `no note ${to} to put it under: parent= takes an id, ((ref)), [[page]] or Work ID`);
         if (parentId === m.id) throw new ActionRefused("a note can't go under itself");
         // An agent's goes by outline_move's own rules (the outliner's moveBlock); the person's as a drag in the tree would.
