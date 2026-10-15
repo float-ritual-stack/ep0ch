@@ -178,9 +178,10 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   check can stop an `rm -rf` for a permission prompt even under bypass, and a builder's prompt waits in the deployer's
   session. `scratch-clean` removes only folders under `/tmp/claude-<uid>/`, `/tmp/ep0ch-agent-<uid>/`, `~/.agent-env/`
   and worktrees in `~/wt/` (through `git worktree remove`), and refuses the rest with why.
-  Never put a removal inside a `bash -c`/`sh -c` string (or a tmux, ssh or `agent-env --` command string): Claude Code
-  can't check an `rm` whose target is a variable there, and no permission rule or hook can allow it, so it always asks.
-  Run `scripts/scratch-clean` as its own command instead.
+  **Never write `bash -c '…'` or `sh -c '…'` at all** (nor an `rm` inside a tmux, ssh or `agent-env --` string): Claude
+  Code stops a shell -c script it can't check for a permission prompt even under bypass, nothing can allow it, and the
+  prompt waits in the person's session. Run each command as its own Bash call; start a background program (a scratch
+  host) with the Bash tool's `run_in_background` and stop it by its pid; clean up with `scripts/scratch-clean`.
 
 ## Fixtures, PRs and merging
 
