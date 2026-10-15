@@ -427,10 +427,9 @@ else process.stdout.write(JSON.stringify({ ok: true, value: { writes: [{ op: "cr
   await until("the rule", async () => (await list()).rules.some((rule) => rule.name === "look"));
   const ask = await create("Where do the hoses go [type::ask]");
   const child = await until("the child", () => store.children(ask.id)[0]);
-  expect(child.text).toBe("Related [via-trigger::look]\n@helper what else is like this?");
   const row = await until("the agent's answer", () => store.agentRequests(child.id).find((r) => r.status === "replied"));
+  expect(store.get(child.id)!.text).toBe("Related [via-trigger::look]\n@helper what else is like this?\n> [!note]- @helper answered\n> found two");
   expect(row).toMatchObject({ agent: "helper", requestedBy: "user" });
-  expect(store.get(child.id)!.text).toContain("> found two");
   // By hand (no rule asked): the line still lands, but held for a person's r, never asked.
   const other = await create("Another [type::note]");
   await client.request({ action: "extensions.act", extension: "asker", extensionAction: "ask", blockId: other.id, mutation: PERSON });
