@@ -130,6 +130,18 @@ describe.skipIf(!outliner)("the tree's virtual branches, against a scratch outli
     await expect(app.act({ action: "tree.depth", args: { id: n.readme.id }, as: "walker-7" })).rejects.toThrow("no virtual branch's");
   }, 60_000);
 
+  test("a match's children follow the outline too: a child edited meanwhile reads as it is now", async () => {
+    await app.act({ action: "tree.depth", args: { id: n.hub.id, depth: "authored" }, as: "walker-7" });
+    await until(() => rows().some(r => r.text.includes("Sow the second row")), "the match's child shown");
+    const sow = (await board.get(n.sow.id))!;
+    await board.update(sow.id, "Sow the third row", sow.revision!);
+    await until(() => rows().some(r => r.text.includes("Sow the third row") && r.matchOf === n.hub.id), "the child, reread");
+    expect(rows().some(r => r.text.includes("Sow the second row"))).toBe(false);
+    const third = (await board.get(n.sow.id))!;
+    await board.update(third.id, "Sow the second row", third.revision!);
+    await until(() => rows().some(r => r.text.includes("Sow the second row")), "put back");
+  }, 60_000);
+
   test("an agent never sets a depth that hides the row the person has selected", async () => {
     await app.act({ action: "tree.depth", args: { id: n.hub.id, depth: "1" }, as: "walker-7" });
     await until(() => rows().some(r => r.text.includes("Sow the second row")), "the match's child shown at depth 1");

@@ -31,7 +31,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Added:** open a note with `[type::virtual-branch]` in the outline tree and it shows its physical children, then
   what its query matches (`◇`, the count in its tag, the view's limit with a `more` row for the next page). Each match
-  opens to its children as far as the view's `[child-depth::]`; `D` (or a click or `⏎` on the results line) steps how
+  can be opened (`l`, a click) to its children as far as the view's `[child-depth::]`; `D` (or a click or `⏎` on the results line) steps how
   far for that view (results only, 1, 2, 3, the view's own) without writing anything; agents set it with `tree.depth`.
   The matches follow the outline's changes.
 - **Changed:** `views.read` answers `childDepth` (the view's own, else the default), so no client reads the

@@ -219,6 +219,8 @@ export class TreePane implements Pane {
     const page = how === "more" && was !== "loading" && was.nextOffset !== undefined ? { limit: was.limit, offset: was.nextOffset } : how === "again" && have > 0 ? { limit: Math.min(1000, have) } : {};
     const r = await readView(board, view, page);
     if (this.branches.get(view.id) !== b || b.asked !== n) return;
+    // A read that failed keeps what was shown (the pages already read), saying nothing new.
+    if (r.status === "failed" && have) return;
     b.read = r;
     // A next page read while the outline moved may repeat a match already shown: each shows once.
     const seen = new Set(b.items.map(x => x.id));
@@ -409,10 +411,7 @@ export class TreePane implements Pane {
       this.targets.clear();
       for (const k of this.panels.keys()) this.load(k, desk);
       // A virtual branch's matches follow the outline: the pages shown are asked again.
-      for (const id of this.branches.keys()) {
-        const view = this.rows.find(r => r.kind === "block" && r.m.id === id && !r.via);
-        if (view?.kind === "block" && this.fold.open.has(id)) void this.loadBranch(view.m, desk, "again");
-      }
+      for (const [id, b] of this.branches) if (this.fold.open.has(id)) void this.loadBranch(b.def, desk, "again");
       void this.reread(desk);
     }, 300);
   }
@@ -425,7 +424,8 @@ export class TreePane implements Pane {
    */
   private touches(e?: OutlineEvent): Set<string | null> | "all" | null {
     const c = e?.change;
-    if (!c || this.branches.size) return "all";
+    // An open virtual branch lists what any change may match: it asks them all again.
+    if (!c || [...this.branches.keys()].some(id => this.fold.open.has(id))) return "all";
     const roots = this.roots ?? [];
     const lists = new Set<string | null>();
     for (const p of [c.parentId, c.previousParentId]) if (p === null || (p !== undefined && this.fold.kids.has(p))) lists.add(p);
@@ -443,7 +443,7 @@ export class TreePane implements Pane {
         const b = desk.ctx.board;
         const [roots] = await Promise.all([
           due === "all" || due.has(null) ? b.roots().catch(() => null) : null,
-          this.fold.reread(id => b.children(id), due === "all" ? undefined : new Set([...due].filter((x): x is string => x !== null))),
+          this.fold.reread(id => b.children(idOfFold(id)), due === "all" ? undefined : new Set([...due].filter((x): x is string => x !== null))),
         ]);
         if (roots) this.roots = roots;
         this.rebuild();
@@ -654,7 +654,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       depth: { type: "string", optional: true, about: "0 to 8, or authored; left out, the next step" },
     },
     run({ n, id, depth }, { pane, desk }, actor) {
-      const d = depth === undefined ? undefined : depth === "authored" ? "authored" as const : Number(depth);
+      const d = depth === undefined || depth === "" ? undefined : depth === "authored" ? "authored" as const : Number(depth);
       if (typeof d === "number" && Number.isNaN(d)) throw new ActionRefused("depth is 0 to 8, or authored");
       return pane.setDepth(rowOf(pane, n, id), d, desk, actor.kind === "agent");
     },
