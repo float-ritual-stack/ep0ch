@@ -345,6 +345,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
     "links-open": ["Bike shed", "links · Bike shed", "preview"],
+    // The compost heap in a detail, the two notes under it listed in its links tile: what d d trashes.
+    trash: ["Compost heap", "links · Compost heap", "Turning log"],
     // The outline, the shed held in a detail with its own ::links, a preview of the detail's selection.
     "lists-open": ["Bike shed", "detail", "preview · detail", "[ LINKS ]"],
     // The frost note in a detail, its #tags drawn as links.
@@ -1369,10 +1371,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     ch("d");
     await until(() => screen().includes("trash “Compost heap”?") && screen().includes("trash it and the 2 notes under it"), "the choice, with the notes under it");
     ch("d");
-    await until(() => screen().includes("trashed “Compost heap” and the 2 notes under it"), "trashed, said");
+    await until(() => String((app as any).message).includes("trashed “Compost heap” and the 2 notes under it"), "trashed, said");
     expect(await deleted(heap.id)).toBe(true);
     press({ kind: "char", ch: "z", ctrl: true });
-    await until(() => screen().includes("brought back “Compost heap”"), "brought back, said");
+    await until(() => String((app as any).message).includes("brought back “Compost heap”"), "brought back, said");
     expect(await deleted(heap.id)).toBe(false);
     // An agent names the list's row (a note under the heap) and says it twice; its undo is its own.
     const rows = tiles().find(t => t.name === "links").backlinks.rows as { id?: string }[];
