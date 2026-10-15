@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Scratch cleanup never stops for a permission prompt
+
+- **Added:** `scripts/scratch-clean <dir>…` removes scratch folders (a `mktemp -d`, an agent-env folder, a finished worktree) and
+  refuses any path outside the scratch roots, saying why. The repository's Claude mod now allows an `rm -r` whose paths all
+  resolve under those roots, without the permission prompt. Agent instructions use these in place of `rm -rf`.
+
 ### TL;DR: none without a model, shown once, and it can be taken away (PIE-860)
 
 PROTOCOL 169: `annotations.tldr` takes `remove`, and an ask can be refused (an older host would write one instead).

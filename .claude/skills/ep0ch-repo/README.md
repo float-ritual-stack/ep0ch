@@ -26,6 +26,19 @@ instead (`hooks/guards.ts`):
   merely behind a bump on main merges. A slice merging into its `wave/…` branch is let through: it takes its number
   when the wave merges. When `gh` can't answer within 10s, the merge goes on.
 
+## Scratch cleanup never stops for a prompt
+
+Claude Code's dangerous-command check stops some `rm -rf` shapes (a glob over the working folder, a path ending in
+`..`) even under bypass permissions, and a builder's prompt surfaces in the deployer's session and waits there.
+Two parts (`hooks/scratch.ts`, `scripts/scratch-clean`):
+
+- **Agents don't write `rm -rf`:** they run `scripts/scratch-clean <dir>…`, which removes only folders under
+  `/tmp/claude-<uid>/`, `/tmp/ep0ch-agent-<uid>/` and `~/.agent-env/` (and `~/wt/<name>` worktrees through `git worktree
+  remove`), and refuses anything else with why. A script's own `rm` is not a command the check sees.
+- **The mod answers "allow"** to a permission request for a Bash command that is nothing but `rm -r` of plain paths that
+  all resolve (`realpath -m`: links followed, `..` taken) under those scratch roots. A variable, glob, other command,
+  root folder, home or repository path is left to the normal prompt.
+
 ## The freshness sweep
 
 - **Who:** a session whose nearest `.ep0ch` says `agent = "loki"` (the live checkout's does), or that has

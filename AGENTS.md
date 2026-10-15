@@ -173,7 +173,11 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
 - **Never kill what you didn't start.** No `pkill` or `pkill -f <pattern>`, no `kill` of a pid or process group you
   didn't launch. Stop your own by its pid (or `scripts/agent-env <name> --clean`), after checking `pstree`.
 - **Scratch files are yours alone.** A session's tmp folder is shared: write PR bodies and scratch files in a private
-  `mktemp -d`, and re-read a body before `gh pr create/edit --body-file`.
+  `mktemp -d`, and re-read a body before `gh pr create/edit --body-file`. Clean scratch up with
+  `scripts/scratch-clean <dir>…` (or `scripts/agent-env <name> --clean`), never `rm -rf`: Claude Code's dangerous-command
+  check can stop an `rm -rf` for a permission prompt even under bypass, and a builder's prompt waits in the deployer's
+  session. `scratch-clean` removes only folders under `/tmp/claude-<uid>/`, `/tmp/ep0ch-agent-<uid>/`, `~/.agent-env/`
+  and worktrees in `~/wt/` (through `git worktree remove`), and refuses the rest with why.
 
 ## Fixtures, PRs and merging
 

@@ -2,6 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { pathsIn, type Rule, ruleContext, ruleOf, rulesFor } from './rules'
 import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
+import { absolute, contentsOf, scratchRemovals, underScratch } from './scratch'
 import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
 const PROTOCOL_PATH = 'packages/outline-core/src/protocol.ts'
@@ -186,6 +187,33 @@ export const register: Register = (on) => {
     // The hook itself failed (a lookup): the rules that need nothing outside the command still hold.
     const why = guardOf(e.command, { hostname: '' })
     return why ? { deny: why } : next(e)
+  })
+
+  // A cleanup of scratch folders is never stopped for a permission prompt (hooks/scratch.ts): only a command that is
+  // nothing but `rm -r` of folders under the scratch roots is answered; everything else goes to the normal prompt.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    if (e.tool_name !== 'Bash') return next(e)
+    const command = (e.tool_input as { command?: unknown } | null)?.command
+    if (typeof command !== 'string') return next(e)
+    try {
+      const [uid, home, cwd] = await Promise.all([
+        $.process.run(['id', '-u'], { timeoutMs: 3000 }).then(r => r.stdout.trim()),
+        $.env.get('HOME'),
+        $.session.cwd(),
+      ])
+      if (!uid || !home) return next(e)
+      const ctx = { uid, home, cwd }
+      const paths = scratchRemovals(command, ctx)
+      if (!paths) return next(e)
+      // Where each really is (links followed, `..` taken): a path that leaves the roots by either is not scratch.
+      // `<folder>/*` empties the folder: it is the folder that has to be under the roots (and the roots themselves are not).
+      const real = await $.process.run(['realpath', '-m', '--', ...paths.map(p => absolute(contentsOf(p) ?? p, cwd))], { timeoutMs: 3000 })
+      const resolved = real.stdout.split('\n').filter(Boolean)
+      if (real.exitCode !== 0 || resolved.length !== paths.length || !resolved.every(p => underScratch(p, ctx))) return next(e)
+      return { decision: { behavior: 'allow' } }
+    } catch {
+      return next(e)
+    }
   })
 
   // A compaction or /clear drops what the rules said: they're given again the next time a command touches them.
