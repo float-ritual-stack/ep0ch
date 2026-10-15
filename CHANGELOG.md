@@ -18,6 +18,10 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Added:** an agent applies or dismisses a proposal by its id through one shared tool (mod and MCP), and the dispatcher's `tile=` reaches tiles inside a mounted screen, so no reader is opened beside the person to do it (PROTOCOL 181).
 
+### Recording actions saves an editable script (PIE-540) (#585)
+
+- Record your actions with `alt+Q` or the status bar, then stop to save an editable `[script::]` block. Its action lines replay through the script runtime; `{slot}` values are filled when run. Agent actions stay out of your recording (PIE-540).
+
 ### Script blocks run through the host API while typing continues (PIE-601) (#583)
 
 - **Added:** QuickJS runs for script blocks and outline script files, reached through extension actions and the power bar, with attributed progress in a child note.

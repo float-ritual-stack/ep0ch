@@ -1,3 +1,5 @@
+import { ActionRefused, actRequestOf, type ActRequest } from "@ep0ch/outline-core/action-line";
+export { ActionRefused, actRequestOf, lineWords, type ActRequest } from "@ep0ch/outline-core/action-line";
 // Named actions: everything a person does to a note (edit, save, quote a passage, comment, reply,
 // resolve, follow a link) and a host adds (open a note in a reader, move a card), with typed arguments.
 // Keys call them, and so does the control socket (`ep0ch-door act`), through the same code. An agent's
@@ -126,14 +128,6 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * of the person's, whether a restarted door may run it again, the person's only).
  */
 export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true }
-
-/** What the control socket sends: an action on the current screen, in one of its tiles (`tile=`), as someone. */
-export interface ActRequest { action: string; tile?: string; args?: Record<string, unknown>; as?: string }
-
-/** An action refused before anything happened, with the reason in plain words. */
-export class ActionRefused extends Error {
-  constructor(message: string) { super(message); this.name = "ActionRefused"; }
-}
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -495,46 +489,4 @@ export async function parseActArgs(words: string[], stdin: () => Promise<string>
     read.push(`${w.slice(0, eq)}=${text.replace(/\n$/, "")}`);
   }
   return actRequestOf(read);
-}
-
-/** An action and its `key=value` words (`--as` and `--tile` too), every value as written: the CLI's and the power bar's. */
-export function actRequestOf(words: readonly string[]): ActRequest {
-  const [action, ...rest] = words;
-  if (!action) throw new ActionRefused("act needs an action name; `actions` lists them");
-  const req: ActRequest = { action, args: {} };
-  for (let i = 0; i < rest.length; i++) {
-    const w = rest[i]!;
-    if (w === "--as" || w === "--tile") { const v = rest[++i]; if (v === undefined) throw new ActionRefused(`${w} needs a value`); if (w === "--as") req.as = v; else req.tile = v; continue; }
-    const eq = w.indexOf("=");
-    if (eq <= 0) throw new ActionRefused(`arguments are key=value, not ${JSON.stringify(w)}`);
-    const k = w.slice(0, eq), v = w.slice(eq + 1);
-    if (k === "tile") req.tile = v;
-    else if (k === "as") req.as = v;
-    else req.args![k] = v;
-  }
-  return req;
-}
-
-/** The quotes a typed or pasted line may use, each with the one that closes it (a chat's curly ones too). */
-const QUOTES: Record<string, string> = { '"': '"', "'": "'", "\u201c": "\u201d", "\u2018": "\u2019" };
-
-/**
- * A line split into words as a shell splits a command: spaces between words, and a quote, anywhere in a word, keeps
- * what's inside it in that word without the quotes (`query="#build report"` is `query=#build report`). A backslash
- * keeps the next character as it is (`\ `, `\"`; inside double quotes only `\"` and `\\`, as a shell's), never inside single
- * quotes. An unclosed quote runs to the end.
- */
-export function lineWords(line: string): string[] {
-  const out: string[] = [];
-  let word = "", inWord = false, close: string | null = null, escaped = false;
-  for (const c of line) {
-    if (escaped) { word += close && c !== close && c !== "\\" ? `\\${c}` : c; escaped = false; continue; }
-    if (c === "\\" && close !== "'" && close !== "\u2019") { escaped = true; inWord = true; continue; }
-    if (close) { if (c === close) close = null; else word += c; continue; }
-    if (QUOTES[c]) { close = QUOTES[c]!; inWord = true; continue; }
-    if (/\s/.test(c)) { if (inWord) out.push(word); word = ""; inWord = false; continue; }
-    word += c; inWord = true;
-  }
-  if (inWord) out.push(word);
-  return out;
 }

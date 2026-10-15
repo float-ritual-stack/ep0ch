@@ -1,3 +1,4 @@
+import { MacroRecording, MACRO_ACTIONS } from "./macros";
 // The door: a stack of screens, one status bar, one paint per change.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { tuningOf } from "./look";
@@ -234,6 +235,7 @@ export interface Ctx {
    * The shell's one answer (src/whereabouts.ts); a frame around a screen answers it as seen from inside.
    */
   person?(): Whereabouts;
+  recordAction?(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown): unknown;
   /** Run an action as the person through the door's own dispatcher (its every screen's: `note.new`, `open`, `edit`); a refusal is said. */
   press?(name: string, args?: Record<string, unknown>): Promise<unknown>;
   /**
@@ -951,10 +953,14 @@ export class App implements Ctx {
    * the board's, the river's `open`). An extension's action a tile kind also lists (tarot's keep) is the tile's when
    * the request names the tile (tile=) or no block; with block= it runs on that block, tile or none.
    */
+  readonly recording = new MacroRecording();
+  recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.recording.run(req, replay, run); }
+
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
     { set: BAR_ACTIONS, takes: "none", on: () => ({ on: this.barOn }) },
     // A tile the screen shown doesn't have but the drawer does (tile=, PIE-498): the drawer's desk answers it.
     { claims: req => this.drawer.routes(req, this.stack.at(-1)), delegate: () => this.drawer.desk?.dispatch, listed: false },
@@ -1085,7 +1091,7 @@ export class App implements Ctx {
     }
     // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle); on its backup
     // mark, says what's stale (backups.alert).
-    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"], [this.waitingAt, "host.waiting"], [this.changedAt, "changes.open"], [this.barAt, "bar.open"]] as const) {
+    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"], [this.waitingAt, "host.waiting"], [this.changedAt, "changes.open"], [this.barAt, "bar.open"], [this.macroAt, this.recording.active ? "macro.stop" : "macro.record"]] as const) {
       if (at && k.kind === "mouse" && k.y === at.row && k.x >= at.from && k.x < at.to) {
         if (k.action === "down") void this.dispatch.press(action);
         return;
@@ -1096,6 +1102,9 @@ export class App implements Ctx {
     if (k.kind === "hyper") { this.hyper(k.ch); return; }
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
+    if (k.kind === "alt" && k.ch === "Q" && !this.stack.at(-1)?.rawKeys?.() && (this.recording.active || !this.stack.at(-1)?.holdsKeys?.())) {
+      void this.dispatch.press(this.recording.active ? "macro.stop" : "macro.record"); return;
+    }
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // alt+y: the tune inspector on the focused tile (tile.tune, PIE-673), on the desk's screens, never in a terminal tile.
@@ -1293,13 +1302,15 @@ export class App implements Ctx {
 
   /** Where the status bar's video mode and theme are, for a click (video.cycle, theme.cycle). */
   private videoAt: { from: number; to: number; row: number } | null = null;
+  private macroAt: { from: number; to: number; row: number } | null = null;
   private themeAt: { from: number; to: number; row: number } | null = null;
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
     const [mins, clock] = this.shownTime.split("|");
-    const left = ` ${fg(C.white)}ep0ch ${fg(C.yellow)}^K${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
+    const left = ` ${fg(C.white)}ep0ch ${fg(C.yellow)}^K ${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
     // ^K: a click opens the power bar (bar.open), as ctrl+k does; not on the logon.
     this.barAt = s.noDrawer ? null : { from: 7, to: 9, row: this.term.info.rows - 1 };
+    this.macroAt = s.noDrawer ? null : { from: 10, to: this.recording.active ? 18 : 13, row: this.term.info.rows - 1 };
     // The drawer's chip starts the right part, so it's always whole and always in the same place from the right.
     const chip = this.drawer.active ? this.drawer.chip() : "";
     // Machinery hidden from the count reads `+N machine` (a click shows it); shown, `machine on`.

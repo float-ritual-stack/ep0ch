@@ -3133,3 +3133,11 @@ order, including hidden items. Neither operation changes canonical parents or
 another branch's ranks. **Advanced property filter** retains the workspace
 property-query interface as a separate View action.
 
+
+### Recorded scripts
+
+A `[script::name]` block may hold an `actions` fence as well as a TypeScript/JavaScript fence.
+Action lines use the power bar’s shared quote grammar; `{slot}` argument values are required run arguments.
+The loader exposes them through the existing extension manifest, and the same script runtime awaits each
+`act` in order, reporting the first refused step in its run note. Editing the source still invalidates an
+older run. The door’s [macro controls](../door/README.md#the-showcase) record these blocks.

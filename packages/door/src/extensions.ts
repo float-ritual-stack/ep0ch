@@ -316,7 +316,8 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
 export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
   ctx.board.scriptAction = call => {
     if (!ctx.dispatch) return Promise.reject(new Error("The door dispatcher is unavailable"));
-    return ctx.dispatch.act({ action: call.action, args: call.args }, call.actor.author === "user"
+    const { tile, ...args } = call.args;
+    return ctx.dispatch.act({ action: call.action, args, ...(typeof tile === "string" ? { tile } : {}) }, call.actor.author === "user"
       ? { kind: "user" } : { kind: "agent", id: call.actor.actorId ?? call.actor.author });
   };
   const say = asActor(ctx, actor);
