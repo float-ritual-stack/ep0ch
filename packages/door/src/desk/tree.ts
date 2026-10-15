@@ -199,7 +199,8 @@ export class TreePane implements Pane {
 
   private expand(m: Msg, desk: DeskApi, on = true, foldId = m.id): Promise<void> {
     // A virtual branch's results are read when it opens, beside its children, and again when the outline changes.
-    if (on && foldId === m.id && isBranch(m) && !this.branches.has(m.id)) void this.loadBranch(m, desk);
+    // (One kept from an earlier open may be older than the outline: it is asked again.)
+    if (on && foldId === m.id && isBranch(m)) void this.loadBranch(m, desk, this.branches.has(m.id) ? "again" : "first");
     return this.fold.show(foldId, on, id => desk.ctx.board.children(idOfFold(id)), () => { this.rebuild(); desk.redraw(); });
   }
 
@@ -219,7 +220,9 @@ export class TreePane implements Pane {
     const r = await readView(board, view, page);
     if (this.branches.get(view.id) !== b || b.asked !== n) return;
     b.read = r;
-    b.items = how === "more" ? [...b.items, ...r.items] : r.items;
+    // A next page read while the outline moved may repeat a match already shown: each shows once.
+    const seen = new Set(b.items.map(x => x.id));
+    b.items = how === "more" ? [...b.items, ...r.items.filter(x => !seen.has(x.id))] : r.items;
     this.rebuild(); desk.redraw();
   }
 
@@ -363,12 +366,17 @@ export class TreePane implements Pane {
    * results only), "authored" for the view's own `[child-depth::]`, else the next of authored, 0, 1, 2, 3. A row that
    * is no view's is refused. Nothing is written: the property stays as its author set it.
    */
-  setDepth(i: number, depth: number | "authored" | undefined, desk: DeskApi): { view: string; depth: number; authored: boolean } {
+  setDepth(i: number, depth: number | "authored" | undefined, desk: DeskApi, agent = false): { view: string; depth: number; authored: boolean } {
     const view = this.viewOf(i);
     const b = view ? this.branches.get(view) : undefined;
     if (!view || !b) throw new ActionRefused(`row ${i + 1} is no virtual branch's: open a note with [type::virtual-branch] and its matches show beneath it`);
     if (depth !== undefined && depth !== "authored" && !(Number.isInteger(depth) && depth >= 0 && depth <= 8)) throw new ActionRefused("depth is 0 (results only) to 8, or authored (the view's own child-depth)");
-    b.depth = depth === "authored" ? undefined : depth ?? DEPTHS[(DEPTHS.indexOf(b.depth) + 1) % DEPTHS.length];
+    const next = depth === "authored" ? undefined : depth ?? DEPTHS[(DEPTHS.indexOf(b.depth) + 1) % DEPTHS.length];
+    // An agent never folds away the row the person has selected: a shallower depth would hide it.
+    const own = (next ?? (b.read !== "loading" ? b.read.childDepth : undefined) ?? 0);
+    const there = this.rows[this.sel];
+    if (agent && there?.kind === "block" && there.via === view && there.rel! > own) throw new ActionRefused(`the person's selection is ${there.rel} levels under a match of this view; an agent doesn't set a depth of ${own} over it`);
+    b.depth = next;
     this.rebuild(); desk.redraw();
     return { view, depth: this.depthOf(view), authored: b.depth === undefined };
   }
@@ -462,7 +470,7 @@ export class TreePane implements Pane {
     if (r.kind === "branch-note") {
       const b = this.branches.get(r.view);
       if (r.role === "more" && b) { await this.loadBranch(b.def, desk, "more"); return { row: i + 1, view: r.view, matches: b.items.length }; }
-      return { row: i + 1, ...this.setDepth(i, undefined, desk) };
+      return { row: i + 1, ...this.setDepth(i, undefined, desk, actor.kind === "agent") };
     }
     const land = (m: Msg) => {
       const routed = desk.routes?.(this);
@@ -645,10 +653,10 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
       depth: { type: "string", optional: true, about: "0 to 8, or authored; left out, the next step" },
     },
-    run({ n, id, depth }, { pane, desk }) {
+    run({ n, id, depth }, { pane, desk }, actor) {
       const d = depth === undefined ? undefined : depth === "authored" ? "authored" as const : Number(depth);
       if (typeof d === "number" && Number.isNaN(d)) throw new ActionRefused("depth is 0 to 8, or authored");
-      return pane.setDepth(rowOf(pane, n, id), d, desk);
+      return pane.setDepth(rowOf(pane, n, id), d, desk, actor.kind === "agent");
     },
   }),
   "tree.links": def({

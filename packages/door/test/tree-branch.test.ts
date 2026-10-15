@@ -130,6 +130,17 @@ describe.skipIf(!outliner)("the tree's virtual branches, against a scratch outli
     await expect(app.act({ action: "tree.depth", args: { id: n.readme.id }, as: "walker-7" })).rejects.toThrow("no virtual branch's");
   }, 60_000);
 
+  test("an agent never sets a depth that hides the row the person has selected", async () => {
+    await app.act({ action: "tree.depth", args: { id: n.hub.id, depth: "1" }, as: "walker-7" });
+    await until(() => rows().some(r => r.text.includes("Sow the second row")), "the match's child shown at depth 1");
+    selectRow("Sow the second row");
+    await expect(app.act({ action: "tree.depth", args: { id: n.hub.id, depth: "0" }, as: "walker-7" })).rejects.toThrow("the person's selection");
+    expect(rows().some(r => r.text.includes("Sow the second row"))).toBe(true);
+    // The person's own D is theirs to make: the selection falls back to the match above it.
+    ch("D");
+    await until(() => !rows().some(r => r.text.includes("Sow the second row")) || rowOf("matches · ").text.includes("depth 2"), "the person's step");
+  }, 60_000);
+
   test("a change in the outline updates the matches: a new chore appears, one that stops matching goes", async () => {
     await app.act({ action: "tree.depth", args: { id: n.hub.id, depth: "authored" }, as: "walker-7" });
     const fresh = await board.createBlock(null, "Water the squash [type::chore]");
