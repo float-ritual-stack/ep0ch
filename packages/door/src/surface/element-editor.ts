@@ -77,14 +77,19 @@ function graphData(lines: readonly string[], start: number, end: number) {
   if (p.query || p.view || p.source || !Array.isArray(p.rows) || !Array.isArray(p.headers)) return null;
   return [p.headers.map(String), ...p.rows.map((r: unknown) => (Array.isArray(r) ? r : [r]).map(String))] as string[][];
 }
+function graphYaml(lines: readonly string[]) {
+  const body = lines.slice(1, -1), yaml = figureSource(body).yaml;
+  const start = body.findIndex(line => /^\s*---\s*$/.test(line)) + 2;
+  return { start, end: start + (yaml ? yaml.split("\n").length : 0) };
+}
 function graphWrite(lines: readonly string[], values: string[][]): string[] {
-  const out = [...lines];
+  const out = [...lines], yaml = graphYaml(lines);
   const ranges: { key: string; start: number; end: number }[] = [];
-  for (let i = 0; i < out.length; i++) {
+  for (let i = yaml.start; i < yaml.end; i++) {
     const key = /^(headers|rows):/.exec(out[i]!);
     if (!key) continue;
     let end = i + 1;
-    while (end < out.length && !/^(?:[^\s#][^:]*:|---\s*$|::\s*$)/.test(out[end]!)) end++;
+    while (end < yaml.end && !/^(?:[^\s#][^:]*:|---\s*$|::\s*$)/.test(out[end]!)) end++;
     ranges.push({ key: key[1]!, start: i, end });
   }
   for (const r of ranges.reverse()) out.splice(r.start, r.end - r.start, ...(r.key === "headers"
@@ -93,10 +98,10 @@ function graphWrite(lines: readonly string[], values: string[][]): string[] {
   return out;
 }
 function graphFields(lines: readonly string[], start: number): ElementField[][] {
-  const out: ElementField[][] = [];
+  const out: ElementField[][] = [], yaml = graphYaml(lines);
   let headers: ElementField[] = [];
   let rows = false;
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = yaml.start; i < yaml.end; i++) {
     const l = lines[i]!;
     if (l === "rows:") { rows = true; continue; }
     if (rows && /^\S/.test(l)) rows = false;

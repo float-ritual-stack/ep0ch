@@ -393,6 +393,18 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(e.id))!.text).toContain("| Ax\\|B | 2 |");
   });
 
+  test("rich tables: structural edits preserve property-like prose after YAML", async () => {
+    for (const prose of ["rows: keep this sentence", "rows: keep this sentence\nheaders: [This, is, prose]"]) {
+      const e = await editing('Inventory\n::graph-table\n---\nheaders: [Crop, Count]\nrows:\n  - [Beans, 2]\n---\n' + prose + '\n::\n');
+      const { elementEdit } = await import("../src/surface/element-editor");
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+      expect(elementEdit(e.d).current()?.field.value).toBe("Crop");
+      await NOTE_ACTIONS.run("rich.change", { op: "row.add" }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+      expect((await board.get(e.id))!.text).toContain(prose);
+    }
+  });
+
   test("a component adapter edits and saves through the reader's draft", async () => {
     const { registerElementEditor } = await import("../src/surface/element-editor");
     const { componentBlocks } = await import("@ep0ch/outline-core/component-block");
