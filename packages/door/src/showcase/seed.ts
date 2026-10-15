@@ -245,7 +245,7 @@ const WHITEBOARD = [
   `${SEED.whiteboard} [page::${SEED.whiteboard}]`,
   "[room::kitchen]",
   "",
-  "Shopping: oats, lemons, washing-up liquid.",
+  "Shopping: oats, lemons, washing-up liquid. #kitchen #shopping",
   "Rota: whoever cooks doesn't wash up.",
   "- Saturday",
   "  - clean the oven, then the fridge shelves nobody has touched since the spring clean",
@@ -259,7 +259,7 @@ const WHITEBOARD = [
 const shedText = (whiteboardId: string) => [
   `${SEED.shed} [page::${SEED.shed}] [room::garden]`,
   "",
-  "Three bikes, one pump, and a lock that sticks in the cold.",
+  "Three bikes, one pump, and a lock that sticks in the cold. #bikes #tools",
   "The spare inner tubes hang on the left hook.",
   `_The pump's spare valves are on ((${whiteboardId}|the kitchen whiteboard))._`,
   "Tyre pressures are on the maker's page: [web::https://example.org/bike-care/tyres] (a Resource: b lists it with the note's links).",
@@ -766,7 +766,7 @@ const RECIPE = [
   "Soften an onion, two carrots and a stick of celery in oil.",
   "Add 250g red lentils, a tin of tomatoes and a litre of stock.",
   "Simmer for twenty minutes, then blend half of it.",
-  "Squeeze in a lemon just before serving.",
+  "Squeeze in a lemon just before serving. #kitchen #soup",
   "",
   "Drag across these lines, or press v and move, to select; y copies.",
 ].join("\n");

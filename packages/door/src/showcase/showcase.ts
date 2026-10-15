@@ -34,6 +34,7 @@ import { BOARD_ACTIONS } from "../desk/lanes";
 import { COLUMN_ACTIONS, RiverColumn } from "../river/column";
 import { ActivityPane, ReaderPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { BacklinksPane } from "../desk/backlinks-pane";
+import { FacetsPane } from "../desk/facets";
 import { TunePane } from "../desk/tune";
 import { MessageReader, SHELL_ACTIONS } from "../screens";
 import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
@@ -888,6 +889,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane(true), term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: with the layer on, a hyper chord still reaches the door from here'; exec sh"], label: "shell" });
       return deskOf({ title: "showcase · hyper", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
+    key: "facets", need: "see the properties the notes have with how often each value is used and when it was last used, and narrow notes by including or excluding values", part: "the facets tile (PIE-881): a tile kind (`facets`, ^W o f; `tags` is the same opened on the tags facet, ^W o #) that asks the service (`blocks.query` with the selection as `where` and `facets=true`, which counts every match and says each value's last update), so the door never counts or narrows: every property is a facet and a tag is one of them; a value is included (+) or excluded (−), ORed within a facet and ANDed across facets; a path value (`plot=x/y/z`, a nested tag) is a tree, and picking x includes x/…; the selection is the views' query text (e edits it, facets.query sets it) and v saves it as a view; sorted by uses, name or last use; the notes the selection leaves are listed under the facets and open as every list's do", files: "src/desk/facets.ts, src/socket.ts (facetList), outline-core src/property-grammar.ts (path values), protocol.ts (QuestionFacet), outliner src/question-answer.ts",
+    aside: "the tags facet is open: ⏎ or a click on #frost-jobs includes it (+), again excludes it (−), again drops it · the query line shows the selection in the views' grammar (`#frost-jobs NOT #compost`): e types one, v saves it as a view on the board hub · ⏎ on a facet (▸) opens its values; path values group as a tree · s or a click on a header word sorts by uses, name or last use · z lists what the selection leaves at 0, dimmed · x clears · ⏎ on a note opens it in the reader beside · the tile is the service's answer: write a #tag or [key::value] in any note and the counts move · agents: facets.set key=tag value=compost mode=exclude, facets.query text=…, facets.save, facets.list",
+    stage(n, show) {
+      const t = new FacetsPane("tags"), r = new ReaderPane();
+      return deskOf({ title: "showcase · tags", panes: [t, r], names: ["tags", "reader"], layout: ([x, y]) => row(0.45, x!, y!) }, show, [[r, n.notebook]], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
 ];

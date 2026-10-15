@@ -18,6 +18,23 @@ are its record. The outliner's entries from then are kept below, under
   (`claude is on the desk · ⏎ or a click brings it back`); that brings the same tile back, no restart (`tile.drawer`
   from its screen too). It holds across a handover.
 
+### A facets tile, and a tags tile on it (PIE-881)
+
+- **Added:** a `facets` tile (`^W o f`, `tile.open kind=facets query=…`) lists the properties the notes have, each opening
+  to its values with how many notes carry them and when one was last updated. A tag is one facet among the rest, and
+  `kind=tags` (`^W o #`) opens the same tile on it. A click on a value includes it, again excludes it, again drops it
+  (`+` `-` `0`; alt-click excludes): included values of one facet are ORed, facets are ANDed, an exclusion is a NOT.
+  Path values (`project=x/y/z`, a nested tag) group as a tree, and picking `x` includes `x/…`. The selection is shown as
+  query text in the views' grammar (`e` edits it) and `v` saves it as a view on the board hub. The notes the selection
+  leaves are listed under the facets and open as every list's do; sorted by uses, name or last use; `z` lists what the
+  selection leaves at 0, dimmed. Kitchen sink: the `facets` section.
+- **Added:** `property=x/*` in a query (a view, a figure, `ep0ch find --query`) matches the value `x` and every path below it,
+  as `#x` already matched `x/…` for tags.
+- **Changed (protocol):** `blocks.query` facets say when each value was last updated (`last`), and a question can ask for more
+  than 50 keys and values (`facetKeys`, `facetValues`, at most 1000), so a client lists a whole outline's facets from the service.
+- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 176: facet values carry `last`, `facetKeys` and `facetValues` are
+  question fields, and `property=x/*` is a query form; both sides must run the same copy).
+
 ### Runbook steps no longer take 1.5 s longer than their command (PIE-893)
 
 - **Fixed:** the runbook's wrapper left a 1.5 s timer pending after every command, so each step ended 1.5 s after its

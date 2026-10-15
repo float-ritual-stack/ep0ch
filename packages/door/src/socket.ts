@@ -435,6 +435,12 @@ export interface SearchHits {
 /** How a search is asked: `semantic` has Jev re-order the candidates; `near` is the note it's asked from. */
 export interface SearchOptions { semantic?: boolean; near?: string }
 
+/** What the service says of a selection's facets (SocketBoard.facetList). */
+export interface FacetAnswer {
+  facets: { key: string; count: number; more: number; values: { value: string; count: number; last: number }[] }[];
+  notes: Msg[]; truncated: boolean; matched: number; hint?: string;
+}
+
 export class SocketBoard implements Board {
   private sock: Socket | null = null;
   private waiting = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: Timer; sock: Socket }>();
@@ -882,6 +888,24 @@ export class SocketBoard implements Board {
   async queryNotes(expression: string, limit = 200): Promise<{ notes: Msg[]; truncated: boolean }> {
     const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string } }>("blocks.query", { query: { where: expression, limit: Math.min(1000, limit) }, ...this.listFields(true) });
     return { notes: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" };
+  }
+
+  /**
+   * The facets of the notes a query narrows to (the facets tile, PIE-881), as the service counts them: `where` is the
+   * selection in the views' grammar (empty: every note), and every property key the matches carry comes back with how
+   * many of them carry it, and each value with how many matches have it and when one was last updated (`blocks.query`
+   * `facets=true`, `facetValues`), with the notes themselves (up to `noteLimit`, none when `noteLimit` is 0). The door
+   * never counts or narrows. `more`: values a key's list left out.
+   */
+  async facetList(where: string, noteLimit = 200): Promise<FacetAnswer> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string; matched?: number }; facets?: { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }[]; hint?: string }>(
+      "blocks.query", { query: { ...(where.trim() ? { where } : {}), facets: true, facetKeys: 1000, facetValues: 1000, limit: Math.max(1, Math.min(1000, noteLimit)) }, ...this.listFields(true) });
+    const notes = noteLimit ? r.blocks.map(b => toMsg(b)) : [];
+    const truncated = r.completeness?.kind === "truncated";
+    return {
+      facets: (r.facets ?? []).map(f => ({ key: f.key, count: f.count, more: f.more ?? 0, values: f.values.map(v => ({ value: v.value, count: v.count, last: Date.parse(v.last) || 0 })) })),
+      notes, truncated, matched: truncated ? r.completeness?.matched ?? notes.length : r.blocks.length, ...(r.hint ? { hint: r.hint } : {}),
+    };
   }
 
   /** `fields` for a list-shaped read. */

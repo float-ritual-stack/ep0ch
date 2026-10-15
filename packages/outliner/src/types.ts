@@ -1499,16 +1499,22 @@ export interface BlockSearchQuery {
   group?: string;
   /** `true`: value counts for every key the matches carry; or these keys. */
   facets?: true | string[];
+  /** Values a facet lists per key: 50 when left out, at most 1000. */
+  facetValues?: number;
+  /** Keys `facets: true` lists: 50 when left out, at most 1000. */
+  facetKeys?: number;
 }
 
 /** A watched read (outline-core `WATCHABLE_ACTIONS`): kept on the connection under `watch`; `generation` is answered from what's kept. */
 export interface WatchFields { watch?: string; generation?: number }
 
 /** A normalized query: its sort an object and its limit set. */
-export type NormalizedBlockSearchQuery = Omit<BlockSearchQuery, "sort" | "limit" | "where" | "this" | "facets"> & {
+export type NormalizedBlockSearchQuery = Omit<BlockSearchQuery, "sort" | "limit" | "where" | "this" | "facets" | "facetValues" | "facetKeys"> & {
   sort?: BlockQuerySort;
   limit: number;
   facets?: true | string[];
+  facetValues?: number;
+  facetKeys?: number;
 };
 
 export type BlockCollectionCompleteness =

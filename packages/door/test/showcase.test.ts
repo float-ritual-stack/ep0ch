@@ -423,6 +423,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     bar: ["outline", "Kitchen whiteboard", "Bike shed"],
     // A reader and a shell for a hyper chord to reach the door from, and the part's line.
     hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
+    // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
+    "facets": ["#frost-jobs", "uses▾", "facets"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -689,6 +691,24 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       await until(() => String((app as any).message).startsWith("testbot (claude-code@float-2) commented on"), "the folder's persona said with its principal", 8000);
     } finally { rmSync(folder, { recursive: true, force: true }); }
   });
+
+  test("the facets section (PIE-881): every property the notes have, a tag among them, opened to its values with uses; a value is included, another excluded, the selection is the views' query text; ⏎ steps a value include → exclude → off; x clears", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "facets" }, as: "test-agent" })).toMatchObject({ key: "facets" });
+    await until(() => /#frost-jobs\/ +3/.test(screen()) && /#bikes +1/.test(screen()), "the tags facet's values", 8000);
+    // An agent includes #frost-jobs and excludes #compost: the notes it leaves are listed, the query is shown as text.
+    await app.act({ action: "facets.set", args: { key: "tag", value: "frost-jobs" }, tile: "tags", as: "test-agent" });
+    await app.act({ action: "facets.set", args: { key: "tag", value: "compost", mode: "exclude" }, tile: "tags", as: "test-agent" });
+    await until(() => screen().includes("? #frost-jobs NOT #compost") && screen().includes("+ #frost-jobs") && screen().includes("− #compost"), "the picks and their query", 5000);
+    expect(screen()).not.toMatch(/#bikes +\d/);
+    // The person goes in: ⏎ on the first row steps it, x clears the selection.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch("x");
+    await until(() => screen().includes("every note") && /#bikes +1/.test(screen()), "the selection cleared", 5000);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+  }, 20_000);
 
   test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws them as written; ) stops on a styled heading and f folds its section", async () => {
     (app as any).lastInput = 0;

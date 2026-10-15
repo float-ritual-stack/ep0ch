@@ -2045,6 +2045,7 @@ rating > 3
   | atom | holds for |
   |---|---|
   | `#tag` | blocks carrying the tag; `#jazz` also matches nested `jazz/hands` |
+  | `key=x/*` | blocks whose property holds `x` or any path below it (`project=house/*` holds `house` and `house/shed`) |
   | `links:[[page]]`, `links:((id))`, `links:PIE-123` | blocks whose text or properties link to the target (the backlink index, so a ticket key counts) |
   | `linkedfrom:[[page]]`, `linkedfrom:((id))` | blocks the target links to (the same occurrences as `links:`, read from the target's side) |
   | `under:[[page]]`, `under:((id))` | blocks in the target's subtree, the target included |
@@ -2126,8 +2127,10 @@ Property filters and catalogs default to `block` scope, so body examples and lin
   order, else numbers, dates, then text); a property's date buckets soonest first, `created`/`updated` newest first.
 - `sort`: `"<property|created|updated|title>[ asc|desc]"` (or `{ field, direction }`); `property:<name>` names a
   property called `created`, `updated` or `title`. `work-stage` sorts in the workboard's order; dates sort as dates however they're written (`Oct 20` before `2026-11-02`).
-- `facets`: `true` (every key the matches carry) or a list of keys: `{ key, count, values: [{ value, count }], more? }`,
-  50 keys and 50 values each at most.
+- `facets`: `true` (every key the matches carry) or a list of keys: `{ key, count, values: [{ value, count, last }], more? }`,
+  `last` the newest update (ISO) among the matches carrying the value. 50 keys at most, and 50 values each unless
+  `facetValues` asks for more (1 to 1000), and 50 keys unless `facetKeys` does: the door's facets tile lists a whole outline's
+  properties and tags with them, PIE-881.
 - `hint`: when a key the question names (a clause, the group, the sort, a facet) is carried by no block in the
   outline: `no notes have <key>; nearest: <keys>`. A known key with no matches is just an empty answer.
 - **Watched:** `blocks.query`, `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` take `watch: <key>`.

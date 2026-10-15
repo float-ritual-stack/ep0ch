@@ -196,12 +196,18 @@ export function isLinkValue(value: string): boolean {
 }
 
 /**
- * Whether a property's `value` satisfies a filter's `wanted`: the same, caselessly, or, when `wanted` is one link
+ * Whether a property's `value` satisfies a filter's `wanted`: the same, caselessly, a path below it when `wanted` ends in
+ * `/*` (`project=x/*` holds `x` and `x/y`), or, when `wanted` is one link
  * (`related=[[PC-967]]`), a list of values that holds that link as an item. Anything else compares whole.
  */
 export function propertyValueHolds(value: string, wanted: string): boolean {
   const lower = wanted.trim().toLowerCase();
   if (value.trim().toLowerCase() === lower) return true;
+  // A path (`project=x/y/*`, PIE-881): the value is that path or any below it, as `#jazz` holds `jazz/hands`.
+  if (lower.endsWith("/*") && lower.length > 2) {
+    const path = lower.slice(0, -2), mine = value.trim().toLowerCase();
+    return mine === path || mine.startsWith(`${path}/`);
+  }
   return isLinkValue(wanted) && splitPropertyValue(value).some(item => item.toLowerCase() === lower);
 }
 
