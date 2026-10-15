@@ -29,6 +29,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ### The door's tree shows a virtual branch's matches (PIE-882)
 
+PROTOCOL 170: `views.read` answers `childDepth` (an older host leaves the tree's matches without a depth).
+
 - **Added:** open a note with `[type::virtual-branch]` in the outline tree and it shows its physical children, then
   what its query matches (`◇`, the count in its tag, the view's limit with a `more` row for the next page). Each match
   can be opened (`l`, a click) to its children as far as the view's `[child-depth::]`; `D` (or a click or `⏎` on the results line) steps how
