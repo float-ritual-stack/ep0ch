@@ -351,7 +351,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       if (!nonEmpty(input.ref) || typeof input.revision !== "number") return "Give the ref and the revision you read.";
       if (!Array.isArray(input.patches) || input.patches.length === 0) return "Give at least one patch: {observed, replacement}.";
       for (const patch of input.patches as { observed?: unknown; replacement?: unknown }[]) {
-        if (!patch || !nonEmpty(patch.observed) || typeof patch.replacement !== "string") return "Each patch needs observed (the exact text you read, never empty) and replacement.";
+        if (!patch || (typeof patch.observed !== "string" || patch.observed.length === 0) || typeof patch.replacement !== "string") return "Each patch needs observed (the exact text you read, never empty) and replacement.";
       }
       if (input.policy !== undefined && input.policy !== "edit" && input.policy !== "prose") return "policy is edit (the default) or prose.";
       return { operation: "patch", input: { policy: "edit", ...inputOf(input, ["ref", "revision", "patches", "mark", "policy", "allowStructural"]) } };

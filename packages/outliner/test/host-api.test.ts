@@ -115,3 +115,13 @@ test("step delivery is deferred and unknown calls still report their refusal", a
   await expect(api.call("outline_nope")).rejects.toThrow("No tool outline_nope");
   expect(observed.slice(-2).map(s => [s.tool, s.phase])).toEqual([["outline_nope", "start"], ["outline_nope", "refused"]]);
 });
+
+
+test("a script can patch whitespace source spans but cannot patch an empty span", async () => {
+  const { store, client } = await setup();
+  const api = hostApi(client, { actorId: "garden-script" });
+  const made = await api.call("outline_create", { parent: "root", text: "Seed spacing\n\nKeep the labels." }) as { id: string; revision: number };
+  await expect(api.call("outline_patch", { ref: made.id, revision: made.revision, patches: [{ observed: "", replacement: "lost" }] })).rejects.toThrow("never empty");
+  await api.call("outline_patch", { ref: made.id, revision: made.revision, patches: [{ observed: "\n\n", replacement: "\n" }] });
+  expect(store.get(made.id)!.text).toBe("Seed spacing\nKeep the labels.");
+});
