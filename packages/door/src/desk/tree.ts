@@ -63,6 +63,7 @@ export class TreePane implements Pane {
   private timer: Timer | null = null;
   private reload: Timer | null = null;
   title() { return "outline"; }
+  subject() { const r = this.rows[this.sel]; return r?.kind === "block" ? r.m.id : null; }
   hint() {
     const r = this.rows[this.sel];
     if (r && r.kind !== "block") return r.kind === "resource" ? "⏎ show the resource · h back" : r.kind === "group" || r.kind === "kind" ? "⏎ space fold · h back" : "⏎ open · l its links · h back";

@@ -49,6 +49,7 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
+import { lastTrashed } from "../note-trash";
 import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -3363,6 +3364,9 @@ export class NoteSurface {
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
       const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)]] as const)
         .reduce<{ name: "callout.undo" | "image.undo" | "task.undo" | "ext.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
+      const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
+      if (trashedAt !== undefined && trashedAt > last.seq) return false;
       void this.runKey(last.name, {}, host, true);
       return true;
     }

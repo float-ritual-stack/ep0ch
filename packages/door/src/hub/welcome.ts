@@ -169,6 +169,7 @@ export class WelcomeList implements Pane {
   /** The place of the welcome note the detail shows, or -1 (another note, alt+⏎'s, or nothing). */
   get at(): number { const id = this.detail?.msg?.id; return id ? (this.items ?? []).findIndex(m => m.id === id) : -1; }
 
+  subject() { return this.items?.[this.at]?.id ?? null; }
   title() {
     const items = this.items;
     return !items ? "asking the outline…" : items.length ? `${items.length} note${items.length === 1 ? "" : "s"}` : "none tagged yet";

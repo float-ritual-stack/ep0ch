@@ -28,6 +28,7 @@ import { Modes } from "../surface/modes";
 import { ListPicker, pickRow } from "../surface/picker";
 import { changedSinceRead, Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
+import { trashAtRevision } from "../note-trash";
 import { findBoards, hubViews, laneDefs, laneTileName, QueryPane } from "./query";
 import type { TileSpec } from "./tiles";
 import { ReaderPane, type Pane } from "./panes";
@@ -1168,24 +1169,13 @@ export class Lanes implements SourceModel {
     if (card.revision !== undefined && fresh.revision !== card.revision)
       throw new ActionRefused(`the card changed since the board showed it (revision ${card.revision} -> ${fresh.revision}) · look again before trashing`);
     const lane = this.lanes.find(l => l.items?.some(m => m.id === card.id))?.name ?? "";
-    let lost = "";
-    try { await this.host.ctx.board.trash(card.id, undefined, { revision: fresh.revision }); }
-    catch (e) {
-      const why = e instanceof Error ? e.message : String(e);
-      if (changedSinceRead(e)) throw new ActionRefused("the card changed just now (another client saved it) · look again before trashing");
-      if (e instanceof Refused) throw new ActionRefused(why);
-      // The answer was lost, not refused: the card may be in Trash anyway. Look before saying either.
-      const gone = await this.host.ctx.board.isTrashed(card.id);
-      if (gone === false) throw new ActionRefused(`${why}; the card is still there`);
-      if (gone === null) throw new ActionRefused(`${why}, and the outline didn't say whether the card is in Trash; look before trying again`);
-      lost = ` (the outline's answer was lost: ${why}; it is in Trash)`;
-    }
+    const { lost } = await trashAtRevision(this.host.ctx.board, card.id, fresh.revision, actor, "card");
     const by = byOf(actor);
     this.trashed = { id: card.id, title: titleOf(card), lane, children: fresh.childIds.length, ...by };
     this.lastWrite = { what: "trash", id: card.id, result: `trashed from ${lane}`, ...by };
     asActor(this.host.ctx, actor).flash(`trashed "${titleOf(card)}"${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it${lost}`);
     this.host.redraw();
-    return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: "not recorded: the service's delete takes no author" };
+    return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: actor.kind === "agent" ? `agent ${actor.id}` : "the person" };
   }
 
   /** `u`: bring back the card trashed last (or `id`), where it was. */

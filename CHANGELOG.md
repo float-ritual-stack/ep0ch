@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Trash a note from wherever you see it (PIE-878)
+
+- **Added:** `d` in a reader, a links list, the tree or a query tile (Delete too) says what would go, the note and the
+  notes under it, in a two-row choice. `d` again, ⏎ or a click on the first row trashes them; esc keeps them. ctrl+z
+  (when the tile has nothing of its own to undo) or the tile menu's "bring back the note trashed last" puts them back
+  where they were. The tile menu has the same "trash this note" row. An agent passes `confirm=<the note's id>`
+  (`act note.trash`, `act note.untrash`), recorded as the agent. The Inbox and the other system notes, the workspace
+  root, a note already in the Trash and a note with a draft open on it are refused, and the refusal says why.
+- **Changed:** the board's `d d` on a card is recorded as who trashed it (the service's delete takes an author).
+- Try it: `ep0ch --showcase`, the `trash` section.
+
 ### A size lock can't squeeze the screen (PIE-869)
 
 - **Fixed:** `⏎` on a container's "fixed size" in `^W P` took 10 cells when none of its tiles was on screen (another tile

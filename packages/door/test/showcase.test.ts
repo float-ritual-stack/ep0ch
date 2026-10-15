@@ -345,6 +345,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
     "links-open": ["Bike shed", "links · Bike shed", "preview"],
+    // The compost heap in a detail, the two notes under it listed in its links tile: what d d trashes.
+    trash: ["Compost heap", "links · Compost heap", "Turning log"],
     // The outline, the shed held in a detail with its own ::links, a preview of the detail's selection.
     "lists-open": ["Bike shed", "detail", "preview · detail", "[ LINKS ]"],
     // The frost note in a detail, its #tags drawn as links.
@@ -1355,6 +1357,36 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     while ((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.length) { if (Date.now() > gone) throw new Error("timed out waiting for ctrl+z to undo the quote"); await Bun.sleep(50); }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 45_000);
+
+  test("trash (PIE-878): d says what would go, d again trashes the heap and its notes under it, ctrl+z brings them back; the links list's row alone; an agent says confirm=", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "trash" }, as: "test-agent" })).toMatchObject({ key: "trash" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "trash")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const heap = seeded.notes.heap, deleted = async (id: string) => !!(await board.get(id))?.deleted;
+    await until(() => tiles().find(t => t.name === "detail")?.showing?.id === heap.id && (tiles().find(t => t.name === "links")?.backlinks?.rows ?? []).filter((r: any) => r.id).length >= 2, "the heap and the notes under it", 8000);
+    // The person: into the stage, d shows what goes, d trashes it, ctrl+z brings it back.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch("d");
+    await until(() => screen().includes("trash “Compost heap”?") && screen().includes("trash it and the 2 notes under it"), "the choice, with the notes under it");
+    ch("d");
+    await until(() => String((app as any).message).includes("trashed “Compost heap” and the 2 notes under it"), "trashed, said");
+    expect(await deleted(heap.id)).toBe(true);
+    press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => String((app as any).message).includes("brought back “Compost heap”"), "brought back, said");
+    expect(await deleted(heap.id)).toBe(false);
+    // An agent names the list's row (a note under the heap) and says it twice; its undo is its own.
+    const rows = tiles().find(t => t.name === "links").backlinks.rows as { id?: string }[];
+    const lid = (await board.children(heap.id)).find(m => m.text.startsWith("Lid"))!;
+    expect(rows.some(r => r.id === lid.id)).toBe(true);
+    await expect(app.act({ action: "note.trash", tile: "links", args: { ref: lid.id }, as: "test-agent" })).rejects.toThrow("confirm=");
+    expect(await app.act({ action: "note.trash", tile: "links", args: { ref: lid.id, confirm: lid.id }, as: "test-agent" })).toMatchObject({ trashed: lid.id, recordedAs: "agent test-agent" });
+    expect(await deleted(lid.id)).toBe(true);
+    expect(await app.act({ action: "note.untrash", tile: "links", as: "test-agent" })).toMatchObject({ restored: lid.id });
+    expect(await deleted(lid.id)).toBe(false);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
 
   test("links-open (PIE-646): a detail, its links tile and a preview: the preview follows the pick, ⏎ opens it in the detail, alt+⏎ in a new detail", async () => {
     (app as any).lastInput = 0;
