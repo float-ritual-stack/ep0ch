@@ -10,8 +10,8 @@
 
 export type TableAlign = "l" | "c" | "r";
 
-/** One cell: `text` as written (`\|` is `|`), `start`..`end` its trimmed content in the line (empty: where typing begins). */
-export interface TableCell { text: string; start: number; end: number }
+/** One cell: `text` as written (`\|` is `|`), `start`..`end` its trimmed content in the line (empty: where typing begins); `paddingEnd` is the following delimiter. */
+export interface TableCell { text: string; start: number; end: number; paddingEnd: number }
 
 /** A row's line, taken apart: what sits before the first pipe, the segments between pipes (padding kept), and what follows. */
 export interface RowParts { indent: string; lead: boolean; segs: string[]; trail: boolean; tail: string }
@@ -56,7 +56,8 @@ export function joinRow(p: RowParts): string {
 }
 
 /** `\|` and `\\` read as the character they escape, as the reader does. */
-export const decodeCell = (raw: string): string => raw.replace(/\\(.)/g, "$1");
+export const cellEscapes = /\\[\s\S]/gu;
+export const decodeCell = (raw: string): string => raw.replace(cellEscapes, escape => escape.slice(1));
 /** A value as a cell writes it: `|` and `\` escaped, a line break a space. */
 export const encodeCell = (value: string): string => value.replace(/\r?\n/g, " ").replace(/[\\|]/g, "\\$&");
 
@@ -69,7 +70,7 @@ export function tableCells(line: string): TableCell[] {
     const lead = seg.length - seg.trimStart().length, body = seg.trim();
     // An empty cell: typing begins after one space of padding when there is one, else at the pipe.
     const start = body ? at + lead : at + Math.min(1, seg.length), end = body ? start + body.length : start;
-    out.push({ text: decodeCell(body), start, end });
+    out.push({ text: decodeCell(body), start, end, paddingEnd: at + seg.length });
     at += seg.length + 1;
   }
   return out;

@@ -704,7 +704,8 @@ The door-side adapter contract is exported by `src/surface/element-editor.ts`:
 
 - Register `{ id, read(lines): EditableElement[] }` with `registerElementEditor`; its return value unregisters it.
 - Return each element's half-open source-line range and its rows of fields. Each field gives its source line,
-  half-open UTF-16 offsets, value, and optionally its own encoder. The component supplies a default encoder.
+  half-open UTF-16 offsets, value, and optionally its own encoder/decoder and escape pattern. A field with
+  trailing padding gives `paddingEnd` so typing spaces stays in that field. The component supplies a default encoder.
 - `draw(values, width)` calls the component's renderer and reports the field rectangles it drew.
   `drawTableFields` is the shared table renderer adapter.
 - `change(op, row, col, to)` returns replacement lines for this element, or null for an unavailable operation.

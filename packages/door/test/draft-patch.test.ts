@@ -320,6 +320,44 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(e.id))!.text).toContain("Radish");
   });
 
+  test("rich tables: reordered YAML keeps headers and the selected row aligned", async () => {
+    const e = await editing('Inventory\n::graph-table\n---\nrows:\n  - ["Beans", "2"]\n  - ["Peas", "3"]\nheaders: ["Crop", "Count"]\n---\n::\n');
+    const { elementEdit } = await import("../src/surface/element-editor");
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    expect(elementEdit(e.d).current()?.field.value).toBe("Crop");
+    e.s.key({ kind: "down" }, e.h);
+    e.s.key({ kind: "alt", ch: "d" }, e.h);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    const saved = (await board.get(e.id))!.text;
+    expect(saved).toContain('Peas');
+    expect(saved).not.toContain("Beans");
+  });
+
+  test("rich tables: typing words at a cell's end stays in rich edit and saves", async () => {
+    const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n| Beans | 2 |\n");
+    const { elementEdit } = await import("../src/surface/element-editor");
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    e.s.key({ kind: "down" }, e.h);
+    e.s.key({ kind: "end" }, e.h);
+    e.type(" green beans");
+    expect(elementEdit(e.d).on).toBe(true);
+    expect(elementEdit(e.d).current()?.field.value).toBe("Beans green beans");
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    expect((await board.get(e.id))!.text).toContain("| Beans green beans | 2 |");
+  });
+
+  test("rich tables: backspace removes one literal apostrophe", async () => {
+    const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n| O''Brien | 2 |\n");
+    const { elementEdit } = await import("../src/surface/element-editor");
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    e.s.key({ kind: "down" }, e.h);
+    const field = elementEdit(e.d).current()!.field;
+    await NOTE_ACTIONS.run("draft.place", { line: field.line + 1, col: field.start + 4 }, { surface: e.s, host: e.h }, USER);
+    e.s.key({ kind: "backspace" }, e.h);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    expect((await board.get(e.id))!.text).toContain("| O'Brien | 2 |");
+  });
+
   test("a component adapter edits and saves through the reader's draft", async () => {
     const { registerElementEditor } = await import("../src/surface/element-editor");
     const { componentBlocks } = await import("@ep0ch/outline-core/component-block");

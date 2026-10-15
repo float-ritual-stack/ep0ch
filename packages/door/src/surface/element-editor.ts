@@ -9,8 +9,9 @@ import { C, fg, RESET, pad, width } from "../style";
 import { SELECT_BG } from "./selection";
 import { type Actor } from "../socket";
 import type { Key } from "../term";
+import { lastTop, scrolled, follow } from "../scroll";
 
-export interface ElementField { line: number; start: number; end: number; value: string; encode?: (value: string) => string; decode?: (source: string) => string }
+export interface ElementField { line: number; start: number; end: number; paddingEnd?: number; escapes?: RegExp; value: string; encode?: (value: string) => string; decode?: (source: string) => string }
 export type ElementOperation = "row.add" | "row.remove" | "column.add" | "column.remove" | "row.move" | "column.move";
 export interface EditableElement {
   start: number; end: number;
@@ -40,7 +41,7 @@ export function registerElementEditor(editor: ElementEditor): () => void {
   editors.set(editor.id, editor);
   return () => { if (editors.get(editor.id) === editor) editors.delete(editor.id); };
 }
-const fieldsOf = (lines: readonly string[], start: number) => lines.flatMap((l, i) => i === 1 ? [] : [T.tableCells(l).map(c => ({ ...c, value: c.text, line: start + i }))]);
+const fieldsOf = (lines: readonly string[], start: number) => lines.flatMap((l, i) => i === 1 ? [] : [T.tableCells(l).map(c => ({ ...c, value: c.text, line: start + i, escapes: T.cellEscapes }))]);
 function changeRows(rows: string[], op: ElementOperation, row: number, col: number, to?: number): string[] | null {
   const r = row ? row + 1 : 0;
   const result = op === "row.add" ? T.insertRow(rows, r + 1)
@@ -93,6 +94,7 @@ function graphWrite(lines: readonly string[], values: string[][]): string[] {
 }
 function graphFields(lines: readonly string[], start: number): ElementField[][] {
   const out: ElementField[][] = [];
+  let headers: ElementField[] = [];
   let rows = false;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]!;
@@ -111,12 +113,12 @@ function graphFields(lines: readonly string[], start: number): ElementField[][] 
       try { value = Bun.YAML.parse(raw); } catch { return []; }
       if (value !== null && typeof value === "object") return [];
       fields.push({ line: start + i, start: offset + (quoted ? 1 : 0), end: offset + raw.length - (quoted ? 1 : 0),
-        value: String(value ?? ""), ...(raw.startsWith("'") ? { encode: (s: string) => s.replace(/'/g, "''"), decode: (s: string) => s.replace(/''/g, "'") }
+        value: String(value ?? ""), ...(quoted ? { escapes: raw.startsWith("'") ? /''/g : /\\(?:u[0-9a-fA-F]{4}|[\s\S])/gu } : {}), ...(raw.startsWith("'") ? { encode: (s: string) => s.replace(/'/g, "''"), decode: (s: string) => s.replace(/''/g, "'") }
           : !quoted ? { encode: (s: string) => JSON.stringify(s) } : {}) });
     }
-    out.push(fields);
+    if (l.startsWith("headers:")) headers = fields; else out.push(fields);
   }
-  return out;
+  return [headers, ...out];
 }
 registerElementEditor({
   id: "graph-table",
@@ -146,14 +148,22 @@ export class ElementEdit {
   private total = 0;
   private room = 1;
   scroll(by: number) {
-    this.top = Math.max(0, Math.min(Math.max(0, this.total - this.room), this.top + by));
+    this.top = scrolled(this.top, by, lastTop(this.total, this.room));
     this.draft.follow = false;
   }
   private painted: { patch: string | undefined; cursor: number } | null = null;
   private spots: (TableCellBox & { field: ElementField; caret?: number })[] = [];
   private controls: { from: number; to: number; action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place"; op?: string }[] = [];
   constructor(readonly draft: Draft) {}
-  elements() { return [...editors.values()].flatMap(e => e.read(this.draft.lines)).sort((a, b) => a.start - b.start); }
+  elements() {
+    const d = this.draft;
+    const elements = [...editors.values()].flatMap(e => e.read(d.lines)).sort((a, b) => a.start - b.start);
+    // A typed trailing space is content at the caret, even while the table grammar trims it as padding.
+    for (const e of elements) for (const row of e.fields) for (const f of row) {
+      if (f.line === d.row && d.col > f.end && d.col <= (f.paddingEnd ?? f.end)) f.end = d.col;
+    }
+    return elements;
+  }
   current() {
     const d = this.draft;
     for (const element of this.elements()) for (let row = 0; row < element.fields.length; row++) for (let col = 0; col < element.fields[row]!.length; col++) {
@@ -191,7 +201,8 @@ export class ElementEdit {
   }
   private atom(field: ElementField, at: number) {
     const source = this.draft.lines[field.line]!.slice(field.start, field.end);
-    for (const m of source.matchAll(/\\(?:u[0-9a-fA-F]{4}|[\s\S])|''|[\s\S]/gu)) {
+    if (!field.escapes) return null;
+    for (const m of source.matchAll(field.escapes)) {
       const start = field.start + m.index!, end = start + m[0].length;
       if (start <= at && at < end) return { start, end };
     }
@@ -311,10 +322,7 @@ export class ElementEdit {
     if (this.painted && this.painted.patch !== d.patches.at(-1)?.patchId && cur) this.top = Math.max(0, this.top + cursor - this.painted.cursor);
     this.painted = { patch: d.patches.at(-1)?.patchId, cursor };
     this.total = body.length; this.room = room;
-    if (d.follow) {
-      if (cursor < this.top) this.top = cursor;
-      if (cursor >= this.top + room) this.top = cursor - room + 1;
-    }
+    if (d.follow) this.top = follow(cursor, this.top, room);
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
     d.frame = null;
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
