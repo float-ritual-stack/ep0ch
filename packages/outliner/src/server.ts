@@ -449,8 +449,8 @@ export class OutlinerServer {
       },
       // An `@name` request answered with a proposal says what became of it.
       proposalSettled: (proposalId, status, by) => this.agentRequests.proposalSettled(proposalId, status, by),
-      // An agent's patch put an `@name` line in a draft: held for a person's `r`, never refused.
-      heldInDraft: (blockId, text, by) => this.agentRequests.holdWritten(blockId, text, by, new Set(this.store.agentRequestBaseline(blockId) ?? [])),
+      // An agent's patch is about to put an `@name` line in a draft: held for a person's `r`, never refused.
+      heldInDraft: (blockId, patches, by) => this.agentRequests.holdPatched(blockId, patches, by),
       // An extension's write group held as a proposal, applied anyway: checked and written by its writes' owner.
       groups: (group, by) => this.extensionCalls.writes.forProposal(group, by),
     });

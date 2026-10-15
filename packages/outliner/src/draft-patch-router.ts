@@ -84,10 +84,10 @@ export interface DraftPatchRouterDeps {
   /** Reads for the `edit` policy's guard (backlinks, block text), in process. */
   client: WorkToolsClient;
   /**
-   * An agent's patch landed in a door's draft: the `@name` lines that draft now holds, which the saved note never had, are
-   * held for a person's `r` (PIE-888), so the person's later save doesn't send them.
+   * An agent's patch is about to go into a door's draft: the `@name` lines its spans add are held for a person's `r`
+   * (PIE-888) before it lands, so the person's later save or typing doesn't send them.
    */
-  heldInDraft?(blockId: string, draftText: string, by: MutationProvenance): void;
+  heldInDraft?(blockId: string, patches: readonly DraftPatchSpan[], by: MutationProvenance): void;
   /** A proposal was applied or dismissed: whatever answered with it (an `@name` request) says so now. */
   proposalSettled?(proposalId: string, status: Exclude<DraftProposalStatus, "open">, by: MutationProvenance): void;
   /**
@@ -619,6 +619,7 @@ export class DraftPatchRouter {
       if (!hold) continue;
       const patchId = crypto.randomUUID();
       let answer: DraftHolderAnswer;
+      if (options.mutation.author === "agent") this.deps.heldInDraft?.(edit.blockId, edit.patches, options.mutation);
       try {
         answer = await this.deps.ask(hold, {
           kind: "patch", patchId, revision: options.force || options.current ? hold.revision : edit.revision, patches: edit.patches,
@@ -639,10 +640,7 @@ export class DraftPatchRouter {
       }
       patched.push({ hold, patchId });
       applied.push({ blockId: edit.blockId, route: "draft", holder: hold.clientId });
-      if (options.mutation.author === "agent" && this.deps.heldInDraft) {
-        const held = this.deps.heldInDraft;
-        await this.deps.ask(hold, { kind: "read" }).then(read => { if ("text" in read && typeof read.text === "string") held(edit.blockId, read.text, options.mutation); }).catch(() => undefined);
-      }
+
     }
     const saved = plan.filter(part => !part.hold);
     try {

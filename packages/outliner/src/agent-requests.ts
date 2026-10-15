@@ -331,6 +331,20 @@ export class AgentRequests {
   }
 
   /**
+   * An agent's patch of the note's draft is about to land: the request lines its spans add (in a replacement, not in the
+   * text it replaces) are kept as held now, before the patch, so nothing the person does with the draft sends them. A
+   * line the patch doesn't end up writing has no line to ask and is withdrawn with the next save.
+   */
+  holdPatched(blockId: string, patches: readonly DraftPatchSpan[], actor: MutationProvenance): void {
+    const added = patches.flatMap((patch) => {
+      const had = new Set(requestLines(patch.observed, null).map((line) => line.requestKey));
+      return requestLines(patch.replacement, null).filter((line) => !had.has(line.requestKey));
+    });
+    if (!added.length) return;
+    this.holdWritten(blockId, added.map((line) => line.text).join("\n"), actor, new Set(this.store.agentRequestBaseline(blockId) ?? []));
+  }
+
+  /**
    * Rows and waiting timers of request lines a block no longer has go (rows of names no extension answers now
    * stay: the folder may be coming back). Whether anything was known about the block's requests.
    */
