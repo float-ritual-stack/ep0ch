@@ -429,7 +429,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
     "facets": ["#frost-jobs", "uses▾", "facets"],
     "rich-edit": ["Seed inventory", "Beans", "Packets"],
-    scripts: ["Seed report", "Run seed-report"],
+    scripts: ["Seed report", "Press alt+S"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -3544,6 +3544,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(reader.surface.draft).toBe(draft);
     expect(reader.surface.msg!.id).toBe(seeded.notes.scriptTarget.id);
     expect(draft.text).toContain("Still planting.");
+    await app.dispatch.act({ action: "open", tile: "source", args: { id: seeded.notes.scripts.id } }, USER);
     for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 

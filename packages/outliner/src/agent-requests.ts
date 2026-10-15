@@ -99,7 +99,7 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
 }
 
 export interface AgentRequestDeps {
-  script?(request: ExtensionActRequest): Promise<ExtensionActResult>;
+  script?(request: ExtensionActRequest): Promise<ExtensionActResult & { error?: string }>;
   /** The note as the person sees it: its live draft when a door holds one (`drafts.read`). */
   readDraft(blockId: string): Promise<{ text: string; revision: number; holder?: string }>;
   /** `draft.patch`, routed to the live draft or the saved note. */
@@ -629,7 +629,8 @@ export class AgentRequests {
         const result = await this.deps.script!({ extension: extension.id, action: "run", blockId, clientId: draft.holder, background: true,
           args: req.args as Record<string, string>,
           requestedBy: by.startsWith("agent:") ? { author: "agent", actorId: by.slice(6) } : { author: "user" } });
-        answer = { status: "replied", message: result.message ?? "Script started", reply: result.written.map(id => `((${id}|Script run))`).join("\n") };
+        const reply = result.written.map(id => `((${id}|Script run))`).join("\n");
+        answer = { status: result.error !== undefined ? "failed" : "replied", message: `${result.error ?? "Script finished"} · ${reply}`, reply };
         return;
       }
       const context = this.store.blockContext(blockId);

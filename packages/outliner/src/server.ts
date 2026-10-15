@@ -505,8 +505,8 @@ export class OutlinerServer {
     this.agentRequests = new AgentRequests(store, this.extensionRegistry, extensionRuntime, {
       script: async request => {
         const result = await this.extensionCalls.act(request);
-        await this.scriptRuns.finished(result.undo!);
-        return result;
+        const error = await this.scriptRuns.finished(result.undo!);
+        return { ...result, ...(error !== undefined ? { error } : {}) };
       },
       readDraft: (blockId) => this.draftPatches.read(blockId),
       patch: (input) => this.draftPatches.patch(input),

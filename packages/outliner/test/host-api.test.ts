@@ -240,3 +240,18 @@ test("a granted script ask keeps the invocation chain while its writes arrive", 
   expect(store.agentRequests(followup.id)[0]?.status).toBe("waiting");
   expect(store.agentRequests(followup.id)[0]?.message).toContain("already in this chain");
 }, 10_000);
+
+test.each([
+  ["js", "throw new Error('No seed tray');", "No seed tray"],
+  ["actions", 'open id="{note}"', "note"],
+  ["js", "throw new Error('');", ""],
+])("a failed inline %s script says failed on its ask: %s", async (format, code, message) => {
+  const { client, store } = await setup();
+  store.create(`Broken seeds [script::broken-seeds]\n\`\`\`${format}\n${code}\n\`\`\``, null, "user");
+  await client.request({ action: "extensions.list", reload: true });
+  const ask = await client.request<{ id: string }>({ action: "create", text: "Plan\n@broken-seeds", author: "user" });
+  const deadline = Date.now() + 4000;
+  while (!["failed", "replied"].includes(store.agentRequests(ask.id)[0]?.status ?? "") && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.agentRequests(ask.id)[0]?.status).toBe("failed");
+  expect(store.agentRequests(ask.id)[0]?.message).toContain(message);
+}, 10_000);
