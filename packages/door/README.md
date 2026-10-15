@@ -1323,7 +1323,7 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   most urgent first; `⏎` or a click goes to that terminal, `x` marks it seen. Being back in a tile (a key, a click)
   is seeing it: its done goes. After the programs the list shows the **requests held for your `r`** (`‖` in the count): an
   `@name` line an agent or an extension wrote that no grant lets wake its agent, with the note, the agent and why
-  (`ext:requests may not wake @kitty`); `⏎` or a click opens the note, `r` sends it (`held.open`, `held.send`; an agent
+  (`ext:requests may not wake @kitty`); `⏎` or a click opens the note, `r` or a click on its `[r send]` sends it (`held.open`, `held.send`; an agent
   can open one, never send it). Claude Code reports through the ep0ch mod (a permission dialog, a question, done at its
   answer), and so do `ep0ch install --apply`, `ep0ch backup run`, `scripts/box-test` and `scripts/agent-env --test`;
   without reports, the chip still guesses from the program's output, as before. The door reports its own to the

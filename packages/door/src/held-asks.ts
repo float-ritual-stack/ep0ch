@@ -2,8 +2,7 @@
 // wake its agent. The service keeps them (`agents.held`: the note, the agent, why it waits); this is the door's copy,
 // read once and again after the outline changes (a burst is one read), which the status bar counts and the
 // waiting-on-you list shows beside the terminals' programs. The door never decides what is held.
-import type { HeldAsk, SocketBoard } from "./socket";
-import type { OutlineEvent } from "./socket";
+import type { HeldAsk, OutlineEvent, SocketBoard } from "./socket";
 
 export class HeldAsks {
   private rows: HeldAsk[] = [];
@@ -31,11 +30,14 @@ export class HeldAsks {
     this.timer = setTimeout(() => { this.timer = null; void this.read(); }, this.quietMs);
   }
 
+  private asked = 0;
   private async read(): Promise<void> {
     const board = this.board;
     if (!board) return;
+    // Reads can overlap: only the latest asked is taken, so a slow old answer never puts back what has gone.
+    const n = ++this.asked;
     const next = await board.heldAsks().catch(() => null);
-    if (!next || JSON.stringify(next) === JSON.stringify(this.rows)) return;
+    if (!next || n !== this.asked || JSON.stringify(next) === JSON.stringify(this.rows)) return;
     this.rows = next;
     for (const f of this.listeners) f();
   }

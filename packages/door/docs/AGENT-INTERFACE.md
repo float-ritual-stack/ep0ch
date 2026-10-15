@@ -325,8 +325,8 @@ the feature query (`OSC 7501 ; ?`) and its terminfo has `Pst`.
 | `changes.seen` | | `x` | the person's only: marks the list seen and keeps the position |
 | `status.pick` | `n` or `tile` | `j` `k`, the wheel, in the list | refused while the person is typing there |
 | `status.go` | `n` or `tile` | `⏎`, a click on a row | the person's only: it takes their keys to that terminal (an agent answers a program with `tile.type`) |
-| `held.open` | `n` (among the held requests, as `peek`'s rows with `kind: held` number them) or `id` | `⏎`, a click on a held row | opens the note a request held for a person's `r` is in (an `@name` line an agent or an extension wrote that no grant lets wake its agent; the service lists them, `agents.held`); sends nothing |
-| `held.send` | `n` or `id` | `r` | sends a held request: its agent is asked now, as the person who pressed it (the line's own `r`). The person's only: an agent's is refused |
+| `held.open` | `n` (its row in the list, as `peek` numbers it: the terminals first, then the rows with `kind: held`) or `id`; left out, the selected row | `⏎`, a click on a held row | opens the note a request held for a person's `r` is in (an `@name` line an agent or an extension wrote that no grant lets wake its agent; the service lists them, `agents.held`); sends nothing |
+| `held.send` | `n` or `id` | `r`, a click on a held row's `[r send]` | sends a held request: its agent is asked now, as the person who pressed it (the line's own `r`). The person's only: an agent's is refused |
 | `status.seen` | `n` or `tile` | `x` | the person's only: seen is theirs, so an agent never clears a done they haven't seen (nor does `peek` or `subscribe`). Its done and failed records go; blocked ones stay until the program says otherwise |
 
 ## What an agent may do to each tile (PIE-639)

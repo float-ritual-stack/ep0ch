@@ -388,7 +388,7 @@ export class AgentRequests {
       const block = this.store.get(row.blockId);
       if (!block || block.effectiveDeletedRootId) return [];
       const at = this.lines(block).find((candidate) => candidate.requestKey === row.requestKey)?.line ?? -1;
-      return [{ blockId: row.blockId, line: at, title: blockDisplayTitle(block).slice(0, 120), agent: row.agent, extensionId: row.extensionId, request: row.request, why: row.message ?? "", by: row.requestedBy, at: row.requestedAt }];
+      return [{ blockId: row.blockId, line: at, title: blockDisplayTitle(block).slice(0, 120), agent: row.agent, extensionId: row.extensionId, request: row.request, why: (row.message ?? "").replace(/^held: /, ""), by: row.requestedBy, at: row.requestedAt }];
     });
   }
 

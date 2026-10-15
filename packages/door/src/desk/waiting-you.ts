@@ -16,6 +16,7 @@ import { ago } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { HeldAsk } from "../socket";
+import type { HeldAsks } from "../held-asks";
 import type { KindHost, TileKind } from "./tile-kinds";
 import { RowView } from "../scroll";
 import { onStatusChange, recordFacts, recordText, statusMark, waitingOnYou, type WaitingRow } from "./program-status";
@@ -27,12 +28,16 @@ export function rowFacts(r: WaitingRow, n: number): Record<string, unknown> {
   return { n, tile: r.tile, name: r.name, ...recordFacts(r.record), since: new Date(r.at).toISOString() };
 }
 
-/** A held request as `peek` and the actions give it: its place in the list, its place among the held, where it is and why. */
-export function heldFacts(a: HeldAsk, n: number, held: number): Record<string, unknown> {
-  return { n, held, kind: "held", block: a.blockId, line: a.line, agent: a.agent, title: a.title, request: a.request, why: a.why, by: a.by, since: a.at };
+/** A held request as `peek` and the actions give it: its place in the list (the `n` every action takes), where it is and why. */
+export function heldFacts(a: HeldAsk, n: number): Record<string, unknown> {
+  return { n, kind: "held", block: a.blockId, line: a.line, agent: a.agent, title: a.title, request: a.request, why: a.why, by: a.by, since: a.at };
 }
 
+/** A held row's send, at its right end: a click on it is `r`. */
+const SEND = " [r send]";
+
 export class WaitingYouPane implements Pane {
+  private width = 0;
   readonly kind = WAITING_YOU_KIND_NAME;
   /** The row picked (0 is the first), or -1. */
   at = 0;
@@ -43,7 +48,7 @@ export class WaitingYouPane implements Pane {
   private door: unknown = undefined;
   rows(): WaitingRow[] { return waitingOnYou(this.door); }
   /** The requests held for the person's r, after the terminals' rows. */
-  private heldStore: { list(): readonly HeldAsk[]; subscribe(f: () => void): () => void } | null = null;
+  private heldStore: HeldAsks | null = null;
   held(): readonly HeldAsk[] { return this.heldStore?.list() ?? []; }
   /** Every row: the terminals' programs, then the held requests. */
   private total(): number { return this.rows().length + this.held().length; }
@@ -52,13 +57,14 @@ export class WaitingYouPane implements Pane {
   private offHeld: (() => void) | null = null;
   init(desk: DeskApi) {
     this.door = desk.ctx.hostLayer ?? desk.ctx; this.off?.(); this.off = onStatusChange(() => desk.redraw(), this.door);
-    this.heldStore = (desk.ctx as unknown as { heldAsks?: NonNullable<WaitingYouPane["heldStore"]> }).heldAsks ?? null;
+    this.heldStore = desk.ctx.heldAsks ?? null;
     this.offHeld?.(); this.offHeld = this.heldStore?.subscribe(() => desk.redraw()) ?? null;
   }
   dispose() { this.off?.(); this.off = null; this.offHeld?.(); this.offHeld = null; }
 
   render(w: number, h: number, focused: boolean): PaneView {
     const rows = this.rows(), held = this.held(), total = rows.length + held.length;
+    this.width = w;
     if (!total) {
       return { lines: [fg(C.white) + "Nothing is waiting on you." + RESET, "", fg(C.grey) + pad("A program in a terminal tile that says it's blocked, done or failed (OSC 7501: Claude Code through the ep0ch mod, ep0ch install, scripts/box-test) shows here until you've seen it; so does a request an agent or an extension wrote that no grant lets wake its agent (held: r sends it).", w) + RESET] };
     }
@@ -68,8 +74,9 @@ export class WaitingYouPane implements Pane {
       lines: Array.from({ length: total }, (_, k) => k).slice(this.view.top, this.view.top + h).map((n) => {
         if (n >= rows.length) {
           const a = held[n - rows.length]!, age = ago(Date.parse(a.at)).padStart(4);
-          const plain = ` ‖ @${a.agent} · ${a.title} · ${a.why.replace(/^held: /, "")}  ${age}`;
-          return n === this.at ? selected(focused) + pad(plain, w) + RESET : pad(` ${fg(C.yellow)}‖ ${fg(C.lcyan)}@${a.agent}${fg(C.dark)} · ${fg(C.grey)}${a.title}${fg(C.dark)} · ${fg(C.grey)}${a.why.replace(/^held: /, "")}  ${dim(age)}`, w) + RESET;
+          // The row's last words are its send: a click on them is r.
+          const plain = pad(` ‖ @${a.agent} · ${a.title} · ${a.why}  ${age}`, Math.max(0, w - SEND.length)) + SEND;
+          return n === this.at ? selected(focused) + plain + RESET : pad(` ${fg(C.yellow)}‖ ${fg(C.lcyan)}@${a.agent}${fg(C.dark)} · ${fg(C.grey)}${a.title}${fg(C.dark)} · ${fg(C.grey)}${a.why}  ${dim(age)}`, Math.max(0, w - SEND.length)) + fg(C.lcyan) + SEND + RESET;
         }
         const r = rows[n]!, m = statusMark(r.record), age = ago(r.at).padStart(4);
         const who = r.record.id ? `${r.name}/${r.record.title ? r.record.title : r.record.id}` : r.name;
@@ -88,16 +95,16 @@ export class WaitingYouPane implements Pane {
     if (isUp(k)) { if (this.at > 0) this.run(desk, "status.pick", { n: this.at }); return true; }
     if (isDown(k)) { if (this.at + 1 < n) this.run(desk, "status.pick", { n: this.at + 2 }); return true; }
     const onHeld = this.at >= terminals && this.at < n;
-    if (k.kind === "enter" && n) { this.run(desk, onHeld ? "held.open" : "status.go", { n: onHeld ? this.at - terminals + 1 : this.at + 1 }); return true; }
-    if (ch(k) === "r" && onHeld) { this.run(desk, "held.send", { n: this.at - terminals + 1 }); return true; }
+    if (k.kind === "enter" && n) { this.run(desk, onHeld ? "held.open" : "status.go", { n: this.at + 1 }); return true; }
+    if (ch(k) === "r" && onHeld) { this.run(desk, "held.send", { n: this.at + 1 }); return true; }
     if (ch(k) === "x" && n && !onHeld) { this.run(desk, "status.seen", { n: this.at + 1 }); return true; }
     return false;
   }
 
-  click(_x: number, y: number, desk: DeskApi) {
+  click(x: number, y: number, desk: DeskApi) {
     const n = this.view.top + y, terminals = this.rows().length;
     if (n < terminals) this.run(desk, "status.go", { n: n + 1 });
-    else if (n < this.total()) { this.at = n; this.run(desk, "held.open", { n: n - terminals + 1 }); }
+    else if (n < this.total()) { this.at = n; this.run(desk, x >= this.width - SEND.length ? "held.send" : "held.open", { n: n + 1 }); }
   }
 
   wheel(dir: 1 | -1, desk: DeskApi) {
@@ -107,26 +114,33 @@ export class WaitingYouPane implements Pane {
 
   describe() {
     const terminals = this.rows();
-    return [...terminals.map((r, i) => rowFacts(r, i + 1)), ...this.held().map((a, i) => heldFacts(a, terminals.length + i + 1, i + 1))];
+    return [...terminals.map((r, i) => rowFacts(r, i + 1)), ...this.held().map((a, i) => heldFacts(a, terminals.length + i + 1))];
   }
 }
 
 /** The row at `n` (from 1), or the one named by its tile; refused with what there is. */
 function rowOf(list: WaitingYouPane, a: { n?: number; tile?: string }): { row: WaitingRow; n: number } {
   const rows = list.rows();
-  if (!rows.length) throw new ActionRefused("nothing is waiting on you");
+  if (!rows.length && !list.held().length) throw new ActionRefused("nothing is waiting on you");
   if (a.tile === undefined && (a.n ?? list.at + 1) > rows.length && list.held().length) throw new ActionRefused(`row ${a.n ?? list.at + 1} is a held request, not a terminal: held.open opens its note, held.send sends it`);
+  if (!rows.length) throw new ActionRefused("no terminal is waiting on you (only held requests: held.open, held.send)");
   const i = a.tile !== undefined ? rows.findIndex(r => r.tile === a.tile || r.name === a.tile) : (a.n ?? list.at + 1) - 1;
   if (i < 0 || i >= rows.length) throw new ActionRefused(a.tile !== undefined ? `no terminal ${a.tile} is waiting on you · waiting: ${rows.map(r => r.tile ?? r.name).join(", ")}` : `pick 1 to ${rows.length}`);
   return { row: rows[i]!, n: i + 1 };
 }
 
-/** The held request at `n` (from 1 among the held) or in note `id`, or why not. */
+/** The held request at row `n` (as peek numbers the list: the terminals' first) or in note `id`, else the selected row; or why not. */
 function heldOf(list: WaitingYouPane, a: { n?: number; id?: string }): HeldAsk {
-  const held = list.held();
+  const held = list.held(), terminals = list.rows().length;
   if (!held.length) throw new ActionRefused("no request is held for a person's r");
-  const ask = a.id !== undefined ? held.find(x => x.blockId.startsWith(a.id!)) : held[(a.n ?? Math.max(1, list.at - list.rows().length + 1)) - 1];
-  if (!ask) throw new ActionRefused(a.id !== undefined ? `no held request in ${a.id}` : `pick 1 to ${held.length}`);
+  if (a.id !== undefined) {
+    const ask = held.find(x => x.blockId.startsWith(a.id!));
+    if (!ask) throw new ActionRefused(`no held request in ${a.id}`);
+    return ask;
+  }
+  const n = a.n ?? list.at + 1;
+  const ask = held[n - terminals - 1];
+  if (!ask) throw new ActionRefused(n <= terminals ? `row ${n} is a terminal, not a held request (held rows are ${terminals + 1} to ${terminals + held.length})` : `pick ${terminals + 1} to ${terminals + held.length}`);
   return ask;
 }
 
@@ -164,22 +178,22 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     },
   }),
   "held.open": def({
-    summary: "open the note a held request is in (n from 1 among the held requests, as peek lists them, or id=<the note's id>): where the waiting list's opens go. The request is not sent (held.send does that); the person's keys stay where they are for an agent",
+    summary: "open the note a held request is in (n: its row in the list, as peek numbers it, the terminals first, or id=<the note's id>; left out, the selected row): where the waiting list's opens go. The request is not sent (held.send does that); the person's keys stay where they are for an agent",
     keys: "⏎, a click on a held row",
     touches: "screen", replay: "safe", says: r => `opened ${r.title}`,
-    args: { n: { type: "number", optional: true, about: "its place among the held requests, from 1" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
+    args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
     async run(a, { pane, desk }, actor) {
       const w = pane as WaitingYouPane, ask = heldOf(w, a);
       await desk.perform?.("open", { id: ask.blockId }, actor);
-      return { n: w.held().indexOf(ask) + 1, id: ask.blockId, title: ask.title };
+      return { n: w.rows().length + w.held().indexOf(ask) + 1, id: ask.blockId, title: ask.title };
     },
   }),
   "held.send": def({
-    summary: "send a held request (n from 1 among the held requests, or id=<the note's id>): ask its agent now, as the person who pressed r (the line's own `r`). An agent's is refused: a held request waits for a person",
-    keys: "r",
+    summary: "send a held request (n: its row in the list, as peek numbers it, or id=<the note's id>; left out, the selected row): ask its agent now, as the person who pressed r (the line's own `r`). An agent's is refused: a held request waits for a person",
+    keys: "r, a click on a held row's [r send]",
     touches: "nothing", replay: "ask", says: r => `asked @${r.agent} (${r.title})`,
     person: "a request an agent or an extension wrote waits for a person's r: an agent's is refused, as the line's own r is",
-    args: { n: { type: "number", optional: true, about: "its place among the held requests, from 1" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
+    args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
     async run(a, { pane, desk }, actor) {
       if (actor.kind === "agent") throw new ActionRefused("a held request waits for a person's r: an agent can't send it");
       const ask = heldOf(pane as WaitingYouPane, a);

@@ -49,7 +49,7 @@ describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, a
   afterAll(async () => { app?.heldAsks.stop(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
 
   test("the service says what is held and why; the door's copy and the status bar's count follow", async () => {
-    expect(app.heldAsks.list()[0]).toMatchObject({ blockId: ids.held, agent: "tidy", request: "", why: "held: loki may not wake @tidy · r to send", by: "agent:loki", line: 2 });
+    expect(app.heldAsks.list()[0]).toMatchObject({ blockId: ids.held, agent: "tidy", request: "", why: "loki may not wake @tidy · r to send", by: "agent:loki", line: 2 });
     expect(await board.heldAsks()).toHaveLength(1);
   }, 60_000);
 });

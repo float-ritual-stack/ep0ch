@@ -307,7 +307,7 @@ test("a grant the person wrote lets a writer wake an agent: it runs, as that wri
   expect(calls()).toEqual([]);
   // The service lists what is held, and the extensions list counts it.
   const held = await client.request<{ held: { blockId: string; title: string; agent: string; why: string; by: string }[] }>({ action: "agents.held" });
-  expect(held.held).toMatchObject([{ blockId: plain.id, title: "Plain", agent: "count", why: "held: claude-test may not wake @count · r to send", by: "agent:claude-test" }]);
+  expect(held.held).toMatchObject([{ blockId: plain.id, title: "Plain", agent: "count", why: "claude-test may not wake @count · r to send", by: "agent:claude-test" }]);
   const listed = await client.request<ExtensionsListResult>({ action: "extensions.list" });
   expect(listed.extensions.find((entry) => entry.id === "count")?.held).toBe(1);
   // An agent's note is no grant: it can't grant itself.
