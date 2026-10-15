@@ -1353,7 +1353,8 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   on the screen, its program still running, whole (PIE-892). Its tab stays and starts nothing (a second client of the
   same agent, a Herdr session's, was a "watching" mirror nobody could type in or close): it says where the program
   went, `shell is on the desk · ⏎ or a click brings it back`, and that puts the same tile back in its tab, nothing
-  restarted (so does `^W a` on it, or `tile.drawer` from its screen). The drawer remembers it's out across a handover
+  restarted (`agent.back`; so does `^W a` on it, or `tile.drawer` from its screen). `agent.restart` is refused while
+  it's out, saying where it is; once its tile is closed, the tab runs the drawer's own program again. The drawer remembers it's out across a handover
   (`drawer.json`'s `out`, the program's key). `^W x` doesn't close the drawer's own tab: it says so, and what to do instead.
 - **Followers follow.** A preview following a tile (`source=tile:tree`) keeps following it into the drawer and back.
 - **In the drawer.** Its tiles are tiles: a reader in the drawer reads and edits, a tree in the drawer opens, a terminal in the drawer

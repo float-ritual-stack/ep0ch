@@ -288,15 +288,31 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       d.key({ kind: "char", ch: "]", ctrl: true });
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
       expect(d.desk.pane(name)).toBe(own);
-      expect(await d.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: name }, USER)).toMatchObject({ tile: "drawer.agent", back: true });
+      // Restarting it while it's out would start a second one: refused, saying where it is.
+      await expect(d.app.act({ action: "agent.restart", args: {}, as: AS })).rejects.toThrow("is on the desk");
+      await expect(d.app.act({ action: "agent.back", args: {}, as: AS })).rejects.toThrow("person's keys");
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      expect(d.app.drawer.entered).toBe(true);
+      const focused = d.desk.focusedName();
+      expect(await d.app.act({ action: "agent.back", args: {}, as: AS })).toMatchObject({ tile: "drawer.agent", back: true });
+      expect(d.app.drawer.entered).toBe(true);
+      expect(d.desk.focusedName()).toBe(focused);
       expect([d.app.drawer.tile, own.pid, own.running]).toEqual([own, pid, true]);
       expect(d.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent"]);
       // Its holder isn't a program to take out; and once the program that's out is closed, the tab runs its own again.
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      d.key({ kind: "enter" });
+      await until(() => d.app.drawer.tile === own, "Enter brings the program back");
+      expect(own.pid).toBe(pid);
+      d.key({ kind: "char", ch: "]", ctrl: true });
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
       await expect(d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER)).rejects.toThrow("brings it back");
       await d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER).catch(() => d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER));
       await until(() => !d.desk.pane(name), "the program's tile closed");
-      d.app.drawer.bringBack(USER);
+      // agent.back (what ⏎ and a click on the tab run), as an agent: the program's gone, so the tab runs its own again.
+      await d.app.act({ action: "agent.back", args: {}, as: AS });
       d.paint();
       await until(() => d.app.drawer.tile?.running === true, "the drawer's own program again");
       expect(d.app.drawer.tile!.pid).not.toBe(pid);
