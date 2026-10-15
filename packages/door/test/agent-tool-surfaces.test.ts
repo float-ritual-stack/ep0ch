@@ -71,7 +71,7 @@ describe("the gateway checks a write by its definition, the check the mod and th
     const move = AGENT_TOOL_DEFINITIONS.find(d => d.name === "outline_move")!;
     expect(writeInput("outline_move", { ref: "PIE-1", parent: "root", before: "PIE-2" })).toEqual({ error: move.command({ ref: "PIE-1", parent: "root", before: "PIE-2" }) as string });
     expect(writeInput("outline_patch", { ref: "PIE-1", revision: 3, patches: [{ observed: "", replacement: "x" }] })).toEqual({ error: expect.stringContaining("never empty") });
-    expect(writeInput("outline_patch", { ref: "PIE-1", revision: 3, patches: [{ observed: "a", replacement: "b" }] })).toEqual({ tool: "outline_patch", revision: 3, input: { policy: "edit", patches: [{ observed: "a", replacement: "b" }] } });
+    expect(writeInput("outline_patch", { ref: "PIE-1", revision: 3, mark: "@yo tidy", patches: [{ observed: "a", replacement: "b" }] })).toEqual({ tool: "outline_patch", revision: 3, input: { policy: "edit", mark: "@yo tidy", patches: [{ observed: "a", replacement: "b" }] } });
     expect(writeInput("outline_create", { ref: "PIE-1", text: "Bring labels", position: 0 })).toEqual({ tool: "outline_create", input: { text: "Bring labels", position: 0 } });
     expect(writeInput("outline_reply", { ref: "PIE-1", edit: "m-1", observed: "old", body: "new" })).toEqual({ tool: "outline_reply", input: { edit: "m-1", body: "new", observed: "old" } });
     expect(writeInput("outline_comment", { ref: "resource:r-1", quote: "a line", body: "Why?", revision: 2 })).toEqual({ tool: "outline_comment", input: { body: "Why?", quote: "a line", revision: 2 } });

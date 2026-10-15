@@ -80,14 +80,15 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
 export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: HostApiOptions = {}): HostApi {
   let calls = 0;
   const step = (s: Omit<HostStep, "seq">, seq = ++calls) => {
-    try { options.onStep?.({ seq, ...s }); } catch { /* an observer never stops the run */ }
+    // An observer never stops the run, nor holds it: a throw is dropped, and so is an async one's rejection.
+    try { Promise.resolve(options.onStep?.({ seq, ...s }) as unknown).catch(() => {}); } catch { /* as above */ }
     return seq;
   };
-  const tools: Record<string, HostTool> = {};
+  const tools: Record<string, HostTool> = Object.create(null);
   for (const definition of AGENT_TOOL_DEFINITIONS) tools[definition.name] = toolFunction(client, actor, definition, step);
   const names = Object.keys(tools);
   const call = (name: string, input?: Record<string, unknown>) => {
-    const tool = tools[name];
+    const tool = Object.hasOwn(tools, name) ? tools[name] : undefined;
     if (!tool) return Promise.reject(new WorkToolRefusal(`No tool ${name}. The host API has ${names.join(", ")}.`));
     return tool(input);
   };

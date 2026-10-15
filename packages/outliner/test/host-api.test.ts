@@ -76,6 +76,7 @@ test("a wrong call is answered as the tools answer an agent, and a write needs a
   await expect(api.tool.outline_read!({ title: "Seed swap" })).rejects.toThrow(/outline_read/);
   await expect(api.tool.outline_move!({ ref: "PIE-1" })).rejects.toThrow("Give exactly one of parent");
   await expect(api.call("outline_nope", {})).rejects.toThrow("No tool outline_nope");
+  await expect(api.call("toString", {})).rejects.toThrow("No tool toString");
 
   const nobody = hostApi(client);
   await expect(nobody.call("outline_create", { parent: "root", text: "Unsigned" })).rejects.toThrow("pass --actor");
@@ -96,6 +97,8 @@ test("a run streams its steps as they happen, and calls side by side don't wait 
   expect(steps.every(s => s.tool === "outline_create" && s.writes)).toBe(true);
 
   await api.read(made[0]!.id);
+  // An observer that fails later, asynchronously, doesn't reach the script either.
+  await hostApi(client, undefined, { onStep: async () => { throw new Error("offline"); } }).read(made[0]!.id);
   await expect(api.call("outline_trash", { ref: made[1]!.id })).rejects.toThrow();
   expect(steps.slice(-4).map(s => [s.seq, s.tool, s.phase])).toEqual([[4, "outline_read", "start"], [4, "outline_read", "done"], [5, "outline_trash", "start"], [5, "outline_trash", "refused"]]);
 });

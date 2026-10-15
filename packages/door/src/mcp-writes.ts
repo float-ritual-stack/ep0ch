@@ -245,8 +245,11 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
   const command = definition.command({ ...args, [target]: ADDRESSED });
   if (typeof command === "string") return { error: command };
   // outline_reply's edit runs the edit-comment operation: the gateway keeps it as the tool's own `edit`.
-  const { [target]: _address, mark, ...input } = command.input;
-  if (command.operation === "edit-comment") return { tool, input: { edit: mark, ...input } };
+  const { [target]: _address, ...input } = command.input;
+  if (command.operation === "edit-comment") {
+    const { mark, ...words } = input;
+    return { tool, input: { edit: mark, ...words } };
+  }
   // A revision is the note's, checked where the write lands; a comment's is a Resource's, part of its input.
   const { revision, ...rest } = input;
   if (tool === "outline_comment" || typeof revision !== "number") return { tool, input };
