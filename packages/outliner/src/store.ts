@@ -1879,7 +1879,7 @@ export class OutlinerStore {
       return {
         blockId: id, revision: block.revision,
         title: firstLineWithoutPropertyTokens(block.text)?.trim() || id,
-        ...queryChecklistItems(block.text, query, rows.map(propertyRecordFromRow)),
+        ...queryChecklistItems(block.text, query, rows.map(propertyRecordFromRow), {figures: true}),
       };
     })();
   }
@@ -1948,7 +1948,8 @@ export class OutlinerStore {
       const edit = updateChecklistText(before.text, before.revision, input);
       const changed = edit.text !== before.text;
       const block = changed ? this.update(id, edit.text, before.revision, mutation) : before;
-      const item = checklistItems(block.text).find(candidate => candidate.itemId === edit.itemId)!;
+      // A figure's row has no id: it starts where it did (a box is three characters either way).
+      const item = checklistItems(block.text, undefined, {figures: true}).find(candidate => edit.itemId ? candidate.itemId === edit.itemId : candidate.span.start === edit.start)!;
       return {block, item, changed};
     })();
   }

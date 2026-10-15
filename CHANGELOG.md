@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A component's words work as the note's, and a `::graph-check` row ticks like a step (PIE-864)
+
+- **Changed:** a figure's rows (check, timeline, decision) are drawn through the reader's own inline drawing: a
+  code span in a row copies on a click, a `[[link]]`, `((ref))` or `#tag` in it is followed with `[ ]` and ⏎, and
+  `**bold**` reads bold, as on a line of the note. On a web page the same words are drawn as the page's.
+- **Added:** a `::graph-check` row's box takes a checklist step's marks (`x` done, `o` to do, `+` approved, `-`
+  rejected, `w` waiting, `!` problem), by ⏎ or a click on the box, `space`, and `act task.status`. A written row's
+  box is rewritten in the note; a live row's mark writes the property its `done:` names on the row's own note
+  (`done: "status=done"`: `x` writes `[status::done]`, `w` writes `[status::waiting]`). `ctrl+z` undoes it. The
+  note's web page draws the same boxes as buttons.
+- **Changed:** `checklist.query` answers a figure's boxed rows as steps (`figure: true`); `checklist.update` changes
+  only their box and refuses to give one an id.
+
 ### A single tilde never strikes text; only double tildes do (PIE-899) (#584)
 
 - **Fixed:** home paths and approximations (`~/.claude/~/projects`, `~178 … ~`) read as written in the door, Detail and on published pages; `~~double~~` still strikes. One rule in outline-core (PROTOCOL 183).
@@ -390,6 +403,7 @@ PROTOCOL 169: `annotations.tldr` takes `remove`, and an ask can be refused (an o
 - **Changed:** `ep0ch ext ls` prints one aligned row per extension (state, where it comes from, version, what it serves,
   and what is wrong: its error, a failed last call or a failed schedule). `--long` adds each one's folder, action
   arguments, schedules and last call, as the old output did. **Added:** `--json`, the registry's own answer, for scripts.
+
 
 ### The comment editor: the whole note, a tile of its own, scrolling, pictures (PIE-846)
 

@@ -317,6 +317,8 @@ export interface ChecklistStep {
   span: { start: number; end: number; startLine: number; endLine: number }; depth: number; text: string;
   /** Where its `[ ]` starts (UTF-16 offset into the note's text). */
   markerStart?: number;
+  /** A `::graph-check` figure's row (PIE-864): it never gets an id, and is addressed by where it starts. */
+  figure?: true;
 }
 /** What a step change does: set its status, or only give it a stable id (`^t-…`) so it can be linked. */
 export type StepChange = { kind: "status"; status: StepStatus } | { kind: "ensure-id" };

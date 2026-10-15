@@ -1096,6 +1096,8 @@
       const answer = await send({
         action: "step", status, block: box.dataset.stepBlock, evidence: box.dataset.stepEvidence,
         ...(box.dataset.stepId ? { itemId: box.dataset.stepId } : { start: Number(box.dataset.stepStart), revision: Number(box.dataset.stepRevision) }),
+        // A live figure's row (PIE-864): the property its figure's done: names, written to the row's own note.
+        ...(box.dataset.stepNote ? { live: { note: box.dataset.stepNote, from: box.dataset.stepStatus, figure: Number(box.dataset.stepFigure), revision: Number(box.dataset.stepRevision) } } : {}),
       });
       id = answer.itemId || id;
       say(answer.said);

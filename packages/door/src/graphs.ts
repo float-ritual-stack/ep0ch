@@ -7,8 +7,11 @@ import { wrap } from "./text";
 import { childRows, resolveLive, setLiveSource } from "./live";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
-import { ACCENT, DIM, HI, INK, rowLink, tier, type Props, type RowLink } from "./figures/palette";
-export type { RowLink } from "./figures/palette";
+import { ACCENT, DIM, HI, INK, inlineRows, rowLink, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
+export type { RowInline, RowLink } from "./figures/palette";
+import { colourInline } from "./text";
+import { STEP_BOXES } from "./steps";
+import { stepClosed, stepDone, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
 import { setLinksSource } from "./links";
 import type { SocketBoard } from "./socket";
 
@@ -99,8 +102,8 @@ export interface FiguresEnv {
   seen?(info: FigureInfo): void;
   all?: boolean;
 }
-/** One figure's share of that, as the drawing code gets it. */
-interface FigureUI { key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean }
+/** One figure's share of that, as the drawing code gets it; `rows`: what the reader lends its rows (PIE-864). */
+interface FigureUI { key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean; rows?: RowInline }
 
 const HANG = /^[A-Z][A-Z0-9]*-\d+\s*(?:[—–·:|-]\s*)?/;
 
@@ -129,14 +132,20 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
   // The kinds in src/figures/ (decision, chat, keys, uptime, activity, calendar, annotate).
   ...FIGURES,
 
-  check: (p, w, link) => (p.items ?? []).flatMap((it: Props) => {
-    const box = it.done ? fg(ACCENT) + "[x]" : fg(DIM) + "[ ]";
-    const lines = wrap(String(it.label ?? ""), w - 6);
-    return lines.map((l, i) => (i ? "      " : box + RESET + "  ") + fg(it.done ? HI : INK) + (i ? l : rowLink(link, it.block, l)) + RESET)
-      .concat(it.note ? ["      " + fg(DIM) + it.note + RESET] : []);
+  // A row's box is a checklist step's (PIE-864): drawn by its status, and a control where the reader lends one. Its
+  // words and side note go through the reader's inline drawing, so a code span copies and a link follows as in the note.
+  check: (p, w, link, ui) => (p.items ?? []).flatMap((it: Props) => {
+    const status: ChecklistStatus = it.status ?? (it.done ? "done" : "todo");
+    const mark = STEP_BOXES[status], shown = ui?.rows?.box?.(it, mark);
+    const box = shown ? colourInline(shown, ACCENT) : fg(stepDone(status) ? ACCENT : DIM) + mark + RESET;
+    const ink = stepDone(status) ? HI : stepClosed(status) ? DIM : INK;
+    const lines = inlineRows(String(it.label ?? ""), w - 6, ink, ui?.rows, typeof it.block === "string");
+    const note = it.note ? inlineRows(String(it.note), w - 6, DIM, ui?.rows) : [];
+    return lines.map((l, i) => (i ? "      " : box + "  ") + (i ? l : rowLink(link, it.block, l)))
+      .concat(note.map(l => "      " + l));
   }),
 
-  timeline: (p, w, link) => {
+  timeline: (p, w, link, ui) => {
     const ev: Props[] = p.events ?? [];
     // The date column is at most a third of the frame, so the text column always has room to wrap in.
     const dw = Math.min(Math.max(0, ...ev.map(e => vwidth(String(e.date ?? "")))), Math.max(1, (w >> 1) - 5));
@@ -147,12 +156,12 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const now = e.state === "now", next = e.state === "next", last = i === ev.length - 1;
       const dot = next ? fg(DIM) + "○" : fg(now ? ACCENT : HI) + "●";
       // The text wraps in its column: a continuation line hangs under the text, and the spine runs down beside it.
-      const lines = wrap(String(e.label ?? ""), tw);
-      const note = e.note ? String(e.note) : "";
+      // Its words and side note through the reader's inline drawing (PIE-864), as a check row's are.
+      const lines = inlineRows(String(e.label ?? ""), tw, now ? ACCENT : next ? DIM : HI, ui?.rows, typeof e.block === "string");
+      const note = e.note ? inlineRows(String(e.note), 10_000, DIM, ui?.rows)[0]! : "";
       const inline = !!note && !narrow && vwidth(lines.at(-1)!) + 4 + vwidth(note) <= tw;
-      const colour = fg(now ? ACCENT : next ? DIM : HI);
-      const body = rowLinks(link, e.block, lines).map((l, k) => colour + l + (inline && k === lines.length - 1 ? `${fg(DIM)}  — ${note}` : "") + RESET);
-      const under = note && !inline ? wrap(note, tw).map(l => fg(DIM) + l + RESET) : [];
+      const body = rowLinks(link, e.block, lines).map((l, k) => l + (inline && k === lines.length - 1 ? `${fg(DIM)}  — ${note}` : "") + RESET);
+      const under = e.note && !inline ? inlineRows(String(e.note), tw, DIM, ui?.rows) : [];
       const spine = (last ? " " : fg(DIM) + "│" + RESET) + " ".repeat(ind - 1);
       const date = fg(next ? DIM : INK) + pad(ellipsize(String(e.date ?? ""), dw), dw);
       return [
@@ -353,9 +362,10 @@ export { figureSource, graphKind, type FigureSource } from "@ep0ch/outline-core/
  * Render a `::graph-kind` block: `source` is its YAML (between --- lines), or the whole FigureSource (its Markdown and
  * its note too). `link`: rows that stand for a note (a live figure's, a child bullet's) are tagged with it, so the
  * reader steps to them and opens them (PIE-441). `figures`: the reader's hold on its figures (its chosen tab and density
- * for this one, `n`th in the note), see FiguresEnv.
+ * for this one, `n`th in the note), see FiguresEnv. `rows`: what the reader lends the figure's rows (PIE-864: their
+ * words drawn as the note's are, a check row's box a step's control), see RowInline.
  */
-export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv): string[] {
+export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv, rows?: RowInline): string[] {
   const src = typeof source === "string" ? { yaml: source } : source;
   const read = figureProps(kind, src, childRows);
   if ("error" in read) return frame(kind, [fg(C.lred) + read.error + RESET], W);
@@ -366,7 +376,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   count.titles.set(title, same + 1);
   const key = `${title}#${same}`;
   const chosen = figures?.ui?.(key);
-  const ui: FigureUI = { key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "compact"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}) };
+  const ui: FigureUI = { key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "compact"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
   // A block with query:/view: is answered from the outline now, not from copied values.
   const live = resolveLive(kind, props, src.note);
   if (live) {

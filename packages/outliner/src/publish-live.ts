@@ -6,7 +6,7 @@
 // not show (locked, outside a share, not public on a public page) is left out, never named.
 import { linkingLineId } from "./publish-anchors";
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
-import { asksPerItem, figureQuestion, liveAsk, liveProps, liveStatus, NONE, sortProblem, type FigureAnswer, type FigureItem, type FigureQuestion } from "@ep0ch/outline-core/figure-live";
+import { asksPerItem, figureQuestion, liveAsk, liveMark, liveProps, liveStatus, NONE, sortProblem, type FigureAnswer, type FigureItem, type FigureQuestion } from "@ep0ch/outline-core/figure-live";
 import { figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
 import { figureRow } from "@ep0ch/outline-core/figure-markdown";
 import { headerLine } from "@ep0ch/outline-core/header-line";
@@ -15,7 +15,9 @@ import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { AuthoredLinksSnapshot } from "./authored-links";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
-import { componentSourceHtml, figureBodyHtml, figureFrame, linksHtml, viewLaneHtml, type LinkGroupHtml, type LinkRowHtml, type ViewLane, type ViewRow } from "./publish-figures";
+import { componentSourceHtml, figureBodyHtml, figureFrame, linksHtml, viewLaneHtml, type FigureRows, type LinkGroupHtml, type LinkRowHtml, type ViewLane, type ViewRow } from "./publish-figures";
+import { checklistItems } from "./checklist-items";
+import { placeFigureStep, type PublishedStep } from "./publish-steps";
 import { DEFAULT_PROPERTY_SUMMARY_KEYS, parsePropertySummaryKeys, propertySummarySegments } from "./property-summary";
 import type { BacklinkCollection, BlockProperty, ProjectedBlockCollection, SavedViewReadResult, VisibleBlock, VisibleBlockCollection } from "./types";
 
@@ -44,7 +46,8 @@ const CHILDREN = "parent:this NOT type=annotation NOT type=annotation-reply";
  * component there keeps the title above it).
  */
 export async function drawNoteComponents(
-  host: LiveHost, notes: readonly { id: string; text: string }[], components: string[], first?: { id: string; title: string },
+  host: LiveHost, notes: readonly { id: string; text: string; revision?: number }[], components: string[], first?: { id: string; title: string },
+  rows: { steps?: PublishedStep[]; inline?: (text: string) => string } = {},
 ): Promise<Map<string, Map<number, DrawnComponent>>> {
   const out = new Map<string, Map<number, DrawnComponent>>();
   for (const note of notes) {
@@ -62,7 +65,7 @@ export async function drawNoteComponents(
       let html: string;
       try {
         html = links ? await drawLinks(host, links.spec, note.id)
-          : await drawFigure(host, kind!, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1));
+          : await drawFigure(host, kind!, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows));
       } catch (error) {
         html = componentSourceHtml(lines.slice(i, end + 1), `couldn't ask the outline: ${(error as Error).message}`);
       }
@@ -78,7 +81,29 @@ export async function drawNoteComponents(
 
 // ── figures ────────────────────────────────────────────────────────────────────────────────────────────
 
-async function drawFigure(host: LiveHost, kind: string, body: readonly string[], note: string, block: boolean, source: readonly string[]): Promise<string> {
+/**
+ * What a page lends a figure's rows (PIE-864): their words drawn as the note's are, and each check row's box a step,
+ * pushed onto the page's `steps` (a written row by where it starts in its note, a live row by its own note).
+ */
+function figureRows(note: { id: string; text: string; revision?: number }, first: number, rows: { steps?: PublishedStep[]; inline?: (text: string) => string }): (at: number) => FigureRows {
+  return at => {
+    const steps = rows.steps;
+    const written = steps ? new Map(checklistItems(note.text, undefined, { figures: true }).filter(item => item.figure).map(item => [item.span.startLine, item])) : null;
+    return {
+      ...(rows.inline ? { inline: rows.inline } : {}),
+      ...(steps ? { box: (it: Props) => {
+        if (typeof it.line === "number") {
+          const item = written!.get(first + at + it.line);
+          return item ? placeFigureStep(steps, { block: note.id, revision: note.revision ?? 0, start: item.span.start, evidence: item.evidence, status: item.status }) : null;
+        }
+        if (typeof it.block !== "string" || !it.mark) return null;
+        return placeFigureStep(steps, { block: it.block, revision: note.revision ?? 0, start: 0, evidence: `live:${it.block}`, status: it.status ?? (it.done ? "done" : "todo"), live: { note: note.id, figure: first - 1 } });
+      } } : {}),
+    };
+  };
+}
+
+async function drawFigure(host: LiveHost, kind: string, body: readonly string[], note: string, block: boolean, source: readonly string[], rows?: (at: number) => FigureRows): Promise<string> {
   const src = figureSource(body, note, block);
   // A figure block's child bullets are rows too (figureProps says when it wants them): asked once, then read again.
   let wanted = false;
@@ -91,9 +116,31 @@ async function drawFigure(host: LiveHost, kind: string, body: readonly string[],
   let props = read.props, foot = read.children ? "live · child notes" : "", error = "";
   const live = await answerFigure(host, kind, props, note);
   if (live) { props = live.props; foot = live.status; error = live.error ?? ""; }
-  const html = figureBodyHtml(kind, props, id => host.href(id));
+  const html = figureBodyHtml(kind, props, id => host.href(id), rows?.(src.at ?? 0));
   if (html === null) return componentSourceHtml(source);
   return figureFrame(kind, String(props.title ?? ""), html || `<p class="dim">no results</p>`, foot, error);
+}
+
+/**
+ * What a mark on live row `row` of a `::graph-check` in `note` writes (PIE-864), read from the figure itself and checked
+ * against its answer: the property its `done:` names, or null when no figure there lists that row with a `done:` of one
+ * `key=value`. A page never takes the property from the request.
+ */
+export async function liveRowMark(host: Pick<LiveHost, "request">, note: { id: string; text: string }, row: string, figure: number): Promise<{ key: string; done: string } | null> {
+  const lines = note.text.split("\n");
+  // Every row is asked about as is: whether the page may show it was settled when it was drawn.
+  const all: LiveHost = { request: host.request, shown: async ids => new Set(ids), titles: async () => new Map(), href: () => null };
+  for (const block of componentBlocks(lines)) {
+    if (block.start !== figure || block.end <= block.start || graphKind(block) !== "check") continue;
+    const read = figureProps("check", figureSource(lines.slice(block.start + 1, block.end), note.id));
+    if ("error" in read) continue;
+    const mark = liveMark(read.props), asking = liveAsk("check", read.props);
+    const question = mark && !asking.error ? figureQuestion(asking.ask, asking.group) : null;
+    if (!question || "error" in question) continue;
+    try { if ((await ask(all, question, note.id)).items.some(item => item.id === row)) return mark; }
+    catch { /* a figure that can't be asked lists nothing */ }
+  }
+  return null;
 }
 
 /** A note's child bullets as figure rows (each standing for its note), in the note's order. */

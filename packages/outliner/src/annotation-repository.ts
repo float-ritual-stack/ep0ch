@@ -1254,7 +1254,7 @@ export class AnnotationRepository {
           }
         }
         content = updated.text;
-        ids.set(start, updated.itemId);
+        ids.set(start, updated.itemId!);
       }
       if (content !== block.text) {
         this.blocks.update(blockId, content, block.revision, {author, ...provenance});

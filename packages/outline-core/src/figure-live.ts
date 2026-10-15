@@ -30,6 +30,7 @@
 import { MACHINERY_MODES, type MachineryMode } from "./machinery";
 import type { QuestionGroup } from "./protocol";
 import { referencedBlock } from "./link-syntax";
+import { isChecklistStatus, type ChecklistStatus } from "./checklist-marks";
 import { addCell, dayOf, dayState, decisionState, isoOf, localDay, monthOf, today, uptimeDays, type Cells, type Props } from "./figure-props";
 
 /** One result as a live figure reads it: its note, its title and properties, and when it was made and changed. */
@@ -116,13 +117,40 @@ export function tableOf(p: Props, items: readonly FigureItem[]) {
   return { headers: p.headers ?? cols, rows: items.map(m => cols.map(c => itemField(m, c))), blocks: items.map(m => m.id), titleColumn: Math.max(0, cols.indexOf("title")) };
 }
 
+/**
+ * What a mark on a live `::graph-check` row writes (PIE-864): the property its `done:` names, when `done:` is one
+ * `key=value` (`stage=done`). `x` writes that value to the row's note; any other mark writes its status word
+ * (`stage::waiting`, `stage::todo`). Null when `done:` is anything else: the row is marked in its own note.
+ */
+export function liveMark(p: Props): { key: string; done: string } | null {
+  const m = /^\s*([\p{L}\p{N}_][\p{L}\p{N}_.\/-]*)\s*=\s*("?)([^"\s]+)\2\s*$/u.exec(typeof p.done === "string" ? p.done : "");
+  return m ? { key: m[1]!, done: m[3]! } : null;
+}
+
+/** The value a mark writes to a live row's `done:` property (liveMark). */
+export const liveMarkValue = (mark: { done: string }, status: ChecklistStatus) => (status === "done" ? mark.done : status);
+
+/**
+ * A live row's status: with a `done:` of one `key=value` (liveMark), by the row's own value (that value done, a status
+ * word that status, else to do), so it reads right before the `done:` answer comes; else done where `done:` holds.
+ */
+export function liveRowStatus(done: boolean, mark: { done: string } | null, value: string | undefined): ChecklistStatus {
+  if (!mark) return done ? "done" : "todo";
+  const v = (value ?? "").trim().toLowerCase();
+  if (v === mark.done.toLowerCase()) return "done";
+  return isChecklistStatus(v) ? v : "todo";
+}
+
 /** A live figure's static props from its answer, or why the kind can't be drawn from one. */
 export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Props; error?: string } {
   const items = a.items, done = a.done, now = a.now;
   const isDone = (m: FigureItem) => !!done?.has(m.id);
   switch (kind) {
-    case "check":
-      return { props: { ...p, items: items.map(m => ({ label: m.title, done: isDone(m), note: p.note ? itemField(m, p.note) || undefined : undefined, block: m.id })) } };
+    case "check": {
+      // A row's box: done where `done:` holds, else the status its `done:` property names (PIE-864, liveMark).
+      const mark = liveMark(p);
+      return { props: { ...p, items: items.map(m => ({ label: m.title, done: isDone(m), status: liveRowStatus(isDone(m), mark, mark ? m.props[mark.key] : undefined), note: p.note ? itemField(m, p.note) || undefined : undefined, block: m.id, ...(mark ? { mark } : {}) })) } };
+    }
     case "rank":
       // The service's groups, most first; a match without the property is the NONE group.
       return { props: { ...p, items: [...(a.groups ?? [])].sort((x, y) => y.count - x.count).map(g => ({ label: g.value ?? NONE, value: g.count })) } };

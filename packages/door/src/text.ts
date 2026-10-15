@@ -130,9 +130,9 @@ export function wrap(text: string, w: number, { code = false, joins }: { code?: 
 }
 
 /** Each `[[page link]]` of `line` in the link colour, its brackets counted (a page link may hold another, PIE-592). */
-function colourPageLinks(line: string): string {
+function colourPageLinks(line: string, base: number): string {
   let out = "", at = 0;
-  for (const r of pageLinkRanges(line)) { out += line.slice(at, r.start) + fg(C.lcyan) + line.slice(r.start, r.end) + fg(C.grey); at = r.end; }
+  for (const r of pageLinkRanges(line)) { out += line.slice(at, r.start) + fg(C.lcyan) + line.slice(r.start, r.end) + fg(base); at = r.end; }
   return out + line.slice(at);
 }
 
@@ -142,13 +142,23 @@ export function colourBody(line: string, literal = false): string {
   if (/^#{1,6} /.test(line)) return fg(C.white) + styleMarks(line) + RESET;
   if (/^> ?/.test(line)) return fg(C.lgreen) + styleMarks(line) + RESET;
   if (/^\s*[-*] /.test(line)) line = line.replace(/^(\s*)([-*]) /, `$1${fg(C.lcyan)}∙${fg(C.grey)} `);
+  return colourInline(line, C.grey, literal);
+}
+
+/**
+ * A line's inline parts coloured, in `base` between them: properties, `[[page links]]`, code spans, links presentLinks
+ * marked, emphasis. No heading, quote or list mark: what a component's row draws through (PIE-864), and colourBody's
+ * own. A code span ends in grey whatever the base (the reader finds a span by that, to copy it).
+ */
+export function colourInline(line: string, base: number = C.grey, literal = false): string {
   // Property tokens first, on the plain line: their values hold links and brackets the escapes below would confuse.
-  if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(C.grey)}`);
-  return fg(C.grey) + colourPageLinks(line)
-    .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(C.grey)}`)
-    .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${fg(C.grey)}`)
+  if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(base)}`);
+  const back = fg(C.grey) + (base === C.grey ? "" : fg(base));
+  return fg(base) + colourPageLinks(line, base)
+    .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(base)}`)
+    .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${back}`)
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
-    .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE009/g, fgRgb(theme().external)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(C.grey))
+    .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE009/g, fgRgb(theme().external)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(base))
     // Inline Markdown (src/inline.ts): bold, italic, strikethrough, as Detail draws them.
     .replace(/[\uE003-\uE008]+/g, m => styleMarks(m)) + RESET;
 }

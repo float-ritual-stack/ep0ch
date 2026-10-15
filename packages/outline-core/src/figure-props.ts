@@ -9,7 +9,7 @@
 //   - label: value        its Markdown rows (figure-markdown.ts), each kind saying what it makes of them
 //   ::
 
-import type { ComponentBlock } from "./component-block";
+import { componentBlocks, type ComponentBlock } from "./component-block";
 import { expandRuns, figureRow, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
 import { readDate } from "./dates";
 
@@ -30,11 +30,16 @@ export function graphKind(block: ComponentBlock): string | null {
  * `---`), and the note it is in. `block`: it is that note's figure block (the note's text starts with it), so its child
  * bullets are rows too, as `rows: children` asks anywhere.
  */
-export interface FigureSource { yaml: string; markdown?: readonly string[]; note?: string; block?: boolean }
+export interface FigureSource {
+  yaml: string; markdown?: readonly string[]; note?: string; block?: boolean;
+  /** Where `markdown` starts in the lines read: a row's `line` plus this is its line among them. */
+  at?: number;
+}
 
 /** A `::graph-*` block's lines (after its first line, to its `::`) as its YAML and its Markdown. */
 export function figureSource(lines: readonly string[], note?: string, block?: boolean): FigureSource {
   const yaml: string[] = [], markdown: string[] = [];
+  let at = -1;
   const rule = (l: string) => /^\s*---\s*$/.test(l);
   // The YAML is between a first `---` (nothing above it but blank lines) and the next; any other `---` is
   // Markdown's (a rule).
@@ -43,9 +48,29 @@ export function figureSource(lines: readonly string[], note?: string, block?: bo
   for (const [i, l] of lines.entries()) {
     if (dashes < 2 && i < open) continue;
     if (dashes < 2 && rule(l)) { dashes++; continue; }
+    if (dashes !== 1 && at < 0) at = i;
     (dashes === 1 ? yaml : markdown).push(l);
   }
-  return { yaml: yaml.join("\n"), markdown, ...(note ? { note } : {}), ...(block ? { block } : {}) };
+  return { yaml: yaml.join("\n"), markdown, at: Math.max(0, at), ...(note ? { note } : {}), ...(block ? { block } : {}) };
+}
+
+/**
+ * The rows of each `::graph-check` in a note's `lines` that hold a box (PIE-864): steps, as a checklist's are. `line`
+ * is the row's line among `lines`, `box` where its `[ ]` starts in it. The service's checklist reads them from here,
+ * and the door and the web pages place each row's box by its `line`.
+ */
+export function figureSteps(lines: readonly string[]): { line: number; box: number }[] {
+  const out: { line: number; box: number }[] = [];
+  for (const c of componentBlocks(lines)) {
+    if (c.end <= c.start || graphKind(c) !== "check") continue;
+    const src = figureSource(lines.slice(c.start + 1, c.end));
+    for (const r of parseFigureMarkdown(src.markdown ?? []).rows) {
+      if (!r.status) continue;
+      const line = c.start + 1 + (src.at ?? 0) + r.line, box = /^\s*(?:[-*+]|\d+[.)])\s+/.exec(lines[line] ?? "")?.[0].length;
+      if (box !== undefined && lines[line]![box] === "[") out.push({ line, box });
+    }
+  }
+  return out;
 }
 
 /** A note's child bullets as figure rows, as the caller asks the outline for them; null when it can't ask. */
@@ -209,7 +234,9 @@ export const FIGURE_MARKDOWN: Record<string, (md: Markdown, p: Props) => Props> 
   } : {}),
   // - [x] done   - [ ] open   - **done** (bold without a box)   — a muted note
   check: md => (md.rows.length ? {
-    items: md.rows.map(r => ({ label: r.text, done: r.done ?? r.emphasis === "strong", note: r.note ?? undefined, block: r.block })),
+    // A written row's `line` (its line in the Markdown read) and its box's status: a mark on it rewrites that box (PIE-864).
+    items: md.rows.map(r => ({ label: r.text, done: r.done ?? r.emphasis === "strong", note: r.note ?? undefined, block: r.block,
+      ...(r.block === undefined ? { line: r.line } : {}), ...(r.status ? { status: r.status } : {}) })),
   } : {}),
   // - label: 12   **the accent row**   *a receding one*
   rank: md => (md.rows.length ? { items: md.rows.map(r => ({ label: r.label ?? r.text, value: valueOf(r), accent: r.emphasis === "strong", muted: r.emphasis === "em" })) } : {}),
