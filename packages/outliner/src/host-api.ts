@@ -35,7 +35,7 @@ export interface HostStep {
 }
 
 export interface HostApiOptions {
-  /** Told of every call as it starts and ends. It is never awaited, and what it throws is ignored. */
+  /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
   onStep?(step: HostStep): void;
 }
 
@@ -73,15 +73,17 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
 }
 
 /**
- * The host API for code running as `actor`: the person, or the agent they run (its writes are `author: agent` with its
+ * The host API for code running as the agent `actor` (its writes are `author: agent` with its
  * actor id; a run's `sessionId` names the run). Reads need no actor; a write without one is refused, never written as
  * nobody. Every call is a plain promise: a script awaits what it needs and starts the rest side by side.
  */
 export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: HostApiOptions = {}): HostApi {
   let calls = 0;
   const step = (s: Omit<HostStep, "seq">, seq = ++calls) => {
-    // An observer never stops the run, nor holds it: a throw is dropped, and so is an async one's rejection.
-    try { Promise.resolve(options.onStep?.({ seq, ...s }) as unknown).catch(() => {}); } catch { /* as above */ }
+    // Dispatch calls before notifying observers; observer failures must not turn a saved write into a refusal.
+    queueMicrotask(() => {
+      try { Promise.resolve(options.onStep?.({ seq, ...s }) as unknown).catch(() => {}); } catch { /* as above */ }
+    });
     return seq;
   };
   const tools: Record<string, HostTool> = Object.create(null);
@@ -89,7 +91,13 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   const names = Object.keys(tools);
   const call = (name: string, input?: Record<string, unknown>) => {
     const tool = Object.hasOwn(tools, name) ? tools[name] : undefined;
-    if (!tool) return Promise.reject(new WorkToolRefusal(`No tool ${name}. The host API has ${names.join(", ")}.`));
+    if (!tool) {
+      const inputArgs = input ?? {};
+      const seq = step({ tool: name, writes: false, phase: "start", input: inputArgs });
+      const error = new WorkToolRefusal(`No tool ${name}. The host API has ${names.join(", ")}.`);
+      step({ tool: name, writes: false, phase: "refused", input: inputArgs, error: error.message }, seq);
+      return Promise.reject(error);
+    }
     return tool(input);
   };
   const q = (query: string, opts: { under?: string; limit?: number } = {}) => call("outline_find", { query, ...opts });

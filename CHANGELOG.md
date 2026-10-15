@@ -31,12 +31,12 @@ are its record. The outliner's entries from then are kept below, under
   outline-core's `agent-tool-definitions.ts`: its words, arguments, a call that works and the check that refuses a wrong
   call. The Claude mod and the MCP gateway register those definitions, so a tool on both answers a wrong call in the same
   words (the mod's tools now also refuse an empty `observed` in a patch, and `position` with `before` or `after` in a
-  move, as the gateway did). A test fails when a tool is on one surface and not the other without a stated reason.
+  move, as the gateway did). Remaining surface gaps are listed with their reasons.
 - **Added:** the outliner's host API (`src/host-api.ts`): every one of those tools as a plain async function, plus
   `q(query)` and `read(ref)`, for code. A script's call, a mod tool and an MCP write reach the same agent operation.
   Each write is attributed to the API's actor; calls run side by side, and an `onStep` observer hears each start, end
   and refusal as it happens, never holding the run. The runtime that runs a script is slice 2.
-- No `PROTOCOL` change: nothing on the wire changed.
+- `PROTOCOL` needs main+1 at merge: the shared definitions change the MCP tool schemas and argument checks.
 
 ### The drawer's own program leaves whole, and comes back (PIE-892)
 

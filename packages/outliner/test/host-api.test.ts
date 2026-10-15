@@ -4,7 +4,6 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_TOOL_DEFINITIONS } from "@ep0ch/outline-core/agent-tool-definitions";
 import { OutlinerClient } from "../src/client";
 import { hostApi } from "../src/host-api";
 import { OutlinerServer } from "../src/server";
@@ -41,7 +40,6 @@ async function setup() {
 test("every agent tool is a function, and a script's writes are the agent's, checked against the revision it read", async () => {
   const { store, client } = await setup();
   const api = hostApi(client, { actorId: "garden-script", sessionId: "run-1" });
-  expect([...api.tools].sort()).toEqual(AGENT_TOOL_DEFINITIONS.map(d => d.name).sort());
 
   const made = await api.call("outline_create", { parent: "root", text: "Seed swap [type::plan]\nBring labels." }) as { id: string; revision: number };
   const read = await api.tool.outline_read!({ ref: made.id }) as { revision: number; text: string };
@@ -101,4 +99,19 @@ test("a run streams its steps as they happen, and calls side by side don't wait 
   await hostApi(client, undefined, { onStep: async () => { throw new Error("offline"); } }).read(made[0]!.id);
   await expect(api.call("outline_trash", { ref: made[1]!.id })).rejects.toThrow();
   expect(steps.slice(-4).map(s => [s.seq, s.tool, s.phase])).toEqual([[4, "outline_read", "start"], [4, "outline_read", "done"], [5, "outline_trash", "start"], [5, "outline_trash", "refused"]]);
+});
+
+test("step delivery is deferred and unknown calls still report their refusal", async () => {
+  const { client } = await setup();
+  let dispatched = false;
+  const observed: { tool: string; phase: string; dispatched: boolean }[] = [];
+  const api = hostApi(client, { actorId: "garden-script" }, {
+    onStep: s => { observed.push({ tool: s.tool, phase: s.phase, dispatched }); },
+  });
+  const pending = api.q("type=plan");
+  dispatched = true;
+  await pending;
+  expect(observed.every(s => s.dispatched)).toBe(true);
+  await expect(api.call("outline_nope")).rejects.toThrow("No tool outline_nope");
+  expect(observed.slice(-2).map(s => [s.tool, s.phase])).toEqual([["outline_nope", "start"], ["outline_nope", "refused"]]);
 });

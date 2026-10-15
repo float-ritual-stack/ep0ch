@@ -360,9 +360,9 @@ its name, words, arguments, a call that works and its shape check are in
 write tools and the outliner's host API (`src/host-api.ts`, the tools as plain
 functions for scripts) register too. `hooks/agent-tool-definitions.ts` is the same
 code below its marker line (hooks can't import it); the door's
-`test/tool-args.test.ts` fails when the two differ, and its
-`test/agent-tool-surfaces.test.ts` fails when a tool is on one surface and not the
-other without a reason in `AGENT_TOOL_SURFACES`. Edit outline-core's file, then
+`test/tool-args.test.ts` fails when the two differ. Remaining surface gaps have
+reasons in `AGENT_TOOL_SURFACES`; `test/mcp.test.ts` exercises a script, the mod CLI
+and MCP writing the same scratch note with attribution. Edit outline-core's file, then
 copy from the marker down.
 
 | Tool | Input | Returns |

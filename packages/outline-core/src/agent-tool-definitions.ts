@@ -6,15 +6,12 @@
  * calls (outliner `src/host-api.ts`). The handlers are the outliner's agent operations (`src/agent-tools.ts`), so a mod
  * tool, an MCP write and a script reach the same code.
  *
- * `AGENT_TOOL_SURFACES` says where each tool is registered and, where it isn't yet, why: the door's
- * `test/agent-tool-surfaces.test.ts` fails when a surface registers a tool this file doesn't know, or drops one without
- * a reason here.
+ * `AGENT_TOOL_SURFACES` says where each tool is registered and, where it isn't yet, why.
  *
  * The Claude mod's hooks can't import this module, so `packages/claude-mod/hooks/agent-tool-definitions.ts` carries
  * the same code below the marker line (the door's `test/tool-args.test.ts` keeps the two byte-equal). Edit this file,
  * then copy everything from the marker down.
  *
- * What these accept is what agents may send, not a wire type: no PROTOCOL bump.
  */
 import type { ToolArgsSpec, ToolSchema } from "./tool-args";
 

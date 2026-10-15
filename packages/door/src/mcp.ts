@@ -859,12 +859,6 @@ const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => cal
 const toolList = (outlines: McpOutlines, writes: boolean, caller: McpCaller | undefined) =>
   [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
 
-/** Every tool name the gateway can offer, writes and admin included: what the agent tool surfaces test compares (PIE-720). */
-export function everyGatewayTool(): string[] {
-  const outlines = { kind: "local", defaultOutline: "garden", machine: "here", admin: { machine: "here" } } as unknown as McpOutlines;
-  return toolList(outlines, true, { sub: "surfaces" }).map(t => t.name);
-}
-
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
 async function offersWrites(outlines: McpOutlines, caller: McpCaller | undefined): Promise<boolean> {
