@@ -130,6 +130,9 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
   it. Name any place where it built its own instead (a second dock or drawer, a screen-only layout, a key with no action,
   a switch on a tile kind's name, a second renderer or parser, a client re-deriving what the service owns, a tool
   path that skips the shared action list). Expect at least one; fix it or say why not.
+- **Questions answered twice:** for each new helper that reads existing state, is that question already answered
+  elsewhere (the function behind a panel row, a status line, an error, `^W P`)? A re-derivation of an answer the
+  door already shows is a parallel part, however small; make the owner return data and call it.
 - **Service meaning (boundary):** the service owns truth and meaning; clients own presentation. Does the change
   re-derive what the service owns (view membership, property parsing, query evaluation, backlinks, what changed)
   instead of asking it?
