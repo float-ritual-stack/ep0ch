@@ -50,6 +50,7 @@ import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
 import { lastTrashed } from "../note-trash";
+import { markReveal, revealOn } from "../reveal";
 import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -260,7 +261,6 @@ function readNav(raw: unknown): SavedNav | null {
  * scoped to that navigation: another show of the same note (a refresh, another follow) is a different object.
  * `by`: whose follow it was; an agent's never scrolls or marks the reader the person has focused.
  */
-const revealOn = new WeakMap<Msg, { fragment: string; by: Actor }>();
 
 /**
  * A reader's history keys (PIE-453): alt+←, backspace or the mouse's back button go back; alt+→ or its forward
@@ -669,7 +669,7 @@ export class NoteSurface {
   /** Bring the current element into view on the next render (after `[ ]`, `( )` or a fold). */
   private reveal = false;
   /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
-  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean } | null = null;
+  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean } | null = null;
   private revealMark = false;
   /**
    * Folded headings and list items (their FoldPoint keys): this reader's reading state, never the note's
@@ -1434,7 +1434,7 @@ export class NoteSurface {
       ...(open.length > OPEN_SHOWN ? [dim(`  and ${open.length - OPEN_SHOWN} more left open`)] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
-      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
+      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · the line that links here${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
     if (this.panel?.card) {
       const card = this.panel.card, fields = this.settingFields(m, card.schemas);
@@ -1503,7 +1503,7 @@ export class NoteSurface {
     this.reveal = false;
     const markRows = this.focusMark ? this.focusRows(this.focusMark.spec, m, doc, noteLines, top) : null;
     // A followed fragment comes to the top (a line of what's above it kept); an agent's mark only as far as needed.
-    if (this.revealMark && markRows) { if (this.focusMark?.fragment) this.scroll = Math.max(0, markRows[0] - top - 1); else bringIn(markRows); }
+    if (this.revealMark && markRows) { if (this.focusMark?.fragment || this.focusMark?.line) this.scroll = Math.max(0, markRows[0] - top - 1); else bringIn(markRows); }
     this.revealMark = false;
     // The comment being written (PIE-770) comes into view when it opens and as it's typed in: the inline box (its
     // cursor's row, when the box is taller than the view), else its passage. Otherwise the note holds still.
@@ -4665,7 +4665,7 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    if (l.fragment) revealOn.set(target, { fragment: l.fragment, by: host.actor ?? USER });
+    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at } : {}) }, host.actor ?? USER);
     this.track(() => host.navigate(target, how));
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
@@ -4721,7 +4721,8 @@ export class NoteSurface {
     if (!r) return;
     if (r.by.kind === "agent" && host.focused !== false) return;
     revealOn.delete(m);
-    void this.revealFragment(r.fragment, host, r.by);
+    if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
+    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by);
   }
 
   /** `u`: the note's parent. */
@@ -5246,6 +5247,26 @@ export class NoteSurface {
     const at = lines.indexOf(startLine);
     for (const p of points) if (this.folded.has(p.key) && at >= 0 && p.line < at && at < p.end) this.folded.delete(p.key);
     this.focusMark = { by, spec: { line: startLine + 1, to: endLine + 1 }, label: `^${fragment}`, at: Date.now(), fragment: true };
+    this.revealMark = this.scroll === from;
+    host.redraw();
+  }
+
+  /**
+   * Scroll to the line of this note that holds a reference (a backlinks row opened, PIE-884: `at`, the reference's
+   * offset in the text the service read) and mark it, as an anchored link's fragment is. Folds around it open.
+   */
+  async revealAt(at: number, host: SurfaceHost, by: Actor = USER) {
+    const m = this.msg;
+    if (!m) return;
+    const from = this.scroll;
+    let now: Msg;
+    try { now = await this.whole(); } catch { return; }
+    if (now.id !== m.id) return;
+    const line = now.text.slice(0, Math.max(0, Math.min(at, now.text.length))).split("\n").length - 1;
+    const { points, lines } = this.foldsIn(now);
+    const shown = lines.indexOf(line);
+    for (const p of points) if (this.folded.has(p.key) && shown >= 0 && p.line < shown && shown < p.end) this.folded.delete(p.key);
+    this.focusMark = { by, spec: { line: line + 1, to: line + 1 }, label: `line ${line + 1}`, at: Date.now(), line: true };
     this.revealMark = this.scroll === from;
     host.redraw();
   }

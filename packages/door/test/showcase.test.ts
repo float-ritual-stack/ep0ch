@@ -1420,6 +1420,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
     await until(() => shows("detail") === first.id, "⏎: the detail holds it", 5000);
     expect(links().target.id).toBe(seeded.notes.shed.id);
+    // PIE-884: the row said which line links here (a quote of it), and the detail it opened marks that line.
+    expect(screen()).toContain("“");
+    await until(() => (stage().pane("detail") as any).surface.focusMark?.line === true, "the linking line marked in the opened note", 5000);
     expect(S().focus).toBe("index");
   }, 20_000);
 
