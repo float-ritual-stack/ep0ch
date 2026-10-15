@@ -646,20 +646,56 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect((await board.listExtensions(true))?.extensions.find(e => e.id === "gardener")?.state).toBe("active");
   }
 
-  async function streamingGardener() {
+  async function streamingGardener(chunks = ["Sow the peas.", "\n\nWater the beds."]) {
     await gardener();
     const gate = join(scratch.root, `answer-finish-${crypto.randomUUID()}`);
     writeFileSync(join(scratch.workspace, "extensions", "gardener", "run.ts"), `
       import { existsSync } from "node:fs";
       await Bun.stdin.text();
-      console.log(JSON.stringify({ reply: "Sow the peas." }));
+      console.log(JSON.stringify({ reply: ${JSON.stringify(chunks[0])} }));
       while (!existsSync(${JSON.stringify(gate)})) await Bun.sleep(20);
-      console.log(JSON.stringify({ reply: "\\n\\nWater the beds." }));
+      console.log(JSON.stringify({ reply: ${JSON.stringify(chunks[1])} }));
       console.log(JSON.stringify({ ok: true, value: {} }));
     `);
     await board.listExtensions(true);
     return gate;
   }
+
+  test("streaming stops when the person extends the answer's last line", async () => {
+    const gate = await streamingGardener();
+    const e = await editing("Changed answer\n\n");
+    e.type("@gardener plan the beds"); e.d.newline(false); e.type("Keep writing");
+    try {
+      await until(() => e.d.text.includes("Sow the peas."), "the first chunk", 8000);
+      const at = e.d.lines.findIndex(line => line.includes("Sow the peas."));
+      e.d.place(at, e.d.lines[at]!.length); e.type(" My addition.");
+      e.d.place(e.d.lines.length - 1, e.d.lines.at(-1)!.length);
+      writeFileSync(gate, "finish");
+      await until(() => ["replied", "failed"].includes(e.d.asks.get("@gardener plan the beds")?.state ?? ""), "the stream to settle");
+      expect(e.d.text).toContain("Sow the peas. My addition.");
+      expect(e.d.text).not.toContain("Water the beds.");
+    } finally { writeFileSync(gate, "finish"); }
+  }, 20000);
+
+  test("streamed credentials stay redacted across reply chunks", async () => {
+    const gate = await streamingGardener(["First paragraph.\n\nfictional-garden-", "credential Done."]);
+    const folder = join(scratch.workspace, "extensions", "gardener");
+    const secret = join(scratch.root, "fictional-key");
+    writeFileSync(secret, "fictional-garden-credential", { mode: 0o600 });
+    const manifest = JSON.parse(readFileSync(join(folder, "extension.json"), "utf8"));
+    writeFileSync(join(folder, "extension.json"), JSON.stringify({ ...manifest, secrets: { example: "Fictional test key" } }));
+    writeFileSync(join(folder, "config.json"), JSON.stringify({ secrets: { example: { file: secret } } }));
+    await board.listExtensions(true);
+    const e = await editing("Redacted answer\n\n");
+    e.type("@gardener plan the beds"); e.d.newline(false); e.type("Keep writing");
+    try {
+      await until(() => e.d.text.includes("First paragraph."), "the safe first paragraph", 8000);
+      writeFileSync(gate, "finish");
+      await until(() => e.d.text.includes("Done."), "the completed answer");
+      expect(e.d.text).not.toContain("fictional-garden-credential");
+      expect(e.d.text).toContain("[redacted] Done.");
+    } finally { writeFileSync(gate, "finish"); writeFileSync(join(folder, "config.json"), "{}"); }
+  }, 20000);
 
   test.each(["agent", "person"])("an answer streams through the held draft before the agent exits, with one undo step (%s)", async who => {
     const gate = await streamingGardener();

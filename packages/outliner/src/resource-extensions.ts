@@ -701,7 +701,21 @@ export class ResourceExtensionRuntime {
       // same host and folder, and the mod knows the socket is this machine's.
       ...(outlinesOfHostSocket(connection.socket) ? { EP0CH_OUTLINES: outlinesOfHostSocket(connection.socket)! } : {}),
     };
-    let output: string;
+    let output: string, replyTail = "";
+    const deliverReply = async (chunk: string, final = false) => {
+      signal!.throwIfAborted();
+      const text = scrubCredentials(replyTail + chunk, secretValues) as string;
+      // A suffix may be the beginning of a credential in the next chunk; don't publish it yet.
+      let keep = 0;
+      if (!final) for (const token of secretForms(secretValues)) {
+        for (let n = 1; n < token.length && n <= text.length; n++) {
+          if (text.endsWith(token.slice(0, n))) keep = Math.max(keep, n);
+        }
+      }
+      replyTail = keep ? text.slice(-keep) : "";
+      const ready = text.slice(0, text.length - keep);
+      if (ready) await callFor.reply!(ready);
+    };
     try {
       output = await runCommand(
         loaded.manifest.command,
@@ -711,11 +725,9 @@ export class ResourceExtensionRuntime {
         signal,
         env,
         () => secretValues,
-        callFor.reply ? async chunk => {
-          signal!.throwIfAborted();
-          await callFor.reply!(scrubCredentials(chunk, secretValues) as string);
-        } : undefined,
+        callFor.reply ? deliverReply : undefined,
       );
+      if (callFor.reply && replyTail) await deliverReply("", true);
     } finally {
       revokeGrant(grant);
     }

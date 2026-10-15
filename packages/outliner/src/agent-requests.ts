@@ -659,6 +659,10 @@ export class AgentRequests {
           const mark = requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey);
           if (!mark) throw new Error("the ask changed while answering");
           const start = mark.end - mark.text.length;
+          const after = current.text.slice(start + replySpan.length);
+          if (replySpan !== line.text && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
+            throw new Error("the answer changed while streaming; your text was kept");
+          }
           const replacement = `${line.text}\n> [!note]- @${line.agent} answered\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
           const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
           const outcome = await this.store.changes.run(
