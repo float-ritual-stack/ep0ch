@@ -467,13 +467,13 @@ test("agent operations take ref and its aliases; two aliases for different notes
   const { store, agent } = await setup();
   const note = store.create("Seed swap plan\n\nBorlotti.");
   const other = store.create("Pond notes\n\nFrogs.");
-  for (const alias of ["ref", "id", "reference", "block", "blockId", "uri", "note"]) {
-    const read = await agent("read", { [alias]: note.id });
+  // Each call starts a CLI process: all seven aliases at once, so the test costs a few starts in a row, not twenty.
+  await Promise.all(["ref", "id", "reference", "block", "blockId", "uri", "note"].map(async alias => {
+    const [read, said] = await Promise.all([agent("read", { [alias]: note.id }), agent("comment", { [alias]: note.id, body: `via ${alias}`, whole: true })]);
     expect(read.exitCode, `${alias}: ${read.stderr}`).toBe(0);
     expect(read.json.id).toBe(note.id);
-    const said = await agent("comment", { [alias]: note.id, body: `via ${alias}`, whole: true });
     expect(said.exitCode, `${alias}: ${said.stderr}`).toBe(0);
-  }
+  }));
   const edits = await agent("edit", { ref: note.id, id: other.id, expectedRevision: note.revision, append: "Nope." });
   expect(edits.exitCode).toBe(1);
   expect(edits.stderr).toContain("Ambiguous");
