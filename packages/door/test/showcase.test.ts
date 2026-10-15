@@ -3456,6 +3456,26 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("an ask's plain answer streams into the showcase's existing answer tile", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "asks" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "asks")).top;
+    await until(() => !!extensionList()?.extensions.some(e => e.id === "showcase-planter"), "the planter loaded");
+    const reader = stage.paneNamed("notes") as ReaderPane;
+    await stage.startSession(reader, "edit");
+    const d = reader.surface.draft!;
+    await stage.dispatch.press("draft.place", { line: d.lines.length, col: 1 }, "notes");
+    await stage.dispatch.press("draft.paste", { text: "@planter describe the beds\nStill writing" }, "notes");
+    await until(() => d.text.includes("Sow peas along the fence."), "the first paragraph", 15000).catch(async error => { throw new Error(`${error.message}\n${d.text}\n${JSON.stringify(await board.request("resources.projection.read", { blockId: seeded.notes.asks.id }))}`); });
+    expect(d.text).not.toContain("Water the beds in the evening.");
+    await stage.dispatch.press("draft.paste", { text: " as it answers" }, "notes");
+    await until(() => screen().includes("Water the beds"), "the next paragraph beside the note");
+    expect(reader.surface.draft).toBe(d);
+    expect(d.text).toContain("Still writing as it answers");
+    await stage.dispatch.press("edit.close", { discard: true }, "notes");
+  }, 30000);
+
   test("an ask keeps the draft open while its script view runs beside it", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "asks" }, as: "test-agent" });

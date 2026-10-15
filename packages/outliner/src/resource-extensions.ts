@@ -1,3 +1,4 @@
+import { StringDecoder } from "node:string_decoder";
 import { createHash } from "node:crypto";
 import { userFolderInUse, userFolderOf } from "./extension-folders";
 import { homedir } from "node:os";
@@ -165,6 +166,7 @@ async function runCommand(
   env: Record<string, string> = baseEnv(),
   /** The call's secrets, read when it fails, so its stderr is scrubbed of every one (a group asked for while it ran too). */
   secrets: () => readonly string[] = () => [],
+  reply?: (chunk: string) => Promise<void>,
 ): Promise<string> {
   if (Buffer.byteLength(input) > MAX_REQUEST_BYTES)
     throw failure("request exceeds 256 KiB");
@@ -182,6 +184,16 @@ async function runCommand(
       env,
     });
     const chunks: Buffer[] = [];
+    const decoder = new StringDecoder("utf8");
+    let pending = "", delivered = Promise.resolve();
+    const line = async (text: string) => {
+      let value: unknown;
+      try { value = JSON.parse(text); } catch { chunks.push(Buffer.from(text + "\n")); return; }
+      if (reply && value && typeof value === "object" && "reply" in value) {
+        if (typeof value.reply !== "string" || Object.keys(value).length !== 1) throw failure("a reply chunk is { reply: text }");
+        await reply(value.reply);
+      } else chunks.push(Buffer.from(text + "\n"));
+    };
     // The end of stderr, kept only to say why a process failed (scrubbed, its last lines), never stored otherwise.
     let stderr = Buffer.alloc(0);
     let cut = false;
@@ -207,8 +219,7 @@ async function runCommand(
       clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
       kill();
-      if (error) reject(error);
-      else accept(Buffer.concat(chunks).toString("utf8"));
+      delivered.then(() => error ? reject(error) : accept(Buffer.concat(chunks).toString("utf8")), reject);
     };
     const abort = () =>
       finish(
@@ -230,11 +241,21 @@ async function runCommand(
     child.stdout.on("data", (chunk: Buffer) => {
       length += chunk.length;
       if (length > MAX_RESULT_BYTES) finish(failure("response exceeds 1 MiB"));
-      else chunks.push(chunk);
+      else if (!reply) chunks.push(chunk);
+      else {
+        pending += decoder.write(chunk);
+        const lines = pending.split("\n");
+        pending = lines.pop()!;
+        for (const text of lines) delivered = delivered.then(() => line(text));
+        void delivered.catch(error => finish(error));
+      }
     });
     child.stdin.on("error", () => {});
     child.on("close", (code, killed) => {
-      if (code === 0) return finish();
+      if (code === 0) {
+        if (reply) { pending += decoder.end(); if (pending) delivered = delivered.then(() => line(pending)); }
+        return finish();
+      }
       const tail = stderrTail(scrubCredentials(cut ? uncut(plainText(stderr.toString("utf8")), secrets()) : plainText(stderr.toString("utf8")), secrets()) as string);
       const how = code === null ? `was stopped (${killed ?? "a signal"})` : `exited with code ${code}`;
       finish(failure(`command ${how}${tail ? `: ${tail}` : " and wrote nothing to stderr"}`));
@@ -322,6 +343,7 @@ export interface ExtensionConnection {
 
 /** Who a call is for: the change feed's label for what its process writes, and who asked for it. */
 export interface ExtensionCallFor {
+  readonly reply?: (chunk: string) => Promise<void>;
   /** `ext.<id>.<action>`; default `ext.<id>.<operation>`. */
   readonly label?: string;
   /** Whether its process may write over its connection (default: no, it only reads). */
@@ -679,7 +701,21 @@ export class ResourceExtensionRuntime {
       // same host and folder, and the mod knows the socket is this machine's.
       ...(outlinesOfHostSocket(connection.socket) ? { EP0CH_OUTLINES: outlinesOfHostSocket(connection.socket)! } : {}),
     };
-    let output: string;
+    let output: string, replyTail = "";
+    const deliverReply = async (chunk: string, final = false) => {
+      signal!.throwIfAborted();
+      const text = scrubCredentials(replyTail + chunk, secretValues) as string;
+      // A suffix may be the beginning of a credential in the next chunk; don't publish it yet.
+      let keep = 0;
+      if (!final) for (const token of secretForms(secretValues)) {
+        for (let n = 1; n < token.length && n <= text.length; n++) {
+          if (text.endsWith(token.slice(0, n))) keep = Math.max(keep, n);
+        }
+      }
+      replyTail = keep ? text.slice(-keep) : "";
+      const ready = text.slice(0, text.length - keep);
+      if (ready) await callFor.reply!(ready);
+    };
     try {
       output = await runCommand(
         loaded.manifest.command,
@@ -689,7 +725,9 @@ export class ResourceExtensionRuntime {
         signal,
         env,
         () => secretValues,
+        callFor.reply ? deliverReply : undefined,
       );
+      if (callFor.reply && replyTail) await deliverReply("", true);
     } finally {
       revokeGrant(grant);
     }

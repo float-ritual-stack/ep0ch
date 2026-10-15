@@ -45,6 +45,10 @@ the isometric map as one page, `out/architecture-map.html` (open it in a browser
 
 ## Inline answers
 
+Inline asks can stream plain answers into their closed answer fold while you keep typing. The answer tile
+beside the note reads that same draft, the ask row counts arriving paragraphs, and undo takes back the whole
+answer. Try `@planter describe the beds` in the showcase's **asks** section.
+
 Write an `@name` ask on its own line and keep typing below it. The ask's quiet timer follows that line,
 not the rest of the draft. Its reply lands through `draft.patch`, attributed and undoable, folded under
 the ask. Clicking or moving the caret onto the ask opens its fold and selects the answer beside the note. In the answer tile, `f` opens or closes

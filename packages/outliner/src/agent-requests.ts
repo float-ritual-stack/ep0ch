@@ -615,6 +615,9 @@ export class AgentRequests {
     this.live.set(key, { blockId, extensionId: extension.id, chain: chain ?? newChain(line.agent) });
     this.store.putAgentRequest({ ...base, status: "running" });
     this.deps.changed(blockId, { line: line.text, state: "working" });
+    let streamed = "", replySpan = line.text;
+    const replyGroup = crypto.randomUUID();
+    let blocks = 0;
     let answer: Pick<AgentRequestRow, "status" | "message" | "reply" | "proposalId"> | null = null;
     try {
       const draft = await this.deps.readDraft(blockId);
@@ -646,6 +649,34 @@ export class AgentRequests {
         writes: agent.effects === "write", requestedBy: base.requestedBy.startsWith("agent:")
           ? { author: "agent", actorId: base.requestedBy.slice(6) } : { author: "user" },
         label: `ext.${extension.id}.agent.${line.agent}`,
+        reply: async chunk => {
+          if (this.stopped) throw new Error("the service stopped while answering");
+          const text = cleanExtensionText(chunk, true);
+          if (!text) return;
+          streamed += text;
+          if (Buffer.byteLength(streamed) > MAX_REPLY) throw new Error("reply must be text up to 64 KiB");
+          const current = await this.deps.readDraft(blockId);
+          const mark = requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey);
+          if (!mark) throw new Error("the ask changed while answering");
+          const start = mark.end - mark.text.length;
+          const after = current.text.slice(start + replySpan.length);
+          if (replySpan !== line.text && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
+            throw new Error("the answer changed while streaming; your text was kept");
+          }
+          const replacement = `${line.text}\n> [!note]- @${line.agent} answered\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
+          // Keep an existing quotation outside the answer fold, including while it is edited.
+          const separator = replySpan === line.text && after.startsWith("\n>") ? "\n" : "";
+          const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
+          const outcome = await this.store.changes.run(
+            this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
+            () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
+              replyTo: line.text, replyGroup, patches: [{ observed: replySpan, replacement: replacement + separator, range: { start, end: start + replySpan.length } }] }),
+          );
+          if (outcome.outcome !== "applied") throw new Error(`answer proposed instead: ${outcome.reason}`);
+          replySpan = replacement;
+          blocks = streamed.split(/\n\s*\n/).filter(part => part.trim()).length;
+          this.deps.changed(blockId, { line: line.text, state: "working", blocks, beside: true });
+        },
       });
       let respond: RespondValue;
       try {
@@ -657,7 +688,10 @@ export class AgentRequests {
       // patch that would, this one's included, so its edit can't set off another agent.
       // Reworded while it ran: the answer was to a request that isn't there any more.
       if (!stillThere((await this.deps.readDraft(blockId)).text)) return;
-      if (respond.patches.length) {
+      if (streamed) {
+        if (respond.patches.length || respond.reply !== undefined) throw new Error("a streamed answer finishes with message only, not another reply or patches");
+        answer = { status: "replied", message: respond.message ?? "answer in the note" };
+      } else if (respond.patches.length) {
         const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
         // The edit's own feed entries say which agent made it. `current`: typing elsewhere in the note
         // doesn't make it a proposal; typing in that passage does.
@@ -704,7 +738,7 @@ export class AgentRequests {
       // Not answered (the line changed): put back what was known before this run, or nothing.
       else if (current && previous) this.store.putAgentRequest(previous);
       else if (current) this.store.pruneAgentRequests(blockId, this.store.agentRequests(blockId).map((row) => row.requestKey).filter((candidate) => candidate !== requestKey));
-      this.deps.changed(blockId, { line: line.text, state: answer?.status ?? "withdrawn", ...(answer?.status === "replied" ? { blocks: 1, beside: true } : {}) });
+      this.deps.changed(blockId, { line: line.text, state: answer?.status ?? "withdrawn", ...(answer?.status === "replied" ? { blocks: blocks || 1, beside: true } : {}) });
       const again = this.again.get(key);
       if (again) {
         this.again.delete(key);

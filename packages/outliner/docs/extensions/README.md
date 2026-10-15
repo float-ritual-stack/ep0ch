@@ -1087,6 +1087,17 @@ lands in the note while he goes on. That needs a door that says when he types in
   `agents.held` lists them (the door's waiting-on-you list, `ep0ch ext ls`).
 - **Who asked.** `r` takes the presser's `mutation` (`{ author: user }` or `{ author: agent,
   actorId }`; a person when absent) and records it as `requestedBy` (`user`, `agent:<id>`).
+- **Streaming a plain inline answer (PIE-903):** on the same stdout, write one JSON line
+  `{ "reply": "next chunk" }` per chunk, then the usual final envelope
+  `{ "ok": true, "value": { "message": "optional completion message" } }`.
+  Chunks concatenate (include your own spaces/newlines); the final value must not repeat `reply` or contain
+  `patches`. The service applies each chunk through `draft.patch`, attributed to the extension, into the
+  ask's existing answer fold. The beside tile reads that same draft, the status row counts paragraphs,
+  and the answer is one draft undo step even with typing between chunks. A changed answer/ask stops the
+  stream without overwriting the person's edit; partial text remains if the process fails. Streaming is
+  for plain inline replies; script replies and margin threads keep their completed-response path.
+  `@margin` streams an inline answer command's stdout through this format.
+
 - **`respond`** gets the note as the person sees it (their live draft when a door holds one), the
   request (the words after the name) and the mark (the request line), plus bounded context. It
   answers any of:
