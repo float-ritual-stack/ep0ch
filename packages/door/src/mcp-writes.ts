@@ -196,6 +196,11 @@ export const assignIdRefusal = (level: McpAccessLevel): string | null => level =
 export const restoreRefusal = (level: McpAccessLevel): string | null => level === "full" ? null
   : `outline_restore brings a note back from Trash and can't be proposed: it needs full access (this outline's is ${level}).`;
 
+/** Settling a proposal cannot become another proposal; check before queueing and again at its destination. */
+export const proposalSettlementRefusal = (tool: McpWriteTool, level: McpAccessLevel): string | null =>
+  (tool === "outline_proposal_apply" || tool === "outline_proposal_dismiss") && level !== "full"
+    ? `${tool} settles a proposal and can't be proposed: it needs full access (this outline's is ${level}).` : null;
+
 /** Whether a level allows writes, and which kind. */
 /** When a patch was read at an older revision and applied on the newer one, say which (PIE-687). */
 const rebasedSaid = (edits: readonly { revision?: number; rebasedFrom?: number }[]): string => {
@@ -353,9 +358,8 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
     const why = restoreRefusal(o.level) ?? (o.proposeOnly ? "outline_restore can't be proposed: the note changed since it was read." : null);
     if (why) throw Object.assign(new Error(why), { name: "WorkToolRefusal" });
   }
-  if ((write.tool === "outline_proposal_apply" || write.tool === "outline_proposal_dismiss") && o.level !== "full") {
-    throw new Error(`${write.tool} settles a proposal and can't be proposed: it needs full access (this outline's is ${o.level}).`);
-  }
+  const settlementRefusal = proposalSettlementRefusal(write.tool, o.level);
+  if (settlementRefusal) throw Object.assign(new Error(settlementRefusal), { name: "WorkToolRefusal" });
   const propose = kind === "proposals" || o.proposeOnly ? "always" : "held";
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
     ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}${rebasedSaid(r.edits)}`, detail: r }
