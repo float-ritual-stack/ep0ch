@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A single tilde never strikes text; only double tildes do (PIE-899) (#584)
+
+- **Fixed:** home paths and approximations (`~/.claude/~/projects`, `~178 … ~`) read as written in the door, Detail and on published pages; `~~double~~` still strikes. One rule in outline-core (PROTOCOL 183).
+
+### Agents settle proposals by id, with no reader (PIE-898) (#582)
+
+- **Added:** an agent applies or dismisses a proposal by its id through one shared tool (mod and MCP), and the dispatcher's `tile=` reaches tiles inside a mounted screen, so no reader is opened beside the person to do it (PROTOCOL 181).
+
 ### Script blocks run through the host API while typing continues (PIE-601) (#583)
 
 - **Added:** QuickJS runs for script blocks and outline script files, reached through extension actions and the power bar, with attributed progress in a child note.
@@ -30,7 +38,7 @@ are its record. The outliner's entries from then are kept below, under
   `agent.back`, keeping the same tile and process. Restart is refused while the program is out, and closing its tile
   lets the drawer tab run its program again; an agent's return preserves the person's focus.
 
-### Edit table cells in the reader (PIE-593)
+### Edit table cells in the reader (PIE-593) (#579, #580)
 
 - Rich edit draws Markdown and static graph-table flow rows over the existing draft. Click or navigate cells,
   type, add/remove rows and columns, undo and save; Ctrl+O returns to raw source. Streamed draft tables use
