@@ -17,7 +17,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Added:** an answer tile shares the comment tile's dock pair; an agent-written `[script::]` reply
   runs immediately and can return the existing component view primitives. The `asks` showcase and a
   scratch tmux test exercise typing while an answer arrives.
-- **Deployment:** wire changed; PROTOCOL needs main+1 at merge (loki assigns).
+- **Deployment:** wire changed; PROTOCOL 187 requires the host and its clients to update together.
 
 ### Scripts run from keys, names, rules and inline asks (PIE-900)
 

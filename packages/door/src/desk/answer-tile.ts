@@ -16,10 +16,14 @@ export class AnswerTile implements Pane {
   room = 1;
   links: Link[] = [];
   ranges: LinkRange[] = [];
-  constructor(readonly source: string, public ask: string) {}
+  constructor(readonly source: string, public ask: string, public fold?: string) {}
   title() { return this.ask; }
   hint() { return "↑↓ scroll · 1–9 follow a link · f fold/unfold in the note"; }
-  spec() { return { source: `tile:${this.source}`, state: { ask: this.ask } }; }
+  spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold } }; }
+  answer(text: string) {
+    const at = text.split("\n").indexOf(this.ask);
+    return foldPoints(text).find(p => this.fold ? p.key === this.fold : p.line === at + 1);
+  }
   key(k: Key, desk: DeskApi) {
     const c = ch(k);
     if (c === "f") { void desk.press?.(this, ANSWER_ACTIONS, "answer.fold"); return true; }
@@ -38,8 +42,7 @@ export class AnswerTile implements Pane {
     const reader = desk.paneNamed?.(this.source);
     if (!(reader instanceof ReaderPane)) return { lines: ["The answer's reader has closed."] };
     const text = reader.surface.draft?.text ?? reader.msg?.text ?? "";
-    const lines = text.split("\n"), at = lines.indexOf(this.ask);
-    const fold = foldPoints(text).find(p => p.line === at + 1);
+    const lines = text.split("\n"), fold = this.answer(text);
     this.links = [];
     const doc = reader.surface.snippetDoc(fold ? lines.slice(fold.line + 1, fold.end).map(l => stripQuotes(l, 1)).join("\n") : "Waiting for the answer…", w, reader.host(desk), this.links);
     this.ranges = doc.links;
@@ -51,12 +54,14 @@ export class AnswerTile implements Pane {
 
 const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
   "answer.fold": def({
-    summary: "fold or unfold this answer in its draft", keys: "f", touches: "tile", replay: "safe",
+    summary: "fold or unfold this answer in its note", keys: "f", touches: "tile", replay: "safe",
     args: {},
     async run(_, { pane, desk }, actor) {
       const reader = desk.paneNamed?.(pane.source);
-      if (!(reader instanceof ReaderPane) || !reader.surface.draft) throw new ActionRefused("open the note's draft first");
-      const line = reader.surface.draft.lines.indexOf(pane.ask) + 2;
+      if (!(reader instanceof ReaderPane)) throw new ActionRefused("open the answer's note first");
+      const fold = pane.answer(reader.surface.draft?.text ?? reader.msg?.text ?? "");
+      if (!fold) throw new ActionRefused("this ask has no answer to fold");
+      const line = fold.line + 1;
       return desk.within?.("fold.toggle", { line }, actor, reader);
     },
   }),
@@ -80,5 +85,5 @@ export const ANSWER_TILE: TileKind = {
   kind: "answer", noun: "an answer tile",
   actions: ANSWER_ACTIONS,
   about: "an ask's answer from the live note beside it",
-  make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? "")),
+  make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined),
 };

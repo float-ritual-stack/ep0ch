@@ -149,7 +149,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
-  answerTile?(ask: string, actor: Actor): Promise<unknown>;
+  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>;
   composerTile?(on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** The comment's own tile is open now (composerTile's): false once it was closed by hand. */
   hasComposerTile?(): boolean;
@@ -2361,7 +2361,7 @@ export class NoteSurface {
       answered: (ask, by) => { void this.run("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e))); },
       closed: how => this.draftClosed(s, how, host),
     });
-    s.draft.onAskSelected = ask => { void this.runKey("ask.beside", { ask }, host); };
+    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
     this.msg = fresh;
     this.modes.push(this.draftMode(s));
     return s;
@@ -6879,8 +6879,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "ask.beside": def({
     summary: "show this ask's answer beside the note, keeping the person's keys in the note",
     touches: "shape", replay: "safe",
-    args: { ask: { type: "string", about: "the ask line as written" } },
-    async run({ ask }, { host }, actor) { return host.answerTile?.(ask, actor) ?? null; },
+    args: { ask: { type: "string", about: "the ask line as written" }, fold: { type: "string", optional: true, about: "the selected answer's fold identity" } },
+    async run({ ask, fold }, { host }, actor) { return host.answerTile?.(ask, actor, fold) ?? null; },
   }),
   "rich.toggle": def({
     summary: "switch rich/raw edit; both views use the same draft",

@@ -64,7 +64,7 @@ export class Draft {
   /** The screen row of the cursor in the last render (the completion popup opens under it). */
   cursorRow = 0;
   readonly asks = new Map<string, import("@ep0ch/outline-core/protocol").AskProgress>();
-  onAskSelected: ((ask: string) => void) | null = null;
+  onAskSelected: ((ask: string, fold?: string) => void) | null = null;
   private foldCache: { text: string; points: FoldPoint[] } | null = null;
   private openedFolds = new Set<string>();
   private anchoredRow: number | null = null;
@@ -908,10 +908,10 @@ export class Draft {
 
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
   private selectAsk() {
-    if (!this.asks.has(this.line)) return;
     const answer = this.answerFolds().find(p => p.line === this.row + 1);
+    if (!answer && !this.asks.has(this.line)) return;
     if (answer) this.openedFolds.add(answer.key);
-    this.onAskSelected?.(this.line);
+    this.onAskSelected?.(this.line, answer?.key);
   }
 
   askStatus(line: string): string {
@@ -922,7 +922,10 @@ export class Draft {
   answerFolds() {
     const text = this.text;
     if (this.foldCache?.text !== text) this.foldCache = { text, points: foldPoints(text) };
-    return this.foldCache.points.filter(p => this.asks.has(this.lines[p.line - 1] ?? ""));
+    return this.foldCache.points.filter(p => {
+      const ask = this.lines[p.line - 1]?.trim() ?? "";
+      return p.kind === "callout" && ask.startsWith("@") && p.text === `${ask.split(/\s+/, 1)[0]} answered`;
+    });
   }
 
   toggleAnswer(p: FoldPoint) {

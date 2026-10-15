@@ -311,7 +311,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return id;
   }
 
-  async answerTile(reader: ReaderPane, ask: string, actor: Actor): Promise<unknown> {
+  async answerTile(reader: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === reader)?.[0];
     if (at === undefined) return null;
     const source = this.nameOf(at);
@@ -321,9 +321,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       id = existing[0];
       if (actor.kind === "agent" && this.hasFocus(existing[1])) return { tile: this.nameOf(id), held: true };
       (existing[1] as AnswerTile).ask = ask;
+      (existing[1] as AnswerTile).fold = fold;
       (existing[1] as AnswerTile).top = 0;
     }
-    else id = this.openPair(at, new AnswerTile(source, ask), "answer", false, actor);
+    else id = this.openPair(at, new AnswerTile(source, ask, fold), "answer", false, actor);
     this.save(); this.redraw();
     return { tile: this.nameOf(id) };
   }
