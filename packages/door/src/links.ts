@@ -377,7 +377,7 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
     if (!m) throw new ActionRefused("that source isn't in the outline any more");
     // It opens on the line that links here.
     const line = backlinkLine(r.source);
-    if (line) markReveal(m, { at: line.at }, actor);
+    if (line) markReveal(m, { at: line.at, label: line.label }, actor);
     return { note: m };
   }
   if (r.kind === "child" || r.kind === "match") {
@@ -419,16 +419,16 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
  * in the source (`at`, an offset into its text: opening the row lands there) and the anchor it names (`((id^anchor))`,
  * read from the reference as written, which the service records as the occurrence's label). Null: no occurrence read.
  */
-export function backlinkLine(source: BacklinkSource): { snippet: string; at: number; anchor?: string } | null {
+export function backlinkLine(source: BacklinkSource): { snippet: string; at: number; label: string; anchor?: string } | null {
   const o = source.occurrences.find(x => x.kind === "block") ?? source.occurrences[0];
   if (!o) return null;
   const ref = o.kind === "block" ? referencedBlock(o.label) : null;
-  return { snippet: o.snippet, at: o.start, ...(ref?.fragment ? { anchor: ref.fragment } : {}) };
+  return { snippet: o.snippet, at: o.start, label: o.label, ...(ref?.fragment ? { anchor: ref.fragment } : {}) };
 }
 
 /** A row's place as a link a reader's elements open (the inline component's rows), or null for a header. */
 export function linkTargetOf(r: LinkRow): LinkTarget | null {
-  if (r.kind === "backlink") { const line = backlinkLine(r.source); return { block: r.source.blockId, ...(line ? { at: line.at } : {}), role: "row" }; }
+  if (r.kind === "backlink") { const line = backlinkLine(r.source); return { block: r.source.blockId, ...(line ? { at: line.at, atLabel: line.label } : {}), role: "row" }; }
   if (r.kind === "child" || r.kind === "match") return { block: r.child.block.id, role: "row" };
   if (r.kind === "outlink") {
     const res = r.link.resolution;

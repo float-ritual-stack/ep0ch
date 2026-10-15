@@ -4665,7 +4665,7 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at } : {}) }, host.actor ?? USER);
+    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}) } : {}) }, host.actor ?? USER);
     this.track(() => host.navigate(target, how));
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
@@ -4722,7 +4722,7 @@ export class NoteSurface {
     if (r.by.kind === "agent" && host.focused !== false) return;
     revealOn.delete(m);
     if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
-    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by);
+    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label);
   }
 
   /** `u`: the note's parent. */
@@ -5255,14 +5255,22 @@ export class NoteSurface {
    * Scroll to the line of this note that holds a reference (a backlinks row opened, PIE-884: `at`, the reference's
    * offset in the text the service read) and mark it, as an anchored link's fragment is. Folds around it open.
    */
-  async revealAt(at: number, host: SurfaceHost, by: Actor = USER) {
+  async revealAt(at: number, host: SurfaceHost, by: Actor = USER, label?: string) {
     const m = this.msg;
     if (!m) return;
     const from = this.scroll;
     let now: Msg;
     try { now = await this.whole(); } catch { return; }
     if (now.id !== m.id) return;
-    const line = now.text.slice(0, Math.max(0, Math.min(at, now.text.length))).split("\n").length - 1;
+    // The offset is the service's read of the note; edited since, the reference is looked for where it was, else the nearest one.
+    let where = at;
+    if (label && now.text.slice(at, at + label.length) !== label) {
+      const all: number[] = [];
+      for (let i = now.text.indexOf(label); i >= 0; i = now.text.indexOf(label, i + 1)) all.push(i);
+      if (!all.length) { host.ctx.flash(`${label} isn't in the note any more · it opens at the top`); return; }
+      where = all.reduce((best, i) => (Math.abs(i - at) < Math.abs(best - at) ? i : best));
+    }
+    const line = now.text.slice(0, Math.max(0, Math.min(where, now.text.length))).split("\n").length - 1;
     const { points, lines } = this.foldsIn(now);
     const shown = lines.indexOf(line);
     for (const p of points) if (this.folded.has(p.key) && shown >= 0 && p.line < shown && shown < p.end) this.folded.delete(p.key);

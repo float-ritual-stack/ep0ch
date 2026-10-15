@@ -5,8 +5,11 @@
 import type { Msg } from "./board";
 import type { Actor } from "./socket";
 
-/** `fragment`: an anchor or heading id in the note; `at`: a character offset in its text (the line that links). */
-export interface Reveal { fragment?: string; at?: number }
+/**
+ * `fragment`: an anchor or heading id in the note; `at`: a character offset in its text (the line that links), with `label`,
+ * the reference as written there, so a note edited since the service read it is searched for it rather than trusted.
+ */
+export interface Reveal { fragment?: string; at?: number; label?: string }
 
 export const revealOn = new WeakMap<Msg, Reveal & { by: Actor }>();
 
