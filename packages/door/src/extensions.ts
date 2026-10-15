@@ -69,6 +69,7 @@ export interface ExtensionArgChoice extends ExtensionActionArg {
 export interface ExtensionHandler { key: string; kind: string; effects: string; description?: string; fields?: string[] }
 export interface ExtensionAgent { name: string; description?: string; effects?: string; threads?: boolean }
 export interface ExtensionEntry {
+  script?: { keys: readonly string[] };
   /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
   id: string; name?: string; version?: number; description?: string; origin?: string;
   /** `active`, `failed` (it may still serve its last good version), `disabled` or `shadowed`. */
@@ -212,6 +213,15 @@ function cleaned(l: ExtensionList): ExtensionList {
 /** The last list read (null before it's read, or from a service without extensions). */
 export const extensionList = (): ExtensionList | null => current;
 
+export function scriptBindings() {
+  return scriptActions().flatMap(s => s.extension.script!.keys.map(key => ({ key, action: s.action.name })));
+}
+
+export function scriptActions() {
+  return (current?.extensions ?? []).filter(e => serving(e) && e.script).flatMap(e => e.actions.filter(a => a.id === "run").map(a => ({ extension: e, action: a })));
+}
+
+
 /** The extension `id` as listed, while it serves. */
 export const extensionNamed = (id: string): ExtensionEntry | undefined => current?.extensions.find(e => e.id === id && serving(e));
 
@@ -313,13 +323,17 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
  * Run an extension's action through the service (`extensions.act`) and say what it did. Its writes are the
  * extension's (`ext:<id>`), whoever asked; an agent's run is said as the agent's on the status bar.
  */
-export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+export function connectScriptActions(ctx: ExtOn["ctx"]): void {
   ctx.board.scriptAction = call => {
     if (!ctx.dispatch) return Promise.reject(new Error("The door dispatcher is unavailable"));
     const { tile, ...args } = call.args;
     return ctx.dispatch.act({ action: call.action, args, ...(typeof tile === "string" ? { tile } : {}) }, call.actor.author === "user"
       ? { kind: "user" } : { kind: "agent", id: call.actor.actorId ?? call.actor.author });
   };
+}
+
+export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+  connectScriptActions(ctx);
   const say = asActor(ctx, actor);
   const name = extensionNamed(extension)?.name ?? oneLine(extension);
   say.flash(`${name}: ${a.label.toLowerCase()}…`);
@@ -369,7 +383,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
   return {
     summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it and attributes its writes${a.effects === "write" ? "" : " (it only answers)"}.${a.fieldsFrom === "block" ? ` It also asks for the fields the note writes as [form-field::<name> <type> …] (read the note for them): give them as with='{"<field>":"<value>"}'.` : ""}${unbound}`,
-    ...(key ? { keys: `${key}, click` } : { keys: "click" }),
+    ...(e.script?.keys.length ? { keys: `${e.script.keys.join(", ")}, click` } : key ? { keys: `${key}, click` } : { keys: "click" }),
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {

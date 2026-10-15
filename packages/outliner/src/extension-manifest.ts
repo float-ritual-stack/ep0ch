@@ -239,7 +239,7 @@ const Agent = Type.Object(
     name: ID,
     description: Type.Optional(Type.String({ maxLength: 300 })),
     /** `spend`: it costs money or model time (said in listings; a request line is the consent either way). */
-    effects: Type.Optional(Type.Union([Type.Literal("read"), Type.Literal("spend")])),
+    effects: Type.Optional(Type.Union([Type.Literal("read"), Type.Literal("spend"), Type.Literal("write")])),
     deadline: Type.Optional(Duration),
     /**
      * It answers in comment threads too: `@name …` in a comment on a passage (or a reply in its thread) runs `respond`
@@ -803,6 +803,7 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
 }
 
 export interface ScriptSource {
+  readonly keys?: readonly string[];
   readonly format?: "actions";
   readonly code: string;
   readonly blockId?: string;

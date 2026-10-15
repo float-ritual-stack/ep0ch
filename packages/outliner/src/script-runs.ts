@@ -12,7 +12,9 @@ import type { Block, MutationProvenance, OutlinerChange } from "./types";
 /** Runs outlive the action that starts them; progress is ordinary outline content beside the source. */
 export class ScriptRuns {
   private readonly running = new Set<AbortController>();
-  private readonly tasks = new Set<Promise<void>>();
+  private readonly tasks = new Map<string, Promise<void>>();
+
+  async finished(run: string): Promise<void> { await this.tasks.get(run); }
   private readonly captures = new Map<string, { actor: MutationProvenance; run: <T>(work: () => T) => T }>();
 
   capture<T>(id: string, work: (actor: MutationProvenance) => T): T {
@@ -89,7 +91,7 @@ export class ScriptRuns {
       },
     };
     // An agent's request keeps the dispatcher's focus rules even when the saved source belongs to the person.
-    const dispatchActor = requestedBy.author === "agent" ? { ...requestedBy, sessionId: undo, taskId: actor.taskId } : actor;
+    const dispatchActor = requestedBy.author === "agent" ? { ...requestedBy, sessionId: undo, taskId: actor.taskId } : request.background ? { ...actor, author: "agent" as const, actorId: actor.actorId ?? `script:${extension.name}` } : actor;
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
       mcpAccess: request.mcpAccess,
@@ -124,13 +126,13 @@ export class ScriptRuns {
         }
       }
     })();
-    this.tasks.add(task);
-    void task.finally(() => this.tasks.delete(task)).catch(() => {});
+    this.tasks.set(undo, task);
+    void task.finally(() => { this.tasks.delete(undo); }).catch(() => {});
     return { extension: extension.id, action: "run", message: `running as ${actor.actorId ?? actor.author}; results in ((${log.id}))`, written: [log.id], undo, undoOn: source.blockId ?? log.id, writtenAs: actor.actorId ?? actor.author };
   }
 
   async stop(): Promise<void> {
     for (const run of this.running) run.abort();
-    await Promise.allSettled(this.tasks);
+    await Promise.allSettled(this.tasks.values());
   }
 }

@@ -3141,3 +3141,5 @@ Action lines use the power bar’s shared quote grammar; `{slot}` argument value
 The loader exposes them through the existing extension manifest, and the same script runtime awaits each
 `act` in order, reporting the first refused step in its run note. Editing the source still invalidates an
 older run. The door’s [macro controls](../door/README.md#the-showcase) record these blocks.
+
+Script bindings (keys, names, rules and inline asks) are described in the [script contract](docs/extensions/README.md#script-blocks-and-files-pie-601).

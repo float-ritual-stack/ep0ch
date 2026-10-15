@@ -126,12 +126,13 @@ export type ExtensionBarEntry = ExtensionBarSource;
 export interface ExtensionAgentEntry {
   readonly name: string;
   readonly description?: string;
-  readonly effects: "read" | "spend";
+  readonly effects: "read" | "spend" | "write";
   /** It answers `@name` in comment threads, with the passage (a client's Ask offers it). */
   readonly threads?: boolean;
 }
 
 export interface ExtensionEntry {
+  readonly script?: { readonly keys: readonly string[] };
   readonly id: string;
   readonly name?: string;
   readonly version?: number;
@@ -413,6 +414,10 @@ export class ExtensionRegistry {
 
   /** The active (or last good) copy of an extension. */
   extension(id: string): LoadedExtension | undefined {
+    if (id.startsWith("script:")) {
+      const bound = this.agent(id.slice(7));
+      return bound?.extension.script ? bound.extension : undefined;
+    }
     const slot = this.slots.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
     return slot && (slot.state === "active" || slot.state === "failed") ? slot.serving : undefined;
   }
@@ -497,6 +502,7 @@ export class ExtensionRegistry {
         state: slot.state,
         ...(slot.error ? { error: slot.error } : {}),
         ...(slot.loadedAt ? { loadedAt: slot.loadedAt } : {}),
+        ...(serving && extension.script ? { script: { keys: extension.script.keys ?? [] } } : {}),
         runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length,
         handlers: serving ? (extension.manifest.handlers ?? [])
           .filter((handler) => this.bound.get(handler.key)?.extension === extension)

@@ -1279,8 +1279,9 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
 
   notes.scriptTarget = await make(notes.root.id, "Planting checklist\n- [ ] Prepare the seed labels");
   notes.scripts = await make(notes.root.id, [
-    "Seed report [script::seed-report]",
-    "Run seed-report from the power bar. Keep typing; its progress arrives below. One ext.undo takes back the run.",
+    "Seed report [script::seed-report] [keys::alt+S]",
+    "Press alt+S, or type seed-report in the power bar or / search. Keep typing; its progress arrives below. One ext.undo takes back the run. Keys never interrupt an edit; a clash says which action holds the key.",
+    "The Seed count example below runs from @seed-count in a note, or [rule-on::script:seed-count] on a rule. Agent-written asks wait for r unless an invocation grant permits them.",
     "Record a layout with alt+Q (or the status bar's ⇧⌥Q), do your actions, then alt+Q or REC stop. The saved script is editable action lines. Replace an argument value with {tag}; the power bar asks for it when you run the script.",
     "```ts",
     "const source = (await q('script=seed-report')).blocks[0];",
@@ -1290,6 +1291,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     "return { message: 'Ready for planting', dispatcher };",
     "```", '::links{preview=below title="Runs"}',
   ].join("\n"));
+  await make(notes.scripts.id, "Seed count [script::seed-count]\n```js\nreturn (await q('script')).blocks.length;\n```");
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [
     SEED.richEdit, "", "Edit the cells here. Ctrl+O switches the same draft to raw source and back.", "",

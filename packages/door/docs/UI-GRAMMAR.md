@@ -790,6 +790,12 @@ came from geometry kept from the start of a drag).
 
 ### Key map and clash audit
 
+Saved scripts (PIE-900) add `[keys::alt+S]` bindings through `EXT_ACTIONS` and `Dispatcher.pressBinding`,
+the same entry used by screen key maps. `Dispatcher.bindingProblem` checks declared action keys and screen
+bindings and names the owner of a clash. No built-in key moves. Script bindings are inactive while typing,
+in a picker or chord, and in terminals. The scripts showcase reserves `alt+S` for `seed-report`.
+
+
 Checked against every screen's keys (§4 F4, the board's, the river's, the BBS reader's, the surface's).
 
 | Key | Tiles (the desk and screens on it) | Clash found | Decision |

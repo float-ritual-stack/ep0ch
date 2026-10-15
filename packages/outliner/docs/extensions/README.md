@@ -11,7 +11,21 @@ code; clients (Detail, the door, the publisher, agents) only draw what the servi
 
 A block with `[script::name]` and a closed `js` or `ts` fence loads through the same registry as folder
 extensions. Files in the outline folder's `scripts/` directory (`.js` or `.ts`) use that load path too.
-The door offers Run name in the power bar and `ext.<id>.run` through `act`.
+The door lists scripts by name in the power bar; the name works in `/` too, followed by `slot=value`
+arguments from an `actions` fence. `ext.<id>.run` remains the dispatcher action.
+A block's `[keys::alt+S]` binds a key (several separated by commas); the dispatcher reports clashes with
+existing actions or screen bindings, and typing, pickers and terminals keep their keys.
+
+Names matching the existing @name grammar (lowercase letters, digits and hyphens, starting with a letter,
+up to 32 characters) also register as responders in the same extension registry. `@name slot=value` uses
+the existing quiet timer, live draft reads and PIE-888 invocation grants: agent and extension writes land
+first, held unless a grant allows the wake. The invocation chain remains live until the script finishes.
+Rule notes accept `[rule-on::script:name]`, also for stop and change; the existing match, quiet, writer,
+cap and batch rules still apply. Neither path waits for execution before allowing more typing.
+
+An ask in a live draft uses that draft holder's dispatcher for `act`, under the agent focus rules even
+when the person authored the script. A saved ask or rule has no door: service calls work, while `act`
+reports that it needs a connected door. Run those UI scripts from the power bar or a live draft.
 
 QuickJS codemode runs on a worker. Code has the host API's `tools.*`, `q(query)`, `read(ref)` and
 `act(name, args)`; `act` uses the connected door's dispatcher. Disk, network and imports stay in folder

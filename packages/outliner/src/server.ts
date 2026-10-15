@@ -503,6 +503,11 @@ export class OutlinerServer {
     extensionRuntime.useConnection(connection);
     this.extensionRuntime = extensionRuntime;
     this.agentRequests = new AgentRequests(store, this.extensionRegistry, extensionRuntime, {
+      script: async request => {
+        const result = await this.extensionCalls.act(request);
+        await this.scriptRuns.finished(result.undo!);
+        return result;
+      },
       readDraft: (blockId) => this.draftPatches.read(blockId),
       patch: (input) => this.draftPatches.patch(input),
       changed: (blockId) => this.broadcast({

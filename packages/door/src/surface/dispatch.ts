@@ -11,11 +11,12 @@
 //   (`actorRule`, below), so no action asks who is acting for this;
 // - runs it as the person (a key, a click: a refusal is said, then the screen is redrawn) or as an agent (said on
 //   the status bar before it runs, refused with the reason, and what it did said after: ActionDef.says).
+import type { KeyBinding } from "../desk/screen-spec";
 import { USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
-import { ActionRefused, agentLabel, asActor, declaredKeys, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
+import { ActionRefused, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
 /** `tile=<mount>/<tile>`: a tile of a screen mounted in a tile (PIE-651); names never hold a `/`. */
@@ -138,6 +139,7 @@ export interface DispatchCtx { recordAction?(req: ActRequest, replay: import("./
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
+  bindings?(): readonly KeyBinding[];
   /** The screen's title, for refusals. */
   readonly title: string;
   ctx(): DispatchCtx | null | undefined;
@@ -302,6 +304,22 @@ export class Dispatcher {
    */
   act(req: ActRequest, actor: Actor): Promise<unknown> {
     try { return Promise.resolve(this.run(req, actor)); } catch (e) { return Promise.reject(e); }
+  }
+
+  bindings(): readonly KeyBinding[] {
+    return [...(this.host.bindings?.() ?? []), ...this.regs.flatMap(r => "set" in r ? [] : r.delegate()?.bindings() ?? [])];
+  }
+
+  /** A saved binding must not replace a key the screen or another action already owns. */
+  bindingProblem(binding: KeyBinding): string | undefined {
+    if (!isKeyName(binding.key)) return `${binding.key} isn't a key name; use a name such as alt+S`;
+    const held = this.bindings().find(b => b.key === binding.key && b.action !== binding.action)
+      ?? this.list().actions.find(a => a.name !== binding.action && declaredKeys(a.keys).has(binding.key));
+    return held ? `${binding.key} is held by ${"action" in held ? held.action : held.name}; choose another [keys::] value` : undefined;
+  }
+
+  pressBinding(binding: KeyBinding): Promise<unknown> {
+    return asBoundKey(binding.key, () => this.press(binding.action, binding.args ?? {}, binding.tile));
   }
 
   /**
