@@ -125,7 +125,7 @@ interface HeadPress { id: number; x: number; y: number }
 /** A row of the policy panel (^W P): what it is, its value, what ⏎ or a click does, + and -; `wide` rows say it all in the label. */
 interface PanelRow { label: string; value: string; run?: () => void; adjust?: (by: number) => void; wide?: boolean; wire?: "follows" | "opens" }
 /** One of a tile's links as its panel and header say it (PIE-855): plain words, and what changes or cuts it (an action each). */
-export interface Wire { says: string; change?: { label: string; short?: string; run: () => void }; unlink?: { label: string; run: () => void } }
+export interface Wire { says: string; /** The tile on this desk it follows (or opens into), when there is one: what a drawing decision reads (PIE-886). */ source?: number; change?: { label: string; short?: string; run: () => void }; unlink?: { label: string; run: () => void } }
 
 /**
  * The only screen host (PIE-515), and final: every screen is a spec (src/desk/screen-spec.ts) on it, never a
@@ -1141,12 +1141,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return !!q && q !== p && (!!kindOf(q)?.previews || (q instanceof ReaderPane && q.follows));
   }
   /** DeskApi.followSource: the tile reader `p` follows by a link (its preview role), and whether it's out of sight now. */
-  followSource(p: ReaderPane): { name: string; hidden: boolean } | null {
+  followSource(p: ReaderPane): { name: string; hidden: boolean; id: number } | null {
     const id = this.idOf(p);
     if (id === undefined) return null;
     for (const [z, to] of this.layout.links) {
       if (to !== id || z === id || this.layout.linkRoles.get(z) === "target" || !this.followable(z, p)) continue;
-      return { name: this.nameOf(z), hidden: !this.shownNow(this.panes.get(z)!) };
+      return { name: this.nameOf(z), hidden: !this.shownNow(this.panes.get(z)!), id: z };
     }
     return null;
   }
@@ -1218,8 +1218,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (p instanceof ReaderPane && p.follows) {
       const src = this.followSource(p), change = { label: "change what it follows", run: run("reader.follow") };
       const unlink = { label: "unlink: it stays on the note it shows (held)", run: run("reader.follow", { source: "none" }) };
-      if (src) return { says: `${src.name}'s selection (a link)${src.hidden ? ", out of sight" : ""}`, change, unlink };
-      if (p.followMode === "follows") return { says: "the current note, as it changes", change, unlink };
+      if (src) return { says: `${src.name}'s selection (a link)${src.hidden ? ", out of sight" : ""}`, source: src.id, change, unlink };
+      // The current note: moved by the tile that moved it last, else the tile whose selection the screen's rule follows.
+      if (p.followMode === "follows") return { says: "the current note, as it changes", ...this.currentSource(), change, unlink };
       if (p.followMode === "pinned") return { says: `the page [[${p.pinPage}]]`, change, unlink };
       return { says: "nothing: held on its note", change };
     }
@@ -1227,9 +1228,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (held === false && home) return { says: `the #tags opened in ${home}`, unlink: { label: "unlink: hold it on its tag; the next tag opens a new list", run: run("tile.hold", { on: true }) } };
     if (held === true) return { says: `nothing: held on its tag (${home ?? "its reader"}'s next tag opens a new list)`, change: { label: `follow ${home ?? "its reader"}'s tags again`, run: run("tile.hold", { on: false }) } };
     const src = k?.follows?.(p);
-    if (src) return { says: `${src}'s selection (a preview follows its source)` };
+    if (src) {
+      const bound = boundSource.get(p), at = bound && bound !== NO_SOURCE ? this.idOf(bound) : !bound ? (src.includes("/") ? undefined : this.idNamed(src)) : undefined;
+      return { says: `${src}'s selection (a preview follows its source)`, ...(at !== undefined ? { source: at } : {}) };
+    }
     if (home) return { says: `the note in ${home}` };
     return { says: "nothing" };
+  }
+  /** The tile the current note comes from: the one with a selection that moved it last, else the first such tile (a tree). */
+  private currentSource(): { source?: number } {
+    const selects = (id: number | undefined) => id !== undefined && !!kindOf(this.panes.get(id))?.previews;
+    const at = selects(this.currentBy) ? this.currentBy : [...this.panes.keys()].find(selects);
+    return at !== undefined ? { source: at } : {};
   }
   /**
    * Where an open from tile `id` lands (PIE-855), in plain words from `landing()` (the one landing rule): its own link
@@ -2882,7 +2892,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const look = this.lookAt(pane, framed.cols), lv = look.values;
     // Joined (PIE-886): no frame, a tinted pane that reads as part of the tile it follows, as the admin tree's preview does.
     // `border=joined` asks for it; a preview of a tree has it unless its look says another border.
-    const joined = !dock && !float && (lv.border === "joined" || (lv.border === "auto" && this.followsTree(id, pane)));
+    const joined = !dock && !float && (lv.border === "joined" || (lv.border === "auto" && this.joinedByDefault(id)));
     // Its surface (PIE-675, the look's `bg`): under its content, inside its frame; a dock or a float slides over on it.
     // A joined tile's tint runs to its edges, with no frame to stop at (dark, capped as every surface is).
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : joined ? surfaceBg("raised", lv["bg.strength"]) : "";
@@ -3017,19 +3027,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return out;
   }
 
-  /**
-   * Whether tile `id` previews a tree's selection: it follows one (a preview tile's source), a tree's opens land in it as
-   * its preview (the link's role), or it is a reader following the current note on a desk with a tree: the default for a
-   * joined tile (PIE-886).
-   */
-  private followsTree(id: number, pane: Pane): boolean {
-    const bound = boundSource.get(pane), f = kindOf(pane)?.follows?.(pane);
-    const src = bound && bound !== NO_SOURCE ? bound : !bound && f ? (f.includes("/") ? this.paneAtPath(f) : this.panes.get(this.idNamed(f) ?? -1)) : undefined;
-    // A follower is what it is bound to; only a tile that follows nothing of its own can be a tree's preview by its link.
-    if (f !== undefined && f !== null) return src?.kind === "tree";
-    // A reader that follows the current note (the screen's rule: the tree's selection moves it), with a tree on the desk.
-    if (pane instanceof ReaderPane && pane.followMode === "follows" && !this.followSource(pane) && [...this.panes.values()].some(q => q.kind === "tree")) return true;
-    return [...this.layout.links].some(([z, to]) => to === id && z !== id && this.layout.linkRoles.get(z) === "preview" && this.panes.get(z)?.kind === "tree");
+  /** Whether tile `id` follows a tree (what `followsOf` says it follows): the default for a joined tile (PIE-886). */
+  private joinedByDefault(id: number): boolean {
+    const at = this.followsOf(id).source;
+    return at !== undefined && kindOf(this.panes.get(at))?.kind === "tree";
   }
 
   /** Which way a click on tile `id`'s fold glyph folds it (v: ◂, h: ▾), or null where it can't fold now. */
