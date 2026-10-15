@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Marks only, found and kept (PIE-873)
+
+- **Added:** the byline's comment count is the margin's switch: a click cycles it as `M` does (cards a row each, whole,
+  marks only), and with the margin off it reads `4 comments · marks only (M)`. Comments on the whole note fold to one
+  `▐` after the title; a click opens them.
+- **Changed:** the margin's mode is kept with the reader's tile: a handover, a restart and the next note read the same
+  way, and a reader opened from it (alt+⏎, a ctrl-click) starts in the same mode.
+
 ### Scratch cleanup never stops for a permission prompt
 
 - **Added:** `scripts/scratch-clean <dir>…` removes scratch folders (a `mktemp -d`, an agent-env folder, a finished worktree) and

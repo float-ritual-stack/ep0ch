@@ -76,6 +76,7 @@ const builtins = (): TileKind[] => [
       else if (s.mode === "held" || s.mode === "pinned") { r.holdOn(); if (s.note) r.want = s.note; }
       if (s.label) r.label = s.label;
       if (s.nav) r.wantNav = s.nav;
+      r.takeMargin(s.margin);
       return r;
     },
     ...reading, actions: READER_ACTIONS,
@@ -106,7 +107,7 @@ const builtins = (): TileKind[] => [
   {
     kind: "preview", about: "a reader following a tile's selection or a file (source=tile:<name> or file:<path>)",
     keys: [{ key: "p", label: "preview", spec: at => ({ source: `tile:${at.name}` }) }],
-    make: s => { const p = new PreviewPane((s.source && sourceOf(s.source)) || (s.file ? { file: s.file } : { tile: "tree" })); if (s.label) p.label = s.label; return p; },
+    make: s => { const p = new PreviewPane((s.source && sourceOf(s.source)) || (s.file ? { file: s.file } : { tile: "tree" })); if (s.label) p.label = s.label; p.takeMargin(s.margin); return p; },
     ...reading,
     follower: true,
     // It follows the note sent to it, as it follows its source; back returns to what it showed (PIE-453).

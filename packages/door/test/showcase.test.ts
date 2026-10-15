@@ -23,6 +23,7 @@ import { subject } from "../src/board";
 import { extensionNamed } from "../src/extensions";
 import { drawNote } from "../src/notes-cli";
 import { makeTile } from "../src/desk/tiles";
+import type { ReaderPane } from "../src/desk/panes";
 import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
 import { hyperOn, useHyper } from "../src/hyper";
@@ -1141,6 +1142,44 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The notebook: a saved query over every annotation, the plan's among them.
     const book = await board.readSavedView(seeded.notes.marginaliaNotebook.id);
     expect(book?.blocks.filter(b => b.parentId === plan.id).length).toBeGreaterThanOrEqual(5);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+  // PIE-873: marks only is found where the comments are counted, and kept: a click on the byline's count cycles the margin
+  // (as M), off reads "marks only (M)" there, and the mode goes with the tile's spec and to a reader opened from it.
+  test("marks only (PIE-873): a click on the comment count cycles the margin to marks only, said there; kept in the tile's spec and taken by a reader opened from it", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as any; };
+    await until(() => screen().includes("question · ") && / open comments? \(m\)/.test(screen()), "the plan with its cards and count", 8000);
+    const planId = [...stage().panes.keys()].find((id: number) => stage().nameOf(id) === "plan") as number;
+    const plan = () => stage().panes.get(planId) as ReaderPane;
+    expect(plan().surface.marginMode).toBe("trim");
+    const click = (re: RegExp) => {
+      const ls = screen().split("\n"), y = ls.findIndex(l => re.test(l));
+      expect(y, screen()).toBeGreaterThanOrEqual(0);
+      const x = ls[y]!.search(re) + 3;
+      press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    };
+    click(/■ \d+ open comments? \(m\)/);
+    await until(() => plan().surface.marginMode === "full", "cards whole");
+    click(/■ \d+ open comments? \(m\)/);
+    await until(() => /■ \d+( comments?)? · marks only \(M\)/.test(screen()), "the count says marks only");
+    expect(plan().surface.marginMode).toBe("off");
+    expect(screen()).not.toContain("question · ");
+    // Kept with the tile: its spec (what a layout, a handover and a restart save) says so, and a tile made from it reads the same.
+    const spec = stage().specOf(planId);
+    expect(spec.margin).toBe("off");
+    expect((makeTile({ ...spec }) as ReaderPane).surface.marginMode).toBe("off");
+    // A reader opened from it (alt+⏎, a ctrl-click) starts marks only too.
+    const before = new Set(stage().panes.keys());
+    expect(stage().openReader(plan().msg, { kind: "split", target: planId, dir: "right" }, USER)).toBe(true);
+    const opened = [...stage().panes.keys()].find((id: number) => !before.has(id)) as number;
+    expect((stage().panes.get(opened) as ReaderPane).surface.marginMode).toBe("off");
+    await stage().dispatch.press("tile.close", {}, stage().nameOf(opened));
+    // As it was, for the tests after.
+    click(/■ \d+( comments?)? · marks only \(M\)/);
+    await until(() => plan().surface.marginMode === "trim", "a row each again");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 

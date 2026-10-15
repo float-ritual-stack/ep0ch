@@ -120,5 +120,5 @@ export class PreviewPane extends ReaderPane {
     return super.key(k, desk);
   }
 
-  spec() { return { source: sourceName(this.source) }; }
+  spec() { return { source: sourceName(this.source), ...this.marginSpec() }; }
 }
