@@ -363,7 +363,8 @@ test("tarot (a tile kind): listed for the door's registry; its program keeps a r
 
   // An agent draws without a tile.
   const drawn = await client.request<{ message: string }>({ action: "extensions.act", extension: "tarot", extensionAction: "draw" });
-  expect(drawn.message).toMatch(/^The /);
+  // Today's card (seeded by the date): any of the deck, as `<name>[ (reversed)]: <meaning>`. Not every name starts "The".
+  expect(drawn.message).toMatch(/^[A-Z][A-Za-z ]+( \(reversed\))?: \S/);
 
   // The tile program, run as the door would run it (its command, cwd, env and saved args), keeps a reading.
   const journal = await create("Journal");
