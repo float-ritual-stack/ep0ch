@@ -455,6 +455,21 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => /i \d+ properties · \[comment\]\s*█?│?[^\n]*\n[^\n]*\n[^\n]*│ #allotment #beds +█/.test(screen()), "the tag row under the byline", 5000);
   });
 
+  test("the note section keeps home paths and approximations literal, and strikes only double tildes (PIE-899)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "note" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "note")).top; };
+    const reader = () => (stage().layoutGet().tiles as any[]).find(t => t.showing?.id === seeded.notes.notebook.id);
+    await until(() => !!reader(), "the notebook in the reader", 5000);
+    await app.act({ action: "scroll", args: { to: "top" }, tile: reader().name, as: "test-agent" });
+    for (let n = 0; n < 12 && !screen().includes("copies of ~/.claude/~/projects/x at the same paths"); n++) {
+      await app.act({ action: "scroll", args: { by: 4 }, tile: reader().name, as: "test-agent" });
+    }
+    expect(screen()).toContain("copies of ~/.claude/~/projects/x at the same paths");
+    expect(screen()).toContain("~178 orphaned … ~ stays as written; only this is struck through.");
+    expect(painted.join("\n")).toContain("\x1b[9mthis");
+  });
+
   test("the note section quotes the syntax (PIE-764): the reader's links skip what backticks and a fence hold; an agent following one by number reaches only real ones", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "note" }, as: "test-agent" })).toMatchObject({ key: "note" });

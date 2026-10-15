@@ -20,6 +20,14 @@ function ranges(origins:readonly DocumentOrigin[]) {
   return origins.flatMap(origin=>origin.kind==='source'?origin.slices.map(slice=>[slice.start,slice.end]):[]);
 }
 
+test('Detail keeps single tildes in paths and approximations and strikes double tildes (PIE-899)',()=>{
+  const lines=['copies of ~/.claude/~/projects/x at the same paths','~178 orphaned … ~','~single~','inline ~~~triple~~~','~~this~~'];
+  const {frame}=reader(sourceDocument(observeDocument({kind:'block',blockId:'synthetic-tildes'},lines.join('\n'))),100);
+  expect(frame.lines.map(line=>line.trimEnd())).toEqual([...lines.slice(0,-1),'this']);
+  const struck=frame.cells.filter(cell=>cell.styles.includes('strikethrough'));
+  expect(struck.map(cell=>cell.text).join('')).toBe('this');
+});
+
 test('the real Markdown reader emits visible grapheme cells and exact escape/code/source evidence together',()=>{
   const text='**A界** é 👩‍💻 \\* ` a\nb `';
   const observed=observeDocument({kind:'block',blockId:'synthetic-reader'},text,4);

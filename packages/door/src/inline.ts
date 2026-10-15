@@ -1,11 +1,12 @@
 // Inline Markdown in read mode, as Detail draws it: `**strong**` / `__strong__` bold, `*em*` / `_em_`
-// italic, `~~del~~` / `~del~` struck through, and `\*` an escaped character. Detail parses with marked
+// italic, `~~del~~` struck through, and `\*` an escaped character. Detail parses with marked
 // (pi-herdr-outliner src/attributed-markdown.ts); the door has no Markdown dependency, so this mirrors
 // CommonMark's delimiter-run rules (flanking, `_` not inside words, the rule of three) and
-// test/inline.test.ts checks it against marked itself. Code spans and links are atoms: emphasis may wrap
+// Code spans and links are atoms: emphasis may wrap
 // them but never reaches inside. The result carries style marks (src/style.ts) that colourBody turns into
 // SGR after wrapping.
 import { STYLE } from "./style";
+import { STRIKETHROUGH_DELIMITER } from "@ep0ch/outline-core/inline-grammar";
 
 /** A link as presentLinks marks it (colour on, its text and tags, colour off), or a code span. */
 const ATOM = /[][^]*|(`+)[^`]*?\1(?!`)/g;
@@ -45,8 +46,7 @@ export function emphasis(text: string): string {
     const right = !prevWs && (!prevP || nextWs || nextP);
     let open = left, close = right;
     if (c === "_") { open = left && (!right || prevP); close = right && (!left || nextP); }
-    // Strikethrough is one or two tildes; a longer run is text.
-    if (c === "~" && len > 2) { open = close = false; }
+    if (c === "~" && len !== STRIKETHROUGH_DELIMITER.length) { open = close = false; }
     flush();
     nodes.push({ text: c.repeat(len), before: [], after: [] });
     if (open || close) runs.push({ ch: c, node: nodes.length - 1, len, orig: len, open, close });

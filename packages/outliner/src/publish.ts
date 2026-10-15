@@ -12,6 +12,7 @@ import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
 import { Marked } from "marked";
+import { blockdownMarked } from "./blockdown-marked";
 import type { OutlinerClient, OutlinerWatcher } from "./client";
 import type { ShareSession, WebSession } from "@ep0ch/outline-core/protocol";
 import type { ShareResolution } from "./share-sessions";
@@ -349,6 +350,7 @@ const SAFE_HREF = /^(?:https?:|mailto:|\/|#|\.{0,2}\/|[^:]*$)/i;
 
 /** Markdown to HTML with authored raw HTML shown as text and only safe link schemes. */
 const markdownRenderer: Marked = new Marked({
+  ...blockdownMarked,
   gfm: true,
   // A callout (`> [!type] Title`) is a box; any other quote stays a quote.
   extensions: [calloutExtension(() => activeCallouts)],

@@ -7,8 +7,9 @@ import {sliceByColumn,stripTerminalSequences,visibleWidth,type Component,type Ma
 import {atomicDocument,concatDocuments,sliceDocument,type MappedDocument} from './document-provenance';
 import {DocumentFrame,documentGlyphs,generatedGlyphs,wrapDocumentGlyphs,type DocumentGlyph,type GlyphStyle} from './document-frame';
 import {COLUMN_BREAK,DETAIL_ROW_LANGUAGE} from './detail-rows';
+import {blockdownMarked} from './blockdown-marked';
 
-const parser=new Marked();
+const parser=new Marked(blockdownMarked);
 type Row=DocumentGlyph[];
 
 function transformed(source:MappedDocument,text:string):MappedDocument {
@@ -70,7 +71,7 @@ function inline(source:MappedDocument,styles:readonly GlyphStyle[]=[],link?:Docu
     let glyphs:DocumentGlyph[]|null;
     switch(token.type) {
       case 'strong': case 'em': case 'del': {
-        const delimiter=token.type==='em'?1:token.type==='del'&&!span.text.startsWith('~~')?1:2;
+        const delimiter=token.type==='em'?1:2;
         const style=token.type==='strong'?'bold':token.type==='em'?'italic':'strikethrough';
         glyphs=inline(sliceDocument(span,delimiter,span.text.length-delimiter),[...styles,style],link,`${path}/${cursor}`,token.tokens,definitions);break;
       }

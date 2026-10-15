@@ -121,6 +121,15 @@ test("slug collisions resolve by age and show in the index", async () => {
   expect(assignPaths(blocks).map((entry) => entry.slug)).toEqual(["moths", `moths~${second.id.slice(0, 8)}`]);
 });
 
+test("published paths and approximations keep single tildes; double tildes strike (PIE-899)", async () => {
+  const { store, get } = await setup();
+  const lines = ["copies of ~/.claude/~/projects/x at the same paths", "~178 orphaned … ~", "~single~", "inline ~~~triple~~~"];
+  const note = store.create(["Tilde notes [publish::true]", ...lines, "~~this~~"].join("\n"));
+  const html = await (await get(`/p/${note.id}?view=html`)).text();
+  for (const line of lines) expect(html).toContain(line);
+  expect(html.match(/<del>.*?<\/del>/g)).toEqual(["<del>this</del>"]);
+});
+
 test("a block without an attachment renders its subtree as markdown: the public never gets a [publish::false] branch, the owner on the tailnet does", async () => {
   const { store, get, publisher } = await setup();
   const hidden = store.create("Neighbour's gate code");

@@ -3,7 +3,19 @@
 import { expect, test } from "bun:test";
 import { renderDoc } from "../src/doc";
 import { width } from "../src/style";
+import { presentLinks } from "../src/refs";
 import { wrap } from "../src/text";
+
+test("single tildes in paths and approximations stay literal; only double tildes strike (PIE-899)", () => {
+  for (const text of ["copies of ~/.claude/~/projects/x at the same paths", "~178 orphaned … ~", "~single~", "inline ~~~triple~~~"]) {
+    const doc = renderDoc(presentLinks(text, false, null), { width: 100, cellW: 9, cellH: 16, graphics: false, maxImageRows: 0, unfold: false });
+    expect(doc.lines.join("").replace(/\x1b\[[\d;]*m/g, "").trim()).toBe(text);
+    expect(doc.lines.join("")).not.toContain("\x1b[9m");
+  }
+  const struck = renderDoc(presentLinks("~~this~~", false, null), { width: 100, cellW: 9, cellH: 16, graphics: false, maxImageRows: 0, unfold: false });
+  expect(struck.lines.join("")).toContain("\x1b[9m");
+  expect(struck.lines.join("").replace(/\x1b\[[\d;]*m/g, "").trim()).toBe("this");
+});
 
 test("wrap ends at a width of zero, less, or not a number: one character a row", () => {
   for (const w of [0, -3, -0.5, NaN]) expect(wrap("rake the leaves", w)).toEqual(wrap("rake the leaves", 1));
