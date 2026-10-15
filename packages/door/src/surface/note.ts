@@ -7237,14 +7237,21 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "follow the selected link (or the nth); where it opens is the view's call; fresh=true opens it in a new reader", keys: "enter, alt+enter, click on a link",
     touches: "tile", replay: "ask", way: "following a link there would move what they're reading · an agent follows one in another reader (tile=), or opens the note with open id= naming no tile (it lands where opens land)",
     args: {
+      ref: { type: "string", optional: true, about: "a link drawn in a snippet: ((id)), [[page]], a URL or #tag" },
       n: { type: "number", optional: true, about: "which link, from 1; default the selected one" },
       fresh: { type: "boolean", optional: true, about: "open it in a new reader (a new detail on the board), as alt+enter does" },
     },
-    async run({ n, fresh }, { surface, host }, actor) {
+    async run({ n, fresh, ref }, { surface, host }, actor) {
       surface.requireNote();
       // While the person's comment is unsent here, they're asked first (PIE-785).
-      const asked = surface.askLeave("link.follow", { ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
+      const asked = surface.askLeave("link.follow", { ...(ref !== undefined ? { ref } : {}), ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
       if (asked) return asked;
+      if (ref !== undefined) {
+        const link = linkOfRef(ref);
+        if (!link) throw new ActionRefused(`${ref} isn't a link`);
+        const m = await surface.followFromDraft(link, host);
+        return m && "id" in m ? { opened: m.id, title: subject(m) } : { opened: null, ...(m ?? {}) };
+      }
       // The person's n= becomes their [ ] position; an agent's follows that link and leaves the position alone.
       if (n !== undefined && actor.kind !== "agent") surface.selectLink(n - 1);
       const links = surface.describe().links;

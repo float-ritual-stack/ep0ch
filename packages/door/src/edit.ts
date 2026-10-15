@@ -906,6 +906,11 @@ export class Draft {
   } | null = null;
 
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
+  askStatus(line: string): string {
+    const ask = this.asks.get(line);
+    return ask ? ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}` : "";
+  }
+
   answerFolds() {
     const text = this.text;
     if (this.foldCache?.text !== text) this.foldCache = { text, points: foldPoints(text) };
@@ -1034,8 +1039,7 @@ export class Draft {
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
       });
-      const ask = this.asks.get(this.lines[r.line]!);
-      const progress = ask && rows[vi + 1]?.line !== r.line ? ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}` : "";
+      const progress = rows[vi + 1]?.line !== r.line ? this.askStatus(this.lines[r.line]!) : "";
       if (progress) line += fg(C.lmagenta) + progress.slice(0, Math.max(0, w1 - r.indent - Bun.stringWidth(cells.join(""))));
       const said = glow.find(g => g.last)?.label;
       const room = w1 - r.indent - Bun.stringWidth(cells.join("")) - 2;

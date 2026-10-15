@@ -3462,8 +3462,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     screen();
     const stage = S().stage(SECTIONS.findIndex(s => s.key === "asks")).top;
     await until(() => !!extensionList()?.extensions.some(e => e.id === "showcase-planter"), "the showcase's planter loaded");
-    await stage.dispatch.press("edit", {}, "notes");
     const reader = stage.paneNamed("notes") as ReaderPane;
+    await stage.startSession(reader, "edit");
     const d = reader.surface.draft!;
     await stage.dispatch.press("draft.place", { line: d.lines.length, col: 1 }, "notes");
     await stage.dispatch.press("draft.paste", { text: "@planter show the seed counts\nStill writing" }, "notes");
@@ -3472,11 +3472,16 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(d.text).toContain("Still writing");
     await until(() => screen().includes("Peas") && screen().includes("Beans"), "the script's table beside the note", 15_000);
     expect(JSON.stringify(await stage.dispatch.act({ action: "layout.get" }, USER))).toContain("answer");
+    press({ kind: "enter" });
+    const caret = { row: d.row, col: d.col };
+    await expect(stage.dispatch.act({ action: "answer.fold", tile: "answer" }, { kind: "agent", id: "test-agent" })).rejects.toThrow();
+    expect({ row: d.row, col: d.col }).toEqual(caret);
     await stage.dispatch.press("answer.follow", { n: 1 }, "answer");
     await until(() => screen().includes("Seed counts"), "the answer's script source opened");
     expect(reader.surface.draft).toBe(d);
     await stage.dispatch.press("edit.save", {}, "notes");
     expect((await board.get(seeded.notes.asks.id))!.text).toContain("Still writing");
+    await expect(stage.dispatch.press("answer.follow", { n: 1 }, "answer")).resolves.toBeDefined();
   }, 40_000);
 
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {

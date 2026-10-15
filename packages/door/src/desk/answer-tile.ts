@@ -57,7 +57,7 @@ const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
       const reader = desk.paneNamed?.(pane.source);
       if (!(reader instanceof ReaderPane) || !reader.surface.draft) throw new ActionRefused("open the note's draft first");
       const line = reader.surface.draft.lines.indexOf(pane.ask) + 2;
-      return reader.surface.run("fold.toggle", { line }, reader.host(desk), actor);
+      return desk.within?.("fold.toggle", { line }, actor, reader);
     },
   }),
   "answer.scroll": def({
@@ -71,7 +71,7 @@ const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
     async run({ n }, { pane, desk }, actor) {
       const reader = desk.paneNamed?.(pane.source), link = pane.links[n - 1], ref = link && refOfLink(link);
       if (!(reader instanceof ReaderPane) || !ref) throw new ActionRefused("choose a link in the answer");
-      return reader.surface.run("edit.follow", { ref }, reader.host(desk), actor);
+      return desk.within?.(reader.surface.draft ? "edit.follow" : "link.follow", { ref }, actor, reader);
     },
   }),
 });
