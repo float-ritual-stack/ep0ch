@@ -427,6 +427,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
     // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
     "facets": ["#frost-jobs", "uses▾", "facets"],
+    "rich-edit": ["Seed inventory", "Beans", "Packets"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -3253,7 +3254,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "edit.save", as: "rich-builder" });
     const saved = await board.get(seeded.notes.richEdit.id);
     expect(saved?.text).toContain("| Beans | 6 |");
-    expect(saved?.text).toContain('["Lettuce","5"]');
+    expect(saved?.text).toContain('["Lettuce", "5"]');
     expect(reader.surface.draft).toBeNull();
   }, 20_000);
 

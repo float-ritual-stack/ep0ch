@@ -4,7 +4,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // media lines as image slots the caller fills with Kitty placements.
 import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
-import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, fgRgb, headOf, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, fgRgb, headOf, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
@@ -1107,7 +1107,7 @@ function chunk(s: string, w: number): string[] {
 const cells = (row: string) => tableCells(row).map(c => c.text);
 
 /** A real table: columns sized to fit, long cells wrap onto more lines instead of truncating. */
-export interface TableCellBox { row: number; col: number; x: number; y: number; width: number }
+export interface TableCellBox { row: number; col: number; x: number; y: number; width: number; offset: number; inset: number; text: string }
 export function table(rows: string[], W: number, literal = false, cell?: (box: TableCellBox) => void): string[] {
   const head = cells(rows[0]!);
   const align = tableAligns(rows[1]!);
@@ -1135,12 +1135,22 @@ export function table(rows: string[], W: number, literal = false, cell?: (box: T
     return a === "r" ? " ".repeat(gap) + s : a === "c" ? " ".repeat(gap >> 1) + s + " ".repeat(gap - (gap >> 1)) : s + " ".repeat(gap);
   };
   const line = (r: string[], header: boolean, row: number, base: number) => {
-    const wrapped = r.map((c, k) => (c ? wrap(c, widths[k]!, BODY) : [""]));
+    const seams: (string | undefined)[][] = r.map(() => []);
+    const wrapped = r.map((c, k) => (c ? wrap(c, widths[k]!, { ...BODY, joins: seams[k] }) : [""]));
+    const offsets = r.map(() => 0);
     const h = Math.max(...wrapped.map(w => w.length));
     const out: string[] = [];
     for (let y = 0; y < h; y++) {
       let x = 1;
-      widths.forEach((width, col) => { cell?.({ row, col, x, y: base + y, width: width + 2 }); x += width + 3; });
+      widths.forEach((width, col) => {
+        const text = visible(wrapped[col]![y] ?? "");
+        offsets[col]! += visible(seams[col]![y] ?? "").length;
+        const gap = Math.max(0, width - vwidth(text));
+        const inset = 1 + (align[col] === "r" ? gap : align[col] === "c" ? gap >> 1 : 0);
+        cell?.({ row, col, x, y: base + y, width: width + 2, offset: offsets[col]!, inset, text });
+        offsets[col]! += text.length;
+        x += width + 3;
+      });
       out.push(B("│") + wrapped.map((w, k) => " " + fit(header ? BOLD + fg(C.white) + (w[y] ?? "") + RESET : inlineOf(w[y] ?? "", literal), widths[k]!, align[k] ?? "l") + " ").join(B("│")) + B("│"));
     }
     return out;

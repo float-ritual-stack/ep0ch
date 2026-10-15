@@ -5,12 +5,12 @@ import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
 import * as T from "@ep0ch/outline-core/table-shape";
 import { type Draft } from "../edit";
 import { table, type TableCellBox } from "../doc";
-import { C, fg, RESET, visible, width, pad } from "../style";
+import { C, fg, RESET, pad, width } from "../style";
 import { SELECT_BG } from "./selection";
-import { USER, type Actor } from "../socket";
+import { type Actor } from "../socket";
 import type { Key } from "../term";
 
-export interface ElementField { line: number; start: number; end: number; value: string }
+export interface ElementField { line: number; start: number; end: number; value: string; encode?: (value: string) => string; decode?: (source: string) => string }
 export type ElementOperation = "row.add" | "row.remove" | "column.add" | "column.remove" | "row.move" | "column.move";
 export interface EditableElement {
   start: number; end: number;
@@ -27,9 +27,9 @@ export interface ElementEditor {
   read(lines: readonly string[]): EditableElement[];
 }
 
-export function drawTableFields(values: string[][], width: number) {
+export function drawTableFields(values: string[][], width: number, separator?: string) {
   const rows = values.map(row => `| ${row.map(T.encodeCell).join(" | ")} |`);
-  rows.splice(1, 0, `| ${values[0]?.map(() => "---").join(" | ")} |`);
+  rows.splice(1, 0, separator ?? `| ${values[0]?.map(() => "---").join(" | ")} |`);
   const cells: TableCellBox[] = [];
   return { lines: table(rows, width, true, cell => cells.push(cell)), cells };
 }
@@ -58,7 +58,7 @@ registerElementEditor({
     for (let i = 0; i < lines.length; i++) {
       if (structure[i] !== -1 || !T.startsTable(lines, i)) continue;
       const start = i, end = T.tableEnd(lines, i), rows = lines.slice(start, end);
-      out.push({ start, end, fields: fieldsOf(rows, start), encode: T.encodeCell, draw: drawTableFields,
+      out.push({ start, end, fields: fieldsOf(rows, start), encode: T.encodeCell, draw: (values, width) => drawTableFields(values, width, rows[1]),
         change: (op, row, col, to) => changeRows(rows, op, row, col, to) });
       i = end - 1;
     }
@@ -100,7 +100,20 @@ function graphFields(lines: readonly string[], start: number): ElementField[][] 
     if (rows && /^\S/.test(l)) rows = false;
     if (!/^headers: \[/.test(l) && !(rows && /^  - \[/.test(l))) continue;
     const fields: ElementField[] = [];
-    for (const m of l.matchAll(/"(?:\\.|[^"\\])*"/g)) fields.push({ line: start + i, start: m.index! + 1, end: m.index! + m[0].length - 1, value: JSON.parse(m[0]) });
+    const from = l.indexOf("[") + 1, to = l.lastIndexOf("]");
+    if (to < from) continue;
+    const body = l.slice(from, to);
+    for (const m of body.matchAll(/"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|[^,\s][^,]*/g)) {
+      const raw = m[0].trim(), offset = from + m.index! + m[0].indexOf(raw);
+      if (!raw) continue;
+      const quoted = raw.startsWith('"') || raw.startsWith("'");
+      let value: unknown;
+      try { value = Bun.YAML.parse(raw); } catch { return []; }
+      if (value !== null && typeof value === "object") return [];
+      fields.push({ line: start + i, start: offset + (quoted ? 1 : 0), end: offset + raw.length - (quoted ? 1 : 0),
+        value: String(value ?? ""), ...(raw.startsWith("'") ? { encode: (s: string) => s.replace(/'/g, "''"), decode: (s: string) => s.replace(/''/g, "'") }
+          : !quoted ? { encode: (s: string) => JSON.stringify(s) } : {}) });
+    }
     out.push(fields);
   }
   return out;
@@ -112,14 +125,16 @@ registerElementEditor({
       if (b.name !== "graph-table" || b.args !== null) return [];
       const end = b.end + 1, values = graphData(lines, b.start, end);
       if (!values) return [];
-      const source = lines.slice(b.start, end), normalized = graphWrite(source, values);
-      if (normalized.join("\n") !== source.join("\n")) return [];
-      return [{ start: b.start, end, fields: graphFields(source, b.start), draw: drawTableFields, encode: (s: string) => JSON.stringify(s).slice(1, -1),
+      const source = lines.slice(b.start, end);
+
+      const fields = graphFields(source, b.start);
+      if (fields.length !== values.length || fields.some((r, i) => r.length !== values[i]!.length)) return [];
+      return [{ start: b.start, end, fields, draw: drawTableFields, encode: (s: string) => JSON.stringify(s).slice(1, -1),
         change(op: ElementOperation, row: number, col: number, to?: number) {
-          const rows = values.map(r => `| ${r.map(T.encodeCell).join(" | ")} |`);
+          const rows = values.map(r => `| ${r.map(v => T.encodeCell(JSON.stringify(v))).join(" | ")} |`);
           rows.splice(1, 0, `| ${values[0]!.map(() => "---").join(" | ")} |`);
           const changed = changeRows(rows, op, row, col, to);
-          return changed && graphWrite(source, changed.flatMap((r, i) => i === 1 ? [] : [T.tableCells(r).map(c => c.text)]));
+          return changed && graphWrite(source, changed.flatMap((r, i) => i === 1 ? [] : [T.tableCells(r).map(c => c.text ? JSON.parse(c.text) as string : "")]));
         } }];
     });
   },
@@ -128,9 +143,15 @@ registerElementEditor({
 export class ElementEdit {
   on = false;
   private top = 0;
+  private total = 0;
+  private room = 1;
+  scroll(by: number) {
+    this.top = Math.max(0, Math.min(Math.max(0, this.total - this.room), this.top + by));
+    this.draft.follow = false;
+  }
   private painted: { text: string; cursor: number } | null = null;
-  private spots: { x: number; y: number; width: number; field: ElementField }[] = [];
-  private controls: { from: number; to: number; action: "rich.toggle" | "rich.move" | "rich.change" | "draft.place"; op?: string }[] = [];
+  private spots: (TableCellBox & { field: ElementField; caret?: number })[] = [];
+  private controls: { from: number; to: number; action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place"; op?: string }[] = [];
   constructor(readonly draft: Draft) {}
   elements() { return [...editors.values()].flatMap(e => e.read(this.draft.lines)).sort((a, b) => a.start - b.start); }
   current() {
@@ -144,14 +165,6 @@ export class ElementEdit {
   open(by: Actor) {
     const d = this.draft;
     if (d.busy) throw new Error("the save is still landing");
-    // Normalize only static graph table data, once, in the same undo history.
-    const lines = [...d.lines];
-    for (const b of componentBlocks(lines).reverse()) {
-      if (b.name !== "graph-table" || b.args !== null) continue;
-      const values = graphData(lines, b.start, b.end + 1);
-      if (values) lines.splice(b.start, b.end + 1 - b.start, ...graphWrite(lines.slice(b.start, b.end + 1), values));
-    }
-    if (lines.join("\n") !== d.text) d.replace(lines.join("\n"), by, "table fields", true);
     this.on = true;
     if (!this.current()) {
       const fields = this.elements().flatMap(e => e.fields.flat());
@@ -171,7 +184,30 @@ export class ElementEdit {
   set(value: string, by: Actor) {
     if (this.draft.busy) throw new Error("the save is still landing");
     const c = this.current(); if (!c) throw new Error("choose a table cell first; rich.move direction=next");
-    this.draft.splice(c.field.start, c.field.end, c.element.encode(value), {}, by);
+    this.draft.splice(c.field.start, c.field.end, (c.field.encode ?? c.element.encode)(value), {}, by);
+    const f = this.elements().find(e => e.start === c.element.start)?.fields[c.row]?.[c.col];
+    if (f) this.draft.place(f.line, f.end);
+  }
+  erase(backward: boolean, by: Actor) {
+    const c = this.current(); if (!c) return;
+    const d = this.draft, line = d.lines[d.row]!, at = backward ? d.col - 1 : d.col;
+    const start = at > c.field.start && line[at - 1] === "\\" ? at - 1 : at;
+    d.splice(start, Math.min(c.field.end, start + 2), "", {}, by);
+  }
+  input(text: string, by: Actor, cut = false) {
+    const c = this.current(); if (!c) return;
+    const d = this.draft;
+    if (cut) d.splice(d.col, c.field.end, "", {}, by);
+    else if (c.field.encode) {
+      const anchor = d.anchor?.row === d.row ? d.anchor.col : d.col;
+      const start = Math.max(c.field.start, Math.min(d.col, anchor)), end = Math.min(c.field.end, Math.max(d.col, anchor));
+      const line = d.lines[d.row]!;
+      const decode = c.field.decode ?? ((s: string) => s);
+      const prefix = decode(line.slice(c.field.start, start)) + text;
+      this.set(prefix + decode(line.slice(end, c.field.end)), by);
+      const next = this.current();
+      if (next) d.place(next.field.line, next.field.start + (next.field.encode ?? next.element.encode)(prefix).length);
+    } else d.pasteText(c.element.encode(text), by);
   }
   change(op: ElementOperation, by: Actor, to?: number) {
     if (this.draft.busy) throw new Error("the save is still landing");
@@ -186,35 +222,52 @@ export class ElementEdit {
     if (f) this.draft.place(f.line, f.start);
   }
   /** Only the draft's existing key handler types. Clamp it to the source field, keeping the delimiters. */
-  key(k: Key, run: (action: "rich.toggle" | "rich.move" | "rich.change" | "draft.place", args?: Record<string, unknown>) => void): boolean {
+  key(k: Key, run: (action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place", args?: Record<string, unknown>) => void): boolean {
     if (k.kind === "char" && k.ctrl && k.ch === "o") { run("rich.toggle"); return true; }
     if (!this.on) return false;
     if (this.draft.busy) return true;
+    if (k.kind === "pgup" || k.kind === "pgdn") { run("rich.scroll", { by: (k.kind === "pgup" ? -1 : 1) * this.room }); return true; }
+    this.draft.follow = true;
     if (k.kind === "esc") { run("rich.toggle", { on: false }); return true; }
-    if (["tab", "backtab", "up", "down", "enter"].includes(k.kind)) { run("rich.move", { direction: k.kind === "backtab" ? "previous" : k.kind === "tab" || k.kind === "enter" ? "next" : k.kind }); return true; }
+    if (!("pasted" in k) && ["tab", "backtab", "up", "down", "enter"].includes(k.kind)) { run("rich.move", { direction: k.kind === "backtab" ? "previous" : k.kind === "tab" || k.kind === "enter" ? "next" : k.kind }); return true; }
     const c = this.current(); if (!c) { this.on = false; return false; }
-    if (k.kind === "char" && !k.ctrl && c.element.encode(k.ch) !== k.ch) {
-      this.draft.pasteText(c.element.encode(k.ch), USER); return true;
+    if (k.kind === "paste" || (k.kind === "char" && !k.ctrl && (c.field.encode || c.element.encode(k.ch) !== k.ch)) || k.kind === "alt-enter" || (k.kind === "enter" && "pasted" in k)) {
+      run("rich.input", { text: k.kind === "paste" ? k.text : k.kind === "char" ? k.ch : "\n" }); return true;
     }
-    if (k.kind === "alt" && ["r", "c", "d", "x"].includes(k.ch)) { run("rich.change", { op: ({ r: "row.add", c: "column.add", d: "row.remove", x: "column.remove" } as Record<string, string>)[k.ch] }); return true; }
+    if (k.kind === "backspace" || k.kind === "delete") {
+      const d = this.draft, line = d.lines[d.row]!;
+      const at = k.kind === "backspace" ? d.col - 1 : d.col;
+      // An escape is one character in the cell; deleting only its quote would break the component.
+      if (!d.anchor && at > c.field.start && line[at - 1] === "\\") {
+        run("rich.erase", { backward: k.kind === "backspace" }); return true;
+      }
+      if (!d.anchor && at >= c.field.start && line[at] === "\\" && at + 1 < c.field.end) {
+        run("rich.erase", { backward: k.kind === "backspace" }); return true;
+      }
+    }
+    if (k.kind === "alt" && ["r", "v", "d", "x"].includes(k.ch)) { run("rich.change", { op: ({ r: "row.add", v: "column.add", d: "row.remove", x: "column.remove" } as Record<string, string>)[k.ch] }); return true; }
     if (k.kind === "char" && k.ctrl && ["a", "e", "k"].includes(k.ch)) {
-      if (k.ch === "k") this.draft.splice(this.draft.col, c.field.end, "");
+      if (k.ch === "k") run("rich.input", { text: "", cut: true });
       else run("draft.place", { line: c.field.line + 1, col: (k.ch === "a" ? c.field.start : c.field.end) + 1 });
       return true;
     }
     if (k.kind === "home" || k.kind === "end") { run("draft.place", { line: c.field.line + 1, col: (k.kind === "home" ? c.field.start : c.field.end) + 1, extend: !!k.shift }); return true; }
-    if ((k.kind === "backspace" || k.kind === "left") && this.draft.col <= c.field.start && !this.draft.anchor) return true;
-    if ((k.kind === "delete" || k.kind === "right") && this.draft.col >= c.field.end && !this.draft.anchor) return true;
+    if ((k.kind === "left" || (k.kind === "backspace" && !this.draft.anchor)) && this.draft.col <= c.field.start) return true;
+    if ((k.kind === "right" || (k.kind === "delete" && !this.draft.anchor)) && this.draft.col >= c.field.end) return true;
     return false;
   }
-  click(x: number, y: number, run: (action: "rich.toggle" | "rich.move" | "rich.change" | "draft.place", args?: Record<string, unknown>) => void, extend = false, press = false) {
+  click(x: number, y: number, run: (action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place", args?: Record<string, unknown>) => void, extend = false, press = false) {
     if (y === 0 && press) return true;
     if (y === 0) { const c = this.controls.find(c => x >= c.from && x < c.to); if (c) { run(c.action, c.op ? { op: c.op } : {}); return true; } }
     const s = this.spots.find(s => y === s.y && x >= s.x && x < s.x + s.width);
     if (!s) return false;
     const current = this.current();
     if (extend && current && (current.field.line !== s.field.line || current.field.start !== s.field.start)) return true;
-    run("draft.place", { line: s.field.line + 1, col: Math.min(s.field.end, s.field.start + Math.max(0, x - s.x - 1)) + 1, extend });
+    const cellX = Math.max(0, x - s.x - s.inset);
+    let offset = s.offset, used = 0;
+    for (const ch of s.text) { if (used + width(ch) > cellX) break; used += width(ch); offset += ch.length; }
+    if (s.caret !== undefined && offset > s.caret) offset--;
+    run("draft.place", { line: s.field.line + 1, col: Math.min(s.field.end, s.field.start + offset) + 1, extend });
     return true;
   }
   render(w: number, h: number, draw: (text: string, width: number) => string[]): string[] {
@@ -239,8 +292,9 @@ export class ElementEdit {
       for (const box of painted.cells) {
         const f = e.fields[box.row]?.[box.col];
         if (!f) continue;
-        spots.push({ x: box.x, y: base + box.y, width: box.width, field: f });
-        if (cur?.field.line === f.line && cur.field.start === f.start) cursor = base + box.y;
+        const active = cur?.field.line === f.line && cur.field.start === f.start;
+        spots.push({ ...box, y: base + box.y, field: f, ...(active ? { caret: d.col - f.start } : {}) });
+        if (active && d.col - f.start >= box.offset && d.col - f.start <= box.offset + box.text.length) cursor = base + box.y;
       }
       body.push(...rendered); at = e.end;
     }
@@ -248,12 +302,15 @@ export class ElementEdit {
     const room = Math.max(1, h - 2);
     if (this.painted && this.painted.text !== d.text && cur) this.top = Math.max(0, this.top + cursor - this.painted.cursor);
     this.painted = { text: d.text, cursor };
-    if (cursor < this.top) this.top = cursor;
-    if (cursor >= this.top + room) this.top = cursor - room + 1;
+    this.total = body.length; this.room = room;
+    if (d.follow) {
+      if (cursor < this.top) this.top = cursor;
+      if (cursor >= this.top + room) this.top = cursor - room + 1;
+    }
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
     d.frame = null;
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
-      fg(C.cyan) + pad(d.note || "Tab/↑↓ cells · alt+r/d row · alt+c/x column · ctrl+s save · ctrl+o raw", w) + RESET,
+      fg(C.cyan) + pad(d.note || "Tab/↑↓ cells · alt+r/d row · alt+v/x column · ctrl+s save · ctrl+o raw", w) + RESET,
       ...body.slice(this.top, this.top + room)];
   }
 }

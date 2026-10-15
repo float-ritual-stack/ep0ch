@@ -7,7 +7,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node
 import { join } from "node:path";
 import { Draft } from "../src/edit";
 import { recordAs } from "../src/draft-session";
-import { ACTOR_ID, actorIdOf, mutationFor, SocketBoard, type Actor } from "../src/socket";
+import { ACTOR_ID, actorIdOf, mutationFor, USER, SocketBoard, type Actor } from "../src/socket";
 import { visible } from "../src/style";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -270,6 +270,70 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.request("fragments.read", { blockId: e.id, fragmentId: "deep-link" })).status).toBe("resolved");
     expect((await board.get(a))!.text).toContain(`((${e.id}^deep-link))`);
   }, 30_000);
+
+  test("rich tables: streamed rows remain editable while the current cell stays put", async () => {
+    const e = await editing("Seed plan\n| Crop | Count |\n| --- | --- |\n| Beans | 2 |\n\n@tidy add a table\n");
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.move", { direction: "down" }, { surface: e.s, host: e.h }, USER);
+    const position = { row: e.d.row, col: e.d.col };
+    const read = await agent.readDraft(e.id);
+    const graph = `::graph-table\n---\nheaders: [Crop, Count]\nrows:\n  - ["Peas", 'O''Brien']\n---\n::`;
+    const r = await agent.request("draft.patch", {
+      blockId: e.id, revision: read.revision, mutation: { author: "agent", actorId: "tidy" },
+      patches: [{ observed: "@tidy add a table", replacement: "@tidy add a table\n\n" + graph }],
+    });
+    expect(r).toMatchObject({ outcome: "applied" });
+    expect({ row: e.d.row, col: e.d.col }).toEqual(position);
+    const { elementEdit } = await import("../src/surface/element-editor");
+    expect(elementEdit(e.d).elements()).toHaveLength(2);
+    e.s.key({ kind: "paste", text: "Green | yellow" }, e.h);
+    expect(e.d.text).toContain("| Green \\| yellowBeans |");
+    const g = elementEdit(e.d).elements()[1]!;
+    await NOTE_ACTIONS.run("draft.place", { line: g.fields[1]![1]!.line + 1, col: g.fields[1]![1]!.end + 1 }, { surface: e.s, host: e.h }, USER);
+    e.type("x");
+    expect(elementEdit(e.d).current()?.field.value).toBe("O'Brienx");
+    await NOTE_ACTIONS.run("draft.place", { line: g.fields[1]![0]!.line + 1, col: g.fields[1]![0]!.start + 1 }, { surface: e.s, host: e.h }, USER);
+    e.type('"');
+    e.s.key({ kind: "backspace" }, e.h);
+    expect(elementEdit(e.d).elements()).toHaveLength(2);
+    await NOTE_ACTIONS.run("rich.set", { value: "Radish" }, { surface: e.s, host: e.h }, USER);
+    e.s.key({ kind: "home" }, e.h);
+    e.s.key({ kind: "end", shift: true }, e.h);
+    e.s.key({ kind: "delete" }, e.h);
+    expect(elementEdit(e.d).current()?.field.value).toBe("");
+    await NOTE_ACTIONS.run("rich.set", { value: "Radish\nSpring" }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.change", { op: "column.add" }, { surface: e.s, host: e.h }, USER);
+    expect(elementEdit(e.d).elements()[1]!.fields[1]![0]!.value).toBe("Radish\nSpring");
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    expect((await board.get(e.id))!.text).toContain("Radish");
+  });
+
+  test("a component adapter edits and saves through the reader's draft", async () => {
+    const { registerElementEditor } = await import("../src/surface/element-editor");
+    const { componentBlocks } = await import("@ep0ch/outline-core/component-block");
+    const unregister = registerElementEditor({
+      id: "seed-label",
+      read(lines) {
+        return componentBlocks(lines).filter(b => b.name === "seed-label").map(b => ({
+          start: b.start, end: b.end + 1,
+          fields: [[{ line: b.start + 1, start: 0, end: lines[b.start + 1]!.length, value: lines[b.start + 1]! }]],
+          encode: value => value.replace(/\n/g, " "),
+          change: () => null,
+          draw(values, width) {
+            const text = values[0]![0]!;
+            return { lines: [text], cells: [{ row: 0, col: 0, x: 0, y: 0, width, offset: 0, inset: 0, text }] };
+          },
+        }));
+      },
+    });
+    try {
+      const e = await editing("Garden label\n::seed-label\nBeans\n::");
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+      e.type("Runner ");
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+      expect((await board.get(e.id))!.text).toContain("::seed-label\nRunner Beans\n::");
+    } finally { unregister(); }
+  });
 
   /** tidy's patch of the sentence in a draft Evan has open, sent while his cursor is in it: it becomes a proposal beside the note, and his draft is as he typed it (PIE-725). */
   async function proposedInDraft(e: Awaited<ReturnType<typeof editing>>, typeInIt = false) {

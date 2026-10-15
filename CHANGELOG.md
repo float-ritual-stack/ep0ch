@@ -19,6 +19,13 @@ are its record. The outliner's entries from then are kept below, under
   `agent.back`, keeping the same tile and process. Restart is refused while the program is out, and closing its tile
   lets the drawer tab run its program again; an agent's return preserves the person's focus.
 
+### Edit table cells in the reader (PIE-593)
+
+- Rich edit draws Markdown and static graph-table flow rows over the existing draft. Click or navigate cells,
+  type, add/remove rows and columns, undo and save; Ctrl+O returns to raw source. Streamed draft tables use
+  the same view. A door-side ElementEditor contract lets component authors supply source spans and drawing.
+- PROTOCOL: needs main+1 at merge (loki assigns); the number is deliberately unchanged on this branch.
+
 ### The drawer's own program leaves whole, and comes back (PIE-892)
 
 - **Fixed:** dragging the drawer's Claude onto the desk left a second tile in the drawer on the same Herdr pane,
