@@ -15,9 +15,10 @@
 //
 // Planning only reads. The client applies a move with `properties.patch` at the revision the plan was
 // made at, so a block that changed in between is refused there, never overwritten.
+import { MACHINE_KEY } from "@ep0ch/outline-core/machinery";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { showQueryAtom } from "@ep0ch/outline-core/query-atoms";
-import { compileQueryExpression, type QueryRelations, serializePropertyFilterValue } from "./block-query";
+import { normalizeBlockSearchQuery, compileQueryExpression, type QueryRelations, serializePropertyFilterValue } from "./block-query";
 import { firstLineWithoutPropertyTokens, formatProperty, parsePropertyRecords } from "./properties";
 import type {
   Block,
@@ -28,7 +29,7 @@ import type {
   RoadmapItemCreateInput,
   RoadmapItemPriority,
 } from "./types";
-import { isVirtualBranchDefinition, parseVirtualBranchConfig } from "./virtual-branches";
+import { isVirtualBranchDefinition, parseVirtualBranchConfig, virtualBranchMembershipQuery } from "./virtual-branches";
 
 /** Stages a roadmap item is never created in: it's created in Queued or Doing, then moved. */
 export const ROADMAP_NOT_CREATED_IN: ReadonlySet<string> = new Set(["review", "validate", "done", "superseded"]);
@@ -93,17 +94,23 @@ export function writeView(id: string, definition: Pick<Block, "id" | "text" | "p
   const parsed = parseVirtualBranchConfig(definition, []);
   if (!parsed.config) return { ok: false, id, name, reason: `${name} is invalid: ${parsed.configurationErrors[0] ?? "no reason given"}` };
   const { filters, where } = parsed.config;
+  const query = normalizeBlockSearchQuery(virtualBranchMembershipQuery(id, parsed.config));
   if (filters.some(f => f.key === "deleted")) {
     return { ok: false, id, name, reason: `${name}'s query selects Trash (deleted=true); a note goes there by trashing it, not by a write` };
   }
-  const expr: QueryExpression = where ?? { kind: "and", operands: filters.map(f => ({ kind: "property" as const, ...f })) };
+  const terms: QueryExpression[] = where ? (where.kind === "and" ? where.operands : [where]) : filters.map(f => ({ kind: "property" as const, ...f }));
+  const machine: QueryExpression = { kind: "property", key: MACHINE_KEY };
+  // Membership flags constrain a write just as they constrain the view's read; a planner never invents a producer.
+  const machinery = query.machinery === "only" ? machine : query.machinery === "hide" ? { kind: "not" as const, operand: machine } : undefined;
+  const expr: QueryExpression = { kind: "and", operands: [...terms, ...(machinery ? [machinery] : [])] };
   const plain: PropertyFilter[] = [], rest: QueryExpression[] = [];
-  for (const term of expr.kind === "and" ? expr.operands : [expr]) {
+  for (const term of terms) {
     // A `child:` clause is about the block's children: a patch to the block can't make it hold.
     if (term.kind === "property" && !term.relation) plain.push(term.value === undefined ? { key: term.key } : { key: term.key, value: term.value });
     else rest.push(term);
   }
   // Where a new block goes (create-parent) is the caller's choice; what it is born with is the view's.
+  if (machinery) rest.push(machinery);
   const creation = parseVirtualBranchConfig({ ...definition, properties: definition.properties.filter(p => p.key !== "create-parent") }, []);
   let create = creation.config?.create ?? null;
   let createError = creation.creationErrors[0];

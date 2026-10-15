@@ -73,6 +73,13 @@ test("a saved view hides machinery unless its note says [machinery::show]", asyn
   const members = async (view: Block) => (await client.request<{ blocks: Block[] }>({ action: "views.read", viewId: view.id, format: "tree" } as never)).blocks.map(b => b.id);
   expect(await members(hidden)).toEqual([]);
   expect(await members(shown)).toEqual([touch.id]);
+  const only = await make("Only tools [type::virtual-branch] [query::type=file-touch] [machinery::only]");
+  const ordinary = await make("A person wrote this [type::file-touch]");
+  const plan = async (view: Block, input: Record<string, unknown>) => (await client.request<{ plans: { plan: { kind: string } }[] }>({ action: "views.planWrite", viewIds: [view.id], ...input } as never)).plans[0]!.plan;
+  expect((await plan(only, { blockId: ordinary.id })).kind).toBe("refused");
+  expect((await plan(hidden, { blockId: touch.id })).kind).toBe("refused");
+  expect((await plan(only, { text: "A new touch" })).kind).toBe("refused");
+  expect((await plan(shown, { blockId: touch.id })).kind).toBe("already");
 });
 
 test("an edit that moved only property tokens says bookkeeping; one that changed words does not", async () => {
@@ -99,6 +106,11 @@ test("by: and revision ask who wrote a note last and how often it was saved, so 
   expect(await asked("by:agent NOT machine")).toEqual(["The orchard map"]);
   expect(await asked("revision >= 2")).toEqual(["The orchard wall, mended"]);
   expect(agent.id).not.toBe(stamped.id);
+  const changed = await client.request<Block>({ action: "update", blockId: agent.id, text: "The orchard map, revised", expectedRevision: agent.revision, mutation: { author: "user" } } as never);
+  expect((await asked("by:user")).sort()).toEqual(["The orchard ledger", "The orchard map, revised", "The orchard wall, mended"]);
+  expect(await asked("by:agent")).toEqual([]);
+  await client.request<Block>({ action: "update", blockId: changed.id, text: "The orchard map, by the gardener", expectedRevision: changed.revision, mutation: { author: "agent", actorId: "gardener" } } as never);
+  expect(await asked("by:gardener")).toEqual(["The orchard map, by the gardener"]);
   await expect(asked("by:")).rejects.toThrow("names no writer");
 });
 
