@@ -298,6 +298,64 @@ test("one rule: an agent's draft.patch may write a request line, in a live draft
   expect(store.get(saved.id)!.text).toBe("Ledger\n@tidy all\nentry for @tidy");
 });
 
+test("a grant the person wrote lets a writer wake an agent: it runs, as that writer's ask; none, or an agent's own note, holds", async () => {
+  const { store, client, create, counted, agentOf } = await setup();
+  const calls = await counted("count");
+  // No grant: held, as before.
+  const plain = await create("Plain\n@count first", "agent");
+  await agentOf(plain.id, (p) => p.agent?.status === "waiting");
+  expect(calls()).toEqual([]);
+  // The service lists what is held, and the extensions list counts it.
+  const held = await client.request<{ held: { blockId: string; title: string; agent: string; why: string; by: string }[] }>({ action: "agents.held" });
+  expect(held.held).toMatchObject([{ blockId: plain.id, title: "Plain", agent: "count", why: "held: claude-test may not wake @count · r to send", by: "agent:claude-test" }]);
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list" });
+  expect(listed.extensions.find((entry) => entry.id === "count")?.held).toBe(1);
+  // An agent's note is no grant: it can't grant itself.
+  const forged = await create("Let me [invoke-from::agent] [invoke-to::count]", "agent");
+  const still = await create("Still held\n@count second", "agent");
+  await agentOf(still.id, (p) => p.agent?.status === "waiting");
+  expect(store.agentRequests(still.id)[0]!.message).toContain("held: claude-test may not wake @count");
+  store.delete(forged.id);
+  // The person's grant: any agent may wake count.
+  await create("Let agents wake count [invoke-from::agent] [invoke-to::count]");
+  expect((await client.request<ExtensionsListResult>({ action: "extensions.list" })).grants).toMatchObject([{ title: "Let agents wake count", from: ["agent"], to: ["count"], maxHops: 1 }]);
+  const woken = await create("Woken\n@count third", "agent");
+  const ready = await agentOf(woken.id, (p) => p.status === "ready");
+  expect(ready.agent).toMatchObject({ status: "replied", requestedBy: "agent:claude-test" });
+  expect(calls()).toEqual(["run third"]);
+  // Another name isn't granted.
+  await counted("other");
+  const elsewhere = await create("Not granted\n@other fourth", "agent");
+  await agentOf(elsewhere.id, (p) => p.agent?.status === "waiting");
+});
+
+test("a chain of woken asks stops at a repeat and at its hop limit, each held with why", async () => {
+  const { store, create, writeAgent, agentOf } = await setup();
+  const patching = (observed: string, replacement: string) => `process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: ${JSON.stringify(observed)}, replacement: ${JSON.stringify(replacement)} }] } }));`;
+  await writeAgent("ping", patching("seed", "@pong next"));
+  await writeAgent("pong", patching("start", "start\n@ping back"));
+  await create("Let the pair talk [invoke-from::ext:ping, ext:pong] [invoke-to::ping, pong] [max-hops::5]");
+  const note = await create("start\nseed\n@ping go");
+  await until("pong asked and answered", () => store.agentRequests(note.id).find((r) => r.agent === "pong" && r.status === "applied"));
+  expect(store.get(note.id)!.text).toBe("start\n@ping back\n@pong next\n@ping go");
+  const back = store.agentRequests(note.id).find((r) => r.request === "back")!;
+  expect(back).toMatchObject({ agent: "ping", status: "waiting", requestedBy: "agent:ext:pong" });
+  expect(back.message).toBe("held: @ping is already in this chain (@ping → @pong → @ping), so a repeat is held · r to send");
+
+  // The default is one hop: the writer wakes the agent, and what that agent writes is held.
+  await writeAgent("first", patching("seed", "@second next"));
+  await writeAgent("second", patching("start", "start\n@third later"));
+  await writeAgent("third", patching("start", "start"));
+  await create("Let first wake second [invoke-from::ext:first] [invoke-to::second]");
+  await create("Let second wake third [invoke-from::ext:second] [invoke-to::third]");
+  const chain = await create("start\nseed\n@first go");
+  await until("second answered", () => store.agentRequests(chain.id).find((r) => r.agent === "second" && r.status === "applied"));
+  const later = store.agentRequests(chain.id).find((r) => r.agent === "third")!;
+  expect(later).toMatchObject({ status: "waiting" });
+  expect(later.message).toMatch(/^held: “Let second wake third” allows 1 hop and this would be hop 2 · r to send$/);
+  await agentOf(chain.id, (p) => p.agent?.name === "third" && p.agent.status === "waiting");
+}, 40_000);
+
 test("notes from before agent requests keep their @name lines old; restarts say what they cut off (B5, B17)", async () => {
   const { store, client, create, restart, counted } = await setup({ quietMs: 60_000 });
   const calls = await counted("count");

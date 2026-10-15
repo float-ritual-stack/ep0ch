@@ -1,4 +1,5 @@
 import type { ExtensionKeyLine } from "./secret-keys";
+import type { InvocationGrant } from "./invocation-grants";
 import type { ExtensionRunStatus } from "./resource-extensions";
 import type { ResourceProviderEntry } from "./resource-references";
 import { extensionProvider } from "./resources";
@@ -153,6 +154,8 @@ export interface ExtensionEntry {
   readonly lastRun?: ExtensionRunStatus;
   /** The with-secrets keys its manifest names, each present or missing and who may have it (PIE-887). Names only. Added by the service. */
   readonly keys?: readonly ExtensionKeyLine[];
+  /** Requests for its agents held for a person's `r` (PIE-888): written by an agent or an extension that no grant lets wake it. Added by the service; absent when none. */
+  readonly held?: number;
 }
 
 export interface ExtensionsListResult {
@@ -175,6 +178,8 @@ export interface ExtensionsListResult {
   readonly targets: readonly string[];
   /** "Trusted code, not a sandbox": extensions run as the service user. */
   readonly trust: string;
+  /** The outline's invocation grants (PIE-888): who may wake whom without a person's `r`, with what is wrong with any note. Added by the service. */
+  readonly grants?: readonly InvocationGrant[];
 }
 
 /** The resource providers among these extensions: one per extension with a `kind: "resource"` handler. */

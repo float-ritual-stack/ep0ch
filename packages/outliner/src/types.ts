@@ -1946,6 +1946,8 @@ export type OutlinerRequestAction =
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
   /** Per-outline local MCP access. Default is none; read/propose/full allow local MCP reads, and propose/full also the write tools (as proposals, or applied). */
   | { id: string; action: "mcp.access.status" }
+  /** The `@name` requests an agent or an extension wrote that wait for a person's `r`, with why (PIE-888). Reads only. */
+  | { id: string; action: "agents.held" }
   | { id: string; action: "mcp.access.configure"; level: McpAccessLevel }
   | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions & WatchFields)
   /** Capability `views.planWrite`: what a move of `blockId` into each view, or a new block with `text`, must change. Reads only. */

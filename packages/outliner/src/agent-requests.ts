@@ -7,12 +7,14 @@ import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown 
 import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
+import { decide, newChain, parseGrant, type InvocationChain, type InvocationGrant } from "./invocation-grants";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { AgentRequestRow, OutlinerStore } from "./store";
 import type { AnnotationRecord, AnnotationThread, Block, MutationProvenance } from "./types";
 import { resourceCommentSource } from "./resource-comments";
 import { parsePropertyRecords } from "./properties";
+import { blockDisplayTitle } from "./references";
 
 /**
  * Agents addressed while you write (PIE-501): a person writes
@@ -181,9 +183,16 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error);
 }
 
+/** A request held for a person's `r`: where it is, who would answer, and why it waits. */
+export interface HeldAsk { blockId: string; title: string; agent: string; extensionId: string; request: string; why: string; by: string; at: string }
+
 export class AgentRequests {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly running = new Set<string>();
+  /** Each ask running now: its note, the extension answering and the chain it came in (grants' hops, PIE-888). */
+  private readonly live = new Map<string, { blockId: string; extensionId: string; chain: InvocationChain }>();
+  /** Wakes through each grant today, for its `cap`: the day they're for and how many. */
+  private readonly wakes = new Map<string, { day: string; n: number }>();
   private stopped = false;
 
   constructor(
@@ -290,7 +299,8 @@ export class AgentRequests {
     if (!block) return;
     // A request line it wrote lands, held: the words are saved as written, and a person's `r` sends it (PIE-888).
     const before = new Set(created ? [] : this.store.agentRequestBaseline(blockId) ?? []);
-    this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined);
+    const decided = this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined);
+    this.wake(blockId, decided.wakes);
     this.remember(blockId, this.shapes(block));
     // Requests whose lines the write took out are withdrawn, as after any save.
     if (this.withdraw(blockId, this.lines(block).map((line) => line.requestKey))) this.deps.changed(blockId);
@@ -302,47 +312,108 @@ export class AgentRequests {
   }
 
   /**
-   * The `@name` lines an agent or an extension wrote that the note never had (`text` is the note, or a door's draft an
-   * agent patched): each is kept as waiting, marked with why (`held: ext:requests may not wake @kitty · r to send`),
-   * and only a person's `r` sends it. The write itself is never refused for it (capture is more reliable than
-   * interpretation). `own`: the extension that made a trigger's block, whose own agents are asked at once instead.
+   * The grants this outline has: notes a person last wrote with `[invoke-from::…]` and `[invoke-to::…]`
+   * (src/invocation-grants.ts). A note an agent or an extension wrote is no grant: they can't grant themselves.
    */
-  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance): void {
+  grants(): InvocationGrant[] {
+    const ids = new Set<string>();
+    for (const key of ["invoke-to", "invoke-from"]) for (const row of this.store.queryBlocks({ filters: [{ key }], limit: 200 }).blocks) ids.add(row.id);
+    const out: InvocationGrant[] = [];
+    for (const id of ids) {
+      const block = this.store.get(id);
+      const grant = block && !block.effectiveDeletedRootId ? parseGrant(block) : null;
+      if (!grant) continue;
+      out.push(block!.author === "user" ? grant : { ...grant, problem: "an agent or an extension wrote it: a grant is the person's (edit it yourself to adopt it)" });
+    }
+    return out;
+  }
+
+  private today = {
+    count: (id: string): number => { const w = this.wakes.get(id); return w && w.day === this.day() ? w.n : 0; },
+    spend: (id: string): void => { const day = this.day(), w = this.wakes.get(id); this.wakes.set(id, { day, n: (w && w.day === day ? w.n : 0) + 1 }); },
+  };
+  private day(): string { return new Date(this.now).toISOString().slice(0, 10); }
+
+  /** The chain an answer being written belongs to: the ask `actor` (an extension's agent) is answering in this note, if any. */
+  private parentChain(blockId: string, actor: MutationProvenance | undefined): InvocationChain | undefined {
+    const id = actor?.actorId?.trim().toLowerCase().split("@", 1)[0];
+    if (!id?.startsWith("ext:")) return undefined;
+    for (const ask of this.live.values()) if (ask.blockId === blockId && `ext:${ask.extensionId}` === id) return ask.chain;
+    return undefined;
+  }
+
+  /**
+   * The `@name` lines an agent or an extension wrote that the note never had (`text` is the note, or a door's draft an
+   * agent patched), each decided under the grants (src/invocation-grants.ts): held, or woken. Held: kept as waiting,
+   * marked with why (`held: ext:requests may not wake @kitty · r to send`), and only a person's `r` sends it. Woken: a
+   * grant lets this writer wake that agent, within its hops, budget and cap, and the ask runs now. The write itself is
+   * never refused for either (capture is more reliable than interpretation). `own`: the extension that made a trigger's
+   * block, whose own agents are asked at once instead. Returns the asks to start (`wakes`) once the lines are in the note,
+   * and the keys it held.
+   */
+  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain }[]; held: string[] } {
+    const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain }[], held: [] as string[] };
     const block = this.store.get(blockId);
-    if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return;
+    if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return out;
     const lines = requestLines(text, this.registry.agentNames());
-    if (!lines.length) return;
+    if (!lines.length) return out;
     const answered = new Set(this.store.agentRequests(blockId).map((row) => row.requestKey));
-    const who = actor?.actorId?.trim() || actor?.author || "system";
-    let held = false;
+    const by = actor?.actorId ? `agent:${actor.actorId}` : actor?.author ?? "system";
+    const grants = this.grants();
+    const parent = this.parentChain(blockId, actor);
     for (const line of lines) {
       // A person's line still waiting out its quiet is theirs, even in a save that an agent made too.
       if (before.has(line.requestKey) || answered.has(line.requestKey) || this.timers.has(this.key(blockId, line.requestKey))) continue;
       const bound = this.registry.agent(line.agent)!;
       if (own?.actorId && `ext:${bound.extension.id}` === own.actorId.trim()) continue;
       answered.add(line.requestKey);
-      held = true;
+      const verdict = decide(grants, actor, line.agent, parent, this.today);
+      if (verdict.wake) { out.wakes.push({ requestKey: line.requestKey, by, chain: verdict.chain }); continue; }
+      out.held.push(line.requestKey);
       this.store.putAgentRequest({
         blockId, requestKey: line.requestKey, agent: line.agent, extensionId: bound.extension.id, request: line.request,
-        status: "waiting", message: `held: ${who} may not wake @${line.agent} · r to send`, requestedBy: actor?.actorId ? `agent:${actor.actorId}` : actor?.author ?? "system",
-        requestedAt: new Date(this.now).toISOString(),
+        status: "waiting", message: `held: ${verdict.why}`, requestedBy: by, requestedAt: new Date(this.now).toISOString(),
       });
     }
-    if (held) this.deps.changed(blockId);
+    if (out.held.length) this.deps.changed(blockId);
+    return out;
+  }
+
+  /** The requests held for a person's `r`, as the waiting-on-you list shows them (PIE-888): the note, the agent, and why. */
+  held(): HeldAsk[] {
+    return this.store.heldAgentRequests().flatMap((row) => {
+      const block = this.store.get(row.blockId);
+      if (!block || block.effectiveDeletedRootId) return [];
+      return [{ blockId: row.blockId, title: blockDisplayTitle(block).slice(0, 120), agent: row.agent, extensionId: row.extensionId, request: row.request, why: row.message ?? "", by: row.requestedBy, at: row.requestedAt }];
+    });
+  }
+
+  /** Start the asks a grant woke, now that their lines are in the note. */
+  private wake(blockId: string, wakes: readonly { requestKey: string; by: string; chain: InvocationChain }[]) {
+    for (const wake of wakes) void this.run(blockId, wake.requestKey, wake.by, wake.chain).catch(() => {});
   }
 
   /**
    * An agent's patch of the note's draft is about to land: the request lines its spans add (in a replacement, not in the
-   * text it replaces) are kept as held now, before the patch, so nothing the person does with the draft sends them. A
-   * line the patch doesn't end up writing has no line to ask and is withdrawn with the next save.
+   * text it replaces) are decided now, before the patch, so nothing the person does with the draft sends a held one. The
+   * answer settles it: landed, the asks a grant woke start (their lines are in the draft); not, the rows it held go.
+   * A line the patch doesn't end up writing has no line to ask and is withdrawn with the next save.
    */
-  holdPatched(blockId: string, patches: readonly DraftPatchSpan[], actor: MutationProvenance): void {
+  holdPatched(blockId: string, patches: readonly DraftPatchSpan[], actor: MutationProvenance): (landed: boolean) => void {
     const added = patches.flatMap((patch) => {
       const had = new Set(requestLines(patch.observed, null).map((line) => line.requestKey));
       return requestLines(patch.replacement, null).filter((line) => !had.has(line.requestKey));
     });
-    if (!added.length) return;
-    this.holdWritten(blockId, added.map((line) => line.text).join("\n"), actor, new Set(this.store.agentRequestBaseline(blockId) ?? []));
+    if (!added.length) return () => {};
+    const decided = this.holdWritten(blockId, added.map((line) => line.text).join("\n"), actor, new Set(this.store.agentRequestBaseline(blockId) ?? []));
+    return (landed) => {
+      if (landed) return this.wake(blockId, decided.wakes);
+      if (decided.held.length) {
+        const keep = this.store.agentRequests(blockId).map((row) => row.requestKey).filter((key) => !decided.held.includes(key));
+        this.store.pruneAgentRequests(blockId, keep);
+        this.deps.changed(blockId);
+      }
+    };
   }
 
   /**
@@ -424,7 +495,7 @@ export class AgentRequests {
       writtenByAgent = true;
     }
     // What an agent or an import wrote is held, said on the line (a person's `r` sends it).
-    if (writtenByAgent) this.holdWritten(blockId, block.text, actor, before);
+    if (writtenByAgent) this.wake(blockId, this.holdWritten(blockId, block.text, actor, before).wakes);
     this.deps.changed(blockId);
   }
 
@@ -505,7 +576,7 @@ export class AgentRequests {
   }
 
   /** `askedBy`: who pressed `r` (absent when a save or a draft's quiet ran it). */
-  private async run(blockId: string, requestKey: string, askedBy?: string): Promise<void> {
+  private async run(blockId: string, requestKey: string, askedBy?: string, chain?: InvocationChain): Promise<void> {
     const key = this.key(blockId, requestKey);
     if (this.stopped) return;
     if (this.running.has(key)) {
@@ -533,6 +604,7 @@ export class AgentRequests {
     };
     const stillThere = (text: string) => text.split("\n").some((candidate) => candidate.replace(/\r$/, "") === line.text);
     this.running.add(key);
+    this.live.set(key, { blockId, extensionId: extension.id, chain: chain ?? newChain(line.agent) });
     this.store.putAgentRequest({ ...base, status: "running" });
     this.deps.changed(blockId);
     let answer: Pick<AgentRequestRow, "status" | "message" | "reply" | "proposalId"> | null = null;
@@ -582,6 +654,7 @@ export class AgentRequests {
       answer = { status: "failed", message: message(error) };
     } finally {
       this.running.delete(key);
+      this.live.delete(key);
       const current = this.store.get(blockId);
       if (answer && current) this.store.putAgentRequest({ ...base, ...answer, answeredAt: new Date(this.now).toISOString() });
       // Not answered (the line changed): put back what was known before this run, or nothing.
