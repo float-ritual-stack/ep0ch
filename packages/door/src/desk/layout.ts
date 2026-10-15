@@ -272,7 +272,9 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   // A container's fixed size with nothing beside it to take the rest (the screen's only row, a dock sliding over it) would
   // leave the rest of the screen to nobody and squeeze its tiles: ignored, the last such one taking the room (PIE-869).
   if (!fixed.some(f => f === undefined)) {
-    const i = n.kids.map((k, j) => j).reverse().find(j => { const k = n.kids[j]!; return k.t !== "leaf" && k.t !== "dock" && cells(k.policy?.fixed) !== undefined && fixed[j] === cells(k.policy?.fixed); });
+    const i = n.kids.map((k, j) => j).reverse().find(j => { const k = n.kids[j]!; // The size came from its policy (a tab set's folded active tile sizes it otherwise).
+      const byTile = k.t === "tabs" && k.ids[k.active] !== undefined && opts.fixed?.(k.ids[k.active]!, n.dir) !== undefined;
+      return k.t !== "leaf" && k.t !== "dock" && !byTile && cells(k.policy?.fixed) !== undefined && fixed[j] === cells(k.policy?.fixed); });
     if (i !== undefined) { fixed[i] = undefined; (out.unfixed ??= new Set()).add(n.kids[i]!); }
   }
   const mins = n.kids.map(k => cells(k.t !== "leaf" ? k.policy?.min : undefined) ?? opts.min?.(k, n.dir, n) ?? (row ? MIN_COLS : MIN_ROWS));
