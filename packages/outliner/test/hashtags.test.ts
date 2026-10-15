@@ -151,3 +151,8 @@ test("an imported quarter tag is queryable independently of storage dates and us
     .toEqual([imported.id]);
 });
 
+
+test("Detail keeps a metadata line's tags in the text, under the title, when its properties go (PIE-880)", () => {
+  expect(propertyInspectorAuthoredText("Fence plan\n[status::draft] #fencing #timber\nThe fence wants posts.").split("\n").map(l => l.trim()))
+    .toEqual(["Fence plan", "#fencing #timber", "The fence wants posts."]);
+});

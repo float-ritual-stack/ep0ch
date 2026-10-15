@@ -473,6 +473,21 @@ test("search inside a share is the share's: only its notes, no crumbs above the 
   await client.request({ action: "shares.revoke", all: true });
 });
 
+test("a note's block-level tags are one row of links under its title, not lost with its properties or left as a stray line (PIE-880)", async () => {
+  const fence = store.create("Fence plan\n[status::draft] #fencing #timber\nThe fence wants new posts. Also #later.", hub.id, "user");
+  const shown = await page(`/pub/p/${fence.id}`);
+  const row = '<p><a href="/pub/search?q=%23fencing">#fencing</a> <a href="/pub/search?q=%23timber">#timber</a></p>';
+  expect(shown).toContain(row);
+  // The row comes before the text and once; the inline tag stays in its sentence.
+  expect(shown.indexOf(row)).toBeLessThan(shown.indexOf("The fence wants new posts."));
+  expect(shown.split("%23fencing").length - 1).toBe(1);
+  expect(shown).toContain('Also <a href="/pub/search?q=%23later">#later</a>.');
+  // A hand-made row that already shows every tag is the row: nothing is drawn twice, and no stray line is left.
+  const own = store.create("Gate plan\n[from::Gardener] #beds\n\n- #beds\nThe gate sticks.", hub.id, "user");
+  const second = await page(`/pub/p/${own.id}`);
+  expect(second.split("%23beds").length - 1).toBe(1);
+});
+
 test("a #tag on a page opens the notes carrying it: title, the tag's line and crumbs; a nested tag counts; inside a share only its notes", async () => {
   const north = store.create("North bed plan #north-star\nWhat the north bed is for.\n- Keep it for brassicas. #north-star/beds\n- `#north-star` in code is no tag.", hub.id, "user");
   const compost = store.create("Compost bays\nTurn the second bay. #north-star", swap.id, "user");

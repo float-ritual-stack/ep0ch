@@ -307,7 +307,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
-    edit: ["Kitchen whiteboard", "properties · 6"],
+    edit: ["Kitchen whiteboard", "properties · 8"],
     // The finding note: what / (the power bar's notes scope) finds, typos and all.
     search: ["Finding things in the house notes", "Press / (on the river, g) and type"],
     // The meeting on the left, a comment being written on the guide on the right (PIE-762).
@@ -444,6 +444,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const stage = screen();
     expect(stage).not.toContain("parallel version");
     expect(stage).not.toContain("BBS Reader");
+    // The notebook's tags are written with its properties, which the reader hides, and they still show: one row of tags
+    // under the byline, before the text (PIE-880).
+    await until(() => /i \d+ properties · \[comment\]\s*█?│?[^\n]*\n[^\n]*\n[^\n]*│ #allotment #beds +█/.test(screen()), "the tag row under the byline", 5000);
   });
 
   test("the note section quotes the syntax (PIE-764): the reader's links skip what backticks and a fence hold; an agent following one by number reaches only real ones", async () => {
@@ -456,6 +459,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(links.length).toBeGreaterThan(2);
     expect(links.filter(l => l.label === "at 08:17" || l.page === "Compost heap" || l.block === "transcript")).toEqual([]);
     expect(links.some(l => l.page === SEED.shed)).toBe(true);
+    // The block-level tags drawn under the byline (PIE-880) are tag links like any other: ⏎ or a click lists the notes carrying one.
+    const tagRow = async () => ((await app.act({ action: "elements", tile: reader().name, as: "test-agent" })) as any).elements.slice(0, 2).map((e: any) => e.label);
+    for (let i = 0; i < 100 && (await tagRow()).join() !== "#allotment,#beds"; i++) { screen(); await Bun.sleep(50); }
+    expect(await tagRow()).toEqual(["#allotment", "#beds"]);
     // Past the last real link there is none: the quoted ones aren't counted.
     await expect(app.act({ action: "link.follow", tile: reader().name, args: { n: links.length + 1 }, as: "test-agent" }))
       .rejects.toThrow(`the note has ${links.length}`);

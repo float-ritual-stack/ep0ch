@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note's block-level tags show in its body (PIE-880)
+
+- **Fixed:** a `#tag` written with a note's properties (`[status::new] #pie-request`) counted as the note's tag and was
+  hidden with them, so the reader showed no tags; people edited notes to `- #a - #b` just to see them. The door's
+  reader now draws them as one row of tag links under the byline, before the text, and the web page as one row under the
+  title (Detail already left them in the text). `i` still lists them as properties; what queries match is unchanged,
+  and a tag in the text or a hand-made `- #a - #b` first line stays as written, with no second row for its tags.
+- **Run:** `ep0ch install --apply` on each machine (PROTOCOL 173: outline-core's `blockTags` decides which tags are block-level,
+  so both sides must run the same copy).
+
 ### EchoNet copies say whose words they hold, and everything it writes is marked (PIE-868)
 
 - **Added:** an EchoNet copy carries `[from-author::user]` (or `agent:<id>`): the source's author, beside the copy being the
