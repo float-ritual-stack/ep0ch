@@ -189,11 +189,18 @@ export class ElementEdit {
     const f = this.elements().find(e => e.start === c.element.start)?.fields[c.row]?.[c.col];
     if (f) this.draft.place(f.line, f.end);
   }
+  private atom(field: ElementField, at: number) {
+    const source = this.draft.lines[field.line]!.slice(field.start, field.end);
+    for (const m of source.matchAll(/\\(?:u[0-9a-fA-F]{4}|[\s\S])|''|[\s\S]/gu)) {
+      const start = field.start + m.index!, end = start + m[0].length;
+      if (start <= at && at < end) return { start, end };
+    }
+    return null;
+  }
   erase(backward: boolean, by: Actor) {
     const c = this.current(); if (!c) return;
-    const d = this.draft, line = d.lines[d.row]!, at = backward ? d.col - 1 : d.col;
-    const start = at > c.field.start && line[at - 1] === "\\" ? at - 1 : at;
-    d.splice(start, Math.min(c.field.end, start + 2), "", {}, by);
+    const d = this.draft, atom = this.atom(c.field, backward ? d.col - 1 : d.col);
+    if (atom) d.splice(atom.start, atom.end, "", {}, by);
   }
   input(text: string, by: Actor, cut = false) {
     const c = this.current(); if (!c) return;
@@ -235,15 +242,14 @@ export class ElementEdit {
     if (k.kind === "paste" || (k.kind === "char" && !k.ctrl && (c.field.encode || c.element.encode(k.ch) !== k.ch)) || k.kind === "alt-enter" || (k.kind === "enter" && "pasted" in k)) {
       run("rich.input", { text: k.kind === "paste" ? k.text : k.kind === "char" ? k.ch : "\n" }); return true;
     }
-    if (k.kind === "backspace" || k.kind === "delete") {
-      const d = this.draft, line = d.lines[d.row]!;
-      const at = k.kind === "backspace" ? d.col - 1 : d.col;
-      // An escape is one character in the cell; deleting only its quote would break the component.
-      if (!d.anchor && at > c.field.start && line[at - 1] === "\\") {
-        run("rich.erase", { backward: k.kind === "backspace" }); return true;
-      }
-      if (!d.anchor && at >= c.field.start && line[at] === "\\" && at + 1 < c.field.end) {
-        run("rich.erase", { backward: k.kind === "backspace" }); return true;
+    if (["backspace", "delete", "left", "right"].includes(k.kind)) {
+      const backward = k.kind === "backspace" || k.kind === "left";
+      const atom = this.atom(c.field, this.draft.col - (backward ? 1 : 0));
+      if (atom && atom.end - atom.start > 1) {
+        if (k.kind === "left" || k.kind === "right") {
+          run("draft.place", { line: c.field.line + 1, col: (backward ? atom.start : atom.end) + 1, extend: !!k.shift }); return true;
+        }
+        if (!this.draft.anchor) { run("rich.erase", { backward }); return true; }
       }
     }
     if (k.kind === "alt" && ["r", "v", "d", "x"].includes(k.ch)) { run("rich.change", { op: ({ r: "row.add", v: "column.add", d: "row.remove", x: "column.remove" } as Record<string, string>)[k.ch] }); return true; }
