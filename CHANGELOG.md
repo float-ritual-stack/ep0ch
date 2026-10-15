@@ -1,5 +1,7 @@
 # Changelog
 
+- Door internals: held requests and what changed share outline-store notifications; service lists own held-request refresh and debounce. No visible behavior change.
+
 Notable changes to ep0ch, for the people who use it: what you can now do, what changed, and what you must run.
 One file for the whole repository (outline-core, the outliner, the door and the Claude mod). The project is
 active dogfood: the protocol and the schema still change, one version at a time.
