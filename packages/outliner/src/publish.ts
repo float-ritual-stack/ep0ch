@@ -2663,7 +2663,8 @@ export function decoratedText(text: string, decorations: readonly Decoration[] |
     const replacing = replaced.get(i);
     if (replacing) {
       const markers = Array.from({ length: replacing.end - i }, (_, n) => addresses?.get(i + n) ?? []).flat();
-      out.push(...replacing.lines, replacementAddresses(markers));
+      out.push(...replacing.lines);
+      if (markers.length) out.push(replacementAddresses(markers));
       for (let j = i; j < replacing.end; j++) for (const group of after[j]!) out.push(...group);
       i = replacing.end - 1;
     } else {
