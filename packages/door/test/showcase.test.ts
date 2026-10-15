@@ -3482,6 +3482,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await stage.dispatch.press("edit.save", {}, "notes");
     expect((await board.get(seeded.notes.asks.id))!.text).toContain("Still writing");
     await expect(stage.dispatch.press("answer.follow", { n: 1 }, "answer")).resolves.toBeDefined();
+    press({ kind: "esc" });
+    expect(S().focus).toBe("index");
   }, 40_000);
 
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {
