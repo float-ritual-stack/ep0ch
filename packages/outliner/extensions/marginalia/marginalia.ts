@@ -120,15 +120,18 @@ async function answer(input: Record<string, any>): Promise<{ reply?: string; mes
   const args = sessionArgs(command);
   const fill = (template: string[], id: string) => template.map((part) => part.replaceAll("{id}", id));
   const kept = typeof input.session === "string" ? input.session : "";
+  // Said nothing: an answer says so; a TL;DR is none (a placeholder would become the thread's face).
+  const said = (out: string, session?: string) =>
+    out ? { reply: out, ...(session ? { session } : {}) } : input.tldr ? { message: "no TL;DR: the answer command said nothing" } : { reply: "(the answer command said nothing)", ...(session ? { session } : {}) };
   if (args && kept) {
     const resumed = await run([...command, ...fill(args.resume, kept)], prompt(input, true));
-    if (resumed.code === 0) return { reply: resumed.out || "(the answer command said nothing)", session: kept };
+    if (resumed.code === 0) return said(resumed.out, kept);
     // Not resumable here (another machine's, or cleared): a new session, told the whole thread.
   }
   const id = args ? crypto.randomUUID() : "";
   const started = await run(args ? [...command, ...fill(args.start, id)] : command, prompt(input, false));
   if (started.code !== 0) throw new Error(`the answer command exited ${started.code}`);
-  return { reply: started.out || "(the answer command said nothing)", ...(args ? { session: id } : {}) };
+  return said(started.out, args ? id : undefined);
 }
 
 if (request.operation === "act") {

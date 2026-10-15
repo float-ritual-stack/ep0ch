@@ -172,6 +172,12 @@ test("TL;DR: with no model none is posted and the ask is refused with the fix; w
   await Bun.sleep(300);
   expect((await none.threads()).find(t => t.block.id === bare)!.replies).toEqual([]);
 
+  // A model that says nothing: no TL;DR either, not a placeholder for a face.
+  const mute = await setup(["sh", "-c", "cat > /dev/null"]);
+  const quiet = await thread(mute.client, mute.note);
+  await expect(mute.client.request({ action: "annotations.tldr", annotationId: quiet, mutation: { author: "user" } })).rejects.toThrow("no TL;DR: the answer command said nothing");
+  expect((await mute.threads()).find(t => t.block.id === quiet)!.replies).toEqual([]);
+
   const modelled = await setup(["sh", "-c", "cat > /dev/null; echo 'South wall, for the afternoon sun.'"]);
   const id = await thread(modelled.client, modelled.note);
   // Put away first: summing it up doesn't bring it back (a TL;DR says nothing new).
