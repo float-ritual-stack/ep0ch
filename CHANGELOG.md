@@ -147,6 +147,12 @@ PROTOCOL 175: `agents.held`, and `extensions.list` answers `grants` and each ext
 - **Added:** the door's waiting-on-you list (`alt+w`) shows the requests held for your `r` after the terminals' programs,
   and the status bar counts them (`‼2`): `⏎` or a click opens the note, `r` sends it (`held.open`, `held.send`).
 
+### Machinery stays consistent when notes are received, queried and moved (PIE-867)
+
+- **Fixed:** EchoNet stamps new seen-by receipts as machinery; `by:` asks who last wrote the text or properties,
+  using revision history's provenance, and a view's write planner honors the machinery mode its reader uses.
+- **Protocol:** PROTOCOL 178 (the latest-writer query meaning). Update hosts and clients together.
+
 ### Machinery hides by default (PIE-867)
 
 Since Oct 11, about two thirds of the new notes in pie were tools' bookkeeping, and no one property marked them.

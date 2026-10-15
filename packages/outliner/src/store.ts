@@ -3168,6 +3168,7 @@ export class OutlinerStore {
         }
         return found;
       },
+      writerOf: (blockId) => this.textSaved(graph.byId.get(blockId)!),
       parentOf: (blockId) => graph.byId.get(blockId)?.parentId,
       resolve: (atom, target) => {
         try {

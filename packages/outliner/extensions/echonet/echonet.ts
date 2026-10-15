@@ -946,7 +946,7 @@ async function importItem(from: Node, item: Item, offered: (id: string) => boole
       action: "annotations.batch", requestId: `echonet-seen-${from.id}-${item.copy}`,
       operations: [{ operationId: "seen", type: "block-comment", input: {
         blockId: original.id, expectedRevision: original.revision, source: "agent", body: `also in: ${from.id} (${item.area})`,
-        properties: { kind: "echo-seen-by", "echo.node": from.id, "echo.copy": item.copy, via: `echonet:${from.id}`, echonet: self.id },
+        properties: { kind: "echo-seen-by", machine: "echonet", "echo.node": from.id, "echo.copy": item.copy, via: `echonet:${from.id}`, echonet: self.id },
       } }],
     });
     counts.seenByIn += 1;

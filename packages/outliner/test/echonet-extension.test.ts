@@ -188,6 +188,7 @@ test("an area is a named view: its query, its children and the notes tagged with
   expect((await get("shack", cron.id)).revision).toBe(1);
   const seen = (await threads("shack", cron.id))[0]!;
   expect([seen.body, seen.properties?.kind, seen.block.actorId]).toEqual([`also in: cafe@${machine} (Recon from the shack)`, ["echo-seen-by"], "ext:echonet"]);
+  expect(seen.properties?.machine).toEqual(["echonet"]);
 
   // A note and the note under it both in the area: one copy each, the child under its parent's copy.
   const parent = await create("shack", "Recon: the well pump [type::recon]");

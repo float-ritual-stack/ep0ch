@@ -766,6 +766,8 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
  * it the relation atoms hold for nothing, and `title~`, `text~` and `#tag` still answer from the block itself.
  */
 export interface QueryRelations {
+  /** The latest text/property writer, as revision history records it. */
+  writerOf?(blockId: string): { author?: string; actorId?: string };
   resolve(atom: QueryRelationAtom, target: string): string;
   linkSources(blockId: string): ReadonlySet<string>;
   /** The active blocks `blockId` links to (`linkedfrom:`): the backlink relation's occurrences, so `links:` and it agree. */
@@ -851,7 +853,10 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
     case "by": {
       // An author (`user`, `agent`, `system`) or an actor id, ignoring case: who wrote the block last.
       const who = expression.who.toLowerCase();
-      return subject => subject.author?.toLowerCase() === who || subject.actorId?.toLowerCase() === who;
+      return subject => {
+        const writer = subject.id && relations?.writerOf ? relations.writerOf(subject.id) : subject;
+        return writer.author?.toLowerCase() === who || writer.actorId?.toLowerCase() === who;
+      };
     }
     case "unread": {
       // Read at its current revision or later is read; anything else (never opened, changed since) is unread.
