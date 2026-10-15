@@ -1125,7 +1125,10 @@ carries a policy saved with the layout (`layout.policy`, `^W P`; the panel's fir
 where its opens land, with a row to change and one to unlink each, PIE-855; `tile.info` gives the same words as
 `follows=` and `opens=`; a click on a header's `◄` mark, what a tag's list follows, or its `→`/`⏎` mark opens the
 panel on that row): `locked`, `draggable`, `droppable`,
-`accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells, a dock's `collapsible`, `overlay` and edge, and
+`accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells (PIE-869: listed first in `^W P`, a set one with
+`⏎ clears`; `⏎` on an unset one takes the container's size as laid out, a zoom aside; a `fixed` that would leave the
+rest of the screen to nobody, the only row beside a dock that slides over, is ignored and the panel says so; a border it
+holds says `layout.policy node=… clear=fixed`), a dock's `collapsible`, `overlay` and edge, and
 `opensInto` (where its tiles' opens land when they have no link: a tile, or a container's key, where an open
 lands in a tile opened there), `readable` (growth by room, PIE-794: the width in cells a reader opened beside
 others still gets, 48 when no layer says; past it the earliest readers in its row, never the first, fold to

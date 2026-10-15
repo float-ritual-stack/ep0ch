@@ -205,6 +205,27 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(D().overlays.get("policy")).toBeNull();
   });
 
+  // PIE-869: Evan's desk's only row was fixed at 10 cells. ^W P's size rows started from the container's size as drawn,
+  // and with another tile zoomed its tiles weren't drawn: ⏎ on "fixed size" took a made-up 10.
+  test("^W P's fixed size starts from the container's real size, even with another tile zoomed; a set lock is listed first, with how to clear it (PIE-869)", async () => {
+    const container = () => (D().policyNodes(idOf("middle")) as { node: any }[]).at(-1)!.node;
+    const node = container();
+    // Its width as drawn, from its tiles' places (layout.get), after the zoom is let go.
+    const drawnWidth = () => { render(); const rs = get().tiles.filter((t: any) => node.kids.some((k: any) => k.t === "leaf" && k.id === idOf(t.name))).map((t: any) => t.rect); return Math.max(...rs.map((r: any) => r.col + r.cols)) - Math.min(...rs.map((r: any) => r.col)); };
+    await mine("tile.zoom", {}, "claude");
+    render();
+    try { await (D().policyRows(idOf("middle"), node) as any[]).find(r => r.label.startsWith("fixed size")).run(); }
+    finally { await mine("tile.zoom", { on: false }, "claude"); }
+    const fixed = container().policy?.fixed;
+    expect(fixed).toBeGreaterThan(20);
+    expect(Math.abs(fixed - drawnWidth())).toBeLessThanOrEqual(1);
+    const rows = D().policyRows(idOf("middle"), container()) as any[];
+    expect(rows[1].label).toStartWith("fixed size");
+    expect(rows[1].value).toBe(`${fixed} · ⏎ clears`);
+    await rows[1].run();
+    expect(container().policy?.fixed).toBeUndefined();
+  });
+
   test("a tile kind registered from outside (drawn by the service) opens by key and act, saves and comes back", async () => {
     const asked: any[] = [];
     registerTileKind(serviceKind({

@@ -169,6 +169,8 @@ export interface Placed<I = number> {
   /** Where each named split landed. */
   nodes: Map<string, Rect>;
   dividers: Divider<I>[];
+  /** Containers whose `fixed` size was ignored (PIE-869): nothing beside them took the rest of the room. */
+  unfixed?: Set<LNode<I>>;
   /** Each dock met, and the room it had (none when it slides over, or is shut). */
   docks?: { node: Dock<I>; rect: Rect }[];
   /** Each tile in a flow: full, peek or spine (PIE-513). */
@@ -265,8 +267,16 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   const row = n.dir === "row", S = row ? r.cols : r.rows;
   // A tab set is sized as the tab it shows (a dock's tab set slides over like a dock). A dock sliding
   // over, or shut, takes no room (unless placed as pinned); a container's policy can fix its size.
-  const fixed = n.kids.map(k => (k.t === "leaf" ? opts.fixed?.(k.id, n.dir) : k.t === "tabs" && k.ids[k.active] !== undefined ? opts.fixed?.(k.ids[k.active]!, n.dir) ?? cells(k.policy?.fixed)
+  const fixed: (number | undefined)[] = n.kids.map(k => (k.t === "leaf" ? opts.fixed?.(k.id, n.dir) : k.t === "tabs" && k.ids[k.active] !== undefined ? opts.fixed?.(k.ids[k.active]!, n.dir) ?? cells(k.policy?.fixed)
     : k.t === "dock" && !(opts.asPinned === true || (typeof opts.asPinned === "function" && opts.asPinned(k))) && (!k.open || k.policy?.overlay !== false) ? 0 : cells(k.policy?.fixed)));
+  // A container's fixed size with nothing beside it to take the rest (the screen's only row, a dock sliding over it) would
+  // leave the rest of the screen to nobody and squeeze its tiles: ignored, the last such one taking the room (PIE-869).
+  if (!fixed.some(f => f === undefined) && fixed.reduce<number>((a, f) => a + f!, 0) !== S) {
+    const i = n.kids.map((k, j) => j).reverse().find(j => { const k = n.kids[j]!; // The size came from its policy (a tab set's folded active tile sizes it otherwise).
+      const byTile = k.t === "tabs" && k.ids[k.active] !== undefined && opts.fixed?.(k.ids[k.active]!, n.dir) !== undefined;
+      return k.t !== "leaf" && k.t !== "dock" && !byTile && cells(k.policy?.fixed) !== undefined && fixed[j] === cells(k.policy?.fixed); });
+    if (i !== undefined) { fixed[i] = undefined; (out.unfixed ??= new Set()).add(n.kids[i]!); }
+  }
   const mins = n.kids.map(k => cells(k.t !== "leaf" ? k.policy?.min : undefined) ?? opts.min?.(k, n.dir, n) ?? (row ? MIN_COLS : MIN_ROWS));
   const maxs = n.kids.map(k => cells(k.t !== "leaf" ? k.policy?.max : undefined));
   const open = n.kids.map((_, i) => i).filter(i => fixed[i] === undefined);
