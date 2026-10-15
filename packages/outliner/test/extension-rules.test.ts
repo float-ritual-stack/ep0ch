@@ -430,10 +430,12 @@ else process.stdout.write(JSON.stringify({ ok: true, value: { writes: [{ op: "cr
   expect(child.text).toBe("Related [via-trigger::look]\n@helper what else is like this?");
   const row = await until("the agent's answer", () => store.agentRequests(child.id).find((r) => r.status === "replied"));
   expect(row).toMatchObject({ agent: "helper", reply: "found two", requestedBy: "user" });
-  // By hand (no rule asked): an extension still can't write an @request line.
+  // By hand (no rule asked): the line still lands, but held for a person's r, never asked.
   const other = await create("Another [type::note]");
-  await expect(client.request({ action: "extensions.act", extension: "asker", extensionAction: "ask", blockId: other.id, mutation: PERSON }))
-    .rejects.toThrow("extensions can't ask agents");
+  await client.request({ action: "extensions.act", extension: "asker", extensionAction: "ask", blockId: other.id, mutation: PERSON });
+  const handChild = await until("the hand-made child", () => store.children(other.id)[0]);
+  expect(handChild.text).toContain("@helper what else is like this?");
+  expect(store.agentRequests(handChild.id)).toMatchObject([{ agent: "helper", status: "waiting", message: "held: ext:asker may not wake @helper · r to send" }]);
 });
 
 test("what a triggered action writes over its own connection carries the trigger's marks too, so a rule hearing it doesn't loop", async () => {

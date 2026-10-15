@@ -19,6 +19,6 @@ Morning plan
   the change feed) applied through `draft.patch` with the `edit` policy. If you are typing in that
   passage in the door, it becomes a proposal beside the note, drawn under the line, instead (apply or dismiss it).
 - Under the line, the note shows what it did (`tidied 2 lines above`). `r` on the line asks again.
-- A `@tidy` line written by an agent waits for `r`, so agents can't set each other off.
+- A `@tidy` line written by an agent lands held (`held: <agent> may not wake @tidy · r to send`) and waits for a person's `r`, so agents can't set each other off.
 
 Install: `outliner ext add tidy`. See [the four kinds](../../docs/extensions/README.md#agents-in-the-note).

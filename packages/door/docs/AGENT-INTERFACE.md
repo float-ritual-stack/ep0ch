@@ -678,7 +678,7 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   `^anchor`, `[[page]]`, `((ref))` and `[key::value]`, in its span and in the whole note: no edit inside a
   token, no stray backtick that turns one into code; what it refuses becomes a proposal. Either way the
   service reads a held draft before patching it, and the door never re-checks the grammar.
-- No agent's draft.patch may write or reword an `@name` request line; the service refuses it.
+- An agent's draft.patch may write an `@name` request line: it lands (in the live draft too) and is held, marked `held: <actor> may not wake @name · r to send`; only a person's `r` sends it.
 - **The person's typing reaches the service.** A moment after they type in a held draft (`drafts.touch`, never
   for an agent's patch), the service reads the draft back and an `@name` request line written there runs once
   quiet, before any save; its answer lands in the draft as that extension's (`ext:<id>`). Their save is then

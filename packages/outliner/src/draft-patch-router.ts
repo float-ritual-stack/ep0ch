@@ -60,7 +60,6 @@ import {
   type DraftGroup,
 } from "./draft-patch";
 import { createHash } from "node:crypto";
-import { requestLines } from "./agent-requests";
 import { embedMatches } from "./transclusions";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
@@ -84,6 +83,11 @@ export interface DraftPatchRouterDeps {
   ask(hold: DraftHold, request: DraftHolderAsk): Promise<DraftHolderAnswer>;
   /** Reads for the `edit` policy's guard (backlinks, block text), in process. */
   client: WorkToolsClient;
+  /**
+   * An agent's patch is about to go into a door's draft: the `@name` lines its spans add are held for a person's `r`
+   * (PIE-888) before it lands, so the person's later save or typing doesn't send them.
+   */
+  heldInDraft?(blockId: string, patches: readonly DraftPatchSpan[], by: MutationProvenance): void;
   /** A proposal was applied or dismissed: whatever answered with it (an `@name` request) says so now. */
   proposalSettled?(proposalId: string, status: Exclude<DraftProposalStatus, "open">, by: MutationProvenance): void;
   /**
@@ -250,13 +254,6 @@ function normalizeMutation(mutation: MutationProvenance | undefined): MutationPr
   }
   if (mutation.author === "agent" && !mutation.actorId?.trim()) throw new Error("An agent's patch names its actorId");
   return mutation;
-}
-
-/** The first `@name …` line (any name) `after` has that `before` didn't, or null. */
-function addedRequestLine(before: string, after: string): string | null {
-  if (!after.includes("@")) return null;
-  const had = new Set(requestLines(before, null).map(line => line.requestKey));
-  return requestLines(after, null).find(line => !had.has(line.requestKey))?.text.trim() ?? null;
 }
 
 export class DraftPatchRouter {
@@ -622,6 +619,7 @@ export class DraftPatchRouter {
       if (!hold) continue;
       const patchId = crypto.randomUUID();
       let answer: DraftHolderAnswer;
+      if (options.mutation.author === "agent") this.deps.heldInDraft?.(edit.blockId, edit.patches, options.mutation);
       try {
         answer = await this.deps.ask(hold, {
           kind: "patch", patchId, revision: options.force || options.current ? hold.revision : edit.revision, patches: edit.patches,
@@ -642,6 +640,7 @@ export class DraftPatchRouter {
       }
       patched.push({ hold, patchId });
       applied.push({ blockId: edit.blockId, route: "draft", holder: hold.clientId });
+
     }
     const saved = plan.filter(part => !part.hold);
     try {
@@ -729,15 +728,6 @@ export class DraftPatchRouter {
     if (!located.ok) return { ok: false, reason: located.reason };
     const after = applyLocated(text, located.spans);
     const total = proposalChanges({ edits });
-    // One guard for every agent's patch, whoever routes it (an @name agent's answer, an action, an agent's own
-    // draft.patch): it never writes or rewords an `@name` request line, so an agent can't set off an agent.
-    if (options.mutation.author === "agent") {
-      const written = addedRequestLine(text, after);
-      if (written !== null) {
-        const change = blame(edits, edit, text, next => addedRequestLine(text, next) !== null, locate);
-        return { ok: false, refused: true, reason: blamed(`it would write a request line (${written}); agents can't ask agents`, change, total) };
-      }
-    }
     if (options.policy === "prose") {
       const reason = draftPatchTextPolicy(text, after);
       if (!reason) return null;
