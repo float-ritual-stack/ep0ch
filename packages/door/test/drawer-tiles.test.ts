@@ -252,7 +252,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  test("the drawer's own tab leaves onto the screen, its program running, and the drawer starts a new one when it comes up; it never closes, said plainly", async () => {
+  // PIE-892: the drawer's own program leaves whole. Its tab holds the place and starts nothing (a second client of a
+  // Herdr session was a mirror nobody could type in or close), says where it went, and ⏎ or a click brings it back.
+  test("the drawer's own tab leaves onto the screen whole: its tab starts nothing and says where it went; a click brings the same program back, no restart; it never closes, said plainly", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();
@@ -266,22 +268,56 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(out).toMatchObject({ tile: name, fresh: true, into: "desk" });
       const moved = d.desk.pane(name) as PtyPane;
       expect(moved).toBe(own);
-      expect(moved.pid).toBe(pid);
-      expect(moved.running).toBe(true);
-      expect(moved.kind).toBe("pty");                            // an ordinary terminal tile now: it closes, moves, goes back in
+      expect([moved.pid, moved.running, moved.kind]).toEqual([pid, true, "pty"]);   // an ordinary terminal tile on the desk now
       expect(d.app.drawer.open).toBe(false);                     // the person's: the drawer went away with it
-      expect(d.app.drawer.tile).not.toBe(own);
-      expect(d.app.drawer.tile!.running).toBe(false);            // the new one starts when the drawer comes up
-      expect(d.app.drawer.tabs()[0]!.name).toBe("drawer.agent");
+      // Its tab stays, starting nothing even when the drawer comes up: it says where the program went.
       d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => d.app.drawer.tile?.running === true, "a new own program");
-      expect(d.app.drawer.tile!.pid).not.toBe(pid);
-      expect(d.app.drawer.tile!.keptAs).not.toBe(moved.keptAs);   // each kept under a key of its own
-      // The one that left goes back in as an ordinary tab, beside the new own one.
+      await Bun.sleep(300);
+      expect(d.app.drawer.tabs()[0]!.name).toBe("drawer.agent");
+      expect(d.app.drawer.tile).not.toBe(own);
+      expect(d.app.drawer.tile!.running).toBe(false);
+      expect(d.app.drawer.tile!.text().join(" ")).toContain(`${name} is on the desk · ⏎ or a click brings it back`);
+      // A click on it: the same program back in its own tab, nothing restarted, the desk without it.
+      const rows = d.paint(), y = rows.findIndex(l => l.includes("⏎ or a click brings it back")), x = rows[y]!.indexOf("brings it back");
+      d.key(mouse("down", x, y)); d.key(mouse("up", x, y));
+      await until(() => d.app.drawer.tile === own, "the program back in the drawer");
+      expect([own.pid, own.running, own.kind]).toEqual([pid, true, "drawer.own"]);
+      expect(d.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent"]);
+      expect(d.desk.pane(name)).toBeUndefined();
+      // And again by act, both ways: out, then tile.drawer from the desk brings it back to its own tab.
       d.key({ kind: "char", ch: "]", ctrl: true });
-      await d.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: name }, USER);
-      expect(d.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent", name]);
-      expect((d.pane(name) as PtyPane).pid).toBe(pid);
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
+      expect(d.desk.pane(name)).toBe(own);
+      expect(await d.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: name }, USER)).toMatchObject({ tile: "drawer.agent", back: true });
+      expect([d.app.drawer.tile, own.pid, own.running]).toEqual([own, pid, true]);
+      expect(d.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent"]);
+    } finally { d.app.quit(); }
+  });
+
+  test("while the drawer's own program is out, a door started after (a handover) knows it: its own tab starts nothing; that program's tile goes back into its tab (PIE-892)", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      const own = d.app.drawer.tile!, key = own.home;
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
+      expect(JSON.parse(readFileSync(join(state, "drawer.json"), "utf8")).out).toBe(key);
+      const e = await door();
+      try {
+        e.key({ kind: "alt", ch: "a" }); e.paint();
+        await Bun.sleep(300);
+        expect(e.app.drawer.tile!.running).toBe(false);
+        expect(e.app.drawer.tile!.text().join(" ")).toContain("is on a screen · ⏎ or a click brings it back");
+        // Its program, found on the new door's desk by its key (as a handover adopts it), goes back into the own tab.
+        await e.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "agent" } }, USER);
+        e.paint();
+        const back = e.desk.pane("agent") as PtyPane;
+        back.home = key;
+        expect(await e.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: "agent" }, USER)).toMatchObject({ tile: "drawer.agent", back: true });
+        expect(e.app.drawer.tile).toBe(back);
+        expect(back.kind).toBe("drawer.own");
+        expect(JSON.parse(readFileSync(join(state, "drawer.json"), "utf8")).out).toBeUndefined();
+      } finally { e.app.quit(); }
     } finally { d.app.quit(); }
   });
 
