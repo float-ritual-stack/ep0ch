@@ -181,6 +181,9 @@ export interface OutlineEvent {
   /** On a `draft` event: what the service asks the door holding that draft (PIE-501). */
   draft?: DraftRequest;
 }
+/** A request an agent or an extension wrote that waits for a person's `r` (PIE-888): where, who would answer, and why it waits. */
+export interface HeldAsk { blockId: string; line: number; title: string; agent: string; extensionId: string; request: string; why: string; by: string; at: string }
+
 /** A view's hand-set order (the outliner's `VirtualBranchOrder`): what a placement is checked against. */
 export interface ViewOrder { viewId: string; viewRevision: number; blockIds: string[]; completeness: { kind: string; limit?: number } }
 
@@ -913,6 +916,11 @@ export class SocketBoard implements Board {
   async readSavedView(viewId: string, page: { limit?: number; offset?: number } = {}): Promise<SavedViewRead> {
     const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree", ...page });
     return { ...r, blocks: r.blocks.map(b => toMsg(b)) };
+  }
+
+  /** The requests held for a person's `r` (`agents.held`): what the waiting-on-you list shows beside the terminals'. */
+  async heldAsks(): Promise<HeldAsk[]> {
+    return (await this.request<{ held: HeldAsk[] }>("agents.held", {})).held;
   }
 
   /**

@@ -1033,6 +1033,19 @@ lands in the note while he goes on. That needs a door that says when he types in
   is more reliable than interpretation): the text lands as written, in a saved note or in a door's live draft, and the
   line is kept as `waiting` with its reason (`held: ext:requests may not wake @kitty · r to send`, drawn under the line). A request a restart cut off says so and `r` asks again; one still waiting for quiet when
   the service stops waits for `r`.
+- **Grants: who may wake whom without `r`** (PIE-888). A note the person wrote says some writers may wake some agents on
+  their own:
+  `Let requests wake kitty [invoke-from::ext:requests] [invoke-to::kitty] [max-hops::2] [budget::5] [cap::20/day]`.
+  `invoke-from` is the writer (`ext:<id>`, an agent's actor id, `agent` for any agent, `all`) and `invoke-to` the `@name`
+  (or `all`), either one repeated or comma-separated. A line one of them writes is asked at once, as an extension's
+  trigger block's own agents are, instead of held; any other stays held. An ask carries its chain (who woke whom, from
+  the person's ask or the writer): `max-hops` (default 1) is how many automatic wakes the chain may hold, so what a woken
+  agent writes is held again unless the grant allows a second hop; `budget` is the most wakes one chain may spend in all;
+  `cap` the most a day through the grant (counted since the service started); an agent already in the chain is never
+  woken again (a repeat is held). A held line says which limit it met (`held: “Let requests wake kitty” allows 1 hop and
+  this would be hop 2 · r to send`). Only a note a person last wrote is a grant: an agent's or an extension's isn't (it
+  is listed with why). `extensions.list` answers `grants` and, per extension, `held` (the requests waiting for it);
+  `agents.held` lists them (the door's waiting-on-you list, `ep0ch ext ls`).
 - **Who asked.** `r` takes the presser's `mutation` (`{ author: user }` or `{ author: agent,
   actorId }`; a person when absent) and records it as `requestedBy` (`user`, `agent:<id>`).
 - **`respond`** gets the note as the person sees it (their live draft when a door holds one), the

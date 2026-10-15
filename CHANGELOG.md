@@ -83,6 +83,18 @@ outline host and the publishers with `ep0ch install --apply`; a client on 170 is
 - **Docs:** a "Keys and secrets" section at the top of the extensions README and in the ep0ch-outline skill: check
   `ep0ch keys list` before calling a key missing.
 
+### Grants: who may wake whom, and held asks in the waiting-on-you list (PIE-888)
+
+PROTOCOL 171: `agents.held`, and `extensions.list` answers `grants` and each extension's `held` count (an older host leaves the list without them).
+
+- **Added:** a note the person writes can let an extension or an agent wake an agent without their `r`:
+  `[invoke-from::ext:requests] [invoke-to::kitty]`, with `max-hops` (default 1: what a woken agent writes is held
+  again), `budget` (wakes one chain may spend), `cap` (a day) and `agents`/`all`. A repeat in the chain is always held,
+  and a held line says which limit it met. A grant an agent or extension wrote counts for nothing. `ep0ch ext ls` lists
+  the grants and each extension's held requests.
+- **Added:** the door's waiting-on-you list (`alt+w`) shows the requests held for your `r` after the terminals' programs,
+  and the status bar counts them (`‖2`): `⏎` or a click opens the note, `r` sends it (`held.open`, `held.send`).
+
 ### A backlink says which line links, and opening it lands there (PIE-884)
 
 - **Added:** a backlink row in the links tile, the tree's `l` and an inline `::links` now quotes the line of the linking

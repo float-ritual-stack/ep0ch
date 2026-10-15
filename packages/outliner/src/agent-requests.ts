@@ -184,7 +184,7 @@ function message(error: unknown): string {
 }
 
 /** A request held for a person's `r`: where it is, who would answer, and why it waits. */
-export interface HeldAsk { blockId: string; title: string; agent: string; extensionId: string; request: string; why: string; by: string; at: string }
+export interface HeldAsk { blockId: string; /** The request line, from 0, in the note as saved (-1 when it is only in a draft). */ line: number; title: string; agent: string; extensionId: string; request: string; why: string; by: string; at: string }
 
 export class AgentRequests {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -384,7 +384,8 @@ export class AgentRequests {
     return this.store.heldAgentRequests().flatMap((row) => {
       const block = this.store.get(row.blockId);
       if (!block || block.effectiveDeletedRootId) return [];
-      return [{ blockId: row.blockId, title: blockDisplayTitle(block).slice(0, 120), agent: row.agent, extensionId: row.extensionId, request: row.request, why: row.message ?? "", by: row.requestedBy, at: row.requestedAt }];
+      const at = this.lines(block).find((candidate) => candidate.requestKey === row.requestKey)?.line ?? -1;
+      return [{ blockId: row.blockId, line: at, title: blockDisplayTitle(block).slice(0, 120), agent: row.agent, extensionId: row.extensionId, request: row.request, why: row.message ?? "", by: row.requestedBy, at: row.requestedAt }];
     });
   }
 
