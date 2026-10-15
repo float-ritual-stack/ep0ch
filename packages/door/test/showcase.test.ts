@@ -349,6 +349,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     trash: ["Compost heap", "links · Compost heap", "Turning log"],
     // The outline, the shed held in a detail with its own ::links, a preview of the detail's selection.
     "lists-open": ["Bike shed", "detail", "preview · detail", "[ LINKS ]"],
+    // The saved view open in the tree: its matches marked, the count in the tag, the results line.
+    "tree-views": ["Garden chores", "V:", "matches · children to depth", "reader"],
     // The frost note in a detail, its #tags drawn as links.
     tags: ["Before the first frost", "#frost-jobs", "#compost"],
     // The swap thread, its links with every group, and the same tile with Children alone (its replies).
@@ -1422,6 +1424,21 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(links().target.id).toBe(seeded.notes.shed.id);
     expect(S().focus).toBe("index");
   }, 20_000);
+
+  test("tree-views (PIE-882): the saved view opens in the tree with its matches, D sets how far they open, and an agent can too", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "tree-views" }, as: "test-agent" })).toMatchObject({ key: "tree-views" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "tree-views")).top; };
+    const tree = () => stage().panes.get([...stage().panes.keys()].find((k: number) => stage().panes.get(k).kind === "tree")) as any;
+    await until(() => tree()?.describe().rows.some((r: any) => r.role === "results"), "the view's matches in the tree", 8000);
+    const rows = () => tree().describe().rows as any[];
+    const matches = rows().filter(r => r.match);
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.every(r => r.matchOf === seeded.notes.gardenView.id)).toBe(true);
+    const out = await app.act({ action: "tree.depth", tile: "tree", args: { id: seeded.notes.gardenView.id, depth: "0" }, as: "test-agent" }) as any;
+    expect(out).toMatchObject({ view: seeded.notes.gardenView.id, depth: 0, authored: false });
+    await until(() => rows().some(r => r.role === "results" && r.text.includes("results only")), "results only");
+  }, 60_000);
 
   test("lists-open (PIE-794): an inline row selects and previews; a double click replaces the held detail's note, and only it; alt+r shows it in the outline; alt+click opens a detail beside", async () => {
     (app as any).lastInput = 0;

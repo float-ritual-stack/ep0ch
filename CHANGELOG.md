@@ -27,6 +27,16 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** a row's bare-letter key no longer runs it from inside the open menu (the letter is for the query); a
   chord (`^W x`, `alt+h`) still does.
 
+### The door's tree shows a virtual branch's matches (PIE-882)
+
+- **Added:** open a note with `[type::virtual-branch]` in the outline tree and it shows its physical children, then
+  what its query matches (`◇`, the count in its tag, the view's limit with a `more` row for the next page). Each match
+  opens to its children as far as the view's `[child-depth::]`; `D` (or a click or `⏎` on the results line) steps how
+  far for that view (results only, 1, 2, 3, the view's own) without writing anything; agents set it with `tree.depth`.
+  The matches follow the outline's changes.
+- **Changed:** `views.read` answers `childDepth` (the view's own, else the default), so no client reads the
+  property itself. The wire grows by that one field: `PROTOCOL` moves with this change.
+
 ### Trash a note from wherever you see it (PIE-878)
 
 - **Added:** `d` in a reader, a links list, the tree or a query tile (Delete too) says what would go, the note and the

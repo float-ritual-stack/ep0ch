@@ -266,6 +266,14 @@ export class TreePane implements Pane {
     if (i >= 0) { this.sel = i; desk.redraw(); }
   }
 
+  /** Show note `m` open under its row, a virtual branch with its matches (a view that opens with them shown). */
+  async showOpen(m: Msg, desk: DeskApi) {
+    await this.reveal(m, desk);
+    await this.expand(m, desk);
+    const i = this.rows.findIndex(r => r.kind === "block" && r.m.id === m.id && !r.via);
+    if (i >= 0) { this.sel = i; desk.redraw(); }
+  }
+
   // ── the links under a row ──────────────────────────────────────────────────
 
   /** Show the links under note `m`'s row, revealing it first (a view that opens with them shown). */

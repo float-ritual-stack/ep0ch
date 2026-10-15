@@ -513,6 +513,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `marks.next` | | refused while the person is typing, and within 2s of their last key |
 | `tile.resize`, `tile.zoom` | `tile`; `by`, `axis`; `on` | resize by steps; an agent zooms only the person's tile, never one that hides it |
 | `pane.split` | `tile`, `kind`, `dir` (row, col) | `tile.open` along the longer side, with its own arguments; focus stays |
+| `tree.depth` | `tile` (an outline tree), `n` or `id` (a virtual branch's row, one of its matches or its results line), `depth` (0 to 8, or `authored`; left out, the next step) | sets how far that view's matches open under it in the tree (`views.read`'s child-depth is the default); writes nothing; refused on a row that is no view's |
 | `tree.links` | `tile` (an outline tree; on the board, its outline dock, refused while shut), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row, and hiding the rows it is in is refused |
 | `tree.pick` | `tile`, `n` or `id`, `open` | an agent's pick shows the row's note where the tree's selection goes; `open=true` opens it where the tree's opens go (a group folds; a ticket the Jira extension keeps as a block opens that block; another resource is registered if it must be, fetched once if nothing is stored, and shown, attributed to the agent). Never the person's selection or keys, and never a tile the screen limits for agents (PIE-632: the pick is the agent's all the way to the tile, so a hands-off or edit-only preview keeps its note) |
 | `projection.refresh` | `tile`, `block` (a page or a ticket block; default the reader's), `line` | fetches the tickets it shows now and runs its extensions' lines (`resources.projection.refresh`): with `line`, only that line (an output or component runs again, an `@name` request is asked again); without it, every line and every `@name` request not answered yet. The service writes as the extension (`ext:jira`, `ext:moon`), never as the agent or the person, and records who ran it as who asked (`asked by an agent (<id>)` on the line); said on the status bar |
@@ -581,6 +582,7 @@ at, and what it does while they're typing:
 | `tile.type` | no | refused for the terminal they're in |
 | `view.scrollTo` | no: a reader's view only (not its `[ ]` position or selection) | refused on their edit |
 | `block.mark`, `block.unmark`, `block.tint` | no | allowed |
+| `tree.depth` | no: it changes only what the tree draws | allowed |
 | `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row (folding away the rows it is in is refused); an open lands where the tree's opens go | allowed |
 | `projection.refresh` | no | allowed |
 | `ext.*` | no | allowed: the service runs it, attributed to the extension |
