@@ -348,9 +348,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The compost heap in a detail, the two notes under it listed in its links tile: what d d trashes.
     trash: ["Compost heap", "links · Compost heap", "Turning log"],
     // The outline, the shed held in a detail with its own ::links, a preview of the detail's selection.
-    "lists-open": ["Bike shed", "detail", "preview · detail", "[ LINKS ]"],
     // The saved view open in the tree: its matches marked, the count in the tag, the results line.
     "tree-views": ["Garden chores", "V:", "matches · children to depth", "reader"],
+    "lists-open": ["Bike shed", "detail", "preview · detail", "[ LINKS ]"],
     // The frost note in a detail, its #tags drawn as links.
     tags: ["Before the first frost", "#frost-jobs", "#compost"],
     // The swap thread, its links with every group, and the same tile with Children alone (its replies).
