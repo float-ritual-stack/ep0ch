@@ -7,11 +7,12 @@
 // A key that only puts the screen into an input state (`holdsKeys`: a prefix, a palette, an edit) is the
 // start of a chord: what the state ends in is checked the same way. Scratch services, fictional notes.
 //
-// The screens are probed in five parts, a test file each (test/parity-*.test.ts), each with its own door and
+// The screens are probed in six parts, a test file each (test/parity-*.test.ts), each with its own door and
 // scratch service. A part runs its scenarios one after another in one worker, so the longest part is the door suite's
 // longest file, and CI's run waits for it: in three parts, two took 8½ minutes of a 9-minute green run, and a runner
 // that slowed every parity test 2-3x ran past the 12-minute stop (PIE-831). In five, with the shell's states probed once
-// (below), the longest takes 231 s on float-box where the longest of three took 331 s. PARITY_ONLY=<label,…> narrows
+// (below), the longest takes 231 s on float-box where the longest of three took 331 s. The showcase now runs
+// separately so its long walks don't wait behind the desk and its tiles (PIE-901). PARITY_ONLY=<label,…> narrows
 // any of them (it splits on commas; `-t` picks a label holding one).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
@@ -62,9 +63,9 @@ interface Finding { screen: string; keys: string; problem: string }
 
 /**
  * The screens each part probes: the menu's screens; the home base, the library, EchoNet and the readers; the board and
- * the river; the desk's views, the drawer and the showcase; the desk's tiles, its daily layout and a showcase section.
+ * the river; the desk's views and the drawer; the desk's tiles and daily layout; the showcase and its section states.
  */
-export type ParityPart = "screens" | "readers" | "board" | "desk" | "desk-tiles";
+export type ParityPart = "screens" | "readers" | "board" | "desk" | "desk-tiles" | "showcase";
 
 export function parity(part: ParityPart) {
 describe.skipIf(!outliner)(`agent parity: every key a screen handles is an action (PIE-506), ${part}`, () => {
@@ -459,7 +460,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const SCREENS: Scenario[] = [
     ["main menu", () => new MainMenu()],
     // G logs off; !, E and + run an action, not a screen (+ is note.new, which the probes press as ctrl+n on every screen).
-    // X, the showcase (a desk of its own), the longest by far, is probed in the desk part.
+    // X, the showcase (a desk of its own), is probed in the showcase part.
     ...MENU_SCREENS.filter(([key]) => key !== "G" && key !== "!" && key !== "E" && key !== "+" && key !== "X").map(([key, make]): Scenario => [key, () => make(app) as Screen]),
   ];
 
@@ -509,7 +510,6 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["desk: activity", desk, [k("4")]],
     ["desk: reader on a note", desk, [k("1"), { kind: "down" }, { kind: "enter" }, k("2")]],
     ["drawer: pulled up", () => new MainMenu(), [ALT("a")]],
-    ["X", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen],
   ];
   const DESK_TILES: Scenario[] = [
     ["desk: backlinks tile", desk, [k("1"), { kind: "enter" }, CTRL_W, k("o"), k("l"), k("5")]],
@@ -519,6 +519,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["desk: tags tile", desk, [CTRL_W, k("o"), k("#"), k("5")]],
     ["desk: daily", () => new Desk(undefined, { layout: "daily" })],
     ["desk: a terminal", () => new Desk(undefined, { layout: "daily" }), [k("1")]],
+  ];
+  const SHOWCASE: Scenario[] = [
+    ["X", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen],
     ["showcase: section 3", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3")]],
     ["showcase: section 3 tried", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3"), { kind: "enter" }]],
   ];
@@ -545,7 +548,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["reader: a view that is an EchoNet area: a two-section card", reading(SEED.echoArea), [k(",")]],
   ];
 
-  const ALL = { screens: SCREENS, readers: [...OTHERS, ...READER], board: [...BOARD, ...RIVER], desk: DESK, "desk-tiles": DESK_TILES }[part];
+  const ALL = { screens: SCREENS, readers: [...OTHERS, ...READER], board: [...BOARD, ...RIVER], desk: DESK, "desk-tiles": DESK_TILES, showcase: SHOWCASE }[part];
   const only = process.env.PARITY_ONLY?.split(",");
   for (const [label, make, setup] of ALL) {
     if (only && !only.includes(label)) continue;
