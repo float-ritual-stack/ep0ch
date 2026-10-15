@@ -176,10 +176,13 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
       const p = Bun.spawn(["bun", OUTLINER_CLI, "agent", command.operation, "--stdin", "--actor", "claude-code@test"], { stdin: new Blob([JSON.stringify(command.input)]), stdout: "pipe", stderr: "pipe", env: { ...clean, ...env } });
       const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
       expect(code, err).toBe(0);
-      return JSON.parse(out).thread as string;
+      return JSON.parse(out) as { thread: string; warnings?: string[] };
     };
-    const a = await comment({ ref: note, whole: true, body: "Shipped: the netting goes up in May.", kind: "patch-note" });
-    const b = await comment({ ref: note, whole: true, body: "Shipped: peas staked.", properties: { kind: "patch-note", tags: ["peas"] } });
+    const a = (await comment({ ref: note, whole: true, body: "Shipped: the netting goes up in May.", kind: "patch-note" })).thread;
+    const b = (await comment({ ref: note, whole: true, body: "Shipped: peas staked.", properties: { kind: "patch-note", tags: ["peas"] } })).thread;
+    // A kind no other thread has is kept and said, with the kinds in use and the nearest one.
+    const typo = await comment({ ref: note, whole: true, body: "Shipped: beans in.", kind: "patch-notes" });
+    expect(typo.warnings?.join("\n")).toContain('kind "patch-notes" is new in this outline (kinds in use: patch-note); did you mean "patch-note"?');
     const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
     try {
       const threads = await board.comments(note);
