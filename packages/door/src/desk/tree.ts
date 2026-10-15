@@ -6,6 +6,12 @@
 // on a link opens its note where the tree's opens go; on a resource it shows the Resource's stored content
 // there (registering it first when it isn't, and fetching it once when nothing is stored: src/authored.ts).
 //
+// A block that is a virtual branch (`[type::virtual-branch]`, PIE-882) shows, when opened, its physical children and
+// then what its query matches, the service's answer (`views.read`: members in branch order, within the view's limit,
+// with `[child-depth::]`): each match is a row of its own, opened to its children down to the view's child-depth, and a
+// `more` row reads the next page. `D` (`tree.depth`) overrides the depth for that view: results only, or one to
+// eight levels. The meaning of the view is the service's; the tree only lays its answer out.
+//
 // Disclosure is read-only: listing links registers nothing and writes nothing. The rows are the service's
 // answer laid out; the words are the Tree's (src/authored.ts).
 import { subject, type Msg } from "../board";
@@ -17,6 +23,7 @@ import { shortId } from "../refs";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { C, dim, fg, pad, RESET, selected } from "../style";
 import { Fold } from "../fold";
+import { readView, type ViewRead } from "../views";
 import { RowView, type RowPress } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
@@ -34,17 +41,41 @@ interface LinkPanel {
 }
 
 /** A row of the tree: a note, or one of the links shown under a row (the shared links model, src/links.ts), by its owner's key. */
-export type TreeRow = { kind: "block"; key: string; depth: number; m: Msg } | (LinkRow & { owner: string });
+export type TreeRow =
+  /** A note. `via`: the virtual branch whose match it is (or sits under one), `rel` the levels below that match; `foldId` what the fold knows it by. */
+  | { kind: "block"; key: string; depth: number; m: Msg; foldId: string; via?: string; rel?: number }
+  /** A line of a virtual branch's results: `results` its header, `more` the next page, `info` why there is none. */
+  | { kind: "branch-note"; key: string; depth: number; view: string; role: "results" | "more" | "info"; text: string }
+  | (LinkRow & { owner: string });
+
+/** A virtual branch's results as the service answered them, with what the person asked of them. */
+interface Branch {
+  /** The view's block. */
+  def: Msg;
+  read: ViewRead | "loading";
+  /** The matches read so far, pages appended. */
+  items: Msg[];
+  /** The person's depth for this view (`D`), over the view's own. */
+  depth?: number;
+  asked: number;
+}
+
+/** A block that is a virtual branch: the service decides what its query means, the tree only asks. */
+export const isBranch = (m: Msg) => (m.props.type ?? "").toLowerCase() === "virtual-branch";
+/** The id of the note a fold id stands for (a result's is `v:<view>>…>id`). */
+const idOfFold = (foldId: string) => foldId.slice(foldId.lastIndexOf(">") + 1);
+/** The levels `D` steps through: the view's own, then results only, then 1…3. */
+const DEPTHS: readonly (number | undefined)[] = [undefined, 0, 1, 2, 3];
 
 /** The block a row stands for: a tree row's note, a resolved outlink's target, a backlink's source. */
 export function rowBlock(r: TreeRow | undefined): string | null {
-  if (!r) return null;
+  if (!r || r.kind === "branch-note") return null;
   return r.kind === "block" ? r.m.id : linkBlock(r);
 }
 
 /** A row as words: its mark, its text and its dim context (`peek`, agents, and the drawing). */
 export function rowWords(r: TreeRow, panelOpen: boolean): { mark: string; text: string; context: string; problem?: boolean } {
-  return r.kind === "block" ? { mark: "", text: subject(r.m), context: "" } : linkWords(r, panelOpen);
+  return r.kind === "block" ? { mark: "", text: subject(r.m), context: r.via ? "matched" : "" } : r.kind === "branch-note" ? { mark: "", text: r.text, context: "" } : linkWords(r, panelOpen);
 }
 
 export class TreePane implements Pane {
@@ -57,6 +88,8 @@ export class TreePane implements Pane {
   private shownResource: { key: string; note: Msg } | null = null;
   /** Notes read for link rows, so a preview following the tree can show the selected one. */
   private targets = new Map<string, Msg>();
+  /** Virtual branches opened here: their results, by the view's block id. */
+  private branches = new Map<string, Branch>();
   private rows: TreeRow[] = [];
   private sel = 0;
   private view = new RowView();
@@ -66,8 +99,9 @@ export class TreePane implements Pane {
   subject() { const r = this.rows[this.sel]; return r?.kind === "block" ? r.m.id : null; }
   hint() {
     const r = this.rows[this.sel];
+    if (r?.kind === "branch-note") return r.role === "more" ? "⏎ read more matches · D depth" : "⏎ D change the depth · h back";
     if (r && r.kind !== "block") return r.kind === "resource" ? "⏎ show the resource · h back" : r.kind === "group" || r.kind === "kind" ? "⏎ space fold · h back" : "⏎ open · l its links · h back";
-    return "←→ fold · ⏎ read · L links";
+    return r?.kind === "block" && (isBranch(r.m) || r.via) ? "←→ fold · ⏎ read · L links · D depth" : "←→ fold · ⏎ read · L links";
   }
   /** The row it has selected: a preview tile following the tree starts there. */
   selected(): Msg | null {
@@ -98,7 +132,7 @@ export class TreePane implements Pane {
   private rebuild() {
     const was = this.rows[this.sel]?.key, wasDepth = this.rows[this.sel]?.depth;
     const out: TreeRow[] = [];
-    this.fold.walk(this.roots ?? [], (m, depth) => { const key = `b:${m.id}`; out.push({ kind: "block", key, depth, m }); this.panelRows(key, depth + 1, out); });
+    for (const m of this.roots ?? []) this.emit(out, m, 0, `b:${m.id}`, m.id, {});
     this.rows = out;
     // The selection stays on its row; a row folded away hands it to the nearest row it was under.
     let i = was ? out.findIndex(r => r.key === was) : -1;
@@ -113,6 +147,46 @@ export class TreePane implements Pane {
     this.sel = i >= 0 ? i : Math.min(this.sel, Math.max(0, out.length - 1));
   }
 
+  /**
+   * One note's rows: the note, its links when shown, what is open under it, and, for a virtual branch, its results after
+   * its physical children. A match opens to its children down to the view's child-depth (the person's `D` over it).
+   */
+  private emit(out: TreeRow[], m: Msg, depth: number, key: string, foldId: string, via: { via?: string; rel?: number }) {
+    out.push({ kind: "block", key, depth, m, foldId, ...via });
+    this.panelRows(key, depth + 1, out);
+    if (!this.fold.open.has(foldId)) return;
+    const kids = this.fold.kids.get(foldId);
+    if (Array.isArray(kids) && (via.via === undefined || via.rel! < this.depthOf(via.via))) {
+      for (const c of kids) {
+        if (via.via === undefined) this.emit(out, c, depth + 1, `b:${c.id}`, c.id, {});
+        else this.emit(out, c, depth + 1, `${key}>${c.id}`, `${key}>${c.id}`, { via: via.via, rel: via.rel! + 1 });
+      }
+    }
+    // Not under a match: a view inside a view's results is a boundary the service stops at.
+    if (via.via === undefined && isBranch(m)) this.branchRows(out, m, depth + 1);
+  }
+
+  /** The levels a view's matches open to: the person's, else the view's own as the service answered it. */
+  private depthOf(view: string): number {
+    const b = this.branches.get(view);
+    return b?.depth ?? (b && b.read !== "loading" ? b.read.childDepth : undefined) ?? 0;
+  }
+
+  /** A virtual branch's results as rows: a header, each match, and the row that reads the next page. */
+  private branchRows(out: TreeRow[], view: Msg, depth: number) {
+    const b = this.branches.get(view.id);
+    const note = (role: "results" | "more" | "info", text: string): TreeRow => ({ kind: "branch-note", key: `n:${view.id}:${role}`, depth, view: view.id, role, text });
+    if (!b) return;
+    if (b.read === "loading" && !b.items.length) return void out.push(note("info", "reading the view…"));
+    const read = b.read === "loading" ? null : b.read;
+    if (read && read.status !== "ready") return void out.push(note("info", `can't read this view (${read.status})${read.errors[0] ? `: ${read.errors[0]}` : ""}`));
+    const total = read?.total ?? b.items.length;
+    const d = this.depthOf(view.id);
+    out.push(note("results", b.items.length ? `${total} ${total === 1 ? "match" : "matches"} · ${d === 0 ? "results only" : `children to depth ${d}`}${b.depth !== undefined ? " (D)" : ""}` : "no matches"));
+    for (const m of b.items) this.emit(out, m, depth, `v:${view.id}>${m.id}`, `v:${view.id}>${m.id}`, { via: view.id, rel: 0 });
+    if (read?.nextOffset !== undefined) out.push(note("more", `… ${Math.max(0, total - b.items.length)} more · ⏎ reads the next ${read.limit}`));
+  }
+
   /** The groups under `owner` (a row's key) when its links are shown (the shared links model), and theirs beneath rows that show theirs. */
   private panelRows(owner: string, depth: number, out: TreeRow[]) {
     const p = this.panels.get(owner);
@@ -123,8 +197,35 @@ export class TreePane implements Pane {
     }
   }
 
-  private expand(m: Msg, desk: DeskApi, on = true): Promise<void> {
-    return this.fold.show(m.id, on, id => desk.ctx.board.children(id), () => { this.rebuild(); desk.redraw(); });
+  private expand(m: Msg, desk: DeskApi, on = true, foldId = m.id): Promise<void> {
+    // A virtual branch's results are read when it opens, beside its children, and again when the outline changes.
+    // (One kept from an earlier open may be older than the outline: it is asked again.)
+    if (on && foldId === m.id && isBranch(m)) void this.loadBranch(m, desk, this.branches.has(m.id) ? "again" : "first");
+    return this.fold.show(foldId, on, id => desk.ctx.board.children(idOfFold(id)), () => { this.rebuild(); desk.redraw(); });
+  }
+
+  /**
+   * Ask the service for a virtual branch's matches (`views.read`): the first page, or with `more` the next, or the
+   * pages read so far again. What was shown stays until the answer comes.
+   */
+  private async loadBranch(view: Msg, desk: DeskApi, how: "first" | "more" | "again" = "first") {
+    const had = this.branches.get(view.id);
+    const b: Branch = had ?? { def: view, read: "loading", items: [], asked: 0 };
+    this.branches.set(view.id, b);
+    const n = ++b.asked, was = b.read;
+    if (how === "first") b.read = "loading";
+    const board = desk.ctx.board;
+    const have = b.items.length;
+    const page = how === "more" && was !== "loading" && was.nextOffset !== undefined ? { limit: was.limit, offset: was.nextOffset } : how === "again" && have > 0 ? { limit: Math.min(1000, have) } : {};
+    const r = await readView(board, view, page);
+    if (this.branches.get(view.id) !== b || b.asked !== n) return;
+    // A read that failed keeps what was shown (the pages already read), saying nothing new.
+    if (r.status === "failed" && have) return;
+    b.read = r;
+    // A next page read while the outline moved may repeat a match already shown: each shows once.
+    const seen = new Set(b.items.map(x => x.id));
+    b.items = how === "more" ? [...b.items, ...r.items.filter(x => !seen.has(x.id))] : r.items;
+    this.rebuild(); desk.redraw();
   }
 
   /** The selection moved to row `sel`: the row's note becomes the current one (a link row's is read first). */
@@ -167,6 +268,14 @@ export class TreePane implements Pane {
       for (const a of chain) await this.expand(a, desk);
     } catch { /* reveal is best effort */ }
     const i = this.rows.findIndex(r => r.kind === "block" && r.m.id === m.id);
+    if (i >= 0) { this.sel = i; desk.redraw(); }
+  }
+
+  /** Show note `m` open under its row, a virtual branch with its matches (a view that opens with them shown). */
+  async showOpen(m: Msg, desk: DeskApi) {
+    await this.reveal(m, desk);
+    await this.expand(m, desk);
+    const i = this.rows.findIndex(r => r.kind === "block" && r.m.id === m.id && !r.via);
     if (i >= 0) { this.sel = i; desk.redraw(); }
   }
 
@@ -230,18 +339,48 @@ export class TreePane implements Pane {
   foldRow(i: number, open: boolean | undefined, desk: DeskApi, agent = false): { row: number; open: boolean } {
     const r = this.rows[i];
     if (!r) throw new ActionRefused(`no row ${i + 1}; the tree has ${this.rows.length}`);
-    const isOpen = r.kind === "block" ? this.fold.open.has(r.m.id) : r.kind === "group" ? r.open : r.kind === "kind" ? r.expanded : this.panels.has(r.key);
+    if (r.kind === "branch-note") throw new ActionRefused(`row ${i + 1} is a line of a view's results: ⏎ reads more matches or changes the depth (D); it has nothing to fold`);
+    const isOpen = r.kind === "block" ? this.fold.open.has(r.foldId) : r.kind === "group" ? r.open : r.kind === "kind" ? r.expanded : this.panels.has(r.key);
     const want = open ?? !isOpen;
     if (want === isOpen) return { row: i + 1, open: isOpen };
     if (agent && !want) {
       const d = r.depth;
       for (let j = i + 1; j < this.rows.length && this.rows[j]!.depth > d; j++) if (j === this.sel) throw new ActionRefused(`the person's selection is under row ${i + 1}; an agent doesn't fold it away`);
     }
-    if (r.kind === "block") void this.expand(r.m, desk, want);
+    if (r.kind === "block") void this.expand(r.m, desk, want, r.foldId);
     else if (r.kind === "group" || r.kind === "kind") this.foldGroup(r, want);
     else this.toggleLinks(i, desk, want, agent);
     desk.redraw();
     return { row: i + 1, open: want };
+  }
+
+  /** The virtual branch row `i` belongs to: its own row, a match (or a note under one), or a line of its results; null for any other. */
+  viewOf(i: number): string | null {
+    const r = this.rows[i];
+    if (!r) return null;
+    if (r.kind === "branch-note") return r.view;
+    if (r.kind === "block") return r.via ?? (isBranch(r.m) && this.branches.has(r.m.id) ? r.m.id : null);
+    return null;
+  }
+
+  /**
+   * How far the matches of the virtual branch row `i` belongs to open, for this view (PIE-882): `depth` levels (0 is
+   * results only), "authored" for the view's own `[child-depth::]`, else the next of authored, 0, 1, 2, 3. A row that
+   * is no view's is refused. Nothing is written: the property stays as its author set it.
+   */
+  setDepth(i: number, depth: number | "authored" | undefined, desk: DeskApi, agent = false): { view: string; depth: number; authored: boolean } {
+    const view = this.viewOf(i);
+    const b = view ? this.branches.get(view) : undefined;
+    if (!view || !b) throw new ActionRefused(`row ${i + 1} is no virtual branch's: open a note with [type::virtual-branch] and its matches show beneath it`);
+    if (depth !== undefined && depth !== "authored" && !(Number.isInteger(depth) && depth >= 0 && depth <= 8)) throw new ActionRefused("depth is 0 (results only) to 8, or authored (the view's own child-depth)");
+    const next = depth === "authored" ? undefined : depth ?? DEPTHS[(DEPTHS.indexOf(b.depth) + 1) % DEPTHS.length];
+    // An agent never folds away the row the person has selected: a shallower depth would hide it.
+    const own = (next ?? (b.read !== "loading" ? b.read.childDepth : undefined) ?? 0);
+    const there = this.rows[this.sel];
+    if (agent && there?.kind === "block" && there.via === view && there.rel! > own) throw new ActionRefused(`the person's selection is ${there.rel} levels under a match of this view; an agent doesn't set a depth of ${own} over it`);
+    b.depth = next;
+    this.rebuild(); desk.redraw();
+    return { view, depth: this.depthOf(view), authored: b.depth === undefined };
   }
 
   /** The row above `i` that it sits under, or -1. */
@@ -271,6 +410,8 @@ export class TreePane implements Pane {
       this.reload = null;
       this.targets.clear();
       for (const k of this.panels.keys()) this.load(k, desk);
+      // A virtual branch's matches follow the outline: the pages shown are asked again.
+      for (const [id, b] of this.branches) if (this.fold.open.has(id)) void this.loadBranch(b.def, desk, "again");
       void this.reread(desk);
     }, 300);
   }
@@ -283,7 +424,8 @@ export class TreePane implements Pane {
    */
   private touches(e?: OutlineEvent): Set<string | null> | "all" | null {
     const c = e?.change;
-    if (!c) return "all";
+    // An open virtual branch lists what any change may match: it asks them all again.
+    if (!c || [...this.branches.keys()].some(id => this.fold.open.has(id))) return "all";
     const roots = this.roots ?? [];
     const lists = new Set<string | null>();
     for (const p of [c.parentId, c.previousParentId]) if (p === null || (p !== undefined && this.fold.kids.has(p))) lists.add(p);
@@ -301,7 +443,7 @@ export class TreePane implements Pane {
         const b = desk.ctx.board;
         const [roots] = await Promise.all([
           due === "all" || due.has(null) ? b.roots().catch(() => null) : null,
-          this.fold.reread(id => b.children(id), due === "all" ? undefined : new Set([...due].filter((x): x is string => x !== null))),
+          this.fold.reread(id => b.children(idOfFold(id)), due === "all" ? undefined : new Set([...due].filter((x): x is string => x !== null))),
         ]);
         if (roots) this.roots = roots;
         this.rebuild();
@@ -324,6 +466,11 @@ export class TreePane implements Pane {
       this.foldGroup(r); desk.redraw();
       const p = this.panels.get(r.owner);
       return { row: i + 1, open: r.kind === "group" ? !p?.shut.has(r.group) : !!p?.kinds.has(r.group.kind) };
+    }
+    if (r.kind === "branch-note") {
+      const b = this.branches.get(r.view);
+      if (r.role === "more" && b) { await this.loadBranch(b.def, desk, "more"); return { row: i + 1, view: r.view, matches: b.items.length }; }
+      return { row: i + 1, ...this.setDepth(i, undefined, desk, actor.kind === "agent") };
     }
     const land = (m: Msg) => {
       const routed = desk.routes?.(this);
@@ -366,7 +513,7 @@ export class TreePane implements Pane {
       linksShown: [...this.panels.entries()].map(([key, p]) => ({ row: this.rows.findIndex(x => x.key === key) + 1, id: p.blockId })).filter(p => p.row > 0),
       rows: this.rows.slice(0, 400).map((x, i) => {
         const w = rowWords(x, this.panels.has(x.key));
-        return { n: i + 1, depth: x.depth, kind: x.kind, text: w.text, ...(w.context ? { context: w.context } : {}), ...(rowBlock(x) ? { id: rowBlock(x) } : {}), ...(this.panels.has(x.key) ? { links: true } : {}), ...(i === this.sel ? { selected: true } : {}) };
+        return { n: i + 1, depth: x.depth, kind: x.kind, text: w.text, ...(w.context ? { context: w.context } : {}), ...(rowBlock(x) ? { id: rowBlock(x) } : {}), ...(x.kind === "block" && x.via ? { matchOf: x.via, ...(x.rel === 0 ? { match: true } : {}) } : {}), ...(x.kind === "branch-note" ? { view: x.view, role: x.role } : {}), ...(this.panels.has(x.key) ? { links: true } : {}), ...(i === this.sel ? { selected: true } : {}) };
       }),
       ...(this.rows.length > 400 ? { more: this.rows.length - 400 } : {}),
     };
@@ -380,15 +527,23 @@ export class TreePane implements Pane {
     const lines = this.rows.slice(this.view.top, this.view.top + h).map((r, i) => {
       const on = this.view.top + i === this.sel;
       const indent = "  ".repeat(r.depth);
+      if (r.kind === "branch-note") {
+        const text = `${indent}${r.role === "results" ? "◇ " : r.role === "more" ? "▸ " : "  "}${r.text}`;
+        return on ? selected(focused) + pad(text, w) + RESET : fg(r.role === "more" ? C.lcyan : C.dark) + pad(text, w) + RESET;
+      }
       if (r.kind === "block") {
-        const k = this.fold.kids.get(r.m.id);
-        const leaf = Array.isArray(k) && k.length === 0 && !this.panels.has(r.key);
-        const mark = k === "loading" ? "…" : leaf ? "·" : this.fold.open.has(r.m.id) || this.panels.has(r.key) ? "▾" : "▸";
-        const tag = (r.m.props["work-id"] ?? r.m.props.status ?? r.m.props.type ?? "").slice(0, 14);
+        const k = this.fold.kids.get(r.foldId);
+        // A match past the view's child-depth has nothing under it to open; a view always may (its matches follow its children).
+        const capped = r.via !== undefined && r.rel! >= this.depthOf(r.via);
+        const leaf = (Array.isArray(k) && k.length === 0 && !this.panels.has(r.key) && !isBranch(r.m)) || (capped && !this.panels.has(r.key));
+        const mark = k === "loading" ? "…" : leaf ? (r.via !== undefined && r.rel === 0 ? "◇" : "·") : this.fold.open.has(r.foldId) || this.panels.has(r.key) ? "▾" : "▸";
+        const branch = !r.via && isBranch(r.m) ? this.branches.get(r.m.id) : undefined;
+        const found = branch && branch.read !== "loading" && branch.read.status === "ready" ? `V:${branch.read.total ?? branch.items.length}` : "";
+        const tag = (found || (r.m.props["work-id"] ?? r.m.props.status ?? r.m.props.type ?? "")).slice(0, 14);
         const room = Math.max(4, w - (tag ? tag.length + 1 : 0));
         if (on) return selected(focused) + pad(`${indent}${mark} ${subject(r.m)}`, room) + (tag ? " " + tag : "") + RESET;
         const here = desk.current?.id === r.m.id;
-        return pad(`${indent}${fg(C.lcyan)}${mark} ${fg(here ? C.yellow : C.grey)}${subject(r.m)}`, room) + (tag ? " " + fg(C.brown) + tag : "") + RESET;
+        return pad(`${indent}${fg(C.lcyan)}${mark} ${fg(here ? C.yellow : r.via !== undefined && r.rel === 0 ? C.lgreen : C.grey)}${subject(r.m)}`, room) + (tag ? " " + fg(C.brown) + tag : "") + RESET;
       }
       return linkRowLine(r, { cols: w, selected: on, focused, nest: this.panels.has(r.key) });
     });
@@ -397,7 +552,7 @@ export class TreePane implements Pane {
 
   // ── keys and the mouse ─────────────────────────────────────────────────────
 
-  private run(desk: DeskApi, name: "tree.links" | "tree.pick" | "tree.fold", args: Record<string, unknown>) { runOwn(TREE_ACTIONS, name, args, { pane: this, desk }); }
+  private run(desk: DeskApi, name: "tree.links" | "tree.pick" | "tree.fold" | "tree.depth", args: Record<string, unknown>) { runOwn(TREE_ACTIONS, name, args, { pane: this, desk }); }
 
   key(k: Key, desk: DeskApi): boolean {
     const row = this.rows[this.sel], n = this.rows.length;
@@ -412,7 +567,13 @@ export class TreePane implements Pane {
     if (ch(k) === "L") { this.run(desk, "tree.links", { n: this.sel + 1 }); return true; }
     const right = k.kind === "right" || ch(k) === "l", left = k.kind === "left" || ch(k) === "h", space = ch(k) === " ";
     const linkRow = row.kind !== "block" && row.kind !== "group" && row.kind !== "kind";
-    const open = row.kind === "block" ? this.fold.open.has(row.m.id) : row.kind === "group" ? row.open : row.kind === "kind" ? row.expanded : this.panels.has(row.key);
+    if (ch(k) === "D") { this.run(desk, "tree.depth", { n: this.sel + 1 }); return true; }
+    if (row.kind === "branch-note") {
+      if (k.kind === "enter" || space || right) { this.run(desk, "tree.pick", { n: this.sel + 1, open: true }); return true; }
+      if (left) { const p = this.parentRow(this.sel); if (p >= 0) this.run(desk, "tree.pick", { n: p + 1 }); return true; }
+      return false;
+    }
+    const open = row.kind === "block" ? this.fold.open.has(row.foldId) : row.kind === "group" ? row.open : row.kind === "kind" ? row.expanded : this.panels.has(row.key);
     // A note's children, a group of links, a link's own links (one hop, as the Tree's ▸): → l open, ← h fold, space either way.
     const foldable = !linkRow || !!rowBlock(row);
     if (foldable && (space || (right && !open) || (left && open))) {
@@ -481,6 +642,21 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
     run({ n, id, open }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
       return pane.foldRow(i, open, desk, actor.kind === "agent");
+    },
+  }),
+  "tree.depth": def({
+    summary: "set how far the matches of a virtual branch open in the outline tree (tile=<its name>): depth=0 is results only, 1 to 8 levels of children under each match, authored the view's own [child-depth::]; left out, the next of authored, 0, 1, 2, 3. n or id is the view's row, one of its matches, or a line of its results, else the selected row. A view that isn't open has no matches to set. Writes nothing: the view's property stays as its author set it",
+    keys: "D · ⏎ or a click on the results line",
+    touches: "nothing", replay: "safe", says: r => `${r.authored ? "the view's own depth" : `depth ${r.depth}`} for the matches of ${r.view.slice(0, 8)}`,
+    args: {
+      n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
+      id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
+      depth: { type: "string", optional: true, about: "0 to 8, or authored; left out, the next step" },
+    },
+    run({ n, id, depth }, { pane, desk }, actor) {
+      const d = depth === undefined || depth === "" ? undefined : depth === "authored" ? "authored" as const : Number(depth);
+      if (typeof d === "number" && Number.isNaN(d)) throw new ActionRefused("depth is 0 to 8, or authored");
+      return pane.setDepth(rowOf(pane, n, id), d, desk, actor.kind === "agent");
     },
   }),
   "tree.links": def({

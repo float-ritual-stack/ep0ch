@@ -12,12 +12,16 @@ export interface ViewRead {
   errors: string[];
   /** Every member, beyond the limit. */
   total?: number;
+  /** How many levels of children each member shows: the view's `[child-depth::]`, else the service's default (PIE-882). */
+  childDepth?: number;
+  /** Where the next page starts when this one doesn't reach the end. */
+  nextOffset?: number;
 }
 
 const DEFAULT_LIMIT = 200;
 
-export async function readView(board: SocketBoard, def: Msg): Promise<ViewRead> {
-  const served = await board.readSavedView(def.id).catch((e: Error) => ({ failed: e.message }));
+export async function readView(board: SocketBoard, def: Msg, page: { limit?: number; offset?: number } = {}): Promise<ViewRead> {
+  const served = await board.readSavedView(def.id, page).catch((e: Error) => ({ failed: e.message }));
   if ("failed" in served) return { status: "failed", items: [], limit: DEFAULT_LIMIT, truncated: false, errors: [served.failed] };
   return viewReadOf(served);
 }
@@ -31,5 +35,7 @@ export function viewReadOf(served: SavedViewRead): ViewRead {
     truncated: served.completeness?.kind === "truncated" || served.nextOffset !== undefined,
     errors: served.errors,
     total: served.total,
+    ...(served.childDepth !== undefined ? { childDepth: served.childDepth } : {}),
+    ...(served.nextOffset !== undefined ? { nextOffset: served.nextOffset } : {}),
   };
 }

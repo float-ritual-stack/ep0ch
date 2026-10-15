@@ -188,7 +188,7 @@ export interface ViewOrder { viewId: string; viewRevision: number; blockIds: str
 export interface SavedViewRead {
   status: "ready" | "invalid" | "unsupported" | "missing" | "changed" | "failed";
   viewId: string; revision?: number; sequence: number;
-  configuredLimit?: number; effectiveLimit?: number; offset?: number; total?: number; nextOffset?: number;
+  configuredLimit?: number; effectiveLimit?: number; /** How many levels of children each member shows (the view's `[child-depth::]`, else the service's default). */ childDepth?: number; offset?: number; total?: number; nextOffset?: number;
   blocks: Msg[];
   completeness: { kind: string } | null;
   errors: string[];
