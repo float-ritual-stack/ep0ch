@@ -235,7 +235,7 @@ export interface Ctx {
    * The shell's one answer (src/whereabouts.ts); a frame around a screen answers it as seen from inside.
    */
   person?(): Whereabouts;
-  recordAction?(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown): unknown;
+  recordAction?(req: ActRequest, def: Pick<import("./surface/actions").ActionDef<unknown, unknown>, "replay" | "touches">, run: () => unknown): unknown;
   /** Run an action as the person through the door's own dispatcher (its every screen's: `note.new`, `open`, `edit`); a refusal is said. */
   press?(name: string, args?: Record<string, unknown>): Promise<unknown>;
   /**
@@ -954,7 +954,7 @@ export class App implements Ctx {
    * the request names the tile (tile=) or no block; with block= it runs on that block, tile or none.
    */
   readonly recording = new MacroRecording();
-  recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.recording.run(req, replay, run); }
+  recordAction(req: ActRequest, def: Pick<import("./surface/actions").ActionDef<unknown, unknown>, "replay" | "touches">, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, def, run); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },

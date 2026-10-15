@@ -134,7 +134,7 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
+export interface DispatchCtx { recordAction?(req: ActRequest, def: Pick<import("./actions").ActionDef<unknown, unknown>, "replay" | "touches">, run: () => unknown): unknown; flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -389,7 +389,7 @@ export class Dispatcher {
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
     const run = () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor);
     const ran = actor.kind === "user" && ctx?.recordAction
-      ? ctx.recordAction({ action: req.action, args: seen, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run)
+      ? ctx.recordAction({ action: req.action, args: seen, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def, run)
       : run();
     // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
     // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).

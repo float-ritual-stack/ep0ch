@@ -3409,9 +3409,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.dispatch.act({ action: "macro.record", args: { name: "planting-layout" } }, USER);
     await expect(app.act({ action: "macro.stop", as: "test-agent" })).rejects.toThrow("Only the person");
     await expect(app.dispatch.act({ action: "tile.open", args: { kind: "no-such-kind" } }, USER)).rejects.toThrow();
-    await app.dispatch.press("tile.open", { kind: "query", query: "#beans", name: "recorded-query" });
+    await app.dispatch.press("bar.open", { query: 'tile.open kind=query query="#beans" name=recorded-query' });
+    await until(() => !!(app as any).bar?.describe().rows.length, "the action line is offered");
+    await app.dispatch.press("bar.pick");
     await app.act({ action: "tile.open", args: { kind: "query", query: "#agent-only", name: "agent-query" }, as: "test-agent" });
-    const saved = await app.dispatch.act({ action: "macro.stop" }, USER) as { block: string };
+    const stopping = app.dispatch.act({ action: "macro.stop" }, USER);
+    await expect(app.dispatch.act({ action: "macro.record" }, USER)).rejects.toThrow("saving");
+    const saved = await stopping as { block: string };
     const note = (await board.get(saved.block))!;
     expect(note.text).toContain("[script::planting-layout]");
     expect(note.text).toContain("```actions");
@@ -3419,6 +3423,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(note.text).not.toContain("agent-only");
     expect(note.text).not.toContain("macro.stop");
     expect(note.text).not.toContain("no-such-kind");
+    expect(note.text).not.toContain("screen.list");
     await board.update(note.id, note.text.replace("#beans", "#{tag}").replace("recorded-query", "replayed-query"), note.revision!, USER);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "planting-layout" && e.actions.some(a => a.args?.some(x => x.name === "tag"))), "the edited macro loaded its slot");
     const extension = extensionList()!.extensions.find(e => e.name === "planting-layout")!;
@@ -3462,6 +3467,26 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const run = await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER) as { written: string[] };
     await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "the multiline comment replayed");
     expect((await board.get(run.written[0]!))!.text).toContain("· done");
+    await app.dispatch.act({ action: "comment.close", tile: "notes" }, USER);
+    screen();
+  }, 30_000);
+
+  test("a macro records an extension invocation once, not its asynchronous script actions", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    screen();
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "seed-report"), "the script loaded");
+    const extension = extensionList()!.extensions.find(e => e.name === "seed-report")!;
+    await app.dispatch.act({ action: "macro.record", args: { name: "scripted-recording" } }, USER);
+    const run = await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER) as { written: string[] };
+    await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "the nested script finished");
+    expect((await board.get(run.written[0]!))!.text).toContain("· done");
+    const saved = await app.dispatch.act({ action: "macro.stop" }, USER) as { block: string };
+    const text = (await board.get(saved.block))!.text;
+    expect(text).toContain(`ext.${extension.id}.run`);
+    expect(text).not.toContain("task.status");
+    await app.dispatch.act({ action: "ext.undo", tile: "source" }, USER);
+    screen();
   }, 30_000);
 
   test("a script in the showcase calls the dispatcher and streams an undoable result", async () => {

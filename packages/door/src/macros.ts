@@ -2,26 +2,28 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { actionLine, type ActRequest } from "@ep0ch/outline-core/action-line";
 import type { Ctx } from "./app";
 import { USER } from "./socket";
-import { ActionRefused, actionSet, def, type Replay } from "./surface/actions";
+import { ActionRefused, actionSet, def, type Replay, type ActionDef } from "./surface/actions";
 
 /** The session owns the recording; each dispatcher contributes only its completed person actions. */
 export class MacroRecording {
+  private saving = false;
   private readonly inside = new AsyncLocalStorage<boolean>();
   private recording: { name: string; near?: string; steps: { line: string; replay: Replay; finished: Promise<boolean> }[] } | null = null;
   get active() { return this.recording !== null; }
 
   start(name: string, near?: string) {
+    if (this.saving) throw new ActionRefused("The previous recording is saving; keep working, then macro.record starts the next one");
     if (this.recording) throw new ActionRefused("Already recording; macro.stop saves it first");
     this.recording = { name, near, steps: [] };
     return { recording: name };
   }
 
-  run(req: ActRequest, replay: Replay, work: () => unknown): unknown {
+  run(req: ActRequest, def: Pick<ActionDef<unknown, unknown>, "replay" | "touches">, work: () => unknown): unknown {
     // Palette navigation is not the command it launches; composed actions record only their outer command.
-    if (!this.recording || /^(macro\.|bar\.|ext\.)/.test(req.action) || this.inside.getStore()) return work();
+    if (!this.recording || (def.touches === "nothing" && def.replay === "safe") || /^(macro\.|bar\.)/.test(req.action) || this.inside.getStore()) return work();
     let finish!: (ok: boolean) => void;
     const finished = new Promise<boolean>(resolve => { finish = resolve; });
-    this.recording.steps.push({ line: actionLine(req), replay, finished });
+    this.recording.steps.push({ line: actionLine(req), replay: def.replay, finished });
     return this.inside.run(true, () => {
       try {
         const out = work();
@@ -36,6 +38,7 @@ export class MacroRecording {
     const recording = this.recording;
     if (!recording) throw new ActionRefused("Nothing is recording; macro.record starts a recording");
     this.recording = null;
+    this.saving = true;
     const finished = await Promise.all(recording.steps.map(s => s.finished));
     const lines = recording.steps.filter((_, i) => finished[i]).map(s => s.line);
     const replay = recording.steps.some((s, i) => finished[i] && s.replay === "ask") ? "Includes actions that write or reach outside the door. Run explicitly from the power bar." : "Recorded actions are safe to replay.";
@@ -49,7 +52,7 @@ export class MacroRecording {
     } catch (error) {
       this.recording = recording;
       throw error;
-    }
+    } finally { this.saving = false; }
   }
 }
 
