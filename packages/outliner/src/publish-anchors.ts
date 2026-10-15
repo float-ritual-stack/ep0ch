@@ -5,6 +5,7 @@
 // reader selects (and publish-passage.ts finds) is unchanged.
 
 import { metadataLines } from "@ep0ch/outline-core/block-tags";
+import { quoteDepth } from "@ep0ch/outline-core/callouts";
 import { parsePropertyRecords } from "./properties";
 import { blockReferenceOccurrences, pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { codeLineSet, ensureFragmentAnchor, fragmentCandidates, resolveFragmentSlice } from "./fragments";
@@ -36,7 +37,8 @@ export function lineAddresses(text: string, prefix: string, ids: string[]): Map<
   const code = codeLineSet(text);
   let offset = 0;
   text.split("\n").forEach((line, at) => {
-    if (line.trim() && !code.has(at) && !/^[\s|:=-]+$/.test(line)) add(at, `line:${offset}`);
+    // An empty quote line separates paragraphs; a marker would make it content.
+    if (quoteDepth(line).content.trim() && !code.has(at) && !/^[\s|:=-]+$/.test(line)) add(at, `line:${offset}`);
     offset += line.length + 1;
   });
   for (const ref of [...blockReferenceOccurrences(text), ...pageAddressReferences(text)]) {

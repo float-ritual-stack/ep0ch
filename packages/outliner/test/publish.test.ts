@@ -1218,3 +1218,14 @@ test("line destinations preserve tables whose rows omit the leading pipe", async
   expect(article).toMatch(/<table>[\s\S]*<th>stop<\/th>\s*<th>note\s*<\/th>[\s\S]*<td>gate<\/td>\s*<td>count here\s*<\/td>[\s\S]*<\/table>/);
   expect(article).toMatch(/<table>[\s\S]*<td>pond<\/td>\s*<td>count there<\/td>[\s\S]*<\/table>/);
 });
+
+test("source-line destinations preserve quoted paragraphs and stay inside callout titles", async () => {
+  const { store, get } = await setup();
+  const target = store.create('Census [publish::census]');
+  const text = `Walk [publish::walk]\n\n> First passage\n>\n> Second passage\n\n> [!note] See ((${target.id}))\n> Bring a lantern`;
+  store.create(text);
+  const html = await (await get('/p/walk?view=html')).text();
+  expect(html).toMatch(new RegExp(`<span class="callout-title">[^]*?id="at:${text.indexOf('((')}"[^]*?</span></span>`));
+  const article = html.split('<article>')[1]!.split('</article>')[0]!.replace(/<span[^>]*><\/span>/g, '');
+  expect(article).toMatch(/<blockquote>\s*<p>First passage<\/p>\s*<p>Second passage<\/p>\s*<\/blockquote>/);
+});
