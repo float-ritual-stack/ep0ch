@@ -198,7 +198,9 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     }, 60_000);
 
     test("scripts, the mod CLI and MCP patch the same note with each writer attributed", async () => {
-      const { hostApi } = await import("@ep0ch/outliner/host-api");
+      // The outliner owns its type-check configuration, as with the gateway's agent-tools import.
+      const hostApiModule = "@ep0ch/outliner/host-api";
+      const { hostApi } = await import(hostApiModule);
       const api = hostApi({
         request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest),
         requireCompatibleService: () => board.info(),
