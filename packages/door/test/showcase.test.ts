@@ -3450,8 +3450,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((await board.get(run.written[0]!))!.text).toContain("· done");
     expect(draft.text).toContain(mode === "roundtrip" ? "Prepare the seed labels" : "Sort the seed envelopes");
     expect(draft.text).toContain(mode === "dismiss" ? "Keep typing here." : "Keep typing here. Still here.");
+    if (mode === "dismiss") {
+      press({ kind: "char", ch: "s", ctrl: true });
+      await until(() => ![...stage.panes.values()].some((p: any) => p.editing), "dismissed draft saved");
+    }
     await board.request("extensions.undo", { undo: run.undo });
-    const undone = saveBeforeEnd ? (await board.get(target))!.text : draft.text;
+    const undone = saveBeforeEnd || mode === "dismiss" ? (await board.get(target))!.text : draft.text;
     expect(undone).toContain("Prepare the seed labels");
     expect(undone).toContain(mode === "dismiss" ? "Keep typing here." : "Keep typing here. Still here.");
     if (mode === "dismiss") expect(undone).toContain(`!((${proposed!.proposalId}))`);
