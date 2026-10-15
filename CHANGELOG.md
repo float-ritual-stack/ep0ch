@@ -18,7 +18,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Fixed:** an outlink with an anchor (`((note^anchor))`) opened from the links tile or the tree landed at the top of
   the note; it now lands on the anchor, as following the link in text does.
 - **Added:** the published page's `::links` backlink rows quote the line too (the page has no per-line anchors to land on).
-  `ep0ch act links` rows carry `line` and `anchor`.
+  The rows an agent reads (`backlinks`, `links`) carry `line` and `anchor`.
 
 ### A new note is a tile while you write it, and says where it lands (PIE-883)
 
