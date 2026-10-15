@@ -1,4 +1,5 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { isLinkValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
 import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
@@ -816,6 +817,12 @@ function treeLabel(text: string, resolved: ResolvedBlockReferences, metadata: Pi
 }
 
 export class OutlinerStore {
+  private readonly beforeImages = new AsyncLocalStorage<Map<string, Block>>();
+
+  /** A run's undo records only blocks its actual service operations read and changed. */
+  withBeforeImages<T>(before: Map<string, Block>, work: () => T): T {
+    return this.beforeImages.run(before, work);
+  }
   /**
    * This outline's resource providers (its extensions' `kind: "resource"` handlers), set by its service: its `key::`
    * lines are read with them, never with another outline's. Unset: the process-wide table.
@@ -5130,7 +5137,7 @@ export class OutlinerStore {
           )
           .all(row.id) as BlockProperty[]
       );
-    return {
+    const block: Block = {
       id: row.id,
       parentId: row.parent_id,
       position: row.position,
@@ -5148,6 +5155,9 @@ export class OutlinerStore {
         : {}),
       properties: hydratedProperties,
     };
+    const before = this.beforeImages.getStore();
+    if (before && !before.has(block.id)) before.set(block.id, block);
+    return block;
   }
 
   private workIdAllocatorFromCurrentRead(): WorkIdAllocatorRow | null {

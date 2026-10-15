@@ -439,6 +439,7 @@ export type ExtensionOrigin = "outline" | "user";
 
 /** A folder read and checked, ready to list or run. */
 export interface LoadedExtension {
+  readonly script?: ScriptSource;
   readonly id: string;
   readonly name: string;
   readonly version: number;
@@ -541,7 +542,7 @@ function checkSchedule(schedule: ExtensionSchedule, where: string): void {
 }
 
 /** The manifest's own rules beyond its schema: what needs a `run`, which keys are free, which patterns compile. */
-function checkManifest(manifest: ExtensionManifest): void {
+function checkManifest(manifest: ExtensionManifest, script = false): void {
   const keys = new Set<string>();
   for (const [index, handler] of (manifest.handlers ?? []).entries()) {
     if (keys.has(handler.key)) throw new ExtensionLoadError(`extension.json: handlers/${index}/key ${handler.key} is declared twice`);
@@ -678,7 +679,7 @@ function checkManifest(manifest: ExtensionManifest): void {
     componentIds.add(id);
   }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
-  if (needsRun && !manifest.run) throw new ExtensionLoadError("extension.json: handlers, actions, agents, bar sources and rules that decorate with code need run (the program each call starts)");
+  if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, bar sources and rules that decorate with code need run (the program each call starts)");
   if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, bar sources, rules, tiles or components");
 }
 
@@ -725,11 +726,11 @@ async function stampFile(hash: ReturnType<typeof createHash>, path: string): Pro
 }
 
 /**
- * Where an extension's manifest comes from. Today a folder; the seam is here so another source (a `func::` block in
- * the outline, compiled into the same manifest and trusted by the hash of its exact text) loads through the same
- * checks, with its own id rule and its own stamp, and no second parser.
+ * A folder or a script block uses the same manifest checks. Stamps detect an edited source during a run;
+ * they never grant permission to run it.
  */
 export interface ManifestSource {
+  readonly script?: ScriptSource;
   /** `extension.json`'s text, and `config.json`'s (`"{}"` when there is none). */
   readonly manifestRaw: string;
   readonly configRaw: string;
@@ -757,7 +758,7 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
   if (problem) throw new ExtensionLoadError(`extension.json: ${problem}`);
   const manifest = cleanShown(json) as ExtensionManifest;
   if (!manifest.name) throw new ExtensionLoadError("extension.json: name is only control characters");
-  checkManifest(manifest);
+  checkManifest(manifest, !!source.script);
   if (manifest.id !== source.expectedId) {
     throw new ExtensionLoadError(`extension.json: id ${manifest.id} must match ${source.idFrom} (${source.expectedId})`);
   }
@@ -784,6 +785,7 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
   }
   Object.assign(credentials, folder.secrets ?? {});
   return {
+    ...(source.script ? { script: source.script } : {}),
     id: manifest.id,
     name: manifest.name,
     version: manifest.version,
@@ -798,6 +800,14 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
     command: manifest.run ? resolveArgv(manifest.run) : null,
     stamp: source.stamp ?? createHash("sha256").update(manifestRaw).update("\0").update(configRaw).digest("hex"),
   };
+}
+
+export interface ScriptSource {
+  readonly code: string;
+  readonly blockId?: string;
+  readonly file?: string;
+  readonly revision: number | string;
+  readonly author: import("./types").MutationProvenance;
 }
 
 /**

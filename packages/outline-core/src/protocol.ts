@@ -43,6 +43,14 @@ export interface BlockProperty {
 }
 
 /** A block as the service sends it whole. Projected reads (`fields`) send a subset. */
+export interface ScriptActionCall {
+  requestId: string;
+  targetClientId: string;
+  action: string;
+  args: Record<string, unknown>;
+  actor: { author: "user" | "agent" | "system"; actorId?: string; sessionId?: string; taskId?: string };
+}
+
 export interface Block {
   id: string;
   parentId: string | null;

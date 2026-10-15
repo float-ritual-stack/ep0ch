@@ -13,6 +13,8 @@ import { PRIMITIVE_TYPES, RENDER_TARGETS } from "./component-primitives";
 import {
   ExtensionLoadError,
   readExtensionFolder,
+  loadExtensionManifest,
+  type ManifestSource,
   type ExtensionAction,
   type ExtensionAgent,
   type ExtensionHandler,
@@ -231,6 +233,8 @@ function builtInActions(extension: LoadedExtension): ExtensionActionEntry[] {
 }
 
 export interface ExtensionRegistryOptions {
+  readonly sources?: () => Promise<readonly ManifestSource[]>;
+  readonly watchPaths?: readonly string[];
   readonly roots: readonly ExtensionRoot[];
   /** Called after a reload that changed what the registry serves. */
   readonly onChange?: (generation: number) => void;
@@ -284,6 +288,15 @@ export class ExtensionRegistry {
     const slots: Slot[] = [];
     const seen = new Set<string>();
     const now = new Date().toISOString();
+    for (const source of await this.options.sources?.() ?? []) {
+      try {
+        if (!source.script?.code.trim()) throw new ExtensionLoadError("Add a closed js or ts code fence to this script block, then run it again");
+        const extension = loadExtensionManifest(source);
+        slots.push({ id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, loadedAt: now });
+      } catch (error) {
+        slots.push({ id: source.expectedId, origin: source.origin, directory: source.directory, state: "failed", error: error instanceof Error ? error.message : String(error) });
+      }
+    }
     for (const root of this.options.roots) {
       let names: string[] = [];
       try {
@@ -484,7 +497,7 @@ export class ExtensionRegistry {
         state: slot.state,
         ...(slot.error ? { error: slot.error } : {}),
         ...(slot.loadedAt ? { loadedAt: slot.loadedAt } : {}),
-        runsCode: !!extension?.command || !!extension?.manifest.tiles?.length,
+        runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length,
         handlers: serving ? (extension.manifest.handlers ?? [])
           .filter((handler) => this.bound.get(handler.key)?.extension === extension)
           .map((handler) => ({
@@ -553,7 +566,7 @@ export class ExtensionRegistry {
     for (const watcher of this.watchers) watcher.close();
     this.watchers = [];
     let moved = false;
-    for (const root of this.options.roots) {
+    for (const root of [...this.options.roots, ...(this.options.watchPaths ?? []).map(path => ({ path }))]) {
       let target = root.path;
       let recursive = true;
       while (!existsSync(target)) {

@@ -311,6 +311,11 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
  * extension's (`ext:<id>`), whoever asked; an agent's run is said as the agent's on the status bar.
  */
 export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+  ctx.board.scriptAction = call => {
+    if (!ctx.dispatch) return Promise.reject(new Error("The door dispatcher is unavailable"));
+    return ctx.dispatch.act({ action: call.action, args: call.args }, call.actor.author === "user"
+      ? { kind: "user" } : { kind: "agent", id: call.actor.actorId ?? call.actor.author });
+  };
   const say = asActor(ctx, actor);
   const name = extensionNamed(extension)?.name ?? oneLine(extension);
   say.flash(`${name}: ${a.label.toLowerCase()}…`);

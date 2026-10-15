@@ -27,7 +27,7 @@ import type { OutlinerStore } from "./store";
 // An EchoNet copy (`[from::<node>/<original id>]`) as EchoNet reads it: its text is its origin's, so a move never
 // rewrites it; its origin is told by netmail (ADR 0005).
 import { isCopy } from "../extensions/echonet/shapes";
-import type { MutationProvenance } from "./types";
+import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
 export type ExtensionWrite =
   | { readonly op: "create"; readonly parentId: string; readonly text: string; readonly as?: string; readonly position?: number }
@@ -116,16 +116,17 @@ export function parseBlockWrite(write: Record<string, unknown>, index: number): 
 
 /** What undoing a group puts back, in the order it was written (undone last first). */
 type UndoStep =
+  | { kind: "trash"; blockId: string; wasDeleted: boolean }
   | { kind: "create"; blockId: string; revision: number }
   | { kind: "update"; blockId: string; before: string; revision: number }
-  | { kind: "move"; blockId: string; fromParent: string | null; fromPosition: number; toParent: string }
+  | { kind: "move"; blockId: string; fromParent: string | null; fromPosition: number; toParent: string | null }
   | { kind: "order"; parentId: string; before: string[]; after: string[] };
 
 /**
  * A group that landed: its steps, and the outline as the group left it (each block's revision, each parent's
  * children in order), which undo finds again or refuses.
  */
-interface Receipt { id: string; extension: string; action: string; steps: UndoStep[]; revisions: Map<string, number>; children: Map<string, string[]> }
+interface Receipt { id: string; extension: string; action: string; steps: UndoStep[]; revisions: Map<string, number>; children: Map<string, string[]>; running?: boolean; problem?: string; deleted?: Map<string, boolean> }
 
 /** What an applied group answers: the blocks it wrote, or the proposal it waits as; `undo` names the step that undoes it. */
 export interface GroupOutcome {
@@ -160,6 +161,40 @@ export class ExtensionWrites {
   private readonly receipts = new Map<string, Receipt>();
 
   constructor(private readonly store: OutlinerStore, private readonly deps: ExtensionWritesDeps) {}
+
+  beginRun(action: string): string {
+    const id = crypto.randomUUID();
+    this.receipts.set(id, { id, extension: SERVICE_GROUP, action, steps: [], revisions: new Map(), children: new Map(), deleted: new Map(), running: true });
+    return id;
+  }
+
+  finishRun(id: string): void { this.receipts.get(id)!.running = false; }
+
+  /** Accumulate real host API mutations in the same receipt as returned extension writes. */
+  recordRun(id: string, before: ReadonlyMap<string, Block>, changes: readonly OutlinerChange[]): void {
+    const receipt = this.receipts.get(id)!;
+    for (const blockId of new Set(changes.flatMap(change => change.blockId ? [change.blockId] : []))) {
+      const own = changes.filter(change => change.blockId === blockId);
+      const now = this.store.get(blockId);
+      const was = before.get(blockId);
+      if (!now) { receipt.problem = "a block was purged during the run"; continue; }
+      const expected = receipt.revisions.get(blockId);
+      if (expected !== undefined && was && was.revision !== expected) receipt.problem = "another writer edited a block between this run's writes";
+      if (own.some(change => change.kind === "create")) {
+        receipt.steps.push({ kind: "create", blockId, revision: now.revision });
+      } else if (was) {
+        if (was.text !== now.text) receipt.steps.push({ kind: "update", blockId, before: was.text, revision: now.revision });
+        if (was.parentId !== now.parentId || was.position !== now.position) {
+          receipt.steps.push({ kind: "move", blockId, fromParent: was.parentId, fromPosition: was.position, toParent: now.parentId });
+        }
+        if (!!was.deletedAt !== !!now.deletedAt) receipt.steps.push({ kind: "trash", blockId, wasDeleted: !!was.deletedAt });
+      } else receipt.problem = "a change has no before-image";
+      receipt.revisions.set(blockId, now.revision);
+      receipt.deleted!.set(blockId, !!now.effectiveDeletedRootId);
+      for (const parent of [was?.parentId, now.parentId]) if (parent) receipt.children.set(parent, this.liveChildren(parent));
+      if (own.some(change => change.kind === "create")) receipt.children.set(blockId, this.liveChildren(blockId));
+    }
+  }
 
   /**
    * Commits an action's writes as the extension, with who asked beside it. Every write is checked first (a block
@@ -219,12 +254,14 @@ export class ExtensionWrites {
   undo(id: string, by: MutationProvenance): { undone: string; extension: string; action: string; written: string[] } {
     const receipt = this.receipts.get(id);
     if (!receipt) throw new Error(`No extension change ${id} to undo here: the last ${MAX_UNDO} since the host started are kept, each undone once`);
+    if (receipt.running) throw new Error("This script is still running; undo its run after it finishes");
+    if (receipt.problem) throw new Error(`${receipt.problem}; nothing was undone`);
     const name = (blockId: string) => this.store.get(blockId)?.text.split("\n", 1)[0]?.slice(0, 40) || blockId;
     // Everything as the group left it: every block it made or edited at its revision (and no draft open on one), every
     // parent it changed with the same children in the same order. Anything else and nothing is undone.
     for (const [blockId, revision] of receipt.revisions) {
       const block = this.store.get(blockId);
-      if (!block || block.effectiveDeletedRootId) throw new Error(`"${name(blockId)}" is gone or in the Trash since; nothing was undone`);
+      if (!block || !!block.effectiveDeletedRootId !== (receipt.deleted?.get(blockId) ?? false)) throw new Error(`"${name(blockId)}" is gone or in the Trash since; nothing was undone`);
       if (block.revision !== revision) throw new Error(`"${name(blockId)}" changed since; nothing was undone (ep0ch revisions puts back an earlier text)`);
       if (this.deps.held?.(blockId)) throw new Error(`"${name(blockId)}" is open in a draft; save or close it, then undo`);
     }
@@ -244,7 +281,10 @@ export class ExtensionWrites {
         if (step.kind === "update") this.store.update(step.blockId, step.before, this.store.get(step.blockId)!.revision, by);
         else if (step.kind === "create") this.store.delete(step.blockId, by, { revision: this.store.get(step.blockId)!.revision });
         else if (step.kind === "move") this.store.move(step.blockId, step.fromParent, step.fromPosition, by);
-        else this.reorder(step.parentId, step.before, by);
+        else if (step.kind === "trash") {
+          if (step.wasDeleted) this.store.delete(step.blockId, by);
+          else this.store.restore(step.blockId, by);
+        } else this.reorder(step.parentId, step.before, by);
         written.add(step.kind === "order" ? step.parentId : step.blockId);
       }
     }));

@@ -35,11 +35,13 @@ export interface HostStep {
 }
 
 export interface HostApiOptions {
+  act?(name: string, args: Record<string, unknown>): Promise<unknown>;
   /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
   onStep?(step: HostStep): void;
 }
 
 export interface HostApi {
+  act(name: string, args?: Record<string, unknown>): Promise<unknown>;
   /** Every tool, by its name (`outline_read`, `outline_patch`, `view_order`…). */
   readonly tool: Readonly<Record<string, HostTool>>;
   /** The tools this API offers, by name. */
@@ -102,5 +104,8 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   };
   const q = (query: string, opts: { under?: string; limit?: number } = {}) => call("outline_find", { query, ...opts });
   const read = (ref: string, opts: { depth?: number; limit?: number } = {}) => call("outline_read", { ref, ...opts });
-  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read });
+  const act = (name: string, args: Record<string, unknown> = {}) => options.act
+    ? options.act(name, args)
+    : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));
+  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act });
 }

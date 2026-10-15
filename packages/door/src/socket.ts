@@ -175,6 +175,7 @@ export const DRAFT_TOUCH_MS = 1000;
 export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
 
 export interface OutlineEvent {
+  script?: import("@ep0ch/outline-core/protocol").ScriptActionCall;
   domain: string; action: string; blockId?: string; sequence: number;
   /** The Resource a `resource-catalog` event names (a registration, a refresh). */
   resourceId?: string;
@@ -562,7 +563,20 @@ export class SocketBoard implements Board {
    * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`.
    */
   async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
-    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, mutation: requesterOf(actor) });
+    return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, clientId: this.clientId, mutation: requesterOf(actor) });
+  }
+
+  scriptAction?: (call: import("@ep0ch/outline-core/protocol").ScriptActionCall) => Promise<unknown>;
+
+  private async answerScript(call: import("@ep0ch/outline-core/protocol").ScriptActionCall): Promise<void> {
+    if (call.targetClientId !== this.clientId) return;
+    try {
+      if (!this.scriptAction) throw new Error("This door has no active dispatcher; run the script from its power bar");
+      const result = await this.scriptAction(call);
+      await this.request("scripts.answer", { requestId: call.requestId, clientId: this.clientId, result });
+    } catch (error) {
+      await this.request("scripts.answer", { requestId: call.requestId, clientId: this.clientId, error: error instanceof Error ? error.message : String(error) }).catch(() => {});
+    }
   }
 
   /**
@@ -1305,6 +1319,7 @@ export class SocketBoard implements Board {
       if (!r.event) return;
       // A request to the door about a draft it holds is answered here, never queued behind a catch-up.
       if (r.event.domain === "draft") { void this.answerDraft(r.event.draft); return; }
+      if (r.event.domain === "script" && r.event.script) { void this.answerScript(r.event.script); return; }
       if (held) held.push(r.event); else this.deliver(r.event);
     });
     s.on("data", d => lines.feed(d));

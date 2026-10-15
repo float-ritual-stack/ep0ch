@@ -65,6 +65,7 @@ import { createHash } from "node:crypto";
  */
 
 export interface ExtensionCallsOptions {
+  readonly script?: (extension: LoadedExtension, request: ExtensionActRequest) => ExtensionActResult;
   readonly now?: () => number;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
   readonly changed?: (blockId: string) => void;
@@ -112,6 +113,7 @@ interface PassOptions {
 export type { BlockWrite, ExtensionWrite };
 
 export interface ExtensionActRequest {
+  readonly clientId?: string;
   readonly extension: string;
   readonly action: string;
   /** The block it acts on (and, for a handler's action, its line). Optional for an action on a tile. */
@@ -938,6 +940,7 @@ export class ExtensionCalls {
     if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
     const action = this.registry.action(extension.id, request.action);
     if (!action) throw new Error(`${extension.name} has no action ${request.action}`);
+    if (extension.script) return this.options.script!(extension, request);
     if (action.on === "passage") return this.actOnPassage(extension, action, request);
     if (request.passage) throw new Error(`${action.name} acts on ${action.on ?? "a block"}, not a passage`);
     const block = request.blockId ? this.store.get(request.blockId) : null;
