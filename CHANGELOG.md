@@ -20,6 +20,14 @@ are its record. The outliner's entries from then are kept below, under
 - **Added:** the published page's `::links` backlink rows quote the line too (the page has no per-line anchors to land on).
   The rows an agent reads (`backlinks`, `links`) carry `line` and `anchor`.
 
+### An @name an extension or agent writes lands, held with its reason (PIE-888)
+
+- **Fixed:** an `@name` line an extension's action, an extension's agent answer or an agent's `draft.patch` writes is no
+  longer a refused write that loses the words. It lands as written, in the saved note or a door's live draft, and is held:
+  `held: ext:requests may not wake @kitty · r to send` shows under the line, nothing is asked, and a person's `r` sends it
+  (an agent's `r` on it is still refused). A trigger's new block still asks its own extension's agents at once.
+  The extensions README says this in each place it came up (it said both "refused" and "held").
+
 ### A new note is a tile while you write it, and says where it lands (PIE-883)
 
 - **Fixed:** a new note's float couldn't be dragged, docked or its `⋯` opened while you wrote in it: a press on its

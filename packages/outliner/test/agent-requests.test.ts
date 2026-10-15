@@ -148,7 +148,7 @@ test("a request line an agent wrote waits for r; a line still being changed runs
   const { store, client, create, agentOf } = await setup();
   const theirs = await create("Draft\n*  messy  line\n@tidy", "agent");
   const waiting = await agentOf(theirs.id, (p) => p.status === "not-run" && p.agent?.status === "waiting");
-  expect(waiting.reason).toBe("written by an agent: r asks it");
+  expect(waiting.reason).toMatch(/^held: \S+ may not wake @tidy · r to send$/);
   await Bun.sleep(250);
   expect(store.get(theirs.id)!.text).toBe("Draft\n*  messy  line\n@tidy");
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id, line: 2 });
@@ -243,13 +243,15 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "done", patche
   expect(store.agentRequests(note.id).map((row) => row.status)).toEqual(["applied"]);
 });
 
-test("an agent can't write a request line, and a request reworded while it runs drops the old answer", async () => {
+test("an agent's answer may write a request line: it lands, held; a request reworded while it runs drops the old answer", async () => {
   const { store, client, create, agentOf, writeAgent } = await setup();
   await writeAgent("sneaky", `const text = (await Bun.stdin.json()).input.note.text;
 process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "harmless", replacement: "@sneaky again" }] } }));`);
   const note = await create("x\nharmless\n@sneaky");
-  expect((await agentOf(note.id, (p) => p.status === "unavailable")).reason).toBe("Not applied, nothing was written: it would write a request line (@sneaky again); agents can't ask agents");
-  expect(store.get(note.id)!.text).toBe("x\nharmless\n@sneaky");
+  await agentOf(note.id, (p) => p.status === "ready");
+  expect(store.get(note.id)!.text).toBe("x\n@sneaky again\n@sneaky");
+  const again = store.agentRequests(note.id).find((row) => row.request === "again");
+  expect(again).toMatchObject({ status: "waiting", message: "held: ext:sneaky may not wake @sneaky · r to send" });
 
   await writeAgent("tardy", `await Bun.sleep(400);
 process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "words", replacement: "WORDS" }] } }));`);
@@ -264,24 +266,30 @@ process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "
 
 const AGENT = { author: "agent" as const, actorId: "claude-test" };
 
-test("one guard: no agent's draft.patch writes or rewords a request line, in a live draft or a saved note (B4)", async () => {
+test("one rule: an agent's draft.patch may write a request line, in a live draft or a saved note; it lands held, never asked", async () => {
   const { store, client, create } = await setup();
   const held = await create("Errands\nbuy string\nmore words");
   const door = await fakeDoor(client, "door-1", held);
   door.text = `${door.text}\nstill typing`;
-  await expect(client.request({ action: "draft.patch", blockId: held.id, revision: held.revision, mutation: AGENT,
-    patches: [{ observed: "buy string", replacement: "buy string\n@tidy all" }] })).rejects.toThrow("it would write a request line (@tidy all); agents can't ask agents");
-  expect(door.text).toBe("Errands\nbuy string\nmore words\nstill typing");
+  await client.request({ action: "draft.patch", blockId: held.id, revision: held.revision, mutation: AGENT,
+    patches: [{ observed: "buy string", replacement: "buy string\n@tidy all" }] });
+  expect(door.text).toBe("Errands\nbuy string\n@tidy all\nmore words\nstill typing");
+  await until("the line held", () => store.agentRequests(held.id).length === 1);
+  expect(store.agentRequests(held.id)).toMatchObject([{ agent: "tidy", request: "all", status: "waiting", message: "held: claude-test may not wake @tidy · r to send" }]);
+  // The person typing on (a touch) doesn't send what an agent wrote.
+  await client.request({ action: "drafts.touch", holdId: door.holdId });
   await Bun.sleep(250);
-  expect(store.agentRequests(held.id)).toEqual([]);
+  expect(store.agentRequests(held.id)[0]!.status).toBe("waiting");
 
   const saved = await create("Ledger\n@tidy\nentry");
-  await expect(client.request({ action: "draft.patch", blockId: saved.id, revision: saved.revision, mutation: AGENT,
-    patches: [{ observed: "@tidy", replacement: "@tidy all" }] })).rejects.toThrow("agents can't ask agents");
-  expect(store.get(saved.id)!.text).toBe("Ledger\n@tidy\nentry");
-  // Other edits, and a person's patch, still apply; `@name` mid-sentence is prose.
-  await client.request({ action: "draft.patch", blockId: saved.id, revision: saved.revision, mutation: AGENT, patches: [{ observed: "entry", replacement: "entry for @tidy" }] });
-  expect(store.get(saved.id)!.text).toBe("Ledger\n@tidy\nentry for @tidy");
+  await client.request({ action: "draft.patch", blockId: saved.id, revision: saved.revision, mutation: AGENT,
+    patches: [{ observed: "@tidy", replacement: "@tidy all" }] });
+  expect(store.get(saved.id)!.text).toBe("Ledger\n@tidy all\nentry");
+  expect(store.agentRequests(saved.id)).toMatchObject([{ agent: "tidy", request: "all", status: "waiting", message: "held: claude-test may not wake @tidy · r to send" }]);
+  // Other edits still apply; `@name` mid-sentence is prose.
+  const now = store.get(saved.id)!;
+  await client.request({ action: "draft.patch", blockId: saved.id, revision: now.revision, mutation: AGENT, patches: [{ observed: "entry", replacement: "entry for @tidy" }] });
+  expect(store.get(saved.id)!.text).toBe("Ledger\n@tidy all\nentry for @tidy");
 });
 
 test("notes from before agent requests keep their @name lines old; restarts say what they cut off (B5, B17)", async () => {

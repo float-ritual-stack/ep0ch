@@ -6,6 +6,7 @@ import { durationMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown } from "./extension-records";
 import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
+import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { AgentRequestRow, OutlinerStore } from "./store";
@@ -283,13 +284,50 @@ export class AgentRequests {
    * nothing, but the `@name` lines it holds now are what the next save is compared with: a line an
    * extension's write left is never taken for one the person's next save added.
    */
-  observe(blockId: string): void {
+  observe(blockId: string, actor?: MutationProvenance, created = false): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (!block) return;
+    // A request line it wrote lands, held: the words are saved as written, and a person's `r` sends it (PIE-888).
+    const before = new Set(created ? [] : this.store.agentRequestBaseline(blockId) ?? []);
+    this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined);
     this.remember(blockId, this.shapes(block));
     // Requests whose lines the write took out are withdrawn, as after any save.
     if (this.withdraw(blockId, this.lines(block).map((line) => line.requestKey))) this.deps.changed(blockId);
+  }
+
+  /** Whether a block's first line says a rule's trigger made it (its own extension's agents are asked at once). */
+  private viaTrigger(text: string): boolean {
+    return new RegExp(`\\[${VIA_TRIGGER}::`, "i").test(text.split("\n", 1)[0]!);
+  }
+
+  /**
+   * The `@name` lines an agent or an extension wrote that the note never had (`text` is the note, or a door's draft an
+   * agent patched): each is kept as waiting, marked with why (`held: ext:requests may not wake @kitty · r to send`),
+   * and only a person's `r` sends it. The write itself is never refused for it (capture is more reliable than
+   * interpretation). `own`: the extension that made a trigger's block, whose own agents are asked at once instead.
+   */
+  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance): void {
+    const block = this.store.get(blockId);
+    if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return;
+    const lines = requestLines(text, this.registry.agentNames());
+    if (!lines.length) return;
+    const answered = new Set(this.store.agentRequests(blockId).map((row) => row.requestKey));
+    const who = actor?.actorId?.trim() || actor?.author || "system";
+    let held = false;
+    for (const line of lines) {
+      if (before.has(line.requestKey) || answered.has(line.requestKey)) continue;
+      const bound = this.registry.agent(line.agent)!;
+      if (own?.actorId && `ext:${bound.extension.id}` === own.actorId.trim()) continue;
+      answered.add(line.requestKey);
+      held = true;
+      this.store.putAgentRequest({
+        blockId, requestKey: line.requestKey, agent: line.agent, extensionId: bound.extension.id, request: line.request,
+        status: "waiting", message: `held: ${who} may not wake @${line.agent} · r to send`, requestedBy: actor?.actorId ? `agent:${actor.actorId}` : actor?.author ?? "system",
+        requestedAt: new Date(this.now).toISOString(),
+      });
+    }
+    if (held) this.deps.changed(blockId);
   }
 
   /**
@@ -349,6 +387,7 @@ export class AgentRequests {
     if (!lines.length && !known) return;
     const answered = new Set(rows.map((row) => row.requestKey));
     const byPerson = actor?.author === "user";
+    let writtenByAgent = false;
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
       // Quiet means quiet: any save while the line waits starts the wait again.
@@ -367,12 +406,10 @@ export class AgentRequests {
         this.schedule(blockId, line.requestKey);
         continue;
       }
-      this.store.putAgentRequest({
-        blockId, requestKey: line.requestKey, agent: line.agent, extensionId: this.registry.agent(line.agent)!.extension.id, request: line.request,
-        status: "waiting", message: "written by an agent: r asks it", requestedBy: actor?.actorId ? `agent:${actor.actorId}` : actor?.author ?? "system",
-        requestedAt: new Date(this.now).toISOString(),
-      });
+      writtenByAgent = true;
     }
+    // What an agent or an import wrote is held, said on the line (a person's `r` sends it).
+    if (writtenByAgent) this.holdWritten(blockId, block.text, actor, before);
     this.deps.changed(blockId);
   }
 

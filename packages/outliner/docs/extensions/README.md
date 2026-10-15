@@ -689,8 +689,8 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
   across restarts (`lastRun` says when it stopped one); `skip` is a query whose blocks never set it off
   (`"triage=done OR child:via-trigger=intake-prior-art"`).
 - A triggered action's input has `trigger: { rule, blocks? }`. A block it makes may ask the extension's **own**
-  agents (`@name` lines; any other extension's write of one is refused): it's asked at once, as `r` would, by whoever
-  set the trigger off. The rule the person wrote is what asked; its guards are the limit.
+  agents (`@name` lines; a line for any other agent lands held, as every extension's does): it's asked at once, as `r`
+  would, by whoever set the trigger off. The rule the person wrote is what asked; its guards are the limit.
 - **A rule starts from now.** Installing a rule over blocks that already match runs nothing for them.
 - The action runs through `extensions.act`: its writes are `ext:<id>`'s, with `requestedBy` the person or agent
   whose save set it off.
@@ -880,8 +880,9 @@ actions yet; `r` is its path today.
   block written over the [connection](#a-connection-to-the-service). Code the person installed is trusted in their
   outline; what keeps it safe is the rest: every write is attributed `ext:<id>`, revision-checked and undoable
   (`extensions.undo`), and the store refuses a `work-id` or page address another block owns, as it does anyone's.
-  Terminal escapes go. No write may add an `@name` request line (extensions can't ask agents; a trigger's new block
-  may ask its own extension's). Escape text you import (below).
+  Terminal escapes go. A write may carry an `@name` request line and it lands as written: it is held, marked with why
+  (`held: ext:<id> may not wake @name · r to send`), and a person's `r` sends it (a trigger's new block asks its own
+  extension's agents at once instead). Escape text you import (below).
 - **Who asked.** `extensions.act` takes `mutation`: the
   person (`{ "author": "user" }`) or an agent (`{ "author": "agent", "actorId": "loki" }`);
   `author`/`provenance` as on `create` work too. The action gets it as its input's `requestedBy`

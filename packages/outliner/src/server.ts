@@ -449,6 +449,8 @@ export class OutlinerServer {
       },
       // An `@name` request answered with a proposal says what became of it.
       proposalSettled: (proposalId, status, by) => this.agentRequests.proposalSettled(proposalId, status, by),
+      // An agent's patch put an `@name` line in a draft: held for a person's `r`, never refused.
+      heldInDraft: (blockId, text, by) => this.agentRequests.holdWritten(blockId, text, by, new Set(this.store.agentRequestBaseline(blockId) ?? [])),
       // An extension's write group held as a proposal, applied anyway: checked and written by its writes' owner.
       groups: (group, by) => this.extensionCalls.writes.forProposal(group, by),
     });
@@ -3559,7 +3561,7 @@ export class OutlinerServer {
       // (they run nothing), but what they leave is still the request lines a later save is compared with.
       if (event.domain === "content" && event.blockId && (event.change?.kind === "create" || event.change?.kind === "edit")) {
         if (isExtensionActor(event.change.actor?.actorId)) {
-          this.agentRequests.observe(event.blockId);
+          this.agentRequests.observe(event.blockId, event.change.actor, event.change.kind === "create");
         } else {
           this.extensionSync.blockChanged(event.blockId);
           this.extensionCalls.blockChanged(event.blockId, event.change.actor, event.change.kind === "create");

@@ -19,7 +19,6 @@ import { blockReferenceOccurrences, codeRangesOf, FRAGMENT_ID_SOURCE, referenced
 import { fragmentAnchors, withAnchorAtEnd, withoutAnchor } from "./fragments";
 import { ep0chBlockUriOccurrences, formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { blockDisplayTitle } from "./references";
-import { requestLines } from "./agent-requests";
 import { DRAFT_PROPOSAL_TYPE, type DraftGroup, type DraftGroupWrite, type DraftPatchApplied, type DraftPatchInput, type DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
 import { namesDemoIds, rewriteDemoReferences } from "./extension-demo";
@@ -294,13 +293,8 @@ export class ExtensionWrites {
         if (raw.as !== undefined && names.has(raw.as)) throw new Error(`${action} names two new blocks ${raw.as}; ${nothing}`);
         const written = cleanExtensionText(rewriteDemoReferences(raw.text, names), true);
         const text = trigger ? markTriggered(written, trigger.rule) : written;
-        const asks = requestLines(text, null);
-        const strange = asks.find((line) => !trigger?.agents.has(line.agent));
-        if (strange) {
-          throw new Error(trigger
-            ? `${action} tried to ask @${strange.agent}; a trigger's new block asks only its own extension's agents (${[...trigger.agents].map((name) => `@${name}`).join(", ") || "it declares none"}; ${nothing})`
-            : `${action} tried to write an @request line; extensions can't ask agents (${nothing})`);
-        }
+        // An @name line it writes lands as written: a trigger's block asks its own extension's agents at once, any other
+        // is held, marked with why, for a person's `r` (src/agent-requests.ts holdWritten). Never a refused write.
         const id = crypto.randomUUID();
         if (raw.as !== undefined) names.set(raw.as, id);
         structure.push({ op: "create", id, parentId, text, ...(raw.position !== undefined ? { position: raw.position } : {}) });
@@ -337,10 +331,6 @@ export class ExtensionWrites {
       }
       if (updates.has(blockId)) throw new Error(`${action} updated ${blockId} twice; one update per block (${nothing})`);
       const after = cleanExtensionText(rewriteDemoReferences(raw.text, names), true);
-      const had = new Set(requestLines(current.text, null).map((line) => line.requestKey));
-      if (requestLines(after, null).some((line) => !had.has(line.requestKey))) {
-        throw new Error(`${action} tried to write an @request line; extensions can't ask agents (${nothing})`);
-      }
       if (!current.text && after) throw new Error(`${action} updated an empty block; create a child instead (${nothing})`);
       updates.set(blockId, { revision: current.revision, before: current.text, after });
     }

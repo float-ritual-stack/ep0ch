@@ -135,14 +135,20 @@ test("a request line an extension's write leaves is the baseline: the person's n
   expect(row.reply).toBe("noted ");
 });
 
-test("an action can't write an @request line, in a block it creates or into one it updates", async () => {
+test("an @request line an action writes lands as written, held with why, never a refused write; a person's r sends it", async () => {
   const { store, act, client, scribe } = await setup();
   await scribe();
   const note = await client.request<Block>({ action: "create", text: "Journal", author: "user" });
-  await expect(act("child", note.id, { text: "a child\n@scribe loop forever" })).rejects.toThrow("extensions can't ask agents");
-  await expect(act("rewrite", note.id, { text: "Journal\n@tidy everything" })).rejects.toThrow("extensions can't ask agents");
-  expect(store.get(note.id)!.text).toBe("Journal");
-  expect(store.children(note.id)).toEqual([]);
+  const made = await act("child", note.id, { text: "a child\n@scribe loop forever" });
+  const child = store.get(made.written[0]!)!;
+  expect(child.text).toBe("a child\n@scribe loop forever");
+  expect(store.agentRequests(child.id)).toMatchObject([{ agent: "scribe", status: "waiting", message: "held: ext:scribe may not wake @scribe · r to send", requestedBy: "agent:ext:scribe" }]);
+  // An update that adds one lands too, and is held the same way; a line that was there is not a new one.
+  await act("rewrite", note.id, { text: "Journal\n@scribe tidy everything" });
+  expect(store.get(note.id)!.text).toBe("Journal\n@scribe tidy everything");
+  expect(store.agentRequests(note.id)).toMatchObject([{ agent: "scribe", status: "waiting", message: "held: ext:scribe may not wake @scribe · r to send" }]);
+  // An agent's own r on it is refused; the person's isn't (it is theirs to send).
+  await expect(client.request({ action: "resources.projection.refresh", blockId: note.id, line: 1, mutation: { author: "agent", actorId: "loki" } })).rejects.toThrow("waits for a person");
 });
 
 // ── C2: who asked ────────────────────────────────────────────────────────
