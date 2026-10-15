@@ -331,6 +331,19 @@ describe("dock containers and policy (PIE-505)", () => {
     expect(place(m, r).rects.get("a")!.cols).toBe(10);
   });
 
+  test("a fixed size that would leave the rest of the screen to nobody is ignored, and said (PIE-869)", () => {
+    // Evan's desk: the outline in a dock that slides over, and one row of readers fixed at 10 cells.
+    const readers = { ...splitOf("row", [leaf("p"), leaf("d1"), leaf("d2"), leaf("d3")], undefined, "rows"), policy: { fixed: 10 } };
+    const t = wrapDock(splitOf("row", [leaf("tree"), readers]), "tree", "left", false)!;
+    const placed = placeScreen({ root: t, floats: [] }, r, {});
+    expect(placed.rects.get("d3")!.col + placed.rects.get("d3")!.cols - placed.rects.get("p")!.col).toBe(r.cols);
+    expect([...(placed.unfixed ?? [])].map((n: any) => n.key)).toEqual(["rows"]);
+    // Beside a tile that takes the rest, it's kept.
+    const kept = place(splitOf("row", [readers, leaf("b")]), r);
+    expect(kept.rects.get("d3")!.col + kept.rects.get("d3")!.cols - kept.rects.get("p")!.col).toBe(10);
+    expect(kept.unfixed).toBeUndefined();
+  });
+
   test("the saved form keeps docks and policies; a stray field in a hand-edited policy is dropped", () => {
     const t = { ...tree(), policy: { locked: true, accepts: ["tree", 3 as any] } } as LNode<string>;
     const back = revive(serialize(t, id => ({ t: "leaf" as const, id })) as any, (l: any) => l.id as string) as any;

@@ -3849,12 +3849,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       run: () => { const i = own.opensInto ? notes.indexOf(own.opensInto) : -1; const next = notes[i + 1]; return next ? set({ opensInto: next }) : set({ clear: "opensInto" }); },
     });
     if (node) {
+      // Measured as laid out without a zoom (PIE-869: with another tile zoomed its tiles weren't on screen, and ⏎ here
+      // fixed the desk's only row at a made-up 10 cells); none to measure (a shut dock): refused, with the command.
       const cellsNow = this.cellsOf(node);
-      for (const k of ["fixed", "min", "max"] as const) rows.push({
-        label: `${k} size · cells (+ - change it)`, value: own[k] === undefined ? "—" : String(own[k]),
-        run: () => (own[k] === undefined ? set({ [k]: cellsNow }) : set({ clear: k })),
-        adjust: by => set({ [k]: Math.max(1, (own[k] ?? cellsNow) + by) }),
-      });
+      const measured = () => { if (cellsNow === null) throw new ActionRefused(`${id}'s tiles aren't on screen to measure: layout.policy node=${id} fixed=<cells>`); return cellsNow; };
+      const ignored = this.unfixed(node);
+      const sizes = (["fixed", "min", "max"] as const).map(k => ({
+        label: `${k} size · cells (+ - change it)`,
+        // A lock that's set says so, and how to clear it, where it's seen (PIE-869).
+        value: own[k] === undefined ? "—" : `${own[k]}${k === "fixed" && ignored ? " · ignored: nothing beside" : ""} · ⏎ clears`,
+        run: () => (own[k] === undefined ? set({ [k]: measured() }) : set({ clear: k })),
+        adjust: (by: number) => set({ [k]: Math.max(1, (own[k] ?? measured()) + by) }),
+      }));
+      // A size that's set goes first, under locked: the lock that shapes the screen is the one to see.
+      rows.splice(1, 0, ...sizes.filter((_, i) => own[(["fixed", "min", "max"] as const)[i]!] !== undefined));
+      rows.push(...sizes.filter((_, i) => own[(["fixed", "min", "max"] as const)[i]!] === undefined));
     }
     if (node?.t === "dock") {
       rows.push(flag("collapsible", "it slides shut"));
@@ -3865,13 +3874,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     return rows;
   }
-  /** A container's size along its parent's axis now, in cells (for the panel's size rows). */
-  private cellsOf(node: Container): number {
-    const rects = this.rectsNow(), p = parentNode(this.root, node);
+  /** A container's size along its parent's axis, as laid out without a zoom, in cells (the panel's size rows); null: none of its tiles is placed. */
+  private cellsOf(node: Container): number | null {
+    const rects = rectsOf({ ...this.layout, zoom: null }, this.area, this.holds), p = parentNode(this.root, node);
     const rs = leaves(node).map(i => rects.get(i)).filter((r): r is Rect => !!r);
-    if (!rs.length) return 10;
+    if (!rs.length) return null;
     const across = !p || p.parent.dir === "row";
     return across ? Math.max(...rs.map(r => r.col + r.cols)) - Math.min(...rs.map(r => r.col)) : Math.max(...rs.map(r => r.row + r.rows)) - Math.min(...rs.map(r => r.row));
+  }
+
+  /** Whether container `node`'s fixed size is ignored as the screen is laid out (layout.ts place: nothing beside it takes the rest). */
+  private unfixed(node: Container): boolean {
+    const ps = placeLayout(this.layout, this.area, this.holds);
+    return !!ps.unfixed?.has(node) || ps.slid.some(d => !!d.placed.unfixed?.has(node));
   }
 
   // ── tile operations (TILE_ACTIONS): the keys, the mouse and `act` all come here ──

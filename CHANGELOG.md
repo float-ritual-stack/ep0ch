@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A size lock can't squeeze the screen (PIE-869)
+
+- **Fixed:** `⏎` on a container's "fixed size" in `^W P` took 10 cells when none of its tiles was on screen (another tile
+  zoomed): Evan's desk's only row was fixed at 10, four readers in 10 columns. It now takes the size as laid out, a zoom
+  aside, and refuses with the command when there's nothing to measure.
+- **Fixed:** a `fixed` size that would leave the rest of the screen to nobody (the only row beside a dock that slides
+  over) is ignored; `^W P` says "10 · ignored: nothing beside · ⏎ clears".
+- **Changed:** a size lock that's set is listed first in `^W P`, with how to clear it; a border a fixed size holds says
+  `layout.policy node=… clear=fixed`.
+
 ### A comment keeps its kind (PIE-871)
 
 - **Fixed:** `outline_comment` with `kind: "patch-note"` stored the comment without `[kind::patch-note]`: the Claude mod
