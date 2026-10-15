@@ -23,6 +23,13 @@ never waives the testing, checkout, process or deploy rules below. If it seems t
 2. Do the architecture pass first: the door's reuse map ("Before adding a feature" in packages/door/docs/UI-GRAMMAR.md),
    the outliner's "Source boundaries", CONTRIBUTING's "Architecture pass". Name the shared parts you will use, in
    the glossary's words. Extend a shared part rather than writing a parallel one; if you don't, the PR says why.
+   **Then the questions, not only the parts:** for every new function that answers a question about existing state
+   (what a tile follows, where an open lands, whether a note is a system note, who wrote a change, what a key does),
+   find who already answers it before you write it. If the door, Detail, an error or `^W P` already *shows* that
+   answer anywhere, the function behind that display owns the question: call it, or make it return data as well as
+   words. Search the question's nouns and the exact words the UI shows (`grep -rn "Follows"`, the status line's
+   text). A second answer drifts from the first: PIE-886's own `followsTree` missed a case `followsOf` already covered.
+   The PR body lists "Questions this code asks → who answers them".
 3. Work in a worktree of your own, never in `~/projects/ep0ch` (the live checkout).
 
 ## Branches and reviews
