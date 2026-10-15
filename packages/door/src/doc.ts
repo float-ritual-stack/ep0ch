@@ -1,3 +1,4 @@
+import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-core/table-shape";
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
@@ -674,10 +675,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // Table: header row, separator row, body rows.
-    if (/^\s*\|/.test(line) && /^\s*\|?\s*:?-{2,}/.test(src[i + 1] ?? "")) {
-      const rows: string[] = [line];
-      for (i++; i < src.length && /^\s*\|/.test(src[i]!); i++) rows.push(src[i]!);
-      i--;
+    if (startsTable(src, i)) {
+      const end = tableEnd(src, i), rows = src.slice(i, end);
+      i = end - 1;
       out.push(...table(rows, W, lit(i)));
       continue;
     }
@@ -1104,25 +1104,13 @@ function chunk(s: string, w: number): string[] {
   return balanceStyles(balanceTags(out));
 }
 
-function cells(row: string): string[] {
-  const parts: string[] = [];
-  let cur = "", esc = false;
-  for (const ch of row.trim()) {
-    if (esc) { cur += ch; esc = false; continue; }
-    if (ch === "\\") { esc = true; continue; }
-    if (ch === "|") { parts.push(cur.trim()); cur = ""; continue; }
-    cur += ch;
-  }
-  parts.push(cur.trim());
-  if (row.trim().startsWith("|")) parts.shift();
-  if (row.trim().endsWith("|")) parts.pop();
-  return parts;
-}
+const cells = (row: string) => tableCells(row).map(c => c.text);
 
 /** A real table: columns sized to fit, long cells wrap onto more lines instead of truncating. */
-export function table(rows: string[], W: number, literal = false): string[] {
+export interface TableCellBox { row: number; col: number; x: number; y: number; width: number }
+export function table(rows: string[], W: number, literal = false, cell?: (box: TableCellBox) => void): string[] {
   const head = cells(rows[0]!);
-  const align = cells(rows[1]!).map(a => (a.startsWith(":") && a.endsWith(":") ? "c" : a.endsWith(":") ? "r" : "l"));
+  const align = tableAligns(rows[1]!);
   const body = rows.slice(2).map(cells);
   const n = Math.max(head.length, ...body.map(r => r.length));
   const all = [head, ...body].map(r => Array.from({ length: n }, (_, k) => r[k] ?? ""));
@@ -1146,16 +1134,19 @@ export function table(rows: string[], W: number, literal = false): string[] {
     const gap = w - v;
     return a === "r" ? " ".repeat(gap) + s : a === "c" ? " ".repeat(gap >> 1) + s + " ".repeat(gap - (gap >> 1)) : s + " ".repeat(gap);
   };
-  const line = (r: string[], header: boolean) => {
+  const line = (r: string[], header: boolean, row: number, base: number) => {
     const wrapped = r.map((c, k) => (c ? wrap(c, widths[k]!, BODY) : [""]));
     const h = Math.max(...wrapped.map(w => w.length));
     const out: string[] = [];
-    for (let y = 0; y < h; y++)
+    for (let y = 0; y < h; y++) {
+      let x = 1;
+      widths.forEach((width, col) => { cell?.({ row, col, x, y: base + y, width: width + 2 }); x += width + 3; });
       out.push(B("│") + wrapped.map((w, k) => " " + fit(header ? BOLD + fg(C.white) + (w[y] ?? "") + RESET : inlineOf(w[y] ?? "", literal), widths[k]!, align[k] ?? "l") + " ").join(B("│")) + B("│"));
+    }
     return out;
   };
-  const out = [rule("┌", "┬", "┐"), ...line(all[0]!, true), rule("╞", "╪", "╡").replace(/─/g, "═")];
-  all.slice(1).forEach((r, k) => { out.push(...line(r, false)); if (k < all.length - 2) out.push(rule("├", "┼", "┤")); });
+  const out = [rule("┌", "┬", "┐"), ...line(all[0]!, true, 0, 1), rule("╞", "╪", "╡").replace(/─/g, "═")];
+  all.slice(1).forEach((r, k) => { out.push(...line(r, false, k + 1, out.length)); if (k < all.length - 2) out.push(rule("├", "┼", "┤")); });
   out.push(rule("└", "┴", "┘"));
   return out;
 }

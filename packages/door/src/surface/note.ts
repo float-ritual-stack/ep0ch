@@ -1,3 +1,4 @@
+import { elementEdit, type ElementOperation } from "./element-editor";
 // The note surface: one note, shown, edited and commented on the same way wherever it is hosted — the
 // board's preview, details and floats, the desk's reader, and (next) a river column. It owns the note's
 // rendering, links, the edit control (a Draft, with Ctrl+E handing it to $EDITOR), passage selection
@@ -2286,6 +2287,7 @@ export class NoteSurface {
   }
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false): string[] {
+    if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippet(t, width));
     const by = writtenBy(d, "save");
     return renderEditor(d, {
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links), pick: true, follow: true, ...(away ? { away } : {}),
@@ -2355,6 +2357,7 @@ export class NoteSurface {
 
   private draftKey(k: Key, host: SurfaceHost): boolean {
     const s = this.drafting!;
+    if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
     s.key(k, {
       completer: this.completer(s.draft, host),
@@ -2690,8 +2693,8 @@ export class NoteSurface {
       changed: revision => { if (!d.saving && revision !== d.base) d.changedElsewhere = true; },
       editing: () => true, covers: () => true,
       key: (k, host) => this.draftKey(k, host),
-      click: (x, y, host) => this.writeClick(d, x, y, host),
-      press: (x, y, _host, drag) => this.writePress(d, x, y, drag),
+      click: (x, y, host) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }) : this.writeClick(d, x, y, host),
+      press: (x, y, host, drag) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }, drag, true) : this.writePress(d, x, y, drag),
       wheel: (dir, _host, at) => this.writeWheel(d, dir, at),
       rows: (w, h, host) => { this.use(host); return this.msg ? this.renderDraft(d, this.msg, w, h, (host?.entered ?? host?.focused) === false && this.keepsOnFocusAway()) : null; },
       leave: async (host, actor) => {
@@ -2704,7 +2707,7 @@ export class NoteSurface {
       keep: () => (s.dirty ? [s.keep()] : []),
       hint: () => (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
-      describe: () => ({ ...s.describe(), writtenBy: writtenBy(d, "save") }),
+      describe: () => ({ ...s.describe(), rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
     };
   }
 
@@ -6746,6 +6749,47 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
 }
 
 export const NOTE_ACTIONS = actionSet<On>()("note", {
+  "rich.toggle": def({
+    summary: "edit components where they are drawn, or return to raw source; both views use the same draft",
+    keys: "ctrl+o while editing, esc in rich edit", touches: "draft", draft: "type", replay: "ask",
+    menu: noteRow("rich edit", "", {}),
+    args: { on: { type: "boolean", optional: true, about: "rich view on or off" } },
+    async run({ on }, { surface, host }, actor) {
+      const { draft: d } = await surface.ensureDraft(host);
+      const v = elementEdit(d);
+      if (on ?? !v.on) v.open(actor); else v.on = false;
+      host.redraw(); return { rich: v.on };
+    },
+  }),
+  "rich.move": def({
+    summary: "move between a component's fields; up/down leave a table at its edges",
+    keys: "tab, shift+tab, up, down, enter in rich edit", touches: "draft", draft: "type", replay: "ask",
+    args: { direction: { type: "string", about: "next, previous, up, down, left or right" } },
+    run({ direction }, { surface, host }) {
+      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      if (!["next", "previous", "up", "down", "left", "right"].includes(direction)) throw new ActionRefused("direction must be next, previous, up, down, left or right");
+      elementEdit(surface.draft).move(direction); host.redraw();
+    },
+  }),
+  "rich.set": def({
+    summary: "replace the current component field, in the draft's undo history; ctrl+s saves",
+    touches: "draft", draft: "type", replay: "ask",
+    args: { value: { type: "string", about: "the cell's value" } },
+    run({ value }, { surface, host }, actor) {
+      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      elementEdit(surface.draft).set(value, actor); surface.noteAgent(actor, "edited a cell", surface.draft); host.redraw();
+    },
+  }),
+  "rich.change": def({
+    summary: "add, remove or move a row or column in the current table, as one draft undo step",
+    keys: "alt+r/d row, alt+c/x column in rich edit", touches: "draft", draft: "type", replay: "ask",
+    args: { op: { type: "string", about: "row.add, row.remove, column.add, column.remove, row.move, column.move" }, to: { type: "number", optional: true, about: "destination row or column, from zero" } },
+    run({ op, to }, { surface, host }, actor) {
+      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      if (!["row.add", "row.remove", "column.add", "column.remove", "row.move", "column.move"].includes(op)) throw new ActionRefused("unknown table operation");
+      elementEdit(surface.draft).change(op as ElementOperation, actor, to); surface.noteAgent(actor, op, surface.draft); host.redraw();
+    },
+  }),
   // The draft's own actions (Enter's list continuation, Tab, Shift+Tab, a click, the wheel, the preview),
   // on this reader's edit or the comment being written: the same code its keys and mouse run.
   "draft.newline": forwardDraft("draft.newline"),

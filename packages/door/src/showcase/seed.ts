@@ -30,6 +30,7 @@ export const SEED = {
   gardenView: "Garden chores",
   notebook: "Allotment notebook",
   whiteboard: "Kitchen whiteboard",
+  richEdit: "Seed inventory",
   shed: "Bike shed",
   heap: "Compost heap",
   attention: "Pump rota",
@@ -1253,6 +1254,12 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   await board.moveInView({ view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, { kind: "user" });
 
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
+  notes.richEdit = await make(notes.root.id, [
+    SEED.richEdit, "", "Edit the cells here. Ctrl+O switches the same draft to raw source and back.", "",
+    "| Crop | Packets |", "| --- | ---: |", "| Beans | 4 |", "| Peas | 2 |", "",
+    "::graph-table", "---", "title: Next sowing", 'headers: ["Crop", "Trays"]', "rows:", '  - ["Lettuce", "3"]', '  - ["Radish", "1"]', "---", "::", "",
+    "Keep typing while an agent adds another table: its fields are editable in this same draft.",
+  ].join("\n"));
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");
   await make(notes.shed.id, "Chain oil\nThe dry lube, not the wet one.", SEED_AGENT);
