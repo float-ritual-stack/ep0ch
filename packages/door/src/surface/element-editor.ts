@@ -224,7 +224,8 @@ export class ElementEdit {
   input(text: string, by: Actor, cut = false) {
     const c = this.current(); if (!c) return;
     const d = this.draft;
-    if (cut) d.splice(d.col, c.field.end, "", {}, by);
+    if (cut && c.field.encode) this.set((c.field.decode ?? ((s: string) => s))(d.lines[d.row]!.slice(c.field.start, d.col)), by);
+    else if (cut) d.splice(d.col, c.field.end, "", {}, by);
     else if (c.field.encode) {
       const anchor = d.anchor?.row === d.row ? d.anchor.col : d.col;
       const start = Math.max(c.field.start, Math.min(d.col, anchor)), end = Math.min(c.field.end, Math.max(d.col, anchor));

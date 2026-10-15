@@ -364,6 +364,9 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
     e.s.key({ kind: "down" }, e.h);
     e.s.key({ kind: "home" }, e.h);
+    e.s.key(ctrl("k"), e.h);
+    e.type("Beans");
+    e.s.key({ kind: "home" }, e.h);
     e.s.key({ kind: "end", shift: true }, e.h);
     e.s.key({ kind: "delete" }, e.h);
     e.type("Peas");
