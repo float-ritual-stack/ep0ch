@@ -31,6 +31,7 @@ export const SEED = {
   notebook: "Allotment notebook",
   whiteboard: "Kitchen whiteboard",
   shed: "Bike shed",
+  compost: "Compost heap",
   attention: "Pump rota",
   figures: "Allotment figures",
   plotJobs: "Plot jobs by stage",
@@ -1250,6 +1251,10 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");
   await make(notes.shed.id, "Chain oil\nThe dry lube, not the wet one.", SEED_AGENT);
+  // Notes to trash and bring back (PIE-878): the heap, with two notes under it.
+  notes.compost = await make(notes.root.id, `${SEED.compost}\nOld leaves and kitchen peelings, no meat.`);
+  await make(notes.compost.id, "Turning log\nTurned on Sunday, steaming.");
+  await make(notes.compost.id, "Lid\nCracked; the new one comes with the order.");
   // A day's plan with its outbox in it (PIE-693): a ::links block over a query, the waiting letters listed beside a
   // preview of the one selected; the letters themselves live under a note of their own.
   notes.outbox = await make(notes.root.id, `${SEED.outbox}\nWhat's written and waiting to go, one note a letter.`);

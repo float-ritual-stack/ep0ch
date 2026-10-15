@@ -508,7 +508,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect((await current(cards.bulb.id)).deletedAt).toBeUndefined();
     await until(() => B().lanes[laneIndex("Doing")].items.find((m: Msg) => m.id === cards.bulb.id)?.revision === shown.revision + 1, "the lane to catch up", 8000);
     const r: any = await act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id.slice(0, 8) });
-    expect(r).toMatchObject({ trashed: cards.bulb.id, lane: "Doing", recordedAs: "not recorded: the service's delete takes no author" });
+    expect(r).toMatchObject({ trashed: cards.bulb.id, lane: "Doing", recordedAs: `agent ${AS}` });
     expect((await current(cards.bulb.id)).deletedAt).toBeDefined();
     expect(hints()).toContain(`TRASHED "Swap the porch bulb" by an agent (${AS}) · u restores`);
     expect(await act("card.restore")).toMatchObject({ restored: cards.bulb.id });

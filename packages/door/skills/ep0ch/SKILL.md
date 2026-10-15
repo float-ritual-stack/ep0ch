@@ -224,6 +224,11 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `tile.preview tile=<reader>` (`where=right|down|left|up`) opens a reader beside it where its opens land, linked in
   one step: then `link.follow tile=<reader> n=…` lands there and the reader keeps its note. Called again it answers
   `existing: true` and shows that one; it never takes the person's keys (the person's `O`, `^W v`, `^W V`).
+- **Trashing a note** (PIE-878): `note.trash ref=<block id> confirm=<the same id>` (the note a tile points at when `ref`
+  is left out: `tile=<a reader, list or tree>`) moves it and the notes under it to Trash, recorded as you; without
+  `confirm` you are refused (the person's first press shows what would go, their second confirms). The Inbox and the other
+  system notes, the workspace root, a note already in the Trash and a note with a draft open on it are refused with why.
+  `note.untrash` brings back the one you trashed last (or `id=<the Trash root>`); the person's is ctrl+z.
 - **Screens people make** (PIE-565): `screen.open name=blank` gives a blank screen; `blank.fill kind=tree|reader|detail|pty|query
   tile=blank` (a query lane takes `view=<id>`) puts the first tile in its place, `tile.open`/`tile.link` build the rest, and
   `screen.save name=<name>` writes it to the outline as a screen note (`[type::screen]`, its spec as JSON), attributed to

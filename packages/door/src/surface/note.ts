@@ -3363,6 +3363,8 @@ export class NoteSurface {
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
       const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)]] as const)
         .reduce<{ name: "callout.undo" | "image.undo" | "task.undo" | "ext.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
+      if (last.seq < 0) return false;
       void this.runKey(last.name, {}, host, true);
       return true;
     }

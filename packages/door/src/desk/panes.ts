@@ -163,6 +163,8 @@ export interface Pane {
   readonly kind: TileKindName;
   title(): string;
   hint(): string;
+  /** The note the tile points at (a reader's note, a list's or the tree's selected row): what `note.trash` takes by default. Null: none. */
+  subject?(): string | null;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
@@ -284,6 +286,7 @@ export class ReaderPane implements Pane {
    */
   constructor(readonly follows = false) {}
   get msg() { return this.surface.msg; }
+  subject() { const m = this.surface.msg; return m && isOutlineNote(m) ? m.id : null; }
   claims(k: Key): boolean { return !this.holdsKeys && this.surface.claims(k); }
   /** Held on its note (p, alt+⏎, or pinned to a page): it doesn't follow the current note. */
   get holding() { return this.held || !!this.pinPage; }

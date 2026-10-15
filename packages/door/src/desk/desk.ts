@@ -20,6 +20,7 @@ import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, t
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizing } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
+import { lastTrashed } from "../note-trash";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
@@ -2217,6 +2218,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** A key or a click runs the same action as `act`, as the person, through the dispatcher; a refusal is said, not thrown. */
   run(name: string, args: Record<string, unknown> = {}, reader?: string) { void this.dispatch.press(name, args, reader); }
+  /** The note tile `sel` points at (`Pane.subject`: a reader's note, a list's selected row), the focused tile's when none is named. */
+  subjectOf(sel: string | undefined): { tile: string; id: string | null } {
+    const t = this.tile(sel);
+    return { tile: t.name, id: this.panes.get(t.id)?.subject?.() ?? null };
+  }
   /**
    * Run an action as `by`, in tile `tile` (a pane, or a name; left out, the action's own default): the person's as their
    * key does (`press`: a refusal said), an agent's as `act` (its refusal said on the status bar too, never thrown).
@@ -3616,6 +3622,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return void this.startSession(focused, start);
     }
     if (!focused?.holdsKeys && pane?.key(k, this)) return;
+    // d (Delete too) trashes the note the tile points at (PIE-878, note.trash): the first press says what goes, d again confirms.
+    // ctrl+z, with nothing of the tile's own to undo, brings back the note trashed last (note.untrash).
+    if (!this.holdsKeys() && !pane?.typing?.()) {
+      if (((k.kind === "char" && !k.ctrl && k.ch === "d") || k.kind === "delete") && pane?.subject?.()) return this.run("note.trash", {}, this.nameOf(this.focus));
+      if (k.kind === "char" && k.ctrl && k.ch === "z" && lastTrashed(this.ctx.board, USER)) return this.run("note.untrash", {}, this.nameOf(this.focus));
+    }
     // Bare - folds the focused tile to a spine and + or = opens it (PIE-699), only now: a tile's own - + = (the tune
     // inspector's nudge, an image's size, a figure's density) took the key above, and nothing that takes text is here.
     if (FOLD_KEYS.has(c0) && !this.holdsKeys()) return this.run("tile.collapse", { on: c0 === "-" }, this.nameOf(this.focus));
