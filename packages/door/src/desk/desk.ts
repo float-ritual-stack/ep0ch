@@ -2886,7 +2886,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Its surface (PIE-675, the look's `bg`): under its content, inside its frame; a dock or a float slides over on it.
     // A joined tile's tint runs to its edges, with no frame to stop at (dark, capped as every surface is).
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : joined ? surfaceBg("raised", lv["bg.strength"]) : "";
-    canvas.clear(r, dock || float || joined ? surface || bg(C.black) : "");
+    canvas.clear(r, dock || float ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
     const inner = contentRect(framed, look, !!pane.measured, pane.beside?.() ?? 0);
     this.contents.set(id, inner);
@@ -3024,7 +3024,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private followsTree(id: number, pane: Pane): boolean {
     const bound = boundSource.get(pane), f = kindOf(pane)?.follows?.(pane);
     const src = bound && bound !== NO_SOURCE ? bound : !bound && f ? (f.includes("/") ? this.paneAtPath(f) : this.panes.get(this.idNamed(f) ?? -1)) : undefined;
-    if (src?.kind === "tree") return true;
+    // A follower is what it is bound to; only a tile that follows nothing of its own can be a tree's preview by its link.
+    if (f !== undefined && f !== null) return src?.kind === "tree";
     return [...this.layout.links].some(([z, to]) => to === id && z !== id && this.layout.linkRoles.get(z) === "preview" && this.panes.get(z)?.kind === "tree");
   }
 
