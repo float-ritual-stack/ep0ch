@@ -955,6 +955,8 @@ export class AgentDrawer {
     const screen = tilesOf(shown);
     if (!screen || screen === d) throw new ActionRefused(`the ${shown?.title ?? "screen"} has no tiles to put ${name} among · open one with tiles (D the desk, K the board, R the river), then tile.drawer on=false tile=${name}`);
     // The drawer's own tab leaves as an ordinary terminal tile named for what runs in it; a holder keeps its tab.
+    // The tab holding the place while its program is out isn't a program to take: that one comes back first.
+    if (this.p instanceof DrawerTile && this.p.away && d.pane(name) === this.p) throw new ActionRefused(`${this.p.away.says}: ⏎ or a click brings it back`);
     const old = this.p instanceof DrawerTile && d.pane(name) === this.p ? this.p : null;
     const as = old ? freeName(screen, old.shows) : name;
     const out = d.takeRefusal(name, actor, !!old);
@@ -964,10 +966,14 @@ export class AgentDrawer {
     if (into) throw new ActionRefused(`the ${screen.title} doesn't take ${as} there: ${into}`);
     const wasIn = this.entered;
     let moved: MovedTile;
+    let undo: ((a: Actor) => unknown) | null = null;
     if (old) {
       // The drawer's own program goes whole (PIE-892): its tab stays, starting nothing, saying where it went, until it
       // comes back (put: the same tile in its place again). A second client of the same agent was a mirror nobody could use.
       const heir = this.holder(old.shows, `the ${screen.title}`);
+      const was = { out: this.out, gen: this.gen };
+      // Refused after all (a race): its own tab again, as it was.
+      undo = a => { old.reown(); d.takeOut(DRAWER_TILE_ID, a, old, false).pane.dispose?.(); this.p = old; this.left = null; this.out = was.out; this.gen = was.gen; this.save(); };
       this.left = { pane: old, screen };
       this.p = heir;
       // Kept by its key: after a handover the drawer still knows its program is out, and which tile it is.
@@ -977,7 +983,7 @@ export class AgentDrawer {
       old.release();
       moved = { ...out, name: as, spec: { ...out.spec, kind: "pty", name: as } };
     } else moved = d.takeOut(name, actor);
-    const done = this.bring(screen, moved, to, where, actor, a => d.bringIn(moved, undefined, "tabs", a));
+    const done = this.bring(screen, moved, to, where, actor, undo ?? (a => d.bringIn(moved, undefined, "tabs", a)));
     // The person's keys were in it in the drawer: they go with it, back on the screen.
     if (wasIn && actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
     // The person took the drawer's own program out: the drawer goes away, and its new one starts when it comes up again.
@@ -999,6 +1005,9 @@ export class AgentDrawer {
   /** ⏎ or a click on the own tab while its program is out: that tile back from wherever it is now (any screen it was put on). */
   bringBack(actor: Actor): TileDone | null {
     if (!this.out) return null;
+    // Its program is gone (closed on its screen, or ended with a door before a handover could adopt it): the tab is
+    // the drawer's own again, and runs its program as any own tab does.
+    if (!this.outAlive()) { this.free(); return null; }
     const screens = [this.left?.screen, tilesOf(this.host.screen?.())].filter((s): s is Desk => !!s);
     for (const s of screens) {
       const name = s.layoutGet().tiles.map((t: { name: string }) => t.name).find((n: string) => this.isOwnOut(s.pane(n)));
@@ -1006,6 +1015,19 @@ export class AgentDrawer {
     }
     this.host.flash(`${this.p instanceof DrawerTile ? this.p.shows : "your drawer's program"} isn't on the screen shown · go to its screen, then ^W a on it brings it back`);
     return null;
+  }
+  /** Whether the drawer's program that's out still runs somewhere: the tile that left, else one with its key. */
+  private outAlive(): boolean {
+    if (this.left) return this.left.pane.running || this.left.pane.exited !== null;
+    return livePrograms().some(p => p.home === this.out);
+  }
+  /** The own tab no longer holding a place: its program starts as any own tab's does (when it's drawn). */
+  private free() {
+    const h = this.p;
+    this.out = null; this.left = null; this.save();
+    if (h instanceof DrawerTile && h.away) {
+      h.away = null;
+      if (this.persist) h.home = this.gen ? `drawer.json#${this.gen}` : "drawer.json"; this.host.flash(`${h.shows} isn't running any more · your drawer's own program starts here again`); this.host.redraw(); }
   }
   /** Whether `p` is the drawer's own program, out on a screen: the tile that left, or (after a handover) the one with its key. */
   private isOwnOut(p: Pane | undefined): p is PtyPane {

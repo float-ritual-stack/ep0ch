@@ -291,6 +291,15 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(await d.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: name }, USER)).toMatchObject({ tile: "drawer.agent", back: true });
       expect([d.app.drawer.tile, own.pid, own.running]).toEqual([own, pid, true]);
       expect(d.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent"]);
+      // Its holder isn't a program to take out; and once the program that's out is closed, the tab runs its own again.
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
+      await expect(d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER)).rejects.toThrow("brings it back");
+      await d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER).catch(() => d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER));
+      await until(() => !d.desk.pane(name), "the program's tile closed");
+      d.app.drawer.bringBack(USER);
+      d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program again");
+      expect(d.app.drawer.tile!.pid).not.toBe(pid);
     } finally { d.app.quit(); }
   });
 
