@@ -26,6 +26,7 @@
 // has for it waits.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { lockFile } from "./lock";
 import { outline, type OutlineRequest, type Route } from "./outline";
 import {
   areaQuery, areasIn, type Block, firstLine, FROM, fromOf, glob, hasStar, isCopy, isMark, isMarkCopy, isMessage, kindOf, type Mask, masksIn, postsTo,
@@ -114,24 +115,8 @@ const readJson = <T>(file: string): T | undefined => { try { return JSON.parse(r
 const jsonFiles = (dir: string) => { try { return readdirSync(dir).filter((file) => file.endsWith(".json") && !file.startsWith(".")).sort(); } catch { return []; } };
 const stamp = () => `${new Date().toISOString().replace(/[:.]/g, "-")}-${crypto.randomUUID().slice(0, 8)}`;
 
-/**
- * One toss at a time per outline: the schedule, a packet's arrival and `ep0ch echo toss` can each start one. A run
- * that finds another going waits for it, up to a minute; a lock older than five minutes is a run that died.
- */
-async function lock(wait: boolean): Promise<(() => void) | undefined> {
-  const file = boxPath("toss.lock");
-  mkdirSync(dirname(file), { recursive: true });
-  for (let tries = 0; ; tries += 1) {
-    try {
-      writeFileSync(file, `${process.pid} ${now}\n`, { flag: "wx" });
-      return () => rmSync(file, { force: true });
-    } catch {
-      try { if (Date.now() - statSync(file).mtimeMs > 5 * 60_000) { rmSync(file, { force: true }); continue; } } catch { continue; }
-      if (!wait || tries > 600) return undefined;
-      await Bun.sleep(100);
-    }
-  }
-}
+/** One toss at a time per outline (extensions/echonet/lock.ts): the lock beside its mail. */
+const lock = (wait: boolean) => lockFile(boxPath("toss.lock"), wait, now);
 
 // ── bulletins and packets: what passes between nodes ──
 

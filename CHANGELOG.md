@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The EchoNet tosser stops when its folder is gone (PIE-850)
+
+- **Fixed:** a toss waiting for another toss's lock spun a core for ever if its outline's folder was removed meanwhile
+  (a scratch tosser orphaned by a finished test ran at 100% for 38 hours). Only "the lock is there already" is waited
+  for now; a folder that is gone ends the toss at once, saying so (`EchoNet can't take its toss lock …: its folder is gone`).
+
 ### `ep0ch keys`: which secrets exist, and who may have each (PIE-887)
 
 PROTOCOL 171: an `extensions.list` entry carries `keys` (names, state and scopes, never a value). After merging, restart the
