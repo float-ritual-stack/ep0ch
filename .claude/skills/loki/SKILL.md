@@ -16,6 +16,9 @@ only the deployer does.
 After a merge to main (yours, or a sha an agent hands you):
 
 1. Check nothing is mid-flight: `uptime` (load), `ep0ch session list`, no migration or `install` already running.
+   Before `ep0ch install --apply`, peek the person's door (`door_peek`, or `ep0ch peek`); if they're typing, or have
+   an editor or a comment draft open (`person.typingIn` set, or `busy` true), wait and batch the pending deploys
+   into one once they're done: the handover to the new code once cost Evan his comment layout mid-draft.
 2. `ep0ch install` prints the plan; read it (outlines to migrate, what restarts). Then `ep0ch install --apply`: it
    backs up every outline, fast-forwards `~/projects/ep0ch`, links `ep0ch`, runs a schema step on every outline
    behind, and restarts the outline host when its code changed. It refuses before updating if an outline can't take
