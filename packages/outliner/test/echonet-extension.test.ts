@@ -171,7 +171,7 @@ test("an area is a named view: its query, its children and the notes tagged with
   let { board: shackBoard, copies } = await board("cafe", sub, `shack@${machine}`);
   expect(shackBoard!.text).toBe(`shack@${machine} [echo-source::shack@${machine}]`);
   const titles = copies.map((copy) => copy.text.split("\n")[0]!);
-  expect(titles[0]).toMatch(new RegExp(`^Recon: flaky cron on larder \\[type::recon\\] \\[from::shack@${machine}/${cron.id}\\] \\[echo::recon\\] \\[from-rev::1\\] \\[tossed::`));
+  expect(titles[0]).toMatch(new RegExp(`^Recon: flaky cron on larder \\[type::recon\\] \\[from::shack@${machine}/${cron.id}\\] \\[echo::recon\\] \\[from-rev::1\\] \\[from-author::user\\] \\[tossed::`));
   // An address the original owns is renamed; a note kept off the web stays off it.
   expect(titles[1]).toContain("[from-page::kettle-disk] [from-publish::never]");
   expect(titles[1]).toEndWith("[publish::never]");
@@ -399,10 +399,22 @@ test("netmail both ways; nothing bounces between nodes that read each other; an 
   expect(await toss("cafe")).toContain("undeliverable 1");
   const note = (await where("cafe", "type=echo-undeliverable"))[0]!;
   expect(note.parentId).toBe(copy.parentId);
-  expect(note.text).toContain(`Undeliverable: “still there?” [type::echo-undeliverable] [netmail::${late.id}]`);
+  expect(note.text).toContain(`Undeliverable: “still there?” [type::echo-undeliverable] [echonet::cafe@${machine}] [netmail::${late.id}]`);
   expect(note.text).toContain(`Netmail on ((${copy.id}))`);
   expect(await toss("cafe")).toContain("undeliverable 0");
   // Back from Trash, the original gets nothing that was left undeliverable.
+  // PIE-868: everything the tossers wrote is the extension's (agent, ext:echonet), none of it a person's, and carries the
+  // echonet mark: copies, receipts, carried comments, the nodelist, the ledger and the toss logs.
+  for (const name of ["shack", "cafe", "attic"]) {
+    const marked = (await call<{ blocks: Block[] }>(name, { action: "blocks.query", query: { where: "echonet", limit: 500 } })).blocks;
+    const wrote = marked.map((block) => block.text.match(/\[type::([a-z-]+)\]/)?.[1] ?? block.properties.find((p) => p.key === "kind")?.value ?? "comment");
+    expect(wrote).toContain("nodelist");
+    expect(wrote).toContain("echo-ledger");
+    expect(wrote).toContain("toss");
+    for (const block of marked) expect({ name, author: block.author, actor: block.actorId }).toEqual({ name, author: "agent", actor: "ext:echonet" });
+    // Every copy it made is its write too (a copy carries from/echo, the others the echonet mark).
+    for (const copy of (await call<{ blocks: Block[] }>(name, { action: "blocks.query", query: { where: "from-rev", limit: 500 } })).blocks) expect({ name, author: copy.author, actor: copy.actorId }).toEqual({ name, author: "agent", actor: "ext:echonet" });
+  }
   await call("shack", { action: "trash.restore", blockId: cron.id, author: "user" });
   await toss("shack");
   expect(await toss("cafe")).toContain("netmail out 0");
@@ -464,10 +476,14 @@ test("a comment in an area is copied as a note: what it's on, linked back, its t
   expect(await toss("cafe")).toContain("copies 1");
   const copy = (await board("cafe", sub, `shack@${machine}`)).copies[0]!;
   const [head, meta] = copy.text.split("\n");
-  expect(head).toBe(`Comment on “Mulch is thin” in [The north bed](ep0ch://shack@${machine}/b/${bed.id}) [from::shack@${machine}/${ask.id}] [echo::asks] [from-rev::${ask.revision}] [tossed::${head!.match(/\[tossed::([^\]]*)\]/)![1]}]`);
+  expect(head).toBe(`Comment on “Mulch is thin” in [The north bed](ep0ch://shack@${machine}/b/${bed.id}) [from::shack@${machine}/${ask.id}] [echo::asks] [from-rev::${ask.revision}] [from-author::user] [tossed::${head!.match(/\[tossed::([^\]]*)\]/)![1]}]`);
   expect(meta).toContain("[from-type::annotation]");
   expect(meta).not.toContain("[type::annotation]");
   expect(copy.text).toContain("#garden-ask more mulch by the fence?\nas `[type::annotation]` says");
+  // PIE-868: the copy carries a person's words but is the extension's write, with the source's author beside it.
+  expect(copy).toMatchObject({ author: "agent", actorId: "ext:echonet" });
+  expect(copy.text).toContain("[from-author::user]");
+  expect(copy.text).toContain("[from::");
   const thread = await children("cafe", copy.id);
   expect(thread.map((note) => [note.text.split("\n").at(-1), note.properties.find((p) => p.key === "from-type")?.value])).toEqual([["after the rain", "annotation-reply"]]);
   // No seen-by on a comment: the original thread has only its own reply.
@@ -507,7 +523,7 @@ test("take the newer version: replace a copy's text, or propose it beside the co
 
   expect((await act("cafe", "take-newer", copy.id)).message).toContain("now has");
   const taken = await get("cafe", copy.id);
-  expect(taken.text.split("\n")[0]).toMatch(new RegExp(`^Recon: the kettle's disk is at 95% \\[source-echo::recon\\] \\[from-page::kettle\\] \\[from::shack@${machine}/${original.id}\\] \\[echo::recon\\] \\[from-rev::2\\] \\[tossed::`));
+  expect(taken.text.split("\n")[0]).toMatch(new RegExp(`^Recon: the kettle's disk is at 95% \\[source-echo::recon\\] \\[from-page::kettle\\] \\[from::shack@${machine}/${original.id}\\] \\[echo::recon\\] \\[from-rev::2\\] \\[from-author::user\\] \\[tossed::`));
   expect(taken.text).not.toContain("My note");
   expect((await act("shack", "take-newer", original.id)).message).toContain("isn't an EchoNet copy");
   await call("shack", { action: "delete", blockId: original.id, author: "user" });

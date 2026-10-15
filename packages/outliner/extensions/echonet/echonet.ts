@@ -88,6 +88,8 @@ function canonical(id: string): string {
 // ── this outline's mail folder ──
 
 const mine = <T>(request: OutlineRequest) => outline<T>(request);
+/** The mark on every block this tosser writes (PIE-868): `[echonet::<node>]`, so what EchoNet wrote can be told apart. */
+const byEchonet = () => `[echonet::${self.id}]`;
 const remote = (machine: string) => !selfMachine(machine);
 
 /** This host's outlines folder, from its socket (`<outlines>/.host/host.sock`); undefined when it isn't laid out so. */
@@ -409,7 +411,8 @@ function localProse(origin: Origin, text: string): string {
 function copyText(origin: Origin, message: Block, area: string, tossed?: string, keptOff = false): string {
   const [head, ...rest] = (isMark(message) ? markText(origin, message) : localText(origin, message.text)).split("\n");
   const keep = keptOff || prop(message, "publish") === "never" ? " [publish::never]" : "";
-  const keys = `[from::${origin.node.id}/${message.id}] [echo::${area}] [from-rev::${message.revision}]${tossed ? ` [tossed::${tossed}]` : ""}${keep}`;
+  const by = message.author === "agent" ? `agent:${message.actorId ?? "unknown"}` : "user";
+  const keys = `[from::${origin.node.id}/${message.id}] [echo::${area}] [from-rev::${message.revision}] [from-author::${by}]${tossed ? ` [tossed::${tossed}]` : ""}${keep}`;
   return [`${head!.trimEnd()} ${keys}`, ...rest].join("\n");
 }
 
@@ -453,12 +456,12 @@ function readLedger(block: Block | undefined): Ledger {
   }
   return { block, lines, before: new Map(lines) };
 }
-const LEDGER_TITLE = "EchoNet ledger [type::echo-ledger]";
+const ledgerTitle = () => `EchoNet ledger [type::echo-ledger] ${byEchonet()}`;
 
 /** The ledger, when this run changed it. */
 async function saveLedger(ledger: Ledger): Promise<void> {
   if (ledger.lines.size === ledger.before.size && [...ledger.lines].every(([key, value]) => ledger.before.get(key) === value)) return;
-  await setOn(ledger.block!.id, () => [LEDGER_TITLE, ...[...ledger.lines].map(([key, value]) => `- ${key} -> ${value}`)].join("\n"));
+  await setOn(ledger.block!.id, () => [ledgerTitle(), ...[...ledger.lines].map(([key, value]) => `- ${key} -> ${value}`)].join("\n"));
 }
 
 // ── the toss ──
@@ -478,13 +481,13 @@ const oldest = (blocks: Block[]) => blocks.filter((block) => !trashed(block)).so
 async function nodelistBlock(): Promise<Block> {
   const found = oldest(await query(mine, "type=nodelist"));
   if (found) return found;
-  return mine<Block>({ action: "create", text: `Nodelist [type::nodelist] [node::${self.id}]\n\nWritten by EchoNet's tosser; the next toss writes it again.` });
+  return mine<Block>({ action: "create", text: `Nodelist [type::nodelist] [node::${self.id}] ${byEchonet()}\n\nWritten by EchoNet's tosser; the next toss writes it again.` });
 }
 
 async function ledgerBlock(nodelist: Block): Promise<Block> {
   const found = oldest(await query(mine, "type=echo-ledger"));
   if (found) return found;
-  return mine<Block>({ action: "create", parentId: nodelist.id, text: LEDGER_TITLE });
+  return mine<Block>({ action: "create", parentId: nodelist.id, text: ledgerTitle() });
 }
 
 /** A subscription's reading of its masks and the areas it wants, or why it can't be read. */
@@ -739,7 +742,7 @@ async function netmail(link: Link, copy: Block, ledger: Ledger): Promise<void> {
       if (thread.replies.some((candidate) => netmailFrom(candidate) === replyKey)) continue;
       const receipt = await mine<{ annotations: Mark[] }>({
         action: "annotations.reply", requestId: `echonet-in-${replyKey}-${thread.block.id}`,
-        input: { annotationId: thread.block.id, body: reply.body, source: "agent", properties: { via: `echonet:${link.node.id}`, "netmail-from": replyKey, "netmail-author": authorOf(reply) } },
+        input: { annotationId: thread.block.id, body: reply.body, source: "agent", properties: { via: `echonet:${link.node.id}`, echonet: self.id, "netmail-from": replyKey, "netmail-author": authorOf(reply) } },
       });
       ledger.lines.set(`in ${receipt.annotations[0]!.block.id}`, replyKey);
       counts.netmailIn += 1;
@@ -762,7 +765,7 @@ async function undeliverable(link: Link, copy: Block, marks: Mark[], ledger: Led
     const said = (mark.body || quoteOf(mark) || "a highlight").replace(/\s+/g, " ").slice(0, 60);
     const note = await mine<Block>({
       action: "create", parentId: copy.parentId,
-      text: `Undeliverable: “${said}” [type::echo-undeliverable] [netmail::${mark.block.id}] [echo-copy::${copy.id}]\n\n` +
+      text: `Undeliverable: “${said}” [type::echo-undeliverable] ${byEchonet()} [netmail::${mark.block.id}] [echo-copy::${copy.id}]\n\n` +
         `Netmail on ((${copy.id})) couldn't reach its original, ${fromOf(copy)}: ${link.node.id} no longer publishes it (trashed or deleted there). ` +
         `It was tried for ${TRIES} tosses and stays here, on the copy, where it was written.`,
     });
@@ -941,13 +944,13 @@ async function importItem(from: Node, item: Item, offered: (id: string) => boole
       action: "annotations.batch", requestId: `echonet-seen-${from.id}-${item.copy}`,
       operations: [{ operationId: "seen", type: "block-comment", input: {
         blockId: original.id, expectedRevision: original.revision, source: "agent", body: `also in: ${from.id} (${item.area})`,
-        properties: { kind: "echo-seen-by", "echo.node": from.id, "echo.copy": item.copy, via: `echonet:${from.id}` },
+        properties: { kind: "echo-seen-by", "echo.node": from.id, "echo.copy": item.copy, via: `echonet:${from.id}`, echonet: self.id },
       } }],
     });
     counts.seenByIn += 1;
     return said("seen-by");
   }
-  const props = { via: `echonet:${from.id}`, "netmail-from": item.key, "netmail-author": item.author };
+  const props = { via: `echonet:${from.id}`, echonet: self.id, "netmail-from": item.key, "netmail-author": item.author };
   if (item.kind === "netmail") {
     if ((await threadsOn(original.id)).some((thread) => netmailFrom(thread) === item.key)) return;
     const anchored = !!item.quote && original.text.includes(item.quote);
@@ -1063,7 +1066,7 @@ function factsOf(link: Link, role: string[]): NodeFacts {
 }
 
 function nodelistText(facts: NodeFacts[], lastToss: string | undefined): string {
-  const lines = [`Nodelist [type::nodelist] [node::${self.id}]${lastToss ? ` [last-toss::${lastToss}]` : ""}`, "",
+  const lines = [`Nodelist [type::nodelist] [node::${self.id}] ${byEchonet()}${lastToss ? ` [last-toss::${lastToss}]` : ""}`, "",
     "The nodes this outline knows, written again by EchoNet's tosser at every toss (`ep0ch echo toss`). Edit the areas and subscriptions, not this.", ""];
   for (const f of facts) {
     const { link } = f;
@@ -1180,7 +1183,7 @@ async function toss(): Promise<string> {
   // heartbeat (PIE-798); a log is written when something moved, a node couldn't be reached, or anything stopped.
   const moved = counts.copies + counts.updated + counts.gone + counts.seenBy + counts.seenByIn + counts.netmailOut + counts.netmailIn +
     counts.undeliverable + counts.dropped + Math.abs(heldNow() - heldBefore);
-  const title = `Toss ${now.slice(0, 16).replace("T", " ")} UTC [type::toss] [node::${self.id}] [at::${now}] [copies::${counts.copies}] [waiting::${counts.waiting}] ` +
+  const title = `Toss ${now.slice(0, 16).replace("T", " ")} UTC [type::toss] [node::${self.id}] ${byEchonet()} [at::${now}] [copies::${counts.copies}] [waiting::${counts.waiting}] ` +
     `[updated::${counts.updated}] [gone::${counts.gone}] [skipped::${counts.skipped}] [netmail-out::${counts.netmailOut}] [netmail-in::${counts.netmailIn}] ` +
     `[seen-by-in::${counts.seenByIn}] [queued::${counts.queued}] [held::${counts.held}] [undeliverable::${counts.undeliverable}] [dropped::${counts.dropped}]`;
   if (!moved && !trouble) return `${self.id} tossed: ${summary} · nothing moved, so no log (the nodelist's last toss says when)`;
@@ -1256,7 +1259,7 @@ try {
   const why = error instanceof Error ? error.message : String(error);
   if (input.action === "toss") {
     await nodelistBlock().then((nodelist) => mine({ action: "create", parentId: nodelist.id,
-      text: [`Toss ${now.slice(0, 16).replace("T", " ")} UTC stopped [type::toss] [node::${self.id}] [at::${now}] [failed::yes]`, "", `It stopped: ${why}`, "", ...log].join("\n") })).catch(() => undefined);
+      text: [`Toss ${now.slice(0, 16).replace("T", " ")} UTC stopped [type::toss] [node::${self.id}] ${byEchonet()} [at::${now}] [failed::yes]`, "", `It stopped: ${why}`, "", ...log].join("\n") })).catch(() => undefined);
   }
   process.stdout.write(JSON.stringify({ ok: false, code: input.action === "toss" ? "toss-failed" : "echonet-failed" }));
 } finally {

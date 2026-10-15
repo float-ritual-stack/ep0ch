@@ -42,7 +42,7 @@ Recon: flaky cron on larder [type::recon]  ── bulletin ─▶     └─ Rec
   - An area's card is the view's with an `echonet-area` section under it (`[echo::]` declares it only with a
     `[query::]`, so a posting gets none).
 - **A copy** is the original's text with `[from::<outline>@<machine>/<id>] [echo::<area>] [from-rev::<n>]
-  [tossed::<time>]` on its first line, and the notes under it (copies too). A reference into the origin (`((id))`,
+  [from-author::user|agent:<id>] [tossed::<time>]` on its first line, and the notes under it (copies too). A reference into the origin (`((id))`,
   `[[page]]`) becomes an `ep0ch://` link into it; a `[page::…]`, `[work-id::…]` or `[publish::…]` the original owns
   becomes `[from-page::…]` and so on, and a key EchoNet writes becomes `source-<key>`. A rule note's keys become
   `[from-rule-name::…]` and so on: a copy never runs as a rule here. An original kept off the web
@@ -156,3 +156,12 @@ others reach it, on that machine: `ep0ch install --apply --machine-name laptop` 
 --apply --machine-name laptop`). Both hosts need the same protocol. The next toss there signs as
 `float-hub@laptop`; the next toss here learns the old name from it, lists it under `## float-hub@laptop` as
 `- also known as:`, and counts the old marks as that node's.
+
+## Whose words, and who wrote them
+
+A copy or a carried comment holds words written elsewhere, and is **the extension's write** here (`author: agent`, actor
+`ext:echonet`): never stored as this outline's person. The source's author rides beside it: `[from-author::user]` or
+`[from-author::agent:<id>]` on a copy, `netmail-author` on a carried comment. Everything the tosser writes carries a mark
+that tells it apart: a copy has `[from::]` and `[echo::]`, a carried comment `via` and `netmail-from`, and the nodelist, the
+ledger, the toss logs, the receipts and the undeliverable notes `[echonet::<node>]`. A later edit by a person (a
+property set on a copy, a replaced text) is theirs and is recorded as theirs.

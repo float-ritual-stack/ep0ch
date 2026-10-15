@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### EchoNet copies say whose words they hold, and everything it writes is marked (PIE-868)
+
+- **Added:** an EchoNet copy carries `[from-author::user]` (or `agent:<id>`): the source's author, beside the copy being the
+  extension's write (`author: agent`, `ext:echonet`, as it always was). The nodelist, the ledger, toss logs, receipts,
+  carried comments and undeliverable notes carry `[echonet::<node>]`, so what EchoNet wrote can be told apart.
+- Found while checking: the copies that read as `author=user` in a graph walk are later property edits by loki's tools
+  (`author=user`, actor `loki` or `cli`); the tosser's own writes are all the extension's, and a test now says so.
+
 ### The EchoNet tosser stops when its folder is gone (PIE-850)
 
 - **Fixed:** a toss waiting for another toss's lock spun a core for ever if its outline's folder was removed meanwhile
