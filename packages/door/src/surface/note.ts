@@ -1259,6 +1259,8 @@ export class NoteSurface {
         wholeMark = { row: 1 + li, from: at, to: at + 1, thread: whole[0]!.id };
       }
     }
+    // Where the title couldn't take it (double height, or no room), the mark stays in the body's margin.
+    if (sized) this.titleMarked = !!wholeMark;
     const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
@@ -3801,8 +3803,9 @@ export class NoteSurface {
   }
 
   /** Marks only (PIE-873): the whole-note threads whose mark is after the title, not in the body's margin. */
+  private titleMarked = false;
   private wholeByTitle(): Set<string> {
-    return this.marginMode === "off" && !this.printed ? new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id)) : new Set();
+    return this.marginMode === "off" && !this.printed && this.titleMarked ? new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id)) : new Set();
   }
 
   /** A thread of the note shown, by id or its first 6+ characters. */

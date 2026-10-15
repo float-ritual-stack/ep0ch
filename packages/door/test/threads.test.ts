@@ -105,6 +105,14 @@ describe("marks only, without a service (PIE-873)", () => {
     expect(rows.find(l => l.startsWith("Shed jobs"))).toMatch(/^Shed jobs ▐/);
     // The passage keeps its own mark on its line.
     expect(rows.find(l => l.includes("Oil the chain"))).toMatch(/^▐Oil the chain/);
+    // A tile too narrow for the mark after the title: it stays in the margin, never lost.
+    const only = new NoteSurface(), oh = { ...host(), ctx: { ...host().ctx, board: { ancestors: async () => [], comments: async () => [onNote] } } };
+    only.show(note as any, oh);
+    await until(() => only.comments?.length === 1, "the whole-note comment");
+    only.marginMode = "off";
+    const narrow = only.render(10, 30, oh).lines.map(plain);
+    expect(narrow.some(l => l.startsWith("Shed jobs ▐"))).toBe(false);
+    expect(narrow.some(l => l.startsWith("▐"))).toBe(true);
   });
 });
 
