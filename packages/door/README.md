@@ -47,8 +47,8 @@ the isometric map as one page, `out/architecture-map.html` (open it in a browser
 
 Write an `@name` ask on its own line and keep typing below it. The ask's quiet timer follows that line,
 not the rest of the draft. Its reply lands through `draft.patch`, attributed and undoable, folded under
-the ask. Clicking the ask selects its answer beside the note; moving the caret onto it opens the fold.
-The paired answer tile leaves the editor's keys alone. The `asks` showcase demonstrates this with `@planter`.
+the ask. Clicking the ask selects its answer beside the note. In the answer tile, `f` opens or closes
+the fold, ↑/↓ or the wheel scrolls, and a click or 1–9 follows a link. The paired tile leaves the editor's keys alone. The `asks` showcase demonstrates this with `@planter`.
 
 A reply whose first line declares `[script::name]` is kept as a script block and runs immediately. Scripts
 can return `{ data, view: view.table({ columns, rows }) }`; `view` has constructors for the existing
