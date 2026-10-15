@@ -449,16 +449,15 @@ export class Dispatcher {
     return out;
   }
 
-  /** Ownership discovery and execution must resolve the same mounted target. Local ids stay scoped here. */
+  /** Ownership discovery and execution must resolve the same mounted target. Local tiles keep their scope. */
   private mountedRequest(req: ActRequest): ActRequest {
     const sel = req.tile;
     if (!sel || isTilePath(sel) || sel === "focused" || NUMBER.test(sel)) return req;
     const local = this.named(sel, this.tilesNow());
-    if (local && local.by !== "name") return req;
+    if (local) return req;
     const paths = this.mountedPaths(sel);
-    const choices = [...(local ? [local.t.id ?? local.t.name] : []), ...paths];
-    if (choices.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${choices.join(", ")}; name tile=<mount>/<tile> or the local tile's id`);
-    return !local && paths.length === 1 ? { ...req, tile: paths[0] } : req;
+    if (paths.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${paths.join(", ")}; name tile=<mount>/<tile>`);
+    return paths.length === 1 ? { ...req, tile: paths[0] } : req;
   }
 
   /** Names inside mounts resolve to paths; execution still goes through each mounted dispatcher. */

@@ -97,8 +97,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     expect(await act("view.get", {}, "kanban/preview")).toBeDefined();
     await act("tile.close", {}, "second-898");
     const local = await act("tile.open", { kind: "reader", name: "preview" }, focus);
-    await expect(act("view.get", {}, "preview")).rejects.toThrow(/several tiles named preview/);
-    expect(await act("view.get", {}, local.id)).toBeDefined();
+    expect(await act("view.get", {}, "preview")).toEqual(await act("view.get", {}, local.id));
     await act("tile.close", {}, local.id);
     await act("tile.group", { on: false }, g.tile);
   });
