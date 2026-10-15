@@ -132,7 +132,7 @@ test("a request line an extension's write leaves is the baseline: the person's n
   await client.request({ action: "update", blockId: note.id, text: "Plan\nfirst\n@scribe look at this", expectedRevision: after.revision, mutation: PERSON });
   const row = await until("the person's request answered", () => store.agentRequests(note.id).find((candidate) => candidate.status === "replied"));
   expect(row.requestedBy).toBe("user");
-  expect(row.reply).toBe("noted ");
+  expect(store.get(note.id)!.text).toContain("> noted ");
 });
 
 test("an @request line an action writes lands as written, held with why, never a refused write; a person's r sends it", async () => {
@@ -354,7 +354,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "still here" } }
   expect(listed.extensions.find((entry) => entry.id === "steady")).toMatchObject({ state: "failed", error: expect.stringContaining("larger than 64 KiB") });
   const note = await client.request<Block>({ action: "create", text: "N\n@steady", author: "user" });
   const row = await until("answered", () => store.agentRequests(note.id).find((candidate) => candidate.status !== "running"));
-  expect(row).toMatchObject({ status: "replied", reply: "still here" });
+  expect(row).toMatchObject({ status: "replied" });
+  expect(store.get(note.id)!.text).toContain("> still here");
 });
 
 // ── C7: clean text ───────────────────────────────────────────────────────

@@ -149,6 +149,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
+  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>;
   composerTile?(on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** The comment's own tile is open now (composerTile's): false once it was closed by hand. */
   hasComposerTile?(): boolean;
@@ -457,7 +458,7 @@ const linkOf = (l: LinkOccurrence): Link => {
  * A link a draft's preview draws as `edit.follow`'s `ref=` (PIE-592): `((id^fragment))`, `[[page]]`, a URL or `#tag`;
  * null for one that has no such words (a resource token, a picture).
  */
-const refOfLink = (l: Link): string | null =>
+export const refOfLink = (l: Link): string | null =>
   l.block ? `((${l.block}${l.fragment ? `^${l.fragment}` : ""}))` : l.page !== undefined ? `[[${l.page}]]` : l.url !== undefined ? l.url : l.tag !== undefined ? `#${l.tag}` : null;
 /** `edit.follow`'s `ref=` back to the link it names: what `refOfLink` writes, or one link written whole. */
 function linkOfRef(ref: string): Link | null {
@@ -2357,8 +2358,10 @@ export class NoteSurface {
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
+      answered: (ask, by) => { void this.run("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e))); },
       closed: how => this.draftClosed(s, how, host),
     });
+    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
     this.msg = fresh;
     this.modes.push(this.draftMode(s));
     return s;
@@ -6873,6 +6876,12 @@ const PROPOSAL_DEFS = {
 export const PROPOSAL_ACTIONS = actionSet<{ surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }>()("proposal", PROPOSAL_DEFS);
 
 export const NOTE_ACTIONS = actionSet<On>()("note", {
+  "ask.beside": def({
+    summary: "show this ask's answer beside the note, keeping the person's keys in the note",
+    touches: "shape", replay: "safe",
+    args: { ask: { type: "string", about: "the ask line as written" }, fold: { type: "string", optional: true, about: "the selected answer's fold identity" } },
+    async run({ ask, fold }, { host }, actor) { return host.answerTile?.(ask, actor, fold) ?? null; },
+  }),
   "rich.toggle": def({
     summary: "switch rich/raw edit; both views use the same draft",
     keys: "ctrl+o while editing, esc in rich edit", touches: "draft", draft: "type", replay: "safe",
@@ -7228,14 +7237,21 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "follow the selected link (or the nth); where it opens is the view's call; fresh=true opens it in a new reader", keys: "enter, alt+enter, click on a link",
     touches: "tile", replay: "ask", way: "following a link there would move what they're reading · an agent follows one in another reader (tile=), or opens the note with open id= naming no tile (it lands where opens land)",
     args: {
+      ref: { type: "string", optional: true, about: "a link drawn in a snippet: ((id)), [[page]], a URL or #tag" },
       n: { type: "number", optional: true, about: "which link, from 1; default the selected one" },
       fresh: { type: "boolean", optional: true, about: "open it in a new reader (a new detail on the board), as alt+enter does" },
     },
-    async run({ n, fresh }, { surface, host }, actor) {
+    async run({ n, fresh, ref }, { surface, host }, actor) {
       surface.requireNote();
       // While the person's comment is unsent here, they're asked first (PIE-785).
-      const asked = surface.askLeave("link.follow", { ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
+      const asked = surface.askLeave("link.follow", { ...(ref !== undefined ? { ref } : {}), ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
       if (asked) return asked;
+      if (ref !== undefined) {
+        const link = linkOfRef(ref);
+        if (!link) throw new ActionRefused(`${ref} isn't a link`);
+        const m = await surface.followFromDraft(link, host);
+        return m && "id" in m ? { opened: m.id, title: subject(m) } : { opened: null, ...(m ?? {}) };
+      }
       // The person's n= becomes their [ ] position; an agent's follows that link and leaves the position alone.
       if (n !== undefined && actor.kind !== "agent") surface.selectLink(n - 1);
       const links = surface.describe().links;
@@ -8230,6 +8246,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: FOLD_ARGS,
     async run(args, { surface, host }, actor) {
       const none = args.text === undefined && args.line === undefined && args.n === undefined;
+      const draft = surface.draft;
+      if (draft) {
+        const points = draft.answerFolds();
+        const p = args.n !== undefined ? points[args.n - 1] : points.find(p => args.text !== undefined ? p.text === args.text : p.line === (args.line ?? draft.row + 2) - 1);
+        if (!p) throw new ActionRefused("name an answer fold in the draft by its line or number");
+        const folded = draft.toggleAnswer(p);
+        host.redraw();
+        return { line: p.line + 1, folded };
+      }
       if (none && actor.kind === "agent") throw new ActionRefused("say which heading, list item or callout: one of text=, line= or n= (folds lists them)");
       const at = none ? surface.foldTargetAtKeys() : null;
       if (none && !at) throw new ActionRefused("nothing to fold here · ( ) pick a heading or a list item");

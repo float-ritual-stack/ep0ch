@@ -23,6 +23,7 @@ import { TREE_ACTIONS } from "./tree";
 import { WAITING_YOU_KIND } from "./waiting-you";
 import { AGENTS_KIND } from "./agents-panel";
 import { FACETS_KIND, TAGS_KIND } from "./facets";
+import { ANSWER_TILE } from "./answer-tile";
 import { COMMENT_TILE } from "./comment-tile";
 import { WHAT_CHANGED_KIND } from "./what-changed";
 import { recordFacts } from "./program-status";
@@ -234,6 +235,6 @@ const builtins = (): TileKind[] => [
 
 /** Register the built-ins (once: the desk's module and a test's both ask), and the hub source the board's lanes come from. */
 export function registerBuiltinTiles(): void {
-  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, WHAT_CHANGED_KIND, AGENTS_KIND, FACETS_KIND, TAGS_KIND, COMMENT_TILE]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, WHAT_CHANGED_KIND, AGENTS_KIND, FACETS_KIND, TAGS_KIND, COMMENT_TILE, ANSWER_TILE]) if (!tileKind(k.kind)) registerTileKind(k);
   if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
 }

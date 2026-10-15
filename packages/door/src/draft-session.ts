@@ -66,6 +66,7 @@ export interface SessionEnv {
   redraw?(): void;
   /** An agent's patch landed in the draft: the host says so (its header line). */
   agentDid?(by: Actor, did: string): void;
+  answered?(ask: string, by: Actor): void;
   /** The session ended (written, closed or put aside); the host lets go of it. */
   closed?(how: Ended, s: DraftSession): void;
   /** What a leave kept as unsent, said at once (before the click that left does what it does). */
@@ -160,7 +161,7 @@ export class DraftSession {
     }
     if (target.blockId) {
       registry(env.board).add(s);
-      s.hold = env.board?.holdDraft?.(target.blockId, s.draft.base, r => s.answer(r)) ?? null;
+      s.hold = env.board?.holdDraft?.(target.blockId, s.draft.base, r => s.answer(r), ask => { s.draft.asks.set(ask.line, ask); env.redraw?.(); }) ?? null;
       // The person's typing reaches the service (drafts.touch): an @name line they write runs before any save.
       s.draft.onPersonTyped = () => { if (!s.ended) s.hold?.touched?.(); };
     }
@@ -402,6 +403,7 @@ export class DraftSession {
     const by = patchActor(r.mutation);
     const a = d.applyPatch(r, by);
     if (a.applied) {
+      if (r.replyTo) this.env.answered?.(r.replyTo, by);
       this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor");
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();

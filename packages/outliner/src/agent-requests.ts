@@ -99,13 +99,14 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
 }
 
 export interface AgentRequestDeps {
+  runSource?(blockId: string, clientId: string | undefined): Promise<ExtensionActResult>;
   script?(request: ExtensionActRequest): Promise<ExtensionActResult & { error?: string }>;
   /** The note as the person sees it: its live draft when a door holds one (`drafts.read`). */
   readDraft(blockId: string): Promise<{ text: string; revision: number; holder?: string }>;
   /** `draft.patch`, routed to the live draft or the saved note. */
   patch(input: DraftPatchInput): Promise<DraftPatchResult>;
   /** A request's state changed: readers repaint the block. */
-  changed(blockId: string): void;
+  changed(blockId: string, ask?: import("@ep0ch/outline-core/protocol").AskProgress): void;
   /** How long a person's request line must stay unchanged before it runs (default 1.5 s). */
   readonly quietMs?: number;
   readonly now?: () => number;
@@ -486,9 +487,8 @@ export class AgentRequests {
     let writtenByAgent = false;
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
-      // Quiet means quiet: any save while the line waits starts the wait again.
       if (this.timers.has(key)) {
-        this.schedule(blockId, line.requestKey);
+        // The key includes the wording: typing elsewhere must not postpone this ask.
         continue;
       }
       if (before.has(line.requestKey) || answered.has(line.requestKey)) continue;
@@ -533,10 +533,8 @@ export class AgentRequests {
     const answered = new Set(this.store.agentRequests(blockId).map((row) => row.requestKey));
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
-      if (this.timers.has(key)) {
-        this.schedule(blockId, line.requestKey);
-        continue;
-      }
+      // The key includes the wording; other lines changing leave its deadline alone.
+      if (this.timers.has(key)) continue;
       if (before.has(line.requestKey) || answered.has(line.requestKey) || this.running.has(key)) continue;
       const kept = this.recall(blockId, line.requestKey);
       if (kept) {
@@ -616,7 +614,7 @@ export class AgentRequests {
     this.running.add(key);
     this.live.set(key, { blockId, extensionId: extension.id, chain: chain ?? newChain(line.agent) });
     this.store.putAgentRequest({ ...base, status: "running" });
-    this.deps.changed(blockId);
+    this.deps.changed(blockId, { line: line.text, state: "working" });
     let answer: Pick<AgentRequestRow, "status" | "message" | "reply" | "proposalId"> | null = null;
     try {
       const draft = await this.deps.readDraft(blockId);
@@ -644,7 +642,11 @@ export class AgentRequests {
           children: context.children.slice(0, 50).map((child) => ({ id: child.id, text: child.text.slice(0, 2_000) })),
           now: new Date(this.now).toISOString(),
         },
-      }, durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS);
+      }, durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS, {
+        writes: agent.effects === "write", requestedBy: base.requestedBy.startsWith("agent:")
+          ? { author: "agent", actorId: base.requestedBy.slice(6) } : { author: "user" },
+        label: `ext.${extension.id}.agent.${line.agent}`,
+      });
       let respond: RespondValue;
       try {
         respond = validateRespond(result.value);
@@ -667,7 +669,28 @@ export class AgentRequests {
           ? { status: "applied", message: respond.message ?? `applied ${respond.patches.length === 1 ? "an edit" : `${respond.patches.length} edits`}`, reply: respond.reply ?? null }
           : { status: "proposed", message: `proposed instead: ${outcome.reason}`, proposalId: outcome.proposalId, reply: respond.reply ?? null };
       } else if (respond.reply !== undefined) {
-        answer = { status: "replied", message: respond.message ?? null, reply: respond.reply };
+        const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
+        let body = this.checkedQueries(respond.reply);
+        if (parsePropertyRecords(body.split("\n", 1)[0]!).some(p => p.key === "script")) {
+          const source = this.store.changes.run(
+            this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
+            () => this.store.create(body, blockId, "agent", { actorId: actor.actorId! }),
+          );
+          body = `((${source.id}|Edit or keep the script))`;
+          try {
+            const run = await this.deps.runSource!(source.id, draft.holder);
+            body += `\n${run.written.map(id => `!((${id}))`).join("\n")}`;
+          } catch (error) { body += `\n⚠ ${message(error)}`; }
+        }
+        const outcome = await this.store.changes.run(
+          this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
+          () => this.deps.patch({ blockId, revision: draft.revision, mutation: actor, current: true,
+            replyTo: line.text, patches: [{ observed: line.text, range: { start: line.end - line.text.length, end: line.end },
+              replacement: `${line.text}\n> [!note]- @${line.agent} answered\n${body.split("\n").map(l => `> ${l}`).join("\n")}` }] }),
+        );
+        answer = outcome.outcome === "applied"
+          ? { status: "replied", message: respond.message ?? "answer in the note" }
+          : { status: "proposed", message: outcome.reason, proposalId: outcome.proposalId };
       } else {
         answer = { status: "nothing", message: respond.message ?? "nothing to change" };
       }
@@ -681,7 +704,7 @@ export class AgentRequests {
       // Not answered (the line changed): put back what was known before this run, or nothing.
       else if (current && previous) this.store.putAgentRequest(previous);
       else if (current) this.store.pruneAgentRequests(blockId, this.store.agentRequests(blockId).map((row) => row.requestKey).filter((candidate) => candidate !== requestKey));
-      this.deps.changed(blockId);
+      this.deps.changed(blockId, { line: line.text, state: answer?.status ?? "withdrawn", ...(answer?.status === "replied" ? { blocks: 1, beside: true } : {}) });
       const again = this.again.get(key);
       if (again) {
         this.again.delete(key);

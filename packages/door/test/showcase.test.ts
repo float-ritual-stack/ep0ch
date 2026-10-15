@@ -429,6 +429,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
     "facets": ["#frost-jobs", "uses▾", "facets"],
     "rich-edit": ["Seed inventory", "Beans", "Packets"],
+    asks: ["Keep writing while the answer arrives"],
     scripts: ["Seed report", "Press alt+S"],
   };
 
@@ -3454,6 +3455,59 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.dispatch.act({ action: "tile.focus", tile: "notes" }, USER);
     for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
+
+  test("an ask keeps the draft open while its script view runs beside it", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "asks" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "asks")).top;
+    await until(() => !!extensionList()?.extensions.some(e => e.id === "showcase-planter"), "the showcase's planter loaded");
+    const reader = stage.paneNamed("notes") as ReaderPane;
+    await stage.startSession(reader, "edit");
+    const d = reader.surface.draft!;
+    await stage.dispatch.press("draft.place", { line: d.lines.length, col: 1 }, "notes");
+    await stage.dispatch.press("draft.paste", { text: "@planter show the seed counts\nStill writing" }, "notes");
+    await until(() => d.text.includes("Edit or keep the script"), "the script linked in the live draft", 15_000);
+    expect(reader.surface.draft).toBe(d);
+    expect(d.text).toContain("Still writing");
+    await until(() => screen().includes("Peas") && screen().includes("Beans"), "the script's table beside the note", 15_000);
+    expect(JSON.stringify(await stage.dispatch.act({ action: "layout.get" }, USER))).toContain("answer");
+    press({ kind: "enter" });
+    const caret = { row: d.row, col: d.col };
+    await expect(stage.dispatch.act({ action: "answer.fold", tile: "answer" }, { kind: "agent", id: "test-agent" })).rejects.toThrow();
+    expect({ row: d.row, col: d.col }).toEqual(caret);
+    await stage.dispatch.press("answer.follow", { n: 1 }, "answer");
+    await until(() => screen().includes("Seed counts"), "the answer's script source opened");
+    expect(reader.surface.draft).toBe(d);
+    await stage.dispatch.press("edit.save", {}, "notes");
+    expect((await board.get(seeded.notes.asks.id))!.text).toContain("Still writing");
+    await stage.dispatch.act({ action: "answer.fold", tile: "answer" }, USER);
+    await stage.startSession(reader, "edit");
+    const reopened = reader.surface.draft!;
+    await stage.dispatch.press("draft.place", { line: reopened.lines.length, col: reopened.lines.at(-1)!.length + 1 }, "notes");
+    await stage.dispatch.press("draft.paste", { text: "\n@planter show the seed counts\n> [!note]- @planter answered\n> Second answer\n\nAfter" }, "notes");
+    await stage.dispatch.press("edit.save", {}, "notes");
+    await stage.startSession(reader, "edit");
+    screen();
+    const again = reader.surface.draft!;
+    const duplicate = again.lines.lastIndexOf("@planter show the seed counts");
+    expect(reader.surface.render(100, 60, reader.host(stage)).lines.map(plain).join("\n")).not.toContain("Second answer");
+    await stage.dispatch.press("fold.toggle", { line: duplicate + 2 }, "notes");
+    expect(reader.surface.render(100, 60, reader.host(stage)).lines.map(plain).join("\n")).toContain("Second answer");
+    await stage.dispatch.press("draft.place", { line: duplicate + 1, col: 1 }, "notes");
+    await until(() => {
+      const answer = stage.paneNamed("answer")!;
+      return answer.render(80, 30, false, stage).lines.map(plain).join("\n").includes("Second answer");
+    }, "selecting the duplicate ask shows its own saved answer");
+    await stage.dispatch.press("answer.fold", {}, "answer");
+    expect(reader.surface.render(100, 60, reader.host(stage)).lines.map(plain).join("\n")).not.toContain("Second answer");
+    await stage.dispatch.press("edit.save", {}, "notes");
+    await stage.dispatch.press("ask.beside", { ask: "@planter show the seed counts" }, "notes");
+    screen();
+    await expect(stage.dispatch.press("answer.follow", { n: 1 }, "answer")).resolves.toBeDefined();
+    press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+  }, 40_000);
 
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {
     (app as any).lastInput = 0;

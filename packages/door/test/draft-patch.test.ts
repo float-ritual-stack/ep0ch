@@ -633,6 +633,101 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect((await board.get(e.id))!.text).toContain("the vice and the clamps\n@tidy tidy the line above");
   }, 40_000);
 
+  async function gardener() {
+    const dir = join(scratch.workspace, "extensions", "gardener");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "extension.json"), JSON.stringify({
+      contract: 2, id: "gardener", version: 1, name: "Gardener", run: ["bun", "run.ts"],
+      agents: [{ name: "gardener", effects: "write" }],
+    }));
+    writeFileSync(join(dir, "run.ts"), 'await Bun.stdin.text(); console.log(JSON.stringify({ok: true, value: {reply: "Sow the peas.\\nWater the beds."}}));');
+    const loaded = Date.now() + 15_000;
+    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "gardener" && e.state === "active") && Date.now() < loaded) await Bun.sleep(100);
+    expect((await board.listExtensions(true))?.extensions.find(e => e.id === "gardener")?.state).toBe("active");
+  }
+
+  test.each([false, true])("an ask's reply lands under its line while typing continues (rich=%s)", async rich => {
+    await gardener();
+    const e = await editing("Garden\n\n");
+    e.type("@gardener plan the beds");
+    e.d.newline(false);
+    if (rich) {
+      e.s.key({ kind: "paste", text: "\n| Work |\n| --- |\n| Still writing |" }, e.h);
+      e.d.place(e.d.lines.length - 1, 15);
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    } else e.type("Still writing");
+    const frameRow = () => e.s.render(70, 18, e.h).lines.findIndex(l => visible(l).includes("Still writing"));
+    const row = frameRow();
+    const untilReply = Date.now() + 8_000;
+    while (!e.d.text.includes("Sow the peas.") && Date.now() < untilReply) {
+      e.type(".");
+      expect(frameRow()).toBe(row);
+      e.s.key({ kind: "backspace" }, e.h);
+      await Bun.sleep(100);
+    }
+    expect(e.d.text).toContain("Sow the peas.");
+    expect(e.d.text.indexOf("Sow the peas.")).toBeGreaterThan(e.d.text.indexOf("@gardener plan the beds"));
+    expect(frameRow()).toBe(row);
+    expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
+    const answerLine = e.d.answerFolds()[0]!.line + 1;
+    await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+    expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).toContain("Sow the peas.");
+    await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+    expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
+    if (!rich) {
+      await NOTE_ACTIONS.run("draft.place", { line: answerLine - 1, col: 1 }, { surface: e.s, host: e.h }, USER);
+      expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).toContain("Sow the peas.");
+      await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+      expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
+    }
+    expect(e.d.writers.map(actorIdOf)).toContain("ext:gardener");
+    expect((await board.get(e.id))!.text).toBe("Garden\n\n");
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    expect((await board.get(e.id))!.text).toContain("Sow the peas.");
+  }, 20_000);
+
+  test.skipIf(!Bun.which("tmux"))("a real pane keeps its typing row while the answer opens beside it", async () => {
+    await gardener();
+    const id = await create("Pane garden");
+    const socket = join(scratch.root, "tmux.sock");
+    const env = { ...process.env, ...scratch.env, EP0CH_STATE: join(scratch.root, "pane-state"),
+      EP0CH_CONTROL: join(scratch.root, "pane.sock"), EP0CH_DAEMON: "0", EP0CH_DAILY_AGENT: "sh" };
+    mkdirSync(env.EP0CH_STATE, { recursive: true, mode: 0o700 });
+    const tmux = (...args: string[]) => {
+      const r = Bun.spawnSync(["tmux", "-S", socket, ...args], { env, stdout: "pipe", stderr: "pipe" });
+      if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+      return r.stdout.toString();
+    };
+    tmux("new-session", "-d", "-s", "asks", "-x", "120", "-y", "40", "bun", join(import.meta.dir, "../src/main.ts"), "--ws", "scratch", "--screen", "detail", id);
+    const capture = () => tmux("capture-pane", "-p", "-t", "asks");
+    try {
+      await until(() => capture().includes("Pane garden"), "the pane's reader", 15_000);
+      tmux("send-keys", "-t", "asks", "e");
+      await until(() => capture().includes("editing"), "the pane's editor");
+      tmux("send-keys", "-t", "asks", "C-e", "Enter");
+      tmux("send-keys", "-t", "asks", "-l", "@gardener plan the beds");
+      tmux("send-keys", "-t", "asks", "Enter");
+      tmux("send-keys", "-t", "asks", "-l", "Keep typing here");
+      await until(() => capture().includes("Keep typing here"), "the typed line");
+      const row = capture().split("\n").findIndex(l => l.includes("Keep typing here"));
+      let arrived = false;
+      for (let i = 0; i < 70; i++) {
+        tmux("send-keys", "-t", "asks", "-l", ".");
+        await Bun.sleep(80);
+        const frame = capture();
+        expect(frame.split("\n").findIndex(l => l.includes("Keep typing here"))).toBe(row);
+        tmux("send-keys", "-t", "asks", "BSpace");
+        if (frame.includes("Sow the peas.")) { arrived = true; break; }
+      }
+      expect(arrived).toBe(true);
+      tmux("send-keys", "-t", "asks", "C-s");
+      const end = Date.now() + 5_000;
+      while (!(await board.get(id))!.text.includes("Keep typing here") && Date.now() < end) await Bun.sleep(50);
+      expect((await board.get(id))!.text).toContain("Sow the peas.");
+      expect((await board.get(id))!.text).toContain("Keep typing here");
+    } finally { tmux("kill-session", "-t", "asks"); }
+  }, 30_000);
+
   test("a closed draft lets go of its hold: the next patch goes to the saved note", async () => {
     const e = await editing("Compost\nturn  it   weekly");
     NOTE_ACTIONS.run("edit.close", { discard: true }, { surface: e.s, host: e.h }, { kind: "user" });
