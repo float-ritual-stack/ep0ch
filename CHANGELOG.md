@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The drawer's own program leaves whole, and comes back (PIE-892)
+
+- **Fixed:** dragging the drawer's Claude onto the desk left a second tile in the drawer on the same Herdr pane,
+  "watching · another door has it", that couldn't be typed in or closed: the drawer started its own program again and
+  it attached to the same agent. Now its tab starts nothing while the program is out and says where it went
+  (`claude is on the desk · ⏎ or a click brings it back`); that brings the same tile back, no restart (`tile.drawer`
+  from its screen too). It holds across a handover.
+
 ### Runbook steps no longer take 1.5 s longer than their command (PIE-893)
 
 - **Fixed:** the runbook's wrapper left a 1.5 s timer pending after every command, so each step ended 1.5 s after its

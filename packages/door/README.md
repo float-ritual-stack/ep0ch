@@ -1349,8 +1349,11 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   the way back for a terminal in the drawer, whose keys are its program's while you're in it), or drag its tab's title out over the screen: it lands by the screen's
   own drop zones (a side splits, a header or the centre makes tabs, the outer edge a column). `act tile.drawer
   on=false tile=<t> to=<tile> where=<side>`. The drawer's own tab can leave too: it becomes an ordinary terminal tile
-  on the screen, its program still running, and the drawer starts a fresh own program the next time it's pulled
-  up. `^W x` doesn't close the drawer's own tab: it says so, and what to do instead.
+  on the screen, its program still running, whole (PIE-892). Its tab stays and starts nothing (a second client of the
+  same agent, a Herdr session's, was a "watching" mirror nobody could type in or close): it says where the program
+  went, `shell is on the desk · ⏎ or a click brings it back`, and that puts the same tile back in its tab, nothing
+  restarted (so does `^W a` on it, or `tile.drawer` from its screen). The drawer remembers it's out across a handover
+  (`drawer.json`'s `out`, the program's key). `^W x` doesn't close the drawer's own tab: it says so, and what to do instead.
 - **Followers follow.** A preview following a tile (`source=tile:tree`) keeps following it into the drawer and back.
 - **In the drawer.** Its tiles are tiles: a reader in the drawer reads and edits, a tree in the drawer opens, a terminal in the drawer
   types, and `^W P` opens the policy panel. Click a tab to show it (`^W ] [` between them). `Esc` or `ctrl+]` gives your keys back to the screen.
