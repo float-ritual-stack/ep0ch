@@ -17,6 +17,7 @@ are its record. The outliner's entries from then are kept below, under
   it attached to the same agent. Now its tab starts nothing while the program is out and says where it went
   (`claude is on the desk · ⏎ or a click brings it back`); that brings the same tile back, no restart (`tile.drawer`
   from its screen too). It holds across a handover.
+
 ### A facets tile, and a tags tile on it (PIE-881)
 
 - **Added:** a `facets` tile (`^W o f`, `tile.open kind=facets query=…`) lists the properties the notes have, each opening
