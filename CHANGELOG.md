@@ -32,6 +32,14 @@ are its record. The outliner's entries from then are kept below, under
   `r` writes a reply in it.
 - **Fixed:** a comment sent from the reader shows its thread open at once (it could be drawn closed for a moment).
 
+### Recent files records only where the outline asks (PIE-870)
+
+- **Changed:** a Claude session's file touches are filed only when the file matches a `[file-touches::<glob>]`
+  property on the Recent files page (`~/rangle/**/*.md`, `**/plans/**`); with none, nothing is recorded. A session
+  reads the globs when it first needs them and again when a minute old. The `fileTouches` option and
+  `PI_OUTLINER_FILE_TOUCHES` are now only an off switch (`off`), and off wins. To record somewhere, add the property
+  to the page; the globs are the outline's, so nothing to run on a machine.
+
 ### The comment editor: the whole note, a tile of its own, scrolling, pictures (PIE-846)
 
 From Evan's comments written in the floating editor while using it.

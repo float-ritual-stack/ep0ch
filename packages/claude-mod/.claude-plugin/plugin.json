@@ -21,8 +21,8 @@
     },
     "fileTouches": {
       "type": "string",
-      "title": "Record edited files under Recent files",
-      "description": "on or off. Empty: PI_OUTLINER_FILE_TOUCHES applies; neither set: off.",
+      "title": "Switch off recording of edited files",
+      "description": "off: nothing is recorded this session, whatever the outline's Recent files page asks. Otherwise the page's [file-touches::<glob>] properties decide. Empty: PI_OUTLINER_FILE_TOUCHES applies.",
       "required": false,
       "default": ""
     }

@@ -221,6 +221,11 @@ one.
   they read.
 - The morning brief has its own skill: `daily-brief`.
 
+Recent files (`[[recent-files]]`) records the files a Claude session edits only where the page asks: one
+`[file-touches::<glob>]` property on it per area, e.g. `[file-touches::~/rangle/**/*.md]` or `[file-touches::**/plans/**]`.
+No property, nothing recorded; the property is the person's switch, visible where the records land. Add or remove
+one when they say which areas they want to see; a session reads them again within a minute.
+
 ## Publishing
 
 Publish only when they asked for that page. `[publish::true]` (or `[publish::<slug>]`) serves the note and

@@ -31,7 +31,7 @@ import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, compo
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
-import { fileTouchesOn, projectOf, touchInputOf, touchOf } from './file-touches'
+import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
 import { fileRefOf, threadedPathOf, threadsHeldNote } from './file-threads'
 import {
   FILE_DIFF_REF,
@@ -308,7 +308,7 @@ export function register(on: On, options: PluginOptions): void {
     const result = await next(e)
     reportStatus($, sessionStarted())
     sessionCwd = typeof e.cwd === 'string' && e.cwd ? e.cwd : null
-    rebound = null
+    rebound = null; touchGlobs = null
     // A session start (or the module's reload) starts mentions again: the command, the kept choices, the list.
     mentionsStarting = undefined
     $.clock.after(0, () => void startMentionsOnce($, option))
@@ -736,6 +736,7 @@ async function bindSessionNow($: EngineInterface, option: PluginOptions, name: s
     throw Error(`there is no outline "${name}"${machine ? ` on ${machine}` : ' on this machine'}${other.length ? ` (a "${name}" is on ${other.map(m => m ?? 'this machine').join(', ')}: ${bindCall(name, other[0])})` : ''}. ${here.length ? `Here: ${here.join(', ')}; e.g. ${bindCall(here[0]!, machine)}.` : 'Run `ep0ch outline list --all`.'}`)
   }
   await loadingReferences?.catch(() => {})
+  touchGlobs = null
   rebound = { outline: name, ...(machine ? { machine } : {}) }
   const facts = await readBinding($, option, true)
   await $.state.set(BINDING_STATE, { shown: true, facts })
@@ -1746,11 +1747,34 @@ function queueTouch($: EngineInterface, option: PluginOptions, e: { tool: string
   try {
     if (result.deny || result.isError) return
     const touch = touchOf(e.tool, e, result.result)
-    // Off unless the `fileTouches` option or PI_OUTLINER_FILE_TOUCHES turns it on: nothing is recorded, the rows stay.
+    // Only where the outline's Recent files page asks (`[file-touches::<glob>]`, PIE-870); the `fileTouches` option or
+    // PI_OUTLINER_FILE_TOUCHES saying off beats it. Otherwise nothing is recorded, and the rows stay.
     if (touch) touchQueue = touchQueue.then(async () => {
-      if (fileTouchesOn(option.fileTouches, await $.env.get('PI_OUTLINER_FILE_TOUCHES'))) await recordTouch($, option, touch)
+      if (fileTouchesOff(option.fileTouches, await $.env.get('PI_OUTLINER_FILE_TOUCHES'))) return
+      if (touchAllowed(await touchGlobsOf($, option), touch.path, await $.env.get('HOME'))) await recordTouch($, option, touch)
     }).catch(() => {})
   } catch { /* the call's answer is never touched */ }
+}
+
+/** The Recent files page's globs, read when first needed and again when a minute old (not per touch). */
+let touchGlobs: { at: number; globs: string[] } | null = null
+const TOUCH_GLOBS_REFRESH_MS = 60_000
+
+/** The `[file-touches::<glob>]` values of the session's outline's Recent files page; none when unbound or unreadable. */
+async function touchGlobsOf($: EngineInterface, option: PluginOptions): Promise<string[]> {
+  const now = await $.clock.now()
+  if (touchGlobs && now - touchGlobs.at < TOUCH_GLOBS_REFRESH_MS) return touchGlobs.globs
+  if (!references?.workspace) await loadReferences($, option)
+  const workspace = references?.workspace
+  if (!workspace) return []
+  let globs: string[] = touchGlobs?.globs ?? []
+  try {
+    const out = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'read', '--stdin', '--actor', await actorFor($, {})], JSON.stringify({ ref: '[[recent-files]]' })))
+    globs = fileTouchGlobsOf(typeof out?.text === 'string' ? out.text : '')
+  } catch { /* the page isn't there yet, or the service didn't answer: the globs from before (none at first) */ }
+  // Bound elsewhere while the page was read: those globs are another outline's.
+  if (references?.workspace === workspace) touchGlobs = { at: now, globs }
+  return globs
 }
 
 /** The touches waiting to be recorded, one after another. */

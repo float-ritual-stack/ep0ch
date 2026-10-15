@@ -130,7 +130,7 @@ async function hub(client: AgentToolsClient, actor: AgentActor): Promise<{ hub: 
   };
   let root = await resolve();
   if (!root) {
-    const made = await create(client, null, `Recent files [page::${RECENT_FILES_PAGE}]\nThe files agents' sessions touched, by day › project › session; By project shows each project's, newest first. Written by the Claude mod as files are edited (PIE-602).`, actor);
+    const made = await create(client, null, `Recent files [page::${RECENT_FILES_PAGE}]\nThe files agents' sessions touched, by day › project › session; By project shows each project's, newest first. Written by the Claude mod as files are edited (PIE-602), only for files matching a glob in a file-touches property on this page: write one per area to record (the Claude mod's README has the form).`, actor);
     // Another session made it at the same moment: the page the address resolves to wins, and ours goes while empty.
     root = (await resolve()) ?? made;
     if (root.id !== made.id) await client.request({ action: "delete", blockId: made.id, ifEmpty: true, mutation: mutationOf(actor) }).catch(() => {});
