@@ -364,12 +364,14 @@ export function backlinkGroupHidden(group: BacklinkViewGroup, expanded: boolean)
 }
 
 /** A row's dim suffix: stage, resolved, this note, the breadcrumb, Trash, then each reference kind ×N. */
-export function backlinkRowSuffix(source: BacklinkSource): string {
+export function backlinkRowSuffix(source: BacklinkSource, where = ""): string {
   const facets = source.facets;
   return [
     ...(facets?.stage ? [facets.stage.value] : []),
     ...(facets?.comment?.resolved ? ["resolved"] : []),
     ...(facets && facets.placement !== "other" ? [facets.placement === "self" ? "this note" : "inside this note"] : []),
+    // The line that links here and its anchor (PIE-884), after the facts about the note and before where it sits.
+    ...(where ? [where] : []),
     source.parentContext,
     ...(source.deletedRootId ? ["Trash"] : []),
     ...source.referenceGroups.map(backlinkReferenceLabel),

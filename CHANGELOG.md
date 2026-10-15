@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A backlink says which line links, and opening it lands there (PIE-884)
+
+- **Added:** a backlink row in the links tile, the tree's `l` and an inline `::links` now quotes the line of the linking
+  note that holds the reference and the anchor it names (`“Check ((Garden plan^butt)) …” ^butt`). Opening the row (⏎, a
+  click, the preview following the selection) scrolls the linking note to that line and lights it; esc lets go.
+- **Fixed:** an outlink with an anchor (`((note^anchor))`) opened from the links tile or the tree landed at the top of
+  the note; it now lands on the anchor, as following the link in text does.
+- **Added:** the published page's `::links` backlink rows quote the line too (the page has no per-line anchors to land on).
+  The rows an agent reads (`backlinks`, `links`) carry `line` and `anchor`.
+
 ### A new note is a tile while you write it, and says where it lands (PIE-883)
 
 - **Fixed:** a new note's float couldn't be dragged, docked or its `⋯` opened while you wrote in it: a press on its

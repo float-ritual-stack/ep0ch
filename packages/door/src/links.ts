@@ -27,6 +27,8 @@ import { ago, wrap } from "./text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { authorName, backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
 import { BACKLINK_QUERY_LIMIT } from "./backlinks";
+import { markReveal } from "./reveal";
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { watchedOn, type Watching } from "./watched";
 import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
@@ -289,7 +291,12 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
     }
     case "outlink": { const w = outlinkWords(r.link); return { mark: w.problem ? "!" : nest === null ? "→" : linkBlock(r) ? (nest ? "▾" : "▸") : "·", ...w }; }
     case "resource": { const w = resourceWords(r.link); return { mark: w.problem ? "!" : "♦", ...w }; }
-    case "backlink": return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source) };
+    case "backlink": {
+      // The line that links here and the anchor it names come first (PIE-884): the row says where, not only which note.
+      const line = backlinkLine(r.source);
+      const where = line ? `“${line.snippet}”${line.anchor && !line.snippet.includes(`^${line.anchor}`) ? ` ^${line.anchor}` : ""}` : "";
+      return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source, where) };
+    }
     case "child": case "match": {
       const b = r.child.block, f = r.child.facets;
       return { mark: nest === null ? (r.kind === "child" ? "↓" : "∙") : nest ? "▾" : "▸", text: subject(b), context: [f?.stage ? f.stage.value : "", authorName(b.author, ""), ago(b.updatedAt)].filter(Boolean).join(" · ") };
@@ -339,7 +346,7 @@ export function describeLinkRow(r: LinkRow, n: number, sel: boolean) {
     ...(r.kind === "group" ? { group: r.group, open: r.open } : r.kind === "kind" ? { group: r.group.kind, open: r.expanded } : {}),
     ...(linkBlock(r) ? { id: linkBlock(r)! } : {}),
     ...(res ? { resource: res.resourceId ?? (res.resolution.kind === "ready" ? res.resolution.target.resourceId : null), ...(res.recordBlockId ? { ticket: res.recordBlockId } : {}), ...(w.problem ? { unavailable: true } : {}) } : {}),
-    ...(r.kind === "backlink" ? { stage: r.source.facets?.stage?.bucket } : {}),
+    ...(r.kind === "backlink" ? { stage: r.source.facets?.stage?.bucket, ...(backlinkLine(r.source) ? { line: backlinkLine(r.source)!.snippet, ...(backlinkLine(r.source)!.anchor ? { anchor: backlinkLine(r.source)!.anchor } : {}) } : {}) } : {}),
     ...(sel ? { selected: true } : {}),
   };
 }
@@ -368,6 +375,9 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
   if (r.kind === "backlink") {
     const m = await board.get(r.source.blockId);
     if (!m) throw new ActionRefused("that source isn't in the outline any more");
+    // It opens on the line that links here.
+    const line = backlinkLine(r.source);
+    if (line) markReveal(m, { at: line.at, label: line.label }, actor);
     return { note: m };
   }
   if (r.kind === "child" || r.kind === "match") {
@@ -385,6 +395,8 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
     if (res.kind !== "ready") throw new ActionRefused(`${r.link.label} · ${outlinkWords(r.link).context}`);
     const m = await board.get(res.target.blockId);
     if (!m) throw new ActionRefused(`nothing answers at ${res.target.blockId.slice(0, 8)}`);
+    // A link with an anchor (`((id^anchor))`) lands on the anchor.
+    markReveal(m, { fragment: res.target.fragmentId }, actor);
     return { note: m };
   }
   // A ticket the Jira extension keeps as a block (PIE-445): that block, a note like any other.
@@ -402,9 +414,21 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
   return openResource(board, to, actor, from).catch((e: Error) => { throw new ActionRefused(`couldn't show ${r.link.label}: ${e.message}`); });
 }
 
+/**
+ * The line of a backlink's source that links here (PIE-884): the service's snippet of the first reference, where it sits
+ * in the source (`at`, an offset into its text: opening the row lands there) and the anchor it names (`((id^anchor))`,
+ * read from the reference as written, which the service records as the occurrence's label). Null: no occurrence read.
+ */
+export function backlinkLine(source: BacklinkSource): { snippet: string; at: number; label: string; anchor?: string } | null {
+  const o = source.occurrences.find(x => x.kind === "block") ?? source.occurrences[0];
+  if (!o) return null;
+  const ref = o.kind === "block" ? referencedBlock(o.label) : null;
+  return { snippet: o.snippet, at: o.start, label: o.label, ...(ref?.fragment ? { anchor: ref.fragment } : {}) };
+}
+
 /** A row's place as a link a reader's elements open (the inline component's rows), or null for a header. */
 export function linkTargetOf(r: LinkRow): LinkTarget | null {
-  if (r.kind === "backlink") return { block: r.source.blockId, role: "row" };
+  if (r.kind === "backlink") { const line = backlinkLine(r.source); return { block: r.source.blockId, ...(line ? { at: line.at, atLabel: line.label } : {}), role: "row" }; }
   if (r.kind === "child" || r.kind === "match") return { block: r.child.block.id, role: "row" };
   if (r.kind === "outlink") {
     const res = r.link.resolution;

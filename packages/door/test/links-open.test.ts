@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { BacklinksPane } from "../src/desk/backlinks-pane";
+import { linkTargetOf, linkWords } from "../src/links";
 import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
 import { SocketBoard } from "../src/socket";
@@ -104,6 +105,55 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
       expect(on()).toBe(hall.id);
     } finally { release(); (board as any).backlinks = real; }
   }, 20_000);
+
+  test("a backlink row names the line that links and the anchor it targets; opening it lands on that line; an anchored outlink lands on the anchor (PIE-884)", async () => {
+    const target = await board.createBlock(null, "Garden plan\nBeans in the north bed.\nThe water butt is by the shed. ^butt\nLeeks last.");
+    const filler = Array.from({ length: 40 }, (_, i) => `Filler line ${i + 1}.`).join("\n");
+    const log = await board.createBlock(null, `Plot log\n${filler}\nCheck ((${target.id}^butt)) before the frost.\nMore filler.`);
+    desk = new Desk({
+      name: "test", title: "test",
+      layout: { root: { t: "split", dir: "col", ratio: 0.5,
+        a: { t: "leaf", kind: "detail", name: "reader" },
+        b: { t: "leaf", kind: "backlinks", name: "links", source: "tile:reader", groups: "open" } } },
+    });
+    app.push(desk);
+    reader("reader").hold(target, desk as any);
+    await until(() => links().target?.id === target.id && rowOf(log.id) >= 0, "the plan's backlinks");
+    // The row says which line links and the anchor it names.
+    const row = links().rows()[rowOf(log.id)] as any;
+    const words = linkWords(row);
+    expect(words.context).toContain("“Check ((Garden plan^butt))");
+    expect(words.context).toContain("^butt");
+    expect(render().lines.map(plain).join("\n")).toContain("^butt");
+    // Opening it lands on that line of the linking note.
+    await act("tile.focus", {}, "links");
+    await act("backlinks.open", { n: rowOf(log.id) + 1 });
+    await until(() => reader("reader").msg?.id === log.id, "the log in the detail");
+    const lineOf = (await board.get(log.id))!.text.split("\n").findIndex(l => l.startsWith("Check ((")) + 1;
+    await until(() => (reader("reader").surface as any).focusMark?.line === true, "the line marked");
+    expect((reader("reader").surface as any).focusMark.spec).toMatchObject({ line: lineOf });
+    // Back on the plan, the list's outlinks: the log's anchored link lands on the anchor.
+    await links().show(log, desk as any);
+    await until(() => links().target?.id === log.id && links().rows().some(r => r.kind === "outlink"), "the log's outlinks");
+    const out = links().rows().findIndex(r => r.kind === "outlink");
+    await act("backlinks.open", { n: out + 1 });
+    await until(() => reader("reader").msg?.id === target.id, "the plan in the detail");
+    await until(() => (reader("reader").surface as any).focusMark?.fragment === true, "the anchor marked");
+    expect((reader("reader").surface as any).focusMark.label).toBe("^butt");
+    expect(linkTargetOf(links().rows()[out]!)).toMatchObject({ block: target.id, fragment: "butt" });
+    // A note edited since the list read it (lines added above the reference) still opens on the reference, not the old offset.
+    await act("tile.focus", {}, "links");
+    await links().show(target, desk as any);
+    await until(() => links().target?.id === target.id && rowOf(log.id) >= 0, "the plan's backlinks again");
+    const current = (await board.get(log.id))!;
+    await board.update(log.id, current.text.replace("Plot log\n", "Plot log\nAdded one.\nAdded two.\nAdded three.\n"), current.revision!);
+    await act("backlinks.open", { n: rowOf(log.id) + 1 });
+    await until(() => reader("reader").msg?.id === log.id, "the edited log opens");
+    const edited = (await board.get(log.id))!.text.split("\n").findIndex(l => l.startsWith("Check ((")) + 1;
+    await until(() => (reader("reader").surface as any).focusMark?.line === true && (reader("reader").surface as any).focusMark.spec.line === edited, "the reference's line marked, not the old offset's");
+    // The inline ::links / ::backlinks rows are links tagged with the same target: the line rides along (the reader's follow marks it).
+    expect(linkTargetOf(row)).toMatchObject({ block: log.id, role: "row", at: expect.any(Number) });
+  }, 30_000);
 
   test("alt+⏎ opens it in a new detail beside the origin: the origin keeps its note, the list keeps the keys", async () => {
     await setup();

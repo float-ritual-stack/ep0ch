@@ -228,7 +228,7 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
       return [r.kind === "ready" ? { text: r.addressLabel || entry.label, href, note: r.sourceName } : { text: entry.label, href, note: r.reason }];
     });
   }
-  rows.backlinks = (backlinks?.sources ?? []).filter(source => shown.has(source.blockId)).map(source => ({ text: source.title || "untitled", href: to(source.blockId) }));
+  rows.backlinks = (backlinks?.sources ?? []).filter(source => shown.has(source.blockId)).map(source => ({ text: source.title || "untitled", href: to(source.blockId), ...(source.occurrences[0]?.snippet ? { note: `“${source.occurrences[0].snippet}”` } : {}) }));
   const listed = (found: ProjectedBlockCollection | null) => (found?.blocks ?? []).filter(block => shown.has(block.id)).map(block => ({ text: titles.get(block.id) || "untitled", href: to(block.id) }));
   rows.children = listed(children);
   rows.matches = listed(matches instanceof Error ? null : matches);
