@@ -29,6 +29,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Run:** `ep0ch install --apply` on each machine (PROTOCOL 173: outline-core's `blockTags` decides which tags are block-level,
   so both sides must run the same copy).
 
+### A preview of the tree reads as part of it (PIE-886)
+
+- **Added:** `border=joined`, a tile option (a style note, the tune inspector's `border` row, or the tile's own look):
+  no frame, and the tile's surface (`raised` at `bg.strength` 2 unless `bg` says another, dark and capped like every
+  surface) run to its edges, so it reads as part of the tile beside it. **Changed:** a preview that follows a tree (or
+  that a tree's link makes its preview) is joined by default; `border=line` (or any other) frames it again. No wire change.
+
 ### EchoNet copies say whose words they hold, and everything it writes is marked (PIE-868)
 
 - **Added:** an EchoNet copy carries `[from-author::user]` (or `agent:<id>`): the source's author, beside the copy being the

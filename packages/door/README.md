@@ -1300,7 +1300,7 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   the gaps as blank lines; the door can't see that copy. Use the door's own drag, which copies the text over OSC 52; the
   default insets are kept small for this.
 - **Surfaces and frames.** A tile or a `::box` can sit on a surface, `[style.bg::raised]` (`sunken`, or a tone: blue,
-  green, violet, amber, coral, neutral) at `bg.strength` 1 to 6, with a frame (`border`: line, round, heavy, double, none)
+  green, violet, amber, coral, neutral) at `bg.strength` 1 to 6, with a frame (`border`: line, round, heavy, double, none, or `joined`: no frame, the surface run to the tile's edges so it reads as part of the tile beside it; a preview of a tree is joined unless its `border` says otherwise, PIE-886)
   and an accent in its `tone` (`edge`: a bar down its left side, or the frame). Surfaces are theme roles, drawn dark in
   every theme with every word at 4.5:1 or better on them (test/theme-contrast.test.ts), never a colour of a note's own; a
   tile's yields under a header's picture. A list's divider is `line`, `dots`, `dashed`, `double`, `fade` or `glyph`

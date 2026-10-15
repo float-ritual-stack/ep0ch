@@ -425,7 +425,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "preview", need: "follow a tile's selection or a file in a reader", part: "the preview tile: the note surface with a source, tile:<name> or file:<path> (re-read on save)", files: "src/desk/preview.ts",
-    aside: "tile.preview (O in the reader, ^W v beside, ^W V below): a detail opens beside the reader on the right, linked, so a link followed there lands in it and the reader keeps the notebook; again, it shows that one",
+    aside: "tile.preview (O in the reader, ^W v beside, ^W V below): a detail opens beside the reader on the right, linked, so a link followed there lands in it and the reader keeps the notebook; again, it shows that one · the preview of the tree (the tile between the outline and the notebook) has no frame: a tinted ground joined to the tree (border=joined, PIE-886; border=line frames it again)",
     stage(n, show) {
       // The reader on the right is held on the notebook (p), so the outline's selection doesn't move it.
       const tree = new TreePane(), p = new PreviewPane({ tile: "tree" }), r = new ReaderPane(true);

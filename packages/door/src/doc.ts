@@ -413,7 +413,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // Its surface and frame are its own too (PIE-675): a box's `bg`, `border` and `edge`; its tone and strength carry on.
       const bgRole = own.sources.bg.level === "block" ? own.values.bg : "none", accent = own.sources.edge.level === "block" ? own.values.edge : "none";
       const lineSet = own.sources.border.level === "block" ? own.values.border : "auto";
-      const glyphs = lineSet !== "auto" && lineSet !== "none" ? BORDER_BOXES[lineSet] : accent === "box" ? BORDER_BOXES.line : null;
+      const glyphs = lineSet !== "auto" && lineSet !== "none" && lineSet !== "joined" ? BORDER_BOXES[lineSet] : accent === "box" ? BORDER_BOXES.line : null;
       // Margin outside the frame (or the bar, and a space after it), padding inside it; none where less than 8 columns of text would be left.
       const mx = mine("margin.x"), px = mine("pad.x"), my = mine("margin.y"), py = mine("pad.y");
       const framed = !!glyphs && W - 2 * (mx + 1 + px) >= 8, bar = !framed && accent === "bar" && W - 2 * (mx + px) - 2 >= 8;

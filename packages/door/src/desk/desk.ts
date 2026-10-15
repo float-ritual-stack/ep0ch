@@ -2880,9 +2880,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // or a float's on the black it slides over).
     const framed: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const look = this.lookAt(pane, framed.cols), lv = look.values;
+    // Joined (PIE-886): no frame, a tinted pane that reads as part of the tile it follows, as the admin tree's preview does.
+    // `border=joined` asks for it; a preview of a tree has it unless its look says another border.
+    const joined = !dock && !float && (lv.border === "joined" || (lv.border === "auto" && this.followsTree(id, pane)));
     // Its surface (PIE-675, the look's `bg`): under its content, inside its frame; a dock or a float slides over on it.
-    const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : "";
-    canvas.clear(r, dock || float ? surface || bg(C.black) : "");
+    // A joined tile's tint runs to its edges, with no frame to stop at (dark, capped as every surface is).
+    const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : joined ? surfaceBg("raised", lv["bg.strength"]) : "";
+    canvas.clear(r, dock || float || joined ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
     const inner = contentRect(framed, look, !!pane.measured, pane.beside?.() ?? 0);
     this.contents.set(id, inner);
@@ -2955,7 +2959,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
     // around this screen (the showcase's index beside its stage).
     // At rest, the lines its look's `border` names (auto: the screen's frame; none: blank edges, the title kept).
-    const lines = lv.border === "none" ? NO_BOX : lv.border !== "auto" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
+    const lines = lv.border === "none" || joined ? NO_BOX : lv.border !== "auto" && lv.border !== "joined" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
     const glyphs = keys ? FOCUS_BOX : lines;
     const frameInk = (cover === "peek" && !focused ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, glyphs);
@@ -3005,12 +3009,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Kitty shows it only through cells on the default background, so the surface yields there).
     if (surface && !(pane instanceof PtyPane)) {
       const under = (view.placements ?? []).filter(p => (p.z ?? 0) < 0).map(p => ({ c0: inner.col + p.col, c1: inner.col + p.col + p.cols, r0: inner.row + p.row, r1: inner.row + p.row + p.rows }));
-      canvas.under(framed, surface, under.length ? (x, y) => under.some(u => x >= u.c0 && x < u.c1 && y >= u.r0 && y < u.r1) : undefined);
+      canvas.under(joined ? r : framed, surface, under.length ? (x, y) => under.some(u => x >= u.c0 && x < u.c1 && y >= u.r0 && y < u.r1) : undefined);
     }
     for (const s of view.spots ?? []) if (s.row < inner.rows && s.from < inner.cols) this.tileSpots.push({ y: inner.row + s.row, from: inner.col + s.from, to: inner.col + Math.min(s.to, inner.cols), key: s.key, tile: id });
     if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(focused ? C.lcyan : C.cyan));
     for (const p of view.placements ?? []) out.push({ ...p, key: `p${id}:${p.key}`, col: p.col + inner.col, row: p.row + inner.row, cols: Math.min(p.cols, inner.cols), rows: Math.min(p.rows, inner.rows) });
     return out;
+  }
+
+  /**
+   * Whether tile `id` previews a tree's selection: it follows one (a preview tile's source), or a tree's opens land in it
+   * as its preview (the link's role): the default for a joined tile (PIE-886).
+   */
+  private followsTree(id: number, pane: Pane): boolean {
+    const bound = boundSource.get(pane), f = kindOf(pane)?.follows?.(pane);
+    const src = bound && bound !== NO_SOURCE ? bound : !bound && f ? (f.includes("/") ? this.paneAtPath(f) : this.panes.get(this.idNamed(f) ?? -1)) : undefined;
+    if (src?.kind === "tree") return true;
+    return [...this.layout.links].some(([z, to]) => to === id && z !== id && this.layout.linkRoles.get(z) === "preview" && this.panes.get(z)?.kind === "tree");
   }
 
   /** Which way a click on tile `id`'s fold glyph folds it (v: ◂, h: ▾), or null where it can't fold now. */
