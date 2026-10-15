@@ -650,7 +650,7 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
 
 ### Writes (PIE-615)
 
-Seven tools (with `outline_assign_id`), offered to a remote caller when some outline it reaches takes writes: `outline_create` (a block under a
+Eleven tools (with `outline_assign_id`, and `outline_move`, `outline_trash` and `outline_restore`), offered to a remote caller when some outline it reaches takes writes: `outline_create` (a block under a
 parent), `outline_patch` (spans of a note, `draft.patch`), `outline_comment`, `outline_reply` and
 `outline_resolve_thread` (a note's comment threads) and `outline_set_property` (one header chip, as one patch span).
 `outline_threads` reads the threads (each one's id, open or resolved, its quote and every comment with author and time;
@@ -665,6 +665,11 @@ linked anchors. What a write becomes is the outline's access:
 | `none`, `read` | refused, with the command that allows it | refused | refused |
 | `propose` | a proposal under the note (apply anyway, or dismiss) | a comment on its parent carrying the text | a comment, a reply, a resolve (each changes only its thread) |
 | `full` | applied against the revision the caller read; changed since, or open in someone's draft: a proposal (into that draft) | created | a comment, a reply, a resolve |
+
+`outline_move` (under a parent, or before or after a sibling) and `outline_trash` (against the revision read) are applied at
+`full`, and at `propose` a comment on the note naming the change, for its owner to make; `outline_restore` (a note back
+from Trash) applies at `full` only, like `outline_assign_id`. Each runs the same agent operation as the mod's tool of
+that name, so the same refusals teach: a system note, a place inside the note itself, a stale revision.
 
 Every write is an agent's: its actor `mcp:<client>` (a URL client id by its host: claude.ai's is `mcp:claude.ai`), its
 session the token's subject. The outline's activity records both, the gateway's log has a line for each write, and a door

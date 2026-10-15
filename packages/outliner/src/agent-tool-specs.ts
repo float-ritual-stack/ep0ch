@@ -38,5 +38,8 @@ export const AGENT_OPERATION_SPECS: Readonly<Record<string, ToolArgsSpec>> = {
     { ref: "PIE-123", revision: 3, patches: [{ observed: "Borlotti", replacement: "Borlotti only" }] }),
   "set-property": spec("set-property", { ref, key: str, value: str, revision, propose: {} }, ["ref", "key", "value", "revision"], { ref: "PIE-123", key: "status", value: "open", revision: 3 }),
   "assign-id": spec("assign-id", { ref, revision }, ["ref", "revision"], { ref: NOTE, revision: 3 }),
+  move: spec("move", { ref, parent: { type: "string", description: "The new parent: a ref, or root" }, before: { type: "string", description: "A note to go just before" }, after: { type: "string", description: "A note to go just after" }, position: { type: "integer", minimum: 0, description: "With parent: among its children, 0 first (default last)" }, revision: { ...revision, description: "Optional: the revision outline_read returned; the move is refused if the note changed since" } }, ["ref"], { ref: NOTE, parent: "PIE-123", position: 0 }),
+  trash: spec("trash", { ref, revision }, ["ref", "revision"], { ref: NOTE, revision: 3 }),
+  restore: spec("restore", { ref }, ["ref"], { ref: NOTE }),
   "view-order": spec("view-order", { ref: { ...ref, description: "The view (a virtual-branch block)" }, ids: { type: "array", items: str } }, ["ref"], { ref: `((${NOTE}))`, ids: ["PIE-123", "PIE-124"] }, { ref: ["view"] }),
 };

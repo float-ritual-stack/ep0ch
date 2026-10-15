@@ -346,6 +346,58 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       return { operation: 'assign-id', input: inputOf(input, ['ref', 'revision']) }
     },
   },
+  {
+    name: 'outline_move',
+    example: {"ref": "PIE-123", "parent": "((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34))", "position": 0},
+    description:
+      'Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among ' +
+      'its children (0 is first; default last), or just `before` or `after` a sibling note. Give exactly one of parent, ' +
+      'before, after. With `revision` (what outline_read returned) it is refused if the note changed since. Attributed to ' +
+      'you; the note keeps its id, text and links. Refused, with what to give instead: a system note (the Inbox, Trash, ' +
+      'Bookmarks), a place under one (the Inbox excepted), a place inside the note itself, a note in Trash, a ref that ' +
+      'doesn\'t resolve (with the nearest notes). A move to where it already is answers unchanged.',
+    inputSchema: schema({
+      ref: REF,
+      parent: { type: 'string', description: 'The new parent: a ref, or root' },
+      before: { type: 'string', description: 'A note to go just before (a ref): it gives the parent and the place' },
+      after: { type: 'string', description: 'A note to go just after (a ref)' },
+      position: { type: 'integer', minimum: 0, description: 'With parent: among its children, 0 first (default last)' },
+      revision: { type: 'integer', minimum: 1, description: 'Optional: the revision outline_read returned; refused if the note changed since' },
+    }, ['ref']),
+    command(input) {
+      if (!nonEmpty(input.ref)) return 'Give the ref of the note to move.'
+      const places = ['parent', 'before', 'after'].filter(key => input[key] !== undefined)
+      if (places.length !== 1) return 'Give exactly one of parent (under it; or root), before or after (beside a note).'
+      if (!nonEmpty(input[places[0]!])) return `${places[0]} is a ref (or root, for parent); it is empty.`
+      return { operation: 'move', input: inputOf(input, ['ref', 'parent', 'before', 'after', 'position', 'revision']) }
+    },
+  },
+  {
+    name: 'outline_trash',
+    example: {"ref": "PIE-123", "revision": 3},
+    description:
+      'Put the note `ref` in Trash, with what is under it, against the `revision` outline_read returned: a note that ' +
+      'changed since is refused and stays. Attributed to you. outline_restore brings it back. Use it for a duplicate ' +
+      'or a stray, never to hide a note someone may want; a system note (the Inbox, Trash, Bookmarks) is refused. ' +
+      'A note already in Trash answers unchanged.',
+    inputSchema: schema({ ref: REF, revision: EXPECTED }, ['ref', 'revision']),
+    command(input) {
+      if (!nonEmpty(input.ref) || typeof input.revision !== 'number') return 'Give the ref and the revision you read.'
+      return { operation: 'trash', input: inputOf(input, ['ref', 'revision']) }
+    },
+  },
+  {
+    name: 'outline_restore',
+    example: {"ref": "((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34))"},
+    description:
+      'Bring the note `ref` back from Trash, with what went under it, to where it was. Give its id or ((id)) (a trashed ' +
+      'note has no page address). A note that went to Trash inside another is restored with that one: the refusal names it.',
+    inputSchema: schema({ ref: REF }, ['ref']),
+    command(input) {
+      if (!nonEmpty(input.ref)) return 'Give the ref (id or ((id))) of the trashed note.'
+      return { operation: 'restore', input: inputOf(input, ['ref']) }
+    },
+  },
 ]
 
 // ─── Door tools ────────────────────────────────────────────────────────────

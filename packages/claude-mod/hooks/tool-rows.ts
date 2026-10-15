@@ -33,7 +33,7 @@ const DETAIL_CHARS = 8000
 const QUOTE_CHARS = 48
 
 export const WRITE_TOOLS = [
-  'outline_edit', 'outline_patch', 'outline_set_property', 'outline_assign_id', 'outline_create', 'outline_comment', 'outline_reply', 'outline_resolve_thread',
+  'outline_edit', 'outline_patch', 'outline_set_property', 'outline_assign_id', 'outline_move', 'outline_trash', 'outline_restore', 'outline_create', 'outline_comment', 'outline_reply', 'outline_resolve_thread',
   'note_section', 'work_create', 'work_set', 'work_stage', 'work_body', 'work_link', 'work_deliver', 'work_complete', 'view_order',
 ] as const
 export const READ_TOOLS = ['outline_read', 'outline_find', 'outline_changes', 'outline_resolve', 'show'] as const
@@ -234,6 +234,28 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       const change = [id ? `id ${id}` : 'assign an id']
       if (out?.outcome === 'unchanged') change.push('(already had it)')
       return { kind: 'write', glyph: '✎', target, change }
+    }
+    case 'outline_move': {
+      const target = targetOf(input.ref, titleOf)
+      if (!target) return null
+      const place = typeof input.parent === 'string' ? (input.parent === 'root' ? 'to the top level' : `under ${targetOf(input.parent, titleOf)?.label ?? input.parent}`)
+        : typeof input.before === 'string' ? `before ${targetOf(input.before, titleOf)?.label ?? input.before}`
+          : typeof input.after === 'string' ? `after ${targetOf(input.after, titleOf)?.label ?? input.after}` : ''
+      const change = [`moved ${place}`.trim()]
+      if (out?.outcome === 'unchanged') change.push('(already there)')
+      return { kind: 'write', glyph: '↳', target, change }
+    }
+    case 'outline_trash': {
+      const target = targetOf(input.ref, titleOf)
+      if (!target) return null
+      const change = ['trashed']
+      if (typeof out?.children === 'number' && out.children > 0) change.push(`with ${out.children} ${out.children === 1 ? 'child' : 'children'}`)
+      if (out?.outcome === 'unchanged') change.push('(already in Trash)')
+      return { kind: 'write', glyph: '🗑', target, change }
+    }
+    case 'outline_restore': {
+      const target = targetOf(input.ref, titleOf)
+      return target ? { kind: 'write', glyph: '↩', target, change: ['restored from Trash'] } : null
     }
     case 'outline_create': {
       if (typeof input.text !== 'string') return null

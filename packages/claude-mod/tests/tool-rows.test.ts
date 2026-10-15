@@ -78,6 +78,13 @@ describe('the formatter: one row per tool', () => {
     expect(words(toolRowOf(done('outline_assign_id', input, { outcome: 'unchanged', workId: 'GDN-001' })))).toBe('✎ ((0f3c2a1b…)) · id GDN-001 · (already had it)')
   })
 
+  test('outline_move, outline_trash and outline_restore: the place, what went with it, and unchanged', () => {
+    expect(words(toolRowOf(done('outline_move', { ref: NOTE, parent: 'root' }, { outcome: 'applied' })))).toBe('↳ ((0f3c2a1b…)) · moved to the top level')
+    expect(words(toolRowOf(done('outline_move', { ref: NOTE, after: 'PIE-12' }, { outcome: 'unchanged' })))).toBe('↳ ((0f3c2a1b…)) · moved after PIE-12 · (already there)')
+    expect(words(toolRowOf(done('outline_trash', { ref: NOTE, revision: 3 }, { outcome: 'applied', children: 2 })))).toBe('🗑 ((0f3c2a1b…)) · trashed · with 2 children')
+    expect(words(toolRowOf(done('outline_restore', { ref: NOTE }, { outcome: 'applied' })))).toBe('↩ ((0f3c2a1b…)) · restored from Trash')
+  })
+
   test('outline_set_property: the chip set, and applied, proposed or no change', () => {
     const input = { ref: NOTE, key: 'crop', value: 'leek', revision: 3 }
     expect(words(toolRowOf(done('outline_set_property', input, { outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved' }] }))))
@@ -165,8 +172,8 @@ describe('the formatter: one row per tool', () => {
 
   test('every tool the mod draws has a row for a usual input', () => {
     expect([...WRITE_TOOLS, ...READ_TOOLS].sort()).toEqual([
-      'note_section', 'outline_assign_id', 'outline_changes', 'outline_comment', 'outline_create', 'outline_edit', 'outline_find', 'outline_patch', 'outline_read',
-      'outline_reply', 'outline_resolve', 'outline_resolve_thread', 'outline_set_property', 'show', 'view_order', 'work_body', 'work_complete', 'work_create',
+      'note_section', 'outline_assign_id', 'outline_changes', 'outline_comment', 'outline_create', 'outline_edit', 'outline_find', 'outline_move', 'outline_patch', 'outline_read',
+      'outline_reply', 'outline_resolve', 'outline_resolve_thread', 'outline_restore', 'outline_set_property', 'outline_trash', 'show', 'view_order', 'work_body', 'work_complete', 'work_create',
       'work_deliver', 'work_link', 'work_set', 'work_stage',
     ])
   })

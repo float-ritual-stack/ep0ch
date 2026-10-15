@@ -23,7 +23,7 @@ import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeS
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
 import { callRegistry, callShown } from "./mcp-calls";
-import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
@@ -39,7 +39,7 @@ export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
                                    show or set this outline's persisted MCP access grant (stdio and the gateway alike):
                                    propose and full let the write tools (outline_create, outline_patch,
-                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread, outline_quote) propose or apply (outline_assign_id applies at full only); a gateway's mirror of an outline queues them when its machine is away
+                                   outline_comment, outline_set_property, outline_reply, outline_resolve_thread, outline_quote, outline_move, outline_trash) propose or apply (outline_assign_id and outline_restore apply at full only); a gateway's mirror of an outline queues them when its machine is away
 ${QUEUE_USAGE}`;
 
 type RpcId = string | number | null;
@@ -897,6 +897,9 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_quote: { ref: "PIE-123", marks: ["2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11"], where: "inbox" },
   outline_set_property: { ref: "PIE-123", key: "status", value: "open", revision: 3 },
   outline_assign_id: { ref: "PIE-123", revision: 3 },
+  outline_move: { ref: "PIE-123", parent: "PIE-100", position: 0 },
+  outline_trash: { ref: "PIE-123", revision: 3 },
+  outline_restore: { ref: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11" },
   outline_write_status: { queueId: "q-1" },
   reader_view: {},
   share_start: { ref: "PIE-123", ttl: "1h" },
@@ -993,7 +996,11 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
   if (tool === "outline_assign_id") { const why = assignIdRefusal(status.level); if (why) return toolError(why); }
-  const record = (await board.records([target.id])).records.find(r => r.id === target.id);
+  if (tool === "outline_restore") { const why = restoreRefusal(status.level); if (why) return toolError(why); }
+  // A trashed note has no record in a read; outline_restore is the one write that is about one.
+  const found = (await board.records([target.id])).records.find(r => r.id === target.id);
+  if (!found && tool === "outline_restore" && target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: a trashed note isn't in its mirror, so outline_restore isn't queued; restore it there.`);
+  const record = found ?? (tool === "outline_restore" ? { id: target.id, text: "", revision: undefined } : undefined);
   if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`);
   const actor = actorOf(caller);
   // How old the base a write was made against is: a mirror lags the laptop, so a revision read from it may be behind.

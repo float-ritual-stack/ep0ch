@@ -1063,7 +1063,7 @@
     },
     {
       "id": "cli.mcpwrites", "name": "MCP writes, calls and receipts", "group": "clients", "chapter": "mcp", "ladder": "provisional", "dependsOn": ["cli.mcp", "svc.draftpatch", "svc.attribution", "svc.planwrite"],
-      "does": "Seven write tools (PIE-615), at an outline's propose or full access: outline_create, outline_patch, outline_comment, outline_set_property, outline_assign_id, outline_reply and outline_resolve_thread, with the Claude mod's shapes. Every write names the call that made it (PIE-685), and what a queued write became is a receipt: outline_write_status.",
+      "does": "Eleven write tools (PIE-615, PIE-877), at an outline's propose or full access: outline_create, outline_patch, outline_comment, outline_set_property, outline_assign_id, outline_move, outline_trash, outline_restore, outline_reply and outline_resolve_thread, with the Claude mod's shapes. Every write names the call that made it (PIE-685), and what a queued write became is a receipt: outline_write_status.",
       "built": "One write path: each tool runs the outliner's own agent operation (agent-tools) over the outline's socket, so the service checks revisions and anchors; no rule is restated. mcp-calls.ts keeps id-to-handle in the outlines folder's .clients/mcp-calls; mcp-receipts.ts is the pure read of the queue (queued, applied, proposed, superseded, rejected).",
       "refs": [
         { "r": "door", "p": "src/mcp-writes.ts", "l": 38, "m": "export const MCP_WRITE_TOOLS" },
