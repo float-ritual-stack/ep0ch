@@ -174,10 +174,11 @@ function propertyValueOccurrences(text: string, workIdPrefix: TicketPrefixes, pr
     const span = propertyValueSpan(record.raw);
     if (!span) continue;
     const base = record.start + span.start, value = record.raw.slice(span.start, span.end);
-    const pages = pageSyntaxRanges(value);
+    // Not inside a link's own syntax (a page link's address or label, a reference's label), as in a note's text.
+    const links = [...pageSyntaxRanges(value), ...blockReferenceEnvelopeRanges(value)];
     for (const reference of ticketKeyReferences(value, workIdPrefix)) {
       const range = { start: reference.start, end: reference.end };
-      if (pages.some((page) => rangesOverlap(range, page))) continue;
+      if (links.some((link) => rangesOverlap(range, link))) continue;
       const start = base + reference.start, end = base + reference.end;
       if (out.some((o) => o.start === start && o.end === end)) continue;
       out.push({ kind: "work-id", address: reference.workId, start, end, propertyKey: record.key });

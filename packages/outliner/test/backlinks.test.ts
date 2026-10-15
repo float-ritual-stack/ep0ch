@@ -173,11 +173,14 @@ describe("semantic backlink relation", () => {
     const todo = workspace.create("Fix the printer [ticket::PC-1] [status::done]");
     const walk = workspace.create(["Graph walk", "[via::[[X-2]]]", "[waiting-on::review of PIE-001]"].join("\n"));
     const list = workspace.create("Bench [blocks::PIE-001, notes]");
+    // A Work ID in a reference's label is the label's words, not a link of its own.
+    const labelled = workspace.create(`Shelf [related::((${hub.id}|after PIE-001))]`);
 
     const of = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources;
     expect(of(external.id).map((s) => [s.blockId, s.referenceGroups])).toEqual([[todo.id, [{ kind: "property", propertyKey: "ticket", count: 1 }]]]);
-    expect(of(hub.id).map((s) => [s.blockId, s.referenceGroups])).toEqual([[walk.id, [{ kind: "property", propertyKey: "via", count: 1 }]]]);
+    expect(of(hub.id).find((s) => s.blockId === walk.id)!.referenceGroups).toEqual([{ kind: "property", propertyKey: "via", count: 1 }]);
     expect(of(item.id).map((s) => s.blockId).sort()).toEqual([walk.id, list.id].sort());
+    expect(of(hub.id).map((s) => s.blockId)).toContain(labelled.id);
     expect(of(item.id).find((s) => s.blockId === walk.id)!.occurrences[0]).toMatchObject({ kind: "property", propertyKey: "waiting-on", label: "PIE-001" });
     // A plain word that happens to be a page's address stays text; a note's own [work-id::…] is no link to itself.
     expect(of(done.id)).toEqual([]);
