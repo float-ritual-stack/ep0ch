@@ -3240,6 +3240,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "rich.move", args: { direction: "down" }, as: "rich-builder" });
     await app.act({ action: "rich.move", args: { direction: "next" }, as: "rich-builder" });
     await app.act({ action: "rich.set", args: { value: "6" }, as: "rich-builder" });
+    for (const op of ["row.add", "row.remove", "column.add", "column.remove"]) {
+      await app.act({ action: "rich.change", args: { op }, as: "rich-builder" });
+    }
     await app.act({ action: "rich.change", args: { op: "column.add" }, as: "rich-builder" });
     await app.act({ action: "draft.undo", as: "rich-builder" });
     await app.act({ action: "rich.toggle", args: { on: false }, as: "rich-builder" });
