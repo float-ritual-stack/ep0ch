@@ -142,6 +142,28 @@ describe.skipIf(!outliner)("note.trash: d d from a reader, a list and the tree; 
     await until(() => reader().editing, "an edit open on the lamp");
     await expect(act("note.trash", { ref: lamp.id }, "links")).rejects.toThrow("has a draft open");
     key({ kind: "esc" });
+    // …and so is a draft open under it: the trash would take the child with it.
+    reader().hold(bulb, desk as any);
+    await until(() => reader().msg?.id === bulb.id, "the bulb in the reader");
+    ch("e");
+    await until(() => reader().editing, "an edit open on the bulb");
+    await expect(act("note.trash", { ref: lamp.id }, "links")).rejects.toThrow("a note under “The lamp” has a draft open");
+    key({ kind: "esc" });
+    key({ kind: "esc" });
     await restoreAll();
   }, 30_000);
+
+  test("a note saved while the choice was open is refused, not trashed unseen; ctrl+z passes over a note brought back elsewhere", async () => {
+    await setup();
+    const seen = (await board.get(hall.id))!;
+    await board.update(hall.id, `${seen.text}\nA new line.`, seen.revision!);
+    await expect(act("note.trash", { ref: hall.id, confirm: hall.id, revision: seen.revision }, "reader", "test-agent")).rejects.toThrow("changed while you were deciding");
+    expect(await deleted(hall)).toBe(false);
+    // Two trashed by an agent; the newer brought back by someone else: its undo restores the older.
+    await act("note.trash", { ref: porch.id, confirm: porch.id }, "reader", "test-agent");
+    await act("note.trash", { ref: hall.id, confirm: hall.id }, "reader", "test-agent");
+    await board.restore(hall.id);
+    expect(await act("note.untrash", {}, undefined, "test-agent")).toMatchObject({ restored: porch.id });
+    expect(await deleted(porch)).toBe(false);
+  }, 20_000);
 });

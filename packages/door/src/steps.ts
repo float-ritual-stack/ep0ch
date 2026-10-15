@@ -141,6 +141,8 @@ export const partyOf = (a: Actor) => (a.kind === "agent" ? `agent:${a.id}` : "yo
 
 /** Every change a reader records for undo, in order, so ctrl+z can tell which kind came last (a step's, a callout's). */
 let undoSeq = 0;
+/** The next place in the one order undoable changes are made in (so ctrl+z can tell which came last across histories). */
+export const undoStamp = () => ++undoSeq;
 /** A reader's changes of one kind (steps' statuses, callouts' types), newest last, 50 at most. Each party undoes only its own. */
 export class UndoHistory<E extends { by: string; context: string } = UndoEntry> {
   private entries: (E & { seq?: number })[] = [];

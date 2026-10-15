@@ -7,17 +7,14 @@ import { ellipsize } from "./style";
 import { centred, ListPicker, pickRow } from "./surface/picker";
 import { ch, type Key } from "./term";
 import { subject, type Msg } from "./board";
-import { openDraftOf } from "./draft-session";
+import { openDraftIds, openDraftOf } from "./draft-session";
 import { changedSinceRead, Refused, type Actor, type SocketBoard } from "./socket";
 import { ActionRefused } from "./surface/actions";
-import { partyOf } from "./steps";
+import { partyOf, undoStamp } from "./steps";
 import type { PageRename } from "@ep0ch/outline-core/protocol";
 
-/** How long the person's first press (the confirmation) stands. */
-export const TRASH_ARM_MS = 5000;
-
 /** A note trashed, as `note.untrash` finds it again: who trashed it, and what went with it. */
-export interface TrashedNote { id: string; title: string; notesUnder: number; by: string; at: number }
+export interface TrashedNote { id: string; title: string; notesUnder: number; by: string; seq: number }
 
 const trashed = new WeakMap<object, TrashedNote[]>();
 
@@ -47,6 +44,12 @@ export async function trashPlan(board: SocketBoard, ref: string): Promise<{ note
   if (!note) throw new ActionRefused("that note isn't in the outline (any more)");
   const why = trashProblem(board, note);
   if (why) throw new ActionRefused(`not trashed: ${why}`);
+  // A draft open under it goes into the Trash with it: refused the same way.
+  for (const open of openDraftIds(board)) {
+    if (open === note.id) continue;
+    const { ancestors } = await board.blockContext(open).catch(() => ({ ancestors: [] as Msg[] }));
+    if (ancestors.some(a => a.id === note.id)) throw new ActionRefused(`not trashed: a note under “${noteTitle(note)}” has a draft open; save or close it first`);
+  }
   return { note, notesUnder: note.childIds.length };
 }
 
@@ -73,12 +76,14 @@ export async function trashAtRevision(board: SocketBoard, id: string, revision: 
 export interface TrashDone { trashed: string; title: string; notesUnder: number; restore: string; recordedAs: string }
 
 /** `note.trash` confirmed: the note and the notes under it to Trash, recorded as `actor`'s; `note.untrash` brings it back. */
-export async function trashNote(board: SocketBoard, ref: string, actor: Actor, say: (msg: string) => void): Promise<TrashDone> {
+export async function trashNote(board: SocketBoard, ref: string, actor: Actor, say: (msg: string) => void, saw?: number): Promise<TrashDone> {
   const { note } = await trashPlan(board, ref);
+  // The note as the person's choice showed it: one saved since is refused, never trashed unseen.
+  if (saw !== undefined && note.revision !== undefined && note.revision !== saw) throw new ActionRefused(`“${noteTitle(note)}” changed while you were deciding (revision ${saw} -> ${note.revision}) · look again before trashing`);
   const { lost } = await trashAtRevision(board, note.id, note.revision, actor);
   const title = noteTitle(note), notesUnder = note.childIds.length;
   const log = trashed.get(board) ?? [];
-  log.push({ id: note.id, title, notesUnder, by: partyOf(actor), at: Date.now() });
+  log.push({ id: note.id, title, notesUnder, by: partyOf(actor), seq: undoStamp() });
   if (log.length > 50) log.shift();
   trashed.set(board, log);
   say(`trashed “${title}”${notesUnder ? ` and the ${notesUnder} note${notesUnder === 1 ? "" : "s"} under it` : ""} · ctrl+z brings it back${lost}`);
@@ -89,17 +94,26 @@ export interface UntrashDone { restored: string; title: string; renamedPages?: P
 
 /** Bring back the note `id` (else the one `actor` trashed last), where it was. */
 export async function untrashNote(board: SocketBoard, id: string | undefined, actor: Actor, say: (msg: string) => void, renamed: (r: PageRename[]) => string): Promise<UntrashDone> {
-  const last = id === undefined ? lastTrashed(board, actor) : null;
-  const target = id ?? last?.id;
-  if (!target) throw new ActionRefused("nothing was trashed here by you; pass id=<the note's block id> to bring back another");
-  let m: Awaited<ReturnType<SocketBoard["restore"]>>;
-  try { m = await board.restore(target); }
-  catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
-  const log = trashed.get(board);
-  if (log) trashed.set(board, log.filter(t => t.id !== m.id));
-  const title = noteTitle(m);
-  say(`brought back “${title}”${m.renamedPages?.length ? ` · ${renamed(m.renamedPages)}` : ""}`);
-  return { restored: m.id, title, ...(m.renamedPages?.length ? { renamedPages: m.renamedPages } : {}) };
+  // Named: that one. Otherwise the newest this actor trashed that is still in the Trash (one brought back elsewhere is passed over).
+  const wanted = id !== undefined ? [id] : (trashed.get(board) ?? []).filter(t => t.by === partyOf(actor)).map(t => t.id).reverse();
+  if (!wanted.length) throw new ActionRefused("nothing was trashed here by you; pass id=<the note's block id> to bring back another");
+  let failure: unknown = null;
+  for (const target of wanted) {
+    let m: Awaited<ReturnType<SocketBoard["restore"]>>;
+    try { m = await board.restore(target); }
+    catch (e) {
+      failure = e;
+      const log = trashed.get(board);
+      if (log) trashed.set(board, log.filter(t => t.id !== target));
+      continue;
+    }
+    const log = trashed.get(board);
+    if (log) trashed.set(board, log.filter(t => t.id !== m.id));
+    const title = noteTitle(m);
+    say(`brought back “${title}”${m.renamedPages?.length ? ` · ${renamed(m.renamedPages)}` : ""}`);
+    return { restored: m.id, title, ...(m.renamedPages?.length ? { renamedPages: m.renamedPages } : {}) };
+  }
+  throw new ActionRefused(failure instanceof Error ? failure.message : String(failure));
 }
 
 /**

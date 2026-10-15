@@ -609,6 +609,11 @@ export function draftRule(actor: Actor, use: DraftUse, at: { board?: object | nu
   return null;
 }
 
+/** The blocks with a draft open on them here. */
+export function openDraftIds(board: object | null | undefined): string[] {
+  return [...registry(board)].map(s => s.target.blockId).filter((id): id is string => !!id);
+}
+
 /** The draft open on `blockId` here, if any (a card's move waits for it). */
 export function openDraftOf(board: object | null | undefined, blockId: string): DraftSession | null {
   return [...registry(board)].find(s => s.target.blockId === blockId) ?? null;

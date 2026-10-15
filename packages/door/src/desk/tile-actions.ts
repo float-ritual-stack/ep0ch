@@ -597,8 +597,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {
       ref: { type: "string", optional: true, about: "the note's block id; default the note the tile points at" },
       confirm: { type: "string", optional: true, about: "the note's id (or its first 8+ characters): the same note, said twice" },
+      revision: { type: "number", optional: true, about: "the revision you read it at: a note saved since is refused (the person's choice names the one it showed)" },
     },
-    async run({ ref, confirm }, { d, reader }, actor) {
+    async run({ ref, confirm, revision }, { d, reader }, actor) {
       const board = d.ctx.board, s = d.subjectOf(reader), id = ref ?? s.id;
       if (!id) throw new ActionRefused(`${s.tile} points at no note; ref=<a block id> names one`);
       if (confirm === undefined) {
@@ -611,12 +612,12 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
         let plan: Awaited<ReturnType<typeof trashPlan>>;
         try { plan = await trashPlan(board, id); } finally { asking.delete(d); }
         const { note, notesUnder } = plan;
-        if (now.again) return d.dispatch.press("note.trash", { ref: note.id, confirm: note.id }, reader);
-        d.overlay(trashConfirm({ title: subject(note), notesUnder, trash: () => d.run("note.trash", { ref: note.id, confirm: note.id }, reader) }));
+        if (now.again) return d.dispatch.press("note.trash", { ref: note.id, confirm: note.id, ...(note.revision !== undefined ? { revision: note.revision } : {}) }, reader);
+        d.overlay(trashConfirm({ title: subject(note), notesUnder, trash: () => d.run("note.trash", { ref: note.id, confirm: note.id, ...(note.revision !== undefined ? { revision: note.revision } : {}) }, reader) }));
         return { armed: note.id, title: subject(note), notesUnder, say: "d again, Delete or ⏎ trashes it" };
       }
       if (!(confirm === id || (confirm.length >= 8 && id.startsWith(confirm)))) throw new ActionRefused(`confirm=${confirm} doesn't name ${id.slice(0, 8)}; pass that note's id to trash it`);
-      return trashNote(board, id, actor, msg => asActor(d.ctx, actor).flash(msg));
+      return trashNote(board, id, actor, msg => asActor(d.ctx, actor).flash(msg), revision);
     },
   }),
   "note.untrash": def({
