@@ -85,7 +85,7 @@ outline host and the publishers with `ep0ch install --apply`; a client on 170 is
 
 ### Grants: who may wake whom, and held asks in the waiting-on-you list (PIE-888)
 
-PROTOCOL moves: `agents.held`, and `extensions.list` answers `grants` and each extension's `held` count (an older host leaves the list without them).
+PROTOCOL 175: `agents.held`, and `extensions.list` answers `grants` and each extension's `held` count (an older host leaves the list without them).
 
 - **Added:** a note the person writes can let an extension or an agent wake an agent without their `r`:
   `[invoke-from::ext:requests] [invoke-to::kitty]`, with `max-hops` (default 1: what a woken agent writes is held
