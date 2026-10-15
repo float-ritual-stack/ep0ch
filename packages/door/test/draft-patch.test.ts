@@ -304,6 +304,17 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     await NOTE_ACTIONS.run("rich.set", { value: "Radish\nSpring" }, { surface: e.s, host: e.h }, USER);
     await NOTE_ACTIONS.run("rich.change", { op: "column.add" }, { surface: e.s, host: e.h }, USER);
     expect(elementEdit(e.d).elements()[1]!.fields[1]![0]!.value).toBe("Radish\nSpring");
+    await NOTE_ACTIONS.run("rich.set", { value: "one two three four five six" }, { surface: e.s, host: e.h }, USER);
+    const view = elementEdit(e.d);
+    const drawn = view.render(26, 30, text => text.split("\n")).map(visible);
+    const y = drawn.findIndex(line => line.includes("six"));
+    expect(y).toBeGreaterThan(1);
+    view.click(drawn[y]!.indexOf("six"), y, (action, args = {}) => {
+      void NOTE_ACTIONS.run(action as any, args as any, { surface: e.s, host: e.h }, USER);
+    });
+    e.type("X");
+    expect(view.current()?.field.value).toBe("one two three four five Xsix");
+
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
     expect((await board.get(e.id))!.text).toContain("Radish");
   });
