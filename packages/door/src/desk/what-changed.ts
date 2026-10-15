@@ -170,14 +170,15 @@ export class WhatChanged extends OutlineStore {
   }
 
   /** Titles for rows that have none yet, read from the board (a purged note's row goes). */
-  async titles(board: Pick<SocketBoard, "get">) {
+  async titles(board: Pick<SocketBoard, "read">) {
     const todo = [...this.rows.values()].filter(r => r.title === undefined || r.retitle);
     await Promise.all(todo.map(async r => {
       // A note the service no longer has (purged from the trash, with the notes under it) is no news: its row goes, where it
       // used to stay as "(gone)", a stack of them (PIE-891). A trashed one is still read, and says so.
-      try { const m = await board.get(r.blockId); if (!m) { this.rows.delete(r.blockId); return; } r.title = subject(m); delete r.retitle;
-        if (m?.props["work-id"]) r.workId = m.props["work-id"]; else delete r.workId;
-        if (m?.props.page) r.page = m.props.page; else delete r.page; } catch { r.title = "(unreadable)"; }
+      // `read` answers null only for a note the service says it has not found: any other refusal reads as unreadable.
+      try { const m = await board.read(r.blockId); if (!m) { this.rows.delete(r.blockId); return; } r.title = subject(m); delete r.retitle;
+        if (m.props["work-id"]) r.workId = m.props["work-id"]; else delete r.workId;
+        if (m.props.page) r.page = m.props.page; else delete r.page; } catch { r.title = "(unreadable)"; }
     }));
     if (todo.length) this.notify();
   }
