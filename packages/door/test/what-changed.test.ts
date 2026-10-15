@@ -174,4 +174,25 @@ describe.skipIf(!outliner)("what changed", () => {
     for (let i = 0; i < 250; i++) w.heard(ev(1000 + i, `m${i}`, { author: "agent", actorId: "fern-agent" }));
     expect(w.count()).toBe(251);
   });
+
+  test("changes already read remain visible if the host stops between feed pages", async () => {
+    const started = new WhatChanged();
+    started.outline = "late";
+    let visible: string[] = [];
+    started.subscribe(() => { visible = started.list().map(r => r.blockId); });
+    const reader = new SocketBoard(scratch.sock);
+    const readPage = reader.changesSince.bind(reader);
+    reader.changesSince = async from => {
+      const page = await readPage(from);
+      // Stop the real host at the page boundary, before the next request can reach it.
+      await scratch.stop();
+      return page;
+    };
+    try {
+      await started.seed(reader);
+      expect(started.count()).toBeGreaterThan(0);
+      expect(visible).toEqual(started.list().map(r => r.blockId));
+    } finally { reader.close(); }
+  }, 20_000);
+
 });

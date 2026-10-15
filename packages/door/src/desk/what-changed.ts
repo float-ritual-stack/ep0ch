@@ -101,8 +101,8 @@ export class WhatChanged extends OutlineStore {
           if (page.completeness.kind === "complete" || page.nextSequence <= from) break;
           from = page.nextSequence;
         }
-        this.notify();
       } catch { /* the feed isn't reachable yet: live events fill the list */ }
+      finally { this.notify(); }
     })();
     return this.ready;
   }
