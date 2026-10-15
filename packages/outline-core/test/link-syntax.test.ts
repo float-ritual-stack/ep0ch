@@ -76,7 +76,7 @@ test("referencedBlock unwraps an id or one reference as written (the scan's gram
 // PIE-874: links written inside property values, the one scan every client and the service read them by.
 test("links inside property values: references and page links anywhere in a value, an item that is exactly a ticket key, the address keys skipped", () => {
   const text = "Walk [via::[[X-2]]] [ticket::PC-582] [related::((c0ffee00-1111-4222-8333-444444444444)), notes, PIE-12] [status::done] [page::Walk] [work-id::PIE-9]\nnext:: see [[Beds]]";
-  const links = propertyValueLinks(text).map(l => l.kind === "ticket" ? [l.key, l.workId, text.slice(l.start, l.end)] : [l.key, l.kind, text.slice(l.reference.start, l.reference.end)]);
+  const links = propertyValueLinks(text).map(l => [l.key, l.kind === "ticket" ? l.workId : l.kind, text.slice(l.reference.start, l.reference.end)]);
   expect(links).toEqual([
     ["via", "page", "[[X-2]]"],
     ["ticket", "PC-582", "PC-582"],
@@ -85,5 +85,8 @@ test("links inside property values: references and page links anywhere in a valu
   ]);
   // A value's words that merely look like something stay text; a bare `key:: value` line's links count when its tokens are given.
   expect(propertyValueLinks("[note::FM-1 is a synth]")).toEqual([]);
+  // With the outline's prefixes, its Work IDs in a value's words link, never one in a link's own label; skip= leaves a key out.
+  const words = "[waiting-on::review of PIE-012 and ((c0ffee00-1111-4222-8333-444444444444|PIE-013))] [jira::PIE-014]";
+  expect(propertyValueLinks(words, undefined, { prefixes: "PIE", skip: k => k === "jira" }).map(l => l.kind === "ticket" ? l.workId : l.kind)).toEqual(["PIE-012", "block"]);
   expect(propertyValueLinks("next:: see [[Beds]]", [{ key: "next", start: 0, raw: "next:: see [[Beds]]" }]).map(l => l.kind)).toEqual(["page"]);
 });
