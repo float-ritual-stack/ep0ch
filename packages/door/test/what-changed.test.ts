@@ -129,6 +129,17 @@ describe.skipIf(!outliner)("what changed", () => {
     expect(started.list()[0]!.sequence).toBeGreaterThanOrEqual(board.lastSequence);
     expect(titles.length).toBeGreaterThan(500 - 1);
     expect(started.count()).toBe(520);
+    // Then a change that arrives live lands on top of them, with no gap: every note made since the position is listed once, newest first.
+    const seeded = started.list().length;
+    const last = board.lastSequence;
+    await board.createBlock(null, "Made after the start", AGENT);
+    const page = await board.changesSince(last);
+    if (page.kind !== "changes") throw new Error("the feed reset");
+    for (const c of page.changes) started.heard({ domain: "content", action: c.action, blockId: c.blockId, sequence: c.sequence, change: c } as any);
+    const rows = started.list();
+    expect(rows.length).toBe(seeded + 1);
+    expect(rows.every((r, i) => i === 0 || rows[i - 1]!.sequence > r.sequence)).toBe(true);
+    expect(rows.at(-1)!.sequence).toBeLessThan(rows[0]!.sequence - 519);
   }, 60_000);
 
   test("a note trashed or purged is no stack of (gone): a trashed one is a row that says what it was, a purged one and the notes under it leave none (PIE-891)", async () => {
