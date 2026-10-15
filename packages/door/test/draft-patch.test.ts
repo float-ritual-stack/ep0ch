@@ -674,6 +674,12 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).toContain("Sow the peas.");
     await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
     expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
+    if (!rich) {
+      await NOTE_ACTIONS.run("draft.place", { line: answerLine - 1, col: 1 }, { surface: e.s, host: e.h }, USER);
+      expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).toContain("Sow the peas.");
+      await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+      expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
+    }
     expect(e.d.writers.map(actorIdOf)).toContain("ext:gardener");
     expect((await board.get(e.id))!.text).toBe("Garden\n\n");
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);

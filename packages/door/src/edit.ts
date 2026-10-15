@@ -513,6 +513,7 @@ export class Draft {
     if (extend && this.anchor && this.anchor.row === this.row && this.anchor.col === this.col) this.anchor = null;
     // Every keystroke that changes the text makes the person its last writer.
     if (L.length !== len || L[r0] !== cur) this.wrote(USER);
+    if (this.row !== r0) this.selectAsk();
     return "keep";
   }
 
@@ -863,7 +864,7 @@ export class Draft {
     else this.anchor = null;
     this.row = r;
     this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
-    if (this.asks.has(this.line)) this.onAskSelected?.(this.line);
+    this.selectAsk();
     if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col && !extend) this.anchor = null;
     this.goal = null; this.discardArmed = false;
     // A click between ctrl+x and ctrl+e lets the chord go, as any key does: the ctrl+e after it is the line's end.
@@ -906,6 +907,13 @@ export class Draft {
   } | null = null;
 
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
+  private selectAsk() {
+    if (!this.asks.has(this.line)) return;
+    const answer = this.answerFolds().find(p => p.line === this.row + 1);
+    if (answer) this.openedFolds.add(answer.key);
+    this.onAskSelected?.(this.line);
+  }
+
   askStatus(line: string): string {
     const ask = this.asks.get(line);
     return ask ? ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}` : "";
@@ -919,8 +927,8 @@ export class Draft {
 
   toggleAnswer(p: FoldPoint) {
     if (this.openedFolds.has(p.key)) {
-      this.openedFolds.delete(p.key);
       if (this.row >= p.line && this.row < p.end) this.place(p.line - 1, 0);
+      this.openedFolds.delete(p.key);
     } else this.openedFolds.add(p.key);
     return !this.openedFolds.has(p.key);
   }
