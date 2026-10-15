@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### EchoNet's ledger gets its mark on the next toss (PIE-868)
+
+- **Fixed:** a ledger written before the `[echonet::<node>]` mark kept none until an entry changed; the next toss writes it
+  with the mark.
+
 ### An agent's CLI write is recorded as the agent (PIE-890)
 
 - **Fixed:** `--actor <id>` without `--author agent` on the outliner CLI's write commands (`work set|stage|link|body|create`,

@@ -460,7 +460,9 @@ const ledgerTitle = () => `EchoNet ledger [type::echo-ledger] ${byEchonet()}`;
 
 /** The ledger, when this run changed it. */
 async function saveLedger(ledger: Ledger): Promise<void> {
-  if (ledger.lines.size === ledger.before.size && [...ledger.lines].every(([key, value]) => ledger.before.get(key) === value)) return;
+  // A ledger written before the mark (PIE-868) is written again with it, even with no entry changed.
+  const marked = ledger.block!.text.split("\n")[0] === ledgerTitle();
+  if (marked && ledger.lines.size === ledger.before.size && [...ledger.lines].every(([key, value]) => ledger.before.get(key) === value)) return;
   await setOn(ledger.block!.id, () => [ledgerTitle(), ...[...ledger.lines].map(([key, value]) => `- ${key} -> ${value}`)].join("\n"));
 }
 
