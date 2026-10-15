@@ -285,8 +285,12 @@ source evidence or distinguish authored glyphs from controls.
 - `src/agent-tools.ts` owns the other outline operations an agent makes (read with
   full text and bounded children, find, resolve, revision-checked edit, create,
   comment/reply/resolve as the agent, recent changes, `draft.patch`) over the
-  existing RPCs. The CLI `agent` command runs them and the Claude mod's
-  `outline_*` tools call that command; add an agent operation there, not in the mod.
+  existing RPCs. The CLI `agent` command runs them, the Claude mod's
+  `outline_*` tools call that command, and the MCP gateway's writes and the host
+  API (`src/host-api.ts`: each tool as a plain async function, for scripts) call
+  them directly; add an agent operation there, not in the mod. Each tool's
+  name, arguments, words and shape check is defined once, in outline-core's
+  `agent-tool-definitions.ts` (PIE-720), which every surface registers from.
 
 Reuse these seams. Do not add a second property parser, context resolver, query path, authoritative block cache, or independent persistence layer. A bounded disposable Detail preview cache may retain service-owned revisions but never authorizes writes.
 

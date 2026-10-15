@@ -30,7 +30,6 @@ import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { actorLabel, composeActor, composeSessionId, CALL_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { sessionPersona, type LocationReader } from "@ep0ch/outline-core/outline-location";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, describeTool, type TargetWords } from "@ep0ch/outline-core/agent-tool-definitions";
 import type { BoardAddress } from "./notes-cli";
 import type { SocketBoard } from "./socket";
@@ -38,7 +37,8 @@ import type { SocketBoard } from "./socket";
 /** The outline a write goes to: a board, and its address when it has one (for what a refusal says). */
 export type WriteBoard = SocketBoard & { address?: BoardAddress };
 
-export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_move", "outline_trash", "outline_restore"] as const;
+/** The write tools, in the order tools/list offers them. */
+export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
@@ -226,62 +226,31 @@ export interface WriteOutcome {
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
 const pick = (args: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]));
 
+/** Stands in for the block a write is addressed to (the caller's uri or ref, resolved later) while its definition checks the rest. */
+const ADDRESSED = "(the addressed block)";
+
 /**
- * A write tool's arguments checked for shape (the address is the caller's: `uri` or `ref`), as the Claude mod's
- * tools check theirs; the service checks the rest. The block is filled in once the address is resolved.
+ * A write tool's arguments checked for shape by its one definition (@ep0ch/outline-core/agent-tool-definitions, the
+ * check the Claude mod and the host API make); the address is the caller's (`uri` or `ref`), filled in once resolved.
+ * The service checks the rest.
  */
 export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): Omit<McpWrite, "blockId"> | { error: string } {
-  switch (tool) {
-    case "outline_create":
-      if (!nonEmpty(args.text)) return { error: "Give the new block's text." };
-      if (args.position !== undefined && !(Number.isInteger(args.position) && (args.position as number) >= 0)) return { error: "position is a whole number from 0 (first)." };
-      return { tool, input: pick(args, ["text", "position"]) };
-    case "outline_patch": {
-      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
-      if (!Array.isArray(args.patches) || !args.patches.length) return { error: "Give at least one patch: {observed, replacement}." };
-      for (const p of args.patches as DraftPatchSpan[]) if (!p || !nonEmpty(p.observed) || typeof p.replacement !== "string") return { error: "Each patch needs observed (the exact text you read, never empty) and replacement." };
-      if (args.policy !== undefined && args.policy !== "edit" && args.policy !== "prose") return { error: "policy is edit (the default) or prose." };
-      return { tool, revision: args.revision, input: { policy: "edit", ...pick(args, ["patches", "mark", "policy", "allowStructural"]) } };
-    }
-    case "outline_comment":
-      if ((args.whole === true) === (typeof args.quote === "string")) return { error: "Give either quote (exact source text) or whole: true." };
-      if (!nonEmpty(args.body) && (args.whole === true || (args.body !== undefined && args.body !== ""))) return { error: "Give a non-empty comment (only a quote with no body is a highlight)." };
-      return { tool, input: pick(args, ["body", "quote", "whole", "start", "near", "prefix", "suffix", "requestId", "from", "revision", "kind", "properties"]) };
-    case "outline_reply":
-      if (nonEmpty(args.edit)) {
-        if (!nonEmpty(args.body) || typeof args.observed !== "string") return { error: "Give edit (a comment's or reply's id outline_threads returned), observed (its words as you read them) and the new, non-empty body." };
-        return { tool, input: pick(args, ["edit", "observed", "body"]) };
-      }
-      if (!nonEmpty(args.thread) || !nonEmpty(args.body)) return { error: "Give the thread (an id outline_threads returned) and a non-empty reply, or edit: a comment's id to change its words." };
-      return { tool, input: pick(args, ["thread", "body", "requestId"]) };
-    case "outline_resolve_thread":
-      if (!nonEmpty(args.thread) || typeof args.resolved !== "boolean") return { error: "Give the thread (an id outline_threads returned) and resolved: true or false." };
-      return { tool, input: pick(args, ["thread", "resolved"]) };
-    case "outline_quote":
-      if (!Array.isArray(args.marks) || !args.marks.length || !args.marks.every(nonEmpty)) return { error: "Give marks: the ids of highlights, comments or replies on the note (outline_threads lists them)." };
-      if (args.where !== undefined && !nonEmpty(args.where)) return { error: "where is inbox (the default), note (under the note) or a block's ref." };
-      return { tool, input: pick(args, ["marks", "where", "text"]) };
-    case "outline_set_property":
-      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
-      if (!nonEmpty(args.key) || !nonEmpty(args.value)) return { error: "Give the key and a non-empty value." };
-      return { tool, revision: args.revision, input: pick(args, ["key", "value"]) };
-    case "outline_assign_id":
-      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
-      return { tool, revision: args.revision, input: {} };
-    case "outline_move": {
-      const places = ["parent", "before", "after"].filter(k => args[k] !== undefined);
-      if (places.length !== 1) return { error: "Give exactly one of parent (under it; or root), before or after (beside a note)." };
-      if (!nonEmpty(args[places[0]!])) return { error: `${places[0]} is a ref (or root, for parent); it is empty.` };
-      if (args.position !== undefined && (places[0] !== "parent" || !(Number.isInteger(args.position) && (args.position as number) >= 0))) return { error: "position is a whole number from 0 (first), and goes with parent." };
-      if (args.revision !== undefined && typeof args.revision !== "number") return { error: "revision is the number outline_read returned." };
-      return { tool, ...(typeof args.revision === "number" ? { revision: args.revision } : {}), input: pick(args, ["parent", "before", "after", "position"]) };
-    }
-    case "outline_trash":
-      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
-      return { tool, revision: args.revision, input: {} };
-    case "outline_restore":
-      return { tool, input: {} };
+  if (tool === "outline_quote") {
+    if (!Array.isArray(args.marks) || !args.marks.length || !args.marks.every(nonEmpty)) return { error: "Give marks: the ids of highlights, comments or replies on the note (outline_threads lists them)." };
+    if (args.where !== undefined && !nonEmpty(args.where)) return { error: "where is inbox (the default), note (under the note) or a block's ref." };
+    return { tool, input: pick(args, ["marks", "where", "text"]) };
   }
+  const definition = SHARED_WRITE_TOOLS.find(d => d.name === tool)!;
+  const target = definition.target ?? "ref";
+  const command = definition.command({ ...args, [target]: ADDRESSED });
+  if (typeof command === "string") return { error: command };
+  // outline_reply's edit runs the edit-comment operation: the gateway keeps it as the tool's own `edit`.
+  const { [target]: _address, mark, ...input } = command.input;
+  if (command.operation === "edit-comment") return { tool, input: { edit: mark, ...input } };
+  // A revision is the note's, checked where the write lands; a comment's is a Resource's, part of its input.
+  const { revision, ...rest } = input;
+  if (tool === "outline_comment" || typeof revision !== "number") return { tool, input };
+  return { tool, revision, input: rest };
 }
 
 /** The outliner's agent operations, as much of them as a write uses (loaded by a name the door's checker doesn't follow). */
@@ -550,7 +519,7 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
       inputSchema: addressed(properties, definition.required.filter(key => key !== definition.target)),
     };
   });
-  return [
+  const tools = [
     ...shared,
     {
       name: "outline_quote",
@@ -558,4 +527,6 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
       inputSchema: addressed({ marks: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } }, where: { type: "string" }, text: { type: "string" } }, ["marks"]),
     },
   ];
+  const at = (name: string) => (MCP_WRITE_TOOLS as readonly string[]).indexOf(name);
+  return tools.sort((a, b) => at(a.name) - at(b.name));
 }

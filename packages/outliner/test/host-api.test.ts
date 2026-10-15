@@ -81,3 +81,21 @@ test("a wrong call is answered as the tools answer an agent, and a write needs a
   await expect(nobody.call("outline_create", { parent: "root", text: "Unsigned" })).rejects.toThrow("pass --actor");
   expect((await nobody.q("Unsigned") as { blocks: unknown[] }).blocks).toEqual([]);
 });
+
+test("a run streams its steps as they happen, and calls side by side don't wait on each other", async () => {
+  const { store, client } = await setup();
+  const steps: { seq: number; tool: string; phase: string; writes: boolean }[] = [];
+  const api = hostApi(client, { actorId: "garden-script", sessionId: "run-2" }, {
+    onStep: s => { steps.push({ seq: s.seq, tool: s.tool, phase: s.phase, writes: s.writes }); throw new Error("an observer's error never stops the run"); },
+  });
+  const made = await Promise.all(["Tomatoes", "Beans", "Squash"].map(text => api.call("outline_create", { parent: "root", text }) as Promise<{ id: string }>));
+  expect(made.map(m => store.get(m.id)!.actorId)).toEqual(["garden-script", "garden-script", "garden-script"]);
+  // All three started before the first answered: nothing in the API serialises them.
+  expect(steps.slice(0, 3).map(s => s.phase)).toEqual(["start", "start", "start"]);
+  expect(steps.filter(s => s.phase === "done").map(s => s.seq).sort()).toEqual([1, 2, 3]);
+  expect(steps.every(s => s.tool === "outline_create" && s.writes)).toBe(true);
+
+  await api.read(made[0]!.id);
+  await expect(api.call("outline_trash", { ref: made[1]!.id })).rejects.toThrow();
+  expect(steps.slice(-4).map(s => [s.seq, s.tool, s.phase])).toEqual([[4, "outline_read", "start"], [4, "outline_read", "done"], [5, "outline_trash", "start"], [5, "outline_trash", "refused"]]);
+});

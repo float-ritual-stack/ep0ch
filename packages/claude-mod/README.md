@@ -354,6 +354,17 @@ comment socket. Each runs the installed CLI's `agent <operation>` command
 workspace, and returns compact JSON. The service keeps the rules; a refusal
 comes back as the tool's error with the reason.
 
+Each `outline_*` tool and `view_order` is defined once, for every surface (PIE-720):
+its name, words, arguments, a call that works and its shape check are in
+`packages/outline-core/src/agent-tool-definitions.ts`, which the MCP gateway's
+write tools and the outliner's host API (`src/host-api.ts`, the tools as plain
+functions for scripts) register too. `hooks/agent-tool-definitions.ts` is the same
+code below its marker line (hooks can't import it); the door's
+`test/tool-args.test.ts` fails when the two differ, and its
+`test/agent-tool-surfaces.test.ts` fails when a tool is on one surface and not the
+other without a reason in `AGENT_TOOL_SURFACES`. Edit outline-core's file, then
+copy from the marker down.
+
 | Tool | Input | Returns |
 |---|---|---|
 | `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500) | full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete` |

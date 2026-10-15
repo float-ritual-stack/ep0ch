@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, describeTool } from "@ep0ch/outline-core/agent-tool-definitions";
 import { everyGatewayTool } from "../src/mcp";
-import { writeToolDefinitions } from "../src/mcp-writes";
+import { writeInput, writeToolDefinitions } from "../src/mcp-writes";
 import { BIND_TOOL, COMPONENTS_TOOL, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL } from "../../claude-mod/hooks/outline-tools";
 import { WORK_TOOLS } from "../../claude-mod/hooks/work-tools";
 
@@ -64,4 +64,17 @@ describe("the gateway registers the shared writes from their definitions", () =>
       expect(tool.description).not.toContain("{note}");
     });
   }
+});
+
+describe("the gateway checks a write by its definition, the check the mod and the host API make", () => {
+  test("a wrong call is refused in the definition's words, and a right one keeps the gateway's own shape", () => {
+    const move = AGENT_TOOL_DEFINITIONS.find(d => d.name === "outline_move")!;
+    expect(writeInput("outline_move", { ref: "PIE-1", parent: "root", before: "PIE-2" })).toEqual({ error: move.command({ ref: "PIE-1", parent: "root", before: "PIE-2" }) as string });
+    expect(writeInput("outline_patch", { ref: "PIE-1", revision: 3, patches: [{ observed: "", replacement: "x" }] })).toEqual({ error: expect.stringContaining("never empty") });
+    expect(writeInput("outline_patch", { ref: "PIE-1", revision: 3, patches: [{ observed: "a", replacement: "b" }] })).toEqual({ tool: "outline_patch", revision: 3, input: { policy: "edit", patches: [{ observed: "a", replacement: "b" }] } });
+    expect(writeInput("outline_create", { ref: "PIE-1", text: "Bring labels", position: 0 })).toEqual({ tool: "outline_create", input: { text: "Bring labels", position: 0 } });
+    expect(writeInput("outline_reply", { ref: "PIE-1", edit: "m-1", observed: "old", body: "new" })).toEqual({ tool: "outline_reply", input: { edit: "m-1", body: "new", observed: "old" } });
+    expect(writeInput("outline_comment", { ref: "resource:r-1", quote: "a line", body: "Why?", revision: 2 })).toEqual({ tool: "outline_comment", input: { body: "Why?", quote: "a line", revision: 2 } });
+    expect(writeInput("outline_move", { ref: "PIE-1", before: "PIE-2", position: 0 })).toEqual({ error: expect.stringContaining("position goes with parent") });
+  });
 });

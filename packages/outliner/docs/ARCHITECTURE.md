@@ -1828,6 +1828,8 @@ src/draft-patch.ts            draft.patch policies, draft holds, proposals
 src/draft-patch-router.ts     where a draft.patch goes (live draft or saved note)
 outline-core draft-patch-compare.ts  the compare (the door imports it too)
 src/agent-tools.ts            agent outline operations (CLI `agent`, mod `outline_*`)
+src/host-api.ts               the agent tools as plain async functions, for code (scripts)
+outline-core agent-tool-definitions.ts  each agent tool defined once, for every surface
 src/extension-manifest.ts     the one parser of an extension folder (contract 2)
 src/extension-registry.ts     which extensions an outline has; watched folders
 src/extension-handlers.ts     handler-line grammar

@@ -350,6 +350,9 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     command(input) {
       if (!nonEmpty(input.ref) || typeof input.revision !== "number") return "Give the ref and the revision you read.";
       if (!Array.isArray(input.patches) || input.patches.length === 0) return "Give at least one patch: {observed, replacement}.";
+      for (const patch of input.patches as { observed?: unknown; replacement?: unknown }[]) {
+        if (!patch || !nonEmpty(patch.observed) || typeof patch.replacement !== "string") return "Each patch needs observed (the exact text you read, never empty) and replacement.";
+      }
       if (input.policy !== undefined && input.policy !== "edit" && input.policy !== "prose") return "policy is edit (the default) or prose.";
       return { operation: "patch", input: { policy: "edit", ...inputOf(input, ["ref", "revision", "patches", "mark", "policy", "allowStructural"]) } };
     },
@@ -424,6 +427,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       const places = ["parent", "before", "after"].filter(key => input[key] !== undefined);
       if (places.length !== 1) return "Give exactly one of parent (under it; or root), before or after (beside a note).";
       if (!nonEmpty(input[places[0]!])) return `${places[0]} is a ref (or root, for parent); it is empty.`;
+      if (input.position !== undefined && places[0] !== "parent") return "position goes with parent: before and after already say where.";
       return { operation: "move", input: inputOf(input, ["ref", "parent", "before", "after", "position", "revision"]) };
     },
   },
