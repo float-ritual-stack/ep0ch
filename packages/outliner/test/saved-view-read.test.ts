@@ -211,3 +211,24 @@ test("client evaluator truncation agrees with views.read below limit 999", async
     expect([edge.roots.length, edge.state.completeness]).toEqual([999, {kind: "truncated", limit: 1000}]);
   } finally { store.close(); rmSync(root, {recursive: true, force: true}); }
 });
+
+// How many levels each member opens to is the service's answer, never a property a client reads (PIE-882).
+test("a view read says how deep its members open: its own child-depth, else the default", async () => {
+  const root = mkdtempSync(join(tmpdir(), "saved-view-depth-"));
+  const store = new OutlinerStore(join(root, "outline.sqlite"));
+  const socket = join(root, "service.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  const client = new OutlinerClient(socket);
+  try {
+    const create = (text: string) => client.request<Block>({ action: "create", text });
+    const plain = await create("Chores [type::virtual-branch] [query::type=chore]");
+    const deep = await create("Chores, deep [type::virtual-branch] [query::type=chore] [child-depth::5]");
+    expect((await readSavedView(client, plain.id)).childDepth).toBe(2);
+    expect((await readSavedView(client, deep.id)).childDepth).toBe(5);
+  } finally {
+    await server.close();
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
