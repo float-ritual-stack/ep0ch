@@ -23,7 +23,7 @@ import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeS
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
 import { callRegistry, callShown } from "./mcp-calls";
-import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
@@ -855,6 +855,16 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view",
 /** outline_new and outline_archive: offered to a caller when the server can reach its machine's outline host. */
 const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => caller && outlines.admin ? outlineAdminDefinitions(outlines.admin.machine) : [];
 
+/** The tools a caller is offered: the reads, the writes and shares where the outline takes writes, and the outline admin. */
+const toolList = (outlines: McpOutlines, writes: boolean, caller: McpCaller | undefined) =>
+  [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
+
+/** Every tool name the gateway can offer, writes and admin included: what the agent tool surfaces test compares (PIE-720). */
+export function everyGatewayTool(): string[] {
+  const outlines = { kind: "local", defaultOutline: "garden", machine: "here", admin: { machine: "here" } } as unknown as McpOutlines;
+  return toolList(outlines, true, { sub: "surfaces" }).map(t => t.name);
+}
+
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
 async function offersWrites(outlines: McpOutlines, caller: McpCaller | undefined): Promise<boolean> {
@@ -889,17 +899,8 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_query: { query: "updated >= -1d", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true },
   outline_links: { ref: "PIE-123" },
   outline_components: { components: ["callout"] },
-  outline_create: { ref: "PIE-123", text: "Bring labels" },
-  outline_patch: { ref: "PIE-123", revision: 3, patches: [{ observed: "Borlotti", replacement: "Borlotti only" }] },
-  outline_comment: { ref: "PIE-123", body: "Is this still true?", whole: true },
-  outline_reply: { ref: "PIE-123", thread: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", body: "Yes, checked today." },
-  outline_resolve_thread: { ref: "PIE-123", thread: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", resolved: true },
+  ...Object.fromEntries(MCP_WRITE_TOOLS.flatMap(name => { const example = gatewayExample(name); return example ? [[name, example]] : []; })),
   outline_quote: { ref: "PIE-123", marks: ["2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11"], where: "inbox" },
-  outline_set_property: { ref: "PIE-123", key: "status", value: "open", revision: 3 },
-  outline_assign_id: { ref: "PIE-123", revision: 3 },
-  outline_move: { ref: "PIE-123", parent: "PIE-100", position: 0 },
-  outline_trash: { ref: "PIE-123", revision: 3 },
-  outline_restore: { ref: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11" },
   outline_write_status: { queueId: "q-1" },
   reader_view: {},
   share_start: { ref: "PIE-123", ttl: "1h" },
@@ -915,7 +916,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
  */
 function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown, caller?: McpCaller): { args: Record<string, unknown> } | { error: string } | undefined {
   const writes = !!caller;
-  const definitions = [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
+  const definitions = toolList(outlines, writes, caller);
   const definition = definitions.find(d => d.name === name);
   if (!definition) return undefined;
   // `limit` keeps limitOf's own answer, which names the tool's default and maximum.
@@ -1055,7 +1056,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, s
     case "ping":
       return {};
     case "tools/list":
-      return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)] }));
+      return offersWrites(outlines, caller).then(w => ({ tools: toolList(outlines, w, caller) }));
     case "tools/call":
       return callTool(outlines, req.params, caller, scope);
     case "resources/list":

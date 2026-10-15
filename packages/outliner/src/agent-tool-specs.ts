@@ -1,45 +1,31 @@
 /**
  * What each `outliner agent <operation>` takes (the JSON on stdin or --json), as `checkToolArgs` needs it
  * (@ep0ch/outline-core/tool-args): `ref` for the note, its aliases accepted, and a wrong input answered with the
- * arguments and a call that works. The Claude mod's `outline_*` tools and the Pi extension send these operations; the
- * mod checks its own tool input first (its tools' schemas), so this is the CLI's own check for a person or script.
+ * arguments and a call that works. Each operation's arguments are its tool's, from the one list of agent tool
+ * definitions (@ep0ch/outline-core/agent-tool-definitions, PIE-720) that the Claude mod and the MCP gateway register.
  * `touch-file` is the mod's internal hook call and is not checked here.
  */
+import { AGENT_TOOL_DEFINITIONS } from "@ep0ch/outline-core/agent-tool-definitions";
 import type { ToolArgsSpec, ToolSchema } from "@ep0ch/outline-core/tool-args";
 
 const str = { type: "string" } as const;
-const int = { type: "integer" } as const;
-const bool = { type: "boolean" } as const;
-const ref = { type: "string", description: "The note: its id, ((id)), [[page]] or a Work ID (PIE-123)" } as const;
 const revision = { type: "integer", minimum: 1, description: "The revision outline_read returned" } as const;
-const NOTE = "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34";
 const THREAD = "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11";
 
 /** A call as the CLI takes it: the input as JSON on `--json` (shell-quoted). */
 const cliCall = (name: string, args: Record<string, unknown>) => `${name} --json '${JSON.stringify(args).replace(/'/g, "'\\''")}'`;
 
-function spec(name: string, properties: Record<string, ToolSchema>, required: string[], example: Record<string, unknown>, aliases?: ToolArgsSpec["aliases"]): ToolArgsSpec {
-  return { name: `outliner agent ${name}`, schema: { type: "object", properties, required }, example, callText: cliCall, ...(aliases ? { aliases } : {}) };
+function spec(operation: string, properties: Record<string, ToolSchema>, required: readonly string[], example: Record<string, unknown>, aliases?: ToolArgsSpec["aliases"]): ToolArgsSpec {
+  return { name: `outliner agent ${operation}`, schema: { type: "object", properties, required: [...required] }, example, callText: cliCall, ...(aliases ? { aliases } : {}) };
 }
+
+/** The writes that may become a proposal take `propose` (the MCP gateway's access setting decides it). */
+const EXTRA: Readonly<Record<string, Record<string, ToolSchema>>> = { patch: { propose: {} }, "set-property": { propose: {} } };
 
 /** The checked operations, keyed as the CLI names them. */
 export const AGENT_OPERATION_SPECS: Readonly<Record<string, ToolArgsSpec>> = {
-  read: spec("read", { ref, depth: int, limit: int }, ["ref"], { ref: "PIE-123", depth: 1 }),
-  find: spec("find", { text: str, property: str, hasKey: str, query: str, view: str, under: str, limit: int, machinery: str }, [], { text: "seed swap" }),
-  resolve: spec("resolve", { ref }, ["ref"], { ref: "[[Seed Swap]]" }),
-  edit: spec("edit", { ref, expectedRevision: revision, text: str, replaceSection: { type: "object" }, append: str, allowStructural: bool }, ["ref", "expectedRevision"], { ref: "PIE-123", expectedRevision: 3, append: "One more line." }),
-  create: spec("create", { parent: str, text: str, position: int }, ["parent", "text"], { parent: "PIE-123", text: "Bring labels" }),
-  comment: spec("comment", { ref, body: str, quote: str, whole: bool, start: int, near: int, prefix: str, suffix: str, requestId: str, from: str, revision, kind: str, properties: { type: "object" } }, ["ref"], { ref: "PIE-123", body: "Is this still true?", whole: true }),
+  ...Object.fromEntries(AGENT_TOOL_DEFINITIONS.map(d => [d.operation, spec(d.operation, { ...d.properties, ...EXTRA[d.operation] }, d.required, d.example, d.aliases)])),
+  // outline_reply is two operations: a reply in a thread here, and its `edit` the operation edit-comment below.
   reply: spec("reply", { thread: str, body: str, requestId: str }, ["thread", "body"], { thread: THREAD, body: "Yes, checked today." }),
   "edit-comment": spec("edit-comment", { mark: str, body: str, observed: str, revision }, ["mark", "body"], { mark: THREAD, observed: "Is this still true?", body: "Is this still true in May?" }),
-  "resolve-thread": spec("resolve-thread", { thread: str, resolved: bool }, ["thread", "resolved"], { thread: THREAD, resolved: true }),
-  changes: spec("changes", { since: { type: ["string", "integer"] }, author: str, actor: str, limit: int, before: int, machinery: str }, ["since"], { since: "2026-03-01T09:00:00Z" }),
-  patch: spec("patch", { ref, revision, patches: { type: "array", items: { type: "object" } }, mark: str, policy: str, allowStructural: bool, propose: {} }, ["ref", "revision", "patches"],
-    { ref: "PIE-123", revision: 3, patches: [{ observed: "Borlotti", replacement: "Borlotti only" }] }),
-  "set-property": spec("set-property", { ref, key: str, value: str, revision, propose: {} }, ["ref", "key", "value", "revision"], { ref: "PIE-123", key: "status", value: "open", revision: 3 }),
-  "assign-id": spec("assign-id", { ref, revision }, ["ref", "revision"], { ref: NOTE, revision: 3 }),
-  move: spec("move", { ref, parent: { type: "string", description: "The new parent: a ref, or root" }, before: { type: "string", description: "A note to go just before" }, after: { type: "string", description: "A note to go just after" }, position: { type: "integer", minimum: 0, description: "With parent: among its children, 0 first (default last)" }, revision: { ...revision, description: "Optional: the revision outline_read returned; the move is refused if the note changed since" } }, ["ref"], { ref: NOTE, parent: "PIE-123", position: 0 }),
-  trash: spec("trash", { ref, revision }, ["ref", "revision"], { ref: NOTE, revision: 3 }),
-  restore: spec("restore", { ref }, ["ref"], { ref: NOTE }),
-  "view-order": spec("view-order", { ref: { ...ref, description: "The view (a virtual-branch block)" }, ids: { type: "array", items: str } }, ["ref"], { ref: `((${NOTE}))`, ids: ["PIE-123", "PIE-124"] }, { ref: ["view"] }),
 };
