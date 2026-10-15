@@ -82,7 +82,7 @@ handler horoscope:: is already served by horoscope (/home/you/outlines/pie/exten
 ### From a shell
 
 ```sh
-outliner ext ls                                   # every folder, its state, its error, what it serves
+outliner ext ls [--long] [--json]                 # one row per extension; --long adds folders, arguments, schedules; --json for scripts (with no service: the folders found, "service": false)
 outliner ext add horoscope                        # a built-in, into the user folder
 outliner ext add ./my-extension                   # any folder (checked first; a broken one is refused)
 outliner ext add moon --outline-folder ~/outlines/pie   # into that outline's own extensions/
@@ -1157,7 +1157,7 @@ A handler or an action may declare `schedule`: `{ "every": "15m" }` (at least `1
   (`extension-schedules.json` in its folder), so a restart keeps it. `extensions.list` gives each extension's
   `schedules: [{ entry: "action:write-day", cron, once?, runsIn?, next, running?, last?: { at, ok, message?, error?, ms } }]`
   (a host-wide one another outline holds: its `next`, `running` and `last` are that outline's);
-  `ep0ch ext ls` prints `schedule action:write-day (cron 5 6 * * *): next … ; last … ok: …`; the door's
+  `ep0ch ext ls --long` prints `schedule action:write-day (cron 5 6 * * *): next … ; last … ok: …`; the door's
   extensions list (the showcase's `extensions` section) shows the same.
 - **Run it now:** `ep0ch ext run almanac action:write-day` (`extensions.schedule.run { extension, entry }`), recorded
   like any run. A scheduled action is also an ordinary action: `ep0ch ext act almanac write-day`, or the door's

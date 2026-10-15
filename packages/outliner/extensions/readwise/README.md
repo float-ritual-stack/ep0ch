@@ -93,10 +93,10 @@ Pond notes            ── send ──▶  Reader         Readwise [page::read
 
 Then, on any note in the door: `act ext.readwise.send` (or its key and click, like any action); from a shell:
 `ep0ch ext act readwise send --block <id>`. Pull now: `ep0ch ext run readwise action:pull` (or
-`ep0ch ext act readwise pull`). `ep0ch ext ls` shows the schedule's next run and what the last one did.
+`ep0ch ext act readwise pull`). `ep0ch ext ls --long` shows the schedule's next run and what the last one did.
 
 **One pull an hour, once per host.** Its schedule says `"once": "host"`: an extension in the user folder serves every
-outline the host has open, and the hourly pull runs in one of them (`ep0ch ext ls` says which, `runs in …`). Pulls
+outline the host has open, and the hourly pull runs in one of them (`ep0ch ext ls --long` says which, `runs in …`). Pulls
 run one at a time across the host, so one you ask for in another outline waits for a running one, then finds nothing
 new.
 

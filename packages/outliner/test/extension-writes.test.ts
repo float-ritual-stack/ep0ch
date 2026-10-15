@@ -389,7 +389,43 @@ test("what an extension says is kept and shown without terminal escapes: outputs
       runsCode: false, handlers: [], actions: [], tiles: [], agents: [] }],
   } as unknown as ExtensionsListResult).join("\n");
   expect(formatted).not.toMatch(/[\x1b\x07\x9b]/);
-  expect(formatted).toContain("bad\tfailed");
+  expect(formatted).toMatch(/bad\S*\s+failed\s+outline\s+error: extension.json is not valid JSON/);
+});
+
+test("ext ls reads as a table by default, in full with --long, and as the registry's own JSON with --json", async () => {
+  const list = {
+    generation: 3, roots: [{ origin: "outline", path: "/o/moon-outline/extensions", exists: true }], tileKinds: [], primitives: [], targets: [], trust: "trusted code",
+    extensions: [
+      { id: "moon", origin: "outline", directory: "/o/moon-outline/extensions/moon", state: "active", version: 2, runsCode: true,
+        handlers: [{ key: "moon", kind: "component", effects: "none" }], tiles: [{ kind: "phase" }], agents: [{ name: "oracle", effects: "read" }], bar: [{ id: "phases" }],
+        actions: [{ name: "shout", args: [{ name: "loud", type: "boolean", required: false }] }],
+        schedules: [{ entry: "action:write-day", cron: "5 6 * * *", next: "tomorrow", last: { at: "today", ok: false, error: "no network" } }] },
+      { id: "bad", origin: "user", directory: "/u/bad", state: "failed", error: "extension.json is not valid JSON", runsCode: false, handlers: [], tiles: [], agents: [], actions: [] },
+    ],
+  } as unknown as ExtensionsListResult;
+  const short = formatExtensionsList(list);
+  const header = short.find((line) => line.startsWith("EXTENSION"))!;
+  const moon = short.find((line) => line.startsWith("moon"))!;
+  const bad = short.find((line) => line.startsWith("bad"))!;
+  expect(short.find((line) => line.startsWith("EXTENSION"))).toBeDefined();
+  expect(moon.indexOf("active")).toBe(header.indexOf("STATE"));
+  expect(bad.indexOf("failed")).toBe(header.indexOf("STATE"));
+  expect(moon).toContain("moon::, tile phase, action shout, @oracle, 1 palette source");
+  expect(moon).toContain("schedule action:write-day failed today: no network");
+  expect(short.join("\n")).not.toContain("--arg");
+  expect(short.join("\n")).toContain("ext ls --long");
+  const long = formatExtensionsList(list, true).join("\n");
+  expect(long).toContain("moon  /o/moon-outline/extensions/moon");
+  expect(long).toContain("action shout [--arg loud=<boolean>]");
+  expect(long).toContain("schedule action:write-day (cron 5 6 * * *): next tomorrow; last today failed: no network");
+  // --json is the registry's own answer.
+  const printed: string[] = [];
+  const log = console.log;
+  console.log = (...args: unknown[]) => { printed.push(args.join(" ")); };
+  try {
+    expect(await runExtCommand(["ls", "--json"], async () => ({ request: async () => list }) as never)).toBe(0);
+  } finally { console.log = log; }
+  expect(JSON.parse(printed.join("\n"))).toEqual(JSON.parse(JSON.stringify(list)));
 });
 
 test("the one cleaner: escapes and C1 controls go, tabs stay, line breaks only when asked; inert BlockDown drops them too", () => {
