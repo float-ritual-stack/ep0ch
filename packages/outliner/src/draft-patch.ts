@@ -59,7 +59,7 @@ export interface DraftPatchEdit {
 export interface DraftPatchInput {
   blockId?: string;
   /** An answer inserted after this unchanged ask line. */
-  replyTo?: string;
+  replyTo?: string; replyGroup?: string;
   revision?: number;
   patches?: DraftPatchSpan[];
   edits?: DraftPatchEdit[];
@@ -144,7 +144,7 @@ export type DraftHolderRequest =
   | {
       kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; targetClientId: string;
       patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance;
-      replyTo?: string; mark?: string; force?: boolean;
+      replyTo?: string; replyGroup?: string; mark?: string; force?: boolean;
       /** Set when the patch applies or dismisses a proposal, so the door says which it was, not guessing from the patch. */
       proposal?: DraftHolderProposal;
     }

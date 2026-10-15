@@ -36,7 +36,7 @@ export const BIG_PASTE_LINES = 20, BIG_PASTE_BYTES = 2048;
  * An agent's patch applied to a draft (PIE-501): one undo unit. Each span is where its replacement sits in
  * the text just after it, with the text it replaced and a little text either side for undo's own compare.
  */
-interface PatchUnit { patchId: string; by: Actor; spans: { start: number; text: string; was: string; before: string; after: string }[] }
+interface PatchUnit { group?: string; patchIds?: string[]; patchId: string; by: Actor; spans: { start: number; text: string; was: string; before: string; after: string }[] }
 /**
  * One step of a draft's history (PIE-621): the whole text before and after one change, who made it and what it was
  * (`typing`, `the paste (340 lines)`, `tidy's edit`). Typing runs on into one step until a pause, a space or a jump
@@ -48,7 +48,7 @@ export interface Step { before: string; after: string; by: Actor; what: string; 
 /** A patch's new text, lit for a moment and labelled with who made it. Offsets are the draft's (UTF-16). */
 export interface PatchFlash { start: number; end: number; label: string; until: number }
 /** What the service asks a draft to patch (the `draft` event's patch, src/socket.ts DraftRequest). */
-export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; replyTo?: string; mark?: string; force?: boolean }
+export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; replyTo?: string; replyGroup?: string; mark?: string; force?: boolean }
 export type DraftPatchAnswer = { applied: true } | { applied: false; reason: string };
 
 /**
@@ -252,7 +252,7 @@ export class Draft {
     this.undos.pop();
     s.open = false;
     this.jump(s.before, by, editsOf(s, true));
-    if (s.unit) this.patches = s.removes ? [...this.patches, s.unit] : this.patches.filter(u => u !== s.unit);
+    if (s.unit) this.patches = s.removes ? [...this.patches, s.unit] : this.patches.filter(u => u !== s.unit && !s.unit?.patchIds?.includes(u.patchId));
     this.redos.push(s);
     return this.note = `undid ${s.what === "typing" ? "typing" : s.what}${this.undos.length ? "" : " · the draft is as it started"} · ctrl+y redoes`;
   }
@@ -266,7 +266,7 @@ export class Draft {
     if (by.kind === "agent" && !sameParty(s.by, by)) throw new ActionRefused("the next redo is someone else's change; an agent redoes only its own");
     this.redos.pop();
     this.jump(s.after, by, editsOf(s, false));
-    if (s.unit) this.patches = s.removes ? this.patches.filter(u => u !== s.unit) : [...this.patches, s.unit];
+    if (s.unit) this.patches = s.removes ? this.patches.filter(u => u !== s.unit && !s.unit?.patchIds?.includes(u.patchId)) : [...this.patches, s.unit];
     this.undos.push(s);
     return this.note = `redid ${s.what}`;
   }
@@ -723,8 +723,30 @@ export class Draft {
         }
       }
     }
-    if (p.replyTo) this.asks.set(p.replyTo, { line: p.replyTo, state: "replied", blocks: 1, beside: true });
+    if (p.replyTo && !p.replyGroup) this.asks.set(p.replyTo, { line: p.replyTo, state: "replied", blocks: 1, beside: true });
+    const prior = p.replyGroup ? this.undos.find(step => step.unit?.group === p.replyGroup && sameParty(step.by, by)) : undefined;
     this.commitPatch(located.spans, by, p.patchId);
+    const latest = this.undos.at(-1)!;
+    if (p.replyGroup && latest.unit) {
+      latest.unit.group = p.replyGroup;
+      if (prior?.unit && prior !== latest) {
+        // Rebase the intervening typing snapshots so undo keeps the answer together without taking the person's words.
+        const span = p.patches[0]!;
+        const advance = (text: string) => {
+          const found = locateSpans(text, [span]);
+          return found.ok ? applyLocated(text, found.spans) : text;
+        };
+        const index = this.undos.indexOf(prior);
+        prior.after = advance(prior.after);
+        for (const step of this.undos.slice(index + 1, -1)) {
+          step.before = advance(step.before);
+          step.after = advance(step.after);
+        }
+        prior.unit = { ...prior.unit, patchIds: [...(prior.unit.patchIds ?? [prior.unit.patchId]), p.patchId],
+          spans: prior.unit.spans.map(sp => ({ ...sp, text: span.replacement })) };
+        this.undos.pop();
+      }
+    }
     return { applied: true };
   }
 
@@ -763,7 +785,15 @@ export class Draft {
 
   /** ctrl+z: take back the last agent patch (an agent only its own). Says what it did, or why not. */
   undoPatch(by: Actor): string {
-    const u = [...this.patches].reverse().find(x => by.kind === "user" || sameParty(x.by, by));
+    let u = [...this.patches].reverse().find(x => by.kind === "user" || sameParty(x.by, by));
+    if (u?.group) {
+      const whole = this.undos.find(step => step.unit?.group === u!.group)?.unit;
+      if (whole?.patchIds) {
+        this.patches = this.patches.filter(patch => !whole.patchIds!.includes(patch.patchId));
+        this.patches.push(whole);
+        u = whole;
+      }
+    }
     if (!u) throw new ActionRefused(by.kind === "user" ? "no agent edit to undo in this draft" : "this agent has no edit to undo in this draft");
     if (!this.revertPatch(u.patchId, by)) throw new ActionRefused(`couldn't undo ${patchLabel(u.by)}'s edit: the text changed around it since`);
     return this.note = `undid ${patchLabel(u.by)}'s edit`;

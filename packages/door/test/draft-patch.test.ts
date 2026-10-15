@@ -646,6 +646,78 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect((await board.listExtensions(true))?.extensions.find(e => e.id === "gardener")?.state).toBe("active");
   }
 
+  async function streamingGardener() {
+    await gardener();
+    const gate = join(scratch.root, `answer-finish-${crypto.randomUUID()}`);
+    writeFileSync(join(scratch.workspace, "extensions", "gardener", "run.ts"), `
+      import { existsSync } from "node:fs";
+      await Bun.stdin.text();
+      console.log(JSON.stringify({ reply: "Sow the peas." }));
+      while (!existsSync(${JSON.stringify(gate)})) await Bun.sleep(20);
+      console.log(JSON.stringify({ reply: "\\n\\nWater the beds." }));
+      console.log(JSON.stringify({ ok: true, value: {} }));
+    `);
+    await board.listExtensions(true);
+    return gate;
+  }
+
+  test.each(["agent", "person"])("an answer streams through the held draft before the agent exits, with one undo step (%s)", async who => {
+    const gate = await streamingGardener();
+    const e = await editing("Streaming garden\n\n");
+    e.type("@gardener plan the beds"); e.d.newline(false); e.type("Keep writing");
+    const row = () => { e.s.render(70, 18, e.h); return e.d.cursorRow; };
+    const anchor = row();
+    try {
+      await until(() => e.d.text.includes("Sow the peas."), "the first chunk before the process exits", 6000);
+      expect(e.d.text).not.toContain("Water the beds.");
+      expect(row()).toBe(anchor);
+      e.type(" while it answers");
+      writeFileSync(gate, "finish");
+      await until(() => e.d.text.includes("Water the beds."), "the second chunk");
+      expect(row()).toBe(anchor);
+      expect(e.d.writers.map(actorIdOf)).toContain("ext:gardener");
+      if (who === "agent") e.d.undo({ kind: "agent", id: "ext:gardener" });
+      else {
+        while (e.d.undoable === "typing") e.d.undo(USER);
+        e.d.undo(USER);
+      }
+      expect(e.d.text).not.toContain("Sow the peas.");
+      expect(e.d.text).not.toContain("Water the beds.");
+      expect(e.d.text).toContain(who === "agent" ? "Keep writing while it answers" : "Keep writing");
+      if (who === "person") {
+        e.d.redo(USER);
+        expect(e.d.text).toContain("Sow the peas.");
+        expect(e.d.text).toContain("Water the beds.");
+        while (e.d.redos.length) e.d.redo(USER);
+        expect(e.d.text).toContain("Keep writing while it answers");
+      }
+    } finally { writeFileSync(gate, "finish"); }
+  }, 20_000);
+
+  test("the installed margin agent streams its answer command into an inline ask", async () => {
+    const folder = join(scratch.workspace, "extensions", "marginalia");
+    cpSync(join(outliner!, "extensions", "marginalia"), folder, { recursive: true });
+    const gate = join(scratch.root, "margin-finish");
+    const command = join(scratch.root, "margin-answer.ts");
+    writeFileSync(command, `import { existsSync } from "node:fs";
+      await Bun.stdin.text(); process.stdout.write("Plant peas.");
+      while (!existsSync(${JSON.stringify(gate)})) await Bun.sleep(20);
+      process.stdout.write(" Then water.");`);
+    writeFileSync(join(folder, "config.json"), JSON.stringify({ config: { answer: ["bun", command] } }));
+    await board.listExtensions(true);
+    const e = await editing("Margin garden\n\n");
+    e.type("@margin plan the beds"); e.d.newline(false); e.type("My next thought");
+    try {
+      await until(() => e.d.text.includes("Plant peas."), "the answer command's first bytes", 8000);
+      expect(e.d.text).not.toContain("Then water.");
+      e.type(" stays here");
+      writeFileSync(gate, "finish");
+      await until(() => e.d.text.includes("Then water."), "the answer command's remaining bytes");
+      expect(e.d.text).toContain("My next thought stays here");
+      expect(e.d.writers.map(actorIdOf)).toContain("ext:marginalia");
+    } finally { writeFileSync(gate, "finish"); }
+  }, 20000);
+
   test.each([false, true])("an ask's reply lands under its line while typing continues (rich=%s)", async rich => {
     await gardener();
     const e = await editing("Garden\n\n");
@@ -686,8 +758,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect((await board.get(e.id))!.text).toContain("Sow the peas.");
   }, 20_000);
 
-  test.skipIf(!Bun.which("tmux"))("a real pane keeps its typing row while the answer opens beside it", async () => {
-    await gardener();
+  test.skipIf(!Bun.which("tmux"))("a real pane keeps its typing row while the answer streams beside it", async () => {
+    const gate = await streamingGardener();
     const id = await create("Pane garden");
     const socket = join(scratch.root, "tmux.sock");
     const env = { ...process.env, ...scratch.env, EP0CH_STATE: join(scratch.root, "pane-state"),
@@ -720,12 +792,21 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
         if (frame.includes("Sow the peas.")) { arrived = true; break; }
       }
       expect(arrived).toBe(true);
+      expect(capture()).not.toContain("Water the beds.");
+      expect(capture()).toContain("working · 1 block");
+      tmux("send-keys", "-t", "asks", "-l", " and more");
+      await until(() => capture().includes("and more"), "typing between chunks");
+      writeFileSync(gate, "finish");
+      await until(() => capture().includes("Water the beds."), "the second chunk beside the draft");
+      expect(capture().split("\n").findIndex(l => l.includes("Keep typing here"))).toBe(row);
+      await until(() => capture().includes("2 blocks"), "the final paragraph count");
+      console.log("PIE-903 real pane:\n" + capture());
       tmux("send-keys", "-t", "asks", "C-s");
       const end = Date.now() + 5_000;
       while (!(await board.get(id))!.text.includes("Keep typing here") && Date.now() < end) await Bun.sleep(50);
       expect((await board.get(id))!.text).toContain("Sow the peas.");
       expect((await board.get(id))!.text).toContain("Keep typing here");
-    } finally { tmux("kill-session", "-t", "asks"); }
+    } finally { writeFileSync(gate, "finish"); tmux("kill-session", "-t", "asks"); }
   }, 30_000);
 
   test("a closed draft lets go of its hold: the next patch goes to the saved note", async () => {

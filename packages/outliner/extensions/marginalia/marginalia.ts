@@ -97,9 +97,21 @@ function prompt(input: Record<string, any>, resumed: boolean): string {
   ].join("\n");
 }
 
-async function run(command: string[], stdin: string): Promise<{ code: number; out: string }> {
+async function run(command: string[], stdin: string, reply?: (chunk: string) => void): Promise<{ code: number; out: string }> {
   const proc = Bun.spawn(command, { stdin: new Blob([stdin]), stdout: "pipe", stderr: "pipe" });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  const output = async () => {
+    let out = "";
+    const decoder = new TextDecoder();
+    for await (const bytes of proc.stdout) {
+      const chunk = decoder.decode(bytes, { stream: true });
+      out += chunk;
+      if (chunk) reply?.(chunk);
+    }
+    const tail = decoder.decode();
+    if (tail) reply?.(tail);
+    return out + tail;
+  };
+  const [out, code] = await Promise.all([output(), proc.exited]);
   return { code, out: out.trim() };
 }
 
@@ -129,8 +141,11 @@ async function answer(input: Record<string, any>): Promise<{ reply?: string; mes
     // Not resumable here (another machine's, or cleared): a new session, told the whole thread.
   }
   const id = args ? crypto.randomUUID() : "";
-  const started = await run(args ? [...command, ...fill(args.start, id)] : command, prompt(input, false));
+  const inline = typeof input.mark === "string";
+  const started = await run(args ? [...command, ...fill(args.start, id)] : command, prompt(input, false),
+    inline ? chunk => console.log(JSON.stringify({ reply: chunk })) : undefined);
   if (started.code !== 0) throw new Error(`the answer command exited ${started.code}`);
+  if (inline && started.out) return { message: "answer in the note" };
   return said(started.out, args ? id : undefined);
 }
 
