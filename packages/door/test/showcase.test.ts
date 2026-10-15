@@ -1361,7 +1361,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await app.act({ action: "section", args: { name: "trash" }, as: "test-agent" })).toMatchObject({ key: "trash" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "trash")).top; };
     const tiles = () => stage().layoutGet().tiles as any[];
-    const heap = seeded.notes.compost, deleted = async (id: string) => !!(await board.get(id))?.deleted;
+    const heap = seeded.notes.heap, deleted = async (id: string) => !!(await board.get(id))?.deleted;
     await until(() => tiles().find(t => t.name === "detail")?.showing?.id === heap.id && (tiles().find(t => t.name === "links")?.backlinks?.rows ?? []).filter((r: any) => r.id).length >= 2, "the heap and the notes under it", 8000);
     // The person: into the stage, d shows what goes, d trashes it, ctrl+z brings it back.
     press({ kind: "enter" });

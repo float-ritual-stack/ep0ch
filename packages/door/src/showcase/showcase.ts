@@ -484,7 +484,7 @@ export const SECTIONS: Section[] = [
     aside: "the detail holds the Compost heap, its links tile lists the two notes under it · press d in the detail: the choice names the heap and the 2 notes that go with it · d again trashes them (the detail says it is in the Trash) · ctrl+z brings them back · Tab to the links tile, j to Lid, d and d trashes just that one · the tile menu (the ⋯) has the same row, an agent passes confirm=",
     stage(n, show) {
       const d = detailPane(), links = new BacklinksPane("detail", true);
-      return deskOf({ title: "showcase · trash", panes: [d, links], names: ["detail", "links"], layout: ([a, b]) => pair("col", 0.5, leaf(a!), leaf(b!)) }, show, [], dsk => { if (n.compost) d.hold(n.compost, dsk); });
+      return deskOf({ title: "showcase · trash", panes: [d, links], names: ["detail", "links"], layout: ([a, b]) => pair("col", 0.5, leaf(a!), leaf(b!)) }, show, [], dsk => { if (n.heap) d.hold(n.heap, dsk); });
     },
   },
   {
