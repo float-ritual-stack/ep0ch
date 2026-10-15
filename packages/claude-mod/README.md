@@ -371,6 +371,9 @@ comes back as the tool's error with the reason.
 | `outline_patch` | `ref`, `revision`, `patches: [{observed, replacement}]`, `mark?`, `policy?` (`edit`, the default, or `prose`), `allowStructural?` | `draft.patch`'s outcome: `applied`, or `proposed` with the reason |
 | `outline_set_property` | `ref`, `key`, `value`, `revision` | one header chip set as a `draft.patch` span: `applied`, `proposed` with the reason, or `unchanged` |
 | `outline_assign_id` | `ref`, `revision` | the outline's next work id stamped on the note (`outliner work-id-allocate`), recorded as the agent: `{outcome, workId, page: "[[HUB-002]]"}`, `unchanged` when it had one. The id is the page address (no `[page::…]`); for notes that aren't roadmap items, where `work_create` makes a roadmap item |
+| `outline_move` | `ref`, one of `parent` (a ref, or `root`; with `position?`), `before` or `after` (a sibling ref), `revision?` | the note and what is under it moved, recorded as the agent: `{outcome, parentId, position, previousParentId}`, `unchanged` when it is already there. Refused with what to give instead: a system note (Inbox, Trash, Bookmarks), a place under one (the Inbox excepted), a place inside the note itself, a ref that doesn't resolve (with the nearest notes) |
+| `outline_trash` | `ref`, `revision` | the note and what is under it in Trash (`{outcome, children}`), refused if it changed since `revision`; `unchanged` when already there. `outline_restore` brings it back |
+| `outline_restore` | `ref` (its id or `((id))`) | the trashed note back with what went under it; a note trashed inside another names that one to restore first |
 
 A `ref` is a block id, `((id))`, `[[page]]` or a Work ID. A title is refused:
 find it with `outline_find` first.
@@ -426,7 +429,7 @@ answer say, and the tree).
   ⌕ find "dropdown menu" · 6 hits
 ```
 
-- **Writes** (`outline_edit`, `outline_patch`, `outline_set_property`, `outline_assign_id`, `outline_create`, `outline_comment`, `outline_reply`,
+- **Writes** (`outline_edit`, `outline_patch`, `outline_set_property`, `outline_assign_id`, `outline_move`, `outline_trash`, `outline_restore`, `outline_create`, `outline_comment`, `outline_reply`,
   `outline_resolve_thread`, `note_section`, `work_*`, `view_order` with `ids`): a verb glyph, the note (its Work ID,
   page or title; a block id's title is looked up once a session, off the draw) and the change. **Reads**
   (`outline_read`, `outline_find`, `outline_changes`, `outline_resolve`, `show`) are one dim line.

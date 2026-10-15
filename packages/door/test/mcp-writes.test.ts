@@ -140,7 +140,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
 
   test("tools/list offers the write tools, and list_outlines says what a write to each outline becomes", async () => {
     const names = ((await rpc("tools/list")).result.tools as { name: string }[]).map(t => t.name);
-    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_assign_id", "outline_write_status", "share_start", "share_list", "share_revoke"]);
+    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id", "outline_write_status", "share_start", "share_list", "share_revoke"]);
     const listed = (await tool("list_outlines", {})).json.outlines as Record<string, unknown>[];
     expect(listed.map(o => [o.outline, o.access, o.writes ?? null])).toEqual([
       ["garden-notes", "full", "applied"], ["pond-notes", "propose", "proposals"], ["quiet-notes", "read", null], ["attic-notes", "full", "queued"],
@@ -348,6 +348,56 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(refused.isError).toBe(true);
     expect(refused.text).toContain("needs full access");
     expect((await textOf(here, "pond-notes", HERE, ids.frogs!)).text).not.toContain("work-id");
+  });
+
+  test("full: outline_move puts a note in a day and beside a sibling, outline_trash a duplicate away and outline_restore back, attributed; a place inside itself and a stale revision are refused", async () => {
+    await make("garden-notes", "day", "Wednesday");
+    await make("garden-notes", "plan", "Plant the leeks");
+    await make("garden-notes", "dup", "Plant the leeks (copy)");
+    const uri = (key: string) => formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids[key]! });
+    const board = boardOn(here, "garden-notes", HERE);
+    const parentOf = async (key: string) => (await board.request<{ parentId: string | null }>("get", { blockId: ids[key] })).parentId;
+
+    const moved = await tool("outline_move", { uri: uri("plan"), parent: ids.day, position: 0 });
+    expect(moved.json).toMatchObject({ outcome: "applied", uri: uri("plan"), by: "chat.example.test", detail: { parentId: ids.day, position: 0 } });
+    expect(await parentOf("plan")).toBe(ids.day!);
+    const beside = await tool("outline_move", { uri: uri("dup"), after: ids.plan });
+    expect(beside.json).toMatchObject({ outcome: "applied", detail: { parentId: ids.day, position: 1 } });
+    expect((await board.request<{ id: string }[]>("children", { parentId: ids.day })).map(b => b.id)).toEqual([ids.plan!, ids.dup!]);
+    const inside = await tool("outline_move", { uri: uri("day"), parent: ids.plan });
+    expect(inside.isError).toBe(true);
+    expect(inside.text).toContain("inside itself");
+    expect((await tool("outline_move", { uri: uri("dup"), parent: ids.day, before: ids.plan })).text).toContain("exactly one of parent");
+    expect((await tool("outline_move", { uri: uri("dup"), parent: "root", revision: 99 })).text).toContain("changed since you read it");
+
+    const read = (await tool("outline_read", { uri: uri("dup") })).json;
+    expect((await tool("outline_trash", { uri: uri("dup"), revision: read.revision + 4 })).isError).toBe(true);
+    expect((await tool("outline_trash", { uri: uri("dup") })).isError).toBe(true);
+    const trashed = await tool("outline_trash", { uri: uri("dup"), revision: read.revision });
+    expect(trashed.json).toMatchObject({ outcome: "applied", uri: uri("dup"), by: "chat.example.test" });
+    expect((await board.request<{ deletedAt?: string }>("get", { blockId: ids.dup })).deletedAt).toBeDefined();
+    expect((await tool("outline_trash", { uri: uri("dup"), revision: read.revision })).json).toMatchObject({ outcome: "unchanged" });
+    const restored = await tool("outline_restore", { uri: uri("dup") });
+    expect(restored.json, restored.text).toMatchObject({ outcome: "applied", uri: uri("dup") });
+    expect((await board.request<{ deletedAt?: string }>("get", { blockId: ids.dup })).deletedAt).toBeUndefined();
+  });
+
+  test("propose: outline_move and outline_trash are comments on the note naming the change; outline_restore is refused", async () => {
+    await make("pond-notes", "reeds", "Reeds by the bank");
+    await make("pond-notes", "shore", "Shore");
+    const uri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.reeds! });
+    const board = boardOn(here, "pond-notes", HERE);
+    const move = await tool("outline_move", { uri, parent: ids.shore });
+    expect(move.json).toMatchObject({ outcome: "proposed", uri });
+    expect((await board.request<{ parentId: string | null }>("get", { blockId: ids.reeds })).parentId).toBeNull();
+    const trash = await tool("outline_trash", { uri, revision: (await textOf(here, "pond-notes", HERE, ids.reeds!)).revision });
+    expect(trash.json).toMatchObject({ outcome: "proposed" });
+    expect((await board.request<{ deletedAt?: string }>("get", { blockId: ids.reeds })).deletedAt).toBeUndefined();
+    const threads = (await tool("outline_threads", { uri })).json.threads as { comments: { body: string }[] }[];
+    expect(threads.map(t => t.comments[0]!.body)).toEqual(expect.arrayContaining([expect.stringContaining("Proposed move of this note under"), expect.stringContaining("Proposed trashing of this note")]));
+    const restore = await tool("outline_restore", { uri });
+    expect(restore.isError).toBe(true);
+    expect(restore.text).toContain("needs full access");
   });
 
   test("propose: a patch and a property are proposals; a new block is a comment on its parent; read takes no writes", async () => {

@@ -1,6 +1,6 @@
-// The remote MCP gateway's writes (PIE-615): eight tools, one write path. The tools take the Claude mod's shapes
+// The remote MCP gateway's writes (PIE-615, PIE-877): eleven tools, one write path. The tools take the Claude mod's shapes
 // (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property`, `outline_reply`,
-// `outline_resolve_thread` and `outline_assign_id`), and `outline_quote` (marks quoted into a new block, `marks.quote`), addressed as the read tools are (a
+// `outline_resolve_thread`, `outline_assign_id`, `outline_move`, `outline_trash` and `outline_restore`), and `outline_quote` (marks quoted into a new block, `marks.quote`), addressed as the read tools are (a
 // uri, or a ref in a named outline), and each runs the outliner's own agent operation (`@ep0ch/outliner/agent-tools`,
 // the code behind the mod's tools and `outliner agent …`) over the outline's socket. No rule is restated here: the
 // service checks revisions, anchors comments, refuses a dropped page or anchor, and turns a patch that no longer matches
@@ -11,7 +11,8 @@
 //   propose     a proposal: a patch or a property is a draft.patch proposal (`propose: always`), a new block is a comment
 //               on its parent carrying the text, and a comment, a reply and a resolve are what they say (each changes
 //               nothing but its thread: a thread's state is not the note);
-//   (outline_assign_id stamps a work id, which is no text proposal: it is applied at full and refused below it.)
+//               (outline_move and outline_trash are comments on the note naming the change, for its owner to make;)
+//   (outline_assign_id stamps a work id, and outline_restore brings a note back from Trash, which is no proposal: each is applied at full and refused below it.)
 //   full        applied, through the service's revision checks; a note open in someone's draft gets a proposal in that
 //               draft instead (`propose: held`), never a change under their cursor.
 // An outline whose home is another machine is never written here: its writes queue (src/mcp-netmail.ts), and that
@@ -36,7 +37,7 @@ import type { SocketBoard } from "./socket";
 /** The outline a write goes to: a board, and its address when it has one (for what a refusal says). */
 export type WriteBoard = SocketBoard & { address?: BoardAddress };
 
-export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_reply", "outline_resolve_thread", "outline_quote"] as const;
+export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_set_property", "outline_assign_id", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_move", "outline_trash", "outline_restore"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
@@ -190,6 +191,10 @@ const LEVELS: readonly McpAccessLevel[] = ["none", "read", "propose", "full"];
 export const assignIdRefusal = (level: McpAccessLevel): string | null => level === "full" ? null
   : `outline_assign_id stamps the note and can't be proposed: it needs full access (this outline's is ${level}).`;
 
+/** Why a note isn't brought back from Trash at this level (it is no proposal), or null when it may be. */
+export const restoreRefusal = (level: McpAccessLevel): string | null => level === "full" ? null
+  : `outline_restore brings a note back from Trash and can't be proposed: it needs full access (this outline's is ${level}).`;
+
 /** Whether a level allows writes, and which kind. */
 /** When a patch was read at an older revision and applied on the newer one, say which (PIE-687). */
 const rebasedSaid = (edits: readonly { revision?: number; rebasedFrom?: number }[]): string => {
@@ -262,6 +267,19 @@ export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): O
     case "outline_assign_id":
       if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
       return { tool, revision: args.revision, input: {} };
+    case "outline_move": {
+      const places = ["parent", "before", "after"].filter(k => args[k] !== undefined);
+      if (places.length !== 1) return { error: "Give exactly one of parent (under it; or root), before or after (beside a note)." };
+      if (!nonEmpty(args[places[0]!])) return { error: `${places[0]} is a ref (or root, for parent); it is empty.` };
+      if (args.position !== undefined && (places[0] !== "parent" || !(Number.isInteger(args.position) && (args.position as number) >= 0))) return { error: "position is a whole number from 0 (first), and goes with parent." };
+      if (args.revision !== undefined && typeof args.revision !== "number") return { error: "revision is the number outline_read returned." };
+      return { tool, ...(typeof args.revision === "number" ? { revision: args.revision } : {}), input: pick(args, ["parent", "before", "after", "position"]) };
+    }
+    case "outline_trash":
+      if (typeof args.revision !== "number") return { error: "Give the revision outline_read returned." };
+      return { tool, revision: args.revision, input: {} };
+    case "outline_restore":
+      return { tool, input: {} };
   }
 }
 
@@ -275,6 +293,9 @@ interface AgentTools {
   patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
   setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
   assignWorkId(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; workId: string; page: string }>;
+  moveBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
+  trashBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
+  restoreBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied"; said: string } & Record<string, unknown>>;
   resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
   resourceRefOf(ref: string): unknown | null;
   readResource(c: unknown, ref: unknown): Promise<Record<string, unknown>>;
@@ -344,6 +365,10 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
   const client = clientOf(board);
   if (write.tool === "outline_assign_id") {
     const why = assignIdRefusal(o.level) ?? (o.proposeOnly ? "outline_assign_id stamps the note and can't be proposed: the note changed since it was read." : null);
+    if (why) throw Object.assign(new Error(why), { name: "WorkToolRefusal" });
+  }
+  if (write.tool === "outline_restore") {
+    const why = restoreRefusal(o.level) ?? (o.proposeOnly ? "outline_restore can't be proposed: the note changed since it was read." : null);
     if (why) throw Object.assign(new Error(why), { name: "WorkToolRefusal" });
   }
   const propose = kind === "proposals" || o.proposeOnly ? "always" : "held";
@@ -425,6 +450,24 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
       const r = await tools.setBlockProperty(client, { ref: write.blockId, ...write.input, revision: o.revision ?? write.revision, propose }, o.actor);
       if (r.outcome === "unchanged") return { outcome: "unchanged", uri: o.uri(write.blockId), said: `[${r.key}::${r.value}] is already set`, detail: r };
       return patched(r, `[${String(write.input.key)}::${String(write.input.value)}]`);
+    }
+    case "outline_move":
+    case "outline_trash": {
+      const move = write.tool === "outline_move";
+      if (kind !== "applied" || o.proposeOnly) {
+        // A move or a trash is no draft.patch: it is offered as a comment on the note, for its owner to make.
+        const place = write.input.parent !== undefined ? (write.input.parent === "root" ? "to the top level" : `under ${String(write.input.parent)}${write.input.position !== undefined ? ` at position ${String(write.input.position)}` : ""}`)
+          : write.input.before !== undefined ? `before ${String(write.input.before)}` : `after ${String(write.input.after)}`;
+        const body = `Proposed ${move ? `move of this note ${place}` : "trashing of this note (with what is under it)"}, from ${actorLabel(o.actor.actorId)}`;
+        const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body }, o.actor);
+        return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not ${move ? "moves" : "trashing"}`, detail: c };
+      }
+      const r = await (move ? tools.moveBlock : tools.trashBlock)(client, { ref: write.blockId, ...write.input, ...((o.revision ?? write.revision) !== undefined ? { revision: o.revision ?? write.revision } : {}) }, o.actor);
+      return { outcome: r.outcome, uri: o.uri(write.blockId), said: r.said, detail: r };
+    }
+    case "outline_restore": {
+      const r = await tools.restoreBlock(client, { ref: write.blockId }, o.actor);
+      return { outcome: "applied", uri: o.uri(write.blockId), said: r.said, detail: r };
     }
     case "outline_assign_id": {
       const r = await tools.assignWorkId(client, { ref: write.blockId, revision: o.revision ?? write.revision }, o.actor);
@@ -515,6 +558,24 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
       name: "outline_set_property",
       description: `Set one [key::value] property on a note's header line (the chips that end its first line): the value replaced where the key is, or the chip added at the line's end, against the revision outline_read returned, as one outline_patch span. A key written more than once is a list: edit it with outline_patch. ${answer}`,
       inputSchema: addressed({ key: { type: "string" }, value: { type: "string", description: "One line, without ]" }, revision: REVISION }, ["key", "value", "revision"]),
+    },
+    {
+      name: "outline_move",
+      description: "Move a note (the uri or ref; with what is under it) to a new place: under `parent` (a ref, or root) at `position` among its children (0 is first; default last), or just `before` or `after` a sibling note. Give exactly one of parent, before, after. With `revision` it is refused if the note changed since. The note keeps its id, text and links. Refused, with what to give instead: a system note (the Inbox, Trash, Bookmarks), a place under one (the Inbox excepted), a place inside the note itself, a note in Trash, a ref that doesn't resolve (with the nearest notes). At propose access it becomes a comment on the note naming the move. " + answer,
+      inputSchema: addressed({
+        parent: { type: "string", description: "The new parent: a ref, or root" }, before: { type: "string", description: "A note to go just before (a ref)" }, after: { type: "string", description: "A note to go just after (a ref)" },
+        position: { type: "integer", minimum: 0, description: "With parent: among its children, 0 first (default last)" }, revision: { ...REVISION, description: "Optional: the revision outline_read returned; the move is refused if the note changed since" },
+      }, []),
+    },
+    {
+      name: "outline_trash",
+      description: "Put a note (the uri or ref) in Trash with what is under it, against the revision outline_read returned: a note that changed since is refused and stays. outline_restore brings it back. For a duplicate or a stray, never to hide a note someone may want; a system note is refused. At propose access it becomes a comment on the note proposing it. " + answer,
+      inputSchema: addressed({ revision: REVISION }, ["revision"]),
+    },
+    {
+      name: "outline_restore",
+      description: "Bring a trashed note (the uri or ref: its id, a trashed note has no page address) back from Trash, with what went under it. A note that went to Trash inside another is restored with that one: the refusal names it. It needs full access (a restore is no proposal). " + answer,
+      inputSchema: addressed({}, []),
     },
     {
       name: "outline_assign_id",

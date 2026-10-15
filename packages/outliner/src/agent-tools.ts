@@ -32,6 +32,7 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
+import { isSystemNote } from "./note-placement";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
 import { parseWorkId } from "./work-ids";
@@ -1073,9 +1074,141 @@ export async function assignWorkId(
   return { outcome: "applied", id: block.id, workId: done.workId, page: `[[${done.workId}]]`, revision: done.block.revision };
 }
 
+// ─── Move, trash and restore ────────────────────────────────────────────────
+
+const isInbox = (block: Block): boolean => block.properties.some(p => p.key === "system-view" && p.value.toLowerCase() === "inbox");
+const short = (title: string): string => title.slice(0, 50).replace(/[|()]/g, " ").trim();
+const label = (block: Block): string => `((${block.id}|${short(blockDisplayTitle(block))}))`;
+
+/** Up to three notes whose words are near what the agent named, as a did-you-mean for a ref that did not resolve. */
+async function nearest(client: AgentToolsClient, ref: string): Promise<string> {
+  const words = ref.replace(/^\[\[|\]\]$|^\(\(|\)\)$/g, "").trim();
+  if (!words) return "";
+  try {
+    const found = await client.request<{ matches: { block: { id: string }; title: string }[] }>({ action: "tree.search", query: words });
+    const top = found.matches.slice(0, 3);
+    return top.length ? ` Did you mean ${top.map(m => `((${m.block.id}|${short(m.title)}))`).join(", ")}?` : "";
+  } catch { return ""; }
+}
+
+/** A block named by `ref` for a role (`the parent`): resolved and writable, or a refusal that says what to give instead. */
+async function namedBlock(client: AgentToolsClient, ref: unknown, role: string): Promise<Block> {
+  if (typeof ref !== "string" || !ref.trim()) throw new WorkToolRefusal(`Give ${role}: a ref (its id, ((id)), [[page]] or Work ID)`);
+  try {
+    return await writableBlock(client, ref);
+  } catch (e) {
+    if (!(e instanceof Error) || /is in Trash/.test(e.message)) throw e;
+    throw new WorkToolRefusal(`${role[0]!.toUpperCase()}${role.slice(1)} ${JSON.stringify(ref)} doesn't resolve to a note: ${e.message}.${await nearest(client, ref)} outline_find finds a note by its words.`);
+  }
+}
+
+export type MoveResult =
+  | { outcome: "applied"; id: string; ref: string; parentId: string | null; position: number; previousParentId: string | null; revision: number; said: string }
+  | { outcome: "unchanged"; id: string; ref: string; parentId: string | null; position: number; said: string };
+
+/**
+ * Moves a note to a new place: under `parent` (a ref, or `root`) at `position` (0 first, default last), or `before` or
+ * `after` a sibling note. With `revision`, only the note as it was read. The service's `move`, attributed to the agent.
+ * Refused, saying what to give instead: a system note (the Inbox, Trash, Bookmarks), a place under one (the Inbox
+ * excepted), a place inside the note itself, a note in Trash, a ref that doesn't resolve (with the nearest notes).
+ */
+export async function moveBlock(
+  client: AgentToolsClient,
+  input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision?: number },
+  actor: AgentActor,
+): Promise<MoveResult> {
+  const block = await writableBlock(client, input.ref);
+  if (isSystemNote(block)) throw new WorkToolRefusal(`${label(block)} is a system note the outline keeps (the Inbox, Trash, Bookmarks, a guide): it stays where it is`);
+  if (input.revision !== undefined && input.revision !== block.revision) {
+    throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${input.revision}): outline_read it again, and move it only if it's still the note you mean`);
+  }
+  const given = (["parent", "before", "after"] as const).filter(key => input[key] !== undefined);
+  if (given.length !== 1) throw new WorkToolRefusal("Give exactly one of parent (under it; or root), before or after (beside a note)");
+  if (input.position !== undefined && given[0] !== "parent") throw new WorkToolRefusal("position goes with parent (before and after are the place already)");
+  let parentId: string | null;
+  let beside: Block | null = null;
+  if (given[0] === "parent") {
+    if (typeof input.parent === "string" && input.parent.trim() === "root") parentId = null;
+    else {
+      const parent = await namedBlock(client, input.parent, "the parent");
+      if (isSystemNote(parent) && !isInbox(parent)) throw new WorkToolRefusal(`${label(parent)} is a system note: put the note under a note of the outline's, or under the Inbox, or root`);
+      parentId = parent.id;
+    }
+  } else {
+    beside = await namedBlock(client, input[given[0]], `the note to go ${given[0]}`);
+    if (beside.id === block.id) throw new WorkToolRefusal(`A note can't go ${given[0]} itself; name a sibling or give parent`);
+    parentId = beside.parentId;
+    if (parentId) {
+      const parent = await client.request<Block>({ action: "get", blockId: parentId });
+      if (isSystemNote(parent) && !isInbox(parent)) throw new WorkToolRefusal(`${label(beside)} is under a system note (${label(parent)}): put the note under a note of the outline's, or root`);
+    }
+  }
+  const siblings = (await client.request<Block[]>({ action: "children", parentId })).filter(sibling => sibling.id !== block.id);
+  const requested = beside
+    ? siblings.findIndex(sibling => sibling.id === beside!.id) + (given[0] === "after" ? 1 : 0)
+    : input.position === undefined ? siblings.length : boundedInteger(input.position, "position", 0, 0, 1_000_000);
+  const position = Math.min(requested, siblings.length);
+  const where = parentId ? `under ${label(await client.request<Block>({ action: "get", blockId: parentId }))}` : "at the top level";
+  if (block.parentId === parentId) {
+    const before = (await client.request<Block[]>({ action: "children", parentId })).findIndex(sibling => sibling.id === block.id);
+    if (before === position) return { outcome: "unchanged", id: block.id, ref: `((${block.id}))`, parentId, position, said: `${label(block)} is already ${where} at position ${position}` };
+  }
+  // The service refuses a place inside the note itself; the refusal here says what to give instead.
+  const moved = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) }).catch(e => {
+    if (e instanceof Error && /beneath itself/.test(e.message)) {
+      throw new WorkToolRefusal(`${label(block)} can't go ${parentId === block.id ? "under itself" : "inside itself (the place is under its own descendants)"}: pick a parent outside it, or root`);
+    }
+    throw e;
+  });
+  return { outcome: "applied", id: block.id, ref: `((${block.id}))`, parentId, position, previousParentId: block.parentId, revision: moved.revision, said: `moved ${label(block)} ${where} at position ${position}` };
+}
+
+export type TrashResult =
+  | { outcome: "applied"; id: string; ref: string; children: number; said: string }
+  | { outcome: "unchanged"; id: string; ref: string; said: string };
+
+/**
+ * Puts a note in Trash, with what is under it, against the `revision` the agent read: one changed since is refused and
+ * stays (the service's conditional delete). `outline_restore` brings it back. A system note is refused; a note already
+ * in Trash answers unchanged.
+ */
+export async function trashBlock(client: AgentToolsClient, input: { ref: string; revision: number }, actor: AgentActor): Promise<TrashResult> {
+  const revision = requireRevision(input.revision);
+  const { block } = await resolveReference(client, input.ref);
+  if (block.effectiveDeletedRootId) return { outcome: "unchanged", id: block.id, ref: `((${block.id}))`, said: `${label(block)} is already in Trash` };
+  if (isSystemNote(block)) throw new WorkToolRefusal(`${label(block)} is a system note the outline keeps (the Inbox, Trash, Bookmarks, a guide): it can't be trashed`);
+  if (revision !== block.revision) {
+    throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${revision}): outline_read it again, and trash it only if it's still the note you mean`);
+  }
+  const children = (await client.request<Block[]>({ action: "children", parentId: block.id })).length;
+  try {
+    await client.request<Block>({ action: "delete", blockId: block.id, expectedRevision: revision, mutation: mutationOf(actor) });
+  } catch (e) {
+    if (e instanceof Error && /changed since it was read/.test(e.message)) {
+      throw new WorkToolRefusal(`${label(block)} changed while you were trashing it: outline_read it again, and trash it only if it's still the note you mean`);
+    }
+    throw e;
+  }
+  return { outcome: "applied", id: block.id, ref: `((${block.id}))`, children, said: `trashed ${label(block)}${children ? ` with its ${children} ${children === 1 ? "child" : "children"}` : ""}; outline_restore brings it back` };
+}
+
+export type RestoreResult = { outcome: "applied"; id: string; ref: string; revision: number; renamedPages?: unknown; said: string };
+
+/** Brings a note back from Trash, with what went under it, where it was. Only a note trashed itself (a Trash root). */
+export async function restoreBlock(client: AgentToolsClient, input: { ref: string }, actor: AgentActor): Promise<RestoreResult> {
+  const { block } = await resolveReference(client, input.ref);
+  if (!block.effectiveDeletedRootId) throw new WorkToolRefusal(`${label(block)} isn't in Trash`);
+  if (block.effectiveDeletedRootId !== block.id) {
+    const root = await client.request<Block>({ action: "get", blockId: block.effectiveDeletedRootId });
+    throw new WorkToolRefusal(`${label(block)} went to Trash inside ${label(root)}: restore that first (outline_restore ${root.id}), and this comes back with it`);
+  }
+  const restored = await client.request<Block & { renamedPages?: unknown }>({ action: "trash.restore", blockId: block.id, mutation: mutationOf(actor) });
+  return { outcome: "applied", id: block.id, ref: `((${block.id}))`, revision: restored.revision, ...(restored.renamedPages ? { renamedPages: restored.renamedPages } : {}), said: `restored ${label(block)}` };
+}
+
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1108,6 +1241,9 @@ export function runAgentOperation(
     case "patch": return patchDraft(client, any, writer());
     case "set-property": return setBlockProperty(client, any, writer());
     case "assign-id": return assignWorkId(client, any, writer());
+    case "move": return moveBlock(client, any, writer());
+    case "trash": return trashBlock(client, any, writer());
+    case "restore": return restoreBlock(client, any, writer());
     case "view-order": return viewOrder(client, any, Array.isArray(any.ids) && any.ids.length ? writer() : actor);
     case "touch-file": return import("./file-touches").then(m => m.touchFile(client, any, writer()));
   }

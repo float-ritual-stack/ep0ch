@@ -38,6 +38,9 @@ const ANSWERS: Record<string, string> = {
   patch: JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved', revision: 5 }] }),
   'set-property': JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved', revision: 6 }], id: NOTE, key: 'crop', previous: null, value: 'leek' }),
   'assign-id': JSON.stringify({ outcome: 'applied', id: NOTE, workId: 'GDN-001', page: '[[GDN-001]]', revision: 4 }),
+  move: JSON.stringify({ outcome: 'applied', id: NOTE, ref: `((${NOTE}))`, parentId: THREAD, position: 0, previousParentId: null, revision: 4 }),
+  trash: JSON.stringify({ outcome: 'applied', id: NOTE, ref: `((${NOTE}))`, children: 0 }),
+  restore: JSON.stringify({ outcome: 'applied', id: NOTE, ref: `((${NOTE}))`, revision: 5 }),
 }
 
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
@@ -118,6 +121,10 @@ const CALLS: Array<{ tool: string; input: Record<string, unknown>; operation: st
   { tool: 'outline_set_property', input: { ref: NOTE, key: 'crop', value: 'leek', revision: 3 }, operation: 'set-property',
     json: { ref: NOTE, key: 'crop', value: 'leek', revision: 3 } },
   { tool: 'outline_assign_id', input: { ref: NOTE, revision: 3 }, operation: 'assign-id', json: { ref: NOTE, revision: 3 } },
+  { tool: 'outline_move', input: { ref: NOTE, parent: 'PIE-12', position: 0, revision: 3 }, operation: 'move', json: { ref: NOTE, parent: 'PIE-12', position: 0, revision: 3 } },
+  { tool: 'outline_move', input: { ref: NOTE, after: 'PIE-12' }, operation: 'move', json: { ref: NOTE, after: 'PIE-12' } },
+  { tool: 'outline_trash', input: { ref: NOTE, revision: 3 }, operation: 'trash', json: { ref: NOTE, revision: 3 } },
+  { tool: 'outline_restore', input: { ref: NOTE }, operation: 'restore', json: { ref: NOTE } },
 ]
 
 describe('outline tools', () => {
@@ -326,8 +333,8 @@ describe('tool arguments', () => {
 
   test('every tool that takes a note takes it as ref, and as each alias', () => {
     expect(REF_TOOLS.map(tool => tool.name).sort()).toEqual([
-      'door_open', 'note_section', 'outline_assign_id', 'outline_comment', 'outline_edit', 'outline_patch', 'outline_read', 'outline_resolve',
-      'outline_set_property', 'show', 'view_order', 'work_body', 'work_complete', 'work_deliver', 'work_link', 'work_set', 'work_stage',
+      'door_open', 'note_section', 'outline_assign_id', 'outline_comment', 'outline_edit', 'outline_move', 'outline_patch', 'outline_read', 'outline_resolve',
+      'outline_restore', 'outline_set_property', 'outline_trash', 'show', 'view_order', 'work_body', 'work_complete', 'work_deliver', 'work_link', 'work_set', 'work_stage',
     ])
     for (const tool of REF_TOOLS) {
       for (const alias of ALIASES.filter(alias => alias !== 'item' || (tool as { aliases?: { ref?: readonly string[] } }).aliases?.ref?.includes('item'))) {

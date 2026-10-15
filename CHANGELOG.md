@@ -40,6 +40,14 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** a name a mod tool has no argument for still doesn't stop the call (a host's own metadata arrives that
   way), but the answer now starts with `Not used: …`, naming it and the tool's arguments.
 
+### Agents move and trash notes (PIE-877)
+
+- **Added:** `outline_move`, `outline_trash` and `outline_restore` in the Claude mod and over MCP. A tidy pass now
+  puts a note under a day or beside a sibling, and a duplicate in Trash, as the agent, and says why when it can't:
+  a system note, a place inside the note itself, a stale revision, a ref that doesn't resolve (with the nearest
+  notes). Over MCP at propose access a move or a trash is a comment on the note for its owner; a restore needs full
+  access. `outliner agent move|trash|restore` run the same operations.
+
 ### Marks only, found and kept (PIE-873)
 
 - **Added:** the byline's comment count is the margin's switch: a click cycles it as `M` does (cards a row each, whole,
