@@ -1,5 +1,6 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
+import { outputJsonOf } from '../hooks/tool-rows'
 import { checkedInput, droppedNote, DOOR_TOOLS, OUTLINE_TOOLS, SHOW_TOOL, actorOf, machineNameOf } from '../hooks/outline-tools'
 import { WORK_TOOLS } from '../hooks/work-tools'
 
@@ -369,6 +370,8 @@ describe('tool arguments', () => {
     expect(odd.dropped).toEqual(['flavour'])
     expect(droppedNote(comment, odd.dropped)).toMatch(/^Not used: `flavour` is no argument of outline_comment \(its arguments: ref, body, .*kind.*\); the call ran without it\.\n$/)
     expect(droppedNote(comment, [])).toBe('')
+    // The transcript's row still reads the answer under the line.
+    expect(outputJsonOf(droppedNote(comment, odd.dropped) + JSON.stringify({ thread: 'c0ffee00' }))).toEqual({ thread: 'c0ffee00' })
   })
 
   test('an unknown argument is named with the closest valid one, the arguments, and a call that works', () => {

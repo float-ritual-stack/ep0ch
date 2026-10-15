@@ -695,7 +695,8 @@ export async function commentOn(
   if (input.kind !== undefined) {
     if (typeof input.kind !== "string" || !input.kind.trim()) throw new WorkToolRefusal(`kind is the thread's kind, a word (patch-note, question, highlight…); got ${JSON.stringify(input.kind)}`);
     const said = input.properties?.kind, kind = input.kind.trim();
-    if (said !== undefined && [said].flat().join() !== kind) throw new WorkToolRefusal(`kind is "${kind}" but properties.kind is ${JSON.stringify(said)}: give one`);
+    const same = typeof said === "string" ? said.trim() === kind : Array.isArray(said) && said.length === 1 && String(said[0]).trim() === kind;
+    if (said !== undefined && !same) throw new WorkToolRefusal(`kind is "${kind}" but properties.kind is ${JSON.stringify(said)}: give one`);
     input = { ...input, properties: { ...(input.properties ?? {}), kind } };
   }
   if ((input.whole === true) === (typeof input.quote === "string")) {
