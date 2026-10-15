@@ -12,6 +12,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ### A link in a property's value is an edge (PIE-874)
 
+PROTOCOL 174: outline-core's property grammar now finds links in values (`propertyValueLinks`).
+
 - **Added:** `[via::[[HUB-023]]]`, `((id))` inside a value, the outline's Work IDs in a value's words and a value item
   that is exactly a ticket key (`[ticket::PC-582]`, whatever the key) are references: the target's backlinks (the
   links tile, Detail, `::backlinks`, the web), the source's links out and `ep0ch find --json` all see them, labelled by
