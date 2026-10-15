@@ -3442,7 +3442,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await untilAsync(async () => (await board.children(target)).some(n => n.text === "Extra envelopes"), "draft patched");
     if (saveBeforeEnd) {
       press({ kind: "char", ch: "s", ctrl: true });
-      await until(() => ![...stage.panes.values()].some((p: any) => p.editing), "draft saved and closed");
+      await until(() => ![...stage.panes.values()].some((p: any) => p.editing), "draft saved and closed").catch(error => { throw new Error(`${error.message}; draft: ${draft.note}\n${screen()}`); });
     }
     const signal = await board.request<{id: string}>("create", { author: "user", text: "Continue [signal::draft-ready]" });
     await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "draft script done");

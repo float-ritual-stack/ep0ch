@@ -65,10 +65,15 @@ export class ScriptRuns {
       const now = this.store.require(log.id);
       this.store.update(log.id, lines.join("\n"), now.revision, actor);
     });
+    let progress: ReturnType<typeof setTimeout> | undefined;
     const step = (s: HostStep) => {
       if (s.phase === "start") return;
       lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}`);
-      update();
+      // A tight host-call loop must not flood readers and delay the person's save behind progress events.
+      progress ??= setTimeout(() => {
+        progress = undefined;
+        try { update(); } catch (error) { controller.abort(error); }
+      }, 50);
     };
     const client: AgentToolsClient = {
       requireCompatibleService: () => this.client.requireCompatibleService(),
@@ -101,6 +106,7 @@ export class ScriptRuns {
         lines[0] = `${extension.name} · failed [script-run::${undo}]`;
         lines.push(error instanceof Error ? error.message : String(error));
       } finally {
+        if (progress) clearTimeout(progress);
         controller.abort();
         try {
           const drafts = await this.inverse(undo);
