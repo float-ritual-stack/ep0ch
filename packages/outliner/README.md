@@ -749,6 +749,8 @@ bun run cli publish serve --ws pie --port 8790 --base-path /pub [--root ~/writin
 bun run cli publish list --ws pie [--public-url URL] [--json]
 ```
 
+HTML pages keep `^anchor` destinations and heading slugs. Backlinks in `::links` open at their linking line; arriving scrolls to the passage and marks it without animation. The source-line addresses are carried through decorations, while Markdown exports stay plain. Explicit anchors keep their name; repeated headings receive numbered slugs.
+
 **Publish a block** by giving it a `[publish::…]` property:
 
 | Property | URL |

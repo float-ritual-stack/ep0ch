@@ -80,6 +80,7 @@ test("notes.render: the publisher's rendering of a note and the notes under it, 
   const linked = await client.request<RenderedNote>({ action: "notes.render", blockId: note.id, format: "markdown" });
   expect(linked.text).toContain("see [Shed notes](https://pub.example.invalid/pub/p/shed) and Nowhere.");
   const html = await client.request<RenderedNote>({ action: "notes.render", blockId: note.id, format: "html" });
+  expect(html.text).not.toMatch(/[\uE000-\uF8FF]/);
   expect(html.text).toContain("<h1>Pond notes</h1>");
   expect(html.text).toContain('<a href="https://pub.example.invalid/pub/p/shed?view=html">Shed notes</a>');
   expect(html.text).toContain("<li>Later: the heron left at dusk.</li>");

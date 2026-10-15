@@ -159,7 +159,7 @@ test("a block without an attachment renders its subtree as markdown: the public 
   // The whole subtree on one page: `?view=full` on the tailnet, where `?view=html` is the note's folder page.
   const html = await (await get("/p/moth-garden?view=full")).text();
   // Each row carries its block's anchor (publish-anchors.ts), which holds no text.
-  expect(html).toMatch(/<li>Evening primrose<span class="bk" data-block="[0-9a-f-]+"><\/span><\/li>/);
+  expect(html).toMatch(/<li>Evening primrose(?:<span class="line-anchor" id="[^"]+"><\/span>)*<span class="bk" data-block="[0-9a-f-]+"><\/span><\/li>/);
   expect(html).toContain('href="/p/census?view=html"');
 });
 
@@ -1081,7 +1081,7 @@ test("callouts draw as boxes on tailnet and public pages, and the Markdown view 
   const share = sharing(publisher);
   const pages = [await (await get("/p/moth-log?view=full")).text(), await (await share("/share/p/moth-log?view=html")).text()];
   for (const html of pages) {
-    expect(html).toContain('<div class="callout callout-blue" data-callout="abstract"><div class="callout-head"><span class="callout-icon" aria-hidden="true">≡</span><span class="callout-title">Dusk count</span>');
+    expect(html.replace(/<span class="line-anchor" id="[^"]+"><\/span>/g, "")).toContain('<div class="callout callout-blue" data-callout="abstract"><div class="callout-head"><span class="callout-icon" aria-hidden="true">≡</span><span class="callout-title">Dusk count</span>');
     // Nested: the warning is inside the summary's body.
     expect(html).toMatch(/data-callout="abstract">.*Twelve moths.*<div class="callout callout-amber" data-callout="warning">.*Keep it low\./s);
     // Folded: a native <details>, closed.
@@ -1152,4 +1152,69 @@ test("a step's sentinel is drawn once, in text only; a note that already holds i
   const held: import("../src/publish-steps").PublishedStep[] = [];
   expect(placeStepSentinels(`Pasted ${sentinel}\n- [ ] gutter`, { id: "note-2", revision: 1 }, held)).toBe(`Pasted ${sentinel}\n- [ ] gutter`);
   expect(held).toEqual([]);
+});
+
+test("a web backlink addresses its linking line, and authored fragments have HTML destinations (PIE-889)", async () => {
+  const { store, get } = await setup();
+  const target = store.create("Moth census [publish::census]\n::backlinks");
+  const text = `Evening walk [publish::walk]\n\n## Lantern route\n\nCount here ((${target.id}|the census)). ^count\n\nEnd of walk`;
+  const source = store.create(text);
+  const backlinks = await (await get("/p/census?view=html")).text();
+  expect(backlinks).toContain(`/p/walk?view=html#at:${text.indexOf('((')}`);
+  const html = await (await get(`/p/${source.id}?view=html`)).text();
+  expect(html).toContain(`id="at:${text.indexOf('((')}"`);
+  expect(html).toContain('id="count"');
+  expect(html).toContain('id="lantern-route"');
+});
+
+test("source-line destinations preserve tables, code and duplicate headings, including public pages", async () => {
+  const { store, get, publisher } = await setup();
+  const target = store.create("Lantern census [publish::public:lanterns]");
+  const source = store.create(`Walk [publish::public:walk]\n\n## Route\n\n| stop | note |\n| --- | --- |\n| gate | ((${target.id}^tally|census)) |\n\n## Route\n\n\`\`\`\n## Secret heading ^hidden\n\`\`\``);
+  for (const response of [await get(`/p/${source.id}?view=html`), await publisher.handle(new Request('http://127.0.0.1/share/p/walk?view=html'), 'public')]) {
+    const html = await response.text();
+    expect(html).toContain('id="route"');
+    expect(html).toContain('id="route-2"');
+    expect(html).not.toContain('id="hidden"');
+    expect(html).not.toContain('id="secret-heading"');
+    expect(html).toContain('<table>');
+    expect(html).toContain("<td>gate</td>");
+    expect(html).toMatch(/<td><a href="[^"]+">census<\/a> <span class="line-anchor"/);
+    expect(html).toContain('?view=html#tally');
+    expect(html).not.toMatch(/[\uE000-\uF8FF]/);
+  }
+});
+
+test("generated source addresses cannot collide with authored anchors, and component anchors live inside their figure", async () => {
+  const { store, get } = await setup();
+  const target = store.create('Census [publish::census]');
+  const first = `Walk [publish::walk]\n\nSee ((${target.id})).`;
+  store.create(`${first}\n\nElsewhere ^at-${first.indexOf('((')}\n\n::graph-stat\n---\ntitle: Count\n---\n- moths: 3\n::\n^figure`);
+  const html = await (await get('/p/walk?view=html')).text();
+  expect(html).toContain(`id="at:${first.indexOf('((')}"`);
+  expect(html).toMatch(/<figure[^>]*>[\s\S]*id="figure"[^]*?<\/figure>/);
+});
+
+test("a component's destinations preserve the following prose paragraph", async () => {
+  const { store, get } = await setup();
+  store.create('Counters [publish::counters]\n::graph-stat\n---\ntitle: Count\n---\n- moths: 3\n::\nFollowing prose');
+  const html = await (await get('/p/counters?view=html')).text();
+  expect(html).toMatch(/<p>\s*Following prose<span class="line-anchor"/);
+});
+
+test("line addresses stay inside nested lists", async () => {
+  const { store, get } = await setup();
+  store.create('Stops [publish::stops]\n\n- parent\n    - child\n      continued\n    - second child\n- sibling');
+  const html = await (await get('/p/stops?view=html')).text();
+  const article = html.split('<article>')[1]!.split('</article>')[0]!.replace(/<span[^>]*><\/span>/g, '');
+  expect(article).toMatch(/<li>parent\s*<ul>\s*<li>child\s*continued<\/li>\s*<li>second child<\/li>\s*<\/ul>\s*<\/li>\s*<li>sibling/);
+});
+
+test("line destinations preserve tables whose rows omit the leading pipe", async () => {
+  const { store, get } = await setup();
+  store.create('Walk [publish::walk]\n\nstop | note |\n--- | --- |\ngate | count here |\n\nstop | note\n--- | ---\npond | count there');
+  const html = await (await get('/p/walk?view=html')).text();
+  const article = html.split('<article>')[1]!.split('</article>')[0]!.replace(/<span[^>]*><\/span>/g, '');
+  expect(article).toMatch(/<table>[\s\S]*<th>stop<\/th>\s*<th>note\s*<\/th>[\s\S]*<td>gate<\/td>\s*<td>count here\s*<\/td>[\s\S]*<\/table>/);
+  expect(article).toMatch(/<table>[\s\S]*<td>pond<\/td>\s*<td>count there<\/td>[\s\S]*<\/table>/);
 });

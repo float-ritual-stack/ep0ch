@@ -981,6 +981,7 @@
     watching.observe(host);
     place();
     arrive();
+    arriveAtLine();
   }
 
   /** Opens one thread's card (and lights its words); the others rest. */
@@ -1223,6 +1224,38 @@
 
   let pointed = null;
   let pointTimer = 0;
+  let lineArrival = null;
+  function pointAt(node, place = node) {
+    if (pointed) pointed.classList.remove("ep0ch-pointed");
+    clearTimeout(pointTimer);
+    node.classList.add("ep0ch-pointed");
+    pointed = node;
+    pointTimer = setTimeout(() => { node.classList.remove("ep0ch-pointed"); if (pointed === node) pointed = null; }, 5000);
+    place.scrollIntoView({ block: "center", behavior: "auto" });
+  }
+  // Fragment ids are generated from the service's original source, before links and decorations change it.
+  function arriveAtLine() {
+    let id;
+    try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; }
+    if (!id || id.startsWith("thread=") || lineArrival === id) return;
+    let marker = document.getElementById(id);
+    // Work-id and property backlinks use the same source offsets; the nearest original line owns one.
+    const at = /^at:(\d+)$/.exec(id);
+    if (!marker && at) {
+      marker = [...article().querySelectorAll('.line-anchor[id^="line:"]')]
+        .filter(node => Number(node.id.slice(5)) <= Number(at[1]))
+        .sort((a, b) => Number(b.id.slice(5)) - Number(a.id.slice(5)))[0];
+    }
+    if (!marker || !article()?.contains(marker) || !marker.classList.contains("line-anchor")) return;
+    for (let parent = marker.parentElement; parent; parent = parent.parentElement) {
+      if (parent.tagName === "DETAILS") parent.open = true;
+    }
+    lineArrival = id;
+    pointAt(marker.parentElement, marker);
+  }
+  window.addEventListener("hashchange", () => { lineArrival = null; arriveAtLine(); });
+  arriveAtLine();
+
   /** Scrolls to a block and marks it for a few seconds: a still outline, no animation. Pointing never writes. */
   function reveal(ref) {
     const wanted = String(ref || "").trim().replace(/^\(\(/, "").replace(/\)\)$/, "").split("|")[0].trim();
@@ -1234,12 +1267,7 @@
       return { ok: false, why: `((${wanted})) isn't on this page; its own page is ${location.origin}${pageBase}/p/${encodeURIComponent(wanted)} (reveal doesn't leave the page)` };
     }
     const node = hits[0].node;
-    if (pointed) pointed.classList.remove("ep0ch-pointed");
-    clearTimeout(pointTimer);
-    node.classList.add("ep0ch-pointed");
-    pointed = node;
-    pointTimer = setTimeout(() => { node.classList.remove("ep0ch-pointed"); if (pointed === node) pointed = null; }, 5000);
-    node.scrollIntoView({ block: "center", behavior: "auto" });
+    pointAt(node);
     const text = (node.textContent || "").replace(/\s+/g, " ").trim();
     agentDid(`an agent is pointing at “${text.length > 60 ? `${text.slice(0, 60)}…` : text}”`);
     return { ok: true, blockId: ids[0], text: text.slice(0, 300) };
