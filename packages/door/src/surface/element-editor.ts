@@ -149,7 +149,7 @@ export class ElementEdit {
     this.top = Math.max(0, Math.min(Math.max(0, this.total - this.room), this.top + by));
     this.draft.follow = false;
   }
-  private painted: { text: string; cursor: number } | null = null;
+  private painted: { patch: string | undefined; cursor: number } | null = null;
   private spots: (TableCellBox & { field: ElementField; caret?: number })[] = [];
   private controls: { from: number; to: number; action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place"; op?: string }[] = [];
   constructor(readonly draft: Draft) {}
@@ -173,6 +173,7 @@ export class ElementEdit {
     }
   }
   move(direction: string) {
+    this.painted = null;
     const cur = this.current(), fields = this.elements().flatMap(e => e.fields.flat());
     if (!cur) { const f = fields.find(f => f.line >= this.draft.row) ?? fields[0]; if (f) this.draft.place(f.line, f.start); return; }
     const { element: e, field: f, row, col } = cur;
@@ -263,6 +264,7 @@ export class ElementEdit {
     if (!s) return false;
     const current = this.current();
     if (extend && current && (current.field.line !== s.field.line || current.field.start !== s.field.start)) return true;
+    this.painted = null;
     const cellX = Math.max(0, x - s.x - s.inset);
     let offset = s.offset, used = 0;
     for (const ch of s.text) { if (used + width(ch) > cellX) break; used += width(ch); offset += ch.length; }
@@ -300,8 +302,8 @@ export class ElementEdit {
     }
     if (at < d.lines.length) body.push(...draw(d.lines.slice(at).join("\n"), w));
     const room = Math.max(1, h - 2);
-    if (this.painted && this.painted.text !== d.text && cur) this.top = Math.max(0, this.top + cursor - this.painted.cursor);
-    this.painted = { text: d.text, cursor };
+    if (this.painted && this.painted.patch !== d.patches.at(-1)?.patchId && cur) this.top = Math.max(0, this.top + cursor - this.painted.cursor);
+    this.painted = { patch: d.patches.at(-1)?.patchId, cursor };
     this.total = body.length; this.room = room;
     if (d.follow) {
       if (cursor < this.top) this.top = cursor;
