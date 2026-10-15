@@ -295,7 +295,7 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
       // The line that links here and the anchor it names come first (PIE-884): the row says where, not only which note.
       const line = backlinkLine(r.source);
       const where = line ? `“${line.snippet}”${line.anchor && !line.snippet.includes(`^${line.anchor}`) ? ` ^${line.anchor}` : ""}` : "";
-      return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: [where, backlinkRowSuffix(r.source)].filter(Boolean).join(" · ") };
+      return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source, where) };
     }
     case "child": case "match": {
       const b = r.child.block, f = r.child.facets;
