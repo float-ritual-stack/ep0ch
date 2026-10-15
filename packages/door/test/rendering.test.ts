@@ -48,11 +48,12 @@ function setup(text: string, pages: Record<string, Msg> = {}) {
 
 describe("inline Markdown, by Detail's rules", () => {
   // Every case marked (Detail's parser) and the door must agree on: flanking, `_` inside words, the rule
-  // of three, nesting, escapes, code spans.
+  // of three, nesting, escapes, code spans. Marked's single-tilde extension is excluded here;
+  // text.test.ts covers Blockdown's literal single tildes through the reader renderer.
   const CORPUS = [
     "plain text", "**bold** and *italic* and ~~gone~~", "__bold__ and _italic_", "snake_case_name stays", "__init__ stays",
     "2*3*4 multiplies", "[stage::in_progress] stays", "a * b * c", "***both***", "**bold *nested italic* bold**",
-    "*italic **nested bold** italic*", "**unclosed bold", "*a **b** c*", "~single~ tilde", "~~~three~~~ tildes",
+    "*italic **nested bold** italic*", "**unclosed bold", "*a **b** c*", "~~~three~~~ tildes",
     "**`code`** in bold", "`**not bold**` in code", "\\*escaped\\* stars", "a**b**c", "a__b__c", "_a_b", "**a**b**c**",
     "*a*b*c*", "foo*bar*", "foo_bar_", "**foo bar **", "** foo**", "*(**foo**)*", "**foo*bar*baz**", "*foo**bar**baz*",
     "_foo_bar_baz_", "**Note:** do this", "- **bold** item", "x **y** z **w**", "*****x*****", "**a *b** c*",
@@ -62,7 +63,7 @@ describe("inline Markdown, by Detail's rules", () => {
   const door = (s: string) => emphasis(s).replace(//g, "<b>").replace(//g, "</b>").replace(//g, "<i>")
     .replace(//g, "</i>").replace(//g, "<s>").replace(//g, "</s>");
 
-  test.skipIf(!outliner)("the door styles exactly what marked styles", async () => {
+  test.skipIf(!outliner)("the door styles CommonMark emphasis and double-tilde strikes as marked does", async () => {
     const { Marked } = await import(join(outliner!, "node_modules/marked/lib/marked.esm.js"));
     const lexer = new Marked().Lexer;
     const canon = (toks: any[]): string => toks.map(t => t.type === "strong" ? `<b>${canon(t.tokens)}</b>` : t.type === "em" ? `<i>${canon(t.tokens)}</i>`

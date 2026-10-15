@@ -220,6 +220,8 @@ function notebookText(whiteboardId: string, kettleId: string, tapId: string): st
     "",
     "## Formatting",
     `**Bold**, *italic*, ~~struck out~~ and \`code\`, as Detail draws them. Ask [the allotment society](https://example.org/allotments), or open [the shed page](pi-outliner://page/${encodeURIComponent(SEED.shed)}).`,
+    "copies of ~/.claude/~/projects/x at the same paths",
+    "~178 orphaned … ~ stays as written; only ~~this~~ is struck through.",
     "",
     "## Quoting the syntax",
     "Code is opaque (PIE-764): `((transcript^t0817|at 08:17))`, `[[Compost heap]]`, `!((transcript))` and `[key::value]` in backticks are text, never a link, a property, a warning or a popup; so is a fence:",
