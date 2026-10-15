@@ -446,6 +446,13 @@ exits 1), and · for information:
    this checkout on an older commit: `ep0ch session upgrade --all`. The programs in its tiles keep running, its screens and
    open edits come back, and every attached terminal (a pane, an ssh login) starts again on the new code and
    attaches by itself.
+7. **Refresh the installed built-in extensions** (PIE-861): each copy of an outliner built-in that `ext add` put in
+   the user folder or an outline's own `extensions/`, and that nobody changed since, is refreshed in place from the
+   updated checkout (`ep0ch ext update --all --keep-forked`, the new code's own command), `config.json` kept. A copy
+   changed there (forked) is left and said, with `ep0ch ext update <name>`, which shows the diff and asks. A copy
+   made before install records existed counts as unchanged when it matches an earlier version in git history.
+   `ep0ch doctor`'s `extensions` group lists the stale and forked ones ([Following the
+   built-ins](../outliner/docs/extensions/README.md#following-the-built-ins)).
 7. **Link the door's extensions** (`packages/door/ext/<name>/`): an extension's `ext.json` names files to link where
    another program finds them (television's cable files in `$TELEVISION_CONFIG/cable` or
    `~/.config/television/cable`, a helper beside `ep0ch`), when the program it needs is on PATH. Each link made is

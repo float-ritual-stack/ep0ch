@@ -16,6 +16,8 @@ import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
 import { programStatusEmitter, type StatusEmitter } from "@ep0ch/outliner/program-status-emit";
 import { writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
+import { ep0ch } from "../session/place";
+import { copyName, type CopyUpdate, newsWords } from "@ep0ch/outliner/extension-update";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]";
@@ -249,6 +251,23 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         symlinkSync(f.repo.entry, link);
       } catch (e) { throw new StepFailed(`linking ${link} failed: ${(e as Error).message}`, `link it by hand: ln -s ${f.repo.entry} ${link}`); }
       say(`${link} → ${f.repo.entry}`);
+      return;
+    }
+    case "builtins": {
+      // The new checkout's own command (one implementation), so it reads the built-ins the update brought.
+      const cli = join(f.repo.outliner, "src", "cli.ts");
+      const out = await must([process.execPath, cli, "ext", "update", "--all", "--keep-forked", "--json"],
+        `the checkout is updated; refresh them by hand: ${ep0ch()}ext update --all`, { env: { ...env, EP0CH_OUTLINES: f.host.folder }, timeoutMs: 120_000 });
+      let copies: CopyUpdate[];
+      try { copies = JSON.parse(out.trim().split("\n").at(-1) ?? "[]"); }
+      catch { throw new StepFailed(`ext update said what this step can't read: ${out.slice(0, 200)}`, `run ${ep0ch()}ext update --all to see it`); }
+      for (const c of copies.filter(c => c.done === "updated")) say(`refreshed ${copyName(c)}${c.news.length ? `: ${c.news.length} change${c.news.length === 1 ? "" : "s"} (${newsWords(c.news)})` : ""}`);
+      for (const c of copies.filter(c => c.done === "kept")) {
+        record(`${copyName(c)} was changed here: left as it is`);
+        show(`    ! ${copyName(c)} was changed here, so it's left as it is: \`${ep0ch()}ext update ${c.id}\` shows what's new and asks`);
+      }
+      const current = copies.filter(c => c.done === "current").length;
+      if (current) say(`${current} already current`);
       return;
     }
     case "ext":

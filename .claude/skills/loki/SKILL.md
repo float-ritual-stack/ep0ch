@@ -58,7 +58,8 @@ what needs him or what changed; if nothing changed and nothing's wrong, one line
    reply, or a patch note. When a fix for a request has shipped, reply on its copy with a patch note (below).
 3. **The laptop** (`laptop`, which dials in): its ssh is gated by work policy, so unreachable is normal. Report it only
    as status ("laptop: away"), never as a warning. Reachable and behind main:
-   `ssh laptop 'ep0ch install --apply && ep0ch ext add echonet --outline-folder ~/outlines/float-hub'` (its PATH must
+   `ssh laptop 'ep0ch install --apply'` (install refreshes the unchanged copies of the built-in extensions, echonet
+   among them, and lists any changed there; its PATH must
    include `~/.bun/bin`, `~/.local/bin` and `/opt/homebrew/bin`).
 4. **float-2 health:** load; disk free (warn under 3G, and find who's filling it); the outline host, the publishers,
    the MCP gateway and the backup timer active; `ep0ch echo status` (a stale tosser exits 1).

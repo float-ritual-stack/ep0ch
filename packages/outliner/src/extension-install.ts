@@ -9,6 +9,8 @@ import { parseArgs } from "node:util";
 import { ExtensionLoadError, readExtensionFolder } from "./extension-manifest";
 import { cleanExtensionText } from "./extension-records";
 import { BUILT_IN_EXTENSIONS, extensionRoots, type ExtensionsListResult } from "./extension-registry";
+import { type CopyUpdate, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, whereWords, writeInstallRecord } from "./extension-update";
+import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse } from "./resource-extensions";
 
 /**
@@ -83,7 +85,7 @@ function looksLikePath(value: string): boolean {
  * folder; the folder is checked first, so a broken one is refused with the
  * reason instead of installed.
  */
-export async function addExtension(nameOrPath: string, options: { from?: string; outlineFolder?: string } = {}): Promise<string[]> {
+export async function addExtension(nameOrPath: string, options: { from?: string; outlineFolder?: string; root?: string; builtIns?: string } = {}): Promise<string[]> {
   const source = options.from ?? (looksLikePath(nameOrPath) ? resolve(nameOrPath.replace(/^~(?=\/)/, homedir())) : join(BUILT_INS, nameOrPath));
   if (!existsSync(join(source, "extension.json"))) {
     throw new Error(looksLikePath(nameOrPath) || options.from
@@ -102,7 +104,7 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
     }
   }
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("ext add expects an extension whose id is a name such as jira");
-  const root = targetRoot(options.outlineFolder);
+  const root = options.root ?? targetRoot(options.outlineFolder);
   const target = join(root, id);
   if (resolve(source) === resolve(target)) throw new Error(`${source} is already installed there`);
   const lines: string[] = [];
@@ -130,6 +132,10 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
     if (there && (there.isDirectory() || (await lstat(staged)).isDirectory())) await rm(join(target, entry), { recursive: true, force: true });
     await rename(staged, join(target, entry));
   }
+  // What was installed (PIE-861): a built-in's copy is recorded, so ext update and ep0ch install can tell an unchanged
+  // copy (refreshed in place) from one someone changed. Any other folder is someone's own: no record.
+  if (resolve(source) === resolve(options.builtIns ?? BUILT_INS, id)) await writeInstallRecord(target, options.builtIns ?? BUILT_INS, id);
+  else await rm(join(target, INSTALL_RECORD), { force: true });
   lines.push(`${updating ? "updated" : "installed"} ${id} in ${target}`);
   if (removed.length) lines.push(`removed what the new version no longer has: ${removed.join(", ")}`);
   const configPath = join(target, "config.json");
@@ -167,6 +173,92 @@ export async function removeExtension(id: string, options: { outlineFolder?: str
     `removed ${target}`,
     "The service drops its handlers, actions and tiles now. Records it wrote stay as blocks; lines that used it say no extension handles them.",
   ];
+}
+
+export interface UpdateOptions {
+  /** Only this outline's own folder; otherwise the user folder and every outline's. */
+  outlineFolder?: string;
+  /** Take a forked copy's new version without asking (its files are kept beside the folder first). */
+  yes?: boolean;
+  /** Leave forked copies as they are and only list them (ep0ch install). */
+  keepForked?: boolean;
+  /** Asked before a forked copy is replaced; none (no terminal) keeps it. */
+  ask?: (question: string) => Promise<boolean>;
+  say?: (line: string) => void;
+  /** The folders to look in (tests); otherwise copyRoots. */
+  roots?: { path: string; where: string }[];
+  builtIns?: string;
+}
+
+/** A forked copy's diff against the built-in now, file by file (git diff --no-index). */
+export function forkDiff(copy: InstalledCopy, builtIns = BUILT_INS): string {
+  return copy.differs.map((path) => {
+    const mine = join(copy.dir, path), theirs = join(builtIns, copy.id, path);
+    const r = Bun.spawnSync(["git", "diff", "--no-index", "--no-color", "--",
+      existsSync(mine) ? mine : "/dev/null", existsSync(theirs) ? theirs : "/dev/null"], { stdout: "pipe", stderr: "pipe" });
+    // a/ is your copy, b/ the built-in's: the folders said once, not in every header.
+    return (r.stdout.toString() || `${path} differs\n`).split(`${copy.dir.replace(/^\//, "")}/`).join("").split(`${join(builtIns, copy.id).replace(/^\//, "")}/`).join("");
+  }).join("");
+}
+
+/**
+ * `ext update [<name>]` (PIE-861): each installed copy of a built-in (or the one named), refreshed when it is an
+ * unchanged copy behind the built-in. A forked copy (changed here) is shown with its diff and taken only when asked
+ * (`yes`, or `ask` answers yes), its files first kept in `extensions-forks/` beside the folder; `keepForked` only lists
+ * it. config.json, node_modules and your dotfiles always stay.
+ */
+export async function updateExtensions(name: string | undefined, options: UpdateOptions = {}): Promise<CopyUpdate[]> {
+  const builtInsDir = options.builtIns ?? BUILT_INS;
+  const say = options.say ?? (() => {});
+  if (name !== undefined && !existsSync(join(builtInsDir, name, "extension.json"))) {
+    throw new Error(`No built-in extension ${name} (built-ins: ${(await builtIns()).join(", ")}); ext update follows the repo's built-ins`);
+  }
+  const roots = options.roots ?? copyRoots({
+    user: options.outlineFolder || !userExtensionsFolderInUse() ? null : userExtensionsDirectory(),
+    outlines: outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, homedir()),
+    ...(options.outlineFolder ? { outlineFolder: options.outlineFolder } : {}),
+  });
+  const copies = installedCopies(roots, builtInsDir).filter((copy) => name === undefined || copy.id === name);
+  if (name !== undefined && !copies.length) say(`${name} isn't installed in ${roots.map((root) => root.path).join(" or ") || "any folder here"}: ep0ch ext add ${name} installs it`);
+  const done: CopyUpdate[] = [];
+  for (const copy of copies) {
+    const result: CopyUpdate = { id: copy.id, where: copy.where, dir: copy.dir, state: copy.state, done: "current", news: copy.news, differs: copy.differs };
+    const root = join(copy.dir, "..");
+    const refresh = () => addExtension(join(builtInsDir, copy.id), { from: join(builtInsDir, copy.id), root, builtIns: builtInsDir });
+    if (copy.state === "current") {
+      // Current without a record that says so (made before records, or refreshed by hand): recorded now, so the next
+      // change to the built-in finds it unchanged, and a change here shows as a fork.
+      if (!copy.recordCurrent) await writeInstallRecord(copy.dir, builtInsDir, copy.id);
+      say(copyLine(copy));
+    } else if (copy.state === "stale") {
+      await refresh();
+      result.done = "updated";
+      say(`updated ${copy.id} in ${whereWords(copy.where)} (an unchanged copy; config.json kept)${copy.news.length ? `: ${newsWords(copy.news)}` : ""}`);
+    } else {
+      say(copyLine(copy));
+      for (const n of copy.news) say(`  new in the built-in: ${n.commit.slice(0, 8)} ${n.subject}`);
+      let take = false;
+      if (!options.keepForked) {
+        say(`the diff, your copy (a/, ${copy.dir}) against the built-in's (b/):`);
+        for (const line of forkDiff(copy, builtInsDir).trimEnd().split("\n")) say(line);
+        take = options.yes === true || (options.ask ? await options.ask(`Take the built-in's ${copy.id} over the changes in ${copy.dir}? Your files are kept beside it first. [y/N] `) : false);
+        if (!take && !options.yes && !options.ask) say(`kept ${copy.id} as it is: ep0ch ext update ${copy.id} --yes takes the built-in's (your files are kept beside it first)`);
+      }
+      if (take) {
+        const kept = join(root, "..", "extensions-forks", `${copy.id}-${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}`);
+        await mkdir(join(kept, ".."), { recursive: true });
+        await cp(copy.dir, kept, { recursive: true, filter: (path) => !path.split("/").includes("node_modules") });
+        await refresh();
+        result.done = "took";
+        result.forkKept = kept;
+        say(`updated ${copy.id} in ${whereWords(copy.where)} to the built-in's; your version is in ${kept}`);
+      } else {
+        result.done = "kept";
+      }
+    }
+    done.push(result);
+  }
+  return done;
 }
 
 async function builtIns(): Promise<string[]> {
@@ -227,6 +319,7 @@ export async function listExtensions(): Promise<string[]> {
 
 const USAGE = `usage: outliner ext ls
        outliner ext add <name|path> [--outline-folder <outline root>]
+       outliner ext update <name>|--all [--yes] [--keep-forked] [--outline-folder <outline root>] [--json]
        outliner ext remove <name> [--outline-folder <outline root>] [--demo keep|remove]
        outliner ext act <name> <action> [--block <id>] [--line N] [--quote <exact words> [--near <offset>]] [--arg key=value]… [--actor <agent id>]
        outliner ext undo <id> [--actor <agent id>]   takes back an action's writes whole (the id ext act prints after undo:)
@@ -234,6 +327,9 @@ const USAGE = `usage: outliner ext ls
   An action on a passage (on: passage) takes --block and --quote: the words, exact, in the note's text now (--near picks among repeats).
   ext act runs as the person who typed it; an agent passes --actor <its id>, recorded as who asked. An action's declared
   arguments (ext ls lists them) are --arg name=value; one left out takes its default.
+  ext update refreshes an installed copy of a built-in that nobody changed (config.json kept); a changed (forked) one
+  shows its diff and asks (--yes takes it, your files kept in extensions-forks/ beside the folder first; --keep-forked
+  only lists it). Without --outline-folder it looks in the user folder and every outline's own.
   Folders are watched: add and remove apply without a restart. Installing writes the extension's page under the
   outline's Extensions hub, with its demo notes once; remove keeps the demo notes unless --demo remove.
   Extensions are trusted code, not a sandbox: they run as the service user.`;
@@ -306,6 +402,25 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       } else if (operation !== "add") {
         print(`No outline service answers here: its demo notes stay in the outline. With the service running, ep0ch ext remove ${name} --demo remove moves them to Trash.`);
       }
+      return 0;
+    }
+    if (operation === "update") {
+      const { values, positionals } = parseArgs({
+        args: [...rest], allowPositionals: true, strict: true,
+        options: { all: { type: "boolean" }, yes: { type: "boolean" }, "keep-forked": { type: "boolean" }, "outline-folder": { type: "string" }, json: { type: "boolean" } },
+      });
+      const [name, ...extra] = positionals;
+      if (extra.length || (name === undefined) === !values.all) throw new Error(USAGE);
+      const json = values.json === true;
+      const tty = !json && process.stdin.isTTY === true;
+      const results = await updateExtensions(name, {
+        ...(values["outline-folder"] ? { outlineFolder: resolve(values["outline-folder"]) } : {}),
+        yes: values.yes === true, keepForked: values["keep-forked"] === true,
+        ...(tty ? { ask: async (question: string) => /^y(es)?$/i.test((prompt(question) ?? "").trim()) } : {}),
+        say: json ? () => {} : print,
+      });
+      if (json) console.log(JSON.stringify(results));
+      else if (!results.length && name === undefined) print("no installed copies of the built-ins here");
       return 0;
     }
     if (operation === "ls" || operation === "list") {

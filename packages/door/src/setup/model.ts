@@ -12,6 +12,7 @@ import type { HostedOutline } from "../socket";
 import type { BackupSetupFacts } from "../backup/setup";
 import type { BackupFacts } from "./backups";
 import type { ExtFacts } from "./ext-links";
+import type { InstalledCopy } from "@ep0ch/outliner/extension-update";
 import type { StaleLink } from "./links";
 import type { SkillLinkFacts } from "./skill-links";
 
@@ -232,6 +233,11 @@ export interface Facts {
   mcp?: McpFacts | null;
   /** The door's userland extensions (packages/door/ext/) and the links they ask for; undefined when not looked for. */
   ext?: { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string };
+  /**
+   * The installed copies of the outliner's built-in extensions (PIE-861): the user folder's and each outline's own,
+   * each current, stale (an unchanged copy behind the built-in) or forked (changed here); undefined when not looked for.
+   */
+  builtins?: { dir: string; copies: InstalledCopy[]; error?: string };
   /** The shipped agent skills' links (Claude Code's skills folder, and ~/.agents/skills); undefined when not looked for. */
   skills?: SkillLinkFacts;
   /** The art packs the menus draw (EP0CH_PACKS, else the default folder) and how many it holds; undefined when not looked for. */

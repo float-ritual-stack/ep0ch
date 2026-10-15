@@ -647,10 +647,24 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     mcp,
     ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),
     skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
+    builtins: await part("the built-in extensions' installed copies", builtinCopies(repo.outliner, folder, env, home)),
     art: { dir: packDir(env), packs: packs(packDir(env)).length, fromEnv: !!env.EP0CH_PACKS },
     ...(backups ? { backups } : {}),
     ...(restic ? { restic } : {}),
   };
+}
+
+/** The installed copies of the checkout's built-in extensions (PIE-861), as `ep0ch ext update` sees them. */
+async function builtinCopies(outliner: string, outlines: string, env: Record<string, string | undefined>, home: string): Promise<NonNullable<Facts["builtins"]>> {
+  const dir = join(outliner, "extensions");
+  try {
+    const m = await import("@ep0ch/outliner/extension-update");
+    // A scratch environment pointed at another registry and no folder of its own reads no user folder (as the service).
+    const user = m.userFolderInUse(env) ? m.userFolderOf(env, home) : null;
+    return { dir, copies: m.installedCopies(m.copyRoots({ user, outlines }), dir) };
+  } catch (e) {
+    return { dir, copies: [], error: (e as Error).message };
+  }
 }
 
 /** The door sessions in the person's state dir (EP0CH_STATE, else their default), one per outline, that answer. */

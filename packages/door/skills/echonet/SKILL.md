@@ -92,7 +92,8 @@ Nodes mail; they never write each other's notes (ADR 0005, `docs/adr/0005-agents
   knows: it takes the packets held there for it and leaves its bulletin. The other machine never ssh's to it once it
   has called, copies from the bulletin it left, and holds what it packs for it (`echonet/outbound/<node>/`) until the
   next call; to say so before the first call, `"dialsIn": true` in its `<outlines>/.remote/<ssh-name>.json` (`false`
-  calls it again). Its `ep0ch ext add echonet --outline-folder …` copy must be this version on both machines.
+  calls it again). Its `ep0ch ext add echonet --outline-folder …` copy must be this version on both machines: `ep0ch install --apply`
+  refreshes an unchanged copy (`ep0ch ext update echonet` for one changed there, which shows the diff and asks).
 
 ## Checking a toss
 

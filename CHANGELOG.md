@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Installed built-in extensions follow updates (PIE-861)
+
+- **Fixed:** a built-in extension copied in with `ep0ch ext add` (tarot, marginalia, tidy, echonet…) never got the
+  built-in's later fixes: nothing refreshed the copy. `ext add` now records what it installed (`.installed.json`
+  beside `config.json`: the built-in, its version, the commit and a hash of its files), and `ep0ch install --apply`
+  refreshes each copy nobody changed, in place, keeping `config.json`, `node_modules` and your dotfiles.
+- **Added:** `ep0ch ext update <name>|--all`: refreshes an unchanged copy; one changed here (forked) shows its diff
+  against the built-in and asks (`--yes` takes it, your version copied to `extensions-forks/` first). Install lists a
+  forked copy with what's new instead of touching it, and `ep0ch doctor` lists stale and forked copies.
+- A copy made before the record counts as unchanged when it matches an earlier version of the built-in in git history.
+- **Run:** `ep0ch install --apply` on each machine; the first install with this code is the one that adds the step, so
+  run `ep0ch ext update --all` once after it (no protocol or schema change).
+
 ### A file link whose folder was made again keeps working (PIE-853)
 
 - **Fixed:** a `[file::]` link whose folder was deleted and made again in the same place (a sync renaming a new copy

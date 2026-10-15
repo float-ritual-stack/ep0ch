@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { userFolderInUse, userFolderOf } from "./extension-folders";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { spawn } from "node:child_process";
@@ -84,8 +85,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 /** The user extensions folder on the service host (wave B also watches the outline's own). */
 export function userExtensionsDirectory(): string {
-  return process.env.OUTLINER_EXTENSIONS_DIR ??
-    join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "pi-herdr-outliner", "extensions");
+  return userFolderOf(process.env, homedir());
 }
 /**
  * Whether this process reads the user folder. A service pointed at another
@@ -93,7 +93,7 @@ export function userExtensionsDirectory(): string {
  * a folder too, so it never picks up the owner's real extensions and secrets.
  */
 export function userExtensionsFolderInUse(): boolean {
-  return !(process.env.OUTLINER_RESOURCE_EXTENSIONS !== undefined && process.env.OUTLINER_EXTENSIONS_DIR === undefined);
+  return userFolderInUse(process.env);
 }
 function label(provider: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
