@@ -39,6 +39,8 @@ export interface PickerSpec<T, H> {
   wraps?: boolean;
   /** A line typed above the list (its keys go there; the list moves on ↑ ↓ only), and what runs when it changed. */
   input?: LineInput;
+  /** Esc clears what's typed first, and puts the picker away only with nothing typed (a filter, not a name). */
+  escClears?: boolean;
   typed?(host: H): void;
   /** Its frame, for `n` items in `area`. */
   frame?(area: Rect, n: number): PickerFrame;
@@ -83,7 +85,11 @@ export class ListPicker<T, H> implements Mode<H> {
       return true;
     }
     const c = ch(k), input = this.spec.input;
-    if (k.kind === "esc") { this.close(host); return true; }
+    if (k.kind === "esc") {
+      if (this.spec.escClears && input?.text) { input.text = ""; input.cursor = 0; this.sel = 0; this.spec.typed?.(host); return true; }
+      this.close(host);
+      return true;
+    }
     if (!input && c && this.spec.closers?.includes(c)) { this.close(host, "letter"); return true; }
     if (this.spec.keys?.(k, host)) return true;
     const was = input?.text;

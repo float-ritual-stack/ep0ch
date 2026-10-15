@@ -1794,6 +1794,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const r = tiles().find(x => x.name === "reader").rect;
     click(at.col + r.col + 4, at.row + r.row + 4, 2);
     await until(() => overlay()?.name === "tile menu", "a right-click opens the reader's menu");
+    // Typing filters it (PIE-879): the query shows, the rows left are the matches, esc clears it before it closes.
+    const every = overlay()!.items.length;
+    for (const c of "zoom") ch(c);
+    expect(overlay()!.items.length).toBeLessThan(every);
+    expect(overlay()!.items.map((r: any) => r.action)).toContain("tile.zoom");
+    expect(sc.render(app).lines.map(plain).join("\n")).toContain("zoom");
+    press({ kind: "esc" });
+    expect(overlay()!.items.length).toBe(every);
     press({ kind: "esc" });
     expect(overlay()).toBeNull();
     // The terminal's program asked for the mouse: its right-click is the program's, and its ⋯ still opens the menu.

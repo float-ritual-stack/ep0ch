@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Typing in a tile's menu filters it (PIE-879)
+
+- **Added:** open a tile's menu (the ⋯, a right-click, `^W .`) and type: the rows narrow to the ones that match (the
+  power bar's matching, over the label, the group and the key), the query shows on the box's top row, the letters
+  that match are lit and a group with no row left goes. Backspace widens, esc clears the query before it closes the
+  menu, ⏎ or a click runs a row. `act tile.menu q=<text>` gives an agent the matching rows.
+- **Changed:** a row's bare-letter key no longer runs it from inside the open menu (the letter is for the query); a
+  chord (`^W x`, `alt+h`) still does.
+
 ### Trash a note from wherever you see it (PIE-878)
 
 - **Added:** `d` in a reader, a links list, the tree or a query tile (Delete too) says what would go, the note and the

@@ -229,6 +229,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `confirm` you are refused (the person's first press shows what would go, their second confirms). The Inbox and the other
   system notes, the workspace root, a note already in the Trash and a note with a draft open on it are refused with why.
   `note.untrash` brings back the one you trashed last (or `id=<the Trash root>`); the person's is ctrl+z.
+  `tile.menu tile=<tile> q=<text>` answers the tile's menu rows that match the text (as typing in the person's menu
+  filters it), `of` saying how many there are; it draws nothing.
 - **Screens people make** (PIE-565): `screen.open name=blank` gives a blank screen; `blank.fill kind=tree|reader|detail|pty|query
   tile=blank` (a query lane takes `view=<id>`) puts the first tile in its place, `tile.open`/`tile.link` build the rest, and
   `screen.save name=<name>` writes it to the outline as a screen note (`[type::screen]`, its spec as JSON), attributed to

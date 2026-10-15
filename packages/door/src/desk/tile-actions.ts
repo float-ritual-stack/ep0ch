@@ -402,8 +402,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "tile=<tile>'s menu (PIE-492): every action its sets offer there (the tile operations, its kind's, a reader's note actions, a board's lane actions), each with its arguments, label, group, key and, when it would be refused now, why. An agent's answers the rows (rows=) and draws nothing; the person's opens the menu over the screen, under the tile's ⋯ or at at=<col,row>, where one click, ⏎ or a row's own key runs it as theirs",
     keys: "^W .; a click on a tile's ⋯; a right-click in a tile (not where its program asked for the mouse, or on a step's box)",
     touches: "nothing", replay: "safe",
-    args: { at: { type: "string", optional: true, about: "col,row: the screen cell (from 0) the person's menu opens at; default under the tile's ⋯" } },
-    run({ at }, { d, reader }, actor) { return d.tileMenu(reader, at, actor); },
+    args: {
+      at: { type: "string", optional: true, about: "col,row: the screen cell (from 0) the person's menu opens at; default under the tile's ⋯" },
+      q: { type: "string", optional: true, about: "what typing in the menu does (PIE-879): only the rows that match it, by label, group and key (the power bar's matcher), `of` saying how many there are; the person's menu opens with it typed" },
+    },
+    run({ at, q }, { d, reader }, actor) { return d.tileMenu(reader, at, actor, q); },
   }),
   "tile.info": def({
     summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them)",
