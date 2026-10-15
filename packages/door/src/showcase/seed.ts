@@ -1116,7 +1116,7 @@ async function seedTickets(board: SocketBoard, ticketsConfig?: string) {
   await refreshTicket(board, ready);
 }
 
-/** A note an agent wrote with an `@tidy` line (held for the person's r: the waiting-on-you list shows it, PIE-888). */
+/** A cap-held ask: the preceding automatic wake spent this writer's daily allowance. */
 const HELD_ASK = ["Reply to the seed swap thread", "*  thanks   for   the  leeks", "@tidy"].join("\n");
 
 /**
@@ -1468,10 +1468,12 @@ if (request.input.request === "describe the beds") {
       await Bun.sleep(200);
     }
   }
-  // An agent wrote a request for @tidy: no grant lets it, so it is held for the person's r (PIE-888), listed with the programs waiting on them.
+  // Show the default wake, then a cap-held ask in the waiting-on-you list.
   const tidyFrom = opts.outliner ?? opts.rulesFrom;
   if (examples || (opts.ticketsConfig && tidyFrom && installExamples(opts.ticketsConfig, tidyFrom, ["tidy"]).length > 0)) {
     if (!examples) await board.listExtensions(true);
+    await make(notes.root.id, "Showcase wake cap [invoke-from::showcase-seed] [invoke-to::tidy] [cap::1/day]");
+    await make(notes.root.id, "Agents wake by default\n*  tidy  this  automatically\n@tidy", SEED_AGENT);
     await make(notes.root.id, HELD_ASK, SEED_AGENT);
   }
   notes.briefBefore = await make(notes.root.id, BRIEF_BEFORE, SEED_AGENT);

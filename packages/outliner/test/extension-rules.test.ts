@@ -430,12 +430,12 @@ else process.stdout.write(JSON.stringify({ ok: true, value: { writes: [{ op: "cr
   const row = await until("the agent's answer", () => store.agentRequests(child.id).find((r) => r.status === "replied"));
   expect(store.get(child.id)!.text).toBe("Related [via-trigger::look]\n@helper what else is like this?\n> [!note]- @helper answered\n> found two");
   expect(row).toMatchObject({ agent: "helper", requestedBy: "user" });
-  // By hand (no rule asked): the line still lands, but held for a person's r, never asked.
+  // A hand-run action also wakes its agent.
   const other = await create("Another [type::note]");
   await client.request({ action: "extensions.act", extension: "asker", extensionAction: "ask", blockId: other.id, mutation: PERSON });
   const handChild = await until("the hand-made child", () => store.children(other.id)[0]);
   expect(handChild.text).toContain("@helper what else is like this?");
-  expect(store.agentRequests(handChild.id)).toMatchObject([{ agent: "helper", status: "waiting", message: "held: ext:asker may not wake @helper · r to send" }]);
+  await until("hand-run answer", () => store.agentRequests(handChild.id).find(r => r.status === "replied"));
 });
 
 test("what a triggered action writes over its own connection carries the trigger's marks too, so a rule hearing it doesn't loop", async () => {

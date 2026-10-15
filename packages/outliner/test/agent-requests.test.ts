@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
+import { hostApi } from "../src/host-api";
 import { requestLines } from "../src/agent-requests";
 import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import type { DraftHolderRequest } from "../src/draft-patch";
@@ -41,14 +42,15 @@ async function setup(options: { quietMs?: number } = {}) {
   const extensions = join(outline, "extensions");
   mkdirSync(extensions, { recursive: true });
   cpSync(join(import.meta.dir, "..", "extensions", "tidy"), join(extensions, "tidy"), { recursive: true });
-  const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
+  let store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
   const socket = join(root, "outliner.sock");
   let server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: options.quietMs ?? 80 });
   await server.start();
   const client = new OutlinerClient(socket);
   /** The service stops and starts again on the same outline (the client reconnects). */
-  const restart = async (quietMs = 80) => {
+  const restart = async (quietMs = 80, reopen = false) => {
     await server.close();
+    if (reopen) { store.close(); store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline }); }
     server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: quietMs });
     await server.start();
     await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
@@ -66,9 +68,9 @@ async function setup(options: { quietMs?: number } = {}) {
     client.request<Block>({ action: "create", text, author: by, ...(by === "agent" ? { provenance: { actorId: "claude-test" } } : {}) });
   const agentOf = async (blockId: string, ready: (projection: ResourceProjection) => boolean) => until("the agent's projection", async () =>
     (await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId })).projections.find((p) => p.kind === "agent" && ready(p)));
-  const writeAgent = async (id: string, code: string) => {
+  const writeAgent = async (id: string, code: string, effects?: "write") => {
     mkdirSync(join(extensions, id), { recursive: true });
-    writeFileSync(join(extensions, id, "extension.json"), JSON.stringify({ contract: 2, id, version: 1, name: id, run: ["bun", "main.ts"], agents: [{ name: id }] }));
+    writeFileSync(join(extensions, id, "extension.json"), JSON.stringify({ contract: 2, id, version: 1, name: id, run: ["bun", "main.ts"], agents: [{ name: id, ...(effects ? { effects } : {}) }] }));
     writeFileSync(join(extensions, id, "main.ts"), code);
     await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
   };
@@ -144,14 +146,10 @@ test("@tidy: a person's request tidies the paragraph above as an attributed edit
   expect(again.projections.find((p) => p.kind === "agent")).toMatchObject({ summary: "nothing to tidy above" });
 });
 
-test("a request line an agent wrote waits for r; a line still being changed runs once, as finally written", async () => {
+test("a request line an agent wrote runs; a line still being changed runs once, as finally written", async () => {
   const { store, client, create, agentOf } = await setup();
   const theirs = await create("Draft\n*  messy  line\n@tidy", "agent");
-  const waiting = await agentOf(theirs.id, (p) => p.status === "not-run" && p.agent?.status === "waiting");
-  expect(waiting.reason).toMatch(/^held: \S+ may not wake @tidy · r to send$/);
-  await Bun.sleep(250);
-  expect(store.get(theirs.id)!.text).toBe("Draft\n*  messy  line\n@tidy");
-  await client.request({ action: "resources.projection.refresh", blockId: theirs.id, line: 2 });
+  await agentOf(theirs.id, p => p.status === "ready");
   expect(store.get(theirs.id)!.text).toBe("Draft\n- messy line\n@tidy");
 
   // Typed in two saves inside the quiet window: only the finished request runs.
@@ -250,7 +248,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "
   await agentOf(note.id, (p) => p.status === "ready");
   expect(store.get(note.id)!.text).toBe("x\n@sneaky again\n@sneaky");
   const again = store.agentRequests(note.id).find((row) => row.request === "again");
-  expect(again).toMatchObject({ status: "waiting", message: "held: ext:sneaky may not wake @sneaky · r to send" });
+  expect(again).toMatchObject({ status: "waiting", message: "held: @sneaky is already in this chain (@sneaky → @sneaky), so a repeat is held · r to send" });
 
   await writeAgent("tardy", `await Bun.sleep(400);
 process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "words", replacement: "WORDS" }] } }));`);
@@ -265,67 +263,52 @@ process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "
 
 const AGENT = { author: "agent" as const, actorId: "claude-test" };
 
-test("one rule: an agent's draft.patch may write a request line, in a live draft or a saved note; it lands held, never asked", async () => {
-  const { store, client, create } = await setup();
+test("an agent's draft.patch wakes an agent in a live draft and a saved note", async () => {
+  const { store, client, create, counted } = await setup();
+  const calls = await counted("count");
   const held = await create("Errands\nbuy string\nmore words");
   const door = await fakeDoor(client, "door-1", held);
-  door.text = `${door.text}\nstill typing`;
   await client.request({ action: "draft.patch", blockId: held.id, revision: held.revision, mutation: AGENT,
-    patches: [{ observed: "buy string", replacement: "buy string\n@tidy all" }] });
-  expect(door.text).toBe("Errands\nbuy string\n@tidy all\nmore words\nstill typing");
-  await until("the line held", () => store.agentRequests(held.id).length === 1);
-  expect(store.agentRequests(held.id)).toMatchObject([{ agent: "tidy", request: "all", status: "waiting", message: "held: claude-test may not wake @tidy · r to send" }]);
-  // The person typing on (a touch) doesn't send what an agent wrote.
-  await client.request({ action: "drafts.touch", holdId: door.holdId });
-  await Bun.sleep(250);
-  expect(store.agentRequests(held.id)[0]!.status).toBe("waiting");
-
-  const saved = await create("Ledger\n@tidy\nentry");
+    patches: [{ observed: "buy string", replacement: "buy string\n@count draft" }] });
+  await until("draft answered", () => store.agentRequests(held.id)[0]?.status === "replied");
+  expect(door.text).toContain("> noted");
+  const saved = await create("Ledger\nentry");
   await client.request({ action: "draft.patch", blockId: saved.id, revision: saved.revision, mutation: AGENT,
-    patches: [{ observed: "@tidy", replacement: "@tidy all" }] });
-  expect(store.get(saved.id)!.text).toBe("Ledger\n@tidy all\nentry");
-  expect(store.agentRequests(saved.id)).toMatchObject([{ agent: "tidy", request: "all", status: "waiting", message: "held: claude-test may not wake @tidy · r to send" }]);
-  // The person's own save of the note, later, sends nothing the agent wrote.
-  const mine = store.get(saved.id)!;
-  await client.request({ action: "update", blockId: saved.id, text: `${mine.text}\nmore`, expectedRevision: mine.revision, mutation: PERSON });
-  await Bun.sleep(300);
-  expect(store.agentRequests(saved.id)).toMatchObject([{ request: "all", status: "waiting" }]);
-  store.update(saved.id, mine.text, store.get(saved.id)!.revision, PERSON);
-  // Other edits still apply; `@name` mid-sentence is prose.
-  const now = store.get(saved.id)!;
-  await client.request({ action: "draft.patch", blockId: saved.id, revision: now.revision, mutation: AGENT, patches: [{ observed: "entry", replacement: "entry for @tidy" }] });
-  expect(store.get(saved.id)!.text).toBe("Ledger\n@tidy all\nentry for @tidy");
+    patches: [{ observed: "entry", replacement: "entry\n@count saved" }] });
+  await until("saved answered", () => store.agentRequests(saved.id)[0]?.status === "replied");
+  expect(store.get(saved.id)!.text).toContain("> noted");
+  expect(calls()).toEqual(["run draft", "run saved"]);
 });
 
-test("a grant the person wrote lets a writer wake an agent: it runs, as that writer's ask; none, or an agent's own note, holds", async () => {
+test("an OAuth connector's MCP write is the person's ask, even with an invocation deny", async () => {
   const { store, client, create, counted, agentOf } = await setup();
-  const calls = await counted("count");
-  // No grant: held, as before.
-  const plain = await create("Plain\n@count first", "agent");
-  await agentOf(plain.id, (p) => p.agent?.status === "waiting");
-  expect(calls()).toEqual([]);
-  // The service lists what is held, and the extensions list counts it.
-  const held = await client.request<{ held: { blockId: string; title: string; agent: string; why: string; by: string }[] }>({ action: "agents.held" });
-  expect(held.held).toMatchObject([{ blockId: plain.id, title: "Plain", agent: "count", why: "claude-test may not wake @count · r to send", by: "agent:claude-test" }]);
-  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list" });
-  expect(listed.extensions.find((entry) => entry.id === "count")?.held).toBe(1);
-  // An agent's note is no grant: it can't grant itself.
-  const forged = await create("Let me [invoke-from::agent] [invoke-to::count]", "agent");
-  const still = await create("Still held\n@count second", "agent");
-  await agentOf(still.id, (p) => p.agent?.status === "waiting");
-  expect(store.agentRequests(still.id)[0]!.message).toContain("held: claude-test may not wake @count");
-  store.delete(forged.id);
-  // The person's grant: any agent may wake count.
-  await create("Let agents wake count [invoke-from::agent] [invoke-to::count]");
-  expect((await client.request<ExtensionsListResult>({ action: "extensions.list" })).grants).toMatchObject([{ title: "Let agents wake count", from: ["agent"], to: ["count"], maxHops: 1 }]);
-  const woken = await create("Woken\n@count third", "agent");
-  const ready = await agentOf(woken.id, (p) => p.status === "ready");
-  expect(ready.agent).toMatchObject({ status: "replied", requestedBy: "agent:claude-test" });
-  expect(calls()).toEqual(["run third"]);
-  // Another name isn't granted.
-  await counted("other");
-  const elsewhere = await create("Not granted\n@other fourth", "agent");
-  await agentOf(elsewhere.id, (p) => p.agent?.status === "waiting");
+  const calls = await counted("loki");
+  await create("No automatic asks [invoke-from::all] [invoke-deny::loki]");
+  const parent = await create("Inbox");
+  const api = hostApi(client, { actorId: "mcp:daddy/chat.example", sessionId: "fixture-oauth-subject#call" }, { mcpAccess: "full" });
+  const result = await api.tool.outline_create!({ parent: parent.id, text: "Pickup\n@loki pick this up" }) as { id: string };
+  const projection = await agentOf(result.id, p => p.agent?.status === "replied" || p.agent?.status === "waiting" || p.agent?.status === "nothing");
+  expect(projection.agent?.status).toBe("replied");
+  expect(calls()).toEqual(["run pick this up"]);
+  expect(store.get(result.id)?.author).toBe("agent");
+});
+
+test("agents wake each other by default and a daily cap survives a service restart", async () => {
+  const { client, create, counted, agentOf, restart } = await setup();
+  const calls = await counted("loki");
+  const plain = await create("Pickup\n@loki pick this up", "agent");
+  const initial = await agentOf(plain.id, p => p.agent?.status === "replied" || p.agent?.status === "waiting");
+  expect(initial.agent?.status).toBe("replied");
+  expect(calls()).toEqual(["run pick this up"]);
+  await create("Limit wakes [invoke-from::agents] [invoke-to::loki] [cap::1/day]");
+  const first = await create("First\n@loki first", "agent");
+  await agentOf(first.id, p => p.agent?.status === "replied");
+  await restart(80, true);
+  const second = await create("Second\n@loki second", "agent");
+  const held = await agentOf(second.id, p => p.agent?.status === "waiting");
+  expect(held.agent?.message).toContain("cap");
+  expect(calls()).toEqual(["run pick this up", "run first"]);
+  expect((await client.request<Block>({ action: "get", blockId: second.id })).text).toContain("@loki second");
 });
 
 test("a chain of woken asks stops at a repeat and at its hop limit, each held with why", async () => {
@@ -333,7 +316,6 @@ test("a chain of woken asks stops at a repeat and at its hop limit, each held wi
   const patching = (observed: string, replacement: string) => `process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: ${JSON.stringify(observed)}, replacement: ${JSON.stringify(replacement)} }] } }));`;
   await writeAgent("ping", patching("seed", "@pong next"));
   await writeAgent("pong", patching("start", "start\n@ping back"));
-  await create("Let the pair talk [invoke-from::ext:ping, ext:pong] [invoke-to::ping, pong] [max-hops::5]");
   const note = await create("start\nseed\n@ping go");
   await until("pong asked and answered", () => store.agentRequests(note.id).find((r) => r.agent === "pong" && r.status === "applied"));
   expect(store.get(note.id)!.text).toBe("start\n@ping back\n@pong next\n@ping go");
@@ -341,25 +323,44 @@ test("a chain of woken asks stops at a repeat and at its hop limit, each held wi
   expect(back).toMatchObject({ agent: "ping", status: "waiting", requestedBy: "agent:ext:pong" });
   expect(back.message).toBe("held: @ping is already in this chain (@ping → @pong → @ping), so a repeat is held · r to send");
 
-  // The default is one hop: the writer wakes the agent, and what that agent writes is held.
+  // A pair can narrow the default: the writer wakes the agent, and what that agent writes is held.
   await writeAgent("first", patching("seed", "@second next"));
   await writeAgent("second", patching("start", "start\n@third later"));
   await writeAgent("third", patching("start", "start"));
-  await create("Let first wake second [invoke-from::ext:first] [invoke-to::second]");
-  await create("Let second wake third [invoke-from::ext:second] [invoke-to::third]");
+  await create("Let first wake second [invoke-from::ext:first] [invoke-to::second] [max-hops::1]");
+  await create("Let second wake third [invoke-from::ext:second] [invoke-to::third] [max-hops::1]");
   const chain = await create("start\nseed\n@first go");
   await until("second answered", () => store.agentRequests(chain.id).find((r) => r.agent === "second" && r.status === "applied"));
   const later = store.agentRequests(chain.id).find((r) => r.agent === "third")!;
   expect(later).toMatchObject({ status: "waiting" });
-  expect(later.message).toMatch(/^held: “Let second wake third” allows 1 hop and this would be hop 2 · r to send$/);
+  expect(later.message).toContain("max-hops: allows 1 hop and this would be hop 2");
   await agentOf(chain.id, (p) => p.agent?.name === "third" && p.agent.status === "waiting");
 }, 40_000);
 
+test("an answering agent's connection cannot reuse the person's approval to wake itself", async () => {
+  const { store, create, writeAgent } = await setup();
+  await writeAgent("echo", `import { connect } from "node:net";
+const r = await Bun.stdin.json();
+if (r.input.request === "start") await new Promise((resolve, reject) => {
+  const c = connect(process.env.EP0CH_SOCKET); let b = "";
+  c.on("data", d => { b += d; if (!b.includes("\\n")) return; c.end(); const reply = JSON.parse(b); reply.ok ? resolve(reply.result) : reject(new Error(reply.error)); });
+  c.on("error", reject);
+  c.write(JSON.stringify({ id: "copy", grant: process.env.EP0CH_EXT_GRANT, action: "create", parentId: r.input.note.id, text: "Followup\\n@echo again" }) + "\\n");
+});
+process.stdout.write(JSON.stringify({ ok: true, value: { message: "finished" } }));`, "write");
+  const note = await create("Echo\n@echo start");
+  await until("parent finished", () => store.agentRequests(note.id)[0]?.status === "nothing");
+  const child = store.children(note.id)[0]!;
+  const row = await until("followup decided", () => store.agentRequests(child.id)[0]);
+  expect(row.status).toBe("waiting");
+  expect(row.message).toContain("@echo is already in this chain");
+});
+
 test("notes from before agent requests keep their @name lines old; restarts say what they cut off (B5, B17)", async () => {
   const { store, client, create, restart, counted } = await setup({ quietMs: 60_000 });
-  const calls = await counted("count");
   // A note as it was before this feature: an `@count` line, no baseline, no rows.
   const old = await create("Old note\n@count from long ago", "agent");
+  const calls = await counted("count");
   store.database.query("DELETE FROM agent_request_baseline").run();
   store.database.query("DELETE FROM agent_requests").run();
   store.database.query("DELETE FROM metadata WHERE key = 'agent_request_baseline_seeded'").run();
@@ -423,6 +424,9 @@ test("taking an answered line out and putting it back (undo) doesn't ask again (
 test("r says who asked, an agent's r doesn't release a line an agent wrote, and r on the note asks what isn't answered (C6, E5)", async () => {
   const { store, client, create, agentOf, counted } = await setup();
   const calls = await counted("count");
+  await create("One wake [invoke-from::agents] [invoke-to::count] [cap::1/day]");
+  const spent = await create("Spent\n@count allowance", "agent");
+  await agentOf(spent.id, p => p.agent?.status === "replied");
   const theirs = await create("Shared\n@count from an agent", "agent");
   await agentOf(theirs.id, (p) => p.agent?.status === "waiting");
   await expect(client.request({ action: "resources.projection.refresh", blockId: theirs.id, line: 1, mutation: { author: "agent", actorId: "loki" } }))
@@ -434,17 +438,17 @@ test("r says who asked, an agent's r doesn't release a line an agent wrote, and 
     .rejects.toThrow("resources.projection.refresh's mutation names who asks");
   // Not on the note either: the agent's note-level r passes it by.
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id, mutation: { author: "agent", actorId: "loki" } });
-  expect(calls()).toEqual([]);
+  expect(calls()).toEqual(["run allowance"]);
   // Detail's r sends only the note: a person's asks the waiting request.
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id });
-  expect(calls()).toEqual(["run from an agent"]);
+  expect(calls()).toEqual(["run allowance", "run from an agent"]);
   expect(store.agentRequests(theirs.id)[0]).toMatchObject({ status: "replied", requestedBy: "user" });
   // Released by a person, an agent may ask it again on its line, and is named as who asked.
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id, line: 1, mutation: { author: "agent", actorId: "loki" } });
   expect(store.agentRequests(theirs.id)[0]).toMatchObject({ status: "replied", requestedBy: "agent:loki" });
   // r on the note doesn't ask an answered request again.
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id });
-  expect(calls()).toHaveLength(2);
+  expect(calls()).toHaveLength(3);
 });
 
 test("drafts.touch: a request written in a held draft runs before any save, and the save doesn't run it twice (F1)", async () => {

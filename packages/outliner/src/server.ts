@@ -3659,7 +3659,7 @@ export class OutlinerServer {
       // (they run nothing), but what they leave is still the request lines a later save is compared with.
       if (event.domain === "content" && event.blockId && (event.change?.kind === "create" || event.change?.kind === "edit")) {
         if (isExtensionActor(event.change.actor?.actorId) || event.change.actor?.taskId?.startsWith("trigger:script:")) {
-          this.agentRequests.observe(event.blockId, event.change.actor, event.change.kind === "create");
+          this.agentRequests.observe(event.blockId, event.change.actor, event.change.kind === "create", event.change.requestedBy);
         } else {
           this.extensionSync.blockChanged(event.blockId);
           this.extensionCalls.blockChanged(event.blockId, event.change.actor, event.change.kind === "create");

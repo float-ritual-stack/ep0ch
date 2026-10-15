@@ -19,7 +19,7 @@ existing actions or screen bindings, and typing, pickers and terminals keep thei
 Names matching the existing @name grammar (lowercase letters, digits and hyphens, starting with a letter,
 up to 32 characters) also register as responders in the same extension registry. `@name slot=value` uses
 the existing quiet timer, live draft reads and PIE-888 invocation grants: agent and extension writes land
-first, held unless a grant allows the wake. The invocation chain remains live until the script finishes.
+first and wake each other by default, subject to the loop guards. The invocation chain remains live until the script finishes.
 Rule notes accept `[rule-on::script:name]`, also for stop and change; the existing match, quiet, writer,
 cap and batch rules still apply. Neither path waits for execution before allowing more typing.
 
@@ -759,7 +759,7 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
   across restarts (`lastRun` says when it stopped one); `skip` is a query whose blocks never set it off
   (`"triage=done OR child:via-trigger=intake-prior-art"`).
 - A triggered action's input has `trigger: { rule, blocks? }`. A block it makes may ask the extension's **own**
-  agents (`@name` lines; a line for any other agent lands held, as every extension's does): it's asked at once, as `r`
+  agents (`@name` lines; other agents also wake by default): it's asked at once, as `r`
   would, by whoever set the trigger off. The rule the person wrote is what asked; its guards are the limit.
 - **A rule starts from now.** Installing a rule over blocks that already match runs nothing for them.
 - The action runs through `extensions.act`: its writes are `ext:<id>`'s, with `requestedBy` the person or agent
@@ -950,8 +950,8 @@ actions yet; `r` is its path today.
   block written over the [connection](#a-connection-to-the-service). Code the person installed is trusted in their
   outline; what keeps it safe is the rest: every write is attributed `ext:<id>`, revision-checked and undoable
   (`extensions.undo`), and the store refuses a `work-id` or page address another block owns, as it does anyone's.
-  Terminal escapes go. A write may carry an `@name` request line and it lands as written: it is held, marked with why
-  (`held: ext:<id> may not wake @name · r to send`), and a person's `r` sends it (a trigger's new block asks its own
+  Terminal escapes go. A write may carry an `@name` request line and it lands as written, waking the agent by default
+  under the invocation loop guards (a trigger's new block asks its own
   extension's agents at once instead). Escape text you import (below).
 - **Who asked.** `extensions.act` takes `mutation`: the
   person (`{ "author": "user" }`) or an agent (`{ "author": "agent", "actorId": "loki" }`);
@@ -1067,24 +1067,22 @@ lands in the note while he goes on. That needs a door that says when he types in
   on the note asks the requests in it not answered yet (not asked, waiting, failed). Lines that were
   already there wait for `r`: the service keeps, per note, the `@name` lines it last saw (any name,
   across restarts; notes from before this feature get theirs once, at start), so installing an
-  extension doesn't wake old lines. A line an agent, an extension or an import wrote waits for a person's `r`, so
-  agents can't set each other off: an agent's `r` on it is refused. Such a write is never refused for the line (capture
-  is more reliable than interpretation): the text lands as written, in a saved note or in a door's live draft, and the
-  line is kept as `waiting` with its reason (`held: ext:requests may not wake @kitty · r to send`, drawn under the line). A request a restart cut off says so and `r` asks again; one still waiting for quiet when
-  the service stops waits for `r`.
-- **Grants: who may wake whom without `r`** (PIE-888). A note the person wrote says some writers may wake some agents on
-  their own:
-  `Let requests wake kitty [invoke-from::ext:requests] [invoke-to::kitty] [max-hops::2] [budget::5] [cap::20/day]`.
-  `invoke-from` is the writer (`ext:<id>`, an agent's actor id, `agent` for any agent, `all`) and `invoke-to` the `@name`
-  (or `all`), either one repeated or comma-separated. A line one of them writes is asked at once, as an extension's
-  trigger block's own agents are, instead of held; any other stays held. An ask carries its chain (who woke whom, from
-  the person's ask or the writer): `max-hops` (default 1) is how many automatic wakes the chain may hold, so what a woken
-  agent writes is held again unless the grant allows a second hop; `budget` is the most wakes one chain may spend in all;
-  `cap` the most a day through the grant (counted since the service started); an agent already in the chain is never
-  woken again (a repeat is held). A held line says which limit it met (`held: “Let requests wake kitty” allows 1 hop and
-  this would be hop 2 · r to send`). Only a note a person last wrote is a grant: an agent's or an extension's isn't (it
-  is listed with why). `extensions.list` answers `grants` and, per extension, `held` (the requests waiting for it);
-  `agents.held` lists them (the door's waiting-on-you list, `ep0ch ext ls`).
+  extension doesn't wake old lines. New lines agents and extensions write wake their agents by default.
+  Text always lands, in a saved note or a live draft. Only a loop-guard trip leaves an ask held,
+  with the guard named on the line; a person's `r` can send it. An interrupted request says so.
+- **Invocation limits (PIE-906).** The default grant is all writers to all agents. Chains stop at
+  a repeated agent or eight automatic hops. Notes can narrow a pair:
+  `Short chain [invoke-from::ext:requests] [invoke-to::kitty] [max-hops::2] [budget::5] [cap::20/day]`.
+  `invoke-from` names a writer (`ext:<id>`, actor id, `agents`, or `all`); `invoke-to` names an agent or `all`.
+  Matching limits combine using the tightest value; a broader note cannot undo a narrower one.
+  `budget` limits total wakes across the chain's branches. `cap` counts wakes per UTC day and survives restarts.
+  `No automatic kitty [invoke-from::ext:requests] [invoke-deny::kitty]` disables that pair's automatic asks:
+  the text remains with an `invoke-deny` reason, outside the held queue. A person can explicitly send it.
+  A person's approved ask is theirs: an OAuth connector write, an action they requested, or their exact
+  request line copied from an action's source note. Those asks run without being held. New requests an answering
+  agent invents pass through the loop guards, including the first repeat. Agent attribution stays intact.
+  `extensions.list` reports the narrowing notes in `grants` and each extension's `held` count;
+  `agents.held` lists loop-guard trips. There is no reminder or digest layer.
 - **Who asked.** `r` takes the presser's `mutation` (`{ author: user }` or `{ author: agent,
   actorId }`; a person when absent) and records it as `requestedBy` (`user`, `agent:<id>`).
 - **Streaming a plain inline answer (PIE-903):** on the same stdout, write one JSON line
@@ -1307,7 +1305,7 @@ Over its connection an extension may **read** (`get`, `children`, `pages.resolve
   Every other call's connection reads only, as its answer may, and a write from it is refused saying so.
 - **No secret it was given lands in the outline**: a write's text is scrubbed of its secret values, as its answers are.
 - **No extension write sets an extension off**: handler lines it writes don't run, rules don't fire, an `@name` line
-  it writes lands held (`held: ext:<id> may not wake @name · r to send`) and waits for a person's `r`.
+  it writes wakes the agent by default; loop guards can hold it with the guard named.
 - Anything else (purging Trash, settings, `extensions.act`) is refused with what it may do.
 - An action's returned `writes` (above) may land anywhere in its outline too; over the connection, in any outline the
   host serves (name it with `outline`).

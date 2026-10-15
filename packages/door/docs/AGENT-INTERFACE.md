@@ -325,7 +325,7 @@ the feature query (`OSC 7501 ; ?`) and its terminfo has `Pst`.
 | `changes.seen` | | `x` | the person's only: marks the list seen and keeps the position |
 | `status.pick` | `n` or `tile` | `j` `k`, the wheel, in the list | refused while the person is typing there |
 | `status.go` | `n` or `tile` | `⏎`, a click on a row | the person's only: it takes their keys to that terminal (an agent answers a program with `tile.type`) |
-| `held.open` | `n` (its row in the list, as `peek` numbers it: the terminals first, then the rows with `kind: held`) or `id`; left out, the selected row | `⏎`, a click on a held row | opens the note a request held for a person's `r` is in (an `@name` line an agent or an extension wrote that no grant lets wake its agent; the service lists them, `agents.held`); sends nothing |
+| `held.open` | `n` (its row in the list, as `peek` numbers it: the terminals first, then the rows with `kind: held`) or `id`; left out, the selected row | `⏎`, a click on a held row | opens the note a request held for a person's `r` is in (an `@name` line that tripped a loop guard; the service lists them, `agents.held`); sends nothing |
 | `held.send` | `n` or `id` | `r`, a click on a held row's `[r send]` | sends a held request: its agent is asked now, as the person who pressed it (the line's own `r`). The person's only: an agent's is refused |
 | `status.seen` | `n` or `tile` | `x` | the person's only: seen is theirs, so an agent never clears a done they haven't seen (nor does `peek` or `subscribe`). Its done and failed records go; blocked ones stay until the program says otherwise |
 
@@ -680,7 +680,11 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   `^anchor`, `[[page]]`, `((ref))` and `[key::value]`, in its span and in the whole note: no edit inside a
   token, no stray backtick that turns one into code; what it refuses becomes a proposal. Either way the
   service reads a held draft before patching it, and the door never re-checks the grammar.
-- An agent's draft.patch may write an `@name` request line: it lands (in the live draft too) and is held, marked `held: <actor> may not wake @name · r to send`; only a person's `r` sends it.
+- An agent's draft.patch may write an `@name` request line: it lands (in the live draft too) and wakes the agent by default.
+  Repeats, max-hops, budget and daily cap can hold it with the guard named; the cap survives restarts.
+  `[invoke-from::…] [invoke-deny::…]` disables a pair's automatic asks, and `[invoke-to::…] [max-hops::…]`
+  narrows its hop limit. An OAuth connector ask or a copied request the person wrote remains their ask and runs.
+  New requests written by an answering agent still meet the loop guards. No reminder or digest layer is involved.
 - **The person's typing reaches the service.** A moment after they type in a held draft (`drafts.touch`, never
   for an agent's patch), the service reads the draft back and an `@name` request line written there runs once
   quiet, before any save; its answer lands in the draft as that extension's (`ext:<id>`). Their save is then
