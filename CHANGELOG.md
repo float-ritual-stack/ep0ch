@@ -13,6 +13,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The drawer's program comes back through one action (PIE-892) (#574)
+
+- **Fixed:** Enter, a click, the power bar or an agent brings the drawer's own program back from the desk through
+  `agent.back`, keeping the same tile and process. Restart is refused while the program is out, and closing its tile
+  lets the drawer tab run its program again; an agent's return preserves the person's focus.
+
 ### The drawer's own program leaves whole, and comes back (PIE-892)
 
 - **Fixed:** dragging the drawer's Claude onto the desk left a second tile in the drawer on the same Herdr pane,
@@ -38,13 +44,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Run:** `ep0ch install --apply` on each machine (PROTOCOL 176: facet values carry `last`, `facetKeys` and `facetValues` are
   question fields, and `property=x/*` is a query form; both sides must run the same copy).
 
-### Runbook steps no longer take 1.5 s longer than their command (PIE-893)
+### Runbook steps no longer take 1.5 s longer than their command (PIE-893) (#569)
 
 - **Fixed:** the runbook's wrapper left a 1.5 s timer pending after every command, so each step ended 1.5 s after its
   command did (a three-step "run all" took 4.7 s for a few `echo`s). It now ends when the output is in; a command that left
   something holding its output open is still waited for, for a moment, as before.
 
-### A link in a property's value is an edge (PIE-874)
+### A link in a property's value is an edge (PIE-874) (#555)
 
 PROTOCOL 174: outline-core's property grammar now finds links in values (`propertyValueLinks`).
 
@@ -54,12 +60,12 @@ PROTOCOL 174: outline-core's property grammar now finds links in values (`proper
   the property. One scanner, outline-core's `propertyValueLinks`; `[page::…]` and `[work-id::…]` name the note itself and
   never link. Backlinks are read at query time, so nothing needs reindexing: the host's restart on deploy is enough.
 
-### EchoNet's ledger gets its mark on the next toss (PIE-868)
+### EchoNet's ledger gets its mark on the next toss (PIE-868) (#565)
 
 - **Fixed:** a ledger written before the `[echonet::<node>]` mark kept none until an entry changed; the next toss writes it
   with the mark.
 
-### An agent's CLI write is recorded as the agent (PIE-890)
+### An agent's CLI write is recorded as the agent (PIE-890) (#564)
 
 - **Fixed:** `--actor <id>` without `--author agent` on the outliner CLI's write commands (`work set|stage|link|body|create`,
   `update`, `move`, `create`, `new`, `comment`, `delete`, `restore`) was recorded `author=user`, so an agent's property edit
@@ -87,14 +93,17 @@ PROTOCOL 174: outline-core's property grammar now finds links in values (`proper
 - **Run:** `ep0ch install --apply` on each machine (PROTOCOL 173: outline-core's `blockTags` decides which tags are block-level,
   so both sides must run the same copy).
 
-### A preview of the tree reads as part of it (PIE-886)
+### A preview of the tree reads as part of it (PIE-886) (#563)
 
 - **Added:** `border=joined`, a tile option (a style note, the tune inspector's `border` row, or the tile's own look):
   no frame, and the tile's surface (`raised` at `bg.strength` 2 unless `bg` says another, dark and capped like every
   surface) run to its edges, so it reads as part of the tile beside it. **Changed:** a preview that follows a tree (or
   that a tree's link makes its preview) is joined by default; `border=line` (or any other) frames it again. No wire change.
 
-### EchoNet copies say whose words they hold, and everything it writes is marked (PIE-868)
+- **Changed:** previews and readers following a tree keep the joined appearance through the door's shared follow
+  relationship, so the border uses the same source as the rest of the door (PIE-886) (#568).
+
+### EchoNet copies say whose words they hold, and everything it writes is marked (PIE-868) (#562)
 
 - **Added:** an EchoNet copy carries `[from-author::user]` (or `agent:<id>`): the source's author, beside the copy being the
   extension's write (`author: agent`, `ext:echonet`, as it always was). The nodelist, the ledger, toss logs, receipts,
@@ -102,13 +111,13 @@ PROTOCOL 174: outline-core's property grammar now finds links in values (`proper
 - Found while checking: the copies that read as `author=user` in a graph walk are later property edits by loki's tools
   (`author=user`, actor `loki` or `cli`); the tosser's own writes are all the extension's, and a test now says so.
 
-### The EchoNet tosser stops when its folder is gone (PIE-850)
+### The EchoNet tosser stops when its folder is gone (PIE-850) (#561)
 
 - **Fixed:** a toss waiting for another toss's lock spun a core for ever if its outline's folder was removed meanwhile
   (a scratch tosser orphaned by a finished test ran at 100% for 38 hours). Only "the lock is there already" is waited
   for now; a folder that is gone ends the toss at once, saying so (`EchoNet can't take its toss lock …: its folder is gone`).
 
-### `ep0ch keys`: which secrets exist, and who may have each (PIE-887)
+### `ep0ch keys`: which secrets exist, and who may have each (PIE-887) (#558)
 
 PROTOCOL 171: an `extensions.list` entry carries `keys` (names, state and scopes, never a value). After merging, restart the
 outline host and the publishers with `ep0ch install --apply`; a client on 170 is told to update.
@@ -126,7 +135,7 @@ outline host and the publishers with `ep0ch install --apply`; a client on 170 is
 - **Docs:** a "Keys and secrets" section at the top of the extensions README and in the ep0ch-outline skill: check
   `ep0ch keys list` before calling a key missing.
 
-### Grants: who may wake whom, and held asks in the waiting-on-you list (PIE-888)
+### Grants: who may wake whom, and held asks in the waiting-on-you list (PIE-888) (#559)
 
 PROTOCOL 175: `agents.held`, and `extensions.list` answers `grants` and each extension's `held` count (an older host leaves the list without them).
 
@@ -138,7 +147,7 @@ PROTOCOL 175: `agents.held`, and `extensions.list` answers `grants` and each ext
 - **Added:** the door's waiting-on-you list (`alt+w`) shows the requests held for your `r` after the terminals' programs,
   and the status bar counts them (`‼2`): `⏎` or a click opens the note, `r` sends it (`held.open`, `held.send`).
 
-### A backlink says which line links, and opening it lands there (PIE-884)
+### A backlink says which line links, and opening it lands there (PIE-884) (#556)
 
 - **Added:** a backlink row in the links tile, the tree's `l` and an inline `::links` now quotes the line of the linking
   note that holds the reference and the anchor it names (`“Check ((Garden plan^butt)) …” ^butt`). Opening the row (⏎, a
@@ -148,7 +157,7 @@ PROTOCOL 175: `agents.held`, and `extensions.list` answers `grants` and each ext
 - **Added:** the published page's `::links` backlink rows quote the line too (the page has no per-line anchors to land on).
   The rows an agent reads (`backlinks`, `links`) carry `line` and `anchor`.
 
-### An @name an extension or agent writes lands, held with its reason (PIE-888)
+### An @name an extension or agent writes lands, held with its reason (PIE-888) (#557)
 
 - **Fixed:** an `@name` line an extension's action, an extension's agent answer or an agent's `draft.patch` writes is no
   longer a refused write that loses the words. It lands as written, in the saved note or a door's live draft, and is held:
@@ -173,7 +182,7 @@ PROTOCOL 175: `agents.held`, and `extensions.list` answers `grants` and each ext
 - **Changed:** a row's bare-letter key no longer runs it from inside the open menu (the letter is for the query); a
   chord (`^W x`, `alt+h`) still does.
 
-### The door's tree shows a virtual branch's matches (PIE-882)
+### The door's tree shows a virtual branch's matches (PIE-882) (#554)
 
 PROTOCOL 170: `views.read` answers `childDepth` (an older host leaves the tree's matches without a depth).
 
@@ -196,7 +205,7 @@ PROTOCOL 170: `views.read` answers `childDepth` (an older host leaves the tree's
 - **Changed:** the board's `d d` on a card is recorded as who trashed it (the service's delete takes an author).
 - Try it: `ep0ch --showcase`, the `trash` section.
 
-### `ep0ch show PIE-870`: the CLI reads take a Work ID (PIE-875)
+### `ep0ch show PIE-870`: the CLI reads take a Work ID (PIE-875) (#552)
 
 - **Changed:** `ep0ch show`, `find --under|--view|--tree`, `export` and `revisions` name a note the way a link in a
   note does: an id, `((id))`, an id's first 8+ characters, a Work ID of any prefix the outline has (`PIE-870`,
@@ -223,7 +232,7 @@ PROTOCOL 170: `views.read` answers `childDepth` (an older host leaves the tree's
 - **Changed:** a name a mod tool has no argument for still doesn't stop the call (a host's own metadata arrives that
   way), but the answer now starts with `Not used: …`, naming it and the tool's arguments.
 
-### Agents move and trash notes (PIE-877)
+### Agents move and trash notes (PIE-877) (#546)
 
 - **Added:** `outline_move`, `outline_trash` and `outline_restore` in the Claude mod and over MCP. A tidy pass now
   puts a note under a day or beside a sibling, and a duplicate in Trash, as the agent, and says why when it can't:
