@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { DRAFT_ACTIONS, keepCopy, patchLabel, type Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
-import { C, fg, pad, RESET, visible, type LinkRange } from "../style";
+import { C, fg, pad, RESET, visible, width, type LinkRange } from "../style";
 import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
@@ -39,6 +39,8 @@ export interface EditFrame {
   pick?: boolean;
   /** Where a comment's composer sits (PIE-770, src/surface/composer.ts): a chip that switches it (ctrl+o), its name the label. */
   place?: string;
+  /** Where a new note lands (PIE-883: `→ Inbox › 2026-10-14`): a row of its own under the status, a click moves it. */
+  lands?: string;
   /**
    * The keys are on another tile (PIE-812): the draft is left open as it was, its text drawn dim and without its cursor
    * or selection, so the tile that has the keys is the one that looks like it.
@@ -64,9 +66,12 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   const controls: NonNullable<Draft["frame"]>["controls"] = [];
   let x = tw + 1;
   for (const c of ctls) { controls.push({ row: 0, from: x, to: x + c.text.length, action: c.action }); x += c.text.length + 1; }
+  // Where a new note lands, under the status: the whole row is its control.
+  const lands = f.lands ? (() => { const t = `${f.lands}  [move ▸]`; controls.push({ row: 1 + f.status.length, from: 0, to: Math.min(w, width(t)), action: "lands" }); return [fg(C.lcyan) + pad(t, w) + RESET]; })() : [];
   const top = [
     fg(C.yellow) + pad(`» ${f.title}`, tw) + ctls.map(c => " " + fg(C.lcyan) + c.text).join("") + RESET,
     ...f.status,
+    ...lands,
     ...(f.by ? [fg(C.lmagenta) + pad(f.by, w) + RESET] : []),
     ...(f.context ?? []),
     rule(w),
@@ -149,7 +154,7 @@ function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: num
  * action); on the copy control it runs the host's `copy` (`draft.copy`, to the person's clipboard); on the text it
  * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
-export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0): boolean {
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0): boolean {
   const f = d.frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
@@ -166,6 +171,7 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (ctl?.action === "pick") { on?.pick?.(); return true; }
   if (ctl?.action === "copy") { on?.copy?.(); return true; }
   if (ctl?.action === "place") { on?.place?.(); return true; }
+  if (ctl?.action === "lands") { on?.lands?.(); return true; }
   if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
   // A press starts in the text (a click beside a box drawn over the note is the note's); a drag goes on wherever it is.
   if (!extend && (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols)) return false;

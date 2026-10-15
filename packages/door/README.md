@@ -1796,9 +1796,12 @@ door only says which note you were in; it never works out where the Inbox is.
 **Where it opens (PIE-591).** On the desk and every screen built on it, a new note **floats** over the screen, a
 draft of its own, a little lower and to the right of the last, with your keys. Press `ctrl+n` as often as you like:
 each is another float, and the one you were in stays open where it was. It works from an edit too: that edit stays open
-where it was, as a click away leaves it (PIE-812). A float's title drags it; dropped on a tile's header it docks into
-that tile's tabs, on the screen's outer edge as a column, on a dock's handle into the dock (the hint row says which
-before you let go). Its `×` (or `^W x`) closes it: written, it's saved first; still empty, it goes to the trash.
+where it was, as a click away leaves it (PIE-812). A float's title drags it, while you're writing in it too (PIE-883:
+its header and edges are the tile's, never the edit's); dropped on a tile's header it docks into that tile's tabs, on
+the screen's outer edge as a column, on a dock's handle into the dock (the hint row says which before you let go). Its
+`⋯` opens its menu. Under the edit's status, `→ Inbox › 2026-10-14 [move ▸]` says where the note is; a click there
+asks in the power bar where it should go (the Inbox, or any note by its words) and moves it, the edit staying open
+(`note.place parent=…`). Its `×` (or `^W x`) closes it: written, it's saved first; still empty, it goes to the trash.
 `Esc` on it with nothing typed does the same. A draft that loses your keys is never lost: a float you leave stays
 open as it was, typed in or not, until you come back to it (a click on it or the keys back put you in it, PIE-812);
 `ctrl+s` saves it.
