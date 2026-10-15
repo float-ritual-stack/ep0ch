@@ -688,9 +688,16 @@ function commentResult(record: AnnotationRecord, extra: Partial<CommentResult> =
  */
 export async function commentOn(
   client: AgentToolsClient,
-  input: { ref: string; body?: string; quote?: string; whole?: boolean; start?: number; near?: number; prefix?: string; suffix?: string; requestId?: string; from?: string; properties?: Record<string, string | string[]> },
+  input: { ref: string; body?: string; quote?: string; whole?: boolean; start?: number; near?: number; prefix?: string; suffix?: string; requestId?: string; from?: string; kind?: string; properties?: Record<string, string | string[]> },
   actor: AgentActor,
 ): Promise<CommentResult> {
+  // `kind` is the thread's `[kind::…]` (PIE-871: a patch note's was dropped), said here or in properties; open, as any property.
+  if (input.kind !== undefined) {
+    if (typeof input.kind !== "string" || !input.kind.trim()) throw new WorkToolRefusal(`kind is the thread's kind, a word (patch-note, question, highlight…); got ${JSON.stringify(input.kind)}`);
+    const said = input.properties?.kind, kind = input.kind.trim();
+    if (said !== undefined && [said].flat().join() !== kind) throw new WorkToolRefusal(`kind is "${kind}" but properties.kind is ${JSON.stringify(said)}: give one`);
+    input = { ...input, properties: { ...(input.properties ?? {}), kind } };
+  }
   if ((input.whole === true) === (typeof input.quote === "string")) {
     throw new WorkToolRefusal("Give either quote (exact source text) or whole: true");
   }

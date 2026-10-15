@@ -166,6 +166,28 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(text).toContain("- latest build log: Build log, Mar 3");
   });
 
+  test("outline_comment's kind lands on the thread through the real CLI, as kind and as properties.kind (PIE-871)", async () => {
+    const { checkedInput, OUTLINE_TOOLS } = await mod("outline-tools.ts");
+    const tool = OUTLINE_TOOLS.find((t: { name: string }) => t.name === "outline_comment");
+    const comment = async (args: Record<string, unknown>) => {
+      const { input } = checkedInput(tool, { tool: "mcp__pi-outliner__outline_comment", agentId: "a1", ...args });
+      const command = tool.command(input);
+      // As the mod runs it: `agent <operation> --stdin --actor <actor>`, the input as JSON on stdin.
+      const p = Bun.spawn(["bun", OUTLINER_CLI, "agent", command.operation, "--stdin", "--actor", "claude-code@test"], { stdin: new Blob([JSON.stringify(command.input)]), stdout: "pipe", stderr: "pipe", env: { ...clean, ...env } });
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect(code, err).toBe(0);
+      return JSON.parse(out).thread as string;
+    };
+    const a = await comment({ ref: note, whole: true, body: "Shipped: the netting goes up in May.", kind: "patch-note" });
+    const b = await comment({ ref: note, whole: true, body: "Shipped: peas staked.", properties: { kind: "patch-note", tags: ["peas"] } });
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    try {
+      const threads = await board.comments(note);
+      expect(threads.find(t => t.id === a)?.props).toMatchObject({ kind: ["patch-note"] });
+      expect(threads.find(t => t.id === b)?.props).toMatchObject({ kind: ["patch-note"], tags: ["peas"] });
+    } finally { board.close(); }
+  });
+
   test("a refusal reaches the mod plain, with its reason, even under FORCE_COLOR", async () => {
     const { failureReasonOf } = await mod("mention-message.ts");
     const { loadBlockView, forgetEp0chHelp } = await mod("block-view.ts");

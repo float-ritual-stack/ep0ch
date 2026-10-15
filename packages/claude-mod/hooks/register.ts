@@ -27,7 +27,7 @@ import {
   outlinerUriFor,
   outlinerUriOf,
 } from './references'
-import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
+import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -420,7 +420,7 @@ export function register(on: On, options: PluginOptions): void {
       const workspace = references?.workspace
       if (!workspace) return { deny: await notBoundText($, references?.why) }
       try {
-        return { result: await runWorkCommand($, workspace, command, await actorFor($, {})) }
+        return { result: droppedNote(tool, checked.dropped) + await runWorkCommand($, workspace, command, await actorFor($, {})) }
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }
@@ -440,7 +440,7 @@ export function register(on: On, options: PluginOptions): void {
       // outline_changes' `actor` filters by agent; every other tool's names who the write is attributed to.
       const actor = await actorFor($, tool.name === 'outline_changes' ? {} : input)
       try {
-        return { result: await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(command.input)) }
+        return { result: droppedNote(tool, checked.dropped) + await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(command.input)) }
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }

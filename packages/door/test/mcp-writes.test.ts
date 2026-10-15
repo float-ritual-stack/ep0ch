@@ -191,6 +191,9 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const said = await tool("outline_comment", { uri, whole: true, body: "A date for the swap, from gpty?" }, "gpty");
     const thread = (await tool("outline_threads", { uri })).json.threads.find((t: { thread: string }) => t.thread === said.json.detail.thread);
     expect(thread.comments[0]).toMatchObject({ author: "mcp:gpty/chat.example.test", by: "gpty (chat.example.test)" });
+    // Its kind lands on the thread (PIE-871), said as kind or in properties.
+    const noted = await tool("outline_comment", { uri, whole: true, body: "Shipped: the swap date is set.", kind: "patch-note" }, "gpty");
+    expect((await tool("outline_threads", { uri })).json.threads.find((t: { thread: string }) => t.thread === noted.json.detail.thread).properties).toMatchObject({ kind: ["patch-note"] });
     // A path's cap can be set: EP0CH_MCP_PATH_ACCESS, read at each request.
     process.env.EP0CH_MCP_PATH_ACCESS = "warp=read";
     try { expect((await tool("list_outlines", {}, "warp")).json.outlines.find((o: { outline: string }) => o.outline === "garden-notes")).toMatchObject({ access: "read" }); }

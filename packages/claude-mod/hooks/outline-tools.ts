@@ -17,7 +17,7 @@
  * Every write is `author: agent`, attributed to the actor `actorOf` picks.
  */
 
-import { checkToolArgs, type ToolSchema } from './tool-args'
+import { checkToolArgs, REF_ALIASES, type ToolSchema } from './tool-args'
 
 type Json = Record<string, unknown>
 
@@ -185,6 +185,7 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       whole: { type: 'boolean', description: 'true: about the whole note, instead of a quote' },
       start: { type: 'integer', minimum: 0, description: 'The quote’s UTF-16 offset, when it repeats' },
       near: { type: 'integer', minimum: 0, description: 'When the quote repeats: the offset to be nearest' },
+      kind: { type: 'string', description: 'The thread’s kind, written as [kind::…] on it (patch-note, question, highlight…); the same as properties.kind' },
       properties: { type: 'object', description: 'The thread’s own properties, open: kind (highlight, note, question, define…), tags, color (a theme tone: default, good, warn, bad, dim, accent), any other key' },
       prefix: { type: 'string' },
       suffix: { type: 'string' },
@@ -196,7 +197,7 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       if (!nonEmpty(input.ref)) return 'Give the note.'
       if ((input.whole === true) === (typeof input.quote === 'string')) return 'Give either quote (exact source text) or whole: true.'
       if (!nonEmpty(input.body) && (input.whole === true || (input.body !== undefined && input.body !== ''))) return 'Give a non-empty comment (only a quote with no body is a highlight).'
-      return { operation: 'comment', input: inputOf(input, ['ref', 'body', 'quote', 'whole', 'start', 'near', 'prefix', 'suffix', 'requestId', 'from', 'revision', 'properties']) }
+      return { operation: 'comment', input: inputOf(input, ['ref', 'body', 'quote', 'whole', 'start', 'near', 'prefix', 'suffix', 'requestId', 'from', 'revision', 'kind', 'properties']) }
     },
   },
   {
@@ -560,12 +561,23 @@ export interface ToolWithSchema {
  * arguments answered with the schema line and a working call (tool-args.ts). A plugin tool's arguments arrive flat on
  * the event, beside `tool`, so `tool` is not one of them. The input to use, or the denial text.
  */
-export function checkedInput(tool: ToolWithSchema, event: Record<string, unknown>): { input: Record<string, unknown> } | string {
+export function checkedInput(tool: ToolWithSchema, event: Record<string, unknown>): { input: Record<string, unknown>; dropped: string[] } | string {
   const checked = checkToolArgs(
     { name: tool.name, schema: tool.inputSchema as ToolSchema, example: tool.example ?? {}, ...(tool.aliases ? { aliases: tool.aliases } : {}), ignore: EVENT_KEYS, dropUnknown: true },
     event,
   )
-  return checked.ok ? { input: checked.args } : checked.error
+  if (!checked.ok) return checked.error
+  // What was dropped as no argument (host metadata, or a name the model made up: PIE-871's `kind`): said with the answer.
+  const declared = (tool.inputSchema as ToolSchema).properties ?? {}
+  const known = new Set<string>([...EVENT_KEYS, ...Object.keys(declared), ...('ref' in declared ? REF_ALIASES : []), ...Object.values(tool.aliases ?? {}).flat()])
+  return { input: checked.args, dropped: Object.keys(event).filter(key => event[key] !== undefined && !known.has(key)) }
+}
+
+/** The line put before a tool's answer when names were dropped (checkedInput): the call ran without them. */
+export function droppedNote(tool: ToolWithSchema, dropped: readonly string[]): string {
+  if (!dropped.length) return ''
+  const names = Object.keys((tool.inputSchema as ToolSchema).properties ?? {}).filter(name => name !== 'actor')
+  return `Not used: ${dropped.map(name => `\`${name}\``).join(', ')} ${dropped.length === 1 ? 'is no argument' : 'are no arguments'} of ${tool.name} (its arguments: ${names.join(', ')}); the call ran without ${dropped.length === 1 ? 'it' : 'them'}.\n`
 }
 
 /** What a plugin tool event carries besides the tool's arguments. */
