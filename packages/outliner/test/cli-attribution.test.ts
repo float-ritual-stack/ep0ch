@@ -29,8 +29,10 @@ async function setup() {
   };
   store.configureWorkIdPrefix("PIE");
   store.create("Work [type::work-queue] [project::garden]");
-  const item = JSON.parse((await cli(["work", "create", "--title", "Turn the heap", "--project", "garden", "--arc", "beds", "--track", "beds", "--priority", "low", "--author", "agent", "--actor", "setup"])).stdout) as { workId: string; blockId: string };
-  return { store, cli, item };
+  const [item, stageItem] = await Promise.all(["Turn the heap", "Plant the beds"].map(async title =>
+    JSON.parse((await cli(["work", "create", "--title", title, "--project", "garden", "--arc", "beds", "--track", "beds", "--priority", "low", "--author", "agent", "--actor", "setup"])).stdout) as { workId: string; blockId: string }
+  ));
+  return { store, cli, item: item!, stageItem: stageItem! };
 }
 
 /** The last change recorded on a block: who the feed says made it. */
@@ -45,8 +47,8 @@ const lastChange = (store: OutlinerStore, id: string) => {
 const pick = (got: { author?: string; actorId?: string } | null, want: { author: string; actorId?: string }) => ({ author: got?.author, ...(want.actorId !== undefined ? { actorId: got?.actorId } : {}) });
 
 test("every CLI write form: --actor alone is an agent, nothing is the person, --author says what it says", async () => {
-  const { store, cli, item } = await setup();
-  const note = store.create("Compost rota"), other = store.create("Bed plan");
+  const { store, cli, item, stageItem } = await setup();
+  const note = store.create("Compost rota"), moving = store.create("Seed list"), other = store.create("Bed plan");
   const cases: Array<[string[], { author: "user" | "agent"; actorId?: string }]> = [
     [["--actor", "loki"], { author: "agent", actorId: "loki" }],
     [[], { author: "user" }],   // the person at the terminal: author user, whatever the CLI labels itself
@@ -56,24 +58,27 @@ test("every CLI write form: --actor alone is an agent, nothing is the person, --
   let n = 0;
   for (const [who, expected] of cases) {
     n += 1;
-    const forms: Array<{ form: string; args: string[]; stdin?: string; block: string | (() => string) }> = [
+    const forms: Array<{ form: string; args: string[]; block: string }> = [
       { form: "work set", args: ["work", "set", item.workId, "arc", `paths${n}`], block: item.blockId },
-      { form: "work stage", args: ["work", "stage", item.workId, n % 2 ? "doing" : "queued"], block: item.blockId },
+      { form: "work stage", args: ["work", "stage", stageItem.workId, n % 2 ? "doing" : "queued"], block: stageItem.blockId },
       { form: "update", args: ["update", "--id", note.id, "--text", `Compost rota ${n}`, "--expected", String(store.require(note.id).revision)], block: note.id },
-      { form: "move", args: ["move", "--id", note.id, "--parent", n % 2 ? other.id : "root"], block: note.id },
+      { form: "move", args: ["move", "--id", moving.id, "--parent", n % 2 ? other.id : "root"], block: moving.id },
     ];
-    for (const form of forms) {
-      const ran = await cli([...form.args, ...who]);
-      expect({ form: form.form, who: who.join(" "), exit: ran.exitCode, err: ran.stderr }).toEqual({ form: form.form, who: who.join(" "), exit: 0, err: "" });
-      expect({ form: form.form, who: who.join(" "), ...pick(lastChange(store, form.block as string), expected) }).toEqual({ form: form.form, who: who.join(" "), ...expected });
-    }
-    // The creating forms print the new block.
-    for (const args of [["create", "--text", `A fresh note ${n}`], ["new", "--text", `Another fresh note ${n}`]]) {
-      const ran = await cli([...args, ...who]);
-      expect({ args: args[0], exit: ran.exitCode, err: ran.stderr }).toEqual({ args: args[0], exit: 0, err: "" });
-      const made = JSON.parse(ran.stdout) as { id?: string; blockId?: string; block?: { id: string } };
-      expect({ form: args[0], who: who.join(" "), ...pick(lastChange(store, made.id ?? made.blockId ?? made.block!.id), expected) }).toEqual({ form: args[0], who: who.join(" "), ...expected });
-    }
+    // Each form owns its target so concurrent writes cannot race revisions or overwrite attribution.
+    await Promise.all([
+      ...forms.map(async form => {
+        const ran = await cli([...form.args, ...who]);
+        expect({ form: form.form, who: who.join(" "), exit: ran.exitCode, err: ran.stderr }).toEqual({ form: form.form, who: who.join(" "), exit: 0, err: "" });
+        expect({ form: form.form, who: who.join(" "), ...pick(lastChange(store, form.block), expected) }).toEqual({ form: form.form, who: who.join(" "), ...expected });
+      }),
+      // The creating forms print the new block.
+      ...[["create", "--text", `A fresh note ${n}`], ["new", "--text", `Another fresh note ${n}`]].map(async args => {
+        const ran = await cli([...args, ...who]);
+        expect({ args: args[0], exit: ran.exitCode, err: ran.stderr }).toEqual({ args: args[0], exit: 0, err: "" });
+        const made = JSON.parse(ran.stdout) as { id?: string; blockId?: string; block?: { id: string } };
+        expect({ form: args[0], who: who.join(" "), ...pick(lastChange(store, made.id ?? made.blockId ?? made.block!.id), expected) }).toEqual({ form: args[0], who: who.join(" "), ...expected });
+      }),
+    ]);
   }
 });
 
