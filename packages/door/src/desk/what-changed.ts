@@ -28,8 +28,8 @@ export const WHAT_CHANGED_KIND_NAME = "what-changed";
 const SEEN_FILE = "changes-seen.json";
 /** How many notes the list keeps (the newest). */
 const KEEP = 200;
-/** The most pages of the feed a start reads (500 changes each). */
-const MAX_SEED_PAGES = 40;
+/** The most pages of the feed a start reads (500 changes each): far past what anyone looks at, so it ends in a reset, never a truncated list. */
+const MAX_SEED_PAGES = 400;
 
 /** One note as the list has it: its latest change, and whether anyone has looked since. */
 export interface ChangedRow {
@@ -91,9 +91,11 @@ export class WhatChanged extends OutlineStore {
         // The feed answers a page at a time, oldest first: read on until it says it is complete, or the list's own bound
         // is far past (a door started long after the person looked would otherwise list only the oldest page, PIE-891).
         let from = kept;
-        for (let pages = 0; pages < MAX_SEED_PAGES; pages++) {
+        for (let pages = 0; ; pages++) {
           const page = await board.changesSince(from);
-          if (page.kind === "reset") { if (pages === 0) { this.seenTo = page.sequence; this.save(); } return; }
+          // The feed no longer reaches back (or, past the bound, there is too much to list): what the list held is dropped and
+          // the person's position is now.
+          if (page.kind === "reset" || pages >= MAX_SEED_PAGES) { this.rows.clear(); this.seenTo = page.sequence; this.save(); break; }
           // Replayed oldest first, so each note ends on its latest.
           for (const c of page.changes) this.add(c);
           if (page.completeness.kind === "complete" || page.nextSequence <= from) break;
