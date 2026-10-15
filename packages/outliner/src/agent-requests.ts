@@ -10,7 +10,7 @@ import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
 import type { HeldAsk } from "@ep0ch/outline-core/protocol";
-import { decide, newChain, parseGrant, type InvocationChain, type InvocationGrant } from "./invocation-grants";
+import { decide, newChain, parseGrant, personAsk, type InvocationChain, type InvocationGrant } from "./invocation-grants";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { AgentRequestRow, OutlinerStore } from "./store";
@@ -188,13 +188,24 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error);
 }
 
+/** Keep the origin of a copied request even after an agent edited another part of its note. */
+export function personRequestKeys(store: OutlinerStore, blockId: string): string[] {
+  let previous = new Set<string>();
+  const personal = new Set<string>();
+  for (const revision of [...store.revisions(blockId).revisions].reverse()) {
+    const keys = new Set(requestLines(store.revisionText(blockId, revision.revision).text, null).map(line => line.requestKey));
+    for (const key of personal) if (!keys.has(key)) personal.delete(key);
+    if (revision.author === "user") for (const key of keys) if (!previous.has(key)) personal.add(key);
+    previous = keys;
+  }
+  return [...personal];
+}
+
 export class AgentRequests {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly running = new Set<string>();
   /** Each ask running now: its note, the extension answering and the chain it came in (grants' hops, PIE-888). */
   private readonly live = new Map<string, { blockId: string; extensionId: string; chain: InvocationChain }>();
-  /** Wakes through each grant today, for its `cap`: the day they're for and how many. */
-  private readonly wakes = new Map<string, { day: string; n: number }>();
   private stopped = false;
 
   constructor(
@@ -295,13 +306,13 @@ export class AgentRequests {
    * nothing, but the `@name` lines it holds now are what the next save is compared with: a line an
    * extension's write left is never taken for one the person's next save added.
    */
-  observe(blockId: string, actor?: MutationProvenance, created = false): void {
+  observe(blockId: string, actor?: MutationProvenance, created = false, requestedBy?: MutationProvenance): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (!block) return;
-    // A request line it wrote lands, held: the words are saved as written, and a person's `r` sends it (PIE-888).
+    // Capture precedes the wake decision, including when a loop guard holds the ask.
     const before = new Set(created ? [] : this.store.agentRequestBaseline(blockId) ?? []);
-    const decided = this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined);
+    const decided = this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined, requestedBy);
     this.wake(blockId, decided.wakes);
     this.remember(blockId, this.shapes(block));
     // Requests whose lines the write took out are withdrawn, as after any save.
@@ -319,7 +330,7 @@ export class AgentRequests {
    */
   grants(): InvocationGrant[] {
     const ids = new Set<string>();
-    for (const key of ["invoke-to", "invoke-from"]) for (const row of this.store.queryBlocks({ filters: [{ key }], limit: 200 }).blocks) ids.add(row.id);
+    for (const key of ["invoke-to", "invoke-from", "invoke-deny"]) for (const row of this.store.queryBlocks({ filters: [{ key }], limit: 200 }).blocks) ids.add(row.id);
     const out: InvocationGrant[] = [];
     for (const id of ids) {
       const block = this.store.get(id);
@@ -330,10 +341,16 @@ export class AgentRequests {
     return out;
   }
 
+  private count(id: string): number {
+    const saved = this.store.readMetadata(`invocation-cap:${id}`);
+    if (!saved) return 0;
+    const w = JSON.parse(saved) as { day: string; n: number };
+    return w.day === this.day() ? w.n : 0;
+  }
   private today = {
-    count: (id: string): number => { const w = this.wakes.get(id); return w && w.day === this.day() ? w.n : 0; },
-    spend: (id: string): void => { const day = this.day(), w = this.wakes.get(id); this.wakes.set(id, { day, n: (w && w.day === day ? w.n : 0) + 1 }); },
-    unspend: (id: string): void => { const w = this.wakes.get(id); if (w && w.n > 0) w.n--; },
+    count: (id: string): number => this.count(id),
+    spend: (id: string): void => this.store.writeMetadata(`invocation-cap:${id}`, JSON.stringify({ day: this.day(), n: this.count(id) + 1 })),
+    unspend: (id: string): void => this.store.writeMetadata(`invocation-cap:${id}`, JSON.stringify({ day: this.day(), n: Math.max(0, this.count(id) - 1) })),
   };
   private day(): string { return new Date(this.now).toISOString().slice(0, 10); }
 
@@ -350,17 +367,9 @@ export class AgentRequests {
     return found;
   }
 
-  /**
-   * The `@name` lines an agent or an extension wrote that the note never had (`text` is the note, or a door's draft an
-   * agent patched), each decided under the grants (src/invocation-grants.ts): held, or woken. Held: kept as waiting,
-   * marked with why (`held: ext:requests may not wake @kitty · r to send`), and only a person's `r` sends it. Woken: a
-   * grant lets this writer wake that agent, within its hops, budget and cap, and the ask runs now. The write itself is
-   * never refused for either (capture is more reliable than interpretation). `own`: the extension that made a trigger's
-   * block, whose own agents are asked at once instead. Returns the asks to start (`wakes`) once the lines are in the note,
-   * and the keys it held.
-   */
-  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; held: string[] } {
-    const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain; refund(): void }[], held: [] as string[] };
+  /** Decide newly written requests once; saved text and live drafts share the same chain and limits. */
+  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance, requestedBy?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; recorded: string[] } {
+    const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain; refund(): void }[], recorded: [] as string[] };
     const block = this.store.get(blockId);
     if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return out;
     const lines = requestLines(text, this.registry.agentNames());
@@ -375,15 +384,17 @@ export class AgentRequests {
       const bound = this.registry.agent(line.agent)!;
       if (own?.actorId && `ext:${bound.extension.id}` === own.actorId.trim()) continue;
       answered.add(line.requestKey);
-      const verdict = decide(grants, actor, line.agent, parent, this.today);
-      if (verdict.wake) { out.wakes.push({ requestKey: line.requestKey, by, chain: verdict.chain, refund: verdict.refund }); continue; }
-      out.held.push(line.requestKey);
+      // A responder inherits who asked for it, not approval for new asks it invents.
+      const personal = !parent && (personAsk(requestedBy) || requestedBy?.invocationRequests?.includes(line.requestKey));
+      const verdict = decide(grants, actor, line.agent, personal ? { ...newChain("user"), origin: "user" } : parent, this.today);
+      if (verdict.wake) { out.wakes.push({ requestKey: line.requestKey, by: personal || personAsk(actor) ? "user" : by, chain: verdict.chain, refund: verdict.refund }); continue; }
+      out.recorded.push(line.requestKey);
       this.store.putAgentRequest({
         blockId, requestKey: line.requestKey, agent: line.agent, extensionId: bound.extension.id, request: line.request,
-        status: "waiting", message: `held: ${verdict.why}`, requestedBy: by, requestedAt: new Date(this.now).toISOString(),
+        status: verdict.denied ? "nothing" : "waiting", message: `${verdict.denied ? "" : "held: "}${verdict.why}`, requestedBy: by, requestedAt: new Date(this.now).toISOString(),
       });
     }
-    if (out.held.length) this.deps.changed(blockId);
+    if (out.recorded.length) this.deps.changed(blockId);
     return out;
   }
 
@@ -414,13 +425,13 @@ export class AgentRequests {
       return requestLines(patch.replacement, null).filter((line) => !had.has(line.requestKey));
     });
     if (!added.length) return () => {};
-    const decided = this.holdWritten(blockId, added.map((line) => line.text).join("\n"), actor, new Set(this.store.agentRequestBaseline(blockId) ?? []));
+    const decided = this.holdWritten(blockId, added.map((line) => line.text).join("\n"), actor, new Set(this.store.agentRequestBaseline(blockId) ?? []), undefined, this.store.changes.requestedBy);
     return (landed) => {
       if (landed) return this.wake(blockId, decided.wakes);
       // Taken back: the allowance it would have spent is given back.
       for (const wake of decided.wakes) wake.refund();
-      if (decided.held.length) {
-        const keep = this.store.agentRequests(blockId).map((row) => row.requestKey).filter((key) => !decided.held.includes(key));
+      if (decided.recorded.length) {
+        const keep = this.store.agentRequests(blockId).map((row) => row.requestKey).filter((key) => !decided.recorded.includes(key));
         this.store.pruneAgentRequests(blockId, keep);
         this.deps.changed(blockId);
       }
@@ -504,7 +515,7 @@ export class AgentRequests {
       }
       writtenByAgent = true;
     }
-    // What an agent or an import wrote is held, said on the line (a person's `r` sends it).
+    // Agent writes enter the same wake decision as extension writes.
     if (writtenByAgent) this.wake(blockId, this.holdWritten(blockId, block.text, actor, before).wakes);
     this.deps.changed(blockId);
   }
@@ -684,8 +695,6 @@ export class AgentRequests {
       } catch (error) {
         throw new Error(`@${line.agent} answered something the service can't apply: ${message(error)}`);
       }
-      // An agent never writes a request line (new or reworded, any name): draft.patch refuses every agent's
-      // patch that would, this one's included, so its edit can't set off another agent.
       // Reworded while it ran: the answer was to a request that isn't there any more.
       if (!stillThere((await this.deps.readDraft(blockId)).text)) return;
       if (streamed) {

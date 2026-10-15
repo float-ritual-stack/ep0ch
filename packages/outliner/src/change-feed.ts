@@ -195,6 +195,8 @@ export class ChangeFeed {
     };
   }
 
+  get requestedBy(): MutationProvenance | undefined { return this.storage.getStore()?.requestedBy; }
+
   /** Runs `work` (and the asynchronous work it starts) with changes attributed to `attribution`. */
   run<T>(attribution: ChangeAttribution, work: () => T): T {
     return this.storage.run(attribution, work);

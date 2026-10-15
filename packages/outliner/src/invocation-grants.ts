@@ -1,19 +1,9 @@
-// Invocation grants (PIE-888 slice 2): who may wake whom without a person's `r`. An `@name` line an extension or an agent
-// writes is held for a person (agent-requests.ts holdWritten); a grant is a note the person wrote that says some writers
-// may wake some agents on their own, with the limits that keep that from running away:
-//
-//   Let requests wake kitty [invoke-from::ext:requests] [invoke-to::kitty] [max-hops::2] [budget::5] [cap::20/day]
-//
-// `invoke-from`: the writer (`ext:<id>`, an agent's actor id, `agent` or `agents` for any agent, `all`), repeatable.
-// `invoke-to`: the agent's `@name`, or `all`, repeatable. `max-hops`: how many automatic wakes one ask's chain may hold
-// (default 1: the writer wakes the agent, and what that agent writes is held again). `budget`: the most automatic wakes
-// one chain, from the person's ask down, may spend in all. `cap`: the most wakes a day through the grant. A repeat (an
-// agent already in the chain) is always held. Only a note a person last wrote counts: an agent can't grant itself.
+import { parseActor, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { parseRuleCap, ruleWriter } from "@ep0ch/outline-core/rules";
 import type { Block, MutationProvenance } from "./types";
 import { blockDisplayTitle } from "./references";
 
-export const DEFAULT_MAX_HOPS = 1;
+export const DEFAULT_MAX_HOPS = 8;
 const MAX_HOPS = 8;
 
 export interface InvocationGrant {
@@ -23,6 +13,7 @@ export interface InvocationGrant {
   readonly from: readonly string[];
   readonly to: readonly string[];
   readonly maxHops: number;
+  readonly deny?: boolean;
   readonly budget?: number;
   readonly cap?: number;
   /** What is wrong with it, said where the grant is read (it grants nothing). */
@@ -32,6 +23,7 @@ export interface InvocationGrant {
 /** An ask's chain: who woke whom, from the person's ask, shared by every wake that follows from it. */
 export interface InvocationChain {
   /** The agents asked so far, first to last. */
+  readonly origin?: "user" | "agent";
   readonly agents: readonly string[];
   /** Automatic wakes in this chain so far. */
   readonly hops: number;
@@ -49,7 +41,8 @@ const values = (block: Pick<Block, "properties">, key: string): string[] =>
 /** A note's grant, when it declares one (`invoke-to` or `invoke-from`), with what's wrong with it; null for any other note. */
 export function parseGrant(block: Block): InvocationGrant | null {
   const from = values(block, "invoke-from").map((v) => v.toLowerCase());
-  const to = values(block, "invoke-to").map((v) => v.toLowerCase());
+  const denied = values(block, "invoke-deny");
+  const to = [...values(block, "invoke-to"), ...denied].map((v) => v.toLowerCase());
   if (!from.length && !to.length) return null;
   const problems: string[] = [];
   if (!from.length) problems.push("it has no [invoke-from::…] (ext:<id>, an agent's actor id, agents or all)");
@@ -73,6 +66,7 @@ export function parseGrant(block: Block): InvocationGrant | null {
     if (typeof parsed === "number") cap = parsed; else problems.push(parsed.problem);
   }
   return {
+    ...(denied.length ? { deny: true } : {}),
     id: block.id, title: blockDisplayTitle(block).slice(0, 60), from, to, maxHops,
     ...(budget !== undefined ? { budget } : {}), ...(cap !== undefined ? { cap } : {}),
     ...(problems.length ? { problem: problems.join("; ") } : {}),
@@ -91,7 +85,7 @@ export const grantToMatches = (grant: InvocationGrant, agent: string): boolean =
 export type Verdict =
   | { wake: true; grant: InvocationGrant; chain: InvocationChain; /** Takes the wake back (the line never landed). */ refund(): void }
   /** Held: `why` is the line's reason after `held: `; `grant` the one that came closest, when one did. */
-  | { wake: false; why: string };
+  | { wake: false; why: string; denied?: true };
 
 /**
  * Whether `actor`'s new `@agent` line wakes the agent now, under the grants, in the chain it was written in (`parent`: the
@@ -100,25 +94,39 @@ export type Verdict =
  */
 export function decide(grants: readonly InvocationGrant[], actor: MutationProvenance | undefined, agent: string, parent: InvocationChain | undefined, today: { count(id: string): number; spend(id: string): void; unspend(id: string): void }): Verdict {
   const who = actor?.actorId?.trim() || actor?.author || "system";
-  const plain = { wake: false as const, why: `${who} may not wake @${agent} · r to send` };
-  const usable = grants.filter((g) => !g.problem && grantFromMatches(g, actor) && grantToMatches(g, agent));
-  if (!usable.length) return plain;
   const chain = parent ?? newChain(who);
-  const refusals: string[] = [];
-  for (const grant of usable) {
-    if (chain.agents.includes(agent)) { refusals.push(`@${agent} is already in this chain (${[...chain.agents, agent].map((a) => `@${a}`).join(" → ")}), so a repeat is held`); continue; }
-    const maxHops = Math.min(grant.maxHops, chain.ceiling?.maxHops ?? Infinity);
-    if (chain.hops + 1 > maxHops) { refusals.push(`“${grant.title}” allows ${maxHops} hop${maxHops === 1 ? "" : "s"}${maxHops < grant.maxHops ? " (the chain's tightest grant)" : ""} and this would be hop ${chain.hops + 1}`); continue; }
-    const budget = grant.budget === undefined ? chain.ceiling?.budget : Math.min(grant.budget, chain.ceiling?.budget ?? Infinity);
-    if (budget !== undefined && chain.spent.n >= budget) { refusals.push(`“${grant.title}” gives a chain a budget of ${budget} wake${budget === 1 ? "" : "s"}, all spent`); continue; }
-    if (grant.cap !== undefined && today.count(grant.id) >= grant.cap) { refusals.push(`“${grant.title}” is capped at ${grant.cap}/day, and it's used up today`); continue; }
-    chain.spent.n++;
-    today.spend(grant.id);
-    return {
-      wake: true, grant,
-      chain: { agents: [...chain.agents, agent], hops: chain.hops + 1, spent: chain.spent, ceiling: { maxHops, ...(budget !== undefined ? { budget } : {}) } },
-      refund: () => { chain.spent.n--; today.unspend(grant.id); },
-    };
+  // A copied or connector-approved ask is the person's own ask. Replies start guarded agent work.
+  if (chain.origin === "user" || personAsk(actor)) return { wake: true, grant: DEFAULT_GRANT,
+    chain: { ...newChain(agent), origin: "agent" }, refund() {} };
+  const usable = grants.filter(g => !g.problem && grantFromMatches(g, actor) && grantToMatches(g, agent));
+  const denied = usable.find(g => g.deny);
+  if (denied) return { wake: false, denied: true, why: `invoke-deny: “${denied.title}” denies ${who} → @${agent} · r to send` };
+  const limits = [DEFAULT_GRANT, ...usable];
+  const maxHops = Math.min(chain.ceiling?.maxHops ?? Infinity, ...limits.map(g => g.maxHops));
+  const budget = Math.min(chain.ceiling?.budget ?? Infinity, ...limits.map(g => g.budget ?? Infinity));
+  let why: string | undefined;
+  if (chain.agents.includes(agent)) why = `@${agent} is already in this chain (${[...chain.agents, agent].map(a => `@${a}`).join(" → ")}), so a repeat is held`;
+  else if (chain.hops + 1 > maxHops) why = `max-hops: allows ${maxHops} hop${maxHops === 1 ? "" : "s"} and this would be hop ${chain.hops + 1}`;
+  else if (chain.spent.n >= budget) why = `budget: all ${budget} wakes in this chain are spent`;
+  else {
+    const capped = limits.find(g => g.cap !== undefined && today.count(g.id) >= g.cap);
+    if (capped) why = `cap: “${capped.title}” is capped at ${capped.cap}/day, and it's used up today`;
   }
-  return { wake: false, why: `${refusals[0]} · r to send` };
+  if (why) return { wake: false, why: `${why} · r to send` };
+  chain.spent.n++;
+  for (const g of limits) today.spend(g.id);
+  return { wake: true, grant: usable[0] ?? DEFAULT_GRANT,
+    chain: { agents: [...chain.agents, agent], origin: "agent", hops: chain.hops + 1, spent: chain.spent,
+      ceiling: { maxHops, ...(Number.isFinite(budget) ? { budget } : {}) } },
+    refund: () => { chain.spent.n--; for (const g of limits) today.unspend(g.id); },
+  };
+}
+
+const DEFAULT_GRANT: InvocationGrant = { id: "default", title: "Default wakes", from: ["all"], to: ["all"], maxHops: DEFAULT_MAX_HOPS };
+
+/** Connector sessions carry the person's OAuth subject; stdio calls are autonomous agent work. */
+export function personAsk(actor: MutationProvenance | undefined): boolean {
+  if (actor?.author === "user") return true;
+  const subject = parseSessionId(actor?.sessionId).subject;
+  return parseActor(actor?.actorId).mcp && !!subject && subject !== "stdio";
 }

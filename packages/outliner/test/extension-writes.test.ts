@@ -118,9 +118,9 @@ test("a client can't write as ext:<id>, by any of the ways a request names its w
 test("a request line an extension's write leaves is the baseline: the person's next save neither runs it nor misses one they add", async () => {
   const { store, client, scribe, act } = await setup();
   await scribe();
-  // An agent wrote the request: it waits for r.
+  // An agent wrote the request: it runs once.
   const note = await client.request<Block>({ action: "create", text: "Plan\nfirst\n@scribe look at this", author: "agent", provenance: { actorId: LOKI.actorId } });
-  await until("waiting", () => store.agentRequests(note.id)[0]?.status === "waiting");
+  await until("answered", () => store.agentRequests(note.id)[0]?.status === "replied");
   // The extension's own action takes the line out: what it left is now what a save is compared with.
   const current = store.get(note.id)!;
   await act("rewrite", note.id, { text: "Plan\nfirst" });
@@ -129,26 +129,28 @@ test("a request line an extension's write leaves is the baseline: the person's n
   expect(current.revision).toBeLessThan(store.get(note.id)!.revision);
   // The person writes the same request line again: it is theirs and new, so it runs.
   const after = store.get(note.id)!;
-  await client.request({ action: "update", blockId: note.id, text: "Plan\nfirst\n@scribe look at this", expectedRevision: after.revision, mutation: PERSON });
+  await client.request({ action: "update", blockId: note.id, text: "Plan\nfirst\n@scribe a new request", expectedRevision: after.revision, mutation: PERSON });
   const row = await until("the person's request answered", () => store.agentRequests(note.id).find((candidate) => candidate.status === "replied"));
   expect(row.requestedBy).toBe("user");
   expect(store.get(note.id)!.text).toContain("> noted ");
 });
 
-test("an @request line an action writes lands as written, held with why, never a refused write; a person's r sends it", async () => {
-  const { store, act, client, scribe } = await setup();
+test("a slicer-copied request remains the person's ask and wakes kitty despite an automatic deny", async () => {
+  const { store, act, client, scribe, install } = await setup();
   await scribe();
-  const note = await client.request<Block>({ action: "create", text: "Journal", author: "user" });
-  const made = await act("child", note.id, { text: "a child\n@scribe loop forever" });
-  const child = store.get(made.written[0]!)!;
-  expect(child.text).toBe("a child\n@scribe loop forever");
-  expect(store.agentRequests(child.id)).toMatchObject([{ agent: "scribe", status: "waiting", message: "held: ext:scribe may not wake @scribe · r to send", requestedBy: "agent:ext:scribe" }]);
-  // An update that adds one lands too, and is held the same way; a line that was there is not a new one.
-  await act("rewrite", note.id, { text: "Journal\n@scribe tidy everything" });
-  expect(store.get(note.id)!.text).toBe("Journal\n@scribe tidy everything");
-  expect(store.agentRequests(note.id)).toMatchObject([{ agent: "scribe", status: "waiting", message: "held: ext:scribe may not wake @scribe · r to send" }]);
-  // An agent's own r on it is refused; the person's isn't (it is theirs to send).
-  await expect(client.request({ action: "resources.projection.refresh", blockId: note.id, line: 1, mutation: { author: "agent", actorId: "loki" } })).rejects.toThrow("waits for a person");
+  await install("kitty", { agents: [{ name: "kitty" }] });
+  await client.request({ action: "create", text: "No automatic kitty [invoke-from::all] [invoke-deny::kitty]", author: "user" });
+  const note = await client.request<Block>({ action: "create", text: "Journal\n@kitty pick this up", author: "user" });
+  await until("original answered", () => store.agentRequests(note.id)[0]?.status === "replied");
+  const made = await act("child", note.id, { text: "a copy\n@kitty pick this up" }, { mutation: LOKI });
+  const row = await until("copied ask decided", () => store.agentRequests(made.written[0]!)[0]);
+  expect(row.status).not.toBe("waiting");
+  await until("copied ask answered", () => store.agentRequests(made.written[0]!)[0]?.status === "replied");
+  expect(store.get(made.written[0]!)!.text).toContain("> noted");
+  const autonomous = await act("child", note.id, { text: "new ask\n@kitty invented by the slicer" }, { mutation: LOKI });
+  await until("new ask denied", () => store.agentRequests(autonomous.written[0]!)[0]?.status === "nothing");
+  expect(store.agentRequests(autonomous.written[0]!)[0]?.message).toContain("invoke-deny");
+  expect((await client.request<{ held: unknown[] }>({ action: "agents.held" })).held).toEqual([]);
 });
 
 // ── C2: who asked ────────────────────────────────────────────────────────

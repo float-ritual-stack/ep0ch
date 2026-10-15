@@ -1,3 +1,5 @@
+import { personRequestKeys } from "./agent-requests";
+import { personAsk } from "./invocation-grants";
 import type { DraftPatchEdit } from "./draft-patch";
 import { removedListItemIds } from "./checklist-items";
 /**
@@ -240,6 +242,12 @@ export class ExtensionWrites {
    * `hostId`: the block it acted on, beside which a proposal waits.
    */
   async apply(extension: string, action: string, writes: readonly BlockWrite[], requestedBy: MutationProvenance | undefined, hostId: string | undefined, trigger?: TriggerWrite): Promise<GroupOutcome> {
+    const source = hostId ? this.store.get(hostId) : null;
+    // Slicers carry the person's words, even when a scheduled extension made the copy.
+    if (source && !personAsk(requestedBy)) {
+      const keys = personRequestKeys(this.store, source.id);
+      if (keys.length) requestedBy = { author: "system", ...requestedBy, invocationRequests: keys };
+    }
     const plan = this.plan(action, writes, trigger);
     const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension), ...(trigger ? { taskId: `trigger:${trigger.rule}` } : {}) };
     const attribution = this.store.changes.attribution({ action, actor, ...(requestedBy ? { requestedBy } : {}) });
@@ -370,8 +378,7 @@ export class ExtensionWrites {
         if (raw.as !== undefined && names.has(raw.as)) throw new Error(`${action} names two new blocks ${raw.as}; ${nothing}`);
         const written = cleanExtensionText(rewriteDemoReferences(raw.text, names), true);
         const text = trigger ? markTriggered(written, trigger.rule) : written;
-        // An @name line it writes lands as written: a trigger's block asks its own extension's agents at once, any other
-        // is held, marked with why, for a person's `r` (src/agent-requests.ts holdWritten). Never a refused write.
+        // Request lines land unchanged; agent-requests applies the shared wake and loop rules.
         const id = crypto.randomUUID();
         if (raw.as !== undefined) names.set(raw.as, id);
         structure.push({ op: "create", id, parentId, text, ...(raw.position !== undefined ? { position: raw.position } : {}) });

@@ -34,6 +34,8 @@ describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, a
     cpSync(resolve(import.meta.dir, "../../outliner/extensions/tidy"), join(dir, "tidy"), { recursive: true });
     board = new SocketBoard(await scratch.start());
     await board.info();
+    await board.createBlock(null, "One wake [invoke-from::loki] [invoke-to::tidy] [cap::1/day]");
+    await board.createBlock(null, "First\n*  tidy  this\n@tidy", { kind: "agent", id: "loki" });
     const held = await board.createBlock(null, "Reply to the swap thread\n*  messy  line\n@tidy", { kind: "agent", id: "loki" });
     ids.held = held.id;
     const term = { info: { cols: 160, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
@@ -49,7 +51,7 @@ describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, a
   afterAll(async () => { app?.heldAsks.stop(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
 
   test("the service says what is held and why; the door's copy and the status bar's count follow", async () => {
-    expect(app.heldAsks.list()[0]).toMatchObject({ blockId: ids.held, agent: "tidy", request: "", why: "loki may not wake @tidy · r to send", by: "agent:loki", line: 2 });
+    expect(app.heldAsks.list()[0]).toMatchObject({ blockId: ids.held, agent: "tidy", request: "", why: "cap: “One wake” is capped at 1/day, and it's used up today · r to send", by: "agent:loki", line: 2 });
     expect(await board.heldAsks()).toHaveLength(1);
   }, 60_000);
 });

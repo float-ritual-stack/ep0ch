@@ -117,6 +117,8 @@ export interface BlockProvenance {
 }
 
 export interface MutationProvenance {
+  /** Exact request keys copied from the person; only these inherit their ask. */
+  invocationRequests?: readonly string[];
   author: BlockAuthor;
   actorId?: string;
   sessionId?: string;

@@ -2961,7 +2961,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     void app.heldAsks.seed(board);
     await until(() => app.heldAsks.count() === 1, "the held request", 8000);
     const held = () => (stage().pane("waiting").describe() as any[]).filter(r => r.kind === "held");
-    expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: "Reply to the seed swap thread", why: "showcase-seed may not wake @tidy · r to send" }]);
+    expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: "Reply to the seed swap thread", why: "cap: “Showcase wake cap” is capped at 1/day, and it's used up today · r to send" }]);
     await until(() => bar().includes("‼1"), "the count in the status bar");
     await until(() => screen().includes("@tidy · Reply to the seed swap thread"), "the row");
     // An agent opens it, never sends it.
