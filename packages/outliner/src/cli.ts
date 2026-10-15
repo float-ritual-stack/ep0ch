@@ -220,6 +220,10 @@ if (process.argv[2] === "resource") {
   const { runResourceCommand } = await import("./resource-cli");
   process.exit(await runResourceCommand(process.argv.slice(3)));
 }
+if (process.argv[2] === "keys") {
+  const { runKeysCommand } = await import("./keys-cli");
+  process.exit(await runKeysCommand(process.argv.slice(3)));
+}
 if (process.argv[2] === "ext") {
   const { runExtCommand } = await import("./extension-install");
   process.exit(await runExtCommand(process.argv.slice(3)));

@@ -48,6 +48,7 @@ import { ExtensionPages } from "./extension-pages";
 import { addExtension, removeExtension } from "./extension-install";
 import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse } from "./resource-extensions";
 import { readGroupSecrets, secretGroupAllowed } from "./extension-secrets";
+import { extensionKeyLines, keyRows, scopeAllows, scopesFor, readScopes } from "./secret-keys";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
 import { extensionActorId, isExtensionActor } from "./extension-records";
@@ -482,7 +483,7 @@ export class OutlinerServer {
       // The extensions' pages are written again when what they're made from changed (a read-only copy writes nothing).
       onReload: () => { if (!this.readOnly) void this.syncExtensionPages(false); },
     });
-    this.extensionPages = new ExtensionPages(store, this.extensionRegistry, { builtIns: BUILT_IN_EXTENSIONS });
+    this.extensionPages = new ExtensionPages(store, this.extensionRegistry, { builtIns: BUILT_IN_EXTENSIONS, outline: () => this.outline?.name });
     // Jira's Resource path reads the same folders, so a jira folder in the outline works like the user's.
     const catalogClient = store.resources.remoteEntityProviderClient;
     // Every extension process reaches the service the way a tile program does (PIE-754): this socket, this outline.
@@ -1941,7 +1942,10 @@ export class OutlinerServer {
             const schedules = entry.state === "active" || entry.state === "failed" ? this.extensionSchedules.list(entry.id) : [];
             // Its last call (any kind): when, which, and why it failed (a crash's last stderr lines, scrubbed).
             const lastRun = this.extensionRuntime.lastRun(entry.id);
-            return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}) };
+            // Which keys it names, present or missing (names only, PIE-887).
+            const loaded = this.extensionRegistry.loaded(entry.id);
+            const keys = loaded ? extensionKeyLines(loaded, this.outline?.name) : [];
+            return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}), ...(keys.length ? { keys } : {}) };
           });
           // Resource providers: the folders' (listed) and the legacy registry's.
           result = { ...listed, extensions, resourceProviders: this.resourceProviders, ...this.extensionRules.list(), ...this.extensionPagesListed() };
@@ -3968,8 +3972,18 @@ export class OutlinerServer {
     if (!secretGroupAllowed(grant.secretGroups, group)) {
       throw new Error(`${who} may not ask for the secret group ${group}: its extension.json's secretGroups ${grant.secretGroups?.length ? `names ${grant.secretGroups.join(", ")}` : "is empty"}; add "${group}" (or "*")`);
     }
+    // Scoped keys (ep0ch keys grant): a key the person scoped to someone else isn't handed over, named or not.
+    const asker = { extension: grant.extensionId, ...(grant.outline ? { outline: grant.outline } : {}) };
+    const scopes = readScopes();
+    const inGroup = keyRows().filter((row) => row.group === group).map((row) => row.key);
+    const refused = (keys as string[] | undefined ?? inGroup).filter((key) => !scopeAllows(scopesFor(scopes, group, key), asker));
+    if (keys !== undefined && refused.length) {
+      throw new Error(`${who} may not have ${refused.join(", ")} from the secret group ${group}: scoped to ${scopesFor(scopes, group, refused[0]!).join(", ")}; the person grants it: ep0ch keys grant ${group}/${refused[0]} ext:${asker.extension}${asker.outline ? `@${asker.outline}` : ""}`);
+    }
+    const allowedKeys = keys === undefined && refused.length ? inGroup.filter((key) => !refused.includes(key)) : (keys as string[] | undefined);
+    if (allowedKeys && !allowedKeys.length) throw new Error(`${who} may have none of the secret group ${group}'s keys: scoped away; the person grants one: ep0ch keys grant ${group}/<KEY> ext:${asker.extension}`);
     // On macOS a group with no file is read from the Keychain, as with-secrets reads it.
-    const values = await readGroupSecrets(group, `${who}'s secret group`, keys as string[] | undefined, process.platform === "darwin" ? keychainItem : undefined);
+    const values = await readGroupSecrets(group, `${who}'s secret group`, allowedKeys, process.platform === "darwin" ? keychainItem : undefined);
     for (const value of Object.values(values)) if (!grant.secrets.includes(value)) grant.secrets.push(value);
     return { group, values };
   }

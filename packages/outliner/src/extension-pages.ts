@@ -1,3 +1,4 @@
+import { extensionKeyLines, keyLineWords } from "./secret-keys";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -54,6 +55,8 @@ export interface ExtensionPagesOptions {
   /** The repo's extensions, the ones `ext add <name>` copies (extension-registry's BUILT_IN_EXTENSIONS). */
   readonly builtIns: string;
   readonly now?: () => Date;
+  /** The outline this host serves this one as (a key scoped to an outline is judged by it). */
+  readonly outline?: () => string | undefined;
 }
 
 /** What `removeDemo` did: notes moved to Trash, and the ones kept because someone changed them. */
@@ -466,6 +469,9 @@ export class ExtensionPages {
       const adds = whatItAdds(loaded.manifest);
       if (adds.length) lines.push("", "## What it adds", "", ...adds);
     }
+    // Its keys (PIE-887): each named secret present or missing, by name and place; never a value.
+    const keys = loaded ? extensionKeyLines(loaded, this.options.outline?.()) : [];
+    if (keys.length) lines.push("", "## Keys", "", ...keys.map((line) => `- ${keyLineWords(line)}`));
     const changelog = readText(join(directory, "CHANGELOG.md"));
     if (changelog?.trim()) lines.push("", "## Changelog", "", changelogHead(changelog));
     if (demo.problem) lines.push("", "## Demo", "", `Its demo can't be written: ${words(demo.problem)}`);

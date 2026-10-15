@@ -1,3 +1,4 @@
+import { keyLineWords } from "./secret-keys";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { chmod, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { checkServiceCompatibility } from "./service-compatibility";
@@ -290,7 +291,10 @@ function problem(entry: ExtensionsListResult["extensions"][number]): string {
   if (entry.error) return `${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`;
   if (entry.lastRun && !entry.lastRun.ok) return `last call ${entry.lastRun.call} failed ${entry.lastRun.at}: ${entry.lastRun.error ?? ""}`;
   const failed = (entry.schedules ?? []).find((schedule) => schedule.last && !schedule.last.ok);
-  return failed ? `schedule ${failed.entry} failed ${failed.last!.at}: ${failed.last!.error ?? ""}` : "";
+  if (failed) return `schedule ${failed.entry} failed ${failed.last!.at}: ${failed.last!.error ?? ""}`;
+  // A key it names that isn't there (or isn't its to have): said by name, with the command in --long (PIE-887).
+  const lacking = (entry.keys ?? []).filter((key) => key.state !== "present" || !key.allowed);
+  return lacking.length ? `keys: ${lacking.map((key) => `${key.group}/${key.key} ${key.allowed ? key.state : "not allowed"}`).join(", ")}` : "";
 }
 
 /**
@@ -328,6 +332,7 @@ export function formatExtensionsList(list: ExtensionsListResult, long = false): 
     }
     // Its last call, when it failed: why, in its own (scrubbed) words.
     if (entry.lastRun && !entry.lastRun.ok) lines.push(`  last call ${entry.lastRun.call} failed ${entry.lastRun.at}: ${entry.lastRun.error ?? ""}`);
+    for (const key of entry.keys ?? []) lines.push(`  key ${keyLineWords(key)}`);
     if (entry.error) lines.push(`  ${entry.state === "shadowed" ? "note" : "error"}: ${entry.error}`);
   }
   if (!long && list.extensions.length) lines.push("", "ext ls --long adds each one's folder, action arguments and schedules.");
@@ -397,10 +402,10 @@ const USAGE = `usage: outliner ext ls [--long] [--json]
   outline's Extensions hub, with its demo notes once; remove keeps the demo notes unless --demo remove.
   Extensions are trusted code, not a sandbox: they run as the service user.`;
 
-interface ExtClient { request<T>(input: Record<string, unknown>): Promise<T> }
+export interface ExtClient { request<T>(input: Record<string, unknown>): Promise<T> }
 
 /** The running service for this folder's outline or EP0CH_WS's, or null when none answers. */
-async function serviceClient(): Promise<ExtClient | null> {
+export async function serviceClient(): Promise<ExtClient | null> {
   try {
     const { resolveClientPaths } = await import("./paths");
     const { createOutlinerClient } = await import("./client");
