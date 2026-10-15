@@ -10,6 +10,7 @@ import { WhatChanged } from "../src/desk/what-changed";
 import type { Msg } from "../src/board";
 import { SocketBoard, type Actor } from "../src/socket";
 import type { Key } from "../src/term";
+import { readState, writeState } from "../src/state";
 import { outliner, Scratch, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
@@ -115,6 +116,36 @@ describe.skipIf(!outliner)("what changed", () => {
     await other.seed(board);
     expect(other.count()).toBe(0);
   });
+
+  test("a door that starts long after the person looked catches up to now, not to the oldest changes since (PIE-891)", async () => {
+    const at = board.lastSequence;
+    writeState("changes-seen.json", { ...(readState<Record<string, number>>("changes-seen.json") ?? {}), late: at });
+    for (let i = 0; i < 520; i++) await board.createBlock(null, i === 519 ? "Newest note" : `Backlog note ${i}`, AGENT);
+    const started = new WhatChanged();
+    started.outline = "late";
+    await started.seed(board);
+    const titles = started.list().map(r => r.blockId);
+    // The newest change is listed (the feed's first page holds only the oldest 500).
+    expect(started.list()[0]!.sequence).toBeGreaterThanOrEqual(board.lastSequence);
+    expect(titles.length).toBeGreaterThan(500 - 1);
+    expect(started.count()).toBe(520);
+  }, 60_000);
+
+  test("a note trashed or purged is no stack of (gone): a trashed one is a row that says what it was, a purged one and the notes under it leave none (PIE-891)", async () => {
+    const old = await board.createBlock(null, "Old fence\nrotten posts", AGENT);
+    writeState("changes-seen.json", { ...(readState<Record<string, number>>("changes-seen.json") ?? {}), trash: (await board.changesSince(Number.MAX_SAFE_INTEGER)).sequence });
+    const shed = await board.createBlock(null, "Shed clear-out", AGENT);
+    for (const t of ["Sort the tools", "Bin the paint", "Sweep"]) await board.createBlock(shed.id, t, AGENT);
+    await board.trash(shed.id, AGENT);
+    await board.request("trash.purge", { blockId: shed.id, confirmation: shed.id.slice(0, 8) });
+    await board.trash(old.id, AGENT);
+    const started = new WhatChanged();
+    started.outline = "trash";
+    await started.seed(board);
+    await started.titles(board);
+    const rows = started.list().map(r => [r.title, r.kind]);
+    expect(rows).toEqual([["Old fence", "trashed"]]);
+  }, 20_000);
 
   test("a refreshing extension doesn't hide an agent's unseen change; held-back extension writes stay unseen; unseen rows outlive the limit", () => {
     const w = new WhatChanged();

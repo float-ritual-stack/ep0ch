@@ -28,6 +28,8 @@ export const WHAT_CHANGED_KIND_NAME = "what-changed";
 const SEEN_FILE = "changes-seen.json";
 /** How many notes the list keeps (the newest). */
 const KEEP = 200;
+/** The most pages of the feed a start reads (500 changes each). */
+const MAX_SEED_PAGES = 40;
 
 /** One note as the list has it: its latest change, and whether anyone has looked since. */
 export interface ChangedRow {
@@ -86,10 +88,17 @@ export class WhatChanged extends OutlineStore {
     this.seenTo = kept;
     this.ready = (async () => {
       try {
-        const page = await board.changesSince(kept);
-        if (page.kind === "reset") { this.seenTo = page.sequence; this.save(); return; }
-        // Replayed oldest first, so each note ends on its latest.
-        for (const c of page.changes) this.add(c);
+        // The feed answers a page at a time, oldest first: read on until it says it is complete, or the list's own bound
+        // is far past (a door started long after the person looked would otherwise list only the oldest page, PIE-891).
+        let from = kept;
+        for (let pages = 0; pages < MAX_SEED_PAGES; pages++) {
+          const page = await board.changesSince(from);
+          if (page.kind === "reset") { if (pages === 0) { this.seenTo = page.sequence; this.save(); } return; }
+          // Replayed oldest first, so each note ends on its latest.
+          for (const c of page.changes) this.add(c);
+          if (page.completeness.kind === "complete" || page.nextSequence <= from) break;
+          from = page.nextSequence;
+        }
         this.notify();
       } catch { /* the feed isn't reachable yet: live events fill the list */ }
     })();
@@ -158,11 +167,13 @@ export class WhatChanged extends OutlineStore {
     this.notify();
   }
 
-  /** Titles for rows that have none yet, read from the board (a trashed or purged note reads as gone). */
+  /** Titles for rows that have none yet, read from the board (a purged note's row goes). */
   async titles(board: Pick<SocketBoard, "get">) {
     const todo = [...this.rows.values()].filter(r => r.title === undefined || r.retitle);
     await Promise.all(todo.map(async r => {
-      try { const m = await board.get(r.blockId); r.title = m ? subject(m) : "(gone)"; delete r.retitle;
+      // A note the service no longer has (purged from the trash, with the notes under it) is no news: its row goes, where it
+      // used to stay as "(gone)", a stack of them (PIE-891). A trashed one is still read, and says so.
+      try { const m = await board.get(r.blockId); if (!m) { this.rows.delete(r.blockId); return; } r.title = subject(m); delete r.retitle;
         if (m?.props["work-id"]) r.workId = m.props["work-id"]; else delete r.workId;
         if (m?.props.page) r.page = m.props.page; else delete r.page; } catch { r.title = "(unreadable)"; }
     }));
