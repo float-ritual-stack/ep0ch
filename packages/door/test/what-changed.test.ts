@@ -177,21 +177,25 @@ describe.skipIf(!outliner)("what changed", () => {
 
   test("changes already read remain visible if the host stops between feed pages", async () => {
     const started = new WhatChanged();
-    started.outline = "late";
+    started.outline = "interrupted";
+    const at = (await board.changesSince(Number.MAX_SAFE_INTEGER)).sequence;
+    writeState("changes-seen.json", { ...(readState<Record<string, number>>("changes-seen.json") ?? {}), interrupted: at });
+    const first = await board.createBlock(null, "Read before the host stops", AGENT);
+    await board.createBlock(null, "Waiting on the next page", AGENT);
     let visible: string[] = [];
     started.subscribe(() => { visible = started.list().map(r => r.blockId); });
     const reader = new SocketBoard(scratch.sock);
     const readPage = reader.changesSince.bind(reader);
     reader.changesSince = async from => {
-      const page = await readPage(from);
+      const page = await readPage(from, 1);
       // Stop the real host at the page boundary, before the next request can reach it.
       await scratch.stop();
       return page;
     };
     try {
       await started.seed(reader);
-      expect(started.count()).toBeGreaterThan(0);
-      expect(visible).toEqual(started.list().map(r => r.blockId));
+      expect(started.list().map(r => r.blockId)).toEqual([first.id]);
+      expect(visible).toEqual([first.id]);
     } finally { reader.close(); }
   }, 20_000);
 
