@@ -9,7 +9,15 @@ const child = Bun.spawn(["setsid", "sh", "-c", `exec 2>&1; ${command}`], { stdou
 let timedOut = false;
 const timer = setTimeout(() => { timedOut = true; try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); } }, Number(timeoutArg));
 const drained = new Response(child.stdout).text();
-const out = await Promise.race([drained, child.exited.then(() => Bun.sleep(1500)).then(() => drained)]).catch(() => "");
+// A command that left something holding its output open is given a moment after it exits, then its output so far is taken.
+// That moment is a timer to cancel once the output is in: left pending it kept this process alive 1.5 s after every step.
+let grace: ReturnType<typeof setTimeout> | undefined;
+let taken = false;
+const lingering = child.exited.then(() => new Promise<void>((resolve) => { if (!taken) grace = setTimeout(resolve, 1500); else resolve(); })).then(() => drained);
+const out = await Promise.race([drained, lingering]).catch(() => "");
+taken = true;
+clearTimeout(grace);
 const code = await child.exited;
 clearTimeout(timer);
+clearTimeout(grace);
 process.stdout.write(JSON.stringify({ exit: timedOut ? 124 : code, timedOut, output: plain(out).slice(-65_536) }));

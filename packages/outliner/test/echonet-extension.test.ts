@@ -2,7 +2,7 @@
 // attic), the repo's extensions/echonet copied into its user folder, areas and subscriptions between them, and tosses
 // driven by hand; and a second machine through the fake ssh. Every note is made up.
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -423,7 +423,7 @@ test("netmail both ways; nothing bounces between nodes that read each other; an 
 }, 90_000);
 
 test("a packet is imported only onto what the receiver publishes; a bulletin only for a subscription that reads it", async () => {
-  const { machine, socket: sock, toss, create, threads, lastLog } = await setup(["shack", "cafe"]);
+  const { machine, socket: sock, toss, create, threads, lastLog, outlines } = await setup(["shack", "cafe"]);
   const kept = await create("shack", "The shed's own notes, in no area");
   const offered = await create("shack", "Recon: the pond pump hums [echo::recon]");
   await toss("shack");
@@ -460,6 +460,11 @@ test("a packet is imported only onto what the receiver publishes; a bulletin onl
     await send(sock, { outline: "shack", action: "echonet.put", from: `cafe@${machine}`, packet: { ...packet, bulletin: undefined, items: [{ ...packet.items[0], key: `cafe@${machine}/00000000-0000-4000-8000-0000000000cc`, body: "or the impeller?" }] } });
     for (let i = 0; i < 100 && (await threads("shack", offered.id)).length < 2; i += 1) await Bun.sleep(100);
     expect((await threads("shack", offered.id)).map((thread) => thread.body)).toEqual(["is it the bearing?", "or the impeller?"]);
+    // The note is written part-way through that toss: it goes on (its nodelist, its log) and lets go of its lock when
+    // it is done. The test ends only then, or the host is closed under a toss still writing, and the next test is the
+    // one that sees the reset (PIE-893).
+    for (let i = 0; i < 300 && existsSync(join(outlines, "shack", "echonet", "toss.lock")); i += 1) await Bun.sleep(100);
+    expect(existsSync(join(outlines, "shack", "echonet", "toss.lock"))).toBe(false);
   } finally {
     process.env.EP0CH_ECHONET_ARRIVAL_TOSS = "0";
   }

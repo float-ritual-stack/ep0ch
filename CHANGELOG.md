@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Runbook steps no longer take 1.5 s longer than their command (PIE-893)
+
+- **Fixed:** the runbook's wrapper left a 1.5 s timer pending after every command, so each step ended 1.5 s after its
+  command did (a three-step "run all" took 4.7 s for a few `echo`s). It now ends when the output is in; a command that left
+  something holding its output open is still waited for, for a moment, as before.
+
 ### A link in a property's value is an edge (PIE-874)
 
 PROTOCOL 174: outline-core's property grammar now finds links in values (`propertyValueLinks`).

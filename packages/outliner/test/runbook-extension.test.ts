@@ -151,3 +151,22 @@ test("a command that outlives its timeout is stopped, with its children, and rec
   expect(Date.now() - started).toBeLessThan(30_000);
   expect((await kids(slow.id))[0]).toContain("[run.exit::124]");
 }, 20_000);
+
+// PIE-893: wrap.ts left a 1.5 s timer pending after every command, so each step took 1.5 s more than its command and the
+// whole-run test (three steps, 5 s) sat at 4.7 s with nothing else wrong. The old wrap never ended before 1500 ms.
+test("a step's wrapper ends when the command's output is in, not 1.5 s later; a holder of the output is still waited for", async () => {
+  const wrap = join(import.meta.dir, "..", "extensions", "runbook", "wrap.ts");
+  const run = async (command: string) => {
+    const started = performance.now();
+    const child = Bun.spawn([process.execPath, wrap, "20000", command], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+    const out = await new Response(child.stdout).text();
+    await child.exited;
+    return { ms: performance.now() - started, ...(JSON.parse(out) as { exit: number; output: string }) };
+  };
+  const quick = await run("echo hi");
+  expect(quick).toMatchObject({ exit: 0, output: "hi\n" });
+  expect(quick.ms).toBeLessThan(1400);
+  // Something the command left running keeps the output open: what it says before it lets go is kept.
+  const held = await run("(sleep 0.4; echo late) & echo early");
+  expect(held.output).toBe("early\nlate\n");
+});
