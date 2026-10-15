@@ -21,7 +21,7 @@ import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizing } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, lineWords, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
@@ -57,6 +57,7 @@ import { isOutlineNote, openResource, resourceRefTarget } from "../authored";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
+import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
 import { DRAWER_NAME, DRAWER_TILE_ID } from "./agent-env";
@@ -5104,10 +5105,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * person's opens over the screen at `at` ("col,row"), else under the tile's ⋯; an agent's answers the rows and draws
    * nothing, never taking the person's keys.
    */
-  tileMenu(sel: string | undefined, at: string | undefined, actor: Actor): TileDone {
+  tileMenu(sel: string | undefined, at: string | undefined, actor: Actor, q = ""): TileDone {
     const t = this.tile(sel);
-    const rows: MenuRow[] = this.dispatch.menu(t.name, actor);
-    if (actor.kind === "agent") return { tile: t.name, rows };
+    const every: MenuRow[] = this.dispatch.menu(t.name, actor);
+    // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
+    const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
+    if (actor.kind === "agent") return { tile: t.name, rows, ...(q.trim() ? { of: every.length } : {}) };
     let anchor: { col: number; row: number; right?: boolean };
     if (at !== undefined) {
       const m = /^(\d+),(\d+)$/.exec(at.trim());
@@ -5118,7 +5121,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const b = this.menuButtons.find(x => x.id === t.id), r = this.rectsNow().get(t.id) ?? (this.isFloat(t.id) ? this.floatRect(this.floats.find(f => f.id === t.id)!) : undefined);
       anchor = b ? { col: b.from, row: b.row + 1, right: true } : r ? { col: r.col + r.cols - 1, row: r.row + 1, right: true } : { col: 0, row: 0 };
     }
-    this.overlays.push(tileMenu<Desk>({ title: this.nameOf(t.id), rows, at: anchor }));
+    this.overlays.push(tileMenu<Desk>({ title: this.nameOf(t.id), rows: every, at: anchor, ...(q ? { q } : {}) }));
     this.redraw();
     return { tile: t.name, open: true, rows };
   }

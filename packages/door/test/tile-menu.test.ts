@@ -11,6 +11,7 @@ import { SocketBoard } from "../src/socket";
 import type { MenuRow } from "../src/surface/dispatch";
 import { declaredKeys } from "../src/surface/actions";
 import { visible } from "../src/style";
+import { litCells } from "../src/bar/filter";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -150,6 +151,87 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     press(1, 46);
     expect(menu()).toBeNull();
     expect(treeNames()).toEqual(before);
+  });
+
+  test("typing in the menu filters it (PIE-879): the power bar's matcher, the query on the top row, empty groups gone; backspace widens, esc clears then closes, ⏎ runs the top row", async () => {
+    fresh();
+    await until(() => !!D().pane("reader")?.msg, "the reader shows a note");
+    render();
+    key(ctrl("w")); key(char("."));
+    await until(() => menu()?.name === "tile menu", "^W . opens it");
+    const all = menu()!.items.length;
+    expect(all).toBeGreaterThan(8);
+    expect(screen()).toContain("type to filter");
+    // Letters are the query, not rows' keys: "f" would have been ^W f's float only after a ^W; "e" is the reader's edit key.
+    for (const c of "zoom") key(char(c));
+    const rows = () => menu()!.items.map(r => r.action);
+    expect(rows()).toContain("tile.zoom");
+    expect(rows().length).toBeLessThan(all);
+    expect(screen()).toContain("zoom");
+    expect(rows().every(a => !a.startsWith("edit"))).toBe(true);
+    // The query is on the box's top row, and the groups left are the ones with rows.
+    const lines = render().lines.map(visible);
+    const top = lines.findIndex(l => l.includes("┌─ reader"));
+    expect(lines[top + 1]).toContain("zoom");
+    const groups = [...new Set(menu()!.items.map(r => r.group))];
+    expect(groups.length).toBeLessThan(4);
+    // A query nothing matches says so; backspace widens it.
+    for (const c of "qq") key(char(c));
+    expect(menu()!.items.length).toBe(0);
+    expect(screen()).toContain("no row matches");
+    key({ kind: "backspace" }); key({ kind: "backspace" });
+    expect(rows()).toContain("tile.zoom");
+    // Esc clears the query first (the menu stays, whole again), then puts the menu away.
+    key({ kind: "esc" });
+    expect(menu()?.items.length).toBe(all);
+    key({ kind: "esc" });
+    expect(menu()).toBeNull();
+    // ⏎ runs the top row of what's left; a chord still runs its row from a typed query.
+    key(ctrl("w")); key(char("."));
+    await until(() => menu()?.name === "tile menu", "open again");
+    for (const c of "zoom") key(char(c));
+    const topRow = menu()!.items[0]!;
+    key({ kind: "enter" });
+    await until(() => menu() === null, "⏎ ran the top row");
+    expect(topRow.action).toBe("tile.zoom");
+    expect(D().zoom).not.toBeNull();
+    await mine("tile.zoom", { on: false }, "reader");
+    key(ctrl("w")); key(char("."));
+    await until(() => menu()?.name === "tile menu", "open again");
+    key(char("z")); key(ctrl("w")); key(char("f"));
+    await until(() => menu() === null, "^W f ran the float row from a typed query");
+    await mine("tile.float", {}, "reader");
+    // A click on a row still works while filtered.
+    key(ctrl("w")); key(char("."));
+    await until(() => menu()?.name === "tile menu", "open again");
+    for (const c of "zoo") key(char(c));
+    const ls = render().lines.map(visible), y = ls.findIndex(l => l.includes(" zoom ")), x = ls[y]!.indexOf("zoom");
+    press(x, y);
+    await until(() => D().zoom !== null && menu() === null, "a click on the filtered row ran it");
+    await mine("tile.zoom", { on: false }, "reader");
+  });
+
+  test("the letters a query matches are lit: a word where it sits, else its letters in order", () => {
+    expect([...litCells("preview beside", "view")]).toEqual([3, 4, 5, 6]);
+    expect([...litCells("fold to a spine", "fsp")].sort((a, b) => a - b)).toEqual([0, 10, 11]);
+    expect([...litCells("float", "xyz")]).toEqual([]);
+    expect([...litCells("tune its look", "tune look")].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 9, 10, 11, 12]);
+  });
+
+  test("an agent's tile.menu q=<text> answers the rows that match, and how many there are", async () => {
+    fresh();
+    await until(() => !!D().pane("reader")?.msg, "the reader shows a note");
+    const out = await act("tile.menu", { q: "zoom" }, "reader") as { rows: MenuRow[]; of: number };
+    expect(out.rows.map(r => r.action)).toContain("tile.zoom");
+    expect(out.rows.length).toBeLessThan(out.of);
+    expect(menu()).toBeNull();
+    // The person's, opened with a query typed.
+    await mine("tile.menu", { q: "zoom" }, "reader");
+    await until(() => menu()?.name === "tile menu", "the menu opens");
+    expect(menu()!.items.map(r => r.action)).toContain("tile.zoom");
+    expect(menu()!.items.length).toBe(out.rows.length);
+    key({ kind: "esc" }); key({ kind: "esc" });
+    expect(menu()).toBeNull();
   });
 
   test("a row that would be refused is dimmed with why; choosing it says why and does nothing", async () => {

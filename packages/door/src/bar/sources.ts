@@ -14,7 +14,7 @@ import { notConfigured, jevOff, SEARCH_JEV_PAUSE_MS } from "../surface/completer
 import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
-import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
+import { filtered } from "./filter";
 import { hyperKeysOf, hyperOn } from "../hyper";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
@@ -23,19 +23,6 @@ import { extensionList } from "../extensions";
 
 /** The tiles a screen holds: a desk, or the desk inside it (the showcase's section). */
 export function tilesOf(s: Screen | undefined): Desk | null { return s instanceof Desk ? s : s?.tilesHere?.() ?? null; }
-
-/**
- * Rows kept whose fields match `q` (outline-core's matcher, as every filter over rows the door holds); those whose
- * label starts with what's typed, then holds it, come first, the rest keeping their order.
- */
-function filtered(rows: BarRow[], q: string, fields: (r: BarRow) => string[]): BarRow[] {
-  const query = prepareSearchQuery(q);
-  if (!query) return rows;
-  // No typo forgiveness over names and keys: a short tile name or action is matched as typed.
-  const kept = rows.filter(r => matchesSearchText(query, fields(r), { typos: false })), t = q.trim().toLowerCase();
-  const rank = (r: BarRow) => (r.label.toLowerCase().startsWith(t) ? 0 : r.label.toLowerCase().includes(t) ? 1 : 2);
-  return kept.map((r, i) => ({ r, i, k: rank(r) })).sort((a, b) => a.k - b.k || a.i - b.i).map(x => x.r);
-}
 
 /** What a tile row carries: where the tile is (a screen, or the drawer) and its name there. */
 interface TileAt {
