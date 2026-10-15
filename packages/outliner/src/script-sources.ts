@@ -14,7 +14,7 @@ export async function scriptSources(store: OutlinerStore): Promise<ManifestSourc
     const id = `script-${hash(identity).slice(0, 24)}`;
     sources.push({
       expectedId: id, idFrom: identity, origin: "outline", directory: store.workspaceRoot ?? "",
-      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, actions: [{ id: "run", label: `Run ${name}`, on: "outline", effects: "write" }] }),
+      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as ${script.author.actorId ?? script.author.author}; progress goes into a run note`, on: "outline", effects: "write" }] }),
       configRaw: "{}", script, stamp: hash(JSON.stringify(script)),
     });
   };
