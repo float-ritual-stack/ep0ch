@@ -21,4 +21,6 @@ test("a revision that only moved property tokens is bookkeeping; one that change
   expect(bookkeepingOnly("Mend the gate [work-stage::doing]", "Mend the gate [work-stage::doing] [done-at::today]")).toBe(true);
   expect(bookkeepingOnly("Mend the gate [work-stage::doing]", "Mend the fence [work-stage::doing]")).toBe(false);
   expect(bookkeepingOnly("same", "same")).toBe(false);
+  expect(bookkeepingOnly("first\nsecond", "first second")).toBe(false);
+  expect(bookkeepingOnly("first  second [status::open]", "first second [status::open]")).toBe(false);
 });

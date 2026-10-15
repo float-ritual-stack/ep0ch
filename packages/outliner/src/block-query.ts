@@ -890,7 +890,8 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
     case "compare": {
       const wall = wallClock(now), bound = readBound(expression.value, wall), key = expression.key, op = expression.op;
       // `revision >= 2` is the block's own revision (PIE-867): a note saved more than once, as `unread:` reads it.
-      return (subject, properties, scope = "block") => (key === "revision" && subject.revision !== undefined && valueHolds(String(subject.revision), op, bound, wall) === true) || properties.some(p =>
+      if (key === "revision") return subject => subject.revision !== undefined && valueHolds(String(subject.revision), op, bound, wall) === true;
+      return (_subject, properties, scope = "block") => properties.some(p =>
         p.key === key && (scope === "all" || ("scope" in p ? p.scope : "block") === scope) && valueHolds(p.value, op, bound, wall) === true);
     }
     case "time": {

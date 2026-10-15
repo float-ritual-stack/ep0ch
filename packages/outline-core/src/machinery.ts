@@ -42,6 +42,6 @@ export const machineryAllows = (mode: MachineryMode, machinery: boolean): boolea
  * the same. Such a revision says nothing was written, only that something was marked.
  */
 export function bookkeepingOnly(before: string, after: string): boolean {
-  const bare = (text: string) => replacePropertyTokens(text, () => "").replace(/\s+/g, " ").trim();
+  const bare = (text: string) => replacePropertyTokens(text, () => "").replace(/[ \t]+$/gm, "");
   return before !== after && bare(before) === bare(after);
 }

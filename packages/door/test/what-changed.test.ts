@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { MainMenu } from "../src/screens";
 import { WhatChanged } from "../src/desk/what-changed";
 import type { Msg } from "../src/board";
 import { SocketBoard, type Actor } from "../src/socket";
@@ -115,6 +116,14 @@ describe.skipIf(!outliner)("what changed", () => {
     other.outline = "elsewhere";
     await other.seed(board);
     expect(other.count()).toBe(0);
+  });
+
+  test("the real menu includes hidden machinery in its total after the service changes a stamped note", async () => {
+    await board.createBlock(null, "Toss record [machine::echonet]", AGENT);
+    await until(() => app.whatChanged.allCount() === 2, "ordinary note and machinery received");
+    expect(app.whatChanged.count()).toBe(1);
+    const menu = new MainMenu();
+    expect(menu.render(app).lines.map(plain).join("\n")).toContain("since you logged on: 2 · 1 by people");
   });
 
   test("a door that starts long after the person looked catches up to now, not to the oldest changes since (PIE-891)", async () => {

@@ -90,10 +90,11 @@ test("by: and revision ask who wrote a note last and how often it was saved, so 
   const { client, make } = await setup();
   const asked = async (where: string) => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `${where} text~"orchard"`, limit: 50 } as never })).blocks.map(b => b.text.split(" [")[0]);
   const wall = await make("The orchard wall");
+  await make("The orchard ledger [revision::100]");
   const agent = await make("The orchard map", "agent");
   const stamped = await make("The orchard touch [machine::file-touch]", "agent");
   await client.request<Block>({ action: "update", blockId: wall.id, text: "The orchard wall, mended", expectedRevision: wall.revision, mutation: { author: "user" } } as never);
-  expect(await asked("by:user")).toEqual(["The orchard wall, mended"]);
+  expect((await asked("by:user")).sort()).toEqual(["The orchard ledger", "The orchard wall, mended"]);
   expect((await asked("by:agent")).sort()).toEqual(["The orchard map"]);
   expect(await asked("by:agent NOT machine")).toEqual(["The orchard map"]);
   expect(await asked("revision >= 2")).toEqual(["The orchard wall, mended"]);
