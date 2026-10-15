@@ -65,16 +65,28 @@ const octal = (mode: number) => mode.toString(8).padStart(3, "0");
 
 export const scopesPath = (env: NodeJS.ProcessEnv = process.env) => join(secretsDirectory(env), "scopes.json");
 
-/** The grants file: `group/KEY` (or `group`) to its scopes. A file that can't be read or parsed grants nothing extra (machine). */
-export function readScopes(env: NodeJS.ProcessEnv = process.env): Record<string, string[]> {
+/**
+ * The grants file: `group/KEY` (or `group`) to its scopes. No file is no grants (machine's, as before); a file that is
+ * there and can't be read or isn't what it should be is a problem, and a key is then handed to nobody (`scopeProblem`):
+ * a broken policy never opens what it was written to close.
+ */
+export function readScopesFile(env: NodeJS.ProcessEnv = process.env): { scopes: Record<string, string[]>; problem?: string } {
+  const path = scopesPath(env);
+  let text: string;
+  try { text = readFileSync(path, "utf8"); } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === "ENOENT" ? { scopes: {} } : { scopes: {}, problem: `${path} can't be read` };
+  }
   try {
-    const parsed = JSON.parse(readFileSync(scopesPath(env), "utf8")) as unknown;
-    if (!parsed || typeof parsed !== "object") return {};
-    return Object.fromEntries(Object.entries(parsed as Record<string, unknown>)
-      .filter(([, value]) => Array.isArray(value) && value.every((scope) => typeof scope === "string"))
-      .map(([name, value]) => [name, value as string[]]));
-  } catch { return {}; }
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    const bad = entries.find(([, value]) => !Array.isArray(value) || value.some((scope) => typeof scope !== "string" || checkScope(scope) !== null));
+    if (bad) return { scopes: {}, problem: `${path}: ${bad[0]} isn't a list of scopes` };
+    return { scopes: Object.fromEntries(entries.map(([name, value]) => [name, value as string[]])) };
+  } catch { return { scopes: {}, problem: `${path} isn't valid JSON` }; }
 }
+
+export const readScopes = (env: NodeJS.ProcessEnv = process.env): Record<string, string[]> => readScopesFile(env).scopes;
 
 /** A scope as written, or why it isn't one. */
 export function checkScope(scope: string): string | null {
@@ -105,7 +117,9 @@ export function scopeAllows(granted: readonly string[], asker: KeyAsker): boolea
 
 /** Why `asker` may not have `group/key`, with the command that grants it; null when it may. */
 export function scopeProblem(group: string, key: string, asker: KeyAsker, env: NodeJS.ProcessEnv = process.env): string | null {
-  const granted = scopesFor(readScopes(env), group, key);
+  const file = readScopesFile(env);
+  if (file.problem) return `${file.problem}, so ${key} in ${group} goes to no extension; fix or remove it (ep0ch keys grant rewrites it)`;
+  const granted = scopesFor(file.scopes, group, key);
   if (scopeAllows(granted, asker)) return null;
   const who = `ext:${asker.extension}${asker.outline ? `@${asker.outline}` : ""}`;
   return `${key} in ${group} is scoped to ${granted.join(", ")}, not ${asker.extension}${asker.outline ? ` in ${asker.outline}` : ""}; the person grants it: ep0ch keys grant ${group}/${key} ${who}`;

@@ -81,6 +81,8 @@ export async function runKeysCommand(args: readonly string[]): Promise<number> {
       return 0;
     }
     if (operation === "set" || operation === "grant" || operation === "revoke") {
+      // A terminal stands for the person here; it is a convention, not a boundary (an agent runs as the same user and can
+      // open one, as it can run with-secrets --add): scopes keep extensions to their keys, they don't sandbox the user's agents.
       if (process.stdin.isTTY !== true) throw new Error(`keys ${operation} is the person's: run it in a terminal (an agent asks them to: ep0ch keys ${operation} …)`);
     }
     if (operation === "set") {

@@ -48,7 +48,7 @@ import { ExtensionPages } from "./extension-pages";
 import { addExtension, removeExtension } from "./extension-install";
 import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse } from "./resource-extensions";
 import { readGroupSecrets, secretGroupAllowed } from "./extension-secrets";
-import { extensionKeyLines, keyRows, scopeAllows, scopesFor, readScopes } from "./secret-keys";
+import { extensionKeyLines, keyRows, scopeAllows, scopesFor, readScopesFile } from "./secret-keys";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import { RENDER_TARGETS, type RenderTarget } from "./component-primitives";
 import { extensionActorId, isExtensionActor } from "./extension-records";
@@ -3974,13 +3974,16 @@ export class OutlinerServer {
     }
     // Scoped keys (ep0ch keys grant): a key the person scoped to someone else isn't handed over, named or not.
     const asker = { extension: grant.extensionId, ...(grant.outline ? { outline: grant.outline } : {}) };
-    const scopes = readScopes();
+    const scopeFile = readScopesFile();
+    if (scopeFile.problem) throw new Error(`${who} gets no secret group: ${scopeFile.problem}; fix or remove it (ep0ch keys grant rewrites it)`);
+    const scopes = scopeFile.scopes;
     const inGroup = keyRows().filter((row) => row.group === group).map((row) => row.key);
     const refused = (keys as string[] | undefined ?? inGroup).filter((key) => !scopeAllows(scopesFor(scopes, group, key), asker));
     if (keys !== undefined && refused.length) {
       throw new Error(`${who} may not have ${refused.join(", ")} from the secret group ${group}: scoped to ${scopesFor(scopes, group, refused[0]!).join(", ")}; the person grants it: ep0ch keys grant ${group}/${refused[0]} ext:${asker.extension}${asker.outline ? `@${asker.outline}` : ""}`);
     }
-    const allowedKeys = keys === undefined && refused.length ? inGroup.filter((key) => !refused.includes(key)) : (keys as string[] | undefined);
+    // Named keys, or every key this extension may have: always an explicit list, never "the group as it is when it is read".
+    const allowedKeys = keys === undefined && inGroup.length ? inGroup.filter((key) => !refused.includes(key)) : (keys as string[] | undefined);
     if (allowedKeys && !allowedKeys.length) throw new Error(`${who} may have none of the secret group ${group}'s keys: scoped away; the person grants one: ep0ch keys grant ${group}/<KEY> ext:${asker.extension}`);
     // On macOS a group with no file is read from the Keychain, as with-secrets reads it.
     const values = await readGroupSecrets(group, `${who}'s secret group`, allowedKeys, process.platform === "darwin" ? keychainItem : undefined);

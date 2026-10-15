@@ -112,3 +112,20 @@ test("an extension's keys read as lines: present, missing, not allowed; names an
   expect(keyRows().find((row) => row.key === "JEV_API_KEY")!.scopes).toEqual(["ext:other"]);
   expect(JSON.stringify([lines, keyRows()])).not.toContain(VALUE);
 });
+
+test("a scopes file that is there but broken hands a key to nobody; grant rewrites it", () => {
+  const asker = { extension: "requests", outline: "gurgle" };
+  writeFileSync(join(dir, "scopes.json"), "{ not json");
+  expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toContain("isn't valid JSON, so JEV_API_KEY in typesafe goes to no extension");
+  writeFileSync(join(dir, "scopes.json"), JSON.stringify({ "typesafe/JEV_API_KEY": ["somebody"] }));
+  expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toContain("typesafe/JEV_API_KEY isn't a list of scopes");
+  writeFileSync(join(dir, "scopes.json"), JSON.stringify(["machine"]));
+  expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toContain("isn't a list of scopes");
+  // No file at all is the default, machine's.
+  rmSync(join(dir, "scopes.json"));
+  expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toBeNull();
+  // Writing a scope replaces a broken file with a good one.
+  writeFileSync(join(dir, "scopes.json"), "{ not json");
+  writeScopes("typesafe", "JEV_API_KEY", ["machine"]);
+  expect(scopeProblem("typesafe", "JEV_API_KEY", asker)).toBeNull();
+});

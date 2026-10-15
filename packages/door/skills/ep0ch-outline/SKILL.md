@@ -558,7 +558,10 @@ doesn't have the environment variable: the service reads the group when a call s
 - **Scopes:** a key is `machine`'s (any extension that names it) until the person narrows it:
   `ep0ch keys grant typesafe/TYPESAFE_API_KEY ext:requests --outline gurgle` (scopes: `machine`, `outline:<name>`,
   `ext:<id>`, `ext:<id>@<outline>`; `keys revoke` takes one away). The service checks the scope before it hands a key over; a
-  refusal says the command that grants it. They live in `scopes.json` beside the groups, which holds no value.
+  refusal says the command that grants it. They live in `scopes.json` beside the groups, which holds no value. A scopes file that is there but
+  broken hands a key to no extension until it is fixed. Scopes keep extensions to their keys; they cover `with-secrets` keys
+  (a `config.json` credential pointing at an env variable or a file is the person's own wiring), and they don't sandbox the
+  person's agents, who run as the same user.
 - **Where you see it:** `ep0ch ext ls --long` and the extension's page (a "Keys" section) say each key it names as present,
   missing or not allowed, by name.
 
