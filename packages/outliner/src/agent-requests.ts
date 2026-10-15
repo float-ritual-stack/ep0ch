@@ -7,6 +7,7 @@ import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown 
 import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
+import type { HeldAsk } from "@ep0ch/outline-core/protocol";
 import { decide, newChain, parseGrant, type InvocationChain, type InvocationGrant } from "./invocation-grants";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
@@ -183,9 +184,6 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error);
 }
 
-/** A request held for a person's `r`: where it is, who would answer, and why it waits. */
-export interface HeldAsk { blockId: string; /** The request line, from 0, in the note as saved (-1 when it is only in a draft). */ line: number; title: string; agent: string; extensionId: string; request: string; why: string; by: string; at: string }
-
 export class AgentRequests {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly running = new Set<string>();
@@ -331,15 +329,20 @@ export class AgentRequests {
   private today = {
     count: (id: string): number => { const w = this.wakes.get(id); return w && w.day === this.day() ? w.n : 0; },
     spend: (id: string): void => { const day = this.day(), w = this.wakes.get(id); this.wakes.set(id, { day, n: (w && w.day === day ? w.n : 0) + 1 }); },
+    unspend: (id: string): void => { const w = this.wakes.get(id); if (w && w.n > 0) w.n--; },
   };
   private day(): string { return new Date(this.now).toISOString().slice(0, 10); }
 
-  /** The chain an answer being written belongs to: the ask `actor` (an extension's agent) is answering in this note, if any. */
-  private parentChain(blockId: string, actor: MutationProvenance | undefined): InvocationChain | undefined {
+  /**
+   * The chain a write belongs to: an ask `actor` (an extension) is answering now, in any note (its answer, or its process
+   * writing elsewhere while it runs). With several, the longest, so no write slips into a shorter chain.
+   */
+  private parentChain(actor: MutationProvenance | undefined): InvocationChain | undefined {
     const id = actor?.actorId?.trim().toLowerCase().split("@", 1)[0];
     if (!id?.startsWith("ext:")) return undefined;
-    for (const ask of this.live.values()) if (ask.blockId === blockId && `ext:${ask.extensionId}` === id) return ask.chain;
-    return undefined;
+    let found: InvocationChain | undefined;
+    for (const ask of this.live.values()) if (`ext:${ask.extensionId}` === id && (!found || ask.chain.hops > found.hops)) found = ask.chain;
+    return found;
   }
 
   /**
@@ -351,8 +354,8 @@ export class AgentRequests {
    * block, whose own agents are asked at once instead. Returns the asks to start (`wakes`) once the lines are in the note,
    * and the keys it held.
    */
-  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain }[]; held: string[] } {
-    const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain }[], held: [] as string[] };
+  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; held: string[] } {
+    const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain; refund(): void }[], held: [] as string[] };
     const block = this.store.get(blockId);
     if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return out;
     const lines = requestLines(text, this.registry.agentNames());
@@ -360,7 +363,7 @@ export class AgentRequests {
     const answered = new Set(this.store.agentRequests(blockId).map((row) => row.requestKey));
     const by = actor?.actorId ? `agent:${actor.actorId}` : actor?.author ?? "system";
     const grants = this.grants();
-    const parent = this.parentChain(blockId, actor);
+    const parent = this.parentChain(actor);
     for (const line of lines) {
       // A person's line still waiting out its quiet is theirs, even in a save that an agent made too.
       if (before.has(line.requestKey) || answered.has(line.requestKey) || this.timers.has(this.key(blockId, line.requestKey))) continue;
@@ -368,7 +371,7 @@ export class AgentRequests {
       if (own?.actorId && `ext:${bound.extension.id}` === own.actorId.trim()) continue;
       answered.add(line.requestKey);
       const verdict = decide(grants, actor, line.agent, parent, this.today);
-      if (verdict.wake) { out.wakes.push({ requestKey: line.requestKey, by, chain: verdict.chain }); continue; }
+      if (verdict.wake) { out.wakes.push({ requestKey: line.requestKey, by, chain: verdict.chain, refund: verdict.refund }); continue; }
       out.held.push(line.requestKey);
       this.store.putAgentRequest({
         blockId, requestKey: line.requestKey, agent: line.agent, extensionId: bound.extension.id, request: line.request,
@@ -409,6 +412,8 @@ export class AgentRequests {
     const decided = this.holdWritten(blockId, added.map((line) => line.text).join("\n"), actor, new Set(this.store.agentRequestBaseline(blockId) ?? []));
     return (landed) => {
       if (landed) return this.wake(blockId, decided.wakes);
+      // Taken back: the allowance it would have spent is given back.
+      for (const wake of decided.wakes) wake.refund();
       if (decided.held.length) {
         const keep = this.store.agentRequests(blockId).map((row) => row.requestKey).filter((key) => !decided.held.includes(key));
         this.store.pruneAgentRequests(blockId, keep);

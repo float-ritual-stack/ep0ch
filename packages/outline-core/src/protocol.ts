@@ -298,6 +298,14 @@ export interface NotePlacement { parentId: string; at: "top" | "end"; rule: "nea
  */
 export const MCP_ACCESS_LEVELS = ["none", "read", "propose", "full"] as const;
 export type McpAccessLevel = typeof MCP_ACCESS_LEVELS[number];
+/**
+ * A request an agent or an extension wrote that waits for a person's `r` (PIE-888, `agents.held`): the note it is in
+ * (and the line, from 0, -1 when it is only in a draft), the agent that would answer, and why it waits.
+ */
+export interface HeldAsk {
+  blockId: string; line: number; title: string; agent: string; extensionId: string;
+  request: string; why: string; by: string; at: string;
+}
 /** `mcp.access.status` and `mcp.access.configure`'s answer. */
 export interface McpAccessStatus {
   level: McpAccessLevel;

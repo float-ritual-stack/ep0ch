@@ -37,6 +37,8 @@ export interface InvocationChain {
   readonly hops: number;
   /** Wakes the whole chain has spent, shared by every branch of it (`budget`). */
   readonly spent: { n: number };
+  /** The tightest `max-hops` and `budget` of the grants it came through: a later, looser grant doesn't lift them. */
+  readonly ceiling?: { readonly maxHops: number; readonly budget?: number };
 }
 
 export const newChain = (agent: string): InvocationChain => ({ agents: [agent], hops: 0, spent: { n: 0 } });
@@ -87,7 +89,7 @@ export function grantFromMatches(grant: InvocationGrant, actor: MutationProvenan
 export const grantToMatches = (grant: InvocationGrant, agent: string): boolean => grant.to.includes("all") || grant.to.includes(agent.toLowerCase());
 
 export type Verdict =
-  | { wake: true; grant: InvocationGrant; chain: InvocationChain }
+  | { wake: true; grant: InvocationGrant; chain: InvocationChain; /** Takes the wake back (the line never landed). */ refund(): void }
   /** Held: `why` is the line's reason after `held: `; `grant` the one that came closest, when one did. */
   | { wake: false; why: string };
 
@@ -96,7 +98,7 @@ export type Verdict =
  * ask whose answer wrote it; none for a writer that isn't answering one). `today` counts the grant's wakes today and is
  * told on a wake.
  */
-export function decide(grants: readonly InvocationGrant[], actor: MutationProvenance | undefined, agent: string, parent: InvocationChain | undefined, today: { count(id: string): number; spend(id: string): void }): Verdict {
+export function decide(grants: readonly InvocationGrant[], actor: MutationProvenance | undefined, agent: string, parent: InvocationChain | undefined, today: { count(id: string): number; spend(id: string): void; unspend(id: string): void }): Verdict {
   const who = actor?.actorId?.trim() || actor?.author || "system";
   const plain = { wake: false as const, why: `${who} may not wake @${agent} · r to send` };
   const usable = grants.filter((g) => !g.problem && grantFromMatches(g, actor) && grantToMatches(g, agent));
@@ -105,12 +107,18 @@ export function decide(grants: readonly InvocationGrant[], actor: MutationProven
   const refusals: string[] = [];
   for (const grant of usable) {
     if (chain.agents.includes(agent)) { refusals.push(`@${agent} is already in this chain (${[...chain.agents, agent].map((a) => `@${a}`).join(" → ")}), so a repeat is held`); continue; }
-    if (chain.hops + 1 > grant.maxHops) { refusals.push(`“${grant.title}” allows ${grant.maxHops} hop${grant.maxHops === 1 ? "" : "s"} and this would be hop ${chain.hops + 1}`); continue; }
-    if (grant.budget !== undefined && chain.spent.n >= grant.budget) { refusals.push(`“${grant.title}” gives a chain a budget of ${grant.budget} wake${grant.budget === 1 ? "" : "s"}, all spent`); continue; }
+    const maxHops = Math.min(grant.maxHops, chain.ceiling?.maxHops ?? Infinity);
+    if (chain.hops + 1 > maxHops) { refusals.push(`“${grant.title}” allows ${maxHops} hop${maxHops === 1 ? "" : "s"}${maxHops < grant.maxHops ? " (the chain's tightest grant)" : ""} and this would be hop ${chain.hops + 1}`); continue; }
+    const budget = grant.budget === undefined ? chain.ceiling?.budget : Math.min(grant.budget, chain.ceiling?.budget ?? Infinity);
+    if (budget !== undefined && chain.spent.n >= budget) { refusals.push(`“${grant.title}” gives a chain a budget of ${budget} wake${budget === 1 ? "" : "s"}, all spent`); continue; }
     if (grant.cap !== undefined && today.count(grant.id) >= grant.cap) { refusals.push(`“${grant.title}” is capped at ${grant.cap}/day, and it's used up today`); continue; }
     chain.spent.n++;
     today.spend(grant.id);
-    return { wake: true, grant, chain: { agents: [...chain.agents, agent], hops: chain.hops + 1, spent: chain.spent } };
+    return {
+      wake: true, grant,
+      chain: { agents: [...chain.agents, agent], hops: chain.hops + 1, spent: chain.spent, ceiling: { maxHops, ...(budget !== undefined ? { budget } : {}) } },
+      refund: () => { chain.spent.n--; today.unspend(grant.id); },
+    };
   }
   return { wake: false, why: `${refusals[0]} · r to send` };
 }

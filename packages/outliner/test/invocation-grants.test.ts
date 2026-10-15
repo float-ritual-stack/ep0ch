@@ -6,7 +6,7 @@ import type { Block } from "../src/types";
 
 const note = (text: string): Block => ({ id: "g1", text, properties: [...text.matchAll(/\[([\w-]+)::([^\]]*)\]/g)].map(m => ({ key: m[1]!, value: m[2]! })), revision: 1 } as unknown as Block);
 const EXT = { author: "agent" as const, actorId: "ext:requests" };
-const counts = () => { const n = new Map<string, number>(); return { count: (id: string) => n.get(id) ?? 0, spend: (id: string) => void n.set(id, (n.get(id) ?? 0) + 1) }; };
+const counts = () => { const n = new Map<string, number>(); return { count: (id: string) => n.get(id) ?? 0, spend: (id: string) => void n.set(id, (n.get(id) ?? 0) + 1), unspend: (id: string) => void n.set(id, (n.get(id) ?? 1) - 1) }; };
 
 test("a grant's properties: writers, agents, hops, budget and a daily cap; what's wrong says so and grants nothing", () => {
   const ok = parseGrant(note("Let requests wake kitty [invoke-from::ext:requests, loki] [invoke-to::kitty] [max-hops::3] [budget::4] [cap::20/day]"))!;
@@ -44,8 +44,27 @@ test("hops, a repeat, a chain's budget and a daily cap each hold with their own 
   expect(second.chain.hops).toBe(2);
   // Hop 3 is past max-hops 2; the budget (2) is also spent: the first limit it meets is said.
   expect(decide([g], EXT, "third", second.chain, counts())).toEqual({ wake: false, why: "“Let requests wake kitty” allows 2 hops and this would be hop 3 · r to send" });
-  expect(decide([{ ...g, maxHops: 8 }], EXT, "third", second.chain, counts())).toEqual({ wake: false, why: "“Let requests wake kitty” gives a chain a budget of 2 wakes, all spent · r to send" });
+  // (With a hop limit out of the way the budget is what's met.)
+  const wide = { ...g, maxHops: 8 };
+  const w1 = decide([wide], EXT, "kitty", undefined, counts()) as Extract<ReturnType<typeof decide>, { wake: true }>;
+  const w2 = decide([wide], EXT, "scribe", w1.chain, counts()) as Extract<ReturnType<typeof decide>, { wake: true }>;
+  expect(decide([wide], EXT, "third", w2.chain, counts())).toEqual({ wake: false, why: "“Let requests wake kitty” gives a chain a budget of 2 wakes, all spent · r to send" });
   expect((decide([g], EXT, "kitty", first.wake ? chain : undefined, counts()) as { why: string }).why).toBe("@kitty is already in this chain (@ext:requests → @kitty → @kitty), so a repeat is held · r to send");
   const used = counts(); for (let i = 0; i < 3; i++) used.spend("g1");
   expect((decide([g], EXT, "kitty", undefined, used) as { why: string }).why).toBe("“Let requests wake kitty” is capped at 3/day, and it's used up today · r to send");
+});
+
+test("a chain keeps the tightest limits of the grants it came through, and a wake that never landed is given back", () => {
+  const tight = grant({ id: "tight", to: ["all"], maxHops: 3, budget: 1 });
+  const loose = grant({ id: "loose", title: "Let anything wake anything", from: ["all"], to: ["all"], maxHops: 8 });
+  const day = counts();
+  const first = decide([tight], EXT, "kitty", undefined, day) as Extract<ReturnType<typeof decide>, { wake: true }>;
+  expect(first.wake).toBe(true);
+  // The looser grant doesn't lift the first one's budget of 1.
+  expect(decide([tight, loose], EXT, "scribe", first.chain, day)).toEqual({ wake: false, why: "“Let requests wake kitty” gives a chain a budget of 1 wake, all spent · r to send" });
+  // Taken back (the patch didn't land): the day and the chain have their wake again.
+  expect(day.count("tight")).toBe(1);
+  first.refund();
+  expect(day.count("tight")).toBe(0);
+  expect(first.chain.spent.n).toBe(0);
 });

@@ -17,7 +17,7 @@ import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
 import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
-import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, type PageRename, protocolMismatch } from "@ep0ch/outline-core/protocol";
+import { type BlockRevisionEntry, type HeldAsk, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, type PageRename, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
 import { Watched } from "./watched";
@@ -181,9 +181,6 @@ export interface OutlineEvent {
   /** On a `draft` event: what the service asks the door holding that draft (PIE-501). */
   draft?: DraftRequest;
 }
-/** A request an agent or an extension wrote that waits for a person's `r` (PIE-888): where, who would answer, and why it waits. */
-export interface HeldAsk { blockId: string; line: number; title: string; agent: string; extensionId: string; request: string; why: string; by: string; at: string }
-
 /** A view's hand-set order (the outliner's `VirtualBranchOrder`): what a placement is checked against. */
 export interface ViewOrder { viewId: string; viewRevision: number; blockIds: string[]; completeness: { kind: string; limit?: number } }
 
@@ -246,7 +243,7 @@ export interface ReferenceResolution {
 }
 /** How the service reads one `[[address]]` or Work ID (`pages.resolve`). Read-only: nothing is created. */
 export interface PageResolution { address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
-export type { NotePlacement } from "@ep0ch/outline-core/protocol";
+export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
