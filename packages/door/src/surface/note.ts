@@ -7633,7 +7633,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const parentId = to === "inbox" ? await host.ctx.board.inboxId() : (await (await import("../mcp-writes")).resolveBoardRef(host.ctx.board, to).catch(() => null))?.id;
         if (!parentId) throw new ActionRefused(to === "inbox" ? "this outline has no Inbox to put it in: parent=<a note's id>" : `no note ${to} to put it under: parent= takes an id, ((ref)), [[page]] or Work ID`);
         if (parentId === m.id) throw new ActionRefused("a note can't go under itself");
-        await host.ctx.board.move(m.id, parentId, actor);
+        // An agent's goes by outline_move's own rules (the outliner's moveBlock); the person's as a drag in the tree would.
+        if (actor.kind === "agent") await (await import("../mcp-writes")).moveAsAgent(host.ctx.board, m.id, parentId, { actorId: recordedActorId(actor) });
+        else await host.ctx.board.move(m.id, parentId, actor);
         const now = await surface.rereadPlace(host);
         asActor(host.ctx, actor).flash(`moved: → ${now}`);
         surface.noteAgent(actor, `moved the note to ${now}`);

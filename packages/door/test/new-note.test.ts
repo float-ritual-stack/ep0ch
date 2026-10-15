@@ -314,6 +314,9 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       // An agent names where, and is recorded as itself.
       expect(await app.act({ action: "note.place", tile, args: { parent: notes.plot.id }, as: "gardener" })).toMatchObject({ parent: notes.plot.id });
       await expect(app.act({ action: "note.place", tile, args: {}, as: "gardener" })).rejects.toThrow("say where");
+      // An agent's goes by outline_move's rules: never under a system note but the Inbox.
+      const trash = (await board.roots()).find(r => r.text.startsWith("Trash"))!.id;
+      await expect(app.act({ action: "note.place", tile, args: { parent: trash }, as: "gardener" })).rejects.toThrow("system note");
       // Dragged to the right edge: docked there, its edit still open.
       r = desk.rectsNow().get(desk.idNamed(tile));
       const cols = desk.area.cols;

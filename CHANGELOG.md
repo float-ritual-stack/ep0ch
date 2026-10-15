@@ -16,7 +16,7 @@ are its record. The outliner's entries from then are kept below, under
   header went to the edit. Its header and edges are the tile's now; the edit stays open through a drag, a dock and the
   menu.
 - **Added:** under a new note's edit, `→ Inbox › 2026-10-14 [move ▸]` says where it is; a click asks in the power bar
-  where it should go and moves it (`note.place parent=inbox|<note>`, agents too, attributed).
+  where it should go and moves it (`note.place parent=inbox|<note>`; an agent's by outline_move's rules, attributed).
 
 ### Typing in a tile's menu filters it (PIE-879)
 
