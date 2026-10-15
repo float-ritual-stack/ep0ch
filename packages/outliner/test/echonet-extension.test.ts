@@ -406,7 +406,7 @@ test("netmail both ways; nothing bounces between nodes that read each other; an 
   // PIE-868: everything the tossers wrote is the extension's (agent, ext:echonet), none of it a person's, and carries the
   // echonet mark: copies, receipts, carried comments, the nodelist, the ledger and the toss logs.
   for (const name of ["shack", "cafe", "attic"]) {
-    const marked = (await call<{ blocks: Block[] }>(name, { action: "blocks.query", query: { where: "echonet", limit: 500 } })).blocks;
+    const marked = (await call<{ blocks: Block[] }>(name, { action: "blocks.query", query: { where: "echonet", limit: 500, machinery: "show" } })).blocks;
     const wrote = marked.map((block) => block.text.match(/\[type::([a-z-]+)\]/)?.[1] ?? block.properties.find((p) => p.key === "kind")?.value ?? "comment");
     expect(wrote).toContain("nodelist");
     expect(wrote).toContain("echo-ledger");
@@ -642,8 +642,11 @@ test("one node, one name: a machine given a name keeps its marks made under its 
   expect(after).toContain("netmail out 0");
   await far.toss("field");
   expect(await far.threads("field", hedge.id)).toHaveLength(2);
-  const nodelist = (await where("cafe", "type=nodelist"))[0]!.text;
-  expect(nodelist).toStartWith("Nodelist [type::nodelist] [machine::echonet] [node::cafe@box-a]");
+  const nodelistBlock = (await where("cafe", "type=nodelist"))[0]!;
+  expect(nodelistBlock.properties).toContainEqual({ key: "machine", value: "echonet" });
+  expect(nodelistBlock.properties).toContainEqual({ key: "node", value: "cafe@box-a" });
+  const nodelist = nodelistBlock.text;
+  expect(nodelist).toStartWith("Nodelist [type::nodelist]");
   expect(nodelist).toContain(`## cafe@box-a\n- this node\n- also known as: cafe@${hostForm}`);
   // One node, one heading: what it reads of ours and what we read of its, under the name the cafe reaches it by.
   expect(nodelist).toContain(`## field@box-b\n- reachable · we read its field.*, reads our areas\n- also known as: field@${hostForm}`);

@@ -1609,7 +1609,7 @@ What changed in the outline after `sequence` (a cursor you keep), oldest first: 
 |---|---|---|
 | `sequence` | `number` | The cursor: the changes after it are answered. The last page's `nextSequence`. To start from now, ask with `Number.MAX_SAFE_INTEGER`: the `reset` it answers has the current `sequence`. |
 | `limit?` | `number` | At most this many changes (default 200, at most 1000); a page never splits one sequence. |
-| `machinery?` | `MachineryMode` | `hide` (the default) leaves out changes to notes tools stamped `[machine::…]`; `only` holds just those; `show` everything (PIE-867). |
+| `machinery?` | `MachineryMode` | `hide` leaves out changes to notes tools stamped `[machine::…]`; `only` holds just those; `show` (the default here: the feed is how a client catches up, so it holds everything unless asked) everything. Each change says `machinery: true` when its note is stamped (PIE-867). |
 
 Answers `ChangeFeedPage`.
 
