@@ -389,7 +389,7 @@ export class App implements Ctx {
   get video(): Video { return this.display.video; }
   set video(v: Video) { this.display.video = v; }
   /** How many notes others changed since the person looked (what the welcome and the status bar say). */
-  get events(): number { return this.whatChanged.count(); }
+  get events(): number { return this.whatChanged.count(false); }
   get eventsAll(): number { return this.whatChanged.allCount(); }
   /** The notes others changed since the person last looked: the status bar's `+N new` and the what-changed list. */
   readonly whatChanged = new WhatChanged();

@@ -158,7 +158,7 @@ export class WhatChanged extends OutlineStore {
     return [...this.rows.values()].filter(r => this.showMachinery || !held(r)).sort((a, b) => b.sequence - a.sequence);
   }
   /** How many notes changed since the person looked: the status bar's `+N new`. */
-  count(): number { return this.list().filter(r => !r.seen).length; }
+  count(includeMachinery = this.showMachinery): number { return [...this.rows.values()].filter(r => !r.seen && (includeMachinery || !held(r))).length; }
   /** What tools wrote for their own bookkeeping, held back from the count (`+N machine`). */
   machineryCount(): number { return this.showMachinery ? 0 : [...this.rows.values()].filter(r => held(r) && !r.seen).length; }
   /** Whether any note the list holds is machinery (`machine on` shows while they are shown). */

@@ -124,6 +124,9 @@ describe.skipIf(!outliner)("what changed", () => {
     expect(app.whatChanged.count()).toBe(1);
     const menu = new MainMenu();
     expect(menu.render(app).lines.map(plain).join("\n")).toContain("since you logged on: 2 · 1 by people");
+    await app.dispatch.press("changes.machinery", { include: true });
+    expect(app.whatChanged.count()).toBe(2);
+    expect(menu.render(app).lines.map(plain).join("\n")).toContain("since you logged on: 2 · 1 by people");
   });
 
   test("a door that starts long after the person looked catches up to now, not to the oldest changes since (PIE-891)", async () => {
