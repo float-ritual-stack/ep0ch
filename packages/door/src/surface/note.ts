@@ -669,6 +669,8 @@ export class NoteSurface {
   /** Bring the current element into view on the next render (after `[ ]`, `( )` or a fold). */
   private reveal = false;
   /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
+  /** The reveal this surface took last (`takeReveal`), so showing the note again doesn't scroll back to it. */
+  private revealed: object | null = null;
   focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean } | null = null;
   private revealMark = false;
   /**
@@ -4720,7 +4722,9 @@ export class NoteSurface {
     const r = revealOn.get(m);
     if (!r) return;
     if (r.by.kind === "agent" && host.focused !== false) return;
-    revealOn.delete(m);
+    // Every surface that shows the note takes it once (a preview following the list and the detail it opens in): the mark stays on the note.
+    if (this.revealed === r) return;
+    this.revealed = r;
     if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
     else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label);
   }

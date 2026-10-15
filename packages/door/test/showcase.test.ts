@@ -1423,7 +1423,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // PIE-884: the row said which line links here (a quote of it), and the detail it opened marks that line.
     expect(screen()).toContain("“");
     // (an agent's open never marks the reader the person is in; the person's does)
-    await stage().dispatch.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n } }, { kind: "user" });
+    const other = rows.find(r => r.id && r.id !== seeded.notes.shed.id && r.id !== first.id)!;
+    await stage().dispatch.act({ action: "backlinks.open", tile: "backlinks", args: { n: other.n } }, { kind: "user" });
+    await until(() => shows("detail") === other.id, "the person's open: the detail holds the other source", 5000);
     await until(() => (stage().pane("detail") as any).surface.focusMark?.line === true, "the linking line marked in the opened note", 5000);
     expect(S().focus).toBe("index");
   }, 20_000);
