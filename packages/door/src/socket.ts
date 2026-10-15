@@ -720,10 +720,12 @@ export class SocketBoard implements Board {
 
   /**
    * Notes named the way a person types them (`blocks.resolve`, PIE-875): an id, ((id)), an id's first 8+ characters, a
-   * Work ID of any prefix the outline has or a [[page]]. Each answers its block id, or why not (with a did-you-mean).
+   * Work ID of any prefix the outline has or a [[page]]. Each answers its block id, or why not (with a did-you-mean); 200 a request, the service's most.
    */
   async resolveRefs(refs: string[]): Promise<{ ref: string; id?: string; error?: string }[]> {
-    return (await this.request<{ resolved: { ref: string; id?: string; error?: string }[] }>("blocks.resolve", { refs })).resolved;
+    const out: { ref: string; id?: string; error?: string }[] = [];
+    for (let i = 0; i < refs.length; i += 200) out.push(...(await this.request<{ resolved: { ref: string; id?: string; error?: string }[] }>("blocks.resolve", { refs: refs.slice(i, i + 200) })).resolved);
+    return out;
   }
 
   /** What a `[[page]]` address or Work ID points at. Never follows (`pages.follow` would create a stub). */
