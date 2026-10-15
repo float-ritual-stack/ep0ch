@@ -664,11 +664,13 @@ export class AgentRequests {
             throw new Error("the answer changed while streaming; your text was kept");
           }
           const replacement = `${line.text}\n> [!note]- @${line.agent} answered\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
+          // Keep an existing quotation outside the answer fold, including while it is edited.
+          const separator = replySpan === line.text && after.startsWith("\n>") ? "\n" : "";
           const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
           const outcome = await this.store.changes.run(
             this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
             () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
-              replyTo: line.text, replyGroup, patches: [{ observed: replySpan, replacement, range: { start, end: start + replySpan.length } }] }),
+              replyTo: line.text, replyGroup, patches: [{ observed: replySpan, replacement: replacement + separator, range: { start, end: start + replySpan.length } }] }),
           );
           if (outcome.outcome !== "applied") throw new Error(`answer proposed instead: ${outcome.reason}`);
           replySpan = replacement;

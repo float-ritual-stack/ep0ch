@@ -661,19 +661,38 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     return gate;
   }
 
-  test("streaming stops when the person extends the answer's last line", async () => {
+  test.each([" My addition.", "\n> My addition."])("streaming stops when the person extends the answer (%j)", async addition => {
     const gate = await streamingGardener();
     const e = await editing("Changed answer\n\n");
     e.type("@gardener plan the beds"); e.d.newline(false); e.type("Keep writing");
     try {
       await until(() => e.d.text.includes("Sow the peas."), "the first chunk", 8000);
       const at = e.d.lines.findIndex(line => line.includes("Sow the peas."));
-      e.d.place(at, e.d.lines[at]!.length); e.type(" My addition.");
+      e.d.place(at, e.d.lines[at]!.length); e.s.key({ kind: "paste", text: addition }, e.h);
       e.d.place(e.d.lines.length - 1, e.d.lines.at(-1)!.length);
       writeFileSync(gate, "finish");
       await until(() => ["replied", "failed"].includes(e.d.asks.get("@gardener plan the beds")?.state ?? ""), "the stream to settle");
-      expect(e.d.text).toContain("Sow the peas. My addition.");
+      expect(e.d.text).toContain("Sow the peas." + addition);
       expect(e.d.text).not.toContain("Water the beds.");
+    } finally { writeFileSync(gate, "finish"); }
+  }, 20000);
+
+  test("an existing quotation below an ask survives every streamed chunk", async () => {
+    const gate = await streamingGardener();
+    const e = await editing("Quoted garden\n\n");
+    e.type("@gardener plan the beds"); e.d.newline(false); e.type("> My existing quotation");
+    try {
+      await until(() => e.d.text.includes("Sow the peas."), "the first chunk", 8000);
+      const at = e.d.lines.findIndex(line => line === "> My existing quotation");
+      e.d.place(at, e.d.lines[at]!.length); e.type(" keeps growing");
+      writeFileSync(gate, "finish");
+      await until(() => ["replied", "failed"].includes(e.d.asks.get("@gardener plan the beds")?.state ?? ""), "the stream to settle");
+      expect(e.d.text).toContain("Water the beds.");
+      expect(e.d.text).toContain("> My existing quotation keeps growing");
+      e.d.undo({ kind: "agent", id: "ext:gardener" });
+      expect(e.d.text).not.toContain("Sow the peas.");
+      expect(e.d.text).not.toContain("Water the beds.");
+      expect(e.d.text).toContain("> My existing quotation keeps growing");
     } finally { writeFileSync(gate, "finish"); }
   }, 20000);
 

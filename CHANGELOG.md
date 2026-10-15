@@ -14,7 +14,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - PIE-903: plain inline agent answers stream through the existing draft patch, answer fold and beside tile;
   the caret stays anchored, the status counts paragraphs, and the whole answer is one draft undo step.
-- **Deployment:** wire changed; PROTOCOL needs main+1 at merge (loki assigns).
+- **Deployment:** wire changed; PROTOCOL 188 requires updating the host and its clients together.
 
 ### Keep typing while an inline ask answers (PIE-902)
 
