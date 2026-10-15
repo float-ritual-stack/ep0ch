@@ -141,7 +141,7 @@ async function answer(input: Record<string, any>): Promise<{ reply?: string; mes
     // Not resumable here (another machine's, or cleared): a new session, told the whole thread.
   }
   const id = args ? crypto.randomUUID() : "";
-  const inline = typeof input.mark === "string";
+  const inline = input.thread === undefined && typeof input.mark === "string";
   const started = await run(args ? [...command, ...fill(args.start, id)] : command, prompt(input, false),
     inline ? chunk => console.log(JSON.stringify({ reply: chunk })) : undefined);
   if (started.code !== 0) throw new Error(`the answer command exited ${started.code}`);
