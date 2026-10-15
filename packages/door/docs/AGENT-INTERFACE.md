@@ -689,6 +689,11 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
 
     outliner patch-demo --block <id> --tidy-above "@tidy tidy this"    # a CLI demo of the prose policy, using the tidy extension's line rules; not the @tidy agent
 
+With an explicit `id` and no `tile=`, `proposal.apply` and `proposal.dismiss` call the service without a reader.
+The mod, MCP and host API offer `outline_proposal_apply` and `outline_proposal_dismiss` with `ref` naming the
+proposal. MCP settlement needs full access. An agent still cannot force an apply or dismiss another agent's proposal.
+Local tile names keep precedence. Mounted tiles answer to `tile=<mount>/<tile>`, or their unique name when no local tile matches; ambiguous mounted names return the paths to choose from.
+
 ## Extensions (PIE-512)
 
 The outline service runs extensions (`packages/outliner/docs/extensions/README.md`); the door binds what

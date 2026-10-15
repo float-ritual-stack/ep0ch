@@ -25,7 +25,7 @@ import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyCap
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
-import { armsEdit, leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
+import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
@@ -2060,6 +2060,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         answer: (out: unknown, req: ActRequest) => ({ ...(out && typeof out === "object" ? out : { result: out }), tile: req.tile }),
         listed: false,
       },
+      {
+        set: PROPOSAL_ACTIONS, takes: "screen",
+        claims: req => req.tile === undefined && typeof req.args?.id === "string" && PROPOSAL_ACTIONS.has(req.action),
+        on: (_at, how) => ({ host: { ctx: how.ctx, redraw: () => this.ctx?.redraw() } }),
+      },
       { set: DESK_ACTIONS, takes: "screen", on: at => ({ d: this, reader: at.place ?? at.name }) },
       { set: TILE_ACTIONS, takes: "screen", on: at => ({ d: this, reader: at.place ?? at.name }) },
       { set: PANE_ACTIONS, takes: "screen", on: at => ({ h: this, reader: at.name }) },
@@ -2139,9 +2144,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // outline's preview): a note action runs only in a reader, so the tile itself is never meant.
     for (const [id, p] of this.panes) { const f = kindOf(p)?.follows?.(p); if (f && p instanceof ReaderPane && this.idNamed(f) !== undefined) more.set(id, [...(more.get(id) ?? []), f]); }
     return all.map((id, i) => {
-      const p = this.panes.get(id)!, rd = p instanceof ReaderPane ? p : null, name = this.nameOf(id), aliases = more.get(id);
+      const p = this.panes.get(id)!, rd = p instanceof ReaderPane ? p : null, name = this.nameOf(id), aliases = more.get(id), mount = kindOf(p)?.dispatcher?.(p);
       return {
         name, id: this.tileId(id), n: i + 1, kind: this.unregistered.get(id)?.kind ?? p.kind, shown: shown.has(id),
+        ...(mount ? { mount } : {}),
         shows: this.showing(p)?.id ?? null, editing: !!rd?.editing,
         ...(rd ? { holds: (a: Actor) => rd.surface.heldBy(a) } : {}),
         // A note action doesn't change a note where the person can't see it: a spine, a reader in a shut dock.

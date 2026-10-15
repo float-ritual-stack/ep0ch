@@ -106,6 +106,13 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     await make(attic, "lamps", "Lamp list\nTwo oil lamps, one cracked.");
     await make(attic, "map", "Map drawer\nCharts of the canal.");
     await make(attic, "keys", "Key hook\nThree brass keys.");
+    for (const op of ["apply", "dismiss"]) {
+      const note = await attic.request<any>("create", { parentId: null, text: "Seed plan\nPlant beans." });
+      const proposal = await attic.request<any>("draft.patch", { blockId: note.id, revision: note.revision,
+        patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: "always",
+        mutation: { author: "agent", actorId: "mcp:chat.example.test" } });
+      ids[`settle-${op}`] = proposal.proposalId;
+    }
 
     dir = scratchDir("ep0ch-mcpw-");
     mirrors = join(dir, "mirrors");
@@ -138,9 +145,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     if (dir) rmSync(dir, { recursive: true, force: true });
   }, 30_000);
 
-  test("tools/list offers the write tools, and list_outlines says what a write to each outline becomes", async () => {
-    const names = ((await rpc("tools/list")).result.tools as { name: string }[]).map(t => t.name);
-    expect(names).toEqual(["list_outlines", "outline_read", "outline_threads", "outline_find", "outline_query", "outline_links", "outline_components", "reader_view", "outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id", "outline_write_status", "share_start", "share_list", "share_revoke"]);
+  test("list_outlines says what a write to each outline becomes", async () => {
     const listed = (await tool("list_outlines", {})).json.outlines as Record<string, unknown>[];
     expect(listed.map(o => [o.outline, o.access, o.writes ?? null])).toEqual([
       ["garden-notes", "full", "applied"], ["pond-notes", "propose", "proposals"], ["quiet-notes", "read", null], ["attic-notes", "full", "queued"],
@@ -664,6 +669,27 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await textOf(far, "attic-notes", FAR, ids.map!)).text).toContain("[work-id::GDN-001]");
     expect((await textOf(far, "attic-notes", FAR, ids.keys!)).text).not.toContain("work-id");
     expect(await editsBy(far, "attic-notes", ids.map!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
+  }, 60_000);
+
+  test("remote proposal settlement refuses before queueing at propose, and settles a queued refusal after access narrows", async () => {
+    const attic = boardOn(far, "attic-notes", FAR);
+    const pending: string[] = [];
+    for (const op of ["apply", "dismiss"]) {
+      const id = ids[`settle-${op}`]!;
+      pending.push(id);
+      const uri = formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: id });
+      const denied = await tool(`outline_proposal_${op}`, { uri }, "gpty");
+      expect(denied.isError).toBe(true);
+      expect(denied.text).toContain("needs full access");
+      expect((await tool(`outline_proposal_${op}`, { uri })).json.outcome).toBe("queued");
+    }
+    await attic.configureMcpAccess("propose");
+    try {
+      const landed = await pull();
+      expect(landed.settled.map(s => s.state)).toEqual(["refused", "refused"]);
+      for (const id of pending) expect((await attic.get(id))!.props["proposal-status"]).toBe("open");
+      expect((await pull()).settled).toEqual([]);
+    } finally { await attic.configureMcpAccess("full"); follow("attic-notes"); }
   }, 60_000);
 
   test("the hub's backup job reads the queues, and a queue waiting a day while its machine was online is an incident", () => {

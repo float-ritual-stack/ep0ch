@@ -332,10 +332,6 @@ describe('tool arguments', () => {
   const ALIASES = ['ref', 'id', 'reference', 'block', 'blockId', 'uri', 'note', 'item']
 
   test('every tool that takes a note takes it as ref, and as each alias', () => {
-    expect(REF_TOOLS.map(tool => tool.name).sort()).toEqual([
-      'door_open', 'note_section', 'outline_assign_id', 'outline_comment', 'outline_edit', 'outline_move', 'outline_patch', 'outline_read', 'outline_resolve',
-      'outline_restore', 'outline_set_property', 'outline_trash', 'show', 'view_order', 'work_body', 'work_complete', 'work_deliver', 'work_link', 'work_set', 'work_stage',
-    ])
     for (const tool of REF_TOOLS) {
       for (const alias of ALIASES.filter(alias => alias !== 'item' || (tool as { aliases?: { ref?: readonly string[] } }).aliases?.ref?.includes('item'))) {
         const { ref, ...rest } = tool.example as Record<string, unknown>

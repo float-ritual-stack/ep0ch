@@ -6470,9 +6470,9 @@ export function draftPreviewDoc(text: string, w: number, src: Source | null = nu
 }
 
 /** The proposal `proposal.apply` or `proposal.dismiss` acts on: `id`, else the one whose embed or control is the current element, else the open proposal shown. */
-function proposalTarget(id: string | undefined, surface: NoteSurface): string {
-  const shown = surface.msg && isOpenProposal(surface.msg) ? surface.msg.id : undefined;
-  const target = id ?? surface.currentProposal() ?? shown;
+function proposalTarget(id: string | undefined, surface?: NoteSurface): string {
+  const shown = surface?.msg && isOpenProposal(surface.msg) ? surface.msg.id : undefined;
+  const target = id ?? surface?.currentProposal() ?? shown;
   if (!target) throw new ActionRefused("say which proposal: id=, or put [ ] on a proposal's embed");
   return target;
 }
@@ -6752,6 +6752,51 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
   const m = surface.msg;
   return { went: word, showing: m ? { id: m.id, title: subject(m) } : null, history: surface.describeHistory() };
 }
+
+const proposalDef = def<{ id: { type: "string"; optional: true; about: string } }, { surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }>;
+const PROPOSAL_DEFS = {
+  "proposal.apply": proposalDef({
+    summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal whose embed or control is the current element, the proposal shown, or id. Refused, with why, on one whose passage was already gone when it was proposed ([proposal-applies::no]: only dismiss is offered)", keys: "A, a click on [apply]",
+    touches: "nothing", replay: "ask",
+    args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
+    async run({ id }, { surface, host }, actor) {
+      const target = proposalTarget(id, surface);
+      const p = await host.ctx.board.get(target);
+      if (p && isOpenProposal(p) && !proposalApplies(p)) throw new ActionRefused(NOT_APPLICABLE);
+      try {
+        const r = await host.ctx.board.applyProposal(target, actor);
+        // Its embeds and the notes it changed are drawn again now, not when the outline's event comes.
+        outlineChanged([target, ...r.edits.map(x => x.blockId)]);
+        host.ctx.flash(`applied the proposal · ${r.edits.map(x => x.route === "draft" ? "into the draft being written" : "saved").join(", ")}${r.warning ? ` · but ${r.warning}` : ""}`, r.warning ? 8000 : undefined);
+        surface?.noteAgent(actor, "applied a proposal anyway");
+        return r;
+      } catch (err) {
+        throw new ActionRefused(err instanceof Error ? err.message : String(err));
+      } finally { host.redraw(); }
+    },
+  }),
+  "proposal.dismiss": proposalDef({
+    summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) marks it dismissed and puts it in Trash, all recorded as whoever runs this, and the note it sits beside stops showing it (an older proposal's embed line comes out of the note, or the draft of it being written). An agent dismisses only its own proposals; the person, any", keys: "X, a click on [dismiss]",
+    touches: "nothing", replay: "ask",
+    args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
+    async run({ id }, { surface, host }, actor) {
+      const target = proposalTarget(id, surface);
+      try {
+        const r = await host.ctx.board.dismissProposal(target, actor);
+        outlineChanged([target, ...(surface?.msg ? [surface.msg.id] : [])]);
+        const line = r.embedRemoved === "saved" ? " · its embed line is out of the note" : r.embedRemoved === "draft" ? " · its embed line is out of the draft being written" : "";
+        host.ctx.flash(`dismissed the proposal${line}${r.warning ? ` · but ${r.warning}` : ""}`, r.warning ? 8000 : undefined);
+        surface?.noteAgent(actor, "dismissed a proposal");
+        return r;
+      } catch (err) {
+        throw new ActionRefused(err instanceof Error ? err.message : String(err));
+      } finally { host.redraw(); }
+    },
+  }),
+};
+
+/** The reader and a reader-free id call run the same proposal actions. */
+export const PROPOSAL_ACTIONS = actionSet<{ surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }>()("proposal", PROPOSAL_DEFS);
 
 export const NOTE_ACTIONS = actionSet<On>()("note", {
   "rich.toggle": def({
@@ -8584,44 +8629,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return { open: true, step: e.task!.step.itemId ?? null, choices: STEP_CHOICES.map(c => ({ id: c.id, key: c.key, label: c.label })) };
     },
   }),
-  "proposal.apply": def({
-    summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal whose embed or control is the current element, the proposal shown, or id. Refused, with why, on one whose passage was already gone when it was proposed ([proposal-applies::no]: only dismiss is offered)", keys: "A, a click on [apply]",
-    touches: "nothing", replay: "ask",
-    args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
-    async run({ id }, { surface, host }, actor) {
-      const target = proposalTarget(id, surface);
-      const p = await host.ctx.board.get(target);
-      if (p && isOpenProposal(p) && !proposalApplies(p)) throw new ActionRefused(NOT_APPLICABLE);
-      try {
-        const r = await host.ctx.board.applyProposal(target, actor);
-        // Its embeds and the notes it changed are drawn again now, not when the outline's event comes.
-        outlineChanged([target, ...r.edits.map(x => x.blockId)]);
-        host.ctx.flash(`applied the proposal · ${r.edits.map(x => x.route === "draft" ? "into the draft being written" : "saved").join(", ")}${r.warning ? ` · but ${r.warning}` : ""}`, r.warning ? 8000 : undefined);
-        surface.noteAgent(actor, "applied a proposal anyway");
-        return r;
-      } catch (err) {
-        throw new ActionRefused(err instanceof Error ? err.message : String(err));
-      } finally { host.redraw(); }
-    },
-  }),
-  "proposal.dismiss": def({
-    summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) marks it dismissed and puts it in Trash, all recorded as whoever runs this, and the note it sits beside stops showing it (an older proposal's embed line comes out of the note, or the draft of it being written). An agent dismisses only its own proposals; the person, any", keys: "X, a click on [dismiss]",
-    touches: "nothing", replay: "ask",
-    args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
-    async run({ id }, { surface, host }, actor) {
-      const target = proposalTarget(id, surface);
-      try {
-        const r = await host.ctx.board.dismissProposal(target, actor);
-        outlineChanged([target, ...(surface.msg ? [surface.msg.id] : [])]);
-        const line = r.embedRemoved === "saved" ? " · its embed line is out of the note" : r.embedRemoved === "draft" ? " · its embed line is out of the draft being written" : "";
-        host.ctx.flash(`dismissed the proposal${line}${r.warning ? ` · but ${r.warning}` : ""}`, r.warning ? 8000 : undefined);
-        surface.noteAgent(actor, "dismissed a proposal");
-        return r;
-      } catch (err) {
-        throw new ActionRefused(err instanceof Error ? err.message : String(err));
-      } finally { host.redraw(); }
-    },
-  }),
+  ...PROPOSAL_DEFS,
   // ── what's kept on this note (src/unsent.ts, src/unsent-compare.ts): the kept-draft line's controls ──
   "unsent.diff": def({
     summary: "an edit kept on this note compared with the note as it is now, through the text it started from: only what the edit changed, each change marked already in the note, still new, or changed differently since (a conflict shows both versions). Without the starting text it is the two-way comparison and says so. The person's opens in a reader beside this one (read-only, with the controls); an agent gets the verdict and the diff",

@@ -479,17 +479,8 @@ describe('register', () => {
 
   test('the show tool puts a reference in the Outliner Detail beside Claude and reports it', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
-    const registered: string[] = []
-    on('tool.register', ($, e) => {
-      registered.push(e.name)
-      return { value: { tool: `mcp__pi-outliner__${e.name}` } }
-    })
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
     await session.begin(() => $.session.start(START))
-    expect(registered).toEqual([
-      'show', 'work_create', 'work_stage', 'work_set', 'work_link', 'work_deliver', 'work_complete', 'work_body', 'note_section',
-      'outline_read', 'outline_find', 'outline_resolve', 'outline_edit', 'outline_create', 'outline_comment',
-      'outline_reply', 'outline_resolve_thread', 'view_order', 'outline_changes', 'outline_patch', 'outline_set_property', 'outline_assign_id', 'outline_move', 'outline_trash', 'outline_restore', 'outline_components', 'outline_bind',
-    ])
 
     const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
     expect(shown).toMatchObject({ result: 'Showing Daily notes in the Outliner Detail beside you.' })

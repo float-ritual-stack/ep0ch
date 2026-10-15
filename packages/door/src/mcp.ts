@@ -23,7 +23,7 @@ import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeS
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
 import { callRegistry, callShown } from "./mcp-calls";
-import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
@@ -992,6 +992,8 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
   if (tool === "outline_assign_id") { const why = assignIdRefusal(status.level); if (why) return toolError(why); }
   if (tool === "outline_restore") { const why = restoreRefusal(status.level); if (why) return toolError(why); }
+  const settlementRefusal = proposalSettlementRefusal(tool, status.level);
+  if (settlementRefusal) return toolError(settlementRefusal);
   // A trashed note has no record in a read; outline_restore is about one, and outline_trash on one answers unchanged.
   const found = (await board.records([target.id])).records.find(r => r.id === target.id);
   if (!found && tool === "outline_restore" && target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: a trashed note isn't in its mirror, so outline_restore isn't queued; restore it there.`);
