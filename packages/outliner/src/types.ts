@@ -1928,7 +1928,7 @@ export interface ComputedExecutionResult {
  * `grant` (PIE-754): an extension's own process passes its `EP0CH_EXT_GRANT`, which makes the request the
  * extension's (`ext:<id>`) while that process runs (src/extension-grants.ts).
  */
-export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string };
+export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string };
 
 export type OutlinerRequestAction =
   | { id: string; action: "properties.preview"; text: string }
@@ -2442,6 +2442,7 @@ export type OutlinerRequestAction =
    * `{ undone, extension, action, written }`.
    */
   | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
+  | { id: string; action: "scripts.run"; blockId: string; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance }
   | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }
   /**
    * What an action asks for (its declared `args`, PIE-784), each with the choices it has on `blockId` and its value

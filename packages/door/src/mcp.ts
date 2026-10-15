@@ -700,6 +700,11 @@ function toolsFor(outlines: McpOutlines) {
   const rawProperty = { type: "boolean", default: false, description: "Send a proposal or a comment as the block is stored. By default it points at its note (id@revision): a proposal as its diff, a comment as its own words and the span it is about." };
   return [
     {
+      name: "script_run",
+      description: "Start a script block asynchronously; results stream into its run note. Writes use this caller's MCP access: proposals at propose, applied at full.",
+      inputSchema: addressSchema,
+    },
+    {
       name: "list_outlines",
       description: "List the outlines this server reads: each one's machine, whether it is served live or from a read-only mirror or unreachable, and its MCP access setting. " +
         "A mirror's asOf is the newest change its copy holds, and copy says which file is served and when it last changed here. tools says whether the write tools are offered, and that a client caches its tool list until it reconnects.",
@@ -857,7 +862,7 @@ const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => cal
 
 /** The tools a caller is offered: the reads, the writes and shares where the outline takes writes, and the outline admin. */
 const toolList = (outlines: McpOutlines, writes: boolean, caller: McpCaller | undefined) =>
-  [...toolsFor(outlines), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
+  [...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
 
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
@@ -932,6 +937,16 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   if (caller) caller = withCall(caller, args.call);
   if (caller && !caller.call && isWriteTool(params.name)) caller = { ...caller, call: mintCallId(), freshCall: true };
   if (params.name === "list_outlines") return listOutlines(outlines, caller);
+  if (params.name === "script_run" && caller) {
+    const target = await addressedBlock(outlines, refArg(args), args.outline);
+    if ("error" in target) return toolError(target.error);
+    if (target.home) return toolError("Run the script on the outline's home machine");
+    const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
+    if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
+    try {
+      return toolText(await target.board.request("scripts.run", { blockId: target.id, access: status.level, mutation: { author: "agent", ...actorOf(caller) } }));
+    } catch (error) { return toolError((error as Error).message); }
+  }
   if (params.name === "outline_read") return readRecord(outlines, args, caller, scope);
   if (params.name === "outline_threads") return threadsTool(outlines, args);
   if (params.name === "outline_query") return queryTool(outlines, args, scope, caller);

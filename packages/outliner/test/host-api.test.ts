@@ -179,3 +179,25 @@ test("a script can patch whitespace source spans but cannot patch an empty span"
   await api.call("outline_patch", { ref: made.id, revision: made.revision, patches: [{ observed: "\n\n", replacement: "\n" }] });
   expect(store.get(made.id)!.text).toBe("Seed spacing\nKeep the labels.");
 });
+
+test("undo never trashes somebody else's child added while a script is running", async () => {
+  const { client, store } = await setup();
+  const api = hostApi(client, { actorId: "seed-author" });
+  await api.call("outline_create", { parent: "root", text: `Seed family [script::seed-family]
+\`\`\`js
+const parent = await tools.outline_create({ parent: 'root', text: 'Seed tray [type::tray]' });
+while (!(await q('signal=ready')).blocks.length) {}
+await tools.outline_create({ parent: parent.id, text: 'Own label' });
+\`\`\`` });
+  const listed = await client.request<{ extensions: { id: string; name?: string }[] }>({ action: "extensions.list", reload: true });
+  const run = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: listed.extensions.find(e => e.name === "seed-family")!.id, extensionAction: "run" });
+  const deadline = Date.now() + 5000;
+  while (!store.queryBlocks({ where: "type=tray" }).blocks.length && Date.now() < deadline) await Bun.sleep(10);
+  const tray = store.queryBlocks({ where: "type=tray" }).blocks[0]!;
+  const foreign = store.create("Someone else's label", tray.id, "user");
+  store.create("Continue [signal::ready]", null, "user");
+  while (store.get(run.written[0]!)?.text.includes("· working") && Date.now() < deadline) await Bun.sleep(10);
+  expect(store.get(run.written[0]!)?.text).toContain("· done");
+  await expect(client.request({ action: "extensions.undo", undo: run.undo })).rejects.toThrow(/changed|another/);
+  expect(store.get(foreign.id)?.effectiveDeletedRootId).toBeUndefined();
+});

@@ -129,6 +129,9 @@ export interface ExtensionInstalled { id: string; lines: string[]; page?: string
 /** What `extensions.uninstall` answers: whether a folder went, and what became of its demo notes. */
 export interface ExtensionUninstalled { id: string; lines: string[]; removed: boolean; demo: { trashed: number; kept: string[]; left: number } }
 export interface ExtensionActResult {
+  /** Scripts write as their author and keep run undo on their source (or their run note for files). */
+  writtenAs?: string;
+  undoOn?: string;
   extension: string; action: string; message?: string; written: string[];
   /** Text for the clipboard (copy with a citation): the client copies it. */
   copy?: string;
@@ -324,10 +327,10 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     const r = await ctx.board.actExtension(extension, a.id, target, actor);
     // The extension's own words (its message) are drawn as text, never as escapes.
     const message = r.message !== undefined ? oneLine(r.message) : undefined;
-    const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ext:${oneLine(extension)}` : ""}${r.undo ? " · ctrl+z undoes it" : ""}`;
+    const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ${oneLine(r.writtenAs ?? `ext:${extension}`)}` : ""}${r.undo ? " · ctrl+z undoes it" : ""}`;
     say.flash(said);
     // One undo step (PIE-784): kept for whoever asked, against the note it acted on, for that reader's ctrl+z (ext.undo).
-    const on = target.blockId ?? target.passage?.subject;
+    const on = r.undoOn ?? target.blockId ?? target.passage?.subject;
     if (r.undo && on) EXT_UNDO.push({ undo: r.undo, label: a.label, by: partyOf(actor), context: on });
     // What it asks to have opened (PIE-754): a block or a Resource, where this actor's opens land.
     if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)

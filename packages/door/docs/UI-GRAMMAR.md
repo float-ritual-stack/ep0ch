@@ -97,6 +97,8 @@ three layout models and four searches (§4).
 
 | edit a component where it is drawn | `ElementEdit` projects the existing `DraftSession.draft`; `ElementEditor` adapters map fields to source spans and supply drawing and structural edits. Markdown tables use outline-core's `table-shape` for both reading and editing; static graph-table flow rows use the same table drawing. `rich.*` actions own keys, clicks and agent requests, and `Ctrl+O` returns to raw source on that draft. | `src/surface/element-editor.ts`, `src/surface/note.ts`, `outline-core/src/table-shape.ts`; the rich-edit showcase |
 
+| run code from an authored block without waiting | QuickJS runs the host API on a worker; extension actions expose scripts to act and the power bar; progress is a child block and ExtensionWrites owns run undo | outliner `src/script-runs.ts`, `src/script-runtime.ts`, `src/script-sources.ts`; the scripts showcase |
+
 - **Don't copy the parallel versions:** the `colourBody` bodies left in the desk's search preview and
   the river's cards (F1), the river's pane code (F2), the extra searches (F6).
 - **Don't re-derive meaning the service owns** (view membership, property parsing, query evaluation,

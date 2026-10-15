@@ -718,6 +718,16 @@ export class Draft {
     return { applied: true };
   }
 
+  /** Plan a run's inverse using the same compare as undo, without changing the live draft or caret. */
+  withoutPatches(ids: readonly string[]): string {
+    const copy = new Draft(this.blockId, this.base, this.text, this.baseProps);
+    copy.patches = this.patches.map(p => ({ ...p, spans: p.spans.map(s => ({ ...s })) }));
+    for (const id of [...ids].reverse()) {
+      if (!copy.revertPatch(id)) throw new ActionRefused("The script's draft patch changed since; nothing was undone");
+    }
+    return copy.text;
+  }
+
   /** Take back the patch `patchId` (the service reverting a patch that didn't apply everywhere, or undo). */
   revertPatch(patchId: string, by: Actor = USER): boolean {
     const i = this.patches.findIndex(u => u.patchId === patchId);

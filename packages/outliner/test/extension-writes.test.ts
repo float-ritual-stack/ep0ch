@@ -488,3 +488,20 @@ test("ext add over an install never leaves the folder without its extension.json
   expect(readFileSync(join(installed, "main.ts"), "utf8")).toContain("version 7");
   expect(JSON.parse(readFileSync(join(installed, "extension.json"), "utf8")).version).toBe(7);
 });
+
+
+test("a running script keeps its undo while ordinary extension writes fill the history", async () => {
+  const { store, client, scribe, act } = await setup();
+  await scribe();
+  const source = store.create("Waiting [script::waiting]\n```js\nwhile (!(await q('signal=history-ready')).blocks.length) {}\nreturn 'Ready';\n```", null, "user");
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  const extension = listed.extensions.find(e => e.name === "waiting")!;
+  const run = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
+  const target = store.create("Other extension's notes", null, "user");
+  for (let i = 0; i < 101; i++) await act("child", target.id, { text: `Packet ${i}` });
+  store.create("Continue [signal::history-ready]", null, "user");
+  await until("script completed", () => !store.get(run.written[0]!)!.text.includes("· working"));
+  await client.request({ action: "extensions.undo", undo: run.undo });
+  expect(store.children(source.id)).toHaveLength(0);
+  expect(store.children(target.id)).toHaveLength(101);
+}, 30_000);

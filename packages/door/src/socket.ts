@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 // Board over the outliner's JSON-lines socket, on outline-core's PROTOCOL: a service on another number is refused.
 // Reads use the service's safe-read actions. Writes are guarded by the service, never by retrying:
 // `update` (a saved edit) and `properties.patch` (a card moved between lanes) name the revision they
@@ -160,9 +161,9 @@ import type { Passage } from "@ep0ch/outline-core/passage";
  */
 export type DraftRequest =
   | { kind: "read"; requestId: string; holdId: string; blockId: string }
-  | { kind: "patch"; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
+  | { kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string };
-export type DraftAnswer = { text: string; revision: number } | { applied: true } | { applied: false; reason: string } | { reverted: boolean };
+export type DraftAnswer = { text: string; revision: number } | { applied: true; inverse?: { before: string; text: string; revision: number } } | { applied: false; reason: string } | { reverted: boolean };
 /** A live draft's hold on the service: renewed while the draft is open, let go when it closes. */
 export interface DraftHoldHandle {
   revise(revision: number): void; release(): void;
@@ -492,6 +493,8 @@ export class SocketBoard implements Board {
   }
 
   /** `timeoutMs`: this request's own wait, for one the service answers slowly on purpose (a tunnel coming up). */
+  private readonly scriptRun = new AsyncLocalStorage<string>();
+
   request<T = any>(action: string, params: Record<string, unknown> = {}, timeoutMs = this.timeoutMs): Promise<T> {
     const id = `d${++this.seq}`;
     if (this.sent.length > 5000) this.sent.splice(0, 2500);
@@ -500,7 +503,7 @@ export class SocketBoard implements Board {
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, timeoutMs);
       const sock = this.conn();
       this.waiting.set(id, { resolve, reject, timer, sock });
-      sock.write(jsonLine({ id, action, ...params, ...(this.outline ? { outline: this.outline } : {}) }));
+      sock.write(jsonLine({ id, action, ...params, ...(this.scriptRun.getStore() ? { scriptRun: this.scriptRun.getStore() } : {}), ...(this.outline ? { outline: this.outline } : {}) }));
     }));
   }
 
@@ -572,7 +575,7 @@ export class SocketBoard implements Board {
     if (call.targetClientId !== this.clientId) return;
     try {
       if (!this.scriptAction) throw new Error("This door has no active dispatcher; run the script from its power bar");
-      const result = await this.scriptAction(call);
+      const result = await this.scriptRun.run(call.actor.sessionId!, () => this.scriptAction!(call));
       await this.request("scripts.answer", { requestId: call.requestId, clientId: this.clientId, result });
     } catch (error) {
       await this.request("scripts.answer", { requestId: call.requestId, clientId: this.clientId, error: error instanceof Error ? error.message : String(error) }).catch(() => {});

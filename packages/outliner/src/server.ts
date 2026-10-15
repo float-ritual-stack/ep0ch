@@ -511,6 +511,7 @@ export class OutlinerServer {
       ...(options.agentRequestQuietMs !== undefined ? { quietMs: options.agentRequestQuietMs } : {}),
     });
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
+      undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
       script: (extension, request) => this.scriptRuns.start(extension, request),
       // An action's update goes where an @agent's edit goes: draft.patch, the edit policy's guard.
       patch: (input) => this.draftPatches.patch(input),
@@ -532,7 +533,7 @@ export class OutlinerServer {
         if (!response.ok) throw new Error(response.error);
         return response.result as T;
       },
-    }, changes => this.publishChanges(undefined, changes), (clientId, action, args, actor, signal) => {
+    }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal) => {
       if (![...this.subscribers.values()].some(client => client.clientId === clientId)) return Promise.reject(new Error("The door disconnected; run the script from a connected door"));
       const requestId = crypto.randomUUID();
       return new Promise((resolve, reject) => {
@@ -1836,6 +1837,21 @@ export class OutlinerServer {
     subscribedClient?: OutlinerClientRegistration,
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
+    if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (request.action === "scripts.run") {
+      try {
+        const levels = ["none", "read", "propose", "full"] as const;
+        const access = levels[Math.min(levels.indexOf(request.access), levels.indexOf(this.store.mcpAccessStatus().level))];
+        if (access !== "propose" && access !== "full") throw new Error(`MCP access is ${access}: no script runs`);
+        await this.extensionRegistry.reload();
+        const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === request.blockId);
+        if (!extension) throw new Error("This block has no runnable script; add [script::name] and a closed js or ts fence");
+        const result = this.scriptRuns.start(extension, { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation });
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     // A watched read is kept on the connection that asked (ADR 0004); without one (in-process) it is just answered.
     if (connection && "watch" in request && request.watch !== undefined && isWatchable(request.action)) {
       return this.watches.ask(connection, request as unknown as Parameters<QueryWatches["ask"]>[1]);
@@ -1936,7 +1952,7 @@ export class OutlinerServer {
         if (request.action === "extensions.undo") {
           // An action's write group taken back whole (PIE-784), as whoever asks: the person, or an agent.
           if (typeof request.undo !== "string") throw new Error("extensions.undo needs undo: the id an action's answer gave (its undo)");
-          result = this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" });
+          result = await this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" });
         } else if (request.action === "extensions.args") {
           // What an action asks for (PIE-784), with the choices it has on this block: what a client prompts with.
           if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.args needs extension and extensionAction");
@@ -2489,6 +2505,7 @@ export class OutlinerServer {
           );
           break;
         }
+        case "scripts.run":
         case "extensions.list":
         case "extensions.act":
         case "extensions.bar":

@@ -137,6 +137,48 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     gateway = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: line => logs.push(line) });
   }, 60_000);
 
+  test("an MCP script at propose access leaves the note unchanged and offers its patch", async () => {
+    const board = boardOn(here, "pond-notes", HERE);
+    const target = await board.request<{ id: string; revision: number; text: string }>("create", { parentId: null, text: "Runner beans for the school garden.", author: "user" });
+    const source = await board.request<{ id: string }>("create", { parentId: null, author: "user", text: [
+      "Seed suggestion [script::seed-suggestion]", "```js",
+      `return await tools.outline_patch({ ref: '${target!.id}', revision: ${target!.revision}, patches: [{ observed: 'Runner beans', replacement: 'Broad beans' }] });`,
+      "```",
+    ].join("\n") });
+    const started = await tool("script_run", { outline: "pond-notes", ref: source.id });
+    expect(started.isError).toBe(false);
+    const end = Date.now() + 5000;
+    let log;
+    do { log = await board.get(started.json.written[0]); if (!log!.text.includes("· working")) break; await Bun.sleep(20); } while (Date.now() < end);
+    expect(log!.text).toContain("· done");
+    expect((await board.get(target!.id))!.text).toBe(target!.text);
+    const proposal = (await board.children(target!.id)).find(n => n.props.type === "draft-proposal");
+    expect(proposal!.text).toContain("Broad beans");
+    expect(String(proposal!.author)).toContain("mcp:chat.example.test");
+  });
+
+  test("an MCP script can comment, reply, edit its reply and resolve the thread", async () => {
+    const board = boardOn(here, "garden-notes", HERE);
+    const target = await board.request<{ id: string }>("create", { author: "user", text: "Seed exchange" });
+    const source = await board.request<{ id: string }>("create", { author: "user", text: [
+      "Seed conversation [script::seed-conversation]", "```js",
+      `const c = await tools.outline_comment({ref:'${target.id}', whole:true, body:'Count the packets'});`,
+      `const r = await tools.outline_reply({thread:c.thread, body:'Six packets'});`,
+      `await tools.outline_reply({edit:r.reply, observed:'Six packets', body:'Seven packets'});`,
+      `await tools.outline_resolve_thread({thread:c.thread, resolved:true});`,
+      "```",
+    ].join("\n") });
+    const started = await tool("script_run", { outline: "garden-notes", ref: source.id });
+    expect(started.isError).toBe(false);
+    let log;
+    const end = Date.now() + 5000;
+    do { log = await board.get(started.json.written[0]); if (!log!.text.includes("· working")) break; await Bun.sleep(20); } while (Date.now() < end);
+    expect(log!.text).toContain("· done");
+    const threads = await board.comments(target.id);
+    expect(threads[0]!.lifecycle).toBe("resolved");
+    expect(threads[0]!.replies[0]!.body).toBe("Seven packets");
+  });
+
   afterAll(async () => {
     gateway?.stop(); closeOutlines?.();
     for (const b of boards) b.close();

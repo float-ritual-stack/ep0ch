@@ -65,6 +65,7 @@ import { createHash } from "node:crypto";
  */
 
 export interface ExtensionCallsOptions {
+  readonly undoDrafts?: import("./extension-writes").ExtensionWritesDeps["undoDrafts"];
   readonly script?: (extension: LoadedExtension, request: ExtensionActRequest) => ExtensionActResult;
   readonly now?: () => number;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
@@ -113,6 +114,7 @@ interface PassOptions {
 export type { BlockWrite, ExtensionWrite };
 
 export interface ExtensionActRequest {
+  readonly mcpAccess?: import("@ep0ch/outline-core/protocol").McpAccessLevel;
   readonly clientId?: string;
   readonly extension: string;
   readonly action: string;
@@ -142,6 +144,9 @@ export interface ExtensionActRequest {
 }
 
 export interface ExtensionActResult {
+  /** Scripts write as their author and keep run undo on their source (or their run note for files). */
+  writtenAs?: string;
+  undoOn?: string;
   readonly extension: string;
   readonly action: string;
   readonly message?: string;
@@ -393,7 +398,7 @@ export class ExtensionCalls {
     private readonly runtime: ResourceExtensionRuntime,
     private readonly options: ExtensionCallsOptions = {},
   ) {
-    this.writes = new ExtensionWrites(store, { ...(options.patch ? { patch: options.patch } : {}), ...(options.patchGroup ? { patchGroup: options.patchGroup } : {}), ...(options.held ? { held: options.held } : {}), ...(options.here ? { here: options.here } : {}) });
+    this.writes = new ExtensionWrites(store, { undoDrafts: options.undoDrafts, ...(options.patch ? { patch: options.patch } : {}), ...(options.patchGroup ? { patchGroup: options.patchGroup } : {}), ...(options.held ? { held: options.held } : {}), ...(options.here ? { here: options.here } : {}) });
   }
 
   /** An action's writes as one group, and the undo steps of the groups that landed (src/extension-writes.ts). */
@@ -1217,8 +1222,8 @@ export class ExtensionCalls {
   }
 
   /** Undo an action's write group whole (`extensions.undo`), as `by`; refused with nothing changed when it changed since. */
-  undo(id: string, by: MutationProvenance): ReturnType<ExtensionWrites["undo"]> {
-    const done = this.writes.undo(id, by);
+  async undo(id: string, by: MutationProvenance): Promise<ReturnType<ExtensionWrites["undo"]>> {
+    const done = await this.writes.undoRun(id, by);
     for (const blockId of done.written) this.options.changed?.(blockId);
     return done;
   }

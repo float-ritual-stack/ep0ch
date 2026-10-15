@@ -13,17 +13,26 @@ import type { Block, MutationProvenance, OutlinerChange } from "./types";
 export class ScriptRuns {
   private readonly running = new Set<AbortController>();
   private readonly tasks = new Set<Promise<void>>();
+  private readonly captures = new Map<string, { actor: MutationProvenance; run: <T>(work: () => T) => T }>();
+
+  capture<T>(id: string, work: (actor: MutationProvenance) => T): T {
+    const capture = this.captures.get(id);
+    if (!capture) throw new Error("This script run has ended");
+    return capture.run(() => work(capture.actor));
+  }
+
   private readonly previous = new Map<string, string>();
 
   constructor(private readonly store: OutlinerStore, private readonly registry: ExtensionRegistry,
     private readonly writes: ExtensionWrites, private readonly client: AgentToolsClient,
     private readonly publish: (changes: readonly OutlinerChange[]) => void,
+    private readonly inverse: (run: string) => Promise<import("./draft-patch").DraftPatchEdit[]>,
     private readonly act: (clientId: string, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal) => Promise<unknown>) {}
 
   start(extension: LoadedExtension, request: ExtensionActRequest): ExtensionActResult {
     const source = extension.script!;
     const undo = this.writes.beginRun(`script:${extension.name}`);
-    const actor: MutationProvenance = { ...source.author, sessionId: undo, taskId: `trigger:script:${extension.id}` };
+    const actor: MutationProvenance = { ...(request.mcpAccess ? request.requestedBy! : source.author), sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
     const controller = new AbortController();
     this.running.add(controller);
@@ -49,8 +58,9 @@ export class ScriptRuns {
         return value;
       } catch (error) { finish(); throw error; }
     };
+    this.captures.set(undo, { actor, run: captured });
     const log = captured(() => this.store.create(lines.join("\n"), source.blockId ?? request.blockId ?? null, actor.author,
-      { actorId: actor.actorId ?? actor.author, sessionId: undo, taskId: actor.taskId }));
+      actor.author === "agent" ? { actorId: actor.actorId ?? "agent", sessionId: undo, taskId: actor.taskId } : undefined));
     const update = () => captured(() => {
       const now = this.store.require(log.id);
       this.store.update(log.id, lines.join("\n"), now.revision, actor);
@@ -75,6 +85,7 @@ export class ScriptRuns {
     };
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
+      mcpAccess: request.mcpAccess,
       ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, actor, controller.signal) } : {}),
     });
     const task = (async () => {
@@ -91,15 +102,23 @@ export class ScriptRuns {
         lines.push(error instanceof Error ? error.message : String(error));
       } finally {
         controller.abort();
+        try {
+          const drafts = await this.inverse(undo);
+          this.writes.finishRun(undo, drafts);
+        } catch (error) {
+          const problem = error instanceof Error ? error.message : String(error);
+          lines.push(`Undo unavailable: ${problem}`);
+          this.writes.finishRun(undo, [], problem);
+        }
         try { update(); } finally {
-          this.writes.finishRun(undo);
+          this.captures.delete(undo);
           this.running.delete(controller);
         }
       }
     })();
     this.tasks.add(task);
     void task.finally(() => this.tasks.delete(task)).catch(() => {});
-    return { extension: extension.id, action: "run", message: `running as ${actor.actorId ?? actor.author}; results in ((${log.id}))`, written: [log.id], undo };
+    return { extension: extension.id, action: "run", message: `running as ${actor.actorId ?? actor.author}; results in ((${log.id}))`, written: [log.id], undo, undoOn: source.blockId ?? log.id, writtenAs: actor.actorId ?? actor.author };
   }
 
   async stop(): Promise<void> {

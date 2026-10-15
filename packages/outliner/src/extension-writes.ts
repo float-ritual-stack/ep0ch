@@ -1,3 +1,5 @@
+import type { DraftPatchEdit } from "./draft-patch";
+import { removedListItemIds } from "./checklist-items";
 /**
  * An extension action's returned writes as one group (PIE-784): what it makes, edits, moves and puts in order, all
  * in one transaction or none of it, attributed `ext:<id>` with who asked beside it, each one revision-checked.
@@ -126,7 +128,7 @@ type UndoStep =
  * A group that landed: its steps, and the outline as the group left it (each block's revision, each parent's
  * children in order), which undo finds again or refuses.
  */
-interface Receipt { id: string; extension: string; action: string; steps: UndoStep[]; revisions: Map<string, number>; children: Map<string, string[]>; running?: boolean; problem?: string; deleted?: Map<string, boolean> }
+interface Receipt { id: string; extension: string; action: string; steps: UndoStep[]; revisions: Map<string, number>; children: Map<string, string[]>; running?: boolean; drafts?: DraftPatchEdit[]; problem?: string; deleted?: Map<string, boolean> }
 
 /** What an applied group answers: the blocks it wrote, or the proposal it waits as; `undo` names the step that undoes it. */
 export interface GroupOutcome {
@@ -141,6 +143,7 @@ export interface GroupOutcome {
 }
 
 export interface ExtensionWritesDeps {
+  undoDrafts?(edits: DraftPatchEdit[], by: MutationProvenance, write: () => void): Promise<void>;
   /** An update: where an `@agent`'s edit goes (draft.patch, the edit policy). */
   patch?: (input: DraftPatchInput) => Promise<DraftPatchResult>;
   /** A group that also makes, moves or orders blocks (the router's `patchGroup`). */
@@ -162,18 +165,49 @@ export class ExtensionWrites {
 
   constructor(private readonly store: OutlinerStore, private readonly deps: ExtensionWritesDeps) {}
 
+  private prune(): void {
+    const completed = [...this.receipts.values()].filter(receipt => !receipt.running);
+    for (const receipt of completed.slice(0, Math.max(0, completed.length - MAX_UNDO))) this.receipts.delete(receipt.id);
+  }
+
   beginRun(action: string): string {
     const id = crypto.randomUUID();
     this.receipts.set(id, { id, extension: SERVICE_GROUP, action, steps: [], revisions: new Map(), children: new Map(), deleted: new Map(), running: true });
     return id;
   }
 
-  finishRun(id: string): void { this.receipts.get(id)!.running = false; }
+  finishRun(id: string, drafts: DraftPatchEdit[] = [], problem?: string): void {
+    const receipt = this.receipts.get(id)!;
+    this.receipts.delete(id);
+    this.receipts.set(id, receipt);
+    receipt.running = false;
+    receipt.drafts = drafts;
+    if (problem) receipt.problem = problem;
+    this.prune();
+  }
+
+  async undoRun(id: string, by: MutationProvenance): Promise<ReturnType<ExtensionWrites["undo"]>> {
+    const drafts = this.receipts.get(id)?.drafts;
+    if (!drafts?.length) return this.undo(id, by);
+    let result!: ReturnType<ExtensionWrites["undo"]>;
+    await this.deps.undoDrafts!(drafts, by, () => { result = this.undo(id, by, true); });
+    this.receipts.delete(id);
+    return { ...result, written: [...new Set([...result.written, ...drafts.map(d => d.blockId)])] };
+  }
 
   /** Accumulate real host API mutations in the same receipt as returned extension writes. */
   recordRun(id: string, before: ReadonlyMap<string, Block>, changes: readonly OutlinerChange[]): void {
     const receipt = this.receipts.get(id)!;
-    for (const blockId of new Set(changes.flatMap(change => change.blockId ? [change.blockId] : []))) {
+    const changedIds = new Set(changes.flatMap(change => change.blockId ? [change.blockId] : []));
+    const children = (parent: string) => {
+      const now = this.liveChildren(parent), expected = receipt.children.get(parent);
+      // A later write must not adopt somebody else's children into a run that will trash their parent.
+      if (expected && expected.filter(id => !changedIds.has(id)).join() !== now.filter(id => !changedIds.has(id)).join()) {
+        receipt.problem = "another writer changed the children during this run";
+      }
+      receipt.children.set(parent, now);
+    };
+    for (const blockId of changedIds) {
       const own = changes.filter(change => change.blockId === blockId);
       const now = this.store.get(blockId);
       const was = before.get(blockId);
@@ -191,8 +225,8 @@ export class ExtensionWrites {
       } else receipt.problem = "a change has no before-image";
       receipt.revisions.set(blockId, now.revision);
       receipt.deleted!.set(blockId, !!now.effectiveDeletedRootId);
-      for (const parent of [was?.parentId, now.parentId]) if (parent) receipt.children.set(parent, this.liveChildren(parent));
-      if (own.some(change => change.kind === "create")) receipt.children.set(blockId, this.liveChildren(blockId));
+      for (const parent of [was?.parentId, now.parentId]) if (parent) children(parent);
+      if (own.some(change => change.kind === "create")) children(blockId);
     }
   }
 
@@ -251,7 +285,7 @@ export class ExtensionWrites {
    * Undo a group, whole (`extensions.undo`): every block it made goes to the Trash, every edit, move and order is put
    * back, in one transaction, as `by`. Refused, with nothing changed, when anything it touched changed since.
    */
-  undo(id: string, by: MutationProvenance): { undone: string; extension: string; action: string; written: string[] } {
+  undo(id: string, by: MutationProvenance, keep = false): { undone: string; extension: string; action: string; written: string[] } {
     const receipt = this.receipts.get(id);
     if (!receipt) throw new Error(`No extension change ${id} to undo here: the last ${MAX_UNDO} since the host started are kept, each undone once`);
     if (receipt.running) throw new Error("This script is still running; undo its run after it finishes");
@@ -278,7 +312,10 @@ export class ExtensionWrites {
     const written = new Set<string>();
     this.store.changes.run(attribution, () => this.store.atomically(() => {
       for (const step of [...receipt.steps].reverse()) {
-        if (step.kind === "update") this.store.update(step.blockId, step.before, this.store.get(step.blockId)!.revision, by);
+        if (step.kind === "update") {
+          const now = this.store.get(step.blockId)!;
+          this.store.update(step.blockId, step.before, now.revision, by, "text", removedListItemIds(now.text, step.before).map(itemId => ({ kind: "remove", itemId })));
+        }
         else if (step.kind === "create") this.store.delete(step.blockId, by, { revision: this.store.get(step.blockId)!.revision });
         else if (step.kind === "move") this.store.move(step.blockId, step.fromParent, step.fromPosition, by);
         else if (step.kind === "trash") {
@@ -288,7 +325,7 @@ export class ExtensionWrites {
         written.add(step.kind === "order" ? step.parentId : step.blockId);
       }
     }));
-    this.receipts.delete(id);
+    if (!keep) this.receipts.delete(id);
     return { undone: id, extension: receipt.extension, action: receipt.action, written: [...written] };
   }
 
@@ -536,7 +573,7 @@ export class ExtensionWrites {
     }
     const id = crypto.randomUUID();
     this.receipts.set(id, { id, extension, action, steps, revisions, children });
-    while (this.receipts.size > MAX_UNDO) this.receipts.delete(this.receipts.keys().next().value!);
+    this.prune();
     return { undo: id };
   }
 }
