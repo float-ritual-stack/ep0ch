@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { OutlinerStore } from "../src/store";
+import { readAuthoredLinks } from "../src/authored-links";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -159,6 +160,31 @@ describe("semantic backlink relation", () => {
       occurrence.snippet.includes("Source document") &&
       !occurrence.snippet.includes(target.id)
     )).toBe(true);
+  });
+
+  test("links inside property values are edges labelled by the property; a value that is exactly a ticket key links (PIE-874)", () => {
+    const workspace = store();
+    const external = workspace.create("Printer jam [page::PC-1]");
+    const hub = workspace.create("Hub two [page::X-2]");
+    workspace.configureWorkIdPrefix("PIE");
+    let item = workspace.create("Order seed trays");
+    item = workspace.allocateWorkId(item.id, item.revision).block;
+    const done = workspace.create("done [page::done]");
+    const todo = workspace.create("Fix the printer [ticket::PC-1] [status::done]");
+    const walk = workspace.create(["Graph walk", "[via::[[X-2]]]", "[waiting-on::review of PIE-001]"].join("\n"));
+    const list = workspace.create("Bench [blocks::PIE-001, notes]");
+
+    const of = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources;
+    expect(of(external.id).map((s) => [s.blockId, s.referenceGroups])).toEqual([[todo.id, [{ kind: "property", propertyKey: "ticket", count: 1 }]]]);
+    expect(of(hub.id).map((s) => [s.blockId, s.referenceGroups])).toEqual([[walk.id, [{ kind: "property", propertyKey: "via", count: 1 }]]]);
+    expect(of(item.id).map((s) => s.blockId).sort()).toEqual([walk.id, list.id].sort());
+    expect(of(item.id).find((s) => s.blockId === walk.id)!.occurrences[0]).toMatchObject({ kind: "property", propertyKey: "waiting-on", label: "PIE-001" });
+    // A plain word that happens to be a page's address stays text; a note's own [work-id::…] is no link to itself.
+    expect(of(done.id)).toEqual([]);
+    expect(of(item.id).map((s) => s.blockId)).not.toContain(item.id);
+    // The same edges are the source's links out.
+    const out = readAuthoredLinks(workspace, todo.id);
+    expect(out.kind === "ready" && out.outlinks.entries.map((e) => e.resolution.kind === "ready" ? e.resolution.target.blockId : null)).toEqual([external.id]);
   });
 
   test("includes nested-list references while excluding multiline indented code", () => {

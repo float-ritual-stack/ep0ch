@@ -1,6 +1,7 @@
 import {Lexer, type Token} from "marked";
 import { codeHides, protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import { pageAddressReferences, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
+import { ADDRESS_KEYS, propertyValueLinks, propertyValueSpan } from "@ep0ch/outline-core/property-grammar";
 import { parsePropertyRecords } from "./properties";
 import type { PropertyRecord } from "./types";
 import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -11,7 +12,13 @@ export interface TextRange {
   end: number;
 }
 
-export type OutlinerReferenceOccurrence =
+/**
+ * A reference in a note's text, or (with `propertyKey`) inside one of its property values (PIE-874: `[via::[[X-2]]]`,
+ * `[ticket::PC-1]`), an edge labelled by that property.
+ */
+export type OutlinerReferenceOccurrence = ({
+  propertyKey?: string;
+}) & (
   | {
       kind: "block";
       blockId: string;
@@ -33,7 +40,7 @@ export type OutlinerReferenceOccurrence =
       address: string;
       start: number;
       end: number;
-    };
+    });
 
 export interface PropertyReferenceOccurrence {
   kind: "property";
@@ -140,12 +147,41 @@ export function outlinerReferenceOccurrences(
   ];
   // Code is opaque (PIE-764): outline-core's one rule, which the link scans above already applied to their own.
   const code = protectedCodeRanges(text);
-  return candidates
-    .filter((candidate) =>
-      (candidate.kind === "block" ||
-        !blockReferenceRanges.some((range) => rangesOverlap(candidate, range))) &&
-      !protectedRanges.some((range) => rangesOverlap(candidate, range)) &&
-      !codeHides(candidate, code)
-    )
-    .sort((left, right) => left.start - right.start);
+  const inText = candidates.filter((candidate) =>
+    (candidate.kind === "block" ||
+      !blockReferenceRanges.some((range) => rangesOverlap(candidate, range))) &&
+    !protectedRanges.some((range) => rangesOverlap(candidate, range)) &&
+    !codeHides(candidate, code)
+  );
+  return [...inText, ...propertyValueOccurrences(text, workIdPrefix, propertyRecords)].sort((left, right) => left.start - right.start);
+}
+
+/**
+ * The references inside property values (PIE-874), each labelled by its property: outline-core's one scan of values
+ * (`propertyValueLinks`: references, page links, an item that is exactly a ticket key), and the outline's Work IDs
+ * written inside a value's words (`[waiting-on::review of PIE-12]`), as they are in a note's text.
+ */
+function propertyValueOccurrences(text: string, workIdPrefix: TicketPrefixes, propertyRecords: readonly PropertyRecord[]): OutlinerReferenceOccurrence[] {
+  const out: OutlinerReferenceOccurrence[] = [];
+  for (const link of propertyValueLinks(text, propertyRecords)) {
+    const propertyKey = link.key;
+    if (link.kind === "block") out.push({ kind: "block", ...link.reference, propertyKey });
+    else if (link.kind === "page") out.push({ kind: "page", address: link.reference.displayAddress, normalizedAddress: link.reference.normalizedAddress, ...(link.reference.label ? { label: link.reference.label } : {}), start: link.reference.start, end: link.reference.end, propertyKey });
+    else out.push({ kind: "work-id", address: link.workId, start: link.start, end: link.end, propertyKey });
+  }
+  for (const record of propertyRecords) {
+    if (ADDRESS_KEYS.has(record.key.toLowerCase())) continue;
+    const span = propertyValueSpan(record.raw);
+    if (!span) continue;
+    const base = record.start + span.start, value = record.raw.slice(span.start, span.end);
+    const pages = pageSyntaxRanges(value);
+    for (const reference of ticketKeyReferences(value, workIdPrefix)) {
+      const range = { start: reference.start, end: reference.end };
+      if (pages.some((page) => rangesOverlap(range, page))) continue;
+      const start = base + reference.start, end = base + reference.end;
+      if (out.some((o) => o.start === start && o.end === end)) continue;
+      out.push({ kind: "work-id", address: reference.workId, start, end, propertyKey: record.key });
+    }
+  }
+  return out;
 }

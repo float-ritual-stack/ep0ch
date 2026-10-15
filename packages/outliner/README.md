@@ -533,7 +533,11 @@ Click a resolved block row's disclosure triangle or press Right to inspect its o
   registered page addresses, even when this workspace allocates `HUB-001`.
   Give an issue's local notes a `[page::PC-515]` address; recognition preserves
   the external key's spelling and does not allocate it. The same references
-  participate in Backlinks and Recent Mentions. Unknown bare keys remain
+  participate in Backlinks and Recent Mentions. Links written inside a property's value count too (PIE-874):
+  `[via::[[HUB-023]]]`, `((id))` in a value, the outline's Work IDs in a value's words, and a value item that is
+  exactly a ticket key (`[ticket::PC-582]`, whatever the key), each an edge its target's Backlinks label by the
+  property (`via property ×1`). Outline-core's `propertyValueLinks` is the one scan; the address keys (`page`,
+  `work-id`) name the note itself and are skipped, and any other word in a value stays text. Unknown bare keys remain
   unresolved, and explicit `[jira::PC-515]` selects the provider Resource path.
   Resolved rows open through the Tree's saved Detail link. Merely showing or
   selecting an unresolved page is read-only; pressing `Enter` follows the

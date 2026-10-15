@@ -150,6 +150,9 @@ revision, so concurrent edits rarely collide.
 Point at a block with its link: `((id|short label))`, or `((id^anchor|label))` for a passage. Never write
 directions ("the draft is in the outbox below"). Look the id up and link it. `[[page]]` for a named page,
 `!((id))` to show a block's text in place (it stays canonical). The same holds in chat: give the link.
+A link in a property's value is an edge too (PIE-874): `[via::[[HUB-23]]]`, `[ticket::PC-582]` (a value that is
+exactly a ticket key) or `[related::((id)), notes]` show in the target's backlinks labelled by the property (`via`,
+`ticket`), so write the fact once, in the property, not again in the body.
 
 ## Working a session with the person
 

@@ -54,8 +54,10 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
       for (const e of authored.outlinks.entries) {
         const r = e.resolution;
         const first = occurrences.find(o => o.start === e.firstSpan.start);
+        // Written in a property's value (PIE-874): a property link, keyed, as one whose value is an id.
+        const key = first?.propertyKey;
         links.push({
-          kind: e.referenceKind, text: text.slice(e.firstSpan.start, e.firstSpan.end), label: e.label, status: r.kind,
+          kind: key !== undefined ? "property" : e.referenceKind, ...(key !== undefined ? { key } : {}), text: text.slice(e.firstSpan.start, e.firstSpan.end), label: e.label, status: r.kind,
           target: r.kind === "ready" ? r.target.blockId : r.kind === "deleted" ? r.blockId : null,
           spans: first ? groups.get(occurrenceKey(first)) ?? [] : [[e.firstSpan.start, e.firstSpan.end]],
         });

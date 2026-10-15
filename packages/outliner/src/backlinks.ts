@@ -122,9 +122,11 @@ function backlinkOccurrence(
     start: occurrence.start,
     end: occurrence.end,
   };
-  return occurrence.kind === "property"
-    ? { kind: "property", propertyKey: occurrence.propertyKey, ...base }
-    : { kind: occurrence.kind, ...base };
+  // A link in a property's value is labelled by the property (PIE-874), as a value that is an id always was.
+  const key = occurrence.propertyKey;
+  return key !== undefined
+    ? { kind: "property", propertyKey: key, ...base }
+    : { kind: occurrence.kind as "block" | "page" | "work-id", ...base };
 }
 
 function parentContext(block: Block, blocksById: ReadonlyMap<string, Block>): string {
@@ -144,20 +146,15 @@ function referenceGroups(
 ): BacklinkReferenceGroup[] {
   const groups = new Map<string, BacklinkReferenceGroup>();
   for (const occurrence of occurrences) {
-    const key = occurrence.kind === "property"
-      ? `property:${occurrence.propertyKey}`
-      : occurrence.kind;
+    const propertyKey = occurrence.propertyKey;
+    const key = propertyKey !== undefined ? `property:${propertyKey}` : occurrence.kind;
     const group = groups.get(key);
     if (group) {
       group.count += 1;
-    } else if (occurrence.kind === "property") {
-      groups.set(key, {
-        kind: "property",
-        propertyKey: occurrence.propertyKey,
-        count: 1,
-      });
+    } else if (propertyKey !== undefined) {
+      groups.set(key, { kind: "property", propertyKey, count: 1 });
     } else {
-      groups.set(key, { kind: occurrence.kind, count: 1 });
+      groups.set(key, { kind: occurrence.kind as "block" | "page" | "work-id", count: 1 });
     }
   }
   return [...groups.values()];

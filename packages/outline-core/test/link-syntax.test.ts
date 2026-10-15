@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { propertyValueLinks } from "../src/property-grammar";
 import {
   blockReferenceOccurrences,
   fragmentAnchorMatch,
@@ -70,4 +71,19 @@ test("referencedBlock unwraps an id or one reference as written (the scan's gram
   expect(referencedBlock(PAINT_ID)).toEqual({ blockId: PAINT_ID });
   expect(referencedBlock(`((${PAINT_ID})) and more`)).toBeNull();
   expect(referencedBlock("[[Garden]]")).toBeNull();
+});
+
+// PIE-874: links written inside property values, the one scan every client and the service read them by.
+test("links inside property values: references and page links anywhere in a value, an item that is exactly a ticket key, the address keys skipped", () => {
+  const text = "Walk [via::[[X-2]]] [ticket::PC-582] [related::((c0ffee00-1111-4222-8333-444444444444)), notes, PIE-12] [status::done] [page::Walk] [work-id::PIE-9]\nnext:: see [[Beds]]";
+  const links = propertyValueLinks(text).map(l => l.kind === "ticket" ? [l.key, l.workId, text.slice(l.start, l.end)] : [l.key, l.kind, text.slice(l.reference.start, l.reference.end)]);
+  expect(links).toEqual([
+    ["via", "page", "[[X-2]]"],
+    ["ticket", "PC-582", "PC-582"],
+    ["related", "block", "((c0ffee00-1111-4222-8333-444444444444))"],
+    ["related", "PIE-12", "PIE-12"],
+  ]);
+  // A value's words that merely look like something stay text; a bare `key:: value` line's links count when its tokens are given.
+  expect(propertyValueLinks("[note::FM-1 is a synth]")).toEqual([]);
+  expect(propertyValueLinks("next:: see [[Beds]]", [{ key: "next", start: 0, raw: "next:: see [[Beds]]" }]).map(l => l.kind)).toEqual(["page"]);
 });
