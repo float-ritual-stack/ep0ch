@@ -2803,6 +2803,8 @@ export class OutlinerServer {
             const target = root.resolvedTarget ?? root.originalTarget, subject = target.representation.subject;
             const thread = this.store.listAnnotationThreads({ subject: subject.kind === "resource" ? { kind: "resource", resourceId: subject.resourceId } : { kind: "block", blockId: (subject as { blockId: string }).blockId }, includeResolved: true }).find(t => t.block.id === root.block.id);
             const faces = (thread?.replies ?? []).filter(r => r.properties?.kind?.[0] === TLDR_KIND);
+            // One being written now isn't posted either.
+            this.agentRequests.tldrRemoved(root.block.id);
             if (!faces.length) throw new Error("this thread has no TL;DR to take away");
             for (const r of faces) this.store.delete(r.block.id, request.mutation.author === "agent" ? { author: "agent", ...(request.mutation.actorId ? { actorId: request.mutation.actorId } : {}) } : { author: "user" });
             result = { removed: faces.map(r => r.block.id) };

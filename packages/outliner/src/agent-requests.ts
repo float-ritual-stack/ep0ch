@@ -38,6 +38,8 @@ import { parsePropertyRecords } from "./properties";
 /** What a thread's agent is asked for a TL;DR (PIE-791). */
 /** How long a TL;DR ask waits for its agent before saying it's being written (an agent that can't refuses at once). */
 export const TLDR_WAIT_MS = 4000;
+/** How long it waits for its agent to start on it, behind another ask on the same thread. */
+const TLDR_QUEUE_MS = 6000;
 /** What answering an ask came to: refused (a TL;DR not written, and why), else it landed. */
 type TurnOutcome = { refused: string };
 export const TLDR_REQUEST = "TL;DR: summarize this thread in two or three short lines: what it was about, and where it landed.";
@@ -580,22 +582,31 @@ export class AgentRequests {
   async tldr(rootId: string, wait = TLDR_WAIT_MS): Promise<string> {
     const name = [...this.registry.threadAgentNames()][0];
     if (!name) throw new Error(`no agent answers in threads in this outline, so none can write a TL;DR: write it yourself (annotations.tldr with body)`);
-    const request = TLDR_REQUEST;
-    const turn = this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}` }, { kind: [TLDR_KIND] });
+    const request = TLDR_REQUEST, gen = this.tldrGen.get(rootId) ?? 0;
+    let started!: () => void;
+    const begun = new Promise<void>(res => { started = res; });
+    // Taken away (annotations.tldr remove) while it was being written: it isn't posted.
+    const still = () => (this.tldrGen.get(rootId) ?? 0) === gen;
+    const turn = this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}` }, { kind: [TLDR_KIND] }, { started, still });
+    // Its wait counts from when its agent starts on it (another ask on the thread may be answered first), within reason.
+    await Promise.race([begun, Bun.sleep(TLDR_QUEUE_MS)]);
     const done = await Promise.race([turn, Bun.sleep(wait).then(() => undefined)]);
     if (done && "refused" in done) throw new Error(done.refused);
     return name;
   }
+  /** A thread's TL;DR taken away: one being written for it now isn't posted. */
+  tldrRemoved(rootId: string) { this.tldrGen.set(rootId, (this.tldrGen.get(rootId) ?? 0) + 1); }
+  private readonly tldrGen = new Map<string, number>();
 
-  private queueTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>): Promise<TurnOutcome | void> {
-    const turn: Promise<TurnOutcome | void> = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => this.answerTurn(rootId, asked, line, properties)).catch(() => {});
+  private queueTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>, hooks: { started?: () => void; still?: () => boolean } = {}): Promise<TurnOutcome | void> {
+    const turn: Promise<TurnOutcome | void> = (this.threadTurns.get(rootId) ?? Promise.resolve()).then(() => { hooks.started?.(); return this.answerTurn(rootId, asked, line, properties, hooks.still); }).catch(() => {});
     this.threadTurns.set(rootId, turn);
     void turn.finally(() => { if (this.threadTurns.get(rootId) === turn) this.threadTurns.delete(rootId); });
     return turn;
   }
 
   /** One ask answered: `asked` is the comment or reply that asked (a later turn may have landed after it). */
-  private async answerTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>): Promise<TurnOutcome | void> {
+  private async answerTurn(rootId: string, asked: string, line: RequestLine, properties?: Record<string, string[]>, still?: () => boolean): Promise<TurnOutcome | void> {
     const bound = this.registry.agent(line.agent);
     if (!bound || this.stopped) return;
     const { extension, agent } = bound;
@@ -654,6 +665,7 @@ export class AgentRequests {
       reply = `@${line.agent} couldn't answer: ${message(error)}`;
     }
     if (this.stopped) return;
+    if (still && !still()) return { refused: "the TL;DR was taken away while it was being written" };
     const attribution = this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor });
     this.store.changes.run(attribution, () => {
       // Its session goes on the thread first, so the next @margin resumes it even if this reply is read at once.
