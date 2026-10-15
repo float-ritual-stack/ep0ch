@@ -366,7 +366,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await board.request<{ id: string }[]>("children", { parentId: ids.day })).map(b => b.id)).toEqual([ids.plan!, ids.dup!]);
     const inside = await tool("outline_move", { uri: uri("day"), parent: ids.plan });
     expect(inside.isError).toBe(true);
-    expect(inside.text).toContain("its own descendant");
+    expect(inside.text).toContain("inside itself");
     expect((await tool("outline_move", { uri: uri("dup"), parent: ids.day, before: ids.plan })).text).toContain("exactly one of parent");
     expect((await tool("outline_move", { uri: uri("dup"), parent: "root", revision: 99 })).text).toContain("changed since you read it");
 

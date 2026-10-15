@@ -32,6 +32,7 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
+import { isSystemNote } from "./note-placement";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
 import { parseWorkId } from "./work-ids";
@@ -1075,11 +1076,9 @@ export async function assignWorkId(
 
 // ─── Move, trash and restore ────────────────────────────────────────────────
 
-/** A note the service keeps (the Inbox, Trash, Bookmarks, a seeded guide): not moved or trashed by an agent. */
-const isSystemNote = (block: Block): boolean =>
-  block.author === "system" || block.properties.some(p => p.key === "system-view" || p.key === "system-doc");
 const isInbox = (block: Block): boolean => block.properties.some(p => p.key === "system-view" && p.value.toLowerCase() === "inbox");
-const label = (block: Block): string => `((${block.id}|${blockDisplayTitle(block).slice(0, 50).replace(/[|()]/g, " ").trim()}))`;
+const short = (title: string): string => title.slice(0, 50).replace(/[|()]/g, " ").trim();
+const label = (block: Block): string => `((${block.id}|${short(blockDisplayTitle(block))}))`;
 
 /** Up to three notes whose words are near what the agent named, as a did-you-mean for a ref that did not resolve. */
 async function nearest(client: AgentToolsClient, ref: string): Promise<string> {
@@ -1088,7 +1087,7 @@ async function nearest(client: AgentToolsClient, ref: string): Promise<string> {
   try {
     const found = await client.request<{ matches: { block: { id: string }; title: string }[] }>({ action: "tree.search", query: words });
     const top = found.matches.slice(0, 3);
-    return top.length ? ` Did you mean ${top.map(m => `((${m.block.id}|${m.title.slice(0, 50).replace(/[|()]/g, " ").trim()}))`).join(", ")}?` : "";
+    return top.length ? ` Did you mean ${top.map(m => `((${m.block.id}|${short(m.title)}))`).join(", ")}?` : "";
   } catch { return ""; }
 }
 
@@ -1144,14 +1143,6 @@ export async function moveBlock(
       if (isSystemNote(parent) && !isInbox(parent)) throw new WorkToolRefusal(`${label(beside)} is under a system note (${label(parent)}): put the note under a note of the outline's, or root`);
     }
   }
-  // Not into itself: walk up from the new parent.
-  for (let up: string | null = parentId, hops = 0; up && hops < 1000; hops++) {
-    if (up === block.id) {
-      const inside = parentId === block.id ? "itself" : `its own descendant ${label(await client.request<Block>({ action: "get", blockId: parentId! }))}`;
-      throw new WorkToolRefusal(`${label(block)} can't go under ${inside}: pick a parent outside it, or root`);
-    }
-    up = (await client.request<Block>({ action: "get", blockId: up })).parentId;
-  }
   const siblings = (await client.request<Block[]>({ action: "children", parentId })).filter(sibling => sibling.id !== block.id);
   const requested = beside
     ? siblings.findIndex(sibling => sibling.id === beside!.id) + (given[0] === "after" ? 1 : 0)
@@ -1162,7 +1153,13 @@ export async function moveBlock(
     const before = (await client.request<Block[]>({ action: "children", parentId })).findIndex(sibling => sibling.id === block.id);
     if (before === position) return { outcome: "unchanged", id: block.id, ref: `((${block.id}))`, parentId, position, said: `${label(block)} is already ${where} at position ${position}` };
   }
-  const moved = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) });
+  // The service refuses a place inside the note itself; the refusal here says what to give instead.
+  const moved = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) }).catch(e => {
+    if (e instanceof Error && /beneath itself/.test(e.message)) {
+      throw new WorkToolRefusal(`${label(block)} can't go ${parentId === block.id ? "under itself" : "inside itself (the place is under its own descendants)"}: pick a parent outside it, or root`);
+    }
+    throw e;
+  });
   return { outcome: "applied", id: block.id, ref: `((${block.id}))`, parentId, position, previousParentId: block.parentId, revision: moved.revision, said: `moved ${label(block)} ${where} at position ${position}` };
 }
 

@@ -35,12 +35,16 @@ export interface PlacementReads {
 /** One rule: a placement, or null to let the next rule decide. */
 export type PlacementRule = (intent: NewNoteIntent, reads: PlacementReads) => Placement | null;
 
+/** A note the service keeps (the Inbox, Trash, Bookmarks, a seeded guide): placement and agents' moves leave it alone. */
+export const isSystemNote = (block: Block): boolean =>
+  block.author === "system" || block.properties.some(p => p.key === "system-view" || p.key === "system-doc");
+
 /** A note made from inside another goes under it, last; never under a system note other than the Inbox. */
 const underNear: PlacementRule = (intent, reads) => {
   if (intent.kind !== "note" || !intent.near) return null;
   const near = reads.active(intent.near);
   if (!near || near.id === reads.inbox().id) return null;
-  if (near.author === "system" || near.properties.some(p => p.key === "system-view" || p.key === "system-doc")) return null;
+  if (isSystemNote(near)) return null;
   return { parentId: near.id, at: "end", rule: "near", said: `under “${blockDisplayTitle(near).slice(0, 60)}”` };
 };
 

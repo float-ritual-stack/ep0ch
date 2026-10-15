@@ -381,7 +381,7 @@ test("move puts a note under a parent or beside a sibling, attributed; it refuse
 
   const inside = await agent("move", { ref: stray.id, parent: kid.id });
   expect(inside.exitCode).toBe(1);
-  expect(inside.stderr).toContain("its own descendant");
+  expect(inside.stderr).toContain("inside itself");
   expect(inside.stderr).toContain("pick a parent outside it");
   expect((await agent("move", { ref: stray.id, parent: stray.id })).stderr).toContain("under itself");
   const missing = await agent("move", { ref: stray.id, parent: "[[Tuesdy]]" });
