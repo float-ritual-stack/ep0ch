@@ -62,7 +62,7 @@ function linkLabelSpan(raw:string):{start:number;end:number}|null {
 
 /** Token.raw must start at the current cursor. No search over repeated text is
  * accepted as proof of where a token came from. */
-function inline(source:MappedDocument,styles:readonly GlyphStyle[]=[],link?:DocumentGlyph['link'],path='root',tokens:Token[]=parser.Lexer.lexInline(source.text),definitions?:Links):DocumentGlyph[]|null {
+function inline(source:MappedDocument,styles:readonly GlyphStyle[]=[],link?:DocumentGlyph['link'],path='root',tokens:Token[]=parser.Lexer.lexInline(source.text,parser.defaults),definitions?:Links):DocumentGlyph[]|null {
   const output:DocumentGlyph[]=[];let cursor=0;
   for(const token of tokens) {
     if(!source.text.startsWith(token.raw,cursor))return null;

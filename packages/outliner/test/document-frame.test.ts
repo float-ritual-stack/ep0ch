@@ -26,6 +26,11 @@ test('Detail keeps single tildes in paths and approximations and strikes double 
   expect(frame.lines.map(line=>line.trimEnd())).toEqual([...lines.slice(0,-1),'this']);
   const struck=frame.cells.filter(cell=>cell.styles.includes('strikethrough'));
   expect(struck.map(cell=>cell.text).join('')).toBe('this');
+  for(const [index,text] of lines.entries()) {
+    const inline=AttributedMarkdown.compileInline(sourceDocument(observeDocument({kind:'block',blockId:'synthetic-inline-tildes'},text)),theme,false);
+    expect(inline).not.toBeNull();
+    expect(inline!.frame(100).lines.map(line=>line.trimEnd())).toEqual([index===lines.length-1?'this':text]);
+  }
 });
 
 test('the real Markdown reader emits visible grapheme cells and exact escape/code/source evidence together',()=>{
