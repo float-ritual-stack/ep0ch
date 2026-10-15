@@ -3455,6 +3455,26 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("an ask keeps the draft open while its script view runs beside it", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "asks" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "asks")).top;
+    await until(() => !!extensionList()?.extensions.some(e => e.id === "showcase-planter"), "the showcase's planter loaded");
+    await stage.dispatch.press("edit", {}, "notes");
+    const reader = stage.paneNamed("notes") as ReaderPane;
+    const d = reader.surface.draft!;
+    await stage.dispatch.press("draft.place", { line: d.lines.length, col: 1 }, "notes");
+    await stage.dispatch.press("draft.paste", { text: "@planter show the seed counts\nStill writing" }, "notes");
+    await until(() => d.text.includes("Edit or keep the script"), "the script linked in the live draft", 15_000);
+    expect(reader.surface.draft).toBe(d);
+    expect(d.text).toContain("Still writing");
+    await until(() => screen().includes("Peas") && screen().includes("Beans"), "the script's table beside the note", 15_000);
+    expect(JSON.stringify(await stage.dispatch.act({ action: "layout.get" }, USER))).toContain("answer");
+    await stage.dispatch.press("edit.save", {}, "notes");
+    expect((await board.get(seeded.notes.asks.id))!.text).toContain("Still writing");
+  }, 40_000);
+
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });

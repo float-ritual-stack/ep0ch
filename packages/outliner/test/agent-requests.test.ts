@@ -177,8 +177,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "two items", r
   const asked = await create("Yesterday\n@answer what is left over");
   const replied = await agentOf(asked.id, (p) => p.status === "ready");
   expect(replied.agent!.status).toBe("replied");
-  expect(replied.output!.markdown).toBe("- [ ] call Dana\n- [ ] \\[status::x] stays text");
-  expect(store.get(asked.id)!.text).toBe("Yesterday\n@answer what is left over");
+  expect(store.get(asked.id)!.text).toContain("@answer what is left over\n> [!note]- @answer answered\n> - [ ] call Dana\n> - [ ] [status::x] stays text");
 
   await writeAgent("broken", `process.stdout.write(JSON.stringify({ ok: true, value: { patches: "nope" } }));`);
   const bad = await create("x\n@broken");

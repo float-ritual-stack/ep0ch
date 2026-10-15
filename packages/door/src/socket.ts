@@ -161,7 +161,7 @@ import type { Passage } from "@ep0ch/outline-core/passage";
  */
 export type DraftRequest =
   | { kind: "read"; requestId: string; holdId: string; blockId: string }
-  | { kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; mark?: string; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
+  | { kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: { author: string; actorId?: string }; replyTo?: string; mark?: string; force?: boolean; proposal?: { id: string; op: "apply" | "dismiss" } }
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; patchId: string };
 export type DraftAnswer = { text: string; revision: number } | { applied: true; inverse?: { before: string; text: string; revision: number } } | { applied: false; reason: string } | { reverted: boolean };
 /** A live draft's hold on the service: renewed while the draft is open, let go when it closes. */
@@ -170,12 +170,13 @@ export interface DraftHoldHandle {
   /** The person typed in it (never an agent's patch): told to the service a moment later (`drafts.touch`). */
   touched?(): void;
 }
-/** How long after the person's last keystroke the service is told they typed (ms); its own quiet timer settles the line. */
+/** How often ongoing typing reaches the service (ms); its quiet timer settles each ask independently. */
 export const DRAFT_TOUCH_MS = 1000;
 /** Lease and heartbeat of a draft hold (ms): a door that dies loses its holds within the lease. */
 export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
 
 export interface OutlineEvent {
+  ask?: import("@ep0ch/outline-core/protocol").AskProgress;
   script?: import("@ep0ch/outline-core/protocol").ScriptActionCall;
   domain: string; action: string; blockId?: string; sequence: number;
   /** The Resource a `resource-catalog` event names (a registration, a refresh). */
@@ -1325,6 +1326,7 @@ export class SocketBoard implements Board {
       }
       if (!r.event) return;
       // A request to the door about a draft it holds is answered here, never queued behind a catch-up.
+      if (r.event.ask && r.event.blockId) this.drafts.get(r.event.blockId)?.progress?.(r.event.ask);
       if (r.event.domain === "draft") { void this.answerDraft(r.event.draft); return; }
       if (r.event.domain === "script" && r.event.script) { void this.answerScript(r.event.script); return; }
       if (held) held.push(r.event); else this.deliver(r.event);
@@ -1596,18 +1598,18 @@ export class SocketBoard implements Board {
 
   // ── live drafts (PIE-501): held on the service, so draft.patch reaches them ─
 
-  private drafts = new Map<string, { blockId: string; revision: number; holdId: string | null; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; touch: Timer | null; gone: boolean }>();
+  private drafts = new Map<string, { progress?: (ask: import("@ep0ch/outline-core/protocol").AskProgress) => void; blockId: string; revision: number; holdId: string | null; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; touch: Timer | null; gone: boolean }>();
 
   /**
    * Hold a live draft of `blockId` on the service: while it's held, an agent's `draft.patch` on that note comes
    * here (`answer`) instead of to the saved note, and a lease the door renews lets go of it if the door dies.
    * Null when this connection doesn't subscribe to events (the service's draft requests arrive there).
    */
-  holdDraft(blockId: string, revision: number, answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>): DraftHoldHandle | null {
+  holdDraft(blockId: string, revision: number, answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>, progress?: (ask: import("@ep0ch/outline-core/protocol").AskProgress) => void): DraftHoldHandle | null {
     if (!this.sub) return null;
     const old = this.drafts.get(blockId);
     if (old) this.letGo(old);
-    const h = { blockId, revision, holdId: null as string | null, answer, timer: null as Timer | null, touch: null as Timer | null, gone: false };
+    const h = { blockId, revision, progress, holdId: null as string | null, answer, timer: null as Timer | null, touch: null as Timer | null, gone: false };
     this.drafts.set(blockId, h);
     // A draft can outlive the script that opened it; its lease belongs to the door.
     this.scriptRun.exit(() => {
@@ -1619,8 +1621,7 @@ export class SocketBoard implements Board {
       revise: revision => { h.revision = revision; this.scriptRun.exit(() => void this.renew(h)); },
       release: () => this.letGo(h),
       touched: () => {
-        if (h.gone) return;
-        if (h.touch) clearTimeout(h.touch);
+        if (h.gone || h.touch) return;
         h.touch = this.scriptRun.exit(() => setTimeout(() => { h.touch = null; void this.touch(h); }, DRAFT_TOUCH_MS));
         (h.touch as { unref?: () => void }).unref?.();
       },

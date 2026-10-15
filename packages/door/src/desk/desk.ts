@@ -47,6 +47,7 @@ import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { lookFor, pageOf, type Look } from "../look";
 import type { Step } from "../session/restore";
+import { AnswerTile } from "./answer-tile";
 import { COMMENT_TILE_KIND, CommentTilePane } from "./comment-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
@@ -288,13 +289,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (side) this.commentSide = side;
     let id = mine[0];
     if (id === undefined) {
-      id = this.nextId;
-      const ok = this.ask({ op: "open", tile: id, kind: COMMENT_TILE_KIND, name: this.autoName("comment"), at: { kind: "split", target: at, dir: this.commentSide, pair: true, weight: this.commentShare }, ...(keys ? {} : { keys: false as const }) }, USER);
-      if (!ok.ok) throw new ActionRefused(ok.refused);
-      this.put(makeTile({ t: "leaf", kind: COMMENT_TILE_KIND, source: `tile:${reader}` }));
-      this.commit(ok);
-      this.startTile(id);
-      this.openedFrom.set(id, at);
+      id = this.openPair(at, makeTile({ t: "leaf", kind: COMMENT_TILE_KIND, source: `tile:${reader}` }), "comment", keys, USER);
     } else if (side) {
       // To another side of the reader, its share kept (sized by its border, it stays that size).
       const share = this.shareOf(id) ?? this.commentShare;
@@ -306,6 +301,28 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.save(); this.redraw();
     return { tile: this.nameOf(id), side: this.commentSide };
   }
+  private openPair(at: number, pane: Pane, name: string, keys: boolean, actor: Actor): number {
+    const id = this.nextId;
+    const ok = this.ask({ op: "open", tile: id, kind: pane.kind, name: this.autoName(name),
+      at: { kind: "split", target: at, dir: this.commentSide, pair: true, weight: this.commentShare },
+      ...(keys ? {} : { keys: false as const }) }, actor);
+    if (!ok.ok) throw new ActionRefused(ok.refused);
+    this.put(pane); this.commit(ok); this.startTile(id); this.openedFrom.set(id, at);
+    return id;
+  }
+
+  async answerTile(reader: ReaderPane, ask: string, actor: Actor): Promise<unknown> {
+    const at = [...this.panes].find(([, p]) => p === reader)?.[0];
+    if (at === undefined) return null;
+    const source = this.nameOf(at);
+    const existing = [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === source);
+    let id: number;
+    if (existing) { id = existing[0]; (existing[1] as AnswerTile).ask = ask; }
+    else id = this.openPair(at, new AnswerTile(source, ask), "answer", false, actor);
+    this.save(); this.redraw();
+    return { tile: this.nameOf(id) };
+  }
+
   /** Reader `r`'s comment tile is open. */
   hasComposerTile(r: ReaderPane): boolean {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];

@@ -149,6 +149,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
+  answerTile?(ask: string, actor: Actor): Promise<unknown>;
   composerTile?(on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** The comment's own tile is open now (composerTile's): false once it was closed by hand. */
   hasComposerTile?(): boolean;
@@ -2357,8 +2358,10 @@ export class NoteSurface {
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
+      answered: (ask, by) => { void this.run("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e))); },
       closed: how => this.draftClosed(s, how, host),
     });
+    s.draft.onAskSelected = ask => { void this.run("ask.beside", { ask }, host, USER); };
     this.msg = fresh;
     this.modes.push(this.draftMode(s));
     return s;
@@ -6873,6 +6876,12 @@ const PROPOSAL_DEFS = {
 export const PROPOSAL_ACTIONS = actionSet<{ surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }>()("proposal", PROPOSAL_DEFS);
 
 export const NOTE_ACTIONS = actionSet<On>()("note", {
+  "ask.beside": def({
+    summary: "show this ask's answer beside the note, keeping the person's keys in the note",
+    touches: "nothing", replay: "safe",
+    args: { ask: { type: "string", about: "the ask line as written" } },
+    async run({ ask }, { host }, actor) { return host.answerTile?.(ask, actor) ?? null; },
+  }),
   "rich.toggle": def({
     summary: "switch rich/raw edit; both views use the same draft",
     keys: "ctrl+o while editing, esc in rich edit", touches: "draft", draft: "type", replay: "safe",

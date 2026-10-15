@@ -926,6 +926,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "asks", need: "keep typing while an agent's answer arrives", part: "draft.patch, folds and the comment tile's dock pair", files: "src/edit.ts, src/desk/answer-tile.ts, outliner/src/agent-requests.ts",
+    aside: "e edits the note · write @planter show the seed counts on a new line and keep typing below it · the answer opens beside without taking the keys · open its fold to edit the source · ctrl+s saves both your words and the answer",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · asks", panes: [r], names: ["notes"] }, show, [[r, n.asks]]);
+    },
+  },
+  {
     key: "scripts", need: "bind scripts to keys, names, rules and asks without waiting", part: "the dispatcher, action lines, QuickJS and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
     aside: "alt+S runs seed-report · ^K or / then seed-report runs by name · slots are name=value · @seed-count runs in a note; rule-on::script:seed-count uses the same trigger path · alt+Q or click ⇧⌥Q starts recording · open a query tile with ^K tile.open kind=query query=\"#beans\" · alt+Q or REC stop saves a [script::] note · edit #beans to #{tag}; Run recording from ^K asks for tag · agent actions stay out · Run seed-report streams results below its source; ext.undo takes back its writes together",
     stage(n, show) {

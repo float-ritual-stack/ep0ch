@@ -53,6 +53,7 @@ export interface DeskApi {
   /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
   dismiss?(p: Pane): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
+  answerTile?(r: ReaderPane, ask: string, actor: Actor): Promise<unknown>;
   composerTile?(r: ReaderPane, on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s comment tile is open. */
   hasComposerTile?(r: ReaderPane): boolean;
@@ -435,6 +436,7 @@ export class ReaderPane implements Pane {
       get look() { return desk.lookOf?.(pane); },
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
+      ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor) => desk.answerTile!(this, ask, actor) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
       ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),

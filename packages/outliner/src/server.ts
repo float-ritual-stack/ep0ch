@@ -503,6 +503,14 @@ export class OutlinerServer {
     extensionRuntime.useConnection(connection);
     this.extensionRuntime = extensionRuntime;
     this.agentRequests = new AgentRequests(store, this.extensionRegistry, extensionRuntime, {
+      runSource: async (blockId, clientId) => {
+        await this.extensionRegistry.reload();
+        const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === blockId);
+        if (!extension) throw new Error("The answer's script needs a closed js or ts fence");
+        const run = this.scriptRuns.start(extension, { extension: extension.id, action: "run", blockId, clientId, background: true });
+        void this.scriptRuns.finished(run.undo!);
+        return run;
+      },
       script: async request => {
         const result = await this.extensionCalls.act(request);
         const error = await this.scriptRuns.finished(result.undo!);
@@ -510,8 +518,8 @@ export class OutlinerServer {
       },
       readDraft: (blockId) => this.draftPatches.read(blockId),
       patch: (input) => this.draftPatches.patch(input),
-      changed: (blockId) => this.broadcast({
-        id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.agent", sequence: this.store.sequence, blockId,
+      changed: (blockId, ask) => this.broadcast({
+        id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.agent", sequence: this.store.sequence, blockId, ...(ask ? { ask } : {}),
       }),
       ...(options.agentRequestQuietMs !== undefined ? { quietMs: options.agentRequestQuietMs } : {}),
     });

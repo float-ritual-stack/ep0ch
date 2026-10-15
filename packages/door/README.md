@@ -43,6 +43,17 @@ person to rewrite), then `bun scripts/architecture-map.ts` checks the citations 
 the isometric map as one page, `out/architecture-map.html` (open it in a browser; `#ch13` shows every part).
 `test/architecture-map.test.ts` fails only when a cited file or marker is gone; the line-exact `--check` is the push-review round's, so one PR's line shifts don't fail another.
 
+## Inline answers
+
+Write an `@name` ask on its own line and keep typing below it. The ask's quiet timer follows that line,
+not the rest of the draft. Its reply lands through `draft.patch`, attributed and undoable, folded under
+the ask. Clicking the ask selects its answer beside the note; moving the caret onto it opens the fold.
+The paired answer tile leaves the editor's keys alone. The `asks` showcase demonstrates this with `@planter`.
+
+A reply whose first line declares `[script::name]` is kept as a script block and runs immediately. Scripts
+can return `{ data, view: view.table({ columns, rows }) }`; `view` has constructors for the existing
+component primitives, drawn through the same component renderer. The reply links its source and run note.
+
 ## Getting started
 
 One walk through the door, in the order you meet things. Each step has its own section below.

@@ -490,3 +490,6 @@ export interface ExtensionBarResult {
   readonly source: string;
   readonly rows: readonly ExtensionBarRow[];
 }
+
+/** Progress for an ask in a held draft; the line stays authored text. */
+export interface AskProgress { line: string; state: string; blocks?: number; beside?: boolean }

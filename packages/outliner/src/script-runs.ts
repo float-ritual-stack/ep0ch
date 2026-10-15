@@ -6,6 +6,7 @@ import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
 import { hostApi, type HostStep } from "./host-api";
 import { runScript } from "./script-runtime";
+import { renderComponent, validateComponent } from "./component-primitives";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
@@ -107,7 +108,14 @@ export class ScriptRuns {
         if (!current || current.stamp !== extension.stamp) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
-        if (result.ok) { if (result.value !== undefined) lines.push(JSON.stringify(result.value)); }
+        if (result.ok) {
+          if (result.value !== undefined) {
+            const value = result.value;
+            lines.push(value && typeof value === "object" && "view" in value
+              ? renderComponent(validateComponent(value), "blockdown").body
+              : JSON.stringify(value));
+          }
+        }
         else { failure = result.error.message; lines.push(failure); }
       } catch (error) {
         lines[0] = `${extension.name} · failed [script-run::${undo}]`;

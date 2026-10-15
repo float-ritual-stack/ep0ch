@@ -63,6 +63,7 @@ export const SEED = {
   rules: "Allotment committee, Saturday",
   settings: "Compost bay jobs get a badge",
   scripts: "Seed report",
+  asks: "Keep writing while the answer arrives",
   scriptTarget: "Planting checklist",
   remoteWrites: "Remote writes and the netmail queue",
   buildLog: "Shed roof build log",
@@ -1277,6 +1278,14 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const welcomeView = await make(landing.id, WELCOME_VIEW_TEXT);
   await board.moveInView({ view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, { kind: "user" });
 
+  notes.asks = await make(notes.root.id, `${SEED.asks}\n\nPress e, go to the end, and write @planter show the seed counts on its own line. Keep typing on the next line. The answer stays folded and its running view opens beside this note. Open the fold to edit or keep the script.\n\n`);
+  if (opts.ticketsConfig) {
+    const folder = join(opts.ticketsConfig, "pi-herdr-outliner", "extensions", "showcase-planter");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "showcase-planter", version: 1, name: "Planter", run: ["bun", "respond.ts"], agents: [{ name: "planter", effects: "write" }] }));
+    const reply = 'Seed counts [script::seed-counts]\n```js\nreturn { data: null, view: view.table({ columns: ["Crop", "Packets"], rows: [["Peas", 3], ["Beans", 5]] }) };\n```';
+    writeFileSync(join(folder, "respond.ts"), `await Bun.stdin.text(); console.log(JSON.stringify({ok: true, value: {reply: ${JSON.stringify(reply)}}}));`);
+  }
   notes.scriptTarget = await make(notes.root.id, "Planting checklist\n- [ ] Prepare the seed labels");
   notes.scripts = await make(notes.root.id, [
     "Seed report [script::seed-report] [keys::alt+S]",

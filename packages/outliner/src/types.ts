@@ -2775,6 +2775,7 @@ export type OutlinerEventDomain =
   | "queries";
 
 export interface OutlinerEvent {
+  ask?: import("@ep0ch/outline-core/protocol").AskProgress;
   id: string;
   domain: OutlinerEventDomain;
   action: string;

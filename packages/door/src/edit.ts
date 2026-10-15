@@ -19,6 +19,7 @@ import { lastTop, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+import { foldPoints, type FoldPoint } from "./doc";
 
 /** How long an agent's patch stays lit in the draft, with who made it (ms). */
 export const PATCH_FLASH_MS = 2500;
@@ -47,7 +48,7 @@ export interface Step { before: string; after: string; by: Actor; what: string; 
 /** A patch's new text, lit for a moment and labelled with who made it. Offsets are the draft's (UTF-16). */
 export interface PatchFlash { start: number; end: number; label: string; until: number }
 /** What the service asks a draft to patch (the `draft` event's patch, src/socket.ts DraftRequest). */
-export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; mark?: string; force?: boolean }
+export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; replyTo?: string; mark?: string; force?: boolean }
 export type DraftPatchAnswer = { applied: true } | { applied: false; reason: string };
 
 /**
@@ -62,6 +63,11 @@ export class Draft {
   col = 0;
   /** The screen row of the cursor in the last render (the completion popup opens under it). */
   cursorRow = 0;
+  readonly asks = new Map<string, import("@ep0ch/outline-core/protocol").AskProgress>();
+  onAskSelected: ((ask: string) => void) | null = null;
+  private foldCache: { text: string; points: FoldPoint[] } | null = null;
+  private openedFolds = new Set<string>();
+  private anchoredRow: number | null = null;
   /** The text the draft started from, to tell whether anything changed. */
   private original: string;
   /** Another writer changed the block after the draft opened (seen through an outline event). */
@@ -382,6 +388,7 @@ export class Draft {
     if (k.kind === "mouse") return "keep";
     // Any key brings the cursor back into view after the wheel scrolled away from it.
     this.follow = true;
+    if (k.kind !== "char" && k.kind !== "paste" && k.kind !== "backspace") this.anchoredRow = null;
     if (k.kind === "paste") { this.pasteText(k.text); return "keep"; }
     // A paste typed out key by key (the App's) is one step: recorded once the last of its keys is in, or as soon as
     // another key comes.
@@ -699,6 +706,7 @@ export class Draft {
     }
     if (!p.force) {
       const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
+      if (p.replyTo && located.spans.some(sp => sp.start <= c && c <= sp.end)) return no("the cursor is on the ask being answered");
       if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
       // With a mark: above it; and when the person went back up above the mark to write, above the block they're in.
       if (p.mark !== undefined) {
@@ -707,13 +715,14 @@ export class Draft {
         const at = Math.min(c, a);
         const limit = at > mark ? mark : blockStartAt(text, at);
         if (located.spans.some(sp => sp.end > limit)) return no(`it reaches ${limit === mark ? "the mark" : "the block being typed in"} or below it; a patch changes only text above it`);
-      } else {
+      } else if (!p.replyTo) {
         const typing = [...new Set([blockStartAt(text, c), blockStartAt(text, a)])];
         if (located.spans.some(sp => typing.some(block => blockStartAt(text, sp.start) === block || (sp.start < block && block < sp.end)))) {
           return no("it changes the block being typed in");
         }
       }
     }
+    if (p.replyTo) this.asks.set(p.replyTo, { line: p.replyTo, state: "replied", blocks: 1, beside: true });
     this.commitPatch(located.spans, by, p.patchId);
     return { applied: true };
   }
@@ -783,6 +792,7 @@ export class Draft {
     if (keep && w) {
       const p = this.placeOf(map(keep.offset)), rows = this.layout(w);
       this.top = Math.max(0, this.viOf(rows, p.row, p.col) - keep.screen);
+      this.anchoredRow = keep.screen;
     }
     this.flashes = flashes;
     if (patchId !== null) {
@@ -847,11 +857,13 @@ export class Draft {
 
   /** Put the cursor at line `row`, column `col` (UTF-16, clamped); `extend` keeps or starts a selection. */
   place(row: number, col: number, extend = false) {
+    this.anchoredRow = null;
     const r = Math.max(0, Math.min(this.lines.length - 1, row));
     if (extend) this.anchor ??= { row: this.row, col: this.col };
     else this.anchor = null;
     this.row = r;
     this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
+    if (this.asks.has(this.line)) this.onAskSelected?.(this.line);
     if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col && !extend) this.anchor = null;
     this.goal = null; this.discardArmed = false;
     // A click between ctrl+x and ctrl+e lets the chord go, as any key does: the ctrl+e after it is the line's end.
@@ -896,7 +908,12 @@ export class Draft {
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
   layout(w: number): VRow[] {
     const out: VRow[] = [];
+    const text = this.text;
+    if (this.foldCache?.text !== text) this.foldCache = { text, points: foldPoints(text) };
+    const closed = this.foldCache.points.filter(p => p.start === "folded" && !this.openedFolds.has(p.key));
+    for (const p of closed) if (this.row >= p.line - (this.asks.has(this.lines[p.line - 1] ?? "") ? 1 : 0) && this.row < p.end) this.openedFolds.add(p.key);
     this.lines.forEach((line, i) => {
+      if (closed.some(p => !this.openedFolds.has(p.key) && i >= p.line + (this.asks.has(this.lines[p.line - 1] ?? "") ? 0 : 1) && i < p.end)) return;
       const chars = [...line];
       for (const r of wrapRows(chars, Math.max(4, w), hangOf(line, Math.max(4, w)))) out.push({ line: i, ...r });
     });
@@ -954,12 +971,14 @@ export class Draft {
     const at = this.cursorIn(rows), sel = this.selection();
     // Following the cursor, the view keeps a few rows around it (scrolloff, PIE-622): on the last line too, where
     // the rows under it are the blank ones past the end (reader.overscroll; none keeps the last line on the edge).
-    if (this.follow) {
+    if (this.follow && this.anchoredRow !== null) this.top = at.vi - this.anchoredRow;
+    else if (this.follow) {
       const off = scrollOff(h);
       if (at.vi - off < this.top) this.top = at.vi - off;
       if (at.vi + off >= this.top + h) this.top = at.vi + off - h + 1;
     }
-    this.top = Math.max(0, Math.min(this.top, lastTop(rows.length, h)));
+    // An incoming answer can require more blank room below than the usual overscroll limit.
+    this.top = Math.max(0, Math.min(this.top, this.follow && this.anchoredRow !== null ? Math.max(0, at.vi) : lastTop(rows.length, h)));
     this.cursorRow = Math.max(0, Math.min(h - 1, at.vi - this.top));
     const out: string[] = [];
     // Agents' patches just landed: their text lit, and who made it at the end of their last row.
@@ -994,6 +1013,9 @@ export class Draft {
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
       });
+      const ask = this.asks.get(this.lines[r.line]!);
+      const progress = ask && rows[vi + 1]?.line !== r.line ? ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}` : "";
+      if (progress) line += fg(C.lmagenta) + progress.slice(0, Math.max(0, w1 - r.indent - Bun.stringWidth(cells.join(""))));
       const said = glow.find(g => g.last)?.label;
       const room = w1 - r.indent - Bun.stringWidth(cells.join("")) - 2;
       out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + ("@" + said).slice(0, room) + RESET : ""));

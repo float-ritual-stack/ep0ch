@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Keep typing while an inline ask answers (PIE-902)
+
+- **Changed:** typing elsewhere no longer postpones an ask. Replies land in the live draft through
+  `draft.patch`, folded under the ask, with the caret's screen row held steady.
+- **Added:** an answer tile shares the comment tile's dock pair; an agent-written `[script::]` reply
+  runs immediately and can return the existing component view primitives. The `asks` showcase and a
+  scratch tmux test exercise typing while an answer arrives.
+- **Deployment:** wire changed; PROTOCOL needs main+1 at merge (loki assigns).
+
 ### Scripts run from keys, names, rules and inline asks (PIE-900)
 
 - **Added:** `[keys::]` binds a script through the dispatcher with key-clash checks; the power bar and `/`
