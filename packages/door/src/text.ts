@@ -159,6 +159,8 @@ export const rule = (w: number, label = "") => {
 };
 
 /** A note's id as given: a bare id, or a block reference as written (`((id))`, what a picker prints). */
+/** A whole block id, or `((id))` around one: what needs no question to the service to name a note. */
+export const isWholeBlockId = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(blockIdOf(s).trim());
 export const blockIdOf = (s: string) => referencedBlock(s)?.blockId ?? s;
 
 /** A command line as words, split on whitespace (the daily agent's EP0CH_DAILY_AGENT, $EDITOR for ctrl+e). */

@@ -333,7 +333,7 @@ function asAgentSource<T>(input: T): T {
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "blocks.query", "views.read", "query.matches"]);
 /**
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
@@ -3038,6 +3038,13 @@ export class OutlinerServer {
             request.mutation,
           );
           break;
+        case "blocks.resolve": {
+          if (!Array.isArray(request.refs) || request.refs.length > 200 || request.refs.some(ref => typeof ref !== "string")) throw new Error("refs is a list of at most 200 strings");
+          result = { resolved: request.refs.map(ref => {
+            try { return { ref, id: this.store.resolveBlockRef(ref).id }; } catch (error) { return { ref, error: error instanceof Error ? error.message : String(error) }; }
+          }) };
+          break;
+        }
         case "references.resolve":
           result = this.store.resolveBlockReferences(request.text);
           break;

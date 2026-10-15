@@ -86,6 +86,14 @@ PROTOCOL 170: `views.read` answers `childDepth` (an older host leaves the tree's
 - **Changed:** the board's `d d` on a card is recorded as who trashed it (the service's delete takes an author).
 - Try it: `ep0ch --showcase`, the `trash` section.
 
+### `ep0ch show PIE-870`: the CLI reads take a Work ID (PIE-875)
+
+- **Changed:** `ep0ch show`, `find --under|--view|--tree`, `export` and `revisions` name a note the way a link in a
+  note does: an id, `((id))`, an id's first 8+ characters, a Work ID of any prefix the outline has (`PIE-870`,
+  `HUB-021`) or a `[[page]]`, through the service's one resolver (`blocks.resolve`). A Work ID nothing has says the
+  nearest it does (`did you mean PIE-870, PIE-871?`), or the prefixes the outline has.
+- **Protocol:** new read action, so `PROTOCOL` goes up one.
+
 ### A size lock can't squeeze the screen (PIE-869)
 
 - **Fixed:** `⏎` on a container's "fixed size" in `^W P` took 10 cells when none of its tiles was on screen (another tile

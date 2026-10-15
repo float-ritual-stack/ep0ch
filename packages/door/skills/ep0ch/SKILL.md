@@ -31,7 +31,8 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch find --query "<expr>" [--view <id>] [--under <id>] [--ids | --lines | --json]
                                      the notes the outline says a query holds for (the views' grammar; --updated-after
                                      <date> and the like write it); --ids prints ((id)) a line, --json block records
-    ep0ch show <id>… [--width <n>]   notes drawn as a reader draws them, as text; --source: as written; no door needed
+    ep0ch show <note>… [--width <n>] notes drawn as a reader draws them, as text; --source: as written; no door needed
+                                     (a <note> is an id, ((id)), its first 8+ characters, a Work ID such as PIE-870 or [[a page]])
     ep0ch export <id>… | --query … [--children] [--format md|json] [--out <dir>]
                                      notes as files: the header line's chips in YAML front matter, the body verbatim
     ep0ch peek                       the screen as text plus structured state

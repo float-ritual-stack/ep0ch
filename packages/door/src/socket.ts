@@ -718,6 +718,14 @@ export class SocketBoard implements Board {
     return this.request<{ schemas: ComponentSchema[]; problems: string[]; complete: boolean }>("components.schemas", {});
   }
 
+  /**
+   * Notes named the way a person types them (`blocks.resolve`, PIE-875): an id, ((id)), an id's first 8+ characters, a
+   * Work ID of any prefix the outline has or a [[page]]. Each answers its block id, or why not (with a did-you-mean).
+   */
+  async resolveRefs(refs: string[]): Promise<{ ref: string; id?: string; error?: string }[]> {
+    return (await this.request<{ resolved: { ref: string; id?: string; error?: string }[] }>("blocks.resolve", { refs })).resolved;
+  }
+
   /** What a `[[page]]` address or Work ID points at. Never follows (`pages.follow` would create a stub). */
   async resolvePage(address: string): Promise<PageResolution> {
     const r = await this.request<{ address: string; status: PageResolution["status"]; block?: WireBlock }>("pages.resolve", { address });
