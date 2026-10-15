@@ -19,7 +19,7 @@ export function filtered<R extends { label: string }>(rows: R[], q: string, fiel
 export function litCells(label: string, q: string): Set<number> {
   const lit = new Set<number>(), low = [...label.toLowerCase()];
   for (const word of q.toLowerCase().split(/\s+/).filter(Boolean)) {
-    const at = low.join("").indexOf(word);
+    const unit = low.join("").indexOf(word), at = unit < 0 ? -1 : [...low.join("").slice(0, unit)].length;
     if (at >= 0) { for (let i = 0; i < [...word].length; i++) lit.add(at + i); continue; }
     let from = 0;
     const found: number[] = [];

@@ -186,6 +186,14 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(menu()?.items.length).toBe(all);
     key({ kind: "esc" });
     expect(menu()).toBeNull();
+    // Esc with a ^W pending clears the query and the pending chord: the next key is a letter for the query, not ^W's.
+    key(ctrl("w")); key(char("."));
+    await until(() => menu()?.name === "tile menu", "open for the chord");
+    key(char("z")); key(ctrl("w")); key({ kind: "esc" }); key(char("x"));
+    expect(menu()?.name).toBe("tile menu");
+    expect(treeNames()).toContain("reader");
+    key({ kind: "esc" }); key({ kind: "esc" });
+    expect(menu()).toBeNull();
     // ⏎ runs the top row of what's left; a chord still runs its row from a typed query.
     key(ctrl("w")); key(char("."));
     await until(() => menu()?.name === "tile menu", "open again");
@@ -215,6 +223,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect([...litCells("preview beside", "view")]).toEqual([3, 4, 5, 6]);
     expect([...litCells("fold to a spine", "fsp")].sort((a, b) => a - b)).toEqual([0, 10, 11]);
     expect([...litCells("float", "xyz")]).toEqual([]);
+    expect([...litCells("😀 Open", "open")]).toEqual([2, 3, 4, 5]);
     expect([...litCells("tune its look", "tune look")].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 9, 10, 11, 12]);
   });
 
