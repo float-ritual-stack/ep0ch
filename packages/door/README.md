@@ -278,7 +278,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
-The **scripts** section runs `seed-report`: use the power bar's Run seed-report action, or its `ext.<id>.run`
+The **scripts** section runs `seed-report`: press `alt+S`, type `seed-report` in the power bar or `/`, or use its `ext.<id>.run`
 action through `act`. The checklist changes through the dispatcher, a result note streams under the script,
 and `ext.undo` takes back the run. The adjacent reader stays available for typing.
 
@@ -290,6 +290,15 @@ Edit it normally, replacing a value with `{tag}` or another `{slot}`. Run it fro
 slots, or pass them as `act ext.<script-id>.run tag=beans`. Replay uses the script runtime, stops at the
 first refusal, and leaves a run note with the failed step. It does not roll earlier steps back automatically.
 The recording stays in this door until stopped; stop before ending the session.
+
+**Bind a script:** add `[keys::alt+S]` (comma-separated key names for several). A key already held by
+another action or the screen is refused with its owner's name; no built-in key moves. Script keys stay
+inactive while an editor, picker, chord or terminal holds the keys. The power bar and `/` accept the script
+name followed by `slot=value`; leaving a required slot out uses the existing argument prompts.
+Write `@script-name slot=value` on a line to run after it is quiet, or name `script:script-name` in a
+rule's `rule-on`, `rule-on-stop` or `rule-on-change`. Agent-written asks use the invocation grants and holds.
+See the [script contract](../outliner/docs/extensions/README.md#script-blocks-and-files-pie-601).
+
 
 
 Adding a shared part means adding its section (`SECTIONS` in `src/showcase/showcase.ts`) and the seed

@@ -926,8 +926,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "scripts", need: "record actions and run editable scripts without waiting", part: "the dispatcher, action lines, QuickJS and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
-    aside: "alt+Q or click ⇧⌥Q starts recording · open a query tile with ^K tile.open kind=query query=\"#beans\" · alt+Q or REC stop saves a [script::] note · edit #beans to #{tag}; Run recording from ^K asks for tag · agent actions stay out · Run seed-report streams results below its source; ext.undo takes back its writes together",
+    key: "scripts", need: "bind scripts to keys, names, rules and asks without waiting", part: "the dispatcher, action lines, QuickJS and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
+    aside: "alt+S runs seed-report · ^K or / then seed-report runs by name · slots are name=value · @seed-count runs in a note; rule-on::script:seed-count uses the same trigger path · alt+Q or click ⇧⌥Q starts recording · open a query tile with ^K tile.open kind=query query=\"#beans\" · alt+Q or REC stop saves a [script::] note · edit #beans to #{tag}; Run recording from ^K asks for tag · agent actions stay out · Run seed-report streams results below its source; ext.undo takes back its writes together",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · scripts", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.scriptTarget], [b, n.scripts]]);

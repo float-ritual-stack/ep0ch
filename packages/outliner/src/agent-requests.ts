@@ -1,3 +1,5 @@
+import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
+import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import { createHash } from "node:crypto";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
@@ -97,8 +99,9 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
 }
 
 export interface AgentRequestDeps {
+  script?(request: ExtensionActRequest): Promise<ExtensionActResult & { error?: string }>;
   /** The note as the person sees it: its live draft when a door holds one (`drafts.read`). */
-  readDraft(blockId: string): Promise<{ text: string; revision: number }>;
+  readDraft(blockId: string): Promise<{ text: string; revision: number; holder?: string }>;
   /** `draft.patch`, routed to the live draft or the saved note. */
   patch(input: DraftPatchInput): Promise<DraftPatchResult>;
   /** A request's state changed: readers repaint the block. */
@@ -339,9 +342,10 @@ export class AgentRequests {
    */
   private parentChain(actor: MutationProvenance | undefined): InvocationChain | undefined {
     const id = actor?.actorId?.trim().toLowerCase().split("@", 1)[0];
-    if (!id?.startsWith("ext:")) return undefined;
+    const script = actor?.taskId?.startsWith("trigger:script:") ? actor.taskId.slice("trigger:script:".length) : undefined;
+    if (!id?.startsWith("ext:") && !script) return undefined;
     let found: InvocationChain | undefined;
-    for (const ask of this.live.values()) if (`ext:${ask.extensionId}` === id && (!found || ask.chain.hops > found.hops)) found = ask.chain;
+    for (const ask of this.live.values()) if ((`ext:${ask.extensionId}` === id || ask.extensionId === script) && (!found || ask.chain.hops > found.hops)) found = ask.chain;
     return found;
   }
 
@@ -618,6 +622,17 @@ export class AgentRequests {
       const draft = await this.deps.readDraft(blockId);
       // The person changed or removed the line meanwhile: that is a new request (or none), not this one.
       if (!stillThere(draft.text)) return;
+      if (extension.script) {
+        const req = actRequestOf(["run", ...lineWords(line.request)]);
+        if (req.as !== undefined || req.tile !== undefined) throw new Error("An @script line takes slot=value arguments; its author and target stay with the script");
+        const by = base.requestedBy;
+        const result = await this.deps.script!({ extension: extension.id, action: "run", blockId, clientId: draft.holder, background: true,
+          args: req.args as Record<string, string>,
+          requestedBy: by.startsWith("agent:") ? { author: "agent", actorId: by.slice(6) } : { author: "user" } });
+        const reply = result.written.map(id => `((${id}|Script run))`).join("\n");
+        answer = { status: result.error !== undefined ? "failed" : "replied", message: `${result.error ?? "Script finished"} · ${reply}`, reply };
+        return;
+      }
       const context = this.store.blockContext(blockId);
       const result = await this.runtime.invokeLoaded(extension, "respond", {
         agent: line.agent,

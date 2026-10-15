@@ -114,6 +114,8 @@ interface PassOptions {
 export type { BlockWrite, ExtensionWrite };
 
 export interface ExtensionActRequest {
+  /** An inline ask acts without taking the person’s focus, even when its source is theirs. */
+  readonly background?: boolean;
   readonly mcpAccess?: import("@ep0ch/outline-core/protocol").McpAccessLevel;
   readonly clientId?: string;
   readonly extension: string;

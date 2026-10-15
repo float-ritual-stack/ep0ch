@@ -2030,6 +2030,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ctx: () => d.ctx,
       ...(d.whereNow ? { where: () => d.whereNow!() } : {}),
       keys: () => d.keys(),
+      bindings: () => d.spec.keys ?? [],
       tiles: () => d.tiles(),
       revision: (expected: unknown) => revisionRefusal(d.layout, expected),
       draftOf: (t: TileRef) => {
@@ -2861,7 +2862,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const name = keyName(k), kind = this.focusedKind();
     const b = name === null ? undefined : keys.find(x => x.key === name && !(kind && x.unless?.includes(kind)) && (!x.only || (!!kind && x.only.includes(kind))));
     if (!b) return false;
-    void asBoundKey(b.key, () => this.dispatch.press(b.action, b.args ?? {}, b.tile));
+    void this.dispatch.pressBinding(b);
     return true;
   }
 

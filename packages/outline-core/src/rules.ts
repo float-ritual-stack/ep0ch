@@ -319,8 +319,10 @@ const ACTION_REF = /^([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,63})$/
 
 /** `<extension>/<action>`, or why it isn't one. */
 export function parseActionRef(raw: string): ActionRef | { problem: string } {
+  const script = /^script:([a-z][a-z0-9-]{0,31})$/.exec(raw.trim());
+  if (script) return { extension: `script:${script[1]}`, action: "run" };
   const m = ACTION_REF.exec(raw.trim());
-  if (!m) return { problem: `${JSON.stringify(raw)} isn't an action: write <extension>/<action>, like intake/prior-art` };
+  if (!m) return { problem: `${JSON.stringify(raw)} isn't an action: write script:<name> or <extension>/<action>, like intake/prior-art` };
   return { extension: m[1]!, action: m[2]! };
 }
 

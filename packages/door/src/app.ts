@@ -7,7 +7,7 @@ import { onResizeEnd, resizing } from "./resize";
 import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
-import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surface/actions";
+import { ActionRefused, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
@@ -20,7 +20,7 @@ import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions } from "./extensions";
+import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, connectScriptActions } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
@@ -896,12 +896,17 @@ export class App implements Ctx {
    * `ext.*` actions, the tile kinds. What came or went is said; the readers read their lines again.
    */
   async loadExtensions(reload = false): Promise<void> {
+    connectScriptActions(this);
     const r = await loadExtensions(this.board, reload);
     if (!r) return;
     // A read that failed keeps what was bound, and says so; a service without extensions says nothing here
     // (an extension's tile and lines say why where they'd be).
     if ("error" in r) { this.flash(`couldn't read the outline's extensions: ${r.error}`); return; }
     resourceChanged(null);
+    for (const binding of scriptBindings()) {
+      const problem = this.dispatch.bindingProblem(binding);
+      if (problem) r.problems.push(problem);
+    }
     const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} removed` : ""].filter(Boolean);
     if (said.length && this.extensionsSeen) this.flash(`extensions: ${said.join(" · ")}`);
     if (r.problems.length) this.flash(`extensions: ${r.problems.join(" · ")}`, 12_000);
@@ -1142,6 +1147,14 @@ export class App implements Ctx {
       try { top.key(k, this); } finally { stop(); }
       if (!ran && this.flashes === said) this.refuse("nothing selected · drag across the text to copy it, or v and move then y");
       return;
+    }
+    if (!top?.holdsKeys?.() && !top?.rawKeys?.() && !(k.kind === "char" && k.pasted)) {
+      const binding = scriptBindings().find(b => b.key === keyName(k));
+      if (binding) {
+        const problem = this.dispatch.bindingProblem(binding);
+        if (problem) this.flash(problem);
+        else { void this.dispatch.pressBinding(binding); return; }
+      }
     }
     top?.key(k, this);
   }

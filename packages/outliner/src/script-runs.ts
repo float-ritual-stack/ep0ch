@@ -12,7 +12,11 @@ import type { Block, MutationProvenance, OutlinerChange } from "./types";
 /** Runs outlive the action that starts them; progress is ordinary outline content beside the source. */
 export class ScriptRuns {
   private readonly running = new Set<AbortController>();
-  private readonly tasks = new Set<Promise<void>>();
+  private readonly tasks = new Map<string, Promise<string | undefined>>();
+
+  async finished(run: string): Promise<string | undefined> {
+    try { return await this.tasks.get(run); } finally { this.tasks.delete(run); }
+  }
   private readonly captures = new Map<string, { actor: MutationProvenance; run: <T>(work: () => T) => T }>();
 
   capture<T>(id: string, work: (actor: MutationProvenance) => T): T {
@@ -89,13 +93,14 @@ export class ScriptRuns {
       },
     };
     // An agent's request keeps the dispatcher's focus rules even when the saved source belongs to the person.
-    const dispatchActor = requestedBy.author === "agent" ? { ...requestedBy, sessionId: undo, taskId: actor.taskId } : actor;
+    const dispatchActor = requestedBy.author === "agent" ? { ...requestedBy, sessionId: undo, taskId: actor.taskId } : request.background ? { ...actor, author: "agent" as const, actorId: actor.actorId ?? `script:${extension.name}` } : actor;
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
       mcpAccess: request.mcpAccess,
       ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, dispatchActor, controller.signal) } : {}),
     });
     const task = (async () => {
+      let failure: string | undefined;
       try {
         const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined);
         const current = this.registry.extension(extension.id);
@@ -103,10 +108,11 @@ export class ScriptRuns {
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) { if (result.value !== undefined) lines.push(JSON.stringify(result.value)); }
-        else lines.push(result.error.message);
+        else { failure = result.error.message; lines.push(failure); }
       } catch (error) {
         lines[0] = `${extension.name} · failed [script-run::${undo}]`;
-        lines.push(error instanceof Error ? error.message : String(error));
+        failure = error instanceof Error ? error.message : String(error);
+        lines.push(failure);
       } finally {
         if (progress) clearTimeout(progress);
         controller.abort();
@@ -123,14 +129,16 @@ export class ScriptRuns {
           this.running.delete(controller);
         }
       }
+      return failure;
     })();
-    this.tasks.add(task);
-    void task.finally(() => this.tasks.delete(task)).catch(() => {});
+    this.tasks.set(undo, task);
+    // Inline asks consume their completion after ExtensionCalls has returned, even for a fast parse failure.
+    if (!request.background) void task.finally(() => { this.tasks.delete(undo); }).catch(() => {});
     return { extension: extension.id, action: "run", message: `running as ${actor.actorId ?? actor.author}; results in ((${log.id}))`, written: [log.id], undo, undoOn: source.blockId ?? log.id, writtenAs: actor.actorId ?? actor.author };
   }
 
   async stop(): Promise<void> {
     for (const run of this.running) run.abort();
-    await Promise.allSettled(this.tasks);
+    await Promise.allSettled(this.tasks.values());
   }
 }

@@ -429,7 +429,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
     "facets": ["#frost-jobs", "uses▾", "facets"],
     "rich-edit": ["Seed inventory", "Beans", "Packets"],
-    scripts: ["Seed report", "Run seed-report"],
+    scripts: ["Seed report", "Press alt+S"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -3500,6 +3500,52 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(text).not.toContain("task.status");
     await app.dispatch.act({ action: "ext.undo", tile: "source" }, USER);
     screen();
+  }, 30_000);
+
+  test("scripts run by name with slots from slash and by their bound key", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds]\n```actions\nblock.mark id="{note}" reason="Check seeds"\n```' });
+    await board.request("extensions.list", { reload: true });
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "bound-seeds"), "bound script loaded");
+    await app.dispatch.act({ action: "bar.open", args: { query: `bound-seeds note=${seeded.notes.shed.id}`, scope: "notes" } }, USER);
+    await until(() => !!app.bar?.items.some(r => r.row.label.includes("bound-seeds")), "named script row");
+    await app.dispatch.act({ action: "bar.pick" }, USER);
+    await untilAsync(async () => (await board.children(made.id)).some(n => n.text.includes("· done")), "named script ran");
+    expect(JSON.stringify(await app.dispatch.act({ action: "marks.list" }, USER))).toContain("Check seeds");
+    const keyed = await board.request<{ id: string }>("create", { author: "user", text: 'Key seeds [script::key-seeds] [keys::alt+J]\n```js\nreturn "Key seeds ran";\n```' });
+    await board.request("extensions.list", { reload: true });
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "key-seeds"), "key script loaded");
+    press({ kind: "alt", ch: "J" });
+    await untilAsync(async () => (await board.children(keyed.id)).some(n => n.text.includes("Key seeds ran")), "bound key ran the script");
+    const clash = await board.request<{ id: string }>("create", { author: "user", text: 'Clashing seeds [script::clashing-seeds] [keys::ctrl+k]\n```js\nreturn "Must not run";\n```' });
+    await app.loadExtensions(true);
+    await until(() => (app as any).message.includes("ctrl+k is held by"), "the key clash is explained");
+    press({ kind: "char", ch: "k", ctrl: true });
+    expect(app.bar).toBeTruthy();
+    press({ kind: "esc" });
+    expect(await board.children(clash.id)).toHaveLength(0);
+    const inline = await board.request<{ id: string }>("create", { author: "user", text: `While typing [script::while-typing]\n\`\`\`js\nawait act("marks.list");\nawait act("open", {id: "${seeded.notes.shed.id}"}); return "Opened beside";\n\`\`\`` });
+    await board.request("extensions.list", { reload: true });
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "while-typing"), "inline script loaded");
+    screen();
+    await app.dispatch.act({ action: "edit", tile: "notes" }, USER);
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top;
+    const reader = [...stage.panes.values()].find((p: any) => p.editing) as ReaderPane;
+    const draft = reader.surface.draft!;
+    press({ kind: "enter" });
+    press({ kind: "end" });
+    press({ kind: "alt", ch: "J" });
+    press({ kind: "paste", text: "\n@while-typing\nStill planting." });
+    expect(draft.text).toContain("Still planting.");
+    expect(await board.children(keyed.id)).toHaveLength(1);
+    await untilAsync(async () => (await board.children(inline.id)).some(n => !n.text.includes("· working")), "inline script answered while typing");
+    expect((await board.children(inline.id))[0]!.text).toContain("· done");
+    expect(reader.surface.draft).toBe(draft);
+    expect(reader.surface.msg!.id).toBe(seeded.notes.scriptTarget.id);
+    expect(draft.text).toContain("Still planting.");
+    await app.dispatch.act({ action: "open", tile: "source", args: { id: seeded.notes.scripts.id } }, USER);
+    for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
   test("a script in the showcase calls the dispatcher and streams an undoable result", async () => {

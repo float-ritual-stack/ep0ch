@@ -312,7 +312,7 @@ export class ExtensionRules {
       if (!this.registry.extension(ref.extension)) return `${when} names ${name}, but ${ref.extension} isn't installed here (ep0ch ext ls lists what is)`;
       const action = this.registry.action(ref.extension, ref.action);
       if (!action) return `${when} names ${name}, but ${ref.extension} has no action ${ref.action}`;
-      if ((action.on ?? "block") !== "block") return `${when} names ${name}, which acts on ${action.on}; a rule's action acts on the block`;
+      if ((action.on ?? "block") !== "block" && !this.registry.extension(ref.extension)?.script) return `${when} names ${name}, which acts on ${action.on}; a rule's action acts on the block`;
     }
     if (rule.on.skip) {
       try {

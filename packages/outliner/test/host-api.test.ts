@@ -201,3 +201,57 @@ await tools.outline_create({ parent: parent.id, text: 'Own label' });
   await expect(client.request({ action: "extensions.undo", undo: run.undo })).rejects.toThrow(/changed|another/);
   expect(store.get(foreign.id)?.effectiveDeletedRootId).toBeUndefined();
 });
+
+test("script asks run from a person's line and hold an agent's line", async () => {
+  const { client, store } = await setup();
+  const source = store.create("Count seeds [script::count-seeds]\n```js\nreturn 'Seeds counted';\n```", null, "user");
+  await client.request({ action: "extensions.list", reload: true });
+  const ask = await client.request<{ id: string }>({ action: "create", text: "Seed plan\n@count-seeds", author: "user" });
+  const deadline = Date.now() + 4000;
+  while (!store.children(source.id).some(n => n.text.includes("· done")) && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.children(source.id).map(n => n.text).join("\n")).toContain("Seeds counted");
+  expect(store.get(ask.id)?.text).toContain("@count-seeds");
+  const held = await client.request<{ id: string }>({ action: "create", text: "Another plan\n@count-seeds", author: "agent", provenance: { actorId: "seed-helper" } });
+  expect(store.agentRequests(held.id)[0]?.status).toBe("waiting");
+  expect(store.agentRequests(held.id)[0]?.message).toContain("held");
+}, 10_000);
+
+test("a rule names a script through the existing trigger path", async () => {
+  const { client, store } = await setup();
+  const source = store.create("Seed alarm [script::seed-alarm]\n```js\nreturn 'Time to sow';\n```", null, "user");
+  await client.request({ action: "extensions.list", reload: true });
+  await client.request({ action: "create", text: "Sowing rule [rule-name::sowing] [rule-match::planting=ready] [rule-on::script:seed-alarm] [rule-quiet::1s]", author: "user" });
+  await client.request({ action: "create", text: "Peas [planting::ready]", author: "user" });
+  const deadline = Date.now() + 4000;
+  while (!store.children(source.id).some(n => n.text.includes("· done")) && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.children(source.id).map(n => n.text).join("\n")).toContain("Time to sow");
+}, 10_000);
+
+test("a granted script ask keeps the invocation chain while its writes arrive", async () => {
+  const { client, store } = await setup();
+  store.create("Seed permission [invoke-from::seed-helper] [invoke-to::count-again] [max-hops::2]", null, "user");
+  const source = await client.request<{ id: string }>({ action: "create", author: "agent", provenance: { actorId: "seed-helper" }, text: "Repeat count [script::count-again]\n```js\nawait tools.outline_create({ parent: 'root', text: 'Follow-up seeds\\n@count-again' });\nreturn 'Counted once';\n```" });
+  await client.request({ action: "extensions.list", reload: true });
+  await client.request({ action: "create", author: "agent", provenance: { actorId: "seed-helper" }, text: "Seed plan\n@count-again" });
+  const deadline = Date.now() + 4000;
+  while (!store.children(source.id).some(n => n.text.includes("· done")) && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.children(source.id).map(n => n.text).join("\n")).toContain("Counted once");
+  const followup = store.queryBlocks({ text: "Follow-up seeds" }).blocks.find(n => n.text.startsWith("Follow-up seeds"))!;
+  expect(store.agentRequests(followup.id)[0]?.status).toBe("waiting");
+  expect(store.agentRequests(followup.id)[0]?.message).toContain("already in this chain");
+}, 10_000);
+
+test.each([
+  ["js", "throw new Error('No seed tray');", "No seed tray"],
+  ["actions", 'open id="{note}"', "note"],
+  ["js", "throw new Error('');", ""],
+])("a failed inline %s script says failed on its ask: %s", async (format, code, message) => {
+  const { client, store } = await setup();
+  store.create(`Broken seeds [script::broken-seeds]\n\`\`\`${format}\n${code}\n\`\`\``, null, "user");
+  await client.request({ action: "extensions.list", reload: true });
+  const ask = await client.request<{ id: string }>({ action: "create", text: "Plan\n@broken-seeds", author: "user" });
+  const deadline = Date.now() + 4000;
+  while (!["failed", "replied"].includes(store.agentRequests(ask.id)[0]?.status ?? "") && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.agentRequests(ask.id)[0]?.status).toBe("failed");
+  expect(store.agentRequests(ask.id)[0]?.message).toContain(message);
+}, 10_000);

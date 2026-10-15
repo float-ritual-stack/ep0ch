@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Scripts run from keys, names, rules and inline asks (PIE-900)
+
+- **Added:** `[keys::]` binds a script through the dispatcher with key-clash checks; the power bar and `/`
+  accept its name and `slot=value` arguments. Script keys leave typing alone.
+- **Added:** `rule-on::script:name` uses existing rule triggers. `@name` uses existing quiet timers, live
+  drafts and invocation grants; runs stream into the same attributed run notes.
+
 ### A component's words work as the note's, and a `::graph-check` row ticks like a step (PIE-864)
 
 - **Changed:** a figure's rows (check, timeline, decision) are drawn through the reader's own inline drawing: a
