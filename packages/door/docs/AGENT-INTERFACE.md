@@ -588,7 +588,7 @@ at, and what it does while they're typing:
 | `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row (folding away the rows it is in is refused); an open lands where the tree's opens go | allowed |
 | `projection.refresh` | no | allowed |
 | `ext.*` | no | allowed: the service runs it, attributed to the extension |
-| `changes.extensions` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent` with `extensions`) |
+| `changes.machinery` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent`: both take `machinery`) |
 | `tile.herdr` | no | allowed |
 | `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |
 | the river's `column.select` (by row or `id=`), `column.scroll`, `column.filter` | no | refused on the column the person has the keys in (its cursor is theirs, `id=` too), with the agent's way named (another column, `search`, `open from=`, `column.tag`); said on the status bar elsewhere |

@@ -259,7 +259,7 @@ describe("backup runs", () => {
   });
   test("one note a run: its properties between ` - `, as a header line writes them", () => {
     expect(runNote({ source: "restic", status: "ok", date: "2026-10-03", took: took(252_000) })).toBe(
-      "restic backup 2026-10-03 [type::backup-run] - [status::ok] - [date::2026-10-03] - [source::restic] - [took::4m 12s]",
+      "restic backup 2026-10-03 [type::backup-run] - [machine::backup] - [status::ok] - [date::2026-10-03] - [source::restic] - [took::4m 12s]",
     );
   });
 });

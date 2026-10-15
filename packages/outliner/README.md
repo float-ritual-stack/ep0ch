@@ -2054,6 +2054,7 @@ rating > 3
   | `parent:[[page]]`, `parent:((id))` | the target's direct children |
   | `title~text` | blocks whose title (first line, without property tokens) contains the text, ignoring case |
   | `text~text` | blocks whose whole text contains the text, ignoring case |
+  | `by:user`, `by:agent`, `by:system`, `by:<actor id>` | blocks whose latest write was by that author or actor (case ignored): `by:user updated >= today` is what a person wrote today. `revision >= 2` compares the block's own revision (a note saved more than once) beside any other comparison |
   | `unread:me`, `unread:<actor id>` | blocks the reader hasn't read at their current revision (never opened, or changed since; PIE-708's read marks, set by `annotations.read` when a thread is opened). `me` is the person; an agent names its own actor id |
   | `thread:me`, `thread:<actor id>` | comments and replies in the threads the reader started or wrote in. Recent replies is `type=annotation-reply AND thread:me AND NOT annotation-source=user` (outline-core `recent-replies.ts`) |
 
@@ -2062,6 +2063,15 @@ rating > 3
   links:[[garden]], links:((8f3a2c1d)) or links:PIE-123`). Example: `under:[[projects]] NOT links:[[archive]] #jazz`.
   A move into a view planned by `views.planWrite` treats the relation atoms like `child:`: they are checked against
   where the block is and a move never changes them.
+- **Machinery** (PIE-867, outline-core `machinery.ts`): what a tool writes for its own bookkeeping is stamped
+  `[machine::<producer>]` (`file-touch`, `echonet`, `delivery`, `intake`, `backup`), one key for all producers, so a new
+  producer joins by writing it. One flag, `machinery: hide|only|show`, on `blocks.query` (inside `query`), `tree.search`,
+  `activity.recent` and `changes.since`, and `[machinery::hide|only|show]` on a saved view's note, says what a question
+  holds. `hide` is the answer when it is left out, except `changes.since`, which is also how a client catches up on what
+  it missed and so holds everything unless asked (each change says `machinery: true` when its note is stamped, and
+  `bookkeeping: true` when the edit moved only `[key::value]` tokens). A producer's own reads (EchoNet's nodelist, the
+  file-touch views, backup-run figures) say `show`. `ep0ch machinery backfill [--apply]` stamps what was written before
+  producers stamped. Proofs, patch notes, tickets and carried comments are not stamped: someone chose those words.
 - **`this`:** any relation's target may be `this`, the block the question is asked for (ADR 0004): `blocks.query`'s
   `this` (a `::links` block's note, a figure's note, a tile's aim). `links:this NOT linkedfrom:this` is what links to a
   note that the note doesn't link back. A question that says `this` with none given is refused: `this is the note the

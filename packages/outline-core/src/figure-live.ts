@@ -27,6 +27,7 @@
 //   matrix    down: <property>, across: <property> → a count per pair (value: <property> sums it instead)
 //   flow      from: <property>, to: <property> → a flow per pair, counted
 
+import { MACHINERY_MODES, type MachineryMode } from "./machinery";
 import type { QuestionGroup } from "./protocol";
 import { referencedBlock } from "./link-syntax";
 import { addCell, dayOf, dayState, decisionState, isoOf, localDay, monthOf, today, uptimeDays, type Cells, type Props } from "./figure-props";
@@ -47,7 +48,7 @@ export interface FigureAnswer {
 /** A figure's question, as the service takes it: a saved view read (`views.read`), or a query (`blocks.query`). */
 export type FigureQuestion =
   | { kind: "view"; viewId: string }
-  | { kind: "query"; where: string; limit: number; sort: string; direction: string; group?: string };
+  | { kind: "query"; where: string; limit: number; sort: string; direction: string; group?: string; machinery?: MachineryMode };
 
 /** A result with no value for a figure's `group:` property. */
 export const NONE = "—";
@@ -64,7 +65,9 @@ export function figureQuestion(p: Props, group?: string): FigureQuestion | { err
     return ref ? { kind: "view", viewId: ref.blockId } : { error: "view: needs a ((block-ref)) or block id" };
   }
   if (!p.query) return null;
-  return { kind: "query", where: String(p.query), limit: Math.min(1000, Number(p.limit) || 200), sort: String(p.sort ?? "updated"), direction: String(p.direction ?? "desc"), ...(group ? { group } : {}) };
+  // `machinery: show` or `only` (PIE-867): a figure of what tools wrote for their own bookkeeping, such as backup runs.
+  const machinery = (MACHINERY_MODES as readonly unknown[]).includes(p.machinery) ? p.machinery as MachineryMode : undefined;
+  return { kind: "query", where: String(p.query), limit: Math.min(1000, Number(p.limit) || 200), sort: String(p.sort ?? "updated"), direction: String(p.direction ?? "desc"), ...(group ? { group } : {}), ...(machinery ? { machinery } : {}) };
 }
 
 /** A sort the service refused, said as the figure's own line (`sort:` or `direction:`). */
@@ -83,7 +86,7 @@ export const asksPerItem = (kind: string, p: Props) =>
  * asked as written.
  */
 export function liveAsk(kind: string, p: Props): { props: Props; ask: Props; group?: string; error?: string } {
-  if (kind === "uptime" && p.source === "backups") p = { query: "type=backup-run", ...p };
+  if (kind === "uptime" && p.source === "backups") p = { query: "type=backup-run", machinery: "show", ...p };
   if ((kind === "uptime" || kind === "activity" || kind === "calendar") && (p.query || p.view)) p = { limit: 1000, ...p };
   const group = kind === "rank" || kind === "tabs" ? String(p.group ?? "status") : undefined;
   if (group && p.view && !p.query) return { props: p, ask: p, error: "group: groups a query's results, and this figure reads a view: write query: with the view's own query" };

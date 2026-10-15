@@ -9,7 +9,7 @@
 //   - ok*20 degraded ok*9 down ok*3      - 2026-03-09: 5 3 0 0 1 2 8           weekStartsOn: mon
 //   ::                                   ::                                    ---
 //                                                                              - 12: **launch**
-//   live: query: "type=backup-run"       live: query: "type=chore"             - 20: the plot committee
+//   live: query: "type=backup-run", machinery: show     live: query: "type=chore"             - 20: the plot committee
 //   (date: date, state: status,          count: created|updated                ::
 //   last: 30), or source: backups                                              live: query + date: <property>
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";

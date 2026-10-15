@@ -4,6 +4,7 @@
 // started from, so a stale one is refused instead of overwriting someone else's change; a comment names
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
+import type { MachineryMode } from "@ep0ch/outline-core/machinery";
 import type { StyleSheet } from "@ep0ch/outline-core/style-cascade";
 import { isMarkLifecycle, isTldr, markCurrent, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { actorName } from "@ep0ch/outline-core/attribution";
@@ -136,6 +137,10 @@ export interface Change {
   revision?: number; deleted?: boolean; actor?: { author?: string; actorId?: string };
   /** Who asked for it when that isn't its writer: an extension's action (`actor` `ext:<id>`) run for the person or an agent. */
   requestedBy?: { author?: string; actorId?: string };
+  /** An edit that moved only `[key::value]` tokens: the words are as they were. */
+  bookkeeping?: true;
+  /** The note is one a tool stamped `[machine::…]` (outline-core machinery.ts). */
+  machinery?: true;
   recordedAt: string;
 }
 /**
@@ -773,7 +778,8 @@ export class SocketBoard implements Board {
    * Blocks changed after `since`, newest first, as list rows: the service answers `updated > since` itself
    * (`where`, PIE-398) and sends titles and properties only.
    * A block an extension wrote (a Jira ticket the service keeps: its writer is `ext:…`, and only that
-   * extension ever writes it) is left out unless `extensions`: it isn't the person's news.
+   * extension ever writes it) and a block a tool stamped `[machine::…]` (the service's `machinery`, hidden unless asked) are
+   * left out unless `extensions`: they aren't the person's news.
    */
   async changedSince(since: number, limit: number, extensions = false): Promise<Msg[]> {
     const sort = { field: "updated", direction: "desc" };
@@ -781,7 +787,7 @@ export class SocketBoard implements Board {
     const after = since > 0 ? `updated>${new Date(since).toISOString()}` : "";
     if (extensions) {
       const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-        query: { ...(after ? { where: after } : {}), limit: Math.min(1000, limit), sort }, ...this.listFields(),
+        query: { ...(after ? { where: after } : {}), limit: Math.min(1000, limit), sort, machinery: "show" }, ...this.listFields(),
       });
       return r.blocks.map(b => toMsg(b));
     }
@@ -862,9 +868,9 @@ export class SocketBoard implements Board {
   }
 
   /** Blocks carrying one property value, newest first (a virtual branch). */
-  async byProp(key: string, value: string, limit = 200): Promise<Msg[]> {
+  async byProp(key: string, value: string, limit = 200, machinery?: MachineryMode): Promise<Msg[]> {
     const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", {
-      query: { limit, filters: [{ key, value }], sort: { field: "updated", direction: "desc" } },
+      query: { limit, filters: [{ key, value }], sort: { field: "updated", direction: "desc" }, ...(machinery ? { machinery } : {}) },
     });
     return r.blocks.map(b => toMsg(b));
   }
@@ -883,10 +889,11 @@ export class SocketBoard implements Board {
   /**
    * The blocks a query in the saved views' grammar matches (`type=outbox-item status=waiting`, OR, NOT, ranges), as
    * list rows, in the service's order: the service parses it (`where`), the door never does. `truncated`:
-   * there were more than `limit`.
+   * there were more than `limit`. `machinery` (outline-core `machinery.ts`): the service leaves out what tools stamped
+   * `[machine::…]` unless this says `show` (or `only`).
    */
-  async queryNotes(expression: string, limit = 200): Promise<{ notes: Msg[]; truncated: boolean }> {
-    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string } }>("blocks.query", { query: { where: expression, limit: Math.min(1000, limit) }, ...this.listFields(true) });
+  async queryNotes(expression: string, limit = 200, machinery?: MachineryMode): Promise<{ notes: Msg[]; truncated: boolean }> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string } }>("blocks.query", { query: { where: expression, limit: Math.min(1000, limit), ...(machinery ? { machinery } : {}) }, ...this.listFields(true) });
     return { notes: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" };
   }
 
@@ -1020,7 +1027,8 @@ export class SocketBoard implements Board {
 
   /** What changed after `sequence` (PIE-399), or an explicit reset. */
   changesSince(sequence: number, limit = 500): Promise<ChangePage> {
-    return this.request<ChangePage>("changes.since", { sequence, limit });
+    // Everything, flagged: the door decides what to show (`machinery` on each change), and counts both.
+    return this.request<ChangePage>("changes.since", { sequence, limit, machinery: "show" });
   }
 
   /**

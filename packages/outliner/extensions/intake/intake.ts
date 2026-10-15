@@ -30,7 +30,7 @@ const fail = (code: string) => process.stdout.write(JSON.stringify({ ok: false, 
 
 /** The note's title, and its first line: `[type::prior-art]` is what a rule's skip and a query find it by. */
 const NOTE_TITLE = "Prior art and related";
-const NOTE_LINE = `${NOTE_TITLE} [type::prior-art]`;
+const NOTE_LINE = `${NOTE_TITLE} [type::prior-art] [machine::intake]`;
 const LOOKING = "Looking in ";
 const STOP = new Set("a an and are as at be but by can do does for from has have how i if in into is it its not of on or our so that the their them then there these this to too was we were what when where which who why will with would you your again also any just more need needs should some still want".split(" "));
 

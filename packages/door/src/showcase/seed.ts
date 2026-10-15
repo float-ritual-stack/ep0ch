@@ -49,6 +49,8 @@ export const SEED = {
   hero: "An evening on the plot",
   artifacts: "Toys on the desk",
   gallery: "Seed packet gallery",
+  machineryPeople: "Written by people",
+  machineryTools: "Written by tools",
   title: "A title you can find",
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
@@ -120,7 +122,7 @@ export const ECHO_COPIES = [
 ];
 /** The nodelist as the tosser writes it (a section per node) and its toss logs under it. */
 export const ECHO_NODELIST = [
-  `${SEED.nodelist} [type::nodelist] [node::kitchen@box-b] [last-toss::2026-03-03T09:31:00Z]`, "",
+  `${SEED.nodelist} [type::nodelist] [machine::echonet] [node::kitchen@box-b] [last-toss::2026-03-03T09:31:00Z]`, "",
   "The nodes this outline knows, written again by EchoNet's tosser at every toss.", "",
   "## kitchen@box-b", "- this node", "- last toss: 2026-03-03T09:31:00Z", "- areas: plot.chat (Plot chat)", "- subscriptions: seed.swap from society@box-a", "",
   "## society@box-a", "- reachable · we read its seed.swap", "- last toss: 2026-03-03T09:30:00Z", "- areas: seed.swap (Seed swap)", "- subscriptions: plot.chat from kitchen@box-b", "",
@@ -129,8 +131,8 @@ export const ECHO_NODELIST = [
   "## shed@box-d", "- dials in · last call 2026-03-03 08:12 UTC · reads our areas", "- netmail held: 1 (its next call takes it)", "- last toss: 2026-03-03T08:12:00Z", "- areas: unknown", "- subscriptions: unknown",
 ].join("\n");
 export const ECHO_TOSSES = [
-  "Toss 2026-03-02 09:30 UTC [type::toss] [node::kitchen@box-b] [at::2026-03-02T09:30:00Z] [copies::2] [updated::0] [skipped::0] [netmail-out::0] [netmail-in::0] [queued::0]",
-  "Toss 2026-03-03 09:31 UTC [type::toss] [node::kitchen@box-b] [at::2026-03-03T09:31:00Z] [copies::1] [updated::1] [skipped::0] [netmail-out::1] [netmail-in::1] [queued::1]",
+  "Toss 2026-03-02 09:30 UTC [type::toss] [machine::echonet] [node::kitchen@box-b] [at::2026-03-02T09:30:00Z] [copies::2] [updated::0] [skipped::0] [netmail-out::0] [netmail-in::0] [queued::0]",
+  "Toss 2026-03-03 09:31 UTC [type::toss] [machine::echonet] [node::kitchen@box-b] [at::2026-03-03T09:31:00Z] [copies::1] [updated::1] [skipped::0] [netmail-out::1] [netmail-in::1] [queued::1]",
 ];
 /** The nodes that read Plot chat: the seen-by marks the tosser leaves on each of its posts. */
 export const ECHO_SEEN_BY = ["society@box-a", "attic@box-c"] as const;
@@ -1336,7 +1338,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.markdownFigures = await make(notes.root.id, SEED.markdownFigures);
   for (const d of DECISIONS) await make(notes.markdownFigures.id, `${d.title} [type::decision] [decision-state::${d.state}] [reason::${d.reason}] [date::${d.date}]`);
   const runs = await make(notes.markdownFigures.id, "Backup runs [type::backup-log]", SEED_AGENT);
-  for (const r of BACKUP_RUNS) await make(runs.id, `photos backup ${r.date} [type::backup-run] - [status::${r.status}] - [date::${r.date}] - [source::photos]`, SEED_AGENT);
+  for (const r of BACKUP_RUNS) await make(runs.id, `photos backup ${r.date} [type::backup-run] [machine::backup] - [status::${r.status}] - [date::${r.date}] - [source::photos]`, SEED_AGENT);
   const block = await make(notes.markdownFigures.id, FIGURE_BLOCK);
   for (const row of FIGURE_BLOCK_ROWS) await make(block.id, row);
   notes.markdownFigures = await board.update(notes.markdownFigures.id, markdownFiguresText(block.id), notes.markdownFigures.revision!);
@@ -1344,11 +1346,11 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.newNotes = await make(notes.root.id, NEW_NOTES);
   notes.recentFiles = await make(notes.root.id, recentFilesText());
   {
-    const day = await make(notes.recentFiles.id, "2026-03-11 [file-day::2026-03-11]", SEED_AGENT);
-    const project = await make(day.id, "allotment [file-project::allotment]", SEED_AGENT);
-    const session = await make(project.id, `session ${RECENT_SESSION.slice(0, 8)} [file-session::${RECENT_SESSION}]`, SEED_AGENT);
+    const day = await make(notes.recentFiles.id, "2026-03-11 [file-day::2026-03-11] [machine::file-touch]", SEED_AGENT);
+    const project = await make(day.id, "allotment [file-project::allotment] [machine::file-touch]", SEED_AGENT);
+    const session = await make(project.id, `session ${RECENT_SESSION.slice(0, 8)} [file-session::${RECENT_SESSION}] [machine::file-touch]`, SEED_AGENT);
     const touches: Msg[] = [];
-    for (const f of RECENT_FILES()) touches.push(await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT));
+    for (const f of RECENT_FILES()) touches.push(await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [machine::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT));
     // A comment on the bed plan, a Resource (PIE-650): quoted from the file's own Markdown, opened from the block whose link
     // names it, so the thread shows as a backlink there. The file is never written.
     const plan = RECENT_FILES()[0]!, followed = await board.followAuthored({ kind: "filesystem", path: plan.file }, SEED_AGENT);
@@ -1423,6 +1425,10 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.formReading = await make(notes.root.id, FORM_READING);
   notes.formRepairs = await make(notes.root.id, FORM_REPAIRS);
   // The gallery (PIE-827): its cards first, so the line's first run draws them.
+  // Machinery (PIE-867): one question asked twice, of what people wrote and of what tools stamped for their own bookkeeping.
+  const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch]";
+  notes.machineryPeople = await make(notes.root.id, `${SEED.machineryPeople} [type::virtual-branch] ${MACHINERY_QUERY}`);
+  notes.machineryTools = await make(notes.root.id, `${SEED.machineryTools} [type::virtual-branch] ${MACHINERY_QUERY} [machinery::only]`);
   notes.gallery = await make(notes.root.id, galleryText());
   for (const card of galleryCards()) await make(notes.gallery.id, card);
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.

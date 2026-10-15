@@ -1,3 +1,4 @@
+import { DEFAULT_MACHINERY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { PERSON_READER, queryRequestProblem } from "./block-query";
 import { readerKey } from "./read-marks";
@@ -1866,7 +1867,7 @@ export class OutlinerServer {
     if (request.action === "tree.search") {
       try {
         if (request.semantic !== undefined && typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
-        let result = this.store.searchTree(request.query, request.contextBlockId);
+        let result = this.store.searchTree(request.query, request.contextBlockId, parseMachineryMode(request.machinery));
         if (request.semantic && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
           try { result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...(result.context ? { note: { title: result.context.title, path: result.context.path } } : {}) }); }
@@ -2215,11 +2216,14 @@ export class OutlinerServer {
         case "web.sessions.list":
         case "web.sessions.revoke":
           throw new Error(`${action} is answered by the outline host, never by one outline`);
-        case "blocks.query":
+        case "blocks.query": {
+          // Machinery (PIE-867): a question that doesn't say leaves out what tools stamped `[machine::…]`.
+          const question = request.query && typeof request.query === "object" ? { ...request.query, machinery: request.query.machinery ?? DEFAULT_MACHINERY } : request.query;
           result = request.fields === undefined
-            ? this.store.queryBlocks(request.query)
-            : this.store.queryProjectedBlocks(request.query, request.fields);
+            ? this.store.queryBlocks(question)
+            : this.store.queryProjectedBlocks(question, request.fields);
           break;
+        }
         case "blocks.read":
           result = this.store.readBlocks(request.ids, request.fields);
           break;
@@ -2306,7 +2310,8 @@ export class OutlinerServer {
           result = { subscribed: true, client: subscribedClient ?? request.client };
           break;
         case "changes.since":
-          result = this.store.changes.since(request.sequence, request.limit);
+          result = // The feed is also how a client catches up on what it missed, so it holds everything unless asked: `hide`/`only` are for readers.
+          this.store.changes.since(request.sequence, request.limit, request.machinery === undefined ? "show" : parseMachineryMode(request.machinery));
           break;
         case "clients.list":
           if (
@@ -3142,6 +3147,7 @@ export class OutlinerServer {
             author: request.author,
             kinds: request.kinds,
             ...(request.extensions !== undefined ? { extensions: request.extensions } : {}),
+            machinery: parseMachineryMode(request.machinery),
             ...(request.actorId !== undefined ? { actorId: request.actorId } : {}),
             ...(request.beforeCursor !== undefined ? { beforeCursor: request.beforeCursor } : {}),
           });

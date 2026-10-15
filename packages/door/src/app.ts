@@ -114,10 +114,8 @@ export interface Ctx {
   t: TermInfo;
   /** The host layer's drawer, where a tile goes to travel across screens (absent: none here). */
   readonly hostLayer?: HostLayer;
-  /** "What changed" includes extension writes (`changes.extensions`); off by default. */
-  extensionChanges?: boolean;
-  /** Extension writes since logon, counted apart from `events`. */
-  extEvents?: number;
+  /** "What changed" includes machinery (`changes.machinery`); off by default. */
+  machineryChanges?: boolean;
   /** What others changed since the person last looked (PIE-647), from the change feed. */
   whatChanged?: WhatChanged;
   /** Requests an agent or an extension wrote that wait for the person's `r` (PIE-888): the status bar's count and the waiting-on-you list. */
@@ -208,7 +206,9 @@ export interface Ctx {
    */
   inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
   lastCall: number;
-  events: number;          // outline changes seen since the menu last looked
+  events: number;          // outline changes seen since the menu last looked (the people's: machinery apart)
+  /** Every change seen since the menu last looked, machinery too. */
+  eventsAll?: number;
   /** Times the outline connection came back (a `reconnected` or `reset`): a screen that wasn't on top then checks on its next render. */
   reconnects?: number;
   /** The note in the reader the person is in, else the note the screen shows as its current one (the power bar's `near`). */
@@ -390,6 +390,7 @@ export class App implements Ctx {
   set video(v: Video) { this.display.video = v; }
   /** How many notes others changed since the person looked (what the welcome and the status bar say). */
   get events(): number { return this.whatChanged.count(); }
+  get eventsAll(): number { return this.whatChanged.allCount(); }
   /** The notes others changed since the person last looked: the status bar's `+N new` and the what-changed list. */
   readonly whatChanged = new WhatChanged();
   /** The requests held for the person's `r` (PIE-888), as the service lists them. */
@@ -397,11 +398,9 @@ export class App implements Ctx {
   /** Where the status bar's `+N new` sits, for a click (changes.open). */
   private changedAt: { from: number; to: number; row: number } | null = null;
   reconnects = 0;
-  /** Changes extensions wrote since logon (a refreshed ticket): counted apart, shown when asked for. */
-  extEvents = 0;
-  /** Whether "what changed" (the +N count, newscan) includes what extensions wrote: `changes.extensions`. */
-  extensionChanges = false;
-  /** Where the status bar's `+N ext` sits, for a click. */
+  /** Whether "what changed" (the +N count, newscan) includes what tools wrote for their own bookkeeping: `changes.machinery`. */
+  machineryChanges = false;
+  /** Where the status bar's `+N machine` sits, for a click. */
   private extAt: { from: number; to: number; row: number } | null = null;
   /** Where the status bar's backup mark sits, for a click (backups.alert). */
   private backupAt: { from: number; to: number; row: number } | null = null;
@@ -846,7 +845,6 @@ export class App implements Ctx {
     if (remote) void this.sayRemoteWrite(remote);
     // The status bar's count is the feed's distinct notes others changed since the person looked (src/desk/what-changed.ts).
     this.whatChanged.heard(e);
-    if (isExtensionChange(e)) this.extEvents++;
     this.stack.at(-1)?.onEvent?.(e, this);
     // The drawer's desk is on every screen: its readers hear the outline change as the screen shown does.
     this.drawer.made?.onEvent(e);
@@ -1079,10 +1077,10 @@ export class App implements Ctx {
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
       return;
     }
-    // A click on the status bar's `+N ext` shows (or hides) what extensions wrote, as `changes.extensions` does.
+    // A click on the status bar's `+N machine` shows (or hides) what tools wrote for their own bookkeeping, as `changes.machinery` does.
     const ext = this.extAt;
     if (ext && k.kind === "mouse" && k.y === ext.row && k.x >= ext.from && k.x < ext.to) {
-      if (k.action === "down") void this.dispatch.press("changes.extensions");
+      if (k.action === "down") void this.dispatch.press("changes.machinery");
       return;
     }
     // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle); on its backup
@@ -1304,8 +1302,9 @@ export class App implements Ctx {
     this.barAt = s.noDrawer ? null : { from: 7, to: 9, row: this.term.info.rows - 1 };
     // The drawer's chip starts the right part, so it's always whole and always in the same place from the right.
     const chip = this.drawer.active ? this.drawer.chip() : "";
-    // Extension writes hidden from the count read `+N ext` (a click shows them); shown, `ext on`.
-    const ext = this.extEvents ? (this.extensionChanges ? "ext on" : `+${this.extEvents} ext`) : "";
+    // Machinery hidden from the count reads `+N machine` (a click shows it); shown, `machine on`.
+    const heldCount = this.whatChanged.machineryCount();
+    const ext = heldCount ? `+${heldCount} machine` : this.machineryChanges && this.whatChanged.hasMachinery() ? "machine on" : "";
     const extPart = ext ? `${fg(C.dark)}${ext} ${fg(C.lcyan)}│ ` : "";
     const tail = `${this.video} │ ${theme().name} │ on ${mins}m │ ${clock} `;
     // A stale backup (PIE-607): marked until it clears; a click says what and the fix (backups.alert).
@@ -1386,6 +1385,8 @@ export function statusLine(left: string, middle: string, right: string, cols: nu
 export function isExtensionChange(e: OutlineEvent): boolean {
   return !!e.change?.actor?.actorId?.startsWith("ext:");
 }
+
+
 
 /** A write by a remote MCP client (PIE-615): an agent whose actor is `mcp:<client>`, live (not replayed). */
 export interface RemoteWrite { actor: string; verb: string; blockId?: string }

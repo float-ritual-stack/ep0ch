@@ -42,6 +42,8 @@ export interface ChangedRow {
   who: string;
   agent: boolean;
   ext: boolean;
+  /** The note is one a tool stamped `[machine::…]` (outline-core machinery.ts): held back like an extension's write. */
+  machine: boolean;
   at: number;
   sequence: number;
   /** The revision the change produced, when the record has one. */
@@ -58,9 +60,12 @@ export interface ChangedRow {
 const KIND_WORDS: Record<Change["kind"], string> = { create: "created", edit: "edited", move: "moved", delete: "trashed", restore: "restored", purge: "purged", annotate: "commented", draft: "draft", reorder: "reordered", other: "changed" };
 /** What a change record says it was, in the list's words. */
 export function kindWord(c: Change): string {
-  if (c.kind === "edit" && /propert/i.test(c.action)) return "property set";
+  if (c.kind === "edit" && (c.bookkeeping || /propert/i.test(c.action))) return "property set";
   return KIND_WORDS[c.kind] ?? "changed";
 }
+
+/** Whether a row is held back by default: a note a tool stamped `[machine::…]`, or an extension's write. */
+const held = (r: Pick<ChangedRow, "ext" | "machine">) => r.ext || r.machine;
 
 /** Whether a change is the person's own: their edits are never news to them. */
 export const isOwn = (c: Change) => (c.actor?.author ?? "user") === "user" && !c.actor?.actorId?.startsWith("ext:");
@@ -69,8 +74,8 @@ export class WhatChanged extends OutlineStore {
   private readonly rows = new Map<string, ChangedRow>();
   /** The feed position the person last looked at: changes up to it are seen. */
   seenTo = 0;
-  /** Whether extensions' writes count (`changes.extensions`). */
-  includeExt = false;
+  /** Whether what tools wrote for their own bookkeeping counts (`changes.machinery`): `[machine::…]` notes and extensions' writes. */
+  showMachinery = false;
   private ready: Promise<void> = Promise.resolve();
   /** Resolves once the changes since the kept position are read (looking before then would skip them). */
   settled(): Promise<void> { return this.ready; }
@@ -121,7 +126,7 @@ export class WhatChanged extends OutlineStore {
     if (prev && !prev.seen && !prev.ext && id.startsWith("ext:")) return;
     this.rows.set(c.blockId, {
       blockId: c.blockId, kind: kindWord(c), created: c.kind === "create" || !!prev?.created,
-      who: id, agent: c.actor?.author === "agent", ext: id.startsWith("ext:"),
+      who: id, agent: c.actor?.author === "agent", ext: id.startsWith("ext:"), machine: !!c.machinery,
       at: Date.parse(c.recordedAt) || Date.now(), sequence: c.sequence,
       ...(c.revision !== undefined ? { revision: c.revision } : {}), seen: false,
       ...(prev?.title !== undefined ? { title: prev.title, retitle: true } : {}),
@@ -148,21 +153,25 @@ export class WhatChanged extends OutlineStore {
   /** The ids of the notes not yet seen (taken just before the person's look marks them). */
   unseenIds(): string[] { return this.list().filter(r => !r.seen).map(r => r.blockId); }
 
-  /** The rows shown, newest first (extension writes only when asked for). */
+  /** The rows shown, newest first (machinery and extension writes only when asked for). */
   list(): ChangedRow[] {
-    return [...this.rows.values()].filter(r => this.includeExt || !r.ext).sort((a, b) => b.sequence - a.sequence);
+    return [...this.rows.values()].filter(r => this.showMachinery || !held(r)).sort((a, b) => b.sequence - a.sequence);
   }
   /** How many notes changed since the person looked: the status bar's `+N new`. */
-  count(): number { return this.list().filter(r => !r.seen).length; }
-  /** Extension writes held back from the count (`+N ext`). */
-  extCount(): number { return this.includeExt ? 0 : [...this.rows.values()].filter(r => r.ext && !r.seen).length; }
+  count(includeMachinery = this.showMachinery): number { return [...this.rows.values()].filter(r => !r.seen && (includeMachinery || !held(r))).length; }
+  /** What tools wrote for their own bookkeeping, held back from the count (`+N machine`). */
+  machineryCount(): number { return this.showMachinery ? 0 : [...this.rows.values()].filter(r => held(r) && !r.seen).length; }
+  /** Whether any note the list holds is machinery (`machine on` shows while they are shown). */
+  hasMachinery(): boolean { return [...this.rows.values()].some(held); }
+  /** Every note changed since the person looked, machinery too: the new scan's "73" beside its "12 by people". */
+  allCount(): number { return [...this.rows.values()].filter(r => !r.seen).length; }
 
   /** The person looked: everything held is seen, and the position is kept. Never an agent's. */
   markSeen() {
     let top = this.seenTo;
-    // What the list shows: an extension's writes it holds back (`changes.extensions`) stay unseen until they're shown.
+    // What the list shows: the machinery it holds back (`changes.machinery`) stays unseen until it's shown.
     for (const r of this.rows.values()) {
-      if (r.ext && !this.includeExt) continue;
+      if (held(r) && !this.showMachinery) continue;
       r.seen = true; r.created = false; top = Math.max(top, r.sequence);
     }
     if (top !== this.seenTo) { this.seenTo = top; this.save(); }
@@ -267,7 +276,7 @@ export class WhatChangedPane implements Pane {
     const lines: { text: string; row: number }[] = [];
     rows.forEach((r, n) => {
       const isNew = this.isNew(r), mark = isNew ? "●" : " ", title = r.title ?? "…", age = ago(r.at).padStart(4);
-      const tag = r.ext ? "ext" : r.agent ? "agent" : "";
+      const tag = r.ext ? "ext" : r.machine ? "machine" : r.agent ? "agent" : "";
       const who = `${authorName(r.who)}${tag && !r.who.startsWith(tag) ? ` (${tag})` : ""}`;
       if (n === this.at) lines.push({ row: n, text: selected(focused) + pad(` ${mark} ${title} · ${who} · ${r.kind}  ${age}`, w) + RESET });
       else lines.push({ row: n, text: pad(` ${isNew ? fg(C.yellow) + mark : dim(mark)} ${fg(C.lcyan)}${title}${fg(C.dark)} · ${r.agent ? fg(C.lmagenta) : fg(C.grey)}${who}${fg(C.dark)} · ${fg(C.grey)}${r.kind}  ${dim(age)}`, w) + RESET });

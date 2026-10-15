@@ -274,7 +274,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // The hint row, and the hint each tile draws in its frame when it has the keys (the desk and its views).
     const tiles: { hint?(): string }[] = [...((top as any).panes?.values?.() ?? [])];
     // A row cut on a narrow screen ("? more", PIE-509) is checked whole, and so is a float's frame hint.
-    const row = plain(top.render(app).lines.at(-1) ?? ""), full = (top as any).hintFull as string | null | undefined;
+    // The menu ends in newscan metadata, so its last key hint row is immediately above it.
+    const row = plain(top.render(app).lines.at(top instanceof MainMenu ? -2 : -1) ?? ""), full = (top as any).hintFull as string | null | undefined;
     for (const hint of [full ? plain(full) : row, plain((top as any).floatHint?.() ?? ""), ...tiles.map(t => plain(t.hint?.() ?? ""))])
     for (const k of hintKeys(hint)) if (!declared.has(k) && k !== "click" && k !== "drag" && k !== "wheel") hintFindings.push({ screen: `${label} (${top.title})`, keys: k, problem: `the hint names ${k}, which no action here declares: ${hint.trim().slice(0, 140)}` });
   };

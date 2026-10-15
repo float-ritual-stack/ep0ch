@@ -3,7 +3,7 @@ import { isLinkValue, propertyValueHolds } from "@ep0ch/outline-core/property-gr
 import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
-import { ChangeFeed, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
+import { ChangeFeed, machineryClause, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
 import { checklistItems, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
 import { ensureFragmentAnchor } from "./fragments";
@@ -57,6 +57,7 @@ import {
   positivePropertyFilters,
   sortQueriedBlocks,
 } from "./block-query";
+import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { ReadMarks } from "./read-marks";
 import {
   firstLineWithoutPropertyTokens,
@@ -347,6 +348,8 @@ interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
   text?: string;
   stopAfterMatches?: number;
   deletedMode?: "active" | "roots" | "all";
+  /** Notes a tool stamped `[machine::…]` (PIE-867): `hide` skips them, `only` keeps just them, whatever the property scope. */
+  machinery?: MachineryMode;
 }
 
 function normalizeCreatorProvenance(
@@ -1515,6 +1518,7 @@ export class OutlinerStore {
 
       const metadata = [
         formatProperty({ key: "type", value: "delivery" }),
+        formatProperty({ key: MACHINE_KEY, value: "delivery" }),
         formatProperty({ key: "delivery-key", value: deliveryKey }),
         formatProperty({ key: "repository", value: repository }),
         formatProperty({ key: "base-branch", value: baseBranch }),
@@ -2715,6 +2719,8 @@ export class OutlinerStore {
     kinds?: readonly BlockActivityKind[];
     /** `exclude`: leave out extension writes (`actor_id` `ext:…`); `only`: just those. */
     extensions?: "exclude" | "only";
+    /** Notes tools stamped `[machine::…]` (PIE-867): `hide` leaves them out, `only` holds just them; none, everything. */
+    machinery?: MachineryMode;
     /** Only entries recorded with this actor id. */
     actorId?: string;
     /** Only blocks whose latest matching entry is below this cursor: the next, older page of a cut one. */
@@ -2755,14 +2761,15 @@ export class OutlinerStore {
     const before = options.beforeCursor === undefined ? [] : [options.beforeCursor];
     // The actor id is bound as the clause's last parameter, after the kinds.
     const actor = options.actorId === undefined ? [] : [options.actorId.trim()];
-    const kindClause = `kind IN (${kinds.map(() => "?").join(", ")})${
+    const [machineClause, ...machineParameters] = options.machinery === undefined ? [""] : machineryClause(parseMachineryMode(options.machinery), "block_edit_activity.block_id");
+    const kindClause = `kind IN (${kinds.map(() => "?").join(", ")})${machineClause}${
       options.extensions === "exclude" ? " AND (actor_id IS NULL OR actor_id NOT LIKE 'ext:%')"
         : options.extensions === "only" ? " AND actor_id LIKE 'ext:%'" : ""}${actor.length ? " AND actor_id = ?" : ""}`;
     const cursorRow = this.database.query(`
       SELECT COALESCE(MAX(activity_id), ?) AS cursor
       FROM block_edit_activity
       WHERE activity_id > ? AND author = ? AND edited_at >= ? AND ${kindClause}
-    `).get(afterCursor, afterCursor, author, since, ...kinds, ...actor) as { cursor: number };
+    `).get(afterCursor, afterCursor, author, since, ...kinds, ...machineParameters, ...actor) as { cursor: number };
     const rows = this.database.query(`
       SELECT activity_id, block_id, author, actor_id, session_id, task_id, kind, edited_at
       FROM block_edit_activity
@@ -2774,7 +2781,7 @@ export class OutlinerStore {
       )${before.length ? " AND activity_id < ?" : ""}
       ORDER BY activity_id DESC, block_id ASC
       LIMIT ?
-    `).all(afterCursor, author, since, ...kinds, ...actor, ...before, limit) as BlockEditActivityRow[];
+    `).all(afterCursor, author, since, ...kinds, ...machineParameters, ...actor, ...before, limit) as BlockEditActivityRow[];
     const entries = rows.flatMap((row): BlockEditActivity[] => {
       const block = this.get(row.block_id);
       if (!block) return [];
@@ -3841,6 +3848,27 @@ export class OutlinerStore {
 
   /** `query.limit` is normally 1..1000; sorted saved-view reads pass UNBOUNDED_VIEW_MATCHES to count every member. */
   private queryNormalizedBlocksFromCurrentRead(query: NormalizedBlockSearchQuery, options: { overGraph?: boolean } = {}): VisibleBlockCollection {
+    return this.withMachineryHidden(query, this.queryNormalizedMatches(query, options));
+  }
+
+  /**
+   * What `machinery: hide` left out, said (PIE-867): `machineryHidden` counts the stamped notes the same question would
+   * have held (at most 50, then `+`), when the answer came back empty, and the hint names the flag, so a view or figure that went empty explains itself.
+   */
+  private withMachineryHidden(query: NormalizedBlockSearchQuery, answer: VisibleBlockCollection): VisibleBlockCollection {
+    // Only for an answer that came back empty: a list that went empty explains itself, and a full one costs nothing more.
+    if (query.machinery !== "hide" || answer.blocks.length > 0 || !this.database.query("SELECT 1 AS found FROM block_properties WHERE key = ? AND scope = 'block' LIMIT 1").get(MACHINE_KEY)) return answer;
+    const graph = this.loadGraph();
+    const hidden = this.traverseLoadedGraph(graph, {
+      filters: query.filters, where: query.predicate, machinery: "only", propertyScope: query.propertyScope,
+      subtreeRootId: query.subtreeRootId, text: query.text, stopAfterMatches: 51, deletedMode: query.includeDeleted ?? "active",
+    }).length;
+    if (!hidden) return answer;
+    const said = `${hidden > 50 ? "50+" : hidden} machinery note${hidden === 1 ? "" : "s"} hidden · machinery=show`;
+    return { ...answer, machineryHidden: Math.min(hidden, 50), hint: [answer.hint, said].filter(Boolean).join(" · ") };
+  }
+
+  private queryNormalizedMatches(query: NormalizedBlockSearchQuery, options: { overGraph?: boolean } = {}): VisibleBlockCollection {
     if (query.subtreeRootId) this.require(query.subtreeRootId);
     const deletedMode = query.includeDeleted ?? "active";
     // Groups and facets count every match, so they read them all.
@@ -3853,6 +3881,7 @@ export class OutlinerStore {
     const blocks = this.traverseLoadedGraph(graph, {
       filters: query.filters,
       where: query.predicate,
+      machinery: query.machinery,
       propertyScope: query.propertyScope,
       subtreeRootId: query.subtreeRootId,
       text: query.text,
@@ -3897,6 +3926,7 @@ export class OutlinerStore {
       const values = records.filter(record => record.key === key && (scope === "all" || record.scope === scope));
       if (!values.length) continue;
       if (query.filters?.length && !matchesFilters(records, query.filters, scope)) continue;
+      if (query.machinery && !machineryAllows(query.machinery, isMachinery(block.properties))) continue;
       if (query.subtreeRootId && !relations.within(id, query.subtreeRootId)) continue;
       if (terms.length && !terms.every(term => block.text.toLowerCase().includes(term))) continue;
       const children = () => (graph.byParent.get(id) ?? []).filter(child => !child.effectiveDeletedRootId).map(child => child.properties);
@@ -3969,6 +3999,7 @@ export class OutlinerStore {
         // loaded once per change for all of them, where a ranked SQL walk of the whole outline ran for each.
         const matches = this.queryNormalizedBlocksFromCurrentRead({ ...query, limit: UNBOUNDED_VIEW_MATCHES }, { overGraph: true });
         selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
+        if (matches.machineryHidden) Object.assign(result, { machineryHidden: matches.machineryHidden });
       } catch (error) {
         return fail("failed", [{ code: "query-failed", message: error instanceof Error ? error.message : String(error) }]);
       }
@@ -4153,6 +4184,7 @@ export class OutlinerStore {
       const matched = this.traverseLoadedGraph(graph, {
         filters: query?.filters,
         where: query?.predicate,
+        machinery: query?.machinery,
         propertyScope: query?.propertyScope,
         subtreeRootId: query?.subtreeRootId,
         text: query?.text,
@@ -4197,11 +4229,11 @@ export class OutlinerStore {
   }
 
   /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
-  searchTree(query: string, contextBlockId?: string) {
+  searchTree(query: string, contextBlockId?: string, machinery: MachineryMode = "show") {
     return this.database.transaction(() => {
       const normalized = typeof query === "string" ? tryNormalizePageAddress(query) : null;
       const address = normalized ? this.resolvePageAddressFromCurrentRead(normalized) : null;
-      return gotoCandidates([...this.loadGraph().byId.values()], query, {
+      return gotoCandidates([...this.loadGraph().byId.values()].filter(block => machineryAllows(machinery, isMachinery(block.properties))), query, {
         exactAddressId: address?.status === "resolved" ? address.block?.id : undefined,
         contextBlockId,
         resolveAddress: reference => {
@@ -4347,6 +4379,11 @@ export class OutlinerStore {
       if (propertyScope !== "all") parameters.push(propertyScope);
     }
     predicates.push("block.effective_deleted_root_id IS NULL");
+    // Notes a tool stamped `[machine::…]` (PIE-867): left out, or alone.
+    if (query.machinery === "hide" || query.machinery === "only") {
+      predicates.push(`${query.machinery === "hide" ? "NOT " : ""}EXISTS (SELECT 1 FROM block_properties machine WHERE machine.block_id = block.id AND machine.scope = 'block' AND machine.key = ? AND TRIM(machine.value) <> '')`);
+      parameters.push(MACHINE_KEY);
+    }
     if (query.text) {
       // Every word, in any order, punctuation folded (src/search-match.ts): "Claude now" finds "Claude - now".
       // A query of punctuation alone is matched as typed.
@@ -4686,6 +4723,7 @@ export class OutlinerStore {
         deletionMatches &&
         (!options.filters?.length ||
           matchesFilters(propertyRecords, options.filters, propertyScope)) &&
+        (!options.machinery || machineryAllows(options.machinery, isMachinery(block.properties))) &&
         (!where || where({ ...block, childProperties: () => (graph.byParent.get(block.id) ?? [])
           .filter((child) => !child.effectiveDeletedRootId).map((child) => child.properties) }, propertyRecords, propertyScope)) &&
         (!filterTerms.length || filterTerms.every(term => block.text.toLowerCase().includes(term)));

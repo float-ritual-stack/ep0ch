@@ -1,3 +1,4 @@
+import { MACHINE_KEY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { firstLineWithoutPropertyTokens, matchesFilters, normalizePropertyKey } from "./properties";
 import { ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "@ep0ch/outline-core/query-atoms";
 import { QUESTION_DEFAULT_LIMIT, QUESTION_MAX_LIMIT } from "@ep0ch/outline-core/protocol";
@@ -724,12 +725,14 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
     case "title":
     case "text":
     case "call":
+    case "by":
     case "unread":
     case "thread": {
       if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
       const word = expression.kind === "tag" ? `#${String(expression.tag)}`
         : expression.kind === "links" || expression.kind === "linkedfrom" || expression.kind === "under" || expression.kind === "parent" ? `${expression.kind}:${String(expression.target)}`
         : expression.kind === "call" ? `call:${String(expression.call)}`
+        : expression.kind === "by" ? `by:${String(expression.who)}`
         : expression.kind === "unread" || expression.kind === "thread" ? `${expression.kind}:${String(expression.reader)}`
         : `${expression.kind}~"${String(expression.text).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
       try {
@@ -791,8 +794,11 @@ export interface QueryExpressionSubject {
   text?: string;
   createdAt: string;
   updatedAt: string;
-  /** Its revision, for `unread:` (read at an older one is unread again). */
+  /** Its revision, for `unread:` (read at an older one is unread again) and `revision >= 2`. */
   revision?: number;
+  /** Who wrote it last, for `by:`: an author and an actor id. */
+  author?: string;
+  actorId?: string;
   /** The block's active direct children's properties, for `child:` clauses; without it they never match. */
   childProperties?: () => readonly (readonly (BlockProperty | PropertyRecord)[])[];
 }
@@ -842,6 +848,11 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       const written = relations?.callBlocks?.(expression.call);
       return subject => !!written && subject.id !== undefined && written.has(subject.id);
     }
+    case "by": {
+      // An author (`user`, `agent`, `system`) or an actor id, ignoring case: who wrote the block last.
+      const who = expression.who.toLowerCase();
+      return subject => subject.author?.toLowerCase() === who || subject.actorId?.toLowerCase() === who;
+    }
     case "unread": {
       // Read at its current revision or later is read; anything else (never opened, changed since) is unread.
       const read = relations?.readRevisions?.(readerOf(expression.reader));
@@ -878,6 +889,8 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
     }
     case "compare": {
       const wall = wallClock(now), bound = readBound(expression.value, wall), key = expression.key, op = expression.op;
+      // `revision >= 2` is the block's own revision (PIE-867): a note saved more than once, as `unread:` reads it.
+      if (key === "revision") return subject => subject.revision !== undefined && valueHolds(String(subject.revision), op, bound, wall) === true;
       return (_subject, properties, scope = "block") => properties.some(p =>
         p.key === key && (scope === "all" || ("scope" in p ? p.scope : "block") === scope) && valueHolds(p.value, op, bound, wall) === true);
     }
@@ -934,6 +947,7 @@ export function positivePropertyFilters(expression: QueryExpression): PropertyFi
     case "title":
     case "text":
     case "call":
+    case "by":
     case "unread":
     case "thread":
     case "not": return [];
@@ -1151,9 +1165,14 @@ export function normalizeBlockSearchQuery(
     throw new Error("Block search cannot combine rankViewId with sorting");
   }
 
+  // A question that names `machine` in its own clauses (`machine=echonet`, `NOT machine`) is answered as written.
+  const mode = query.machinery === undefined ? undefined : parseMachineryMode(query.machinery, "machinery");
+  const machinery = mode && !namesKey(predicate, filters, MACHINE_KEY) ? mode : undefined;
+
   return {
     ...(filters.length > 0 ? { filters } : {}),
     ...(predicate ? { predicate } : {}),
+    ...(machinery ? { machinery } : {}),
     ...(text ? { text } : {}),
     ...(subtreeRootId ? { subtreeRootId } : {}),
     ...(rankViewId ? { rankViewId } : {}),
@@ -1166,6 +1185,21 @@ export function normalizeBlockSearchQuery(
     ...(facetKeys ? { facetKeys } : {}),
     limit,
   };
+}
+
+/** Whether a question's own clauses name the property `key`: a presence or value clause, or a comparison. */
+function namesKey(predicate: QueryExpression | undefined, filters: readonly PropertyFilter[], key: string): boolean {
+  if (filters.some(filter => filter.key === key)) return true;
+  const walk = (e: QueryExpression | undefined): boolean => {
+    if (!e) return false;
+    switch (e.kind) {
+      case "property": case "compare": return e.key === key;
+      case "not": return walk(e.operand);
+      case "and": case "or": return e.operands.some(walk);
+      default: return false;
+    }
+  };
+  return walk(predicate);
 }
 
 const SORT_PROPERTY = "property:";

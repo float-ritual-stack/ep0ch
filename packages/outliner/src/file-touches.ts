@@ -9,7 +9,7 @@
  *
  *   Recent files [page::recent-files]
  *     By project [type::virtual-branch-folder]          one view per project, its touches newest first
- *       ep0ch [type::virtual-branch] [query::type=file-touch AND project=ep0ch] …
+ *       ep0ch [type::virtual-branch] [query::type=file-touch AND project=ep0ch] [machinery::show] …
  *     2026-10-06 [file-day::2026-10-06]
  *       ep0ch [file-project::ep0ch]
  *         session 1a2b3c4d [file-session::<id>]
@@ -29,6 +29,8 @@ import type { Block, PropertyFilter, VisibleBlockCollection } from "./types";
 
 export const RECENT_FILES_PAGE = "recent-files";
 export const FILE_TOUCH_TYPE = "file-touch";
+/** What the touches and their day, project and session folders carry: tools wrote them for their own bookkeeping (PIE-867). */
+export const STAMP = `[machine::${FILE_TOUCH_TYPE}]`;
 
 export interface TouchFileInput {
   /** The file's absolute path. */
@@ -89,7 +91,7 @@ function props(b: Block): Map<string, string> {
 async function findOne(client: AgentToolsClient, filters: PropertyFilter[], under?: string): Promise<Block | null> {
   const found = await client.request<VisibleBlockCollection>({
     action: "blocks.query",
-    query: { limit: 2, filters, ...(under ? { subtreeRootId: under } : {}) },
+    query: { limit: 2, filters, machinery: "show", ...(under ? { subtreeRootId: under } : {}) },
   });
   return (found.blocks as Block[]).find(b => !b.effectiveDeletedRootId) ?? null;
 }
@@ -100,7 +102,7 @@ async function create(client: AgentToolsClient, parentId: string | null, text: s
 
 /** The live children of `parentId` carrying `[key::value]`, oldest first. */
 async function matching(client: AgentToolsClient, parentId: string, key: string, val: string): Promise<Block[]> {
-  const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { limit: 20, filters: [{ key, value: val }], subtreeRootId: parentId } });
+  const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { limit: 20, filters: [{ key, value: val }], subtreeRootId: parentId, machinery: "show" } });
   return (found.blocks as Block[]).filter(b => b.parentId === parentId && !b.effectiveDeletedRootId)
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id));
 }
@@ -174,12 +176,12 @@ export async function touchFile(client: AgentToolsClient, input: TouchFileInput,
   }
 
   const { hub: h, byProject } = await hub(client, actor);
-  const dayBlock = await ensure(client, h.id, "file-day", day, `${day} [file-day::${day}]`, actor);
-  const projectBlock = await ensure(client, dayBlock.id, "file-project", project, `${project} [file-project::${project}]`, actor);
-  const sessionBlock = await ensure(client, projectBlock.id, "file-session", session, `session ${session.slice(0, 8)} [file-session::${session}]`, actor);
+  const dayBlock = await ensure(client, h.id, "file-day", day, `${day} [file-day::${day}] ${STAMP}`, actor);
+  const projectBlock = await ensure(client, dayBlock.id, "file-project", project, `${project} [file-project::${project}] ${STAMP}`, actor);
+  const sessionBlock = await ensure(client, projectBlock.id, "file-session", session, `session ${session.slice(0, 8)} [file-session::${session}] ${STAMP}`, actor);
   // This project's view under By project, made with its first touch.
   await ensure(client, byProject.id, "file-project-view", project,
-    `${project} [file-project-view::${project}] [type::virtual-branch] [query::type=${FILE_TOUCH_TYPE} AND project=${JSON.stringify(project)}] [sort::last-touch] [direction::desc] [summary-properties::session, day, touches]`, actor);
+    `${project} [file-project-view::${project}] [type::virtual-branch] [query::type=${FILE_TOUCH_TYPE} AND project=${JSON.stringify(project)}] [sort::last-touch] [direction::desc] [summary-properties::session, day, touches] [machinery::show]`, actor);
   const snapshot = typeof input.original === "string" ? keepOriginal(await client.requireCompatibleService() as OutlinerServiceStatus, session, path, input.original) : null;
   const made = await create(client, sessionBlock.id, touchText(shown, { path, day, project, session, touches: 1, at, added, removed, ...(snapshot ? { snapshot } : {}) }), actor);
   return { id: made.id, ref: `((${made.id}))`, revision: made.revision, created: true, touches: 1, added, removed, ...(snapshot ? { snapshot } : {}) };
@@ -203,5 +205,5 @@ function keepOriginal(status: OutlinerServiceStatus, session: string, path: stri
 
 /** A touch block's text: the file as the project names it, then its properties. */
 export function touchText(shown: string, t: { path: string; day: string; project: string; session: string; touches: number; at: string; added: number; removed: number; snapshot?: string }): string {
-  return `${shown} [file::${t.path}] [type::${FILE_TOUCH_TYPE}] [day::${t.day}] [project::${t.project}] [session::${t.session}] [touches::${t.touches}] [last-touch::${t.at}] [added::${t.added}] [removed::${t.removed}]${t.snapshot ? ` [snapshot::${t.snapshot}]` : ""}`;
+  return `${shown} [file::${t.path}] [type::${FILE_TOUCH_TYPE}] ${STAMP} [day::${t.day}] [project::${t.project}] [session::${t.session}] [touches::${t.touches}] [last-touch::${t.at}] [added::${t.added}] [removed::${t.removed}]${t.snapshot ? ` [snapshot::${t.snapshot}]` : ""}`;
 }

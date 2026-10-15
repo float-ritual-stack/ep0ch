@@ -346,6 +346,7 @@ describe("OutlinerStore", () => {
     expect(created.delivery.parentId).toBe(task.id);
     expect(created.delivery.properties).toEqual([
       { key: "type", value: "delivery" },
+      { key: "machine", value: "delivery" },
       { key: "delivery-key", value: "PIE-182/enforcement" },
       { key: "repository", value: "float-ritual-stack/pi-herdr-outliner" },
       { key: "base-branch", value: "main" },

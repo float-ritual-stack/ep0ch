@@ -63,11 +63,11 @@ test("a session's touches of one file are one block, its count, last time and li
 
   const block = store.get(first.json.id)!;
   expect(block.text.split(" [")[0]).toBe("beds/plan.md");
-  expect(props(block)).toMatchObject({ file: "/work/allotment/beds/plan.md", type: "file-touch", day: "2026-10-06", project: "allotment", session: "sess-aaaa1111", touches: "2", "last-touch": "2026-10-06T09:05:00.000Z", added: "6", removed: "4" });
+  expect(props(block)).toMatchObject({ file: "/work/allotment/beds/plan.md", type: "file-touch", machine: "file-touch", day: "2026-10-06", project: "allotment", session: "sess-aaaa1111", touches: "2", "last-touch": "2026-10-06T09:05:00.000Z", added: "6", removed: "4" });
   expect(block.author).toBe("agent");
   // Its place: session › project › day › the hub page.
   const session = store.get(block.parentId!)!, project = store.get(session.parentId!)!, day = store.get(project.parentId!)!, hub = store.get(day.parentId!)!;
-  expect([session.text, project.text, day.text]).toEqual(["session sess-aaa [file-session::sess-aaaa1111]", "allotment [file-project::allotment]", "2026-10-06 [file-day::2026-10-06]"]);
+  expect([session.text, project.text, day.text]).toEqual(["session sess-aaa [file-session::sess-aaaa1111] [machine::file-touch]", "allotment [file-project::allotment] [machine::file-touch]", "2026-10-06 [file-day::2026-10-06] [machine::file-touch]"]);
   expect(hub.text).toStartWith("Recent files [page::recent-files]");
 
   // Another session's touch of the same file is its own block, in its own session under the same day and project.
@@ -82,7 +82,7 @@ test("a session's touches of one file are one block, its count, last time and li
 
   // The project's view: its touches, newest first, each with its session and day.
   const view = store.queryBlocks({ limit: 1000 }).blocks.find(b => props(b)["file-project-view"] === "allotment")!;
-  expect(props(view)).toMatchObject({ type: "virtual-branch", query: 'type=file-touch AND project="allotment"', sort: "last-touch", direction: "desc" });
+  expect(props(view)).toMatchObject({ type: "virtual-branch", query: 'type=file-touch AND project="allotment"', sort: "last-touch", direction: "desc", machinery: "show" });
   const members = await agent("find", { view: view.id });
   expect(members.json.blocks.map((b: { id: string }) => b.id).sort()).toEqual([first.json.id, other.json.id, third.json.id].sort());
 });

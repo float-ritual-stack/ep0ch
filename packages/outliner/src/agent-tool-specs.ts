@@ -25,7 +25,7 @@ function spec(name: string, properties: Record<string, ToolSchema>, required: st
 /** The checked operations, keyed as the CLI names them. */
 export const AGENT_OPERATION_SPECS: Readonly<Record<string, ToolArgsSpec>> = {
   read: spec("read", { ref, depth: int, limit: int }, ["ref"], { ref: "PIE-123", depth: 1 }),
-  find: spec("find", { text: str, property: str, hasKey: str, query: str, view: str, under: str, limit: int }, [], { text: "seed swap" }),
+  find: spec("find", { text: str, property: str, hasKey: str, query: str, view: str, under: str, limit: int, machinery: str }, [], { text: "seed swap" }),
   resolve: spec("resolve", { ref }, ["ref"], { ref: "[[Seed Swap]]" }),
   edit: spec("edit", { ref, expectedRevision: revision, text: str, replaceSection: { type: "object" }, append: str, allowStructural: bool }, ["ref", "expectedRevision"], { ref: "PIE-123", expectedRevision: 3, append: "One more line." }),
   create: spec("create", { parent: str, text: str, position: int }, ["parent", "text"], { parent: "PIE-123", text: "Bring labels" }),
@@ -33,7 +33,7 @@ export const AGENT_OPERATION_SPECS: Readonly<Record<string, ToolArgsSpec>> = {
   reply: spec("reply", { thread: str, body: str, requestId: str }, ["thread", "body"], { thread: THREAD, body: "Yes, checked today." }),
   "edit-comment": spec("edit-comment", { mark: str, body: str, observed: str, revision }, ["mark", "body"], { mark: THREAD, observed: "Is this still true?", body: "Is this still true in May?" }),
   "resolve-thread": spec("resolve-thread", { thread: str, resolved: bool }, ["thread", "resolved"], { thread: THREAD, resolved: true }),
-  changes: spec("changes", { since: { type: ["string", "integer"] }, author: str, actor: str, limit: int, before: int }, ["since"], { since: "2026-03-01T09:00:00Z" }),
+  changes: spec("changes", { since: { type: ["string", "integer"] }, author: str, actor: str, limit: int, before: int, machinery: str }, ["since"], { since: "2026-03-01T09:00:00Z" }),
   patch: spec("patch", { ref, revision, patches: { type: "array", items: { type: "object" } }, mark: str, policy: str, allowStructural: bool, propose: {} }, ["ref", "revision", "patches"],
     { ref: "PIE-123", revision: 3, patches: [{ observed: "Borlotti", replacement: "Borlotti only" }] }),
   "set-property": spec("set-property", { ref, key: str, value: str, revision, propose: {} }, ["ref", "key", "value", "revision"], { ref: "PIE-123", key: "status", value: "open", revision: 3 }),

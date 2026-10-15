@@ -128,7 +128,7 @@ describe("the actor rule, for every action (PIE-514)", () => {
     // Pointing at something, writing what the service attributes: no actor rule.
     touches(["block.mark", "block.unmark", "block.tint", "projection.refresh", "tree.links", "tree.pick", "search", "who.refresh"], "nothing");
     // The person's own: refused to any agent, with its way said.
-    for (const n of ["screen.shell", "changes.extensions", "host.enter", "host.leave", "tile.enter", "tile.leave", "element.select", "select.mode", "callouts", "fold.select", "thread.toggle", "task.menu", "keys.more", "section.try", "composer.leave", "composer.close"]) {
+    for (const n of ["screen.shell", "changes.machinery", "host.enter", "host.leave", "tile.enter", "tile.leave", "element.select", "select.mode", "callouts", "fold.select", "thread.toggle", "task.menu", "keys.more", "section.try", "composer.leave", "composer.close"]) {
       expect({ n, person: !!of(n).person }).toEqual({ n, person: true });
     }
     // The person's draft: the draft session's rule.

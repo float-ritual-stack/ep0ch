@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { MainMenu } from "../src/screens";
 import { WhatChanged } from "../src/desk/what-changed";
 import type { Msg } from "../src/board";
 import { SocketBoard, type Actor } from "../src/socket";
@@ -117,6 +118,17 @@ describe.skipIf(!outliner)("what changed", () => {
     expect(other.count()).toBe(0);
   });
 
+  test("the real menu includes hidden machinery in its total after the service changes a stamped note", async () => {
+    await board.createBlock(null, "Toss record [machine::echonet]", AGENT);
+    await until(() => app.whatChanged.allCount() === 2, "ordinary note and machinery received");
+    expect(app.whatChanged.count()).toBe(1);
+    const menu = new MainMenu();
+    expect(menu.render(app).lines.map(plain).join("\n")).toContain("since you logged on: 2 · 1 by people");
+    await app.dispatch.press("changes.machinery", { include: true });
+    expect(app.whatChanged.count()).toBe(2);
+    expect(menu.render(app).lines.map(plain).join("\n")).toContain("since you logged on: 2 · 1 by people");
+  });
+
   test("a door that starts long after the person looked catches up to now, not to the oldest changes since (PIE-891)", async () => {
     const at = board.lastSequence;
     writeState("changes-seen.json", { ...(readState<Record<string, number>>("changes-seen.json") ?? {}), late: at });
@@ -168,11 +180,25 @@ describe.skipIf(!outliner)("what changed", () => {
     expect(w.count()).toBe(1);
     w.markSeen();
     expect(w.count()).toBe(0);
-    expect(w.extCount()).toBe(1);
-    w.includeExt = true;
+    expect(w.machineryCount()).toBe(1);
+    w.showMachinery = true;
     expect(w.count()).toBe(1);
     for (let i = 0; i < 250; i++) w.heard(ev(1000 + i, `m${i}`, { author: "agent", actorId: "fern-agent" }));
     expect(w.count()).toBe(251);
+  });
+
+  test("a note a tool stamped [machine::…] is held back like an extension's write: counted apart, in the all count, shown when asked (PIE-867)", () => {
+    const w = new WhatChanged();
+    const ev = (sequence: number, blockId: string, machinery = false) => ({ domain: "content", action: "block.update", sequence, change: { sequence, changeId: sequence, action: "block.update", kind: "edit", blockId, actor: { author: "agent", actorId: "claude-code@float-2" }, ...(machinery ? { machinery: true } : {}), recordedAt: new Date().toISOString() } }) as any;
+    w.heard(ev(900, "gate"));
+    for (let i = 0; i < 3; i++) w.heard(ev(901 + i, `touch${i}`, true));
+    expect([w.count(), w.machineryCount(), w.allCount()]).toEqual([1, 3, 4]);
+    expect(w.list().map(r => r.blockId)).toEqual(["gate"]);
+    w.markSeen();
+    expect([w.count(), w.allCount()]).toEqual([0, 3]);
+    w.showMachinery = true;
+    expect(w.list().length).toBe(4);
+    expect(w.list().find(r => r.blockId === "touch0")?.machine).toBe(true);
   });
 
   test("changes already read remain visible if the host stops between feed pages", async () => {
@@ -198,5 +224,4 @@ describe.skipIf(!outliner)("what changed", () => {
       expect(visible).toEqual([first.id]);
     } finally { reader.close(); }
   }, 20_000);
-
 });

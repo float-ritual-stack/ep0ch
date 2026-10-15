@@ -97,12 +97,13 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       view: { type: 'string', description: 'A saved view (virtual branch): its id or ((id))' },
       under: { type: 'string', description: 'Only blocks under this one (a ref)' },
       limit: { type: 'integer', minimum: 1, maximum: 200 },
+      machinery: { type: 'string', enum: ['hide', 'only', 'show'], description: 'Notes tools wrote for their own bookkeeping (file touches, tosses, deliveries): left out unless this is show or only' },
     }, [], false),
     command(input) {
       if (!['text', 'property', 'hasKey', 'query', 'view'].some(key => nonEmpty(input[key]))) {
         return 'Give text, property, hasKey, query or view to find blocks by.'
       }
-      return { operation: 'find', input: inputOf(input, ['text', 'property', 'hasKey', 'query', 'view', 'under', 'limit']) }
+      return { operation: 'find', input: inputOf(input, ['text', 'property', 'hasKey', 'query', 'view', 'under', 'limit', 'machinery']) }
     },
   },
   {
@@ -259,10 +260,11 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       actor: { type: 'string', description: 'Only this agent’s changes, by actor id (claude-code, garden-agent…)' },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
       before: { type: 'integer', minimum: 1, description: 'The `before` an incomplete answer returned: its older changes' },
+      machinery: { type: 'string', enum: ['hide', 'only', 'show'], description: 'Notes tools wrote for their own bookkeeping (file touches, tosses, deliveries): left out unless this is show or only' },
     }, ['since'], false),
     command(input) {
       if (!nonEmpty(input.since) && typeof input.since !== 'number') return 'Give since: an ISO time or a cursor.'
-      return { operation: 'changes', input: inputOf(input, ['since', 'author', 'actor', 'limit', 'before']) }
+      return { operation: 'changes', input: inputOf(input, ['since', 'author', 'actor', 'limit', 'before', 'machinery']) }
     },
   },
   {

@@ -22,7 +22,9 @@ export type QueryAtom =
   /** Blocks `reader` hasn't read at their current revision (PIE-708: never read, or changed since). */
   | { kind: "unread"; reader: string }
   /** Comments and replies in the threads `reader` started or wrote in. */
-  | { kind: "thread"; reader: string };
+  | { kind: "thread"; reader: string }
+  /** Blocks whose latest write was by `who`: an author (`user`, `agent`, `system`) or an actor id (PIE-867). */
+  | { kind: "by"; who: string };
 
 /** A reader's atom names who reads: `me` (the person: the door, the web client and the CLI read as them) or an agent's actor id. */
 export type QueryReaderAtom = "unread" | "thread";
@@ -57,10 +59,11 @@ export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: s
   { atom: "call:<id>", means: "blocks whose latest change (else their creation) came from that call (an MCP caller's visit; the id list_outlines tells a caller, recorded with every write it makes; the MCP server also takes its readable handle and swaps in the id)", example: "call:c-7f3a1c" },
   { atom: "text~text", means: "blocks whose whole text contains the text, ignoring case", example: 'text~"watering can"' },
   { atom: "unread:<reader>", means: "blocks the reader hasn't read at their current revision (never opened, or changed since); me is the person, and an agent names its own actor id", example: "unread:me  type=annotation-reply unread:me" },
+  { atom: "by:<who>", means: "blocks whose latest write was by who: an author (user, agent, system) or an actor id (claude-code@float-2, loki, ext:jira); with revision >= 2 and NOT machine, what people wrote", example: "by:user  by:agent NOT machine  by:loki updated >= today  revision >= 2" },
   { atom: "thread:<reader>", means: "comments and replies in the threads the reader started or wrote in; me is the person, an agent names its actor id", example: "type=annotation-reply thread:me NOT annotation-source=user" },
 ];
 
-const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call|unread|thread):|(?:title|text)~)/i;
+const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call|unread|thread|by):|(?:title|text)~)/i;
 
 /** Whether `word` is written as an atom (it may still be malformed: `parseQueryAtom` says how). */
 export function isQueryAtomWord(word: string): boolean {
@@ -145,6 +148,11 @@ export function parseQueryAtom(word: string): QueryAtom | null {
       if (!CALL_PATTERN.test(id)) throw new QueryAtomError(`call:${id} is not a call id: write call:c-7f3a1c (letters, digits, . _ -; the id list_outlines tells a call)`);
       return { kind: "call", call: id };
     }
+    if (name === "by") {
+      const who = word.slice(colon + 1);
+      if (!READER.test(who)) throw new QueryAtomError(`by:${who} names no writer: write by:user, by:agent, by:system or by:<an actor id> (claude-code@float-2, loki)`);
+      return { kind: "by", who };
+    }
     if (name === "unread" || name === "thread") {
       const reader = word.slice(colon + 1);
       if (!READER.test(reader)) throw new QueryAtomError(`${name}:${reader} names no reader: write ${name}:me (the person asking) or ${name}:<an agent's actor id>`);
@@ -172,6 +180,7 @@ export function showQueryAtom(atom: QueryAtom): string {
     case "parent":
       return `${atom.kind}:${atom.target}`;
     case "call": return `call:${atom.call}`;
+    case "by": return `by:${atom.who}`;
     case "unread":
     case "thread":
       return `${atom.kind}:${atom.reader}`;

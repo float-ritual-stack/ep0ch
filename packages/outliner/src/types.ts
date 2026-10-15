@@ -1503,6 +1503,12 @@ export interface BlockSearchQuery {
   facetValues?: number;
   /** Keys `facets: true` lists: 50 when left out, at most 1000. */
   facetKeys?: number;
+  /**
+   * `hide` leaves out what tools write for their own bookkeeping (`[machine::…]`, outline-core `machinery.ts`), `only`
+   * holds just that, `show` everything (PIE-867). The service's requests answer `hide` when it is left out; asked
+   * of the store directly, left out means unfiltered.
+   */
+  machinery?: import("@ep0ch/outline-core/machinery").MachineryMode;
 }
 
 /** A watched read (outline-core `WATCHABLE_ACTIONS`): kept on the connection under `watch`; `generation` is answered from what's kept. */
@@ -1533,6 +1539,8 @@ export interface VisibleBlock extends Block {
 export interface VisibleBlockCollection extends QuestionAnswerFields {
   blocks: VisibleBlock[];
   completeness: BlockCollectionCompleteness;
+  /** How many notes `machinery: hide` left out of the answer (at most 50: then there are more), when it left any (PIE-867). */
+  machineryHidden?: number;
 }
 
 /** Fields a projected block read can return; `id` is always included. */
@@ -1675,6 +1683,8 @@ export interface SavedViewReadResult<B = VisibleBlock> {
   /** Matching canonical roots, in branch order. Context children are not matches. */
   blocks: B[];
   completeness: BlockCollectionCompleteness | null;
+  /** How many members the view's `[machinery::hide]` left out (at most 50: then there are more), when it left any (PIE-867). */
+  machineryHidden?: number;
   errors: string[];
   problems?: SavedViewReadProblem[];
 }
@@ -1993,7 +2003,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "workspace.snapshot"; view?: WorkspaceSnapshotView }
   | { id: string; action: "tree.index"; view?: WorkspaceSnapshotView }
   | { id: string; action: "tree.query"; query: BlockSearchQuery }
-  | { id: string; action: "tree.search"; query: string; semantic?: boolean; contextBlockId?: string }
+  | { id: string; action: "tree.search"; query: string; semantic?: boolean; contextBlockId?: string; machinery?: import("@ep0ch/outline-core/machinery").MachineryMode }
   | { id: string; action: "tree.focus"; query: string }
   | { id: string; action: "events.subscribe"; client: OutlinerClientRegistration }
   | { id: string; action: "clients.list"; role?: OutlinerClientRole }
@@ -2572,6 +2582,8 @@ export type OutlinerRequestAction =
        * Absent: everything, as before.
        */
       extensions?: "exclude" | "only";
+      /** `hide` (the default) leaves out notes tools stamped `[machine::…]`; `only` holds just those; `show` everything (PIE-867). */
+      machinery?: import("@ep0ch/outline-core/machinery").MachineryMode;
       /** Capability `activity.actor`: only entries recorded with this actor id (`claude-code`, `ext:jira`…). */
       actorId?: string;
       /** Capability `activity.actor`: only blocks whose latest matching entry is below this cursor (the next page). */
@@ -2606,6 +2618,8 @@ export type OutlinerRequestAction =
       sequence: number;
       /** At most this many changes (default 200, at most 1000); a page never splits one sequence. */
       limit?: number;
+      /** `hide` leaves out changes to notes tools stamped `[machine::…]`; `only` holds just those; `show` (the default here: the feed is how a client catches up, so it holds everything unless asked) everything. Each change says `machinery: true` when its note is stamped (PIE-867). */
+      machinery?: import("@ep0ch/outline-core/machinery").MachineryMode;
     }
   /**
    * A note's address (PIE-767): the outline, this host's machine name, the note's `ep0ch://` URI and, when it is
@@ -2823,6 +2837,10 @@ export interface OutlinerChange {
    * the person or an agent (`extensions.act`'s `mutation`). Absent when the writer acted on its own.
    */
   requestedBy?: MutationProvenance;
+  /** An edit that moved only `[key::value]` tokens (a stage move, a stamp, a sync): the words are as they were (PIE-867). */
+  bookkeeping?: true;
+  /** The note is one a tool stamped `[machine::…]`: what it wrote for its own bookkeeping, hidden from the readers' lists by default (PIE-867). */
+  machinery?: true;
   recordedAt: string;
 }
 

@@ -13,6 +13,7 @@
  * empty write, a stale revision, and an edit that drops a `[page::…]` or an
  * anchor other notes link to.
  */
+import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
@@ -390,6 +391,8 @@ export interface FindInput {
   /** Only under this block. */
   under?: string;
   limit?: number;
+  /** `hide` (the default) leaves out what tools wrote for their own bookkeeping (`[machine::…]`); `only` or `show`. */
+  machinery?: string;
 }
 
 export interface FindRow {
@@ -447,6 +450,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     ...(given("text") ? { text: input.text } : {}),
     ...(given("query") ? { where: input.query } : {}),
     ...(given("under") ? { subtreeRootId: (await resolveRef(client, input.under!)).id } : {}),
+    ...(input.machinery !== undefined ? { machinery: machineryInput(input.machinery) } : {}),
   };
   // An older service ignores `where` and would return unfiltered results.
   if (query.where !== undefined) await client.requireCompatibleService();
@@ -868,6 +872,11 @@ export async function resolveThread(
 
 // ─── Changes ───────────────────────────────────────────────────────────────
 
+/** `machinery` as an agent gives it (PIE-867): hide (the default), only or show; anything else says what is allowed. */
+function machineryInput(value: unknown): MachineryMode {
+  try { return parseMachineryMode(value); } catch (error) { throw new WorkToolRefusal(error instanceof Error ? error.message : String(error)); }
+}
+
 export interface ChangeRow {
   cursor: number;
   id: string;
@@ -894,7 +903,7 @@ export interface ChangeRow {
  */
 export async function changesSince(
   client: AgentToolsClient,
-  input: { since: string | number; author?: string; actor?: string; limit?: number; before?: number },
+  input: { since: string | number; author?: string; actor?: string; limit?: number; before?: number; machinery?: string },
 ): Promise<{ entries: ChangeRow[]; cursor: number; complete: boolean; before?: number }> {
   const limit = boundedInteger(input.limit, "limit", 20, 1, 100);
   const since = typeof input.since === "number" ? String(input.since) : typeof input.since === "string" ? input.since.trim() : "";
@@ -918,6 +927,7 @@ export async function changesSince(
     kinds: ["text", "properties", "move", "delete", "restore"],
     ...(actor ? { actorId: actor } : {}),
     ...(before ? { beforeCursor: before } : {}),
+    ...(input.machinery !== undefined ? { machinery: machineryInput(input.machinery) } : {}),
   })));
   // One entry per block across authors: its latest.
   const latest = new Map<string, ChangeRow>();

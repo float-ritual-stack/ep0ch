@@ -16,7 +16,8 @@ const VIEW = yaml("view", "ref", "a saved view ((id)) whose query makes the figu
 const LIMIT = yaml("limit", "int", "the most results a live figure asks for", { min: 1, max: 1000, default: "200" });
 const SORT = yaml("sort", "text", "a live figure's sort field (updated when left out)", { default: "updated", samples: ["updated", "created", "title"] });
 const DIRECTION = yaml("direction", "enum", "a live figure's sort direction", { default: "desc", values: enumOf({ asc: "oldest or smallest first", desc: "newest or largest first" }) });
-const LIVE = [QUERY, VIEW];
+const MACHINERY = yaml("machinery", "enum", "what a live figure's query holds of the notes tools write for their own bookkeeping ([machine::…]): left out unless this says show or only", { default: "hide", values: enumOf({ hide: "leave them out", show: "hold them with the rest", only: "hold just them (backup runs, tosses)" }) });
+const LIVE = [QUERY, VIEW, MACHINERY];
 const DENSITY = yaml("density", "enum", "how many lines a row's title takes (the reader's choice, `=`, goes over this)", { default: "compact", values: enumOf({ compact: "one line a row", cozy: "two lines", comfortable: "three lines, a blank between rows" }) });
 
 const LIVE_WORDS = "\n\nWith `query:` or `view:` the figure is live: it is drawn from the outline's blocks and refreshed as they change. The library has no outline to ask, so it shows the static form and says so here.";

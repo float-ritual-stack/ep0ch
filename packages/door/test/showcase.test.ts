@@ -378,6 +378,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     extensions: ["Omens for the allotment week", "extensions"],
     // The gallery extension's cards with their covers, and pic::'s one picture (PIE-827); no Kitty graphics here, so captions.
     gallery: ["Seed packet gallery", "Beetroot, Boltardy", "▣ seed-packet.webp", "▣ evening-beds.jpg · no Kitty graphics in this terminal"],
+    // Machinery (PIE-867): one query asked twice, the people's view and the tools'.
+    machinery: ["Written by people", "Written by tools"],
     // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
     "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
     // Two notes, each writing its own form: the reading log and the shed repairs, side by side.
@@ -493,6 +495,25 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     ch("1");   // the index back at its top, for the tests after
     // Nothing was written to draw them.
     expect((await board.get(seeded.notes.gallery.id))!.text).toBe(seeded.notes.gallery.text);
+  }, 30_000);
+
+  test("the machinery section (PIE-867): one query asked twice, the people's view leaves out what tools stamped, the other holds only that", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "machinery" }, as: "test-agent" })).toMatchObject({ key: "machinery" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "machinery")).top; };
+    const reader = (id: string) => (stage().layoutGet().tiles as any[]).find(t => t.showing?.id === id);
+    await until(() => !!reader(seeded.notes.machineryPeople.id) && !!reader(seeded.notes.machineryTools.id), "both views", 10_000);
+    const listed = async (view: string) => (await board.readSavedView(view)).blocks.map(b => b.text.split(" [")[0]!);
+    const peopleRows = await listed(seeded.notes.machineryPeople.id), toolRows = await listed(seeded.notes.machineryTools.id);
+    expect(peopleRows.length).toBeGreaterThan(0);
+    expect(peopleRows.filter(t => /^Toss |backup/.test(t))).toEqual([]);
+    expect(toolRows.some(t => /^Toss /.test(t))).toBe(true);
+    expect(toolRows.some(t => /backup/.test(t))).toBe(true);
+    expect(toolRows.filter(t => peopleRows.includes(t))).toEqual([]);
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+    ch("1");   // the index back at its top, for the tests after
+    screen();
   }, 30_000);
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
@@ -1083,7 +1104,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(after.threads).toHaveLength(2);
     expect(after.threads.some((t: any) => t.quote === quote)).toBe(true);
     // Stored in the outline against the Resource, with the block that opened it as its reference context; never in the file.
-    const touch = (await board.byProp("file", plan.file, 1))[0]!;
+    const touch = (await board.byProp("file", plan.file, 1, "show"))[0]!;
     const resourceId = String(resTile().showing.id).slice("resource:".length);
     const stored = await board.request<any[]>("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } });
     expect(stored).toHaveLength(2);

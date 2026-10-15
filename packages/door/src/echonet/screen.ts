@@ -176,10 +176,10 @@ export class EchoAreas implements Pane {
       const reached = await this.reach(desk);
       const areas: Area[] = [], nodelists: Nodelist[] = [];
       for (const { outline, board } of reached) {
-        const [tagged, subs, sources, lists] = await Promise.all([TAGGED_QUERY, SUBSCRIPTIONS_QUERY, SOURCES_QUERY, NODELIST_QUERY].map(q => board.queryNotes(q, q === NODELIST_QUERY ? 10 : MESSAGE_LIMIT)));
+        const [tagged, subs, sources, lists] = await Promise.all([TAGGED_QUERY, SUBSCRIPTIONS_QUERY, SOURCES_QUERY, NODELIST_QUERY].map(q => board.queryNotes(q, q === NODELIST_QUERY ? 10 : MESSAGE_LIMIT, "show")));
         areas.push(...areasIn(tagged!.notes, subs!.notes, sources!.notes, outline, this.machine));
         for (const l of lists!.notes) {
-          const [whole, logs] = await Promise.all([board.get(l.id), board.queryNotes(tossesQuery(l.id), 200)]);
+          const [whole, logs] = await Promise.all([board.get(l.id), board.queryNotes(tossesQuery(l.id), 200, "show")]);
           const tosses = logs.notes.map(tossOf).sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, TOSSES_SHOWN);
           nodelists.push({ node: nodeName(outline, this.machine), title: subject(l), nodes: nodesOf(whole?.text ?? ""), tosses });
         }
