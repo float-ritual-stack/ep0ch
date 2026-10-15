@@ -65,7 +65,9 @@ fetch main and set `PROTOCOL` to main's value plus one; if another merge lands f
 loki says several bumps are queued, wait for its go before that rebase. A schema change follows AGENTS.md ("Schema and protocol: one version"): bump
 `SCHEMA_VERSION`, write the one-off migration script, and put the exact commands per machine in the PR.
 
-## Testing: scratch only, and gently on float-2
+## Testing: scratch only, and gently on a shared machine
+
+Builders run on float-box (`AGENTS.md`, "Where things run"); float-2 only serves the outlines. The rules below hold on either.
 
 - Never touch a real outline or the person's door. Read-only looks at pie (`ep0ch show`, `ep0ch find`) are fine. The mod's `show`, `door_open` and `door_act` tools act in the person's own door (your session inherits its control socket), so they're refused here; drive your own test door through `scripts/agent-env` instead.
 - Every door or test you start runs under `scripts/agent-env <your name> -- …`; focused tests as

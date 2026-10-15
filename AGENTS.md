@@ -158,8 +158,16 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
 
 ## Machines, checkouts and processes
 
-- **The live checkout is what runs.** `~/projects/ep0ch` on float-2 (and the laptop's checkout) is what `ep0ch`, the
-  Herdr plugin and the outline host run from, and it may hold the owner's uncommitted files. Work in a worktree of
+- **Where things run (since 2026-10-15).** float-2 (a 4-core, 8 GB cloud VM) holds the outlines and their services:
+  the outline host, `ep0ch-mcp`, the Cloudflare tunnel, litestream and publishing. float-box (20 threads, 64 GB) is
+  where agents work: builders, their worktrees (`~/wt`, the same path as on float-2) and the door. `ssh ep0ch` and
+  `ssh gurgle` reach float-box's port 2323, whose `~/srv/ep0ch.io/door.sh` opens the outline `--machine float-2`; the
+  drawer's agent starts in `~/outlines/<outline>/door-claude`, whose `.ep0ch` names `machine = "float-2"`. Don't run
+  builders on float-2: a dozen agents' type-checks there filled its memory and swap and stalled it (load 170).
+- **The live checkout is what runs.** `~/projects/ep0ch` on float-2 and on float-box (and the laptop's checkout) is
+  what `ep0ch`, the door, the Herdr plugin and the outline host run from, and it may hold the owner's uncommitted
+  files. float-box's door talks to float-2's host, so both move together: `ep0ch install --apply` on float-2 first
+  (the host), then on float-box. Work in a worktree of
   your own (`git worktree add ~/wt/ep0ch-wt-<topic> -b <branch> origin/main`; `~/wt` is beside bun's cache, so `bun
   install` hard-links), never there. It moves only through `ep0ch install --apply` (which backs up the outlines,
   fast-forwards it and hands everything to the new code together), run only when the person (or the agent they made
