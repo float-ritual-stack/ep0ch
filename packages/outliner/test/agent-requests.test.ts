@@ -152,9 +152,9 @@ test("bare tidy fixes staggered nesting and counts actual changes (PIE-916)", as
   const done = await agentOf(note.id, p => p.status === "ready");
   expect(store.get(note.id)!.text).toBe("Plan\n- apples\n- pears\n  - plums\n- figs\n@tidy");
   expect(done.summary).toBe("fixed nesting in 3 items, trimmed 1 line");
-  const continued = await create("Plan\n   - parent\n\n       continuation\n@tidy all");
+  const continued = await create("Plan\n   - parent\n       - child\n\n     continuation\n@tidy all");
   await agentOf(continued.id, p => p.status === "ready");
-  expect(store.get(continued.id)!.text).toBe("Plan\n- parent\n\n    continuation\n@tidy all");
+  expect(store.get(continued.id)!.text).toBe("Plan\n- parent\n  - child\n\n  continuation\n@tidy all");
 });
 
 test("a live draft gets tidy's reason, including repeated asks (PIE-916)", async () => {

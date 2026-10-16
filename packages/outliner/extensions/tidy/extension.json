@@ -13,7 +13,7 @@
       "name": "tidy",
       "description": "Formats nesting and spacing above; with an instruction, rewrites the passage as asked",
       "effects": "spend",
-      "deadline": "10s"
+      "deadline": "20s"
     }
   ],
   "configSchema": {

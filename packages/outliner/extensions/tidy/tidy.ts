@@ -1,5 +1,5 @@
 // The extension returns one compare-and-replace; draft.patch owns attribution, conflict handling and undo.
-import { tidyPassage } from "./tidy-line";
+import { LIST_ITEM, tidyPassage } from "./tidy-line";
 
 interface Request {
   operation: string;
@@ -22,6 +22,17 @@ async function respond() {
   if (all) start = 1;
   else while (start > 1 && lines[start - 1]!.trim() && !/^\s*(?:[-*+]\s+)?@/.test(lines[start - 1]!)) start--;
   start = Math.max(start, 1);
+  // Blank lines between list items don't make the last item a separate passage.
+  if (!all && LIST_ITEM.test(lines[start] ?? "")) {
+    while (start > 1) {
+      let previous = start - 1;
+      while (previous > 1 && !lines[previous]!.trim()) previous--;
+      let from = previous;
+      while (from > 1 && lines[from - 1]!.trim() && !/^\s*(?:[-*+]\s+)?@/.test(lines[from - 1]!)) from--;
+      if (!LIST_ITEM.test(lines[from] ?? "")) break;
+      start = from;
+    }
+  }
   const passage = lines.slice(start, end + 1);
   const observed = passage.join("\n");
   if (!observed.trim()) return { message: "nothing to tidy above" };

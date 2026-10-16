@@ -8,6 +8,8 @@ function tidyGap(text: string): string {
   return text.replace(/\*\*\s+([^*\n]*?)\s+\*\*/g, "**$1**").replace(/ {2,}/g, " ");
 }
 
+export const LIST_ITEM = /^(\s*)(?:[-*+]|\d{1,9}[.)])\s+/;
+
 /** One line: bullets as `-`, one space after a list marker and a heading's `#`, no runs of spaces, no trailing space. */
 export function tidyLine(line: string): string {
   let out = line.replace(/\s+$/, "");
@@ -26,17 +28,17 @@ export function tidyLine(line: string): string {
 
 /** Keep relative parent/child order, normalizing each increase to one two-space level. */
 export function tidyPassage(lines: string[]): { replacement: string; message: string } {
-  const indents: number[] = [];
+  const indents: { indent: number; shift: number }[] = [];
   let nested = 0, trimmed = 0, formatted = 0;
   let fence = "";
-  let parent: { indent: number; shift: number } | null = null;
   const replacement = lines.map(line => {
     const lead = /^\s*/.exec(line)![0].replaceAll("\t", "  ").length;
-    const item = /^(\s*)(?:[-*+]|\d{1,9}[.)])\s+/.exec(line);
+    const item = LIST_ITEM.exec(line);
+    const parent = [...indents].reverse().find(item => item.indent < lead);
     // A continuation belongs to its item even across a blank line or inside a fenced example.
     if ((!item || fence) && parent && line.trim() && lead > parent.indent) {
       line = " ".repeat(Math.max(0, lead + parent.shift)) + line.trimStart();
-    } else if (!item && line.trim() && lead === 0) parent = null;
+    } else if (!item && line.trim() && lead === 0) indents.length = 0;
     const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
     if (marker) { if (!fence) fence = marker; else if (marker[0] === fence[0] && marker.length >= fence.length) fence = ""; return line; }
     if (fence) return line;
@@ -45,10 +47,9 @@ export function tidyPassage(lines: string[]): { replacement: string; message: st
     if (out !== line.trimEnd()) formatted++;
     if (item) {
       const indent = item[1]!.replaceAll("\t", "  ").length;
-      while (indents.length && indent < indents.at(-1)!) indents.pop();
-      if (!indents.length || indent > indents.at(-1)!) indents.push(indent);
+      while (indents.length && indent < indents.at(-1)!.indent) indents.pop();
+      if (!indents.length || indent > indents.at(-1)!.indent) indents.push({ indent, shift: indents.length * 2 - indent });
       const lead = "  ".repeat(indents.length - 1);
-      parent = { indent, shift: lead.length - indent };
       if (lead !== item[1]) { out = lead + out.slice(item[1]!.length); nested++; }
     } else if (out && !/^\s/.test(out)) indents.length = 0;
     return out;
