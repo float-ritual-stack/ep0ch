@@ -691,12 +691,14 @@ describe("read-only probes on scratch files", () => {
     mkdirSync(root, { recursive: true });
     writeFileSync(join(root, "package.json"), JSON.stringify({ dependencies: { "@garden/trowel": "1.2.0" } }));
     writeFileSync(join(root, "bun.lock"), `{\n  "packages": {\n    "@garden/trowel": ["@garden/trowel@1.2.0", "", {}, "sha512-x"],\n  }\n}\n`);
-    expect(depsState(root)).toEqual({ needed: true, why: "node_modules is missing" });
+    expect(depsState(root)).toEqual({ needed: true, why: "node_modules is missing", done: "installed every package" });
     mkdirSync(join(root, "node_modules/@garden"), { recursive: true });
     expect(depsState(root).why).toBe("@garden/trowel isn't installed");
+    expect(depsState(root).done).toBe("installed @garden/trowel");
     mkdirSync(join(root, "node_modules/@garden/trowel"));
     writeFileSync(join(root, "node_modules/@garden/trowel/package.json"), JSON.stringify({ version: "1.1.0" }));
     expect(depsState(root).why).toBe("@garden/trowel is 1.1.0, bun.lock has 1.2.0");
+    expect(depsState(root).done).toBe("updated @garden/trowel 1.1.0 → 1.2.0");
     writeFileSync(join(root, "node_modules/@garden/trowel/package.json"), JSON.stringify({ version: "1.2.0" }));
     expect(depsState(root).needed).toBe(false);
   });
@@ -711,7 +713,7 @@ describe("read-only probes on scratch files", () => {
     writeFileSync(join(root, "packages/door/package.json"), JSON.stringify({ dependencies: { "@ep0ch/outline-core": "workspace:*", "image-size": "2.0.4", sharp: "0.35.5" } }));
     writeFileSync(join(root, "bun.lock"), `{\n  "packages": {\n    "image-size": ["image-size@2.0.4", "", {}, "sha512-x"],\n    "sharp": ["sharp@0.35.5", "", {}, "sha512-y"],\n  }\n}\n`);
     writeFileSync(join(root, "packages/door/node_modules/image-size/package.json"), JSON.stringify({ version: "2.0.4" }));
-    expect(depsState(root)).toEqual({ needed: true, why: "sharp isn't installed (packages/door)" });
+    expect(depsState(root)).toEqual({ needed: true, why: "sharp isn't installed (packages/door)", done: "installed sharp (packages/door)" });
     mkdirSync(join(root, "packages/door/node_modules/sharp"));
     writeFileSync(join(root, "packages/door/node_modules/sharp/package.json"), JSON.stringify({ version: "0.35.5" }));
     expect(depsState(root).needed).toBe(false);
