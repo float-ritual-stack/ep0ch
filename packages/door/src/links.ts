@@ -150,7 +150,7 @@ export function threadRows(t: ThreadData, open: ReadonlySet<string> = new Set())
   const at = out.findIndex(r => r.kind === "child" && r.thread?.here);
   const rows: LinkRow[] = replies.map(c => post(c, last + 1, false));
   if (replies.length < t.replies.length) fold(`replies${SEP}${here}`, last + 1, t.replies.length - replies.length, "replies"), rows.push(out.pop()!);
-  out.splice(at + 1, 0, ...rows);
+  out.splice(at < 0 ? out.length : at + 1, 0, ...rows);
   return out;
 }
 
