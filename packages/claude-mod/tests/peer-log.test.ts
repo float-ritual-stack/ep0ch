@@ -34,6 +34,7 @@ function sessionIn(on: On, cwd: string, found: () => ProcessRunResult = () => re
     return { isDelivered: true }
   })
   on('session.receive', ($, e) => ({ text: e.text }))
+  on('agent.list', () => ({ value: [{ id: 'a1b2c3d4e5f60718', description: 'a builder', teammateId: 'seed-sorter' }] }))
   on('process.run', ($, e) => {
     if (e.argv[0] === 'hostname') return { value: result(0, 'garden-host\n') }
     if (e.argv.includes('bound-folder')) {
@@ -63,6 +64,15 @@ describe('the copy in the outline', () => {
     expect(note!.argv[2]).toMatch(/^→ to potting-shed · \d{4}-\d\d-\d\d \d\d:\d\d\n\n\[sysop\] are the seedlings in\?$/)
     expect(note!.argv.slice(3, 5)).toEqual(['--near', PAGE])
     expect(note!.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
+  })
+
+  test("a message to this session's own subagent or teammate is sent and not copied (Evan: sessions only)", async ($, on) => {
+    const s = sessionIn(on, WORKSPACE)
+    await $.session.start(START)
+    expect((await $.session.send({ to: 'a1b2c3d4e5f60718', text: 'one more check' })).isDelivered).toBe(true)
+    expect((await $.session.send({ to: 'seed-sorter', text: 'and you' })).isDelivered).toBe(true)
+    await s.clock.settle()
+    expect(s.notes()).toEqual([])
   })
 
   test("a peer's message is copied from its sender, the envelope taken off", async ($, on) => {
