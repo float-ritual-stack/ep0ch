@@ -38,6 +38,7 @@ export interface HostStep {
 }
 
 export interface HostApiOptions {
+  effects?: "read" | "write";
   mcpAccess?: McpAccessLevel;
   act?(name: string, args: Record<string, unknown>): Promise<unknown>;
   /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
@@ -64,6 +65,7 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
     const seq = step({ tool: definition.name, writes: definition.writes, phase: "start", input });
     const said = (phase: "done" | "refused", more: Partial<HostStep>) => step({ tool: definition.name, writes: definition.writes, phase, input, ...more }, seq);
     try {
+      if (options.effects === "read" && definition.writes) throw new WorkToolRefusal("This script is read-only; declare effects=write to write");
       const checked = checkToolArgs(toolArgsSpec(definition), input);
       if (!checked.ok) throw new WorkToolRefusal(checked.error);
       const command = definition.command(checked.args);
@@ -128,7 +130,9 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   };
   const q = (query: string, opts: { under?: string; limit?: number } = {}) => call("outline_find", { query, ...opts });
   const read = (ref: string, opts: { depth?: number; limit?: number } = {}) => call("outline_read", { ref, ...opts });
-  const act = (name: string, args: Record<string, unknown> = {}) => options.act
+  const act = (name: string, args: Record<string, unknown> = {}) => options.effects === "read"
+    ? Promise.reject(new WorkToolRefusal("This script is read-only; declare effects=write to dispatch door actions"))
+    : options.act
     ? options.act(name, args)
     : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));
   return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act });

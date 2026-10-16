@@ -1275,3 +1275,31 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     expect(outlineSchema({ name: "not-a-db", path: join(scratch, "not-a-db.sqlite") })).toMatchObject({ version: null, error: expect.any(String) });
   });
 });
+
+test("doctor repairs a scratch binding but moves legacy scripts only on explicit request", async () => {
+  const home = mkdtempSync(join(scratch, "binding-"));
+  const folder = join(home, "outlines", "garden");
+  mkdirSync(join(folder, "scripts"), { recursive: true });
+  const binding = '# Garden\nws = "garden"\nagent = "scout"\n';
+  writeFileSync(join(folder, ".ep0ch"), binding);
+  writeFileSync(join(folder, "scripts", "helper.ts"), "return 'seeds';");
+  const doctor = async (...args: string[]) => {
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), "doctor", "--json", ...args], {
+      cwd: folder, env: { PATH: process.env.PATH!, HOME: home, XDG_CONFIG_HOME: join(home, "config"), EP0CH_OUTLINES: join(home, "outlines"), EP0CH_STATE: join(home, "state") }, stdout: "pipe", stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, err).not.toBe(2);
+    return out;
+  };
+  const before = await doctor();
+  expect(before).toContain(".ep0ch.bak");
+  expect(before).toContain("--move-scripts");
+  expect(lstatSync(join(folder, ".ep0ch")).isFile()).toBe(true);
+  await doctor("--fix");
+  expect(readFileSync(join(folder, ".ep0ch", "config.toml"), "utf8")).toBe(binding);
+  expect(readFileSync(join(folder, ".ep0ch.bak"), "utf8")).toBe(binding);
+  expect(existsSync(join(folder, "scripts", "helper.ts"))).toBe(true);
+  await doctor("--fix", "--move-scripts");
+  expect(readFileSync(join(folder, ".ep0ch", "scripts", "helper.ts"), "utf8")).toBe("return 'seeds';");
+  expect(existsSync(join(folder, "scripts"))).toBe(false);
+}, 120_000);

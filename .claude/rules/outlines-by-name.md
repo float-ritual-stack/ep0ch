@@ -16,8 +16,11 @@ it before changing it.
 
 ## The outline
 
-- `.ep0ch` holds names only: `ws = "<name>"`, `machine = "<ssh-name>"` for an outline on another machine, and
+- `.ep0ch/config.toml` holds names only: `ws = "<name>"`, `machine = "<ssh-name>"` for an outline on another machine, and
   `agent = "<persona>"`, the name an agent working in this folder writes as (ADR 0003: recorded, never a permission).
+- The shared reader also accepts an old `.ep0ch` file. `ep0ch doctor --fix` and install move it to
+  `.ep0ch/config.toml`, keeping `.ep0ch.bak`. Scripts load only from the outline folder’s `.ep0ch/scripts/`
+  with `// ep0ch-script` on their first line; moving old `scripts/` requires `doctor --fix --move-scripts`.
 - A folder that names none gets the home base (the door's `home` screen: open, new or import, here or on a machine),
   never a guess taken silently and never a default.
 - Outlines are `<EP0CH_OUTLINES or ~/outlines>/<name>.sqlite`, each with its own folder `<name>/` beside it. The

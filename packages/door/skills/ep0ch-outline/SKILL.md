@@ -44,7 +44,7 @@ matter. Write header chips with blanks or ` - ` between them (`Seed order [type:
 belong to the block; text after a chip makes it an inline aside.
 
 - **The tools follow the folder Claude runs in.** They (and Recent Mentions and the links in replies) use the
-  outline its nearest `.ep0ch` names (`ws = "<name>"`, written by `ep0ch init` or the Choose outline popup);
+  outline its nearest `.ep0ch/config.toml` names (old `.ep0ch` files are still read) (`ws = "<name>"`, written by `ep0ch init` or the Choose outline popup);
   `outliner bound-folder` says which. Installing the mod (`packages/outliner/scripts/install-claude-mod.ts`) needs no folder. In a
   folder that names no outline they refuse and nothing is sent: name it (ask the person), don't work around it.
 

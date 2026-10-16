@@ -1,12 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import {
-  DOT_EP0CH,
-  formatDotEp0ch,
   type LocationReader,
   nearestDotEp0ch,
-  parseDotEp0ch,
   outlineLayout,
   outlinesFolder,
   whichOutline,
@@ -59,7 +56,7 @@ export const diskReader: LocationReader = {
     try { return readFileSync(path, "utf8"); }
     catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+      if (code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR") return undefined;
       throw new Error(`Could not read ${path}`, { cause: error });
     }
   },
@@ -99,34 +96,7 @@ export function boundFolderOf(folder: string): { folder: string; configPath: str
   return dot ? { folder: dot.folder, configPath: dot.file, outline: dot.name, ...(dot.machine ? { machine: dot.machine } : {}) } : undefined;
 }
 
-/** The `agent` a `.ep0ch`'s text names, or undefined (none, or a file that doesn't parse). */
-function agentOf(text: string | undefined, file: string): string | undefined {
-  try { return text === undefined ? undefined : parseDotEp0ch(text, file).agent; } catch { return undefined; }
-}
-
-/**
- * Names `folder`'s outline (and its machine, when it is on another one): writes `<folder>/.ep0ch`. Refuses (code
- * EEXIST) to replace one that names another outline unless `replace` (the outline switcher). Written beside and
- * renamed over, so a reader never sees half.
- */
-export function writeDotEp0ch(folderInput: string, name: string, options: { replace?: boolean; machine?: string } = {}): string {
-  const folder = resolve(folderInput);
-  const file = join(folder, DOT_EP0CH);
-  const current = diskReader.readFile(file);
-  // The folder's persona stays with the folder when the outline it names changes.
-  const text = formatDotEp0ch(name, options.machine, agentOf(current, file));
-  if (current === text) return file;
-  if (current !== undefined && !options.replace) {
-    const error = new Error(`${file} already names an outline; it was left as it is`) as NodeJS.ErrnoException;
-    error.code = "EEXIST";
-    throw error;
-  }
-  mkdirSync(folder, { recursive: true });
-  const temporary = `${file}.${process.pid}.tmp`;
-  writeFileSync(temporary, text, { mode: 0o644 });
-  renameSync(temporary, file);
-  return file;
-}
+export { writeDotEp0ch } from "./outline-binding";
 
 /**
  * The socket clients use: EP0CH_SOCKET (any host's socket, named outright) when set, else the forward to `machine`

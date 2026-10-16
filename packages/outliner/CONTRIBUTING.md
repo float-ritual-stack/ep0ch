@@ -211,7 +211,7 @@ source evidence or distinguish authored glyphs from controls.
   else the named machine's forward, else this machine's host) and outline; `boundFolderOf` (CLI: `outliner
   bound-folder`) is the nearest `.ep0ch` and never a guess, so what follows a
   folder on its own (the Claude mod) reaches no outline from an unnamed folder;
-  `writeDotEp0ch` is the one writer of a `.ep0ch`. Every pane opener forwards
+  `outline-binding.ts` owns `writeDotEp0ch`, the shared writer of `.ep0ch/config.toml`, and the verbatim old-file repair used by doctor/install. Every pane opener forwards
   `OUTLINE_ENV` (`EP0CH_OUTLINES`, `EP0CH_SOCKET`, `EP0CH_WS`, `EP0CH_MACHINE`); a new one must too.
   `src/machine-forward.ts` gives outline-core's forward rule (`ensureForward`) the
   outliner's I/O; a client for a machine's outline starts the forward before it

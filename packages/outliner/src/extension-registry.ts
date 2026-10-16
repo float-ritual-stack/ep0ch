@@ -291,6 +291,7 @@ export class ExtensionRegistry {
     const now = new Date().toISOString();
     for (const source of await this.options.sources?.() ?? []) {
       try {
+        if (source.error) throw new ExtensionLoadError(source.error);
         if (!source.script?.code.trim()) throw new ExtensionLoadError("Add a closed js or ts code fence to this script block, then run it again");
         const extension = loadExtensionManifest(source);
         slots.push({ id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, loadedAt: now });

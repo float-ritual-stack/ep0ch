@@ -37,7 +37,7 @@ export class ScriptRuns {
   start(extension: LoadedExtension, request: ExtensionActRequest): ExtensionActResult {
     const source = extension.script!;
     const undo = this.writes.beginRun(`script:${extension.name}`);
-    const actor: MutationProvenance = { ...(request.mcpAccess ? request.requestedBy! : source.author), sessionId: undo, taskId: `trigger:script:${extension.id}` };
+    const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
     const controller = new AbortController();
     this.running.add(controller);
@@ -93,12 +93,11 @@ export class ScriptRuns {
         return captured(() => this.client.request(input));
       },
     };
-    // An agent's request keeps the dispatcher's focus rules even when the saved source belongs to the person.
-    const dispatchActor = requestedBy.author === "agent" ? { ...requestedBy, sessionId: undo, taskId: actor.taskId } : request.background ? { ...actor, author: "agent" as const, actorId: actor.actorId ?? `script:${extension.name}` } : actor;
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
+      effects: source.effects,
       mcpAccess: request.mcpAccess,
-      ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, dispatchActor, controller.signal) } : {}),
+      ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, actor, controller.signal) } : {}),
     });
     const task = (async () => {
       let failure: string | undefined;

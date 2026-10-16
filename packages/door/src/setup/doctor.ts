@@ -128,6 +128,10 @@ export function doctorChecks(f: Facts): Check[] {
     `ep0ch act host.agent name=${f.drawer.cmd.some(c => c.endsWith("door-agent-herdr.ts")) ? "claude herdr=true" : (f.drawer.cmd[0]?.split("/").pop() ?? "claude")} in=${f.drawer.retiredCwd} (then drop EP0CH_DAILY_CWD from your shell's profile); for another folder, \`ep0ch agent\` there starts or attaches its own session`);
   // Each outline session's drawer agent, where the choice came from, its Herdr pane, and how to change it.
   for (const d of f.drawers ?? []) add("ep0ch", `drawer ${d.session}`, "info", `runs ${d.cmd.map(c => c.split("/").pop()).join(" ")} (${d.programWhy})${d.pane ? ` · Herdr pane ${d.pane}` : ""}`, `change it: ${CHANGE_AGENT}${d.from === "env" ? " (and unset EP0CH_DAILY_AGENT, which overrides it)" : ""}`);
+  for (const entry of f.outlineFiles ?? []) {
+    if (entry.binding) add("outlines", `${entry.folder}/.ep0ch`, "behind", "old binding file; move to .ep0ch/config.toml and keep .ep0ch.bak", `cd ${JSON.stringify(entry.folder)} && ep0ch doctor --fix`);
+    if (entry.scripts) add("outlines", `${entry.folder}/scripts/`, "behind", "ignored: scripts load only from .ep0ch/scripts/ and require // ep0ch-script", `After reviewing these files: cd ${JSON.stringify(entry.folder)} && ep0ch doctor --fix --move-scripts`);
+  }
   if (f.here) {
     if (f.here.outline) add("outlines", "this folder", "info", `${f.here.folder} opens ${f.here.why}`);
     else add("outlines", "this folder", "info", `${f.here.folder}: ${f.here.unnamed}${f.here.guess ? `; ep0ch init would start "${f.here.guess}"` : ""}`);

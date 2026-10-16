@@ -88,13 +88,13 @@ test("resolution (PIE-530): EP0CH_WS, else the nearest .ep0ch; nothing else name
 
   // A .ep0ch names it, for every folder below.
   writeDotEp0ch(garden, "garden");
-  expect(readFileSync(join(garden, ".ep0ch"), "utf8")).toBe('ws = "garden"\n');
+  expect(readFileSync(join(garden, ".ep0ch", "config.toml"), "utf8")).toBe('ws = "garden"\n');
   const inside = resolveClientPaths(envFor(root, deep));
   expect(inside).toMatchObject({
-    mode: "host", socket: hostSocket, outline: "garden", outlineSource: "file", configPath: join(garden, ".ep0ch"),
+    mode: "host", socket: hostSocket, outline: "garden", outlineSource: "file", configPath: join(garden, ".ep0ch", "config.toml"),
     database: join(outlines, "garden.sqlite"), stateDir: join(outlines, ".clients", "garden"), workspaceRoot: deep,
   });
-  expect(boundFolderOf(deep)).toEqual({ folder: garden, configPath: join(garden, ".ep0ch"), outline: "garden" });
+  expect(boundFolderOf(deep)).toEqual({ folder: garden, configPath: join(garden, ".ep0ch", "config.toml"), outline: "garden" });
   // --ws from anywhere (the openers pass it on as EP0CH_WS) is the same outline and the same file.
   const anywhere = resolveClientPaths(envFor(root, "/", { EP0CH_WS: "garden" }));
   expect([anywhere.outline, anywhere.database, anywhere.socket]).toEqual([inside.outline, inside.database, inside.socket]);

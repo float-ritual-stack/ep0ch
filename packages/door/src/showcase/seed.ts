@@ -1296,7 +1296,8 @@ if (request.input.request === "describe the beds") {
   }
   notes.scriptTarget = await make(notes.root.id, "Planting checklist\n- [ ] Prepare the seed labels");
   notes.scripts = await make(notes.root.id, [
-    "Seed report [script::seed-report] [keys::alt+S]",
+    "Seed report [script::seed-report] [effects::write] [keys::alt+S]",
+    "Scripts default to read. This example declares [effects::write]; its run and writes belong to script:seed-report, with the requester recorded separately. Files opt in with // ep0ch-script under .ep0ch/scripts/; ext ls explains ignored files.",
     "Press alt+S, or type seed-report in the power bar or / search. Keep typing; its progress arrives below. One ext.undo takes back the run. Keys never interrupt an edit; a clash says which action holds the key.",
     "The Seed count example below runs from @seed-count in a note, or [rule-on::script:seed-count] on a rule. Agent-written asks run by default; loop guards can hold them for r.",
     "Record a layout with alt+Q (or the status bar's ⇧⌥Q), do your actions, then alt+Q or REC stop. The saved script is editable action lines. Replace an argument value with {tag}; the power bar asks for it when you run the script.",

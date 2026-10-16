@@ -1,15 +1,16 @@
+import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
 import { PROTOCOL, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
-import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import type { ImportReport } from "./outline-import";
 import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
-import { DOT_EP0CH, formatDotEp0ch, isMachineName, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { DOT_EP0CH, isMachineName, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { grantOf } from "./extension-grants";
 import { forwardFor } from "./machine-forward";
 import { publishes } from "./echonet-mail";
@@ -664,8 +665,8 @@ export class OutlineHost {
     mkdirSync(stateDirectory, { recursive: true });
     // The outline's own folder names it, so a program working there (an agent, a publisher) reaches this outline.
     const dotEp0ch = join(stateDirectory, DOT_EP0CH);
-    if (!lstatOrUndefined(dotEp0ch)) {
-      try { writeFileSync(dotEp0ch, formatDotEp0ch(name), { flag: "wx", mode: 0o644 }); }
+    if (!lstatOrUndefined(dotEp0ch) || lstatOrUndefined(dotEp0ch)?.isDirectory() && !lstatOrUndefined(join(dotEp0ch, "config.toml"))) {
+      try { writeDotEp0ch(stateDirectory, name); }
       catch (error) { this.log(`Outline "${name}": could not write ${dotEp0ch}: ${error instanceof Error ? error.message : String(error)}`); }
     }
     let store: OutlinerStore;

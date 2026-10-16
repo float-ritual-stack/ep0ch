@@ -730,6 +730,7 @@ async function stampFile(hash: ReturnType<typeof createHash>, path: string): Pro
  * they never grant permission to run it.
  */
 export interface ManifestSource {
+  readonly error?: string;
   readonly script?: ScriptSource;
   /** `extension.json`'s text, and `config.json`'s (`"{}"` when there is none). */
   readonly manifestRaw: string;
@@ -803,6 +804,7 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
 }
 
 export interface ScriptSource {
+  readonly effects: "read" | "write";
   readonly keys?: readonly string[];
   readonly format?: "actions";
   readonly code: string;
