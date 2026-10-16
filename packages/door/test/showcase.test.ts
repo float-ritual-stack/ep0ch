@@ -3652,13 +3652,14 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     expect(d.flashes.some(s => s.label.includes("tidy"))).toBe(true);
     await stage.dispatch.press("draft.place", { line: d.lines.indexOf(instruction) + 1, col: 1 }, tile);
     screen();
-    await stage.dispatch.press("ask.beside", { ask: instruction }, tile);
-    await until(() => [...stage.panes.values()].some(p => p.kind === "answer"), "the answer tile");
-    const answer = [...stage.panes.values()].find(p => p.kind === "answer");
+    const opened = await stage.dispatch.press("ask.beside", { ask: instruction }, tile) as { tile: string };
+    const answer = stage.pane(opened.tile);
     expect(answer?.render(100, 10, false, stage).lines.map(plain).join("\n")).toContain("rewrote 2 items as callouts");
     await stage.dispatch.press("draft.undo", {}, tile);
     expect(d.text).toBe(source);
     await stage.dispatch.press("edit.close", { discard: true }, tile);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
   }, 30000);
 
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {
