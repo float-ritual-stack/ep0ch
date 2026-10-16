@@ -1970,7 +1970,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(reader().showing.id).toBe(seeded.notes.threadHere.id);
     // ⏎ (or a second click) on the fold shows the posts it hid.
     const fold = rows().findIndex(r => r.text === "2 more earlier") + 1;
-    await expect((stage() as any).dispatch.press("note.thread.open", { n: fold }, "reader")).rejects.toThrow(/note\.thread\.unfold/);
+    await expect((stage() as any).dispatch.act({ action: "note.thread.open", tile: "reader", args: { n: fold } }, { kind: "user" })).rejects.toThrow(/note\.thread\.unfold/);
     expect(await (stage() as any).dispatch.press("note.thread.unfold", { n: fold }, "reader")).toMatchObject({ unfolded: 2 });
     expect(rows().map(r => r.text)).toContain("Ana: I have a tray going spare");
     // b walks the thread, the replies (the old children list), the outlinks and the backlinks, and back.
