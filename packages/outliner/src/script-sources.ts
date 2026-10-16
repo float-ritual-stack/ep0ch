@@ -42,7 +42,13 @@ export async function scriptSources(store: OutlinerStore): Promise<ManifestSourc
       for (const name of names.sort()) {
         if (!/\.(ts|js)$/.test(name)) continue;
         const file = join(folder, name);
-        const code = dotted ? await Bun.file(file).text() : "";
+        let code = "";
+        if (dotted) {
+          try { code = await Bun.file(file).text(); } catch (error) {
+            add(file, name.replace(/\.(ts|js)$/, ""), { code, file, revision: hash(code), effects: "read", author: { author: "user" } }, `${file}: cannot read script: ${error instanceof Error ? error.message : String(error)}`);
+            continue;
+          }
+        }
         const header = /^\s*\/\/ ep0ch-script(?: effects=(read|write))?\s*$/.exec(code.split(/\r?\n/)[0] ?? "");
         const error = !dotted ? `${file}: ignored; scripts load only from .ep0ch/scripts/. Move it there only if you intend to run it, and opt in with // ep0ch-script.`
           : !header ? `${file}: ignored; opt in with a first line of // ep0ch-script (or // ep0ch-script effects=write).` : undefined;

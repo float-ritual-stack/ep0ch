@@ -1,7 +1,7 @@
 // The host API (src/host-api.ts, scripting slice 1, PIE-720): the agent tools as plain functions over the service, as a
 // script calls them. Against a private scratch service; fictional notes only.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -315,4 +315,15 @@ test("editing a dotted-folder script reloads its opt-in without an explicit relo
     if (!active) await Bun.sleep(20);
   } while (!active && Date.now() < deadline);
   expect(active).toBe(true);
+});
+
+
+test("an unreadable script is listed without hiding other scripts", async () => {
+  const { client, root, cliExt } = await setup();
+  mkdirSync(join(root, ".ep0ch", "scripts", "unreadable.ts"), { recursive: true });
+  await Bun.write(join(root, ".ep0ch", "scripts", "readable.ts"), "// ep0ch-script\nreturn 'Ready';");
+  const listed = await client.request<{ extensions: { name?: string; state: string; error?: string }[] }>({ action: "extensions.list", reload: true });
+  expect(listed.extensions.find(e => e.name === "readable")?.state).toBe("active");
+  expect(listed.extensions.some(e => e.error?.includes("unreadable.ts"))).toBe(true);
+  expect(await cliExt()).toContain("unreadable.ts");
 });
