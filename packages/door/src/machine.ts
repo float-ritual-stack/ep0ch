@@ -123,7 +123,8 @@ export async function everyOutline(socket: string, env: Env = process.env): Prom
     : [{ problem: `no outline host answers at ${socket}` }]);
   // The machines opened before, then any whose shared forward is in `.remote/` (another state dir's, a program's): the
   // forward is the proof a machine is reachable from here, whoever started it.
-  const machines = [...usedMachines(env.EP0CH_STATE).map(m => m.name), ...forwardedMachines(env).filter(m => !usedMachines(env.EP0CH_STATE).some(u => u.name === m))];
+  const used = usedMachines(env.EP0CH_STATE).map(m => m.name);
+  const machines = [...used, ...forwardedMachines(env).filter(m => !used.includes(m))];
   const there = machines.map(async (machine): Promise<KnownOutline[]> => {
     try {
       const s = await machineStatus(machine, env);
