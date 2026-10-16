@@ -67,9 +67,9 @@ describe("metadata lines", () => {
     const tokens = [tok(0, "trailing-metadata", "block"), tok(1, "metadata-line", "block"), tok(2, "metadata-line", "block"), tok(5, "metadata-line", "line"), tok(6, "inline", "inline")];
     expect([...metadataLines(text, tokens)]).toEqual([1, 2]);
   });
-  test("without properties.preview: the documented rule, the first run of property-only lines after the subject", () => {
-    expect([...metadataLines(text, null)]).toEqual([1]);                        // `#garden` isn't a [key::value]: the run stops
-    expect([...metadataLines("Title\n\n[a::b]\n[c::d]\nbody\n[e::f]", null)]).toEqual([2, 3]);
+  test("without properties.preview: only property-token lines before the first blank are hidden", () => {
+    expect([...metadataLines(text, null)]).toEqual([1]);                        // Without service records, the mixed tag line stays visible.
+    expect([...metadataLines("Title\n\n[a::b]\n[c::d]\nbody\n[e::f]", null)]).toEqual([]);
   });
   test("a picture right under the subject is content, drawn; the preamble after it is still left out (PIE-598)", () => {
     const pic = "Evening\n[img::/p/beds.jpg] [alt::beds]\n[season::autumn]\nbody";
@@ -519,11 +519,11 @@ describe("review: property actions", () => {
 });
 
 describe("review: what the reader hides and expands", () => {
-  test("only the preamble run is hidden: a hashtag-only line in the body stays", () => {
+  test("only front-matter metadata is hidden: a hashtag-only line in the body stays", () => {
     const text = "Title\n[a::b] [c::d]\n#garden\n\nBody text\n#compost\nmore";
     const tokens = [tok("a", "b", 1, 0), tok("c", "d", 1, 1), tok("tag", "garden", 2, 2, { syntax: "hashtag" }), tok("tag", "compost", 5, 3, { syntax: "hashtag" })];
     expect([...metadataLines(text, tokens)]).toEqual([1, 2]);
-    expect([...metadataLines("Title\n\n#only-tags\nbody\n#late", [tok("tag", "only-tags", 2, 0, { syntax: "hashtag" }), tok("tag", "late", 4, 1, { syntax: "hashtag" })])]).toEqual([2]);
+    expect([...metadataLines("Title\n\n#only-tags\nbody\n#late", [tok("tag", "only-tags", 2, 0, { syntax: "hashtag" }), tok("tag", "late", 4, 1, { syntax: "hashtag" })])]).toEqual([]);
   });
 
   test("a transclusion inside inline code stays code", () => {

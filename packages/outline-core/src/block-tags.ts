@@ -21,8 +21,7 @@ export interface TagRecord {
 
 /**
  * The line numbers (0 = subject) a reader leaves out of the body because they hold block metadata only. `tokens`: the
- * service's records of the text; without them (null), the documented rule: the first run of `[key::value]`-only lines
- * after the subject.
+ * service's records of the text; while they load (null), only `[key::value]`-only lines in front matter are hidden.
  */
 export function metadataLines(text: string, tokens: readonly TagRecord[] | null): Set<number> {
   const out = new Set<number>();
