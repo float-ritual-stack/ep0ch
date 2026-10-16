@@ -48,6 +48,8 @@ and automatic agent-written views remain later scripting slices.
 
 ## Keys and secrets
 
+A fixed key goes in the manifest's `secrets` (`group` + `key`); use `secretGroups` only when the note picks the group at run time.
+
 An extension that needs a token names it; the service hands it that one key, and only to a call that has the right.
 **Before you call a key missing, ask the machine**:
 

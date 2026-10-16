@@ -157,8 +157,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **`door_open {ref}`** takes a ref (`id` still works): an id, `((id))`, `[[page]]` or Work ID, and opens it where your tile's opens
   land (`from=$EP0CH_TILE`). It never moves the person's focus.
 - To read or write notes, use the mod's `outline_*` tools (`outline_read`, `outline_edit`, `outline_patch`,
-  `outline_comment`…). They work in any session, not just a door tile. Which to use when, and how the
-  person writes, is the `ep0ch-outline` skill.
+  `outline_move`, `outline_trash`/`outline_restore`, `outline_proposal_apply`/`outline_proposal_dismiss`,
+  `outline_comment`…). Proposals settle by id without a reader. They work in any session, not just a door tile.
+  Which to use when, and how the person writes, is the `ep0ch-outline` skill.
 
 ## Rules the door enforces, and you should expect
 
@@ -264,7 +265,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `status` records, `status.list` reads the list the person opens with `alt+w`, `host.waiting` opens it. Marking a
   done as seen (`status.seen`) is theirs; yours is refused. The list also holds the requests held for the person's `r`
   (`peek` rows with `kind: held`; `held.open` shows the note, `held.send` is theirs and refused to you): an `@name` line you
-  or an extension wrote lands held unless the person's grant note lets you wake that agent (`[invoke-from::…]`).
+  or an extension wrote wakes that agent by default (PIE-906). Loop guards can hold it; invocation notes can deny
+  or narrow it. Put mentions you don't mean as asks in prose or code spans (see `ep0ch-outline`).
 - **Reading a note to its end:** `scroll to=end` goes to the last line, then past it; `view.get` says `atEnd` and
   `past`. `reader.overscroll rows=none|half|<n>` is the person's setting.
 - **The door moves under you:** a session handover or restart doesn't strand a Claude in a tile. `EP0CH_PLACE`
