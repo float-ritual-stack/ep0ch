@@ -32,7 +32,7 @@ it before changing it.
 
 - First match wins: `--machine <ssh-name>`, then `EP0CH_MACHINE`, then the `machine` of the nearest `.ep0ch` when it
   names the same outline. A machine is an ssh config name; ssh owns its keys and hops.
-  Under `scripts/agent-env` (EP0CH_AGENT_ENV set, and no `EP0CH_SSH` fake) only `--machine` counts: the other two are
+  Under `scripts/agent-env` (EP0CH_AGENT_ENV set, unless `EP0CH_SSH` is a fake in the temp folder) only `--machine` counts: the other two are
   set aside and said on stderr (`scratchEnv`, `ignoredMachineNote`; PIE-912).
 - Every client reaches it through one shared ssh forward, `<outlines>/.remote/<ssh-name>.sock`, started by the first
   client that needs it (outline-core's `src/machine.ts`, `ensureForward`). `<outlines>/.remote/<ssh-name>.json`

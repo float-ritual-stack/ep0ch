@@ -125,9 +125,12 @@ describe("a scratch environment's machine (PIE-912)", () => {
     expect(whichOutline({ folder, machineFlag: "box-c", home: HOME, fs, scratch: true })).toMatchObject({ machine: "box-c", machineSource: "flag" });
     expect(ignoredMachineNote({ machine: "box-a", source: "file" })).toContain("--machine box-a");
   });
-  test("scratchEnv is agent-env with the real ssh: a fake EP0CH_SSH can't reach a real machine", () => {
+  test("scratchEnv is agent-env with the real ssh: a fake EP0CH_SSH in the temp folder can't reach a real machine", () => {
     expect(scratchEnv({ EP0CH_AGENT_ENV: "tester" })).toBe(true);
-    expect(scratchEnv({ EP0CH_AGENT_ENV: "tester", EP0CH_SSH: "/tmp/fake-ssh" })).toBe(false);
+    expect(scratchEnv({ EP0CH_AGENT_ENV: "tester", EP0CH_SSH: "/tmp/ep0ch-1/fake/bin/ssh" })).toBe(false);
+    expect(scratchEnv({ EP0CH_AGENT_ENV: "tester", TMPDIR: "/var/t/", EP0CH_SSH: "/var/t/x/ssh" })).toBe(false);
+    expect(scratchEnv({ EP0CH_AGENT_ENV: "tester", EP0CH_SSH: "/usr/bin/ssh" })).toBe(true);
+    expect(scratchEnv({ EP0CH_AGENT_ENV: "tester", EP0CH_SSH: "/tmp/../usr/bin/ssh" })).toBe(true);
     expect(scratchEnv({})).toBe(false);
   });
 });

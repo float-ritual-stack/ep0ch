@@ -177,11 +177,17 @@ export interface OnMachine {
 
 /**
  * Whether a client is in an agent's scratch environment (`scripts/agent-env` sets EP0CH_AGENT_ENV) with the real ssh
- * (PIE-912): then no machine named by `EP0CH_MACHINE` or a `.ep0ch` is reached, only one named by `--machine`. A fake
- * ssh (`EP0CH_SSH`, which tests give) can't reach a real machine, so it guards nothing.
+ * (PIE-912): then no machine named by `EP0CH_MACHINE` or a `.ep0ch` is reached, only one named by `--machine`. The fake
+ * ssh tests give (`EP0CH_SSH` in the temp folder, which refuses anything outside it) can't reach a real machine, so it
+ * guards nothing; any other `EP0CH_SSH` is as real as `ssh`.
  */
-export const scratchEnv = (env: Record<string, string | undefined>): boolean =>
-  !!env.EP0CH_AGENT_ENV?.trim() && !env.EP0CH_SSH?.trim();
+export const scratchEnv = (env: Record<string, string | undefined>): boolean => {
+  if (!env.EP0CH_AGENT_ENV?.trim()) return false;
+  const ssh = env.EP0CH_SSH?.trim();
+  if (!ssh) return true;
+  const roots = [env.TMPDIR?.trim(), "/tmp"].filter((r): r is string => !!r).map(r => r.replace(/\/+$/, "") + "/");
+  return !(roots.some(r => ssh.startsWith(r)) && !ssh.includes(".."));
+};
 
 /** What a client says (once, on stderr) when `scratch` set a machine aside, with the command that does reach it. */
 export function ignoredMachineNote(i: { machine: string; source: "env" | "file" }): string {
