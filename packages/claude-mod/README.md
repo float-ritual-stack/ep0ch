@@ -388,6 +388,10 @@ copy from the marker down.
 | `outline_trash` | `ref`, `revision` | the note and what is under it in Trash (`{outcome, children}`), refused if it changed since `revision`; `unchanged` when already there. `outline_restore` brings it back |
 | `outline_restore` | `ref` (its id or `((id))`) | the trashed note back with what went under it; a note trashed inside another names that one to restore first |
 
+MCP also offers `script_run` with a script block's `ref` or `uri`: it starts asynchronously and streams results
+into a run note, as the MCP caller. `propose` access produces proposals, `full` applies writes, and `read`/`none`
+cannot start a run; proposal settlement requires `full`. See [Scripts](../door/skills/ep0ch-outline/SKILL.md#scripts).
+
 A `ref` is a block id, `((id))`, `[[page]]` or a Work ID. A title is refused:
 find it with `outline_find` first.
 

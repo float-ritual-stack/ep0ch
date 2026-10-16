@@ -15,6 +15,7 @@ touches, and trust them over this page.
 
 For working *in* an outline for someone, rather than on the code, use `ep0ch-outline`. For driving a door,
 use `ep0ch`.
+For script blocks, host API calls and invocation paths, read [ep0ch-outline: Scripts](../ep0ch-outline/SKILL.md#scripts).
 
 ## Read first
 

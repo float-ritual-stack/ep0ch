@@ -230,6 +230,8 @@ PROTOCOL 175: `agents.held`, and `extensions.list` answers `grants` and each ext
 - **Added:** the door's waiting-on-you list (`alt+w`) shows the requests held for your `r` after the terminals' programs,
   and the status bar counts them (`‼2`): `⏎` or a click opens the note, `r` sends it (`held.open`, `held.send`).
 
+[PIE-906](#agents-and-extensions-wake-each-other-by-default-pie-906-592-593) later changed the default: agents and extensions wake each other, with notes only denying or narrowing the loop guards.
+
 ### Machinery stays consistent when notes are received, queried and moved (PIE-867)
 
 - **Fixed:** EchoNet stamps new seen-by receipts as machinery; `by:` asks who last wrote the text or properties,
@@ -272,6 +274,8 @@ Since Oct 11, about two thirds of the new notes in pie were tools' bookkeeping, 
   `held: ext:requests may not wake @kitty · r to send` shows under the line, nothing is asked, and a person's `r` sends it
   (an agent's `r` on it is still refused). A trigger's new block still asks its own extension's agents at once.
   The extensions README says this in each place it came up (it said both "refused" and "held").
+
+[PIE-906](#agents-and-extensions-wake-each-other-by-default-pie-906-592-593) later changed the default: agents and extensions wake each other, with notes only denying or narrowing the loop guards.
 
 ### A new note is a tile while you write it, and says where it lands (PIE-883)
 

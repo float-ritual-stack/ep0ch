@@ -17,6 +17,10 @@ An agent sees what the person sees, live, and can change anything except where t
 - **Edits go through the owner.** Notes are written through the outline service, with revision checks and
   `author: agent`. An nvim tile's buffer is written through nvim's own socket, which moves no one's cursor.
 
+MCP `script_run` takes a script block's `ref` or `uri` and starts an asynchronous run as the caller, with a run note.
+`propose` access produces proposals, `full` applies writes, and `read`/`none` cannot start it. For script blocks,
+the host API, bindings and undo, see [ep0ch-outline: Scripts](../skills/ep0ch-outline/SKILL.md#scripts).
+
 ## The control socket
 
 `EP0CH_CONTROL` names it (default `door.sock` in the folder of the outline the door is on, in its state dir:

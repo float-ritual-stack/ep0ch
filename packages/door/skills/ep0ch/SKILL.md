@@ -265,14 +265,17 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `status` records, `status.list` reads the list the person opens with `alt+w`, `host.waiting` opens it. Marking a
   done as seen (`status.seen`) is theirs; yours is refused. The list also holds the requests held for the person's `r`
   (`peek` rows with `kind: held`; `held.open` shows the note, `held.send` is theirs and refused to you): an `@name` line you
-  or an extension wrote wakes that agent by default (PIE-906). Loop guards can hold it; invocation notes can deny
-  or narrow it. Put mentions you don't mean as asks in prose or code spans (see `ep0ch-outline`).
+  or an extension wrote wakes by default. Loop guards (repeat, hops, budget, cap) hold it; an `[invoke-deny::]`
+  note leaves it unsent with a reason outside the held queue. `[invoke-from::]` / `[invoke-to::]` notes narrow limits.
+  Put mentions you don't mean as asks in prose or code spans (see `ep0ch-outline`).
 - **Reading a note to its end:** `scroll to=end` goes to the last line, then past it; `view.get` says `atEnd` and
   `past`. `reader.overscroll rows=none|half|<n>` is the person's setting.
 - **The door moves under you:** a session handover or restart doesn't strand a Claude in a tile. `EP0CH_PLACE`
   names the outline's session folder, and `ep0ch act|peek|open|where` find the door from it; `ep0ch where` says when
   your environment is stale.
 - The full list and the rules for each are in the door's `docs/AGENT-INTERFACE.md`.
+
+For writing or invoking scripts and macros, read [ep0ch-outline: Scripts](../ep0ch-outline/SKILL.md#scripts).
 
 ## When something looks wrong
 

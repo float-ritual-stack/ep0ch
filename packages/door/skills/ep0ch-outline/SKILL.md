@@ -108,6 +108,9 @@ revision, so concurrent edits rarely collide.
   newer one and nobody rewrote its line (a rebase; the answer says `rebasedFrom: <revision you read>`). It becomes one
   proposal they can apply or dismiss when a span is gone, changed or ambiguous, when the note is open in a draft,
   or when `prose` refuses.
+- **Settle a proposal by id:** `outline_proposal_apply {ref: "<proposal id>"}` or
+  `outline_proposal_dismiss {ref: "<proposal id>"}` needs no reader. Apply keeps the normal patch comparison;
+  an agent can dismiss only its own proposal. MCP settlement requires full access.
 - A refusal is an answer: read again and retry, or leave it. Never route around it.
 - A write's `warnings` are answers too: a `((` that leads nowhere (with a did-you-mean), and each construct you
   left open (an unclosed fence, `[[`, `[key::`, `::component` or `<!-- literal -->`, on its line, with how to close
@@ -576,6 +579,36 @@ doesn't have the environment variable: the service reads the group when a call s
   person's agents, who run as the same user.
 - **Where you see it:** `ep0ch ext ls --long` and the extension's page (a "Keys" section) say each key it names as present,
   missing or not allowed, by name.
+
+## Scripts
+
+- A script is a block with `[script::name]` and a closed `js`, `ts` or `actions` fence, loaded by the extension registry.
+- `tools.*` calls the shared agent tools, such as `tools.outline_comment({ref, whole: true, body})`.
+- `q(query)` calls `outline_find` with the views' query grammar.
+- `read(ref)` calls `outline_read`.
+- `act(name, args)` calls the door's existing action dispatcher and needs a connected door; use the power bar or a live draft, since saved asks and rules have no door.
+- Run by name in the power bar or `/`, with `slot=value` arguments for slots in an `actions` fence.
+- `[keys::alt+S]` binds a script key; clashes are reported and typing keeps its keys.
+- A rule's `[rule-on::script:name]` invokes it through the existing rule triggers.
+- An inline `@name slot=value` ask invokes it after the quiet timer; names use lowercase letters, digits and hyphens, starting with a letter, up to 32 characters.
+- A run uses the source author's attribution and records the requester alongside it.
+- The child run note streams progress and records the source revision and changes since the previous run in this host.
+- `extensions.undo` with the returned `undo` receipt undoes the whole run's saved writes, door-action writes and draft patches; conflicts preserve intervening edits, and receipts last for this host process.
+- An agent-written `[script::]` runs as soon as invoked, attributed, with no approval gate.
+- MCP `script_run` takes a script block's `ref` or `uri` and runs as the MCP caller: `propose` makes proposals, `full` applies writes, and `read`/`none` cannot start a run.
+- The person presses `alt+Q` to record a macro and again to save its script block, then edits action values into `{slot}` placeholders.
+
+One fictional block; run `seed-summary` from the power bar:
+
+````blockdown
+Seed summary [script::seed-summary]
+```js
+const seeds = await q("type=seed");
+return seeds;
+```
+````
+
+For the full contract, read [Script blocks and files](../../../outliner/docs/extensions/README.md#script-blocks-and-files-pie-601).
 
 ## Extensions: adding one for a need
 
