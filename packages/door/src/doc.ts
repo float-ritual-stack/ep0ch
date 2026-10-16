@@ -700,7 +700,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (startsTable(src, i)) {
       const end = tableEnd(src, i), rows = src.slice(i, end);
       const mapped: number[] = [];
-      const drawn = table(rows, W, lit(i), box => { mapped[box.y] = i + (box.row ? box.row + 1 : 0); });
+      const drawn = table(rows, W, lit(end - 1), box => { mapped[box.y] = i + (box.row ? box.row + 1 : 0); });
       for (let y = 0; y < drawn.length; y++) {
         out.push(drawn[y]!); source.push(mapped[y] ?? -1);
       }
