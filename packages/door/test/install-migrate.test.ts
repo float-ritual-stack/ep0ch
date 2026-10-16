@@ -32,6 +32,7 @@ const sock = join(outlines, ".host", "host.sock");
 /** The whole environment every command here runs with: nothing inherited, so nothing reaches the person's stack. */
 const env: Record<string, string> = {
   HOME: home, PATH: [bin, dirname(bun), "/usr/bin", "/bin"].join(":"), EP0CH_OUTLINES: outlines, EP0CH_STATE: state,
+  EP0CH_WS: "allotment", EP0CH_AGENT: "wren", CLAUDE_CODE_SESSION_ID: "garden-session", EP0CH_MACHINE_NAME: "garden-host",
   EP0CH_SSH: join(bin, "ssh"), FAKE_SSH_HOME: clientHome, FAKE_SSH_OUTLINES: clientOutlines,
   FAKE_SSH_STATE: join(root, "client-state"), FAKE_SSH_BIN: clientBin, FAKE_SSH_LOG: sshLog, FAKE_SSH_REFUSE: "away",
   XDG_CONFIG_HOME: join(home, ".config"), XDG_STATE_HOME: join(home, ".local/state"), TMPDIR: tmpdir(), LANG: "C.UTF-8",
@@ -211,6 +212,11 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     // A host started by hand on the new code refuses compost, and a client says the exact commands, on their own lines.
     fakeSystemctl("start", "outliner-host.service");
     for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't come back"); await Bun.sleep(100); }
+    const unfinished = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install" } });
+    expect(unfinished.blocks).toHaveLength(1);
+    expect(unfinished.blocks[0].text).toContain(`From: ${oldHead}`);
+    expect(unfinished.blocks[0].text).toContain("Local: running");
+    expect(first.out).toContain("deploy record could not be saved");
     const refused = await ep0ch("find", "leeks", "--ws", "compost");
     expect(refused.code).not.toBe(0);
     expect(refused.err).toContain(`is schema version ${N}; this build opens only schema version ${M}.`);
@@ -222,6 +228,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     const compost = new Database(join(outlines, "compost.sqlite"));
     compost.exec("DROP TABLE compost_heap");
     compost.close();
+    env.EP0CH_WS = "compost";
     const second = await ep0ch("install", "--apply", "--json");
     const r2 = JSON.parse(second.out) as typeof r1;
     expect({ code: second.code, ok: r2.ok, err: r2.steps.find(s => s.error)?.error }).toEqual({ code: 0, ok: true, err: undefined });
@@ -233,6 +240,31 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect([version("allotment"), version("compost")]).toEqual([M, M]);
     // The host opens both on the new code (a ping opens the outline it names, and it refuses one at another schema).
     for (const outline of ["allotment", "compost"]) expect(await hostRequest(sock, "ping", { outline })).toMatchObject({ protocolVersion: expect.any(Number) });
+    const repaired = await hostRequest(sock, "blocks.query", { outline: "compost", query: { where: "type=deploy machine=install" } });
+    expect(repaired.blocks).toHaveLength(1);
+    expect(repaired.blocks[0].text).toContain("✓ workstation");
+    env.EP0CH_WS = "allotment";
+    expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
+    const records = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" } } });
+    expect(records.blocks).toHaveLength(2);
+    const record = records.blocks[0];
+    expect(record.author).toBe("agent");
+    expect(record.text).toContain("wren");
+    expect(record.text).toContain("garden-session");
+    expect(record.text).toContain("Machine: garden-host");
+    expect(record.text).toContain("When: 20");
+    expect(record.text).toContain(`From: ${newHead}`);
+    expect(record.text).toContain(`To: ${newHead}`);
+    expect(record.text).toContain("Protocol:");
+    expect(record.text).toContain("! away");
+    expect(record.text).toContain("✓ workstation");
+    const revisions = await hostRequest(sock, "block.revisions", { outline: "allotment", blockId: record.id });
+    expect(revisions.revisions[0]).toMatchObject({ author: "agent", actorId: "wren" });
+    const view = await hostRequest(sock, "views.read", { outline: "allotment", viewId: record.parentId, format: "tree" });
+    expect(view.blocks.map((b: { id: string }) => b.id)).toEqual(records.blocks.map((b: { id: string }) => b.id));
+    const everyday = await ep0ch("find", "--query", "type=deploy", "--json");
+    expect(everyday.code).toBe(0);
+    expect(everyday.out).not.toContain(record.id);
     // An unreachable leg is reported, then the next client really installs the new checkout.
     const clients = r2.steps.find(s => s.id === "clients")!;
     expect(clients.done!.join("\n")).toContain("! away");
@@ -240,7 +272,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(clients.done!.join("\n")).toContain("✓ workstation");
     expect(sh(["git", "-C", clientRepo, "rev-parse", "HEAD"])).toBe(newHead);
     const calls = readFileSync(sshLog, "utf8").trim().split("\n").map(l => JSON.parse(l));
-    expect(calls.map(a => a[a.indexOf("--") + 1])).toEqual(["away", "workstation"]);
+    expect(calls.map(a => a[a.indexOf("--") + 1])).toEqual(["away", "workstation", "away", "workstation"]);
     // The session: a new daemon on the new commit.
     const list = JSON.parse((await ep0ch("session", "list", "--json")).out) as { pid: number; code: { commit: string } }[];
     expect(list).toHaveLength(1);
@@ -269,5 +301,18 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(JSON.parse((await ep0ch("session", "list", "--json")).out)[0].pid).toBe(oldPid);
     expect((await ep0ch("session", "upgrade", "--all")).code).toBe(0);
     expect(JSON.parse((await ep0ch("session", "list", "--json")).out)[0].pid).not.toBe(oldPid);
+
+    delete env.EP0CH_AGENT;
+    delete env.CLAUDE_CODE_SESSION_ID;
+    mkdirSync(join(home, ".ep0ch"));
+    writeFileSync(join(home, ".ep0ch/config.toml"), 'ws = "allotment"\nagent = "robin"\n');
+    expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
+    let latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
+    expect(latest.blocks[0].text).toContain("Who: robin");
+    writeFileSync(join(home, ".ep0ch/config.toml"), 'ws = "allotment"\n');
+    expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
+    latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
+    expect(latest.blocks[0].author).toBe("user");
+    expect(latest.blocks[0].text).toContain("Who: person");
   }, 600_000);
 });
