@@ -2479,6 +2479,7 @@ export class NoteSurface {
         return true;
       },
       click: (x, y) => {
+        y += this.drawn?.heroRows ?? 0;
         const r = mode.rect;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
         if (y === r.y) { run(x < r.x + 22 ? "note.thread.full" : x < r.x + 32 ? "note.thread.groups" : "note.thread.close"); return true; }
@@ -2520,7 +2521,7 @@ export class NoteSurface {
     const mode = this.draftMode(s);
     mode.reply = parent;
     this.modes.push(mode);
-    if (quote) s.draft.pasteText(quote, host.actor ?? USER);
+    if (quote) { s.draft.pasteText(quote, host.actor ?? USER); this.clearSelections(); }
     host.redraw();
     return s;
   }
@@ -5845,7 +5846,7 @@ export class NoteSurface {
       void (this.draftSelecting ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
       return true;
     }
-    const s = this.selection, rows = s && !this.editing && r.copy ? this.selRows() : null;
+    const s = this.selection, rows = s && (!this.editing || (this.replyParent && !this.editPress)) && r.copy ? this.selRows() : null;
     if (s && rows && s.text(rows).trim()) void this.runKey("select.copy", {}, host);
     host.redraw();
     return r.moved || r.n > 1;
@@ -7415,7 +7416,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run(_, { surface, host }) { surface.closeReplyLinks(); host.redraw(); return { closed: true }; },
   }),
   "note.thread.pick": def({
-    summary: "move through the replies", keys: "j k in the replies", touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", about: "rows to move" } },
+    summary: "move through the replies", keys: "j k up down, wheel in the replies", touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", about: "rows to move" } },
     run({ by }, { surface, host }) { const m = surface.replyLinks; if (m) m.selected = Math.max(0, Math.min(m.rowsAt.length - 1, m.selected + by)); host.redraw(); return { selected: m?.selected }; },
   }),
   "note.thread.groups": def({
@@ -7447,6 +7448,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (actor.kind === "agent") return NOTE_ACTIONS.run("note.reply", { text }, { surface, host }, actor);
       const s = surface.replyParent ? surface.drafting! : surface.startReply(host);
       s.draft.pasteText(text, actor);
+      surface.clearSelections();
       host.redraw();
       return { quoted: surface.requireNote().id };
     },

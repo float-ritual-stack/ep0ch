@@ -112,7 +112,8 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(t.split("Committee meeting").length - 1).toBe(1);
     expect(t).toContain("Bring the kettle to the hut.");
     expect(t).not.toContain("[season::autumn]");
-    expect(t).toContain("n next · p prev · t thread");
+    expect(t).toContain("n next · p prev");
+    expect(t).toContain("t thread");
   }, 20_000);
 
   test("links: [ ] steps to one (the ruler under its block), ⏎ opens it as the next reader, q comes back", async () => {
@@ -223,6 +224,10 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     key({ kind: "left" });
     await until(() => r.surface.msg?.id === n.first.id, "← previous");
     key(char("t"));
+    await shows("Re: Committee meeting");
+    expect(top()).toBe(r);
+    expect(r.surface.msg?.id).toBe(n.first.id);
+    key(char("T"));
     await until(() => top() instanceof MessageList, "the thread list");
     await shows("Re: Committee meeting");
     key(char("q"));

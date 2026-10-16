@@ -116,7 +116,11 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
     const reader = new MessageReader([parent], 0);
     app.push(reader); reader.render(app);
-    await reader.dispatch.act({ action: "note.quote", args: { quote: "Keep the ripe pears." } }, { kind: "user" });
+    await reader.dispatch.act({ action: "select", args: { text: "Keep the ripe pears." } }, { kind: "user" });
+    await reader.dispatch.act({ action: "note.quote" }, { kind: "user" });
+    const quoted = reader.surface.draft!.text;
+    key(char('"'));
+    expect(reader.surface.draft!.text).toBe(quoted + '"');
     expect(reader.surface.draft!.text).toContain("> Keep the ripe pears.");
     expect(reader.surface.draft!.text).toContain(`((${parent.id}^pears))`);
     reader.render(app);
