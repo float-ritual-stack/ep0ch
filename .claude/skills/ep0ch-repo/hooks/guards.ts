@@ -1,6 +1,6 @@
 /**
  * The repository's hard rules for a Bash call, each a refusal with the reason and the command to run instead
- * (AGENTS.md: "Never kill what you didn't start", "Merge with gh pr merge <n> --squash", "Schema and protocol";
+ * (AGENTS.md: "Never kill what you didn't start", "Merge with gh pr merge <n> --merge", "Schema and protocol";
  * the builder's "Never git stash"). Pure: register.ts asks this, and the PROTOCOL lookup, per call.
  */
 
@@ -11,7 +11,7 @@ export const SHARED_MACHINE = 'float-2'
 
 export type GuardContext = { hostname: string }
 
-const MERGE = 'gh pr merge <n> --squash'
+const MERGE = 'gh pr merge <n> --merge'
 
 /** `gh pr merge …`'s words after `merge`, or null when this isn't one. */
 export function prMergeArgs(words: readonly string[]): string[] | null {
@@ -70,7 +70,7 @@ function refusalOf(words: readonly string[], ctx: GuardContext): string | null {
     while (i < words.length && words[i]!.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(words[i]!) ? 2 : 1
     if (words[i] === 'stash' && !['list', 'show'].includes(words[i + 1] ?? '')) {
       return 'git stash is refused in this repository: stashes are shared by every worktree of the repo, so one agent pops another\'s. ' +
-        'Commit to your branch instead: `git add -A && git commit -m "wip: <what>"` (the squash merge hides it).'
+        'Commit to your branch instead: `git add -A && git commit -m "wip: <what>"` (a merge commit keeps it in the branch history, which is fine).'
     }
     return null
   }

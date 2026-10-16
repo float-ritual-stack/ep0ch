@@ -57,10 +57,10 @@ describe('the freshness sweep', () => {
   test('after three deploys or merges loki\'s session starts the read-only sweep agent with the stale list', async ($, on) => {
     const s = sessionIn(on)
     await turnRunning($, 'ep0ch install --apply')
-    await turnRunning($, 'gh pr merge 501 --squash')
+    await turnRunning($, 'gh pr merge 501 --merge')
     await s.clock.settle()
     expect(s.spawns).toEqual([])
-    await turnRunning($, 'gh pr merge 502 --squash')
+    await turnRunning($, 'gh pr merge 502 --merge')
     await s.clock.settle()
     expect(s.spawns).toHaveLength(1)
     expect(s.spawns[0]!.subagentType).toBe('ep0ch-repo:freshness-sweep')
@@ -76,7 +76,7 @@ describe('the freshness sweep', () => {
     for (const n of [1, 2, 3]) await turnRunning($, `gh pr merge 50${n} --squash`)
     await s.clock.settle()
     expect(s.toasts).toEqual(["Freshness sweep couldn't start: no agents in this test"])
-    await turnRunning($, 'gh pr merge 504 --squash')
+    await turnRunning($, 'gh pr merge 504 --merge')
     await s.clock.settle()
     expect(s.spawns).toHaveLength(2)
   })
@@ -90,9 +90,9 @@ describe('the freshness sweep', () => {
 
   test('a refused merge or a subagent\'s merge does not count', async ($, on) => {
     const s = sessionIn(on)
-    await turnRunning($, 'gh pr merge 501 --squash --delete-branch')
+    await turnRunning($, 'gh pr merge 501 --merge --delete-branch')
     await turnRunning($, 'gh pr merge 502 -d')
-    await turnRunning($, 'gh pr merge 503 --squash')
+    await turnRunning($, 'gh pr merge 503 --merge')
     await s.clock.settle()
     expect(s.spawns).toEqual([])
   })

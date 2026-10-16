@@ -30,7 +30,7 @@ before changing code, read `.claude/agents/ep0ch-builder.md` and follow its bran
      it (`git log -S`, `git log --grep PIE-n`). Report it closable; loki closes it.
    - **Still broken:** follow diagnosing-bugs. A failing test first, at a seam that reaches the real bug, then the
      fix, then the test green and the original reproduction re-run. Ship it as an ep0ch-builder would: one PR,
-     `work_deliver` on open and merge, Codex second opinion, merged with `gh pr merge <n> --squash`.
+     `work_deliver` on open and merge, Codex second opinion, merged with `gh pr merge <n> --merge`.
    - **Can't reproduce, and no fix found:** say exactly what you ran and on what. It is not "fixed" unless you can
      point at why.
    - **No longer wanted** (superseded, or the design moved): say what replaced it, with the ticket or PR.
