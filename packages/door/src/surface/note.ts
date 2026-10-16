@@ -70,6 +70,7 @@ import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
+import { moveBy, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
 import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
@@ -3450,7 +3451,7 @@ export class NoteSurface {
     if (completerOf(d)?.click(y)) return true;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
-    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true), lands: () => void this.runKey("note.place", {}, host, true), follow }, host.freshClick ? 8 : 0);
+    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0);
     if (this.editPress) host.redraw();
     return this.editPress;
   }
@@ -3607,8 +3608,8 @@ export class NoteSurface {
       const at = this.msg?.id ?? "";
       // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)]] as const)
-        .reduce<{ name: "callout.undo" | "image.undo" | "task.undo" | "ext.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
+        .reduce<{ name: "callout.undo" | "image.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
       // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
       if (trashedAt !== undefined && trashedAt > last.seq) return false;
@@ -3645,6 +3646,8 @@ export class NoteSurface {
     if (c === "f" && this.msg && !this.msg.partial) { void this.runKey("fold.toggle", {}, host); return true; }
     if (c === "F" && this.msg && !this.msg.partial) { void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true; }
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
+    // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places moved to lately first.
+    if (c === "Z" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", {}, host); return true; }
     // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
     if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
     // The margin's cards (ADR 0004 contract 6): a row each, whole, or off.
@@ -8262,35 +8265,51 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return { asked };
     },
   }),
-  "note.place": def({
-    summary: "move the note shown under another note (PIE-883: where a new note lands, its edit's `→ Inbox › …` row says, and a click there moves it): parent= inbox (the top of the Inbox), or a note's id, ((ref)), [[page]] or Work ID; it goes first under it. The person's, left out, is asked in the power bar: the Inbox, or any note by its words. Its edit stays open. Recorded as whoever asks",
-    keys: "a click on the `→ …` row of a new note's edit",
-    touches: "nothing", replay: "ask",
-    args: { parent: { type: "string", optional: true, about: "inbox, or the note to put it under: an id, ((ref)), [[page]] or Work ID" } },
-    async run({ parent }, { surface, host }, actor) {
-      const m = surface.requireNote();
-      const run = async (answers: Record<string, string>) => {
-        const to = answers.parent!.trim();
-        // A ref by the outliner's own reading (the one the mod's and MCP's tools use), loaded when it's needed.
-        const parentId = to === "inbox" ? await host.ctx.board.inboxId().catch(() => null) : (await (await import("../mcp-writes")).resolveBoardRef(host.ctx.board, to).catch(() => null))?.id;
-        if (!parentId) throw new ActionRefused(to === "inbox" ? "this outline has no Inbox to put it in: parent=<a note's id>" : `no note ${to} to put it under: parent= takes an id, ((ref)), [[page]] or Work ID`);
-        if (parentId === m.id) throw new ActionRefused("a note can't go under itself");
-        // An agent's goes by outline_move's own rules (the outliner's moveBlock); the person's as a drag in the tree would.
-        if (actor.kind === "agent") await (await import("../mcp-writes")).moveAsAgent(host.ctx.board, m.id, parentId, { actorId: recordedActorId(actor) });
-        else await host.ctx.board.move(m.id, parentId, actor);
-        const now = await surface.rereadPlace(host);
-        asActor(host.ctx, actor).flash(`moved: → ${now}`);
-        surface.noteAgent(actor, `moved the note to ${now}`);
-        return { moved: m.id, parent: parentId, now };
+  "note.move": def({
+    summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes moved to lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
+    keys: "Z in a reader, the tile menu's \"move to…\", a click on the `→ …` row of a new note's edit",
+    touches: "nothing", replay: "ask", menu: { label: "move to…", group: "note", key: "Z" },
+    says: r => String((r as { said?: string }).said ?? "moved a note"),
+    args: {
+      id: { type: "string", optional: true, about: "the note to move (default: the one shown)" },
+      to: { type: "string", optional: true, about: "the note to put it under: inbox, root (the top level), or an id, ((ref)), [[page]] or Work ID" },
+      before: { type: "string", optional: true, about: "a sibling to go just above" },
+      after: { type: "string", optional: true, about: "a sibling to go just below" },
+      position: { type: "number", optional: true, about: "with to=: its place among the children, from 1 (default: first)" },
+      step: { type: "string", optional: true, about: "up or down one place among its siblings, in (last under the sibling above) or out (right after its parent)" },
+      revision: { type: "number", optional: true, about: "the note's revision as you read it; a note changed since is refused" },
+    },
+    async run(args, { surface, host }, actor) {
+      const id = args.id ?? surface.requireNote().id;
+      const asked = [args.to, args.before, args.after, args.step].some(x => x !== undefined);
+      const run = async (a: MoveArgs) => {
+        const done = await moveBy(host.ctx.board, id, a, actor);
+        // The reader showing it reads its place again; the person's is told where it went.
+        if (surface.msg?.id === id) {
+          const fresh = await host.ctx.board.get(id).catch(() => null);
+          if (fresh) surface.refresh(fresh);
+          await surface.rereadPlace(host);
+        }
+        asActor(host.ctx, actor).flash(done.said);
+        surface.noteAgent(actor, done.said);
+        return done;
       };
-      if (parent !== undefined || actor.kind === "agent") {
-        if (parent === undefined) throw new ActionRefused("say where: parent=inbox or a note's id, ((ref)), [[page]] or Work ID");
-        return run({ parent });
-      }
-      return askInBar(host.ctx as never, "Move the note", [{
-        name: "parent", type: "note", label: "where it goes", description: "It goes first under the note you pick. The Inbox, or type to find any note.",
-        choices: ["inbox"], says: { inbox: "the top of the Inbox" }, found: "under this note",
-      }], {}, actor, run);
+      if (asked) return run(args);
+      if (actor.kind === "agent") throw new ActionRefused("say where: to=<inbox, root, or a note's id, ((ref)), [[page]], Work ID>, before=, after= or step=up|down|in|out");
+      return askInBar(host.ctx as never, "Move the note", [await moveQuestion(host.ctx.board, id)], {}, actor, answers => run({ ...args, to: answers.to! }));
+    },
+  }),
+  "note.move.undo": def({
+    summary: "put the note shown back where the last move made here (by you) took it from",
+    keys: "ctrl+z (when a move was the last change made here)", touches: "nothing", replay: "ask", args: {},
+    async run(_, { surface, host }, actor) {
+      const m = surface.requireNote();
+      const done = await undoMove(host.ctx.board, actor, m.id);
+      const fresh = await host.ctx.board.get(m.id).catch(() => null);
+      if (fresh) surface.refresh(fresh);
+      await surface.rereadPlace(host);
+      asActor(host.ctx, actor).flash(done.said);
+      return done;
     },
   }),
   "quote": def({

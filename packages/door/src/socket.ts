@@ -1205,9 +1205,9 @@ export class SocketBoard implements Board {
     await this.request("annotations.lifecycle", { input: { annotationId, lifecycle }, mutation: mutationFor(actor) });
   }
 
-  /** Note `id` moved under `parentId`, first among its children (`move`; PIE-883: where a new note lands). */
-  async move(id: string, parentId: string, actor: Actor = USER): Promise<void> {
-    await this.request("move", { blockId: id, parentId, position: 0, mutation: mutationFor(actor) });
+  /** Note `id` moved under `parentId` (null: the top level) at `position` among its children, first by default (`move`; PIE-883, PIE-943). */
+  async move(id: string, parentId: string | null, actor: Actor = USER, position = 0): Promise<void> {
+    await this.request("move", { blockId: id, parentId, position, mutation: mutationFor(actor) });
   }
   /** The outline's Inbox: the root the service made it as (`[system-view::inbox]`), or null. */
   async inboxId(): Promise<string | null> {

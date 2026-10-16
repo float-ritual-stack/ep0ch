@@ -349,7 +349,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
 
   // PIE-883: the new note's float is a tile like any other while it's written: its header drags it (to an edge docks it),
   // its ⋯ opens its menu, the edit stays open through all of it; and it says where the note lands, a click to move it.
-  test("a new note being written (PIE-883): its header drags and docks it, its ⋯ opens its menu, the edit kept; the → row says where it lands and note.place moves it", async () => {
+  test("a new note being written (PIE-883): its header drags and docks it, its ⋯ opens its menu, the edit kept; the → row says where it lands and note.move moves it", async () => {
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
     app.push(new MainMenu());
@@ -385,15 +385,15 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       expect(desk.overlays.get("tile menu")).toBeTruthy();
       key({ kind: "esc" });
       // Where it lands, changed: the person's click asks in the power bar; named, it's moved at once.
-      expect(await desk.dispatch.press("note.place", { parent: "inbox" }, tile)).toMatchObject({ moved: id, parent: inbox });
+      expect(await desk.dispatch.press("note.move", { to: "inbox" }, tile)).toMatchObject({ moved: id, parent: inbox });
       expect((await board.get(id))!.parentId).toBe(inbox);
       await until(() => screen().some(l => l.includes("→ Inbox") && l.includes("[move ▸]")), "the → row after the move", 5000);
       // An agent names where, and is recorded as itself.
-      expect(await app.act({ action: "note.place", tile, args: { parent: notes.plot.id }, as: "gardener" })).toMatchObject({ parent: notes.plot.id });
-      await expect(app.act({ action: "note.place", tile, args: {}, as: "gardener" })).rejects.toThrow("say where");
+      expect(await app.act({ action: "note.move", tile, args: { to: notes.plot.id }, as: "gardener" })).toMatchObject({ parent: notes.plot.id });
+      await expect(app.act({ action: "note.move", tile, args: {}, as: "gardener" })).rejects.toThrow("say where");
       // An agent's goes by outline_move's rules: never under Trash, Bookmarks or a guide.
       const trash = (await board.roots()).find(r => r.text.startsWith("Trash"))!.id;
-      await expect(app.act({ action: "note.place", tile, args: { parent: trash }, as: "gardener" })).rejects.toThrow("which the service fills itself");
+      await expect(app.act({ action: "note.move", tile, args: { to: trash }, as: "gardener" })).rejects.toThrow("which the service fills itself");
       // Dragged to the right edge: docked there, its edit still open.
       r = desk.rectsNow().get(desk.idNamed(tile));
       const cols = desk.area.cols;
