@@ -241,6 +241,15 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     // Its kind lands on the thread (PIE-871), said as kind or in properties.
     const noted = await tool("outline_comment", { uri, whole: true, body: "Shipped: the swap date is set.", kind: "patch-note" }, "gpty");
     expect((await tool("outline_threads", { uri })).json.threads.find((t: { thread: string }) => t.thread === noted.json.detail.thread).properties).toMatchObject({ kind: ["patch-note"] });
+    // A comment with no target (PIE-933) is never silently missing: the note's threads and the inbox say why. Written as
+    // plain text, a comment gets its target in the same write; one whose properties don't read stays as written.
+    const plain = (await boardOn(here, "garden-notes", HERE).request<{ id: string }>("create", { parentId: ids.seeds, author: "agent", text: "Comment on “paper labels”\n[type::annotation] [annotation-source::agent] [annotation-status::open]\nPlain text, same thread." })).id;
+    const odd = (await boardOn(here, "garden-notes", HERE).request<{ id: string }>("create", { parentId: ids.seeds, author: "agent", text: "Comment on “labels”\n[type::annotation] [annotation-status::archived]\nA status nobody knows." })).id;
+    const withStray = (await tool("outline_threads", { uri })).json;
+    expect(withStray.threads.map((t: { thread: string }) => t.thread)).toContain(plain);
+    expect(withStray.untargeted).toEqual([{ id: odd, why: expect.stringContaining("archived") }]);
+    const inbox = (await tool("outline_threads", { outline: "garden-notes" })).json;
+    expect(inbox.notes.find((n: { id: string }) => n.id === ids.seeds).untargeted.map((u: { id: string }) => u.id)).toEqual([odd]);
     // A path's cap can be set: EP0CH_MCP_PATH_ACCESS, read at each request.
     process.env.EP0CH_MCP_PATH_ACCESS = "warp=read";
     try { expect((await tool("list_outlines", {}, "warp")).json.outlines.find((o: { outline: string }) => o.outline === "garden-notes")).toMatchObject({ access: "read" }); }

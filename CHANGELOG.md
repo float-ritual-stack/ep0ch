@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every comment has its target (PIE-933)
+
+A comment written as plain text (an EchoNet toss copying a thread before copies were kept as notes, an agent's plain
+write) used to land with `[type::annotation]` and no target: no margin showed it, and opening, answering or
+resolving it threw "Annotation target not found". Now any write that leaves a block a comment gives it its target
+in the same transaction (a comment on the note it sits under), so a comment made by any write has one. Text that can't be a comment
+on a note (at the top of the outline, or with properties that don't read, like an unknown `annotation-status`) is
+saved as written and listed by `outline_threads` as `untargeted`, with why, per note and in the inbox; opening one
+now says why instead of "not found". Pie's four existing ones: with the outline host stopped and a backup taken,
+`bun packages/outliner/scripts/repairs/2026-10-16-annotation-targets.ts ~/outlines/pie.sqlite` (delete the script
+once run). No protocol or schema change.
+
 ### One relative-date rule: `-7d` means the same in a view, a figure, a find and a question (PIE-922)
 
 - `created`/`updated` clauses no longer keep their own reader of `-N<unit>`: they use outline-core's `readDateBound`, as property comparisons (`due >= -7d`) already did. `d` and `w` are calendar days, `m` and `h` instants. **Visible change:** `updated >= -7d` used to cut at exactly 7 x 24 hours ago (at 3 pm, from 3 pm a week back) and now includes all of the day 7 days ago from its midnight; `-Nw` the same; `> -7d` and `<= -7d` flip at that day's end. `today`, `yesterday` and `now` go through the same reader (the host's clock day). Minutes and hours are unchanged.
