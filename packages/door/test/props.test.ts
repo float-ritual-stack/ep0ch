@@ -617,34 +617,14 @@ describe("the reader's header leads with the title (PIE-657)", () => {
     const lines = view.lines.map(strip);
     expect(lines[0]!.trim()).toBe("top level");
     expect(lines[1]!.trim()).toBe("HUB-003 · Build the compost bin");   // its Work ID first (PIE-809), off the meta line
-    expect(lines[3]!).toContain("claude-code · 01-01-70 (00:00) · i 4 properties · stage doing");   // wide enough for one line
-    expect(lines[4]!.trim()).toBe("");
-    expect(lines[5]).toContain("Outcome");
+    expect(lines[2]!).toContain("claude-code · 01-01-70 (00:00) · i 4 properties · stage doing");   // wide enough for one line
+    expect(lines[3]!.trim()).toBe("");
+    expect(lines[4]).toContain("Outcome");
     // The title is bold and bright; the eyebrow and the meta line are dim.
     expect(view.lines[1]).toContain("\x1b[1m");
     expect(view.lines[0]).not.toContain("\x1b[1m");
-    expect(view.lines[3]).not.toContain("\x1b[1m");
+    expect(view.lines[2]).not.toContain("\x1b[1m");
     expect(lines.join("\n")).not.toContain("[work-stage::");
-  });
-
-  test("double height where the terminal has text sizing and the title fits twice over; else bold on one row", async () => {
-    const big = (await shown({}, 70)).view;
-    // Only the title's words are sized; its Work ID keeps the accent in cells before them (PIE-809).
-    expect(big.placements?.map(p => ({ col: p.col, row: p.row, rows: p.rows, cols: p.cols, text: p.sized?.text, scale: p.sized?.scale }))).toEqual([{ col: 10, row: 1, rows: 2, cols: 42, text: "Build the compost bin", scale: 2 }]);
-    // Too narrow for twice the title's width: bold, wrapped whole onto the rows it needs (PIE-815, never cut), then the meta line.
-    const narrow = (await shown({}, 30)).view;
-    expect(narrow.placements ?? []).toEqual([]);
-    expect(strip(narrow.lines[1]!).trim()).toBe("HUB-003 · Build the compost");
-    expect(strip(narrow.lines[2]!).trim()).toBe("bin");
-    expect(strip(narrow.lines[3]!)).toContain("claude-code");
-    // No text sizing in the terminal: the same.
-    const src = fakeSource(notes);
-    Object.assign(src.board, { ancestors: async () => [], comments: async () => [] });
-    const plain = host(src); (plain.ctx as any).t.sized = false;
-    const s = new NoteSurface(); s.show(m, plain); s.render(70, 30, plain); await Bun.sleep(10);
-    const v = s.render(70, 30, plain);
-    expect(v.placements ?? []).toEqual([]);
-    expect(strip(v.lines[2]!)).toContain("claude-code");
   });
 
   test("a selection on the title draws in cells (no sized text over its highlight); the focused tile's title is brighter than an unfocused one's", async () => {
@@ -662,14 +642,14 @@ describe("the reader's header leads with the title (PIE-657)", () => {
   test("the summary line's links are still clicks, at their place in the merged line", async () => {
     // Wide: on the byline's own line, shifted by what comes before it.
     const wide = await shown({ summaryKeys: () => ["related-to"] }, 110);
-    const line = strip(wide.view.lines[3]!), at = line.indexOf("related-to") + "related-to ".length;
+    const line = strip(wide.view.lines[2]!), at = line.indexOf("related-to") + "related-to ".length;
     expect(at).toBeGreaterThan(40);
-    expect(wide.s.click(at + 2, 3, wide.h)).toBe(true);
-    expect(wide.s.click(2, 3, wide.h)).toBe(false);
+    expect(wide.s.click(at + 2, 2, wide.h)).toBe(true);
+    expect(wide.s.click(2, 2, wide.h)).toBe(false);
     // Narrow: the summary takes a line of its own, so no chip is cut off the end of the byline.
     const narrow = await shown({ summaryKeys: () => ["related-to"] }, 60);
-    expect(strip(narrow.view.lines[4]!)).toContain("related-to");
-    expect(narrow.s.click(strip(narrow.view.lines[4]!).indexOf("related-to") + "related-to ".length + 2, 4, narrow.h)).toBe(true);
+    expect(strip(narrow.view.lines[3]!)).toContain("related-to");
+    expect(narrow.s.click(strip(narrow.view.lines[3]!).indexOf("related-to") + "related-to ".length + 2, 3, narrow.h)).toBe(true);
   });
 
   test("a tile too short for the header leaves the title to its frame bar", () => {

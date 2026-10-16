@@ -279,8 +279,8 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     const fr = frame(), R = B().rect(f)!;
     const line = fr[R.row]!.slice(R.col, R.col + R.cols);
     expect(line).toMatch(/ · \d+%/);
-    expect(line).toContain("Rebuild the potting bench");
-    // (The border is the note's title now, PIE-809: it is cut only where it doesn't fit.)
+    expect(line).not.toContain("Rebuild the potting bench");
+    expect(fr.join("\n")).toContain("Rebuild the potting bench");
   });
 
   test("a pane too short for any body row reports no scroll (PR #11 review)", async () => {
@@ -311,7 +311,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key({ kind: "tab" });
     expect(BV.where(b)).toBe("preview");
     expect(hints()).toContain("preview · editing · e ⏎ enter the edit");
-    expect(frame()[rect("preview").row]).toContain("editing (e enters)");
+    expect(frame()[rect("preview").row]).toMatch(/editing.*\(e enters\)/);
     key(char("j")); key(char("x"));
     expect(p.draft!.text).toBe(text);
     expect(p.draft).not.toBeNull();                                           // x on it refuses rather than closing it

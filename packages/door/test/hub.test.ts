@@ -126,7 +126,8 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(screen()).toContain("No [[claude-now]] page on this outline yet.");
     const page = await board.createBlock(null, "Claude · now [page::claude-now] [type::agent-status]\nStart here: the jam jars.");
     await until(() => screen().includes("Start here: the jam jars."), "the page, once it exists");
-    expect(screen()).toContain("Claude · now · pinned [[claude-now]]");
+    expect(screen()).toContain("pinned [[claude-now]]");
+    expect(screen()).toContain("Claude · now");
     const fresh = (await board.get(page.id))!;
     await board.update(page.id, fresh.text.replace("the jam jars", "the bread tins"), fresh.revision!);
     await until(() => screen().includes("Start here: the bread tins."), "the edit, live");

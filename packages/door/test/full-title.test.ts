@@ -1,4 +1,4 @@
-// PIE-815: a note's whole title reads in its reader's header, wrapped, never cut; the border stays one line, ends in …,
+// PIE-815/917: a note's whole title reads in its reader's header, wrapped, never cut; the border identifies the tile,
 // and says the title whole in the status line when the person's keys come to the tile. Scratch outline, made-up titles.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -28,7 +28,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
   }, 30_000);
   afterAll(async () => { app?.quit(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
-  for (const cols of [80, 160]) test(`at ${cols} columns the header reads every word of a 30-word question; the border ends in …`, async () => {
+  for (const cols of [80, 160]) test(`at ${cols} columns the header reads every word of a 30-word question; the border keeps its short Work ID`, async () => {
     const term = { info: { cols, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
@@ -40,7 +40,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     const lines = () => (desk.render(D().ctx).lines as string[]).map(plain);
     await until(() => lines().some(l => l.includes("PLOT-007 ·")), "the header drawn");
     const all = lines(), rect = D().rectOf(r());
-    // The header's title row (under the border, which says the title too).
+    // The header owns the full title; the frame keeps only the short Work ID.
     const at = all.findIndex((l, i) => i > rect.row && /PLOT-007 · When the allotment/.test(l));
     expect(at).toBeGreaterThan(rect.row);
     // The title's rows, read back inside the reader's box: every word, in order, none cut.
@@ -48,8 +48,9 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     const joined = rows.join(" ").replace(/\s+/g, " ");
     expect(joined).toContain(`PLOT-007 · ${QUESTION}`);
     expect(joined).not.toContain("…");
-    // The border, one line, says it's cut.
-    expect(all[rect.row]).toContain("…");
+    // The border leaves the full question to the header.
+    expect(all[rect.row]).toContain("PLOT-007");
+    expect(all[rect.row]).not.toContain("When the allotment");
     // The keys come to the reader: the whole title in the status line.
     await D().dispatch.act({ action: "tile.focus", args: {}, tile: "reader" }, { kind: "user" });
     expect((app as any).message).toBe(`PLOT-007 · ${QUESTION}`);
@@ -64,6 +65,52 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     const titleAfter = r().render(300, 40, true, desk).lines[1]!;
     expect(plain(titleAfter)).toContain("[+]");
     expect(titleAfter).toStartWith(titleBefore.slice(0, titleBefore.indexOf(" · ")));
+    await D().dispatch.press("edit", {}, "reader");
+    await until(() => !!r().surface.draft, "the editor covers the header");
+    expect(lines()[rect.row]).toContain("editing");
+    D().dispose(); app.quit();
+  }, 30_000);
+
+  for (const sized of [false, true]) for (const tile of [
+    { kind: "reader", mode: "follows" },
+    { kind: "preview", source: "tile:detail" },
+    { kind: "reader", mode: "held" },
+    { kind: "reader", mode: "held", name: "research-notes-for-the-next-planning-session", cols: 60 },
+    { kind: "welcome.detail", source: "tile:welcome" },
+    { kind: "welcome.preview", source: "tile:detail" },
+    { kind: "river.column" },
+  ]) test(`${tile.kind} ${"mode" in tile ? tile.mode : ""}: one normal-width title at ${"cols" in tile ? tile.cols : 120} columns with sizing ${sized} (PIE-917)`, async () => {
+    const short = await board.createBlock(null, "The orchard gate\n\nBring the spare key.");
+    let key: (k: any) => void = () => {};
+    const term = { info: { cols: "cols" in tile ? tile.cols : 120, rows: 40, cellW: 9, cellH: 16, kitty: true, sized }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    const name = "name" in tile ? tile.name : "reader";
+    const spec = { t: "leaf", ...tile, name, ...(tile.kind === "river.column" ? { source: `block:${short.id}` } : {}) };
+    desk = new Desk({ name: "once", title: "once", layout: { focus: name, root: spec } } as any);
+    app.push(desk);
+    const reader = D().pane(name) as ReaderPane;
+    if (tile.kind !== "river.column") reader.show(short, desk);
+    await until(() => (desk.render(D().ctx).lines as string[]).map(plain).some(l => l.includes("Bring the spare key.")), "the note drawn");
+    if (tile.kind === "welcome.preview") await until(() => plain(reader.surface.render(100, 30, reader.host(desk)).lines[0]!).includes("top level"), "breadcrumb");
+    const all = (desk.render(D().ctx).lines as string[]).map(plain);
+    if ("cols" in tile) expect(all[0]).toContain("held");
+    expect(all.join("\n").match(/The orchard gate/g)?.length).toBe(1);
+    const titleRow = all.findIndex(l => l.includes("The orchard gate"));
+    expect(all[titleRow + 1]).toContain("[comment]");
+    if (tile.kind === "welcome.preview") {
+      expect(all.join("\n")).toContain("top level");
+      expect(all.join("\n")).toContain("read here");
+    }
+    if ("cols" in tile) {
+      const x = all[0]!.indexOf("held") + 1;
+      key({ kind: "mouse", action: "down", button: 0, x, y: 0 });
+      key({ kind: "mouse", action: "up", button: 0, x, y: 0 });
+      expect(D().overlaid()).toBe(true);
+      key({ kind: "esc" });
+      await D().dispatch.press("edit", {}, name);
+      expect(plain((desk.render(D().ctx).lines as string[])[0]!)).toContain("editing");
+    }
     D().dispose(); app.quit();
   }, 30_000);
 });
