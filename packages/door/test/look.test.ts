@@ -590,12 +590,12 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       const again = links();
       expect(again.map(x => gapOf(x)).sort()).toEqual([gapOf(again.find(x => !x.p.instanceLook)!), 2].sort());
       expect(again.filter(x => x.p.instanceLook?.["list.gap"] === "2")).toHaveLength(1);
-      // This list: the reader's [ ] on the Ground list; the inspector offers this list and saves onto its heading.
+      // This list: the reader's ( ) on the Ground list; the inspector offers this list and saves onto its heading.
       const reader = () => [...desk.panes.values()].find((p: any) => p.surface && p.kind !== "backlinks") as any;
       await act("tune.aim", { tile: "detail" }).catch(() => {});
       desk.run("tile.focus", {}, "detail");
       d.lines();
-      for (let i = 0; i < 40 && reader().surface.listAt()?.first !== 6; i++) { d.key({ kind: "char", ch: "]" }); await Bun.sleep(5); d.lines(); }
+      for (let i = 0; i < 40 && reader().surface.listAt()?.first !== 6; i++) { d.key({ kind: "char", ch: ")" }); await Bun.sleep(5); d.lines(); }
       expect(reader().surface.listAt()).toMatchObject({ target: `list:${garden.id}:5`, first: 6 });
       const gap = (x: string, y: string) => d.where(y).y - d.where(x).y;
       const climbers = gap("runner beans", "sweet peas"), ground = gap("clover", "thyme");

@@ -30,7 +30,7 @@ export interface EditFrame {
    * the same body renderer every reader uses). With it the frame offers the preview (ctrl+p, or its control).
    * `pending`: something in it (an embed) is still being read, so it is drawn again on the redraw its answer brings.
    */
-  preview?: (text: string, w: number, links: LinkTarget[]) => string[] | { lines: string[]; links: LinkRange[]; pending?: boolean; placements?: Placement[]; source?: number[] };
+  preview?: (text: string, w: number, links: LinkTarget[]) => { lines: string[]; links: LinkRange[]; pending?: boolean; placements?: Placement[]; source: number[] };
   /**
    * The host follows a link: ctrl+l on the one the cursor is on, a click on one in the preview (PIE-592). Without it
    * the preview's links are only drawn.
@@ -131,8 +131,8 @@ function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: num
   const text = d.text, pw = Math.max(1, w - 2), hit = previewCache.get(d), now = Date.now();
   let shown = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 && !hit.pending ? hit : null;
   if (!shown) {
-    const links: LinkTarget[] = [], r = render(text, pw, links), doc = Array.isArray(r) ? { lines: r, links: [] } : r;
-    shown = { source: Array.isArray(r) ? [] : r.source ?? [], text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !Array.isArray(r) && !!r.pending, placements: Array.isArray(r) ? [] : r.placements ?? [] };
+    const links: LinkTarget[] = [], doc = render(text, pw, links);
+    shown = { source: doc.source, text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !!doc.pending, placements: doc.placements ?? [] };
     previewCache.set(d, shown);
   }
   const room = Math.max(0, h - 1), body = shown.body, last = Math.max(0, body.length - room);

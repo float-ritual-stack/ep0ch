@@ -201,12 +201,12 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
   });
   test("the edit frame says where the text is and where its preview control is", () => {
     const d = at_end("- a");
-    const lines = renderEditor(d, { title: "comment · Lantern", status: ["ok"], preview: t => [`preview of ${t}`] }, 60, 12);
+    const lines = renderEditor(d, { title: "comment · Lantern", status: ["ok"], preview: t => ({ lines: [`preview of ${t}`], links: [], source: [0] }) }, 60, 12);
     expect(d.frame?.row).toBe(3);
     const ctl = d.frame!.controls[0]!;
     expect(cellsOf(lines[ctl.row]!).slice(ctl.from, ctl.to).join("")).toContain("preview");
     void DRAFT_ACTIONS.run("draft.preview", {}, d, USER);
-    const shown = renderEditor(d, { title: "comment · Lantern", status: ["ok"], preview: t => [`preview of ${t}`] }, 60, 12).map(l => cellsOf(l).join(""));
+    const shown = renderEditor(d, { title: "comment · Lantern", status: ["ok"], preview: t => ({ lines: [`preview of ${t}`], links: [], source: [0] }) }, 60, 12).map(l => cellsOf(l).join(""));
     expect(shown.some(l => l.includes("preview of - a"))).toBe(true);
     expect(editHint(d, { save: "send" })).toContain("tab indent");
   });

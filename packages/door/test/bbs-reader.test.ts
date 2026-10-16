@@ -33,7 +33,7 @@ describe("a host's own header over the surface, without a service", () => {
     s.show(note as any, h);
     const lines = s.render(80, 20, h).lines.map(plain);
     expect(lines.slice(0, 3).map(l => l.trim())).toEqual(["Date: today", "From: you", "Subj: Seed swap"]);
-    const row = lines.findIndex(l => l.startsWith("related"));
+    const row = lines.findIndex(l => l.trimStart().startsWith("related"));
     expect(row).toBe(3);
     s.key(char("]"), h);
     expect(s.describeElements()[0]).toMatchObject({ kind: "link", current: true });
@@ -99,7 +99,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   test("the BBS header stands in for the surface's title rows: To from to::, From, Subj once, Conf, Stat with properties and comments", async () => {
-    await open();
+    const r = await open();
     await shows("Conf: Allotment society");
     await shows("Reply: 1");
     const t = text();
@@ -113,7 +113,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(t).toContain("Bring the kettle to the hut.");
     expect(t).not.toContain("[season::autumn]");
     expect(t).toContain("n next · p prev");
-    expect(t).toContain("t thread");
+    expect(r.surface.hint()).toContain("t thread");
   }, 20_000);
 
   test("links: [ ] steps to one (the ruler under its block), ⏎ opens it as the next reader, q comes back", async () => {

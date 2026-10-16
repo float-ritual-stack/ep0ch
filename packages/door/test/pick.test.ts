@@ -169,7 +169,7 @@ describe("ctrl+t and [insert] in a reader's edit (draft.pick)", () => {
 
   test("the edit's title row offers [insert] beside [preview]; a click on it runs the host's pick", () => {
     const d = new Draft("n1", 1, "Shed list");
-    const top = renderEditor(d, { title: "editing · Shed list", status: [], preview: () => [], pick: true }, 70, 10)[0]!;
+    const top = renderEditor(d, { title: "editing · Shed list", status: [], preview: () => ({ lines: [], links: [], source: [] }), pick: true }, 70, 10)[0]!;
     expect(top).toContain("[insert]");
     expect(top).toContain("[preview]");
     const ctl = d.frame!.controls.find(c => c.action === "pick")!;
@@ -177,7 +177,7 @@ describe("ctrl+t and [insert] in a reader's edit (draft.pick)", () => {
     expect(editorClick(d, ctl.from + 1, 0, false, USER, { pick: () => picked++ })).toBe(true);
     expect(picked).toBe(1);
     // A narrow frame keeps ctrl+t and drops the control.
-    renderEditor(d, { title: "editing", status: [], preview: () => [], pick: true }, 44, 10);
+    renderEditor(d, { title: "editing", status: [], preview: () => ({ lines: [], links: [], source: [] }), pick: true }, 44, 10);
     expect(d.frame!.controls.map(c => c.action)).toEqual(["preview"]);
   });
 });

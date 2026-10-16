@@ -632,7 +632,7 @@ export class NoteSurface {
     const d = this.drawn, m = this.msg;
     if (!d || !m) return null;
     const cur = this.elems.find(e => e.key === this.cur);
-    const line = d.doc.source[cur ? cur.row - d.top : this.scroll];
+    const line = d.doc.source[cur ? cur.row - d.top : this.readingRows()?.[0] ?? this.scroll];
     if (line === undefined) return null;
     const b = componentBlocks(this.foldsIn(m).text.split("\n")).find(c => c.name === "box" && c.attrs !== undefined && line > c.start && line < c.end);
     return b ? { attrs: b.attrs!, line: b.start } : null;
@@ -647,7 +647,7 @@ export class NoteSurface {
     const d = this.drawn, m = this.msg;
     if (!d || !m) return null;
     const cur = this.elems.find(e => e.key === this.cur);
-    const at = d.doc.source[cur ? cur.row - d.top : this.scroll];
+    const at = d.doc.source[cur ? cur.row - d.top : this.readingRows()?.[0] ?? this.scroll];
     if (at === undefined) return null;
     const { text, lines } = this.foldsIn(m), body = text.split("\n");
     // In a list; else on what owns one (its section's heading, or its lead-in line): the list below it.
@@ -1680,7 +1680,8 @@ export class NoteSurface {
     });
     if (reading && readingRuler() && !this.printed && room > 0 && (reading[1] <= this.scroll || reading[0] >= this.scroll + room)) {
       const above = reading[1] <= this.scroll;
-      const row = above ? top - 1 : Math.min(lines.length - 1, top + room - 1);
+      // The separator has no body hit targets; the marker must never hide an active link or control.
+      const row = top - 1;
       lines[row] = dim(pad(`reading line ${above ? "↑" : "↓"} ${this.readingSourceLine() + 1}`, w));
     }
     if (mcols) this.drawMargin(lines, laid, top, room, bodyW, mcols);
@@ -3746,7 +3747,7 @@ export class NoteSurface {
     const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : 0;
     const to = k.kind === "home" ? "top" : k.kind === "end" || c === "G" ? "end" : undefined;
     if (!by && !to) return false;
-    if (this.draft) {
+    if (!this.replyParent && (this.draft || this.session?.composer)) {
       void this.runKey("draft.scroll", { by: to === "top" ? -1e9 : to === "end" ? 1e9 : by }, host);
     } else if (this.scrolls()) void this.runKey("scroll", to ? { to } : { by }, host);
     else return false;
@@ -3850,11 +3851,6 @@ export class NoteSurface {
     return around.findLast(p => p.kind === "heading") ?? around.at(-1) ?? null;
   }
 
-  /**
-   * A click in the reader, at column `x` and row `y` of what `render` returned, that isn't on a link: on a
-   * heading, or on a list item's mark, it folds or unfolds it. False when the click wasn't on one.
-   */
-
   /** The folds for `peek`: how many fold points, which are folded, and the one the keys selected. */
   private describeFolds(m: Msg) {
     const points = this.foldsIn(m).points, sel = points.find(p => p.key === this.foldSel);
@@ -3933,13 +3929,16 @@ export class NoteSurface {
       this.scroll = by > 0 ? Math.min(rows[1] - 1, this.scroll + d.room) : Math.max(rows[0], this.scroll - d.room);
       return;
     }
+    const sourceLines = this.msg!.text.split("\n");
     let row = visible ? (by > 0 ? rows[1] : rows[0] - 1) : this.scroll;
     while (row >= 0 && row < d.doc.source.length) {
       const source = d.doc.source[row]!, line = d.lines[source];
-      if (line !== undefined && this.msg!.text.split("\n")[line]?.trim()) {
+      if (line !== undefined && sourceLines[line]?.trim()) {
         this.letGo(); this.foldSel = null;
         this.readingLine(line);
         this.revealReading();
+        const block = this.readingRows();
+        if (by < 0 && visible && block && block[1] - block[0] > d.room) this.scroll = Math.max(block[0], block[1] - d.room);
         return;
       }
       row += by;
@@ -6829,9 +6828,9 @@ export const imagePlacements = (images: readonly DocImage[], col: number, cellW:
  */
 export function draftPreview(text: string, w: number, src: Source | null = null): string[] { return draftPreviewDoc(text, w, src).lines; }
 /** `draftPreview` with where its links are drawn (PIE-592): their targets land in `links`, by `.links`' `n`. */
-export function draftPreviewDoc(text: string, w: number, src: Source | null = null, links: LinkTarget[] = []): { lines: string[]; links: LinkRange[] } {
+export function draftPreviewDoc(text: string, w: number, src: Source | null = null, links: LinkTarget[] = []): { lines: string[]; links: LinkRange[]; source: number[] } {
   const doc = renderDoc(presentLinks(text, false, src, text, links), { width: Math.max(10, w), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src), headings: headingStylesOf(src) });
-  return { lines: doc.lines, links: doc.links };
+  return { lines: doc.lines, links: doc.links, source: doc.source };
 }
 
 /** The proposal `proposal.apply` or `proposal.dismiss` acts on: `id`, else the one whose embed or control is the current element, else the open proposal shown. */

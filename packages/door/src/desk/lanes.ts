@@ -9,7 +9,7 @@ import type { Canvas, Rect } from "../canvas";
 import { byOf, recordedActorId, USER, type Actor, type Change, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
-import { armsEdit, draftPreview, leaveSaid, sessionStart } from "../surface/note";
+import { armsEdit, draftPreviewDoc, leaveSaid, sessionStart } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { bg, C, chip, ellipsize, fg, pad, paint, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -20,7 +20,7 @@ import { renamedPagesNote, type PageRename } from "@ep0ch/outline-core/protocol"
 import { clamp, sideways, SidewaysWheel, wheelRows, type RowPress } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
-import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
+import { editHint, editorClick, openInEditor, renderEditor, wheelTarget, writtenBy } from "../surface/editor";
 import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf } from "../surface/completer";
 import { copyOnSelect } from "../surface/selection";
@@ -250,7 +250,7 @@ export class Lanes implements SourceModel {
       // unsent (composer.leave: never created, n brings it back) and does what it does on the board.
       const d = this.composer.session.draft, r = this.composerAt;
       const pop = completerOf(d)?.shown ? completerOf(d) : null;
-      if (k.action === "wheel-up" || k.action === "wheel-down") { if (pop) pop.move(k.action === "wheel-down" ? 1 : -1); else void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(k.action === "wheel-down" ? 1 : -1) }, d, USER); this.host.redraw(); return true; }
+      if (k.action === "wheel-up" || k.action === "wheel-down") { if (pop) pop.move(k.action === "wheel-down" ? 1 : -1); else void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(k.action === "wheel-down" ? 1 : -1), preview: !!r && wheelTarget(d, k.x - r.col - 1, k.y - r.row - 1) === "preview" }, d, USER); this.host.redraw(); return true; }
       const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
       const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
       if (r && pop && k.action === "down" && inText && pop.click(k.y - r.row - 1)) { this.host.redraw(); return true; }
@@ -1343,7 +1343,7 @@ export class Lanes implements SourceModel {
       line(`a child note of ${titleOf(C0.parent, 60)}`, C.cyan),
       line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
-    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw) => draftPreview(t, pw), pick: true }, w, r.rows - 2);
+    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, null, links), pick: true }, w, r.rows - 2);
     this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
   }

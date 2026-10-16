@@ -320,7 +320,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-    detail: ["detail · held", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · M comments mode"],
+    detail: ["detail · held", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow", "↑↓ j k blocks"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -450,6 +450,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     asks: ["Keep writing while the answer arrives"],
     scripts: ["Seed report", "Press alt+S"],
     "one-place": ["The long row of runner beans", "Bike shed"],
+    "reading-line": ["The long row of runner beans", "Allotment notebook"],
     replies: ["Replies at the orchard", "Orchard row 1"],
     "front-matter": ["Early sowing notes", "A plan for the seed bed"],
   };
@@ -475,7 +476,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(stage).not.toContain("BBS Reader");
     // The notebook's tags are written with its properties, which the reader hides, and they still show: one row of tags
     // under the byline, before the text (PIE-880).
-    await until(() => /i \d+ properties · \[comment\]\s*█?│?[^\n]*\n[^\n]*\n[^\n]*│ #allotment #beds +█/.test(screen()), "the tag row under the byline", 5000);
+    await until(() => /i \d+ properties · \[comment\]\s*█?│?[^\n]*\n[^\n]*\n[^\n]*│ +#allotment #beds +█/.test(screen()), "the tag row under the byline", 5000);
   });
 
   test("the note section keeps home paths and approximations literal, and strikes only double tildes (PIE-899)", async () => {
@@ -624,9 +625,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(structure.surface.describeElements().find(e => e.current)?.label).not.toBe(callout.label);
     await desk.dispatch.press("scroll", { to: "top" }, "structure");
     let rows = sc.render(app).lines.map(plain);
-    const [, rect] = desk.hits.find(([id]) => desk.panes.get(id) === structure)!;
-    const x = S().stageRect.col + rect.col + 1;
     let y = rows.findIndex(l => l.includes("Gate code"));
+    const x = rows[y]!.indexOf("▾", S().stageRect.col);
     const click = (x: number, y: number) => {
       press({ kind: "mouse", action: "down", button: 0, x, y });
       press({ kind: "mouse", action: "up", button: 0, x, y });
@@ -639,6 +639,68 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(end).toBeGreaterThan(x);
     click(end, y);
     expect(structure.surface.describe().folds?.folded).not.toContain("> Gate code");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
+  test("reading a tall paragraph upward starts at its last page and keeps the same block while paging", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "reading-line" }, as: "place-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "reading-line")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    const text = `Tall bean diary\nBefore the long paragraph.\n\n${"runner beans ".repeat(800)}finalpod\n\nAfter the long paragraph.`;
+    await until(() => reader.msg?.id === seeded.notes.overscroll.id && !reader.msg.partial, "the initial reader");
+    screen();
+    const made = await board.request<{ id: string }>("create", { author: "user", text });
+    await desk.dispatch.press("open", { id: made.id }, "reader");
+    await until(() => reader.msg?.id === made.id && !reader.msg.partial, "the tall paragraph");
+    screen();
+    await desk.dispatch.press("scroll", { to: "end" }, "reader");
+    screen();
+    await desk.dispatch.press("reading.place", { line: 6 }, "reader");
+    await desk.dispatch.press("reading.step", { by: -1 }, "reader");
+    expect(screen()).toContain("finalpod");
+    const place = reader.surface.position.reading, top = reader.surface.viewport()!.top;
+    expect(text.slice(place)).toStartWith("runner beans");
+    await desk.dispatch.press("reading.step", { by: -1 }, "reader");
+    screen();
+    expect(reader.surface.position.reading).toBe(place);
+    expect(reader.surface.viewport()!.top).toBeLessThan(top);
+    await desk.dispatch.press("reading.place", { line: 6 }, "reader");
+    await desk.dispatch.press("scroll", { to: "top" }, "reader");
+    expect(screen()).toContain("reading line ↓ 6");
+    await desk.dispatch.press("reading.place", { line: 2 }, "reader");
+    await desk.dispatch.press("reading.step", { by: 1 }, "reader");
+    screen();
+    const firstPage = reader.surface.viewport()!.top;
+    await desk.dispatch.press("reading.step", { by: 1 }, "reader");
+    screen();
+    expect(reader.surface.position.reading).toBe(place);
+    expect(reader.surface.viewport()!.top).toBeGreaterThan(firstPage);
+    await desk.dispatch.press("open", { id: seeded.notes.overscroll.id }, "reader");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
+  test("an embed growing above the reading line keeps the same source and screen row", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "reading-line" }, as: "place-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "reading-line")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => reader.msg?.id === seeded.notes.overscroll.id && !reader.msg.partial, "the initial reader");
+    screen();
+    const embedded = await board.createBlock(null, "Seed ledger\nTwo seeds.");
+    const note = await board.createBlock(null, `The ledger below\n!((${embedded.id}))\n\nReading here after the ledger.\n${"A later row.\n".repeat(50)}`);
+    await desk.dispatch.press("open", { id: note.id }, "reader");
+    await until(() => screen().includes("Two seeds."), "the embed read");
+    await desk.dispatch.press("reading.place", { line: 4 }, "reader");
+    reader.surface.scrollToLine(4);
+    const row = () => sc.render(app).lines.map(plain).findIndex(l => l.includes("Reading here after the ledger."));
+    const y = row(), place = reader.surface.position.reading, total = reader.surface.viewport()!.total;
+    expect(y).toBeGreaterThan(0);
+    await board.update(embedded.id, `Seed ledger\n${"A newly loaded seed row.\n".repeat(30)}`, embedded.revision);
+    await until(() => { screen(); return reader.surface.viewport()!.total > total; }, "the embed's new height");
+    expect(reader.surface.position.reading).toBe(place);
+    expect(row()).toBe(y);
+    await desk.dispatch.press("open", { id: seeded.notes.overscroll.id }, "reader");
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   });
 
@@ -4497,7 +4559,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const reader = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes[0]; };
     const raw = () => sc.render(app).lines as string[];
     // The title rows inside the tiles (not a frame's label): the reader's is the row's first, the column's beside it.
-    const titleRows = () => raw().filter(l => plain(l).includes("│An evening on the plot"));
+    const titleRows = () => raw().filter(l => /│ *An evening on the plot/.test(plain(l)));
     const titleRow = () => titleRows()[0]!;
     // At the top the picture is in view: the header knows its hero, at step 0, and is plain.
     expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null, focus: { x: 0.85, y: 0.6 } }, on: true, mode: "first" });
@@ -4539,7 +4601,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     // The river column beside it keeps the reader's header above its own scroll, and takes the picture there too.
     const column = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes[1]; };
     await until(() => !!column().column?.showing, "the column's note", 8000);
-    const colTitle = () => (plain(titleRows()[0] ?? "").match(/│An evening on the plot/g) ?? []).length;
+    const colTitle = () => (plain(titleRows()[0] ?? "").match(/│ *An evening on the plot/g) ?? []).length;
     expect(colTitle()).toBe(2);
     expect(column().column.header.backdrop).toMatchObject({ image: "evening-beds.jpg", step: 0 });
     const coloured = () => (titleRows()[0]!.match(/\x1b\[48;2;/g) ?? []).length, before = coloured();
@@ -4559,10 +4621,10 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     // Each reader's rows start with the breadcrumb, then the title, the dim byline under it; the title is data too.
     const rows = raw().map(plain);
     // A note with a Work ID shows it first on the title line (PIE-809), and not on the byline.
-    const at = rows.findIndex(l => /│HOME-042 · A title you can find/.test(l));
+    const at = rows.findIndex(l => /│ *HOME-042 · A title you can find/.test(l));
     expect(at).toBeGreaterThan(0);
     expect(rows[at + 1]).not.toContain("HOME-042");
-    expect(rows[at - 1]).toMatch(/│(…|top level|Kitchen sink|# )/);   // the breadcrumb, once its ancestors are read
+    expect(rows[at - 1]).toMatch(/│ *(…|top level|Kitchen sink|# )/);   // the breadcrumb, once its ancestors are read
     // Where the terminal does not scale text (this one, like Herdr or tmux), the title is one bold row and the byline is the very next: no blank row.
     expect(rows[at + 1]).toMatch(/i \d+ properties/);
     expect(readers().map((p: any) => p.showing?.title ?? p.title)).toContain("A title you can find");
