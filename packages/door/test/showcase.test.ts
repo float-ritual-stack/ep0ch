@@ -2243,6 +2243,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     };
     const find = (text: string) => { const r = rows(); const y = r.findIndex(l => l.includes(text)); return { y, x: y >= 0 ? r[y]!.indexOf(text) : -1 }; };
     await until(() => cs()?.place === "floating" && !!rect(), "the floating comment drawn");
+    // The prior journey deletes comments; a held composer keeps its snapshot until it closes.
+    await stage().dispatch.press("comment.close", { discard: true }, "floating");
+    await stage().dispatch.press("open", { id: note }, "floating");
+    const threadCount = (await board.comments(note)).length;
+    await until(() => { rows(); return surf().comments?.length === threadCount; }, "the fresh comment gutter");
+    await stage().dispatch.press("passage.select", { quote: MARGIN_LINES.floating }, "floating");
+    await stage().dispatch.press("comment.write", { body: "" }, "floating");
+    await stage().dispatch.press("comment.place", { place: "floating" }, "floating");
+    rows();
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // In by a click in its text, then typed.
@@ -2310,6 +2319,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => cs()?.mode === "compose" && !!rect(), "opened again");
     expect(cs()!.float).toBeNull();
     sc.render(app);
+    // Reopening fetches comments again; their gutter changes the room the floating box has.
+    await until(() => { sc.render(app); return surf().comments?.length === threadCount; }, "the restored comment gutter");
     expect(rect(), JSON.stringify([rect(), r0, cs()!.composer!.text])).toMatchObject({ col: r0.col, cols: r0.cols });
     // As it was: the comment let go of (its put-aside text with it).
     await stage().dispatch.press("comment.close", { discard: true }, "floating");
