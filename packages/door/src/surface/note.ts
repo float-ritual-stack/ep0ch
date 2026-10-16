@@ -562,7 +562,7 @@ export { leaveSaid, propertyChange, type LeaveResult };
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
-type ReplyLinksMode = ReaderMode<SurfaceHost> & { truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[] };
+type ReplyLinksMode = ReaderMode<SurfaceHost> & { truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 /** Moving and sizing the floating composer by keys (ctrl+g, PIE-785): arrows or h j k l move it, shift with them sizes it. */
@@ -1109,8 +1109,12 @@ export class NoteSurface {
       if (mode.truncated && mode.group === "children" && data[0]?.kind === "group") data[0].note = "first 1000 replies";
       mode.rowsAt = data;
       mode.selected = Math.min(mode.selected, Math.max(0, data.length - 1));
-      const top = Math.max(0, mode.selected - rows + 4);
-      return { lines: [pad("THREAD · T full list · b links · Esc close", cols), ...data.slice(top, top + rows - 1).map((r, i) => linkRowLine(r, { cols, selected: i + top === mode.selected, focused: true }))] };
+      // The view moves only to keep the selection in it, so the row a click selected stays under the pointer for a second click.
+      mode.top = Math.max(0, Math.min(mode.top, data.length - (rows - 1)));
+      if (mode.selected < mode.top) mode.top = mode.selected;
+      else if (mode.selected > mode.top + rows - 2) mode.top = mode.selected - (rows - 2);
+      const top = mode.top;
+      return { lines: [pad(`THREAD · T full list · b links · Esc close${mode.truncated ? " · cut short" : ""}`, cols), ...data.slice(top, top + rows - 1).map((r, i) => linkRowLine(r, { cols, selected: i + top === mode.selected, focused: true }))] };
     });
     if (this.replyParent && this.draft) return this.renderSplit(w, h, host, { d: this.draft, f: this.replyFrame(host) });
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
@@ -2505,11 +2509,11 @@ export class NoteSurface {
     const out = { replies: replies.children.map(c => c.block.id), truncated: replies.truncated };
     if (actor.kind === "agent" || movedOn(host, this, m.id)) return out;
     const data: LinkData = { links: { kind: "ready", value: links }, backlinks: { kind: "ready", value: backlinks }, children: { kind: "ready", value: replies.children } };
-    if (refresh) { if (previous && this.replyLinks === previous) { previous.data = data; previous.thread = thread; previous.truncated = replies.truncated; } host.redraw(); return out; }
+    if (refresh) { if (previous && this.replyLinks === previous) { previous.data = data; previous.thread = thread; previous.truncated = replies.truncated || thread.truncated; } host.redraw(); return out; }
     const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.groups" | "note.thread.full", args: Record<string, unknown> = {}) => { void this.runKey(action, args, host); };
     const mode: ReplyLinksMode = {
       name: "replies", of: m, word: "replies", holdsKeys: true, editing: () => false, covers: () => false,
-      data, thread, unfolded: new Set(), presses: new RowPresses(), picked: false, truncated: replies.truncated,
+      data, thread, unfolded: new Set(), presses: new RowPresses(), picked: false, top: 0, truncated: replies.truncated || thread.truncated,
       selected: Math.max(0, threadRows(thread).findIndex(r => r.kind === "child" && r.thread?.here)), group: "thread", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [],
       key: k => {
         const c = ch(k);
@@ -2526,7 +2530,7 @@ export class NoteSurface {
         const r = mode.rect;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
         if (y === r.y) { run(x < r.x + 22 ? "note.thread.full" : x < r.x + 32 ? "note.thread.groups" : "note.thread.close"); return true; }
-        const i = y - r.y - 1 + Math.max(0, mode.selected - r.h + 4);
+        const i = y - r.y - 1 + mode.top;
         if (i < 0 || i >= mode.rowsAt.length) return true;
         // One rule for every list's rows (RowPresses): a click selects (the one that gave the reader the keys only does that),
         // a second on the selected row, a double click or ⏎ opens, an alt- or ctrl-click is the same open here.
@@ -7515,12 +7519,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.thread.groups": def({
     summary: "cycle the thread, outlinks and backlinks", keys: "b in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
-    run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.group = m.group === "thread" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "thread"; m.selected = m.group === "thread" ? Math.max(0, threadRows(m.thread, m.unfolded).findIndex(r => r.kind === "child" && r.thread?.here)) : 1; m.picked = false; } host.redraw(); return { group: m?.group }; },
+    run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.top = 0; m.group = m.group === "thread" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "thread"; m.selected = m.group === "thread" ? Math.max(0, threadRows(m.thread, m.unfolded).findIndex(r => r.kind === "child" && r.thread?.here)) : 1; m.picked = false; } host.redraw(); return { group: m?.group }; },
   }),
   "note.thread.open": def({
     summary: "read the selected post of the thread (a fold row opens its posts, the note you are on closes the panel)", keys: "enter, a second click on the selected row or a double click in the thread", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
     async run({ n }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
-      if (m && row?.kind === "fold") { m.unfolded.add(row.key.slice(`fold${SEP}`.length)); m.selected = m.rowsAt.indexOf(row); m.picked = true; host.redraw(); return { unfolded: row.count }; }
+      if (m && row?.kind === "fold") { m.unfolded.add(row.key.slice(`fold${SEP}`.length)); m.selected = m.rowsAt.indexOf(row); m.picked = false; m.presses.forget(); host.redraw(); return { unfolded: row.count }; }
       if (m && row?.kind === "child" && row.thread?.here) { surface.closeReplyLinks(); host.redraw(); return { opened: null }; }
       const target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.followFromDraft(target, host); return { opened: note && "id" in note ? note.id : null }; },
   }),

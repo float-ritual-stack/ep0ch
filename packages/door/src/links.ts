@@ -99,7 +99,9 @@ const answered = (m: Msg): string | null => m.props.replyto ?? m.props.replyTo ?
  */
 export async function readThread(board: Pick<SocketBoard, "get" | "queryNotes" | "facets">, note: Msg, conference = false): Promise<ThreadData> {
   const chain: Msg[] = [note];
-  for (let at = note; chain.length < THREAD_DEPTH;) {
+  let cut = false;
+  for (let at = note; ;) {
+    if (chain.length >= THREAD_DEPTH) { cut = !!answered(at); break; }
     const up = answered(at);
     const parent = up ? await board.get(up) : null;
     if (!parent || parent.deleted || chain.some(c => c.id === parent.id)) break;
@@ -111,7 +113,7 @@ export async function readThread(board: Pick<SocketBoard, "get" | "queryNotes" |
     chain: chain.map(block => ({ block })),
     levels: [[{ block: chain[0]! }], ...levels.map((l, i) => oldest(l.children.some(c => c.block.id === chain[i + 1]!.id) ? l.children : [...l.children, { block: chain[i + 1]! }]))],
     replies: oldest(replies.children),
-    truncated: replies.truncated || levels.some(l => l.truncated),
+    truncated: cut || replies.truncated || levels.some(l => l.truncated),
   };
 }
 
