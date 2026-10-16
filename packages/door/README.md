@@ -514,10 +514,34 @@ exits 1), and · for information:
    this checkout, ! a link elsewhere (with `ln -sfn …`), ✗ missing (with `ln -s …`).
 
 A checkout that isn't on `main`, has diverged, is behind with local changes, or couldn't be fetched is left
-for you, with what to do. Install never writes a database except through a migration script (it copies them first), never creates or opens an outline,
+for you, with what to do. Install never writes a database directly except through a migration script (it copies them first), never creates an outline,
 never edits Herdr's config or registry or Claude's settings, and never writes a systemd or launchd unit (it only
 asks one to restart, start or stop the host): a missing unit, a unit to change, the keys and the Claude mod are reported.
 It stops at the first failure, with the recovery. `--json` gives agents the same report or plan.
+
+Each `--apply` run writes an attributed note through the host it serves, under a **Deploys** virtual branch
+created on first use. It uses this folder's named local outline (`EP0CH_WS` or `.ep0ch`), else the host's default.
+The note records the time, machine, actor (`OUTLINER_ACTOR`, `EP0CH_AGENT`, or `.ep0ch`'s `agent`), session id when
+available, from/to commits, protocol, local result and each registered client's outcome. `--as-client` contributes
+to its caller's record rather than creating another. `[machine::install]` keeps these notes out of everyday lists;
+`ep0ch find --query "type=deploy machine=install" --json` finds them explicitly. The Deploys view sorts newest first.
+
+The view's note includes a live table to copy into the build log:
+
+```blockdown
+::graph-table
+query: type=deploy machine=install
+sort: created
+direction: desc
+limit: 5
+columns: [title, created]
+::
+```
+
+A record starts before the update and checkpoints before a migration stops the host. If the host stays stopped,
+the unfinished record remains and the install report (including JSON `notes`) says its final update could not be
+saved. A host that starts during install gets its record then. Recording failures are reported without blocking
+recovery of the stack; records require a reachable host and a served outline, and never use a separate store.
 
 At a terminal, both show progress while they work: checking the stack (the fetches among it) spins with
 what it's waiting on, and a running step's line spins with its elapsed time, the latest line of what it

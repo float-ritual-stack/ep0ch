@@ -1,7 +1,7 @@
 import { fixOutlineFiles, outlineFiles } from "./outline-files";
 // `ep0ch doctor` and `ep0ch install [--apply]` (PIE-450). The dry run (the default) prints the plan; --apply runs
-// its steps in order, each saying what it did, and stops at the first failure with the recovery. Outlines are only
-// ever copied; no outline is created; no unit, Herdr config or plugin link is changed.
+// its steps in order, each saying what it did, and stops at the first failure with the recovery. Deploy notes go
+// through the host; no outline is created; no unit, Herdr config or plugin link is changed.
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -20,6 +20,7 @@ import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { ep0ch } from "../session/place";
 import { sshBin } from "../machine";
 import { copyName, type CopyUpdate, newsWords } from "@ep0ch/outliner/extension-update";
+import { startDeployRecord } from "./deploy-record";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client]";
@@ -168,7 +169,7 @@ export async function hostReady(f: Facts, verb: "restart" | "start", was: number
 }
 
 /** What a step runs, reported through its task: what it did (`say`), its children's output, its items. */
-async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[]): Promise<void> {
+async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[], clientOutcome?: (name: string, line: string) => Promise<void>): Promise<void> {
   // `said` is what --json reports, whole; the person sees the same as a ✓ line, or (record, then show) tidied up.
   const record = (s: string) => { said.push(s); };
   const show = (line: string) => task.say(line);
@@ -187,6 +188,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         const line = r.code === 0 ? `✓ ${name}: installed; busy doors are left running until typing ends`
           : `! ${name}: ${r.err || r.out || `exit ${r.code}`}\n      run by hand: ${command}`;
         record(line); show(`    ${line}`);
+        await clientOutcome?.(name, line);
         if (r.out) { record(r.out); show(r.out); }
       }
       return;
@@ -532,6 +534,22 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   }
   const say = (s: string) => progress.line(s);
   say(`ep0ch install · ${facts.platform} · applying`);
+  let deploy: Awaited<ReturnType<typeof startDeployRecord>> | undefined;
+  let creatingRecord = false;
+  const record = async (write: () => Promise<unknown>) => {
+    try { await write(); }
+    catch (e) {
+      const warning = `deploy record could not be saved through ${facts.host.socket}: ${(e as Error).message}`;
+      plan.notes.push(warning);
+      say(`    ! ${warning}`);
+    }
+  };
+  const beginRecord = () => record(async () => {
+    deploy = await startDeployRecord(facts, env, io.cwd ?? process.cwd(), options.now, () => { creatingRecord = true; });
+    say(`    deploy record: ${deploy.id}`);
+    if (json) plan.notes.push(`deploy record: ((${deploy.id}))`);
+  });
+  if (!args.includes("--as-client") && facts.host.running) await beginRecord();
   const results: (Step & { done?: string[]; error?: string; recover?: string })[] = [];
   let current = facts;
   for (const [i, planned] of plan.steps.entries()) {
@@ -562,13 +580,17 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     const task = progress.task({ lead: `${i + 1}`, mark: MARK.do, title: step.title });
     const done: string[] = [];
     try {
-      await execute(step, current, env, task, done);
+      if (step.id === "schema" && deploy) await record(() => deploy!.local(`running: ${step.title}; final outcome requires the host to return`));
+      if (step.id === "clients" && deploy) await record(() => deploy!.local("local steps complete; installing clients"));
+      await execute(step, current, env, task, done, deploy ? (name, line) => record(() => deploy!.client(name, line)) : undefined);
+      if (step.id === "host" && !creatingRecord && !args.includes("--as-client")) await beginRecord();
       task.end(true);
       results.push({ ...step, done });
     } catch (e) {
       task.end(false);
       const error = (e as Error).message, recover = e instanceof StepFailed || e instanceof LinkFailed ? e.recover : "rerun ep0ch install to see the plan";
       results.push({ ...step, done, error, recover });
+      if (deploy) await record(() => deploy!.local(`failed at ${step.title}: ${error}; ${recover}`));
       if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: false, steps: results, notes: plan.notes }, null, 2));
       else io.err(`    ✗ ${error}\n    recover: ${recover}\n    stopped: nothing after step ${i + 1} ran`);
       status?.report({ state: "error", msg: `step ${i + 1} (${step.title}) failed: ${error}` });
@@ -577,6 +599,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   }
   const waiting = results.filter(s => s.status === "manual");
   const clientBlocked = args.includes("--as-client") && results.some(s => s.id === "repo" && (s.status === "manual" || s.unchecked));
+  if (deploy) await record(() => deploy!.local(waiting.length ? `finished; needs attention: ${waiting.map(s => `${s.title}: ${s.why}`).join("; ")}` : "finished"));
   status?.report({ state: "done", msg: results.some(s => s.done) ? `installed${waiting.length ? `; ${waiting.length} step${waiting.length === 1 ? "" : "s"} left for you` : ""}` : "nothing to do" });
   if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: !clientBlocked, steps: results, notes: plan.notes }, null, 2));
   else {

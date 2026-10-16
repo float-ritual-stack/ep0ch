@@ -72,7 +72,13 @@ what needs him or what changed; if nothing changed and nothing's wrong, one line
    include `~/.bun/bin`, `~/.local/bin` and `/opt/homebrew/bin`).
 4. **float-2 health:** load; disk free (warn under 3G, and find who's filling it); the outline host, the publishers,
    the MCP gateway and the backup timer active; `ep0ch echo status` (a stale tosser exits 1).
-5. **main's CI:** `gh run list --branch main --limit 3 --json conclusion,name,headSha` in `~/projects/ep0ch`. A failed
+5. **Deploys:** read `ep0ch find --ws pie --query "type=deploy machine=install created >= -40m" --json`
+   on float-2. Compare the records' Who and Session with your actor and session and the installs you ran since the
+   last check-in. Flag any deploy you did not run (including one by another session with the same persona), link
+   its note, and put it in the build log. An unfinished record needs its install output checked; it is not proof
+   that the install finished. The Deploys view is newest first; the live table in its note can be copied into the
+   build log to show the last five.
+6. **main's CI:** `gh run list --branch main --limit 3 --json conclusion,name,headSha` in `~/projects/ep0ch`. A failed
    run on main gets fixed (a ticket and an agent, or a small PR), never left red. It gets at most **one** rerun
    (`gh run rerun <id> --failed`); a second red means the diagnosing-bugs method (root cause and a reproduction
    before any fix), not another rerun.
