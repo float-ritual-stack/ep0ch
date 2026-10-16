@@ -3824,7 +3824,8 @@ export class NoteSurface {
     const vis = this.visibleFolds(this.msg!);
     if (!vis.length) return false;
     const rows = this.readingRows();
-    const visible = !!rows && rows[1] > this.scroll && rows[0] < this.scroll + (this.drawn?.room ?? 0);
+    // A river digest draws the whole note; its host owns scrolling, not this surface's viewport.
+    const visible = this.digesting || !!rows && rows[1] > this.scroll && rows[0] < this.scroll + (this.drawn?.room ?? 0);
     const line = visible ? this.readingSourceLine() : this.position.view?.line ?? this.readingSourceLine();
     const lines = this.foldsIn(this.msg!).lines;
     const p = (d === 1 ? vis.find(p => (lines[p.line] ?? 0) >= line + (visible ? 1 : 0)) : vis.findLast(p => (lines[p.line] ?? 0) <= line - (visible ? 1 : 0))) ?? (d === 1 ? vis[0] : vis.at(-1));

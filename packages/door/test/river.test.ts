@@ -512,7 +512,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const s = paneOf(r).surface as any;
     key(char("("));
     expect(s.describe().folds.selected).toBeTruthy();
-    while (!String(s.describe().folds.selected).includes("Beds")) key(char(")"));
+    for (let n = 0; n < s.describe().folds.points && !String(s.describe().folds.selected).includes("Beds"); n++) key(char(")"));
+    expect(s.describe().folds.selected).toContain("Beds");
     key(char("f"));
     await until(() => !s.folded.size, "unfolded by f");
     expect(screen()).toContain("Carrots by the shed");
