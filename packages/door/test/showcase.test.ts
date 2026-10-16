@@ -303,7 +303,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-    detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
+    detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · M comments mode"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -368,7 +368,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The build log: its two open calls under Needs you, the decided ones drawn as their marks.
     steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
     "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
-    "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
+    "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "shown (M)"],
     // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
     marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
     // The pump rota's margin: its current comment and the kept one's TL;DR face; the seen one is off the margin.
@@ -1113,7 +1113,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const plan = RECENT_FILES()[0]!;
     const before = readFileSync(plan.file, "utf8");
     // The seeded thread is read for the Resource and placed in its text (the note has a header before the file's own text).
-    await until(() => screen().includes("1 open comment"), "the seeded thread counted", 8000);
+    await until(() => /1(?: comments?)? · shown \(M\)/.test(screen()), "the seeded thread counted", 8000);
     const threads = await app.act({ action: "threads", tile, as: "test-agent" }) as any;
     expect(threads.threads).toHaveLength(1);
     // An agent comments on a passage of the rendered Markdown: the quote is the source's own (`**Bed 2:**` keeps its asterisks).
@@ -1158,7 +1158,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Highlight: the kit's passage action, written as ext:marginalia at the agent's request.
     const hl = await act("plan", { action: "ext.marginalia.highlight", quote: "soil pH near 6.5", color: "good" });
     expect(hl.written).toHaveLength(1);
-    await waitFor(async () => (await threads()).length === 3, "the highlight listed", 5000);
+    await waitFor(async () => (await threads()).some(t => t.quote === "soil pH near 6.5"), "the highlight listed", 5000);
     // A repeated passage is refused with why; near= says which.
     await expect(act("plan", { action: "ext.marginalia.define", quote: "cold frame" })).rejects.toThrow(/2 times/);
     const define = await act("plan", { action: "ext.marginalia.define", quote: "soil pH", near: plan.text.lastIndexOf("soil pH") });
@@ -1221,13 +1221,58 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
+  test("comment folds leave only their gutter controls (PIE-910)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as Desk; };
+    const threads = await board.comments(seeded.notes.marginalia.id);
+    const whole = threads.find(c => c.body === "Keep this plan beside the seed trays.")!;
+    const passage = threads.find(c => c.body === "Why ten days, not a week?")!;
+    await until(() => screen().includes("question · "), "the comments loaded", 8000);
+    const act = (action: string, args: Record<string, unknown>) => stage().dispatch.act({ action, args, tile: "plan" }, { kind: "agent", id: "test-agent" });
+    for (const thread of [passage, whole]) {
+      await act("thread.toggle", { thread: thread.id, expand: true });
+      expect(screen()).toContain(thread.body);
+      await act("thread.toggle", { thread: thread.id, expand: false });
+      expect(screen()).not.toContain(thread === passage ? "Try the lid half open" : thread.body);
+      expect(screen()).toContain("[+]");
+    }
+    await act("thread.toggle", { thread: whole.id, expand: true });
+    expect(screen()).toContain(whole.body);
+    await stage().dispatch.press("select", { text: "Sow the basil" }, "plan");
+    await act("margin", { mode: "off" });
+    expect(await stage().dispatch.press("select.copy", {}, "plan")).toMatchObject({ text: "Sow the basil" });
+    await stage().dispatch.press("select.clear", {}, "plan");
+    await stage().dispatch.press("select", { text: "Move the leeks to the cold frame in the second week of March, and harden them off for ten days.\nSow the basil only once the nights stay above ten degrees." }, "plan");
+    const selectedSource = await stage().dispatch.press("select.copy", { source: true }, "plan");
+    await act("thread.toggle", { thread: passage.id, expand: true });
+    expect(await stage().dispatch.press("select.copy", { source: true }, "plan")).toEqual(selectedSource);
+    await stage().dispatch.press("select.clear", {}, "plan");
+    await act("thread.toggle", { thread: passage.id, expand: false });
+    expect(screen()).not.toContain(whole.body);
+    expect(screen()).not.toContain("[Reply]");
+    expect(screen()).toContain("marks (M)");
+    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("Greenhouse plan") && l.includes("[+]"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const x = lines[y]!.indexOf("[+]");
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => screen().includes(whole.body), "only the clicked whole-note card opens");
+    expect(screen()).not.toContain(passage.body);
+    expect(screen()).not.toContain("Try the lid half open");
+    await act("margin", { mode: "trim" });
+    expect(screen()).toContain(whole.body);
+    for (const thread of [passage, whole]) await act("thread.toggle", { thread: thread.id, expand: true });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   // PIE-873: marks only is found where the comments are counted, and kept: a click on the byline's count cycles the margin
   // (as M), off reads "marks only (M)" there, and the mode goes with the tile's spec and to a reader opened from it.
   test("marks only (PIE-873): a click on the comment count cycles the margin to marks only, said there; kept in the tile's spec and taken by a reader opened from it", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as any; };
-    await until(() => screen().includes("question · ") && / open comments? \(m\)/.test(screen()), "the plan with its cards and count", 8000);
+    await until(() => screen().includes("question · ") && / comments? · shown \(M\)/.test(screen()), "the plan with its cards and count", 8000);
     const planId = [...stage().panes.keys()].find((id: number) => stage().nameOf(id) === "plan") as number;
     const plan = () => stage().panes.get(planId) as ReaderPane;
     expect(plan().surface.marginMode).toBe("trim");
@@ -1237,10 +1282,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       const x = ls[y]!.search(re) + 3;
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     };
-    click(/■ \d+ open comments? \(m\)/);
+    click(/■ \d+( comments?)? · (shown|full) \(M\)/);
     await until(() => plan().surface.marginMode === "full", "cards whole");
-    click(/■ \d+ open comments? \(m\)/);
-    await until(() => /■ \d+( comments?)? · marks only \(M\)/.test(screen()), "the count says marks only");
+    click(/■ \d+( comments?)? · (shown|full) \(M\)/);
+    await until(() => /■ \d+( comments?)? · marks \(M\)/.test(screen()), "the count says marks only");
     expect(plan().surface.marginMode).toBe("off");
     expect(screen()).not.toContain("question · ");
     // Kept with the tile: its spec (what a layout, a handover and a restart save) says so, and a tile made from it reads the same.
@@ -1254,7 +1299,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((stage().panes.get(opened) as ReaderPane).surface.marginMode).toBe("off");
     await stage().dispatch.press("tile.close", {}, stage().nameOf(opened));
     // As it was, for the tests after.
-    click(/■ \d+( comments?)? · marks only \(M\)/);
+    click(/■ \d+( comments?)? · marks \(M\)/);
     await until(() => plan().surface.marginMode === "trim", "a row each again");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
@@ -1288,7 +1333,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: true }, "rota");
     const rows = () => sc.render(app).lines.map(plain);
     await until(() => rows().some(l => l.includes("[No TL;DR]")), "the thread expanded, its TL;DR controls");
-    expect(rows().join("\n").split("Sewing machine oil on the hose reel").length - 1).toBe(1);
+    expect(rows().join("\n").split("TL;DR Sewing").length - 1).toBe(1);
     const y = rows().findIndex(l => l.includes("[No TL;DR]")), x = rows()[y]!.indexOf("[No TL;DR]") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     for (let i = 0; i < 80 && (await oil()).tldr; i++) await Bun.sleep(100);
@@ -1301,7 +1346,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // As it was: the seed's TL;DR back (the person's own, written), for the tests after.
     await board.tldr((await oil()).id, USER, "Sewing machine oil on the hose reel, each spring.");
     if (cs()) await stage().dispatch.press("comment.close", {}, "rota");
-    await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: false }, "rota");
+    await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: true }, "rota");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
@@ -2067,7 +2112,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The box is under its line, in the note: the line is still drawn above it, the next line below it.
     at = find("two new sheets of felt");
     let r = rows();
-    const title = r.findIndex((l, i) => i > at.y && l.includes("» comment · ctrl+s saves · esc cancels"));
+    const title = r.findIndex((l, i) => i > at.y && l.includes("» comment · ctrl+s saves") && l.includes("[inline ▸]"));
     expect(title - at.y, r.join("\n")).toBeLessThanOrEqual(3);
     expect(r.findIndex((l, i) => i > title && l.includes("The rain barrel overflows"))).toBeGreaterThan(title);
     // An agent never takes the person's composer.
@@ -2117,7 +2162,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => { const a = find("two new sheets of felt"); return a.y > 0 && rows().slice(a.y + 1, a.y + 12).some(l => l.includes("Buy a second water butt")); }, "the thread under its passage, the embed drawn", 8000);
     at = find("two new sheets of felt");
     r = rows().slice(at.y + 1, at.y + 12);
-    expect(r[0]).toContain("┌─ ■ user");
+    expect(r[0]).toContain("┌─ comment · ■ user");
     expect(r.join("\n")).toContain("Felt is very cheap at the depot, see Greenhouse meeting");
     expect(r.join("\n")).not.toContain(`((${meeting}`);
     // Again, in other places: floating by the setting, then split by ctrl+o, then a popup by a click on its chip.

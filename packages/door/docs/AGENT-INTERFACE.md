@@ -587,6 +587,7 @@ at, and what it does while they're typing:
 | `tile.zoom` | only the focused tile, never one that hides it | refused otherwise |
 | `tile.type` | no | refused for the terminal they're in |
 | `view.scrollTo` | no: a reader's view only (not its `[ ]` position or selection) | refused on their edit |
+| `margin`, `thread.toggle` | no: focus, selection and keys stay with the person | allowed, attributed and said on screen; `margin mode=off` hides all cards, `thread.toggle thread=<id> expand=true` opens just that thread while in marks mode |
 | `block.mark`, `block.unmark`, `block.tint` | no | allowed |
 | `tree.depth` | no: it changes only what the tree draws | allowed |
 | `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row (folding away the rows it is in is refused); an open lands where the tree's opens go | allowed |

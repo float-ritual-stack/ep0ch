@@ -167,9 +167,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private dragAt: number | null = null;
   /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
   /** A press in a reader, until it comes up: where the reader's content was drawn (`col`, `row`, `cols`: PIE-673's rect). */
-  private pressed: { pane: ReaderPane; col: number; row: number; cols: number; fresh: boolean; focusing?: boolean } | null = null;
-  /** Where a drag or a release lands in the pressed reader: its column held to the content (a gutter is its nearest cell), its row free (past an edge scrolls). */
-  private pressedAt(p: { col: number; row: number; cols: number }, k: { x: number; y: number }) { return { x: Math.max(0, Math.min(p.cols - 1, k.x - p.col)), y: k.y - p.row }; }
+  private pressed: { gutter?: Rect; pane: ReaderPane; col: number; row: number; cols: number; fresh: boolean; focusing?: boolean } | null = null;
+  /** Where a drag or a release lands in the pressed reader: padding held to the nearest content cell, the gutter kept separate, its row free (past an edge scrolls). */
+  private pressedAt(p: { gutter?: Rect; col: number; row: number; cols: number }, k: { x: number; y: number }) {
+    if (p.gutter && k.x >= p.gutter.col && k.x < p.gutter.col + p.gutter.cols)
+      return { x: k.x - p.gutter.col - p.gutter.cols, y: k.y - p.row };
+    return { x: Math.max(0, Math.min(p.cols - 1, k.x - p.col)), y: k.y - p.row };
+  }
+  private gutters = new Map<number, Rect>();
   private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
   /** `inTile`'s tiles, by id: the reader each opened beside, where the person's keys go back when they close it. */
   private openedFrom = new Map<number, number>();
@@ -2798,6 +2803,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private frameNo = 0;
   /** The tiles this frame lays out again though a resize is going on; null: every tile, as always. */
   private reflows: Set<number> | null = null;
+  private readerGutter(pane: Pane | undefined, cols: number): number {
+    return pane instanceof ReaderPane ? Math.min(pane.surface.gutterWidth(), 3 * Math.floor(Math.max(0, cols - 8) / 3)) : 0;
+  }
   /**
    * While a resize goes on, the tiles whose size changed are laid out again as the frame has time for: the one
    * waiting longest first, each counted at what it took last time, up to REFLOW_MS (at least one a frame). The rest
@@ -2811,7 +2819,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const stale = placed.flatMap(([id, r0]) => {
       const r = this.boxOf(id, r0), last = this.views.get(id);
       const p = this.panes.get(id), look = p && this.looks.get(p);
-      const c = contentRect({ col: 0, row: 0, cols: r.cols - 2, rows: r.rows - 2 }, look, !!p?.measured, p?.beside?.() ?? 0);
+      const gutter = this.readerGutter(p, r.cols - 2);
+      const c = contentRect({ col: gutter, row: 0, cols: r.cols - 2 - gutter, rows: r.rows - 2 }, look, !!p?.measured, p?.beside?.() ?? 0);
       return last && (last.cols !== c.cols || last.rows !== c.rows) ? [{ id, last }] : [];
     }).sort((a, b) => a.last.frame - b.last.frame);
     this.reflows = new Set();
@@ -2928,7 +2937,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : joined ? surfaceBg("raised", lv["bg.strength"]) : "";
     canvas.clear(r, dock || float ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
-    const inner = contentRect(framed, look, !!pane.measured, pane.beside?.() ?? 0);
+    const reader = pane instanceof ReaderPane ? pane : null;
+    const gutter = this.readerGutter(pane, framed.cols);
+    if (reader) reader.gutterCols = gutter;
+    const inner = contentRect({ ...framed, col: framed.col + gutter, cols: framed.cols - gutter }, look, !!pane.measured, pane.beside?.() ?? 0);
+    if (gutter) this.gutters.set(id, { col: framed.col, row: inner.row, cols: gutter, rows: inner.rows });
+    else this.gutters.delete(id);
     this.contents.set(id, inner);
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
@@ -3035,6 +3049,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const out: Placement[] = [];
     if (!view) return out;
+    for (const g of view.gutter ?? []) {
+      if (g.row < inner.rows) canvas.text(framed.col, inner.row + g.row, g.text, gutter);
+    }
     // A peek's images would show through its neighbour: it draws text only.
     if (cover === "peek") {
       view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
@@ -5216,7 +5233,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * measure is the nearest cell of the content (a line's start or end), never nothing and never a cell the tile didn't draw.
    */
   private local(id: number, r: Rect, x: number, y: number): { x: number; y: number } {
-    const c = this.origin(id, r);
+    const c = this.origin(id, r), gutter = this.gutters.get(id);
+    if (gutter && x >= gutter.col && x < gutter.col + gutter.cols) return { x: x - gutter.col - gutter.cols, y: y - c.row };
     return { x: Math.max(0, Math.min(c.cols - 1, x - c.col)), y: Math.max(0, Math.min(c.rows - 1, y - c.row)) };
   }
 
@@ -6010,7 +6028,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           // release is the edit's, as any press in it: clickIn).
           if (focusing && pane.editing && this.entered.in(pane)) { this.editPressed = pane; pane.press(x, y, this, false, true); return this.redraw(); }
           const o = this.origin(id, r);
-          this.pressed = { pane, col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing };
+          this.pressed = { pane, gutter: this.gutters.get(id), col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing };
           pane.press(x, y, this, !!((k.mods ?? 0) & 4));
           // A click that places the cursor in the person's own edit here (one left open while its tile lost
           // the keys) is in it again, as e would be. An agent's draft still takes e or ⏎ (PIE-411).

@@ -478,8 +478,8 @@ describe("pictures in a comment", () => {
     s.show(note as any, h);
     await s.loadComments(h);
     s.setExpanded("c1111111-2222-4333-8444-555555555555", true);
-    await until(() => !!s.render(100, 40, h).placements?.length, "the comment's picture, scaled", 10_000);
-    const v = s.render(100, 40, h), p = v.placements![0]!;
+    await until(() => !!s.render(60, 40, h).placements?.length, "the comment's picture, scaled", 10_000);
+    const v = s.render(60, 40, h), p = v.placements![0]!;
     const words = v.lines.findIndex(l => plain(l).includes("The new labels:"));
     expect(words).toBeGreaterThan(-1);
     // Under its words, in the panel (its │ edge to the left), before the note's first line.

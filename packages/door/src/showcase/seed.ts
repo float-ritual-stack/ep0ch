@@ -640,7 +640,7 @@ export const MARGINALIA_FILE = (dir = SHOWCASE_ASSETS) => join(dir, "cold-frame-
 export const MARGINALIA_PLAN = (file = MARGINALIA_FILE()) => [
   SEED.marginalia,
   "",
-  "Select any words, then a (or click a chip on the selection's line): h highlight, c comment, a ask @margin, e explain, d define, k cite. M changes how the margin reads.",
+  "Select any words, then a (or click a chip on the selection's line): h highlight, c comment, a ask @margin, e explain, d define, k cite. M cycles shown, full and marks. Click [–] on a card to fold it to its gutter [+]; click [+] to open just that thread.",
   "",
   "Water the tomatoes at dawn, before the glass warms. ^water",
   "Keep the soil pH near 6.5 for the peppers; the chillies want it a touch lower.",
@@ -1509,6 +1509,7 @@ if (request.input.request === "describe the beds") {
   {
     const plan = notes.marginalia, q = (words: string) => ({ quote: words, start: plan.text.indexOf(words) });
     await board.comment("showcase-highlight", plan.id, plan.revision!, "", q("before the glass warms"), { kind: "user" }, { kind: "highlight", color: "warn", tags: "watering" });
+    await board.comment("showcase-whole-comment", plan.id, plan.revision!, "Keep this plan beside the seed trays.", null, { kind: "user" });
     const asked = await board.comment("showcase-ask", plan.id, plan.revision!, "Why ten days, not a week?", q("harden them off for ten days"), { kind: "user" }, { kind: "question" });
     await board.reply("showcase-ask-answer", asked.id, "Leeks are slow to toughen; ten days of the lid open a little wider each morning keeps the tips from scorching.", SEED_AGENT);
     // A note to self in the same thread: no @margin, so nothing answers it.

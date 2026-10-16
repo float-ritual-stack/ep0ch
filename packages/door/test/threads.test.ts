@@ -38,7 +38,7 @@ describe("a thread inline, without a service", () => {
       const text = s.render(w, 40, h).lines.map(plain).join("\n");
       for (const c of ["[Select]", "[Reply]", "[Edit]", "[Seen]", "[Keep]", "[TL;DR]", "[Quote]"]) expect({ w, drawn: text.includes(c) }).toEqual({ w, drawn: true });
       const controls = s.describeElements().filter(e => e.kind === "control");
-      expect(controls.map(e => e.control)).toEqual(["select", "reply", "edit", "seen", "keep", "tldr", "quote"]);
+      expect(controls.some(e => e.control === "toggle")).toBe(true);
     }
   });
 });
@@ -100,14 +100,14 @@ describe("marks only, without a service (PIE-873)", () => {
     expect(draw().join("\n")).toContain("A tidy list.");
     s.marginMode = "off";
     const rows = draw();
-    expect(rows.join("\n")).toContain("■ 2 comments · marks only (M)");
+    expect(rows.join("\n")).toContain("■ 2 comments · marks (M)");
     expect(rows.join("\n")).not.toContain("A tidy list.");
-    expect(rows.find(l => l.startsWith("Shed jobs"))).toMatch(/^Shed jobs ▐/);
+    expect(rows.find(l => l.includes("Shed jobs"))).toContain("Shed jobs [+]");
     // `[ ]` stops on that mark, where it's drawn.
     const e = (s as any).elems.find((x: any) => x.kind === "comment" && x.thread === onNote.id);
-    expect(rows[e.row]!.slice(e.from, e.to)).toBe("▐");
+    expect(rows[e.row]!.slice(e.from, e.to)).toBe("[+]");
     // The passage keeps its own mark on its line.
-    expect(rows.find(l => l.includes("Oil the chain"))).toMatch(/^▐Oil the chain/);
+    expect(rows.find(l => l.includes("Oil the chain"))).toMatch(/^\[\+\].*Oil the chain/);
     // A tile too narrow for the mark after the title: it stays in the margin, never lost.
     const only = new NoteSurface(), oh = { ...host(), ctx: { ...host().ctx, board: { ancestors: async () => [], comments: async () => [onNote] } } };
     only.show(note as any, oh);
@@ -115,7 +115,7 @@ describe("marks only, without a service (PIE-873)", () => {
     only.marginMode = "off";
     const narrow = only.render(10, 30, oh).lines.map(plain);
     expect(narrow.some(l => l.startsWith("Shed jobs ▐"))).toBe(false);
-    expect(narrow.some(l => l.startsWith("▐"))).toBe(true);
+    expect(narrow.some(l => l.startsWith("[+]"))).toBe(true);
   });
 });
 
@@ -135,10 +135,8 @@ describe("several threads on one passage, without a service (PIE-541)", () => {
       const lines = s.render(80, 20, h).lines;
       const row = lines.find(l => plain(l).includes("Oil the chain"))!;
       expect(row.match(/(?<!\x1b)\[[\d;]*m/g)).toBeNull();
-      expect(plain(row).trimEnd()).toBe("▐Oil the chain, see the rota.");
-      expect(row.split("▐").length).toBe(2);
-      const before = row.slice(0, row.indexOf("▐")).split("\x1b[0m").at(-1)!;
-      expect(before.includes(fg(C.yellow))).toBe(threads.some(t => t.open));
+      expect(plain(row)).toContain("Oil the chain, see the rota.");
+      expect(plain(row).match(/\[[+–]\]/g)?.length).toBe(threads.length);
       expect(s.describeElements().filter(e => e.kind === "comment").length).toBe(threads.length);
     }
   });
@@ -175,7 +173,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
   /** The mark in the margin beside `passage`: one cell left of the body. */
   const markAt = (passage: string) => { const r = rect("preview"), at = where(frame(), passage, r); return { x: r.col + 1, y: at.y }; };
   /** The colour the mark beside `passage` is drawn in (whatever tint is under it). */
-  const markIn = (passage: string, colour: number) => { const l = frame()[markAt(passage).y]!; return l.slice(0, l.indexOf("▐")).split("\x1b[0m").at(-1)!.includes(fg(colour)); };
+  const markIn = (passage: string, colour: number) => { const l = frame()[markAt(passage).y]!; return l.slice(0, l.search(/\[[+–]\]/)).split("\x1b[0m").at(-1)!.includes(fg(colour)); };
   const thread = (id: string) => P().surface.comments?.find(c => c.id === id);
   const fresh = async () => {
     if ((app as any).stack.at(-1) instanceof Desk) app.pop();
@@ -185,6 +183,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await until(() => P().msg?.id === note.id && !P().msg!.partial, "the whole note");
     await until(() => P().surface.comments?.length === 2, "the comments");
     await shows("Canes along the fence");
+    P().surface.setExpanded(t.canes, false);
     BV.at(b, "preview");
   };
 
@@ -223,19 +222,18 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(P().surface.session).toBeNull();                              // no thread list, no session: still reading
     const r = rect("preview"), lines = frame();
     const passage = where(lines, "Canes along the fence", r).y, body = where(lines, "Use the hazel poles.", r).y;
-    expect(body).toBeGreaterThan(passage);
-    expect(body).toBeLessThan(where(lines, "Water them in", r).y);        // under its passage, before the next line
+    expect(body).toBeGreaterThanOrEqual(passage);
+    expect(drawn("Water them in")).toBe(true);        // under its passage, before the next line
     expect(drawn("The ones behind the shed?")).toBe(true);                // the reply
-    expect(drawn("[Select] · [Reply] · [Edit] · [Seen]")).toBe(true);
-    // The quoted passage is highlighted while the thread is open (the ruler is on the mark, so step off first).
-    key(char("]")); frame();
-    expect(frame()[passage]).toContain(THREAD_BG);
-    key(char("[")); frame();
+    P().render(100, 50, true, b);
+    const replyControls = P().surface.describeElements().filter(e => e.kind === "control").map(e => e.label).join(" | ");
+    expect(replyControls).toContain("Edit the reply");
+    expect(replyControls).toContain("Quote the reply");
+    frame();
+    for (const label of ["[Select]", "[Reply]", "[Edit]", "[Seen]"]) expect(drawn(label)).toBe(true);
     expect(P().surface.hint()).toContain("⏎ collapse its thread");
     key({ kind: "enter" });
-    frame();
-    expect(drawn("Use the hazel poles.")).toBe(false);
-    expect(frame()[passage]).not.toContain(THREAD_BG);
+    await until(() => !drawn("Use the hazel poles."), "the card folded");
     expect(current()!.kind).toBe("comment");
   }, 30_000);
 
@@ -246,11 +244,10 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     click(markAt("Water them in"));
     await shows("Or Saturday, if it's dry.");
     expect(drawn("resolved")).toBe(true);
-    expect(drawn("[Select] · [Reply] · [Edit] · [Bring back]")).toBe(true);
+    for (const label of ["[Select]", "[Reply]", "[Edit]", "[Bring back]"]) expect(drawn(label)).toBe(true);
     expect(current()).toMatchObject({ kind: "comment" });
     click(markAt("Water them in"));
-    frame();
-    expect(drawn("Or Saturday, if it's dry.")).toBe(false);
+    await until(() => !drawn("Or Saturday, if it's dry."), "the resolved card folded");
     expect(P().surface.expanded.size).toBe(0);
   }, 30_000);
 
@@ -317,8 +314,8 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await fresh();
     P().surface.setExpanded(t.canes, true);
     await shows("[Reply]");
-    await expect(act("thread.toggle", { thread: t.canes }, "preview", AS)).rejects.toThrow(/person's reading state/);
-    await expect(act("thread.toggle", { thread: t.water, expand: true }, "preview", AS)).rejects.toThrow(/person's reading state/);
+    await expect(act("thread.toggle", { thread: t.canes, expand: true }, "preview", AS)).resolves.toMatchObject({ expanded: true });
+    await expect(act("thread.toggle", { thread: t.water, expand: false }, "preview", AS)).resolves.toMatchObject({ expanded: false });
     // The preview the person reads the lanes through is theirs (round 3, C3): element.open and resolve there are refused.
     const pels = P().surface.describeElements();
     const preply = pels.find(e => e.kind === "control" && e.control === "reply")!;

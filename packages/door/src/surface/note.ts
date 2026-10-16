@@ -54,7 +54,7 @@ import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline
 import { lastTrashed } from "../note-trash";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
-import { BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
+import { tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
@@ -70,7 +70,7 @@ import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
-import { cardRows, hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
+import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
@@ -116,6 +116,8 @@ export interface SurfaceHost {
    * gap and list rows. Without one, the reader resolves the note's own (global and page levels) itself.
    */
   readonly look?: Look;
+  /** The tile host draws the gutter outside its padded, measured content rectangle. */
+  readonly externalGutter?: number;
   /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
   navigate(m: Msg, how?: OpenHow): void;
   /**
@@ -221,7 +223,7 @@ export interface ReaderHistory {
  * Where a reader was (PIE-453), so back comes back to it as it was: the note, how far down, the `[ ]`
  * position (the current element and link), and the reading state kept per note (folds, expanded threads).
  */
-interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; seen: string[]; figures: [string, FigureChoice][] }
+interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
 /** What the person (or an agent) chose for one live figure in a reader: its tab, its density. Never the note's text. */
 type FigureChoice = { tab?: string; density?: Density };
 /** How many places back (and forward) a reader keeps. */
@@ -232,21 +234,21 @@ const HISTORY = 50;
  * version (an older daemon's, a newer one's) is read as having no history, never half-read.
  */
 export const NAV_VERSION = 1;
-export interface SavedPlace { id: string; title: string; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; seen: string[]; figures: [string, FigureChoice][] }
+export interface SavedPlace { id: string; title: string; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
 export interface SavedNav { v: typeof NAV_VERSION; here?: SavedPlace; backs: SavedPlace[]; aheads: SavedPlace[] }
 
-const savedPlace = (p: Place): SavedPlace => ({ id: p.msg.id, title: subject(p.msg), scroll: p.scroll, cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, seen: p.seen, figures: p.figures });
+const savedPlace = (p: Place): SavedPlace => ({ id: p.msg.id, title: subject(p.msg), scroll: p.scroll, cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
 /** A saved place as a stub the reader reads whole when it goes there (a list row's shape: `partial`). */
 const placeOf = (s: SavedPlace): Place => ({
   msg: { id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, props: {}, partial: true },
-  scroll: s.scroll, cur: s.cur, link: s.link, folded: s.folded, expanded: s.expanded, seen: s.seen, figures: s.figures,
+  scroll: s.scroll, cur: s.cur, link: s.link, folded: s.folded, expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
 function readPlace(x: any): SavedPlace | null {
   if (!x || typeof x.id !== "string" || !x.id || typeof x.title !== "string") return null;
   const int = (n: unknown, d: number) => (typeof n === "number" && Number.isFinite(n) ? Math.max(d < 0 ? -1 : 0, Math.floor(n)) : d);
   const figures = (Array.isArray(x.figures) ? x.figures : []).filter((f: unknown): f is [string, FigureChoice] => Array.isArray(f) && typeof f[0] === "string" && !!f[1] && typeof f[1] === "object");
-  return { id: x.id, title: x.title, scroll: int(x.scroll, 0), cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), expanded: strings(x.expanded), seen: strings(x.seen), figures };
+  return { id: x.id, title: x.title, scroll: int(x.scroll, 0), cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures };
 }
 /** The note a saved history was taken on, if it is one this version reads. */
 export const navNote = (raw: unknown): string | null => readNav(raw)?.here?.id ?? null;
@@ -322,7 +324,7 @@ interface HeaderBlock {
   /** The byline's comment count (PIE-873): a click cycles the margin, as M does. */
   marginChip?: { row: number; from: number; to: number };
   /** Marks only (PIE-873): the whole-note threads' one mark after the title, and the thread a click opens. */
-  wholeMark?: { row: number; from: number; to: number; thread: string };
+  wholeMarks?: { row: number; from: number; to: number; thread: string }[];
 }
 
 /** A note laid out by a reader (NoteSurface.layOut), and what it was laid out for (`m`, `key`). */
@@ -330,7 +332,7 @@ interface Laid {
   m: Msg; key: string; doc: Doc; drawn: Link[]; picks: { at: number; lines: number; rows: number[] } | null;
   controls: Control[]; body: string[]; marks: Mark[]; lines: number[]; elems: Element[];
   /** The margin's side column (ADR 0004 contract 6): its width (0: cards fold under their passages), and its cards. */
-  margin: { cols: number; cards: { thread: string; at: number; rows: string[] }[] };
+  margin: { cols: number; cards: { thread: string; at: number; rows: string[]; controls: Control[]; images: DocImage[] }[] };
   /** The annotations' and span rules' marks on the words, by content row: columns and background. Filled on first paint. */
   spans?: Map<number, { from: number; to: number; bg: string }[]>;
   /**
@@ -341,7 +343,7 @@ interface Laid {
 }
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
-export interface SurfaceView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
+export interface SurfaceView { gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
 /** The density after `d`, round again: compact, cozy, comfortable. */
@@ -378,7 +380,7 @@ export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "contr
  * The controls of a comment thread expanded inline (PIE-420): Select, Reply, Seen (or Bring back), Keep (or Unkeep), TL;DR;
  * Quote (the thread's mark, or a reply's: `value` names the reply); a "quoted in" line opens the block quoting it.
  */
-export type ThreadControl = "select" | "reply" | "edit" | "seen" | "keep" | "tldr" | "untldr" | "card" | "quote" | "quoted";
+export type ThreadControl = "select" | "reply" | "edit" | "seen" | "keep" | "tldr" | "untldr" | "toggle" | "card" | "quote" | "quoted";
 /**
  * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
  * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
@@ -439,7 +441,7 @@ const TINT_ARGS = {
 } as const;
 export type FocusSpec = ArgsOf<typeof TINT_ARGS>;
 /** A comment mark: the margin row it's drawn on, and the rows of the lines its quote spans. */
-interface Mark { thread: string; open: boolean; row: number; rows: [number, number]; label: string }
+interface Mark { col?: number; thread: string; open: boolean; row: number; rows: [number, number]; label: string }
 /** A thread control where the last render drew it: its body row, and columns in the body's own cells (no margin). */
 interface Control { thread: string; control: ThreadControl; row: number; from: number; to: number; label: string; value?: string }
 
@@ -595,10 +597,20 @@ export class NoteSurface {
   private laid: Laid | null = null;
   /**
    * The body's inset from the reader's left edge, its right margin, and the blank rows above it, from the look's
-   * `margin.x` and `margin.y` (PIE-673). The first column on the left is always the comment marks' gutter, so `margin.x`
-   * 1 is today's reader: one column in, none on the right. Drawn, never text: a selection's copy starts after it.
+   * `margin.x` and `margin.y` (PIE-673). The gutter sits outside this authored spacing.
+   * Drawn, never text: a selection's copy starts after it.
    */
   private bx = 1;
+  private gutterStart = 0;
+  // Three cells fit a discoverable [+]; this is reader chrome, not authored spacing.
+  gutterWidth(): number {
+    const counts = new Map<number, number>(), lineOf = lineAtOffset(this.msg?.text ?? "");
+    for (const c of this.comments ?? []) {
+      const line = isWholeNote(c) ? -1 : c.start === null ? null : lineOf(c.start);
+      if (line !== null) counts.set(line, (counts.get(line) ?? 0) + 1);
+    }
+    return this.printed || !counts.size ? 0 : 3 * Math.max(...counts.values());
+  }
   private bxRight = 0;
   private my = 0;
   /** The look this reader was drawn with last (the host's, or the note's own levels): `peek` and the inspector read it. */
@@ -646,7 +658,8 @@ export class NoteSurface {
     const look = host?.look ?? lookFor(this.src, { page: lookPage(m) }, w);
     this.lastLook = look;
     const mx = look.values["margin.x"];
-    this.bx = Math.max(1, Math.min(mx, Math.floor(w / 4)));
+    this.gutterStart = host?.externalGutter !== undefined ? -host.externalGutter : 0;
+    this.bx = (host?.externalGutter !== undefined ? 0 : this.gutterWidth()) + Math.max(0, Math.min(mx, Math.floor(w / 4)));
     this.bxRight = Math.max(0, Math.min(mx - 1, Math.floor(w / 4)));
     this.my = look.values["margin.y"];
     return look;
@@ -687,10 +700,11 @@ export class NoteSurface {
    */
   folded = new Set<string>();
   /**
-   * Comment threads expanded inline under their passage (PIE-420), by thread id: like `folded`, this
-   * reader's reading state and the person's alone (an agent's action never expands or collapses one).
+   * Comment threads opened in full, by thread id: local reading state, also changeable by an agent acting for the person.
    */
   expanded = new Set<string>();
+  /** Explicit folds suppress the compact margin card too, independently of the margin mode. */
+  private foldedThreads = new Set<string>();
   /** The margin (ADR 0004 contract 6): cards trimmed to a row, whole, or off (the spans stay). The person's reading state. */
   marginMode: MarginMode = "trim";
   /** `a` was pressed with text selected: the passage toolbar has the next key. */
@@ -950,14 +964,14 @@ export class NoteSurface {
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
     const proposal = this.msg && isOpenProposal(this.msg) ? (proposalApplies(this.msg) ? "A apply anyway · X dismiss · " : "X dismiss · ") : "";
-    return `${extra}${proposal}${back}[ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
+    return `${extra}${proposal}${back}M comments mode · [ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -1018,7 +1032,7 @@ export class NoteSurface {
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -1114,7 +1128,7 @@ export class NoteSurface {
     const cut = hero.box.rows - shown, lines = Array.from({ length: shown }, () => "");
     if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
     const p = hero.placement && inWindow(hero.placement, cut, shown);
-    return { ...v, lines: [...lines, ...v.lines], placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
+    return { ...v, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
   }
 
   /**
@@ -1204,14 +1218,17 @@ export class NoteSurface {
    * summary is on with its links. One builder: the reading render and a digest's host (stickyHeader) both draw it.
    */
   private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null, sized = true): HeaderBlock {
+    const gx = this.printed || host?.externalGutter !== undefined ? 0 : this.gutterWidth();
+    w = Math.max(1, w - gx);
     // The Work ID heads the title line (PIE-809), not this one.
     const meta = [authorName(m.author), bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     // The way in to a comment on the whole note (PIE-846), by mouse: the same as C with nothing selected.
     const chip = !this.printed && (isOutlineNote(m) || (m.resource && !m.resource.uncommentable)) ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "";
     // Marks only (PIE-873): the margin's off mode said where the comments are counted, so it's found and its way back is.
-    const n = open || (this.comments?.length ?? 0), off = this.marginMode === "off" && !this.printed;
-    let said = !this.comments?.length ? "" : off ? `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} comment${n === 1 ? "" : "s"} · marks only (M)` : `${fg(open ? C.yellow : C.dark)} · ■ ${open ? `${open} open comment${open === 1 ? "" : "s"}` : `${this.comments!.length} resolved`} (m)`;
+    const n = this.comments?.length ?? 0, off = this.marginMode === "off" && !this.printed;
+    const mode = off ? "marks" : this.marginMode === "full" ? "full" : "shown";
+    let said = !this.comments?.length ? "" : `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} comment${n === 1 ? "" : "s"} · ${mode} (M)`;
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
     const own0 = host?.header, { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src, own0 ? C.lgreen : C.dark);
@@ -1222,7 +1239,7 @@ export class NoteSurface {
     const props = !this.panel && count ? `${fg(C.dark)} · i ${count} propert${count === 1 ? "y" : "ies"}` : "";
     if (own) {
       const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
-      return { rows: [...own, ...summaryRows], summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks : [], title: null };
+      return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null };
     }
     // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
     // bold line (brighter in the focused tile, a step down in the others), at double height where the terminal has
@@ -1246,9 +1263,9 @@ export class NoteSurface {
     const apart = !!summary && width(`${before}${summary}`) > w;
     const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
     // Marks only in a narrow tile: the short form, so its way back (M, or a click) is still on screen whole.
-    if (off && said && width(metaRows[0]!) > w) {
-      const short = `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} · marks only (M)`;
-      metaRows[0] = metaRows[0]!.slice(0, metaRows[0]!.length - said.length) + short;
+    if (said && width(metaRows[0]!) > w) {
+      const short = `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} · ${mode} (M)`;
+      metaRows[0] = pad(metaRows[0]!.slice(0, metaRows[0]!.length - said.length), Math.max(0, w - width(short))) + short;
       said = short;
     }
     // The count ends the first byline row: a click on it cycles the margin (M), where it's drawn whole.
@@ -1261,26 +1278,26 @@ export class NoteSurface {
     // here was the bug). The Work ID keeps the accent at the start of the first line.
     const lines = big || width(title) <= w ? [title] : wrap(title, w);
     const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
-    // Marks only (PIE-873): the comments on the whole note fold to one mark after the title, as a passage's do in the
-    // margin; a click (or ⏎ on it) opens the thread there.
-    const whole = off ? (this.comments ?? []).filter(isWholeNote) : [];
-    let wholeMark: HeaderBlock["wholeMark"];
-    if (whole.length && !big) {
-      const li = lines.length - 1, at = width(lines[li]!) + 1;
-      if (at + 1 <= w) {
-        titled[li] = pad(titled[li]!.slice(0, -RESET.length).trimEnd() + " " + fg(whole.some(c => c.open) ? C.yellow : C.dark) + "▐", w) + RESET;
-        wholeMark = { row: 1 + li, from: at, to: at + 1, thread: whole[0]!.id };
+    const wholeMarks: NonNullable<HeaderBlock["wholeMarks"]> = [];
+    if (!this.printed && !big) {
+      let col = width(lines.at(-1) ?? "");
+      for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
+        if (col + 4 > w) break; // The gutter remains available when the title fills its row.
+        wholeMarks.push({ thread: c.id, row: lines.length, from: col + 1, to: col + 4 });
+        col += 4;
+      }
+      if (wholeMarks.length) {
+        const styled = titled[titled.length - 1]!.replace(/ *\x1b\[0m$/, "");
+        titled[titled.length - 1] = pad(styled + fg(C.yellow) + " [+]".repeat(wholeMarks.length) + RESET, w);
       }
     }
-    // Where the title couldn't take it (double height, or no room), the mark stays in the body's margin.
-    if (sized) this.titleMarked = wholeMark ?? null;
     const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...(big ? [pad("", w)] : []), ...metas];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
     const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
-    return { rows, summary, summaryRow: apart ? first + 1 : first, summaryLinks: links, title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip } : {}), ...(marginChip ? { marginChip: { ...marginChip, row: first } } : {}), ...(wholeMark ? { wholeMark } : {}) };
+    return { rows: rows.map(l => " ".repeat(gx) + l), wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols + gx }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
   }
 
   /**
@@ -1426,7 +1443,7 @@ export class NoteSurface {
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
     this.lookAt(m, w, host);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, marginChip, wholeMark } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, marginChip, wholeMarks } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
@@ -1472,7 +1489,11 @@ export class NoteSurface {
     const top = head.length;
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
     const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
-    this.elems = laid.elems;
+    const whole = new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id));
+    const gutterRow = (k: Mark) => whole.has(k.thread) ? (title?.row ?? 1) : top + k.row - this.scroll;
+    this.elems = laid.elems.map(e => e.kind === "comment" && whole.has(e.thread!)
+      ? { ...e, row: title?.row ?? 1, ruler: [title?.row ?? 1, (title?.row ?? 1) + 1] as [number, number] } : e);
+
     // An opened proposal's [apply] [dismiss] (in the header, so not part of the kept layout): elements and click targets.
     if (proposalHead) {
       const own: Element[] = proposalHead.ranges.map(r => {
@@ -1540,10 +1561,15 @@ export class NoteSurface {
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     this.composerRows = comp?.passage ? [top + comp.passage[0] - this.scroll, top + Math.max(comp.passage[1], comp.after ?? 0) - this.scroll] : null;
+    this.restoreCommentSelection();
     this.selectionControl(w);
     // The body's images, past its inset (the look's margin), cut to the rows shown.
     const bx = this.bx;
     const placements = imagePlacements(doc.images, bx, ...cellOf(host)).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
+    for (const card of laid.margin.cards) {
+      const images = card.images.map(im => ({ ...im, line: card.at + im.line }));
+      placements.push(...imagePlacements(images, w - laid.margin.cols + 2, ...cellOf(host)).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []));
+    }
     // An inline comment's preview pictures (PIE-846), where its box is in the rows shown.
     if (comp?.inline && writingIn) placements.push(...previewPictures(writingIn, head.length, head.length + room));
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
@@ -1554,7 +1580,7 @@ export class NoteSurface {
     if (crumbsRow !== undefined && host?.revealInOutline && isOutlineNote(m)) this.hits.push({ row: crumbsRow, from: 0, to: Math.max(1, Math.min(w, width(this.crumbs))), crumbs: true });
     if (commentChip) this.hits.push({ ...commentChip, start: "note" });
     if (marginChip) this.hits.push({ ...marginChip, margin: true });
-    if (wholeMark) this.hits.push({ row: wholeMark.row, from: wholeMark.from, to: wholeMark.to, thread: wholeMark.thread, elem: `comment:${wholeMark.thread}` });
+    for (const mark of wholeMarks ?? []) this.hits.push({ ...mark, elem: `comment:${mark.thread}` });
     const firstOf = new Map<number, string>();
     for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + bx}`) ?? "");
     for (const r of doc.links) {
@@ -1573,10 +1599,9 @@ export class NoteSurface {
         if (at >= 0 && at < room) this.hits.push({ row: top + at, from: bx + im.col, to: Math.min(w, bx + im.col + im.cols), image: e.key });
       }
     }
-    const byTitle = this.wholeByTitle();
-    for (const k of marks) {
-      const row = k.row - this.scroll;
-      if (row >= 0 && row < room && !byTitle.has(k.thread)) this.hits.push({ row: top + row, from: 0, to: 1, thread: k.thread, elem: `comment:${k.thread}` });
+    for (const k of this.printed ? [] : marks) {
+      const row = gutterRow(k);
+      if (row >= (whole.has(k.thread) ? 0 : top) && row < top + room && (host?.externalGutter === undefined || (k.col ?? 0) + 3 <= host.externalGutter)) this.hits.push({ row, from: this.gutterStart + (k.col ?? 0), to: this.gutterStart + (k.col ?? 0) + 3, thread: k.thread, elem: `comment:${k.thread}` });
     }
     for (const c of controls) {
       const row = c.row - this.scroll;
@@ -1655,12 +1680,34 @@ export class NoteSurface {
     if (title?.big && !shade.grid && title.row + 1 < Math.min(lines.length, h) && ![title.row, title.row + 1].some(r => this.selection?.span(r) || this.agentSelection?.sel.span(r))) {
       placements.push(sizedPlacement("title", title.text, title.ink, title.col, title.row, width(title.text), 2));
     }
+    const gutter: { row: number; text: string }[] = [];
+    const gutterRows = new Map<number, string>();
+    for (const k of this.printed ? [] : marks) {
+      const row = gutterRow(k);
+      if (row < (whole.has(k.thread) ? 0 : top) || row >= top + room) continue;
+      const glyph = this.threadShown(k.thread) ? "[–]" : "[+]";
+      const old = gutterRows.get(row) ?? "";
+      gutterRows.set(row, pad(old, k.col ?? 0) + fg(k.open ? C.yellow : C.dark) + glyph + RESET);
+    }
+    // An open card can sit below its passage; its gutter control stays beside its header too.
+    for (const c of controls.filter(c => c.control === "toggle")) {
+      const row = top + c.row - this.scroll, mark = marks.find(k => k.thread === c.thread);
+      if (row < top || row >= top + room || !mark || (host?.externalGutter !== undefined && (mark.col ?? 0) + 3 > host.externalGutter)) continue;
+      const col = mark.col ?? 0;
+      gutterRows.set(row, " ".repeat(col) + fg(mark.open ? C.yellow : C.dark) + "[–]" + RESET);
+      this.hits.push({ row, from: this.gutterStart + col, to: this.gutterStart + col + 3,
+        thread: c.thread, elem: controlKey(c.thread, "toggle") });
+    }
+    for (const [row, text] of gutterRows) {
+      if (host?.externalGutter !== undefined) gutter.push({ row, text });
+      else lines[row] = pad(text, this.gutterWidth()) + tailFrom(lines[row] ?? "", this.gutterWidth());
+    }
     if (foot) {
       while (lines.length < h) lines.push("");
       lines.push(foot.line);
       for (const x of foot.hits) this.hits.push({ row: h, from: x.from, to: x.to, history: x.dir });
     }
-    return room > 0 ? { lines, placements, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
+    return room > 0 ? { lines, placements, gutter, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
   }
 
   /**
@@ -1675,7 +1722,7 @@ export class NoteSurface {
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
     // The margin's side column (ADR 0004 contract 6): when the reader is wide and the note has cards to show.
     // The margin's default (PIE-791): current threads only; seen and resolved are on the thread list's earlier shelf.
-    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => (c.start !== null || isWholeNote(c)) && c.open && hasCard(c));
+    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => (c.start !== null || isWholeNote(c)) && this.threadShown(c.id));
     // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
     const mcols = marginColumn(w, this.printed ? "off" : this.marginMode, cardThreads.length);
 
@@ -1775,21 +1822,26 @@ export class NoteSurface {
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
     const inset = " ".repeat(this.bx);
     const body = doc.lines.map(l => (width(l) + this.bx > w ? pad(inset + l, w) : inset + l));
-    // Comment marks sit in the body's margin, on the first row of the lines each quote spans. Threads on one
-    // row share its one margin cell (PIE-541: drawing each in turn cut the escape of the one before), yellow
-    // while any of them is open; each stays its own element.
     const marks = this.commentMarks(m, doc, noteLines);
-    const margin = new Map<number, boolean>();
-    // Marks only: a whole-note thread's mark is after the title (headerBlock), not on the body's first row.
-    const byTitle = this.wholeByTitle();
-    for (const k of marks) if (!byTitle.has(k.thread)) margin.set(k.row, (margin.get(k.row) ?? false) || k.open);
-    for (const [row, open] of margin) body[row] = fg(open ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
+    if (this.printed) for (const row of new Set(marks.map(k => k.row))) if (body[row])
+      body[row] = fg(marks.some(k => k.row === row && k.open) ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
     const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
-    // The side column's cards, each beside its passage, none overlapping (expanded threads are drawn in the body).
+    // Both placements use the same card and controls; width alone chooses beside or below the passage.
     const cards = mcols ? placeCards(cardThreads.flatMap(c => {
       const k = marks.find(x => x.thread === c.id);
-      return k && !this.expanded.has(c.id) ? [{ thread: c.id, row: k.row, rows: cardRows(c, mcols - 2, this.marginMode, t => this.said(t)) }] : [];
+      if (!k) return [];
+      const card = this.threadCard(c, mcols - 2, host);
+      return [{ thread: c.id, row: k.row, rows: card.lines, controls: card.controls, images: card.images }];
     })) : [];
+    for (const card of cards) for (const c of card.controls) {
+      if (elems.some(e => e.key === controlKey(c.thread, c.control, c.value))) continue;
+      const row = top + card.at + c.row, from = w - mcols + 2 + c.from, to = w - mcols + 2 + c.to;
+      elems.push({ key: controlKey(c.thread, c.control, c.value), kind: "control", row, from, to,
+        ruler: [row, row + 1], label: c.label, thread: c.thread, control: c.control, value: c.value });
+    }
+    elems.sort((a, b) => a.row - b.row || a.from - b.from);
+    const cardEnd = Math.max(0, ...cards.map(c => c.at + c.rows.length));
+    while (body.length < cardEnd) body.push("");
     if (footRows.length) body.push(...footRows.map(l => pad(inset + l, w) + RESET));
     return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems, margin: { cols: mcols, cards }, composer });
   }
@@ -3797,7 +3849,7 @@ export class NoteSurface {
       return { folded: this.folded.has(p.key) };
     }
     // A comment mark expands its thread under the passage, or collapses it (PIE-420): the person's only.
-    if (e.kind === "comment") { if (select) { this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); this.readThread(e.thread!, host); } host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
+    if (e.kind === "comment") return select ? this.runKey("thread.toggle", { thread: e.thread! }, host) : null;
     if (e.kind === "control" && e.link?.proposal?.op) return this.proposalControl(e.link.proposal.op, e.link.proposal.id, host);
     if (e.kind === "control" && e.link?.unsent) return this.runKey(`unsent.${e.link.unsent.op}`, { kind: e.link.unsent.kind }, host);
     // A live figure's tab shows it; its density control steps to the next density.
@@ -3829,10 +3881,50 @@ export class NoteSurface {
 
   // ── comment threads expanded inline (PIE-420) ─────────────────────────────
 
-  /** Expand a thread under its passage, or collapse it. The person's reading state, never an agent's. */
+  /** Open or fold a card in this reader without moving its focus or selection. */
   setExpanded(thread: string, on: boolean) {
-    if (on) this.expanded.add(thread); else this.expanded.delete(thread);
-    this.reveal = true;
+    this.keepCommentSelection();
+    if (on) { this.expanded.add(thread); this.foldedThreads.delete(thread); }
+    else { this.expanded.delete(thread); this.foldedThreads.add(thread); }
+    if (this.marginMode === "off") {
+      if (on) this.openedWhileOff.add(thread); else this.openedWhileOff.delete(thread);
+    }
+  }
+
+  private commentSelection: { selection: Selection; text: string; from: number } | null = null;
+
+  private keepCommentSelection() {
+    const selection = this.selection, rows = this.selRows(true);
+    const source = selection && this.sourceOf(selection, true);
+    if (selection && rows && source && !this.commentSelection)
+      this.commentSelection = { selection, text: selection.text(rows), from: source.from };
+  }
+
+  private restoreCommentSelection() {
+    const saved = this.commentSelection;
+    this.commentSelection = null;
+    if (!saved || this.selection !== saved.selection) return;
+    // The same source occurrence survives both inserted cards and a side column rewrapping the words.
+    for (let n = 1; ; n++) {
+      let next: Selection;
+      try { next = this.selectBy({ text: saved.text, n, noteOnly: true }); } catch { return; }
+      if (this.sourceOf(next, true)?.from !== saved.from) continue;
+      if (saved.selection.anchor !== saved.selection.start) [next.anchor, next.head] = [next.head, next.anchor];
+      next.keys = saved.selection.keys;
+      this.selection = this.stamp(next);
+      return;
+    }
+  }
+
+  private openedWhileOff = new Set<string>();
+
+  setMargin(mode: MarginMode) { this.keepCommentSelection(); this.marginMode = mode; this.openedWhileOff.clear(); }
+
+  threadShown(thread: string): boolean {
+    if (this.marginMode === "off") return this.openedWhileOff.has(thread);
+    if (this.foldedThreads.has(thread)) return false;
+    const c = this.comments?.find(c => c.id === thread);
+    return this.expanded.has(thread) || !!c && c.open && hasCard(c);
   }
 
   /**
@@ -3843,13 +3935,6 @@ export class NoteSurface {
     if (this.expanded.has(thread)) void host.ctx.board.readThread(thread).catch(() => {});
   }
 
-  /** Marks only (PIE-873): the whole-note threads whose mark is after the title, not in the body's margin. */
-  /** Where the title carries the whole-note threads' mark (headerBlock), or null: none there. */
-  private titleMarked: { row: number; from: number; to: number } | null = null;
-  private wholeByTitle(): Set<string> {
-    return this.marginMode === "off" && !this.printed && this.titleMarked !== null ? new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id)) : new Set();
-  }
-
   /** A thread of the note shown, by id or its first 6+ characters. */
   threadId(named: string): string {
     const c = (this.comments ?? []).find(t => t.id === named || (named.length >= 6 && t.id.startsWith(named)));
@@ -3858,9 +3943,13 @@ export class NoteSurface {
   }
 
   /** Each expanded thread's rows, spliced into the body under the last row of its passage, and its controls. */
+  private threadCard(c: Comment, width: number, host?: SurfaceHost) {
+    return threadPanel(c, width, this.cur, (t, w) => this.snippetDoc(t, w, host, [], true),
+      this.marginMode === "trim" && !this.expanded.has(c.id));
+  }
+
   private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
     // A narrow reader folds each annotation's card under its passage (ADR 0004 contract 6), unless the margin is off.
-    const folding = fold && this.marginMode !== "off" && !this.printed;
     // The passage of the comment being written (PIE-770): its rows, and its box under them (after its thread, if expanded).
     const span = this.session ? this.composerSpan(this.session, m) : null;
     const lineOf = lineAtOffset(m.text);
@@ -3872,7 +3961,7 @@ export class NoteSurface {
       const was = at && starts.length ? rowsOfLines(d, noteLines, lineOf(span![0]), lineOf(Math.max(span![0], span![1] - 1))) : at;
       return { passage: was, composerAt: box.length ? starts[n] ?? null : null };
     };
-    if (!this.expanded.size && !folding) {
+    if (!fold || this.printed) {
       if (!box.length) return { doc, controls: [], passage: at, composerAt: null };
       const { doc: out, starts } = withRows(doc, box);
       return { doc: out, controls: [], ...placed(out, starts, 0) };
@@ -3880,13 +3969,8 @@ export class NoteSurface {
     const cs = this.comments ?? [];
     const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
       const c = cs.find(x => x.id === k.thread);
-      // Its comment and replies drawn as the reader draws a note, pictures too (PIE-846).
-      if (c && this.expanded.has(k.thread)) return [{ at: k.rows[1], thread: c.id, ...threadPanel(c, W, this.cur, (t, w) => this.snippetDoc(t, w, host, [], true)) }];
-      // Folded under its passage, as in the side column: current threads only (PIE-860: a seen thread's TL;DR lingered).
-      if (!c || !folding || !c.open || !hasCard(c)) return [];
-      const rows = cardRows(c, Math.max(8, Math.min(W, 72) - 2), this.marginMode, t => this.said(t)).map(l => "  " + l);
-      // The whole card is one control: a click or ⏎ on it expands its thread.
-      return [{ at: k.rows[1], thread: c.id, lines: rows, images: [] as DocImage[], controls: [{ thread: c.id, control: "card" as Control["control"], row: 0, from: 0, to: Math.min(W, 72), label: `${kindOf(c)} card` }] as Control[] }];
+      if (!c || !fold || this.printed || !this.threadShown(c.id)) return [];
+      return [{ at: k.rows[1], thread: c.id, ...this.threadCard(c, W, host) }];
     });
     if (!panels.length && !box.length) return { doc, controls: [], passage: at, composerAt: null };
     // A reply's box goes right under its own thread; a comment's after every thread on its passage.
@@ -3908,6 +3992,7 @@ export class NoteSurface {
   private async useControl(e: Element, host: SurfaceHost): Promise<unknown> {
     const c = this.comments?.find(x => x.id === e.thread);
     if (!c || !this.msg) return null;
+    if (e.control === "toggle") return this.runKey("thread.toggle", { thread: c.id }, host);
     // A margin card folded under its passage: its thread expands there, as a click on its mark does.
     if (e.control === "card") {
       this.setExpanded(c.id, true);
@@ -3975,6 +4060,12 @@ export class NoteSurface {
       if (!rows) continue;
       const q = printable(c.quote).trim();
       out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${authorName(c.author)}${c.open ? "" : " · resolved"}` });
+    }
+    const columns = new Map<number, number>();
+    for (const mark of out) {
+      const row = cs.some(c => c.id === mark.thread && isWholeNote(c)) ? -1 : mark.row;
+      mark.col = columns.get(row) ?? 0;
+      columns.set(row, mark.col + 3);
     }
     return out;
   }
@@ -4065,13 +4156,11 @@ export class NoteSurface {
       const lines = b.text.split("\n").length;
       out.push({ key: `block:${b.kind}:${b.line}`, kind: "block", row: top + b.row, from: this.bx, to: this.bx + Math.max(1, b.col), ruler: [top + b.row, top + b.row + b.rows], label: `${b.kind === "code" ? "code block" : "quote"}, ${lines} line${lines === 1 ? "" : "s"}`, block: n });
     });
-    // A whole-note thread's mark after the title (marks only, PIE-873): `[ ]` stops there, where it's drawn.
-    const byTitle = this.wholeByTitle(), t = this.titleMarked;
-    for (const k of marks) out.push(t && byTitle.has(k.thread)
-      ? { key: `comment:${k.thread}`, kind: "comment", row: t.row, from: t.from, to: t.to, ruler: [t.row, t.row + 1], label: k.label, thread: k.thread }
-      : { key: `comment:${k.thread}`, kind: "comment", row: top + k.row, from: 0, to: 1, ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
+    for (const k of marks) out.push({ key: `comment:${k.thread}`, kind: "comment", row: top + k.row,
+      from: this.gutterStart + (k.col ?? 0), to: this.gutterStart + (k.col ?? 0) + 3,
+      ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
     const quoteOf = new Map(marks.map(k => [k.thread, k.label.split(" · ")[0]!]));
-    for (const c of controls) out.push({ key: controlKey(c.thread, c.control, c.value), kind: "control", row: top + c.row, from: c.from + this.bx, to: c.to + this.bx, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control, ...(c.value !== undefined ? { value: c.value } : {}) });
+    for (const c of controls) if (!out.some(e => e.key === controlKey(c.thread, c.control, c.value))) out.push({ key: controlKey(c.thread, c.control, c.value), kind: "control", row: top + c.row, from: c.from + this.bx, to: c.to + this.bx, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control, ...(c.value !== undefined ? { value: c.value } : {}) });
     return out.sort((a, b) => a.row - b.row || a.from - b.from);
   }
 
@@ -4779,7 +4868,7 @@ export class NoteSurface {
       const other = !a ? null : cur.startsWith(`${a.now}#`) ? a.was + cur.slice(a.now.length) : cur.startsWith(`${a.was}#`) ? a.now + cur.slice(a.was.length) : null;
       if (other && drawn(other)) { if (this.picker?.key === cur) this.picker.key = other; this.cur = other; }
       // A step isn't let go of while the steps are read again: it's back once they are.
-      else if (!(cur.startsWith("task:") && loading)) this.letGo();
+      else if (!(cur.startsWith("task:") && loading) && !this.comments?.some(c => cur.startsWith(`ctl:${c.id}:`))) this.letGo();
     }
     // The step under an open status choice changed (its text, or it's gone): the choice closes rather than
     // act on whatever is there now.
@@ -5378,7 +5467,7 @@ export class NoteSurface {
   /** Where the reader is now, as back would come back to it. */
   private place(): Place | null {
     const m = this.msg;
-    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], seen: [...this.foldSeen], figures: [...this.figureUI] } : null;
+    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], foldedThreads: [...this.foldedThreads], seen: [...this.foldSeen], figures: [...this.figureUI] } : null;
   }
 
   /**
@@ -5429,7 +5518,7 @@ export class NoteSurface {
     stack.pop();
     if (here) (dir < 0 ? this.aheads : this.backs).push(here);
     this.scroll = to.scroll; this.cur = to.cur; this.link = to.link;
-    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
+    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
     host.redraw();
@@ -5460,7 +5549,7 @@ export class NoteSurface {
     const here = nav.here;
     if (here && this.msg?.id === here.id) {
       this.scroll = here.scroll; this.cur = here.cur; this.link = here.link;
-      this.folded = new Set(here.folded); this.expanded = new Set(here.expanded); this.foldSeen = new Set(here.seen); this.figureUI = new Map(here.figures);
+      this.folded = new Set(here.folded); this.expanded = new Set(here.expanded); this.foldedThreads = new Set(here.foldedThreads); this.foldSeen = new Set(here.seen); this.figureUI = new Map(here.figures);
       this.reveal = here.cur !== null;
     }
     return true;
@@ -5476,7 +5565,7 @@ export class NoteSurface {
   // ── selecting text (PIE-419) ───────────────────────────────────────────────
 
   /** The last render's rows, by content row: the header's (its rule isn't text), then the body's (margin left out). */
-  private selRows(): SelectRows | null {
+  private selRows(noteOnly = false): SelectRows | null {
     const d = this.drawn;
     if (!d) return null;
     const cache = new Map<number, string[]>();
@@ -5493,7 +5582,7 @@ export class NoteSurface {
       // The drawing inside the text (a quote's bar, a frame's edges, a bullet glyph, a fold arrow) is drawn, never copied (PIE-638).
       cuts: r => (r < d.top ? undefined : d.doc.trims.get(r - d.top)?.cuts.map(([a, b, rep]) => [a + d.bx, b + d.bx, rep] as const)),
       // A row that is only drawing (a frame's edge; the look's gap, divider and margin rows) is left out whole.
-      edge: r => (r >= d.top ? !!d.doc.trims.get(r - d.top)?.edge : r >= d.top - 1 - d.my && r < d.top - 1),
+      edge: r => (r >= d.top ? (noteOnly && d.doc.source[r - d.top] === -1) || !!d.doc.trims.get(r - d.top)?.edge : r >= d.top - 1 - d.my && r < d.top - 1),
       // A paragraph wrapped over rows is one line of text: its rows join with a space where the wrap took one, nothing where it cut a word.
       joins: r => (r >= d.top ? d.doc.wraps?.get(r - d.top + 1) : undefined),
     };
@@ -5722,7 +5811,12 @@ export class NoteSurface {
       const r = i - top + this.scroll, card = byRow.get(r);
       // Only a card's rows have the column's edge: the margin is quiet where it holds nothing.
       lines[i] = pad(lines[i]!, bodyW) + (card ? fg(C.dark) + "│" + RESET + " " + card.text : " ".repeat(cols));
-      if (card) this.hits.push({ row: i, from: bodyW + 1, to: bodyW + cols, thread: card.thread, elem: `comment:${card.thread}` });
+    }
+    for (const card of laid.margin.cards) for (const c of card.controls) {
+      const row = top + card.at + c.row, from = bodyW + 2 + c.from, to = bodyW + 2 + c.to;
+      const key = controlKey(c.thread, c.control, c.value);
+      if (row - this.scroll >= top && row - this.scroll < top + room)
+        this.hits.push({ row: row - this.scroll, from, to, thread: c.thread, elem: key });
     }
   }
 
@@ -5811,8 +5905,8 @@ export class NoteSurface {
    * source (no link or formatting inside), else the whole source lines it covers. Offsets are into the
    * note's text, as the comment passage picker takes them. Null when only the header's details are selected.
    */
-  sourceOf(s: Selection): { text: string; exact: boolean; from: number; to: number; lines: [number, number] } | null {
-    const d = this.drawn, m = this.msg, rows = this.selRows();
+  sourceOf(s: Selection, noteOnly = false): { text: string; exact: boolean; from: number; to: number; lines: [number, number] } | null {
+    const d = this.drawn, m = this.msg, rows = this.selRows(noteOnly);
     if (!d || !m || !rows) return null;
     const lines: number[] = [];
     for (let r = s.start.row; r <= s.end.row; r++) {
@@ -5874,8 +5968,8 @@ export class NoteSurface {
    * the nth time it's drawn) or note lines `line` to `to` (1 is the subject). The whole drawn note, not
    * just the rows in view.
    */
-  selectBy({ text, line, to, n }: { text?: string; line?: number; to?: number; n?: number }): Selection {
-    const d = this.drawn, rows = this.selRows();
+  selectBy({ text, line, to, n, noteOnly = false }: { text?: string; line?: number; to?: number; n?: number; noteOnly?: boolean }): Selection {
+    const d = this.drawn, rows = this.selRows(noteOnly);
     if (!d || !rows || !this.msg) throw new ActionRefused("this reader doesn't show the note's text now (it's editing, commenting, reading the note, or the full property panel is open)");
     if ((text === undefined) === (line === undefined)) throw new ActionRefused("say what to select: text= (as the note reads) or line= (with to= for a range; 1 is the subject)");
     if (text !== undefined) {
@@ -5885,6 +5979,7 @@ export class NoteSurface {
       let flat = "";
       for (let r = 0; r < rows.count; r++) {
         starts.push(flat.length);
+        if (noteOnly && rows.edge?.(r)) continue;
         flat += rows.cells(r).slice(rows.margin?.(r) ?? 0).join("").trimEnd() + "\n";
       }
       const re = new RegExp(text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "g");
@@ -6035,7 +6130,7 @@ export class NoteSurface {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
       editing: (this.modes.get("draft") as DraftMode | null)?.describe(),
       commenting: (this.modes.get("comment") as CommentMode | null)?.describe(),
-      comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.expanded.has(c.id), ...(c.quotedIn?.length ? { quotedIn: c.quotedIn } : {}) })) } : null,
+      comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.threadShown(c.id), ...(c.quotedIn?.length ? { quotedIn: c.quotedIn } : {}) })) } : null,
       links: this.links.map((l, i) => ({ n: i + 1, ...l, reads: printable(linkText(l, this.msg?.text ?? "", this.src)), selected: i === this.link })),
       summary: this.msg ? (({ keys, source, text }) => ({ keys, source, text }))(this.summary(this.msg)) : null,
       folds: this.msg && !this.msg.partial ? this.describeFolds(this.msg) : null,
@@ -6341,7 +6436,7 @@ const COMMENT_CHIP = "[comment]";
 /** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
 export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
 
-function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[] }): { lines: string[]; controls: Control[]; images: DocImage[] } {
+function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[] }, trim = false): { lines: string[]; controls: Control[]; images: DocImage[] } {
   // Its pictures (PIE-846), on the panel's own rows: `col` cells in from the panel's left.
   const images: DocImage[] = [];
   const draw = drawDoc && ((text: string, w: number, col = 2): string[] => {
@@ -6353,17 +6448,26 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   const edge = fg(c.open ? C.yellow : C.dark);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
-  const title = ` ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
-  const room = Math.max(0, W - 2), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
-  const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + RESET];
+  const title = ` ${kindOf(c)} · ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
+  const room = Math.max(0, W - 5), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
+  const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + fg(C.lcyan) + "[–]" + RESET];
   const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
   // The body and replies as the reader draws a note (PIE-770): references by title, embeds transcluded; else as typed.
   const body = (s: string, w: number, col = 2) => (draw ? draw(s, w, col) : text(s, w));
+  if (trim) {
+    const summary = c.tldr ? `TL;DR ${c.tldr.body}` : c.replies.at(-1)?.body ?? c.body;
+    lines.push(edge + "│ " + fg(C.grey) + ellipsize(body(summary, inner).join(" "), inner) + RESET);
+    return { lines, images: [], controls: [
+      { thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" },
+      { thread: c.id, control: "card", row: 0, from: 0, to: W - 3, label: "Open thread" },
+      { thread: c.id, control: "card", row: 1, from: 0, to: W, label: "Open thread" },
+    ] };
+  }
   // Its TL;DR first: the thread's face, the discussion under it.
   if (c.tldr) for (const l of body(`TL;DR ${c.tldr.body}`, inner)) lines.push(edge + "│ " + fg(C.lgreen) + l + RESET);
   for (const l of body(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
   if (c.start === null && c.quote) lines.push(edge + "│ " + fg(C.brown) + "(the quoted words moved; the service couldn't place them)" + RESET);
-  const controls: Control[] = [];
+  const controls: Control[] = [{ thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" }];
   // Where a mark was quoted (marks.quote): a line each, opening the block that quotes it.
   const quotedIn = (ids: readonly string[] | undefined, indent: string) => {
     for (const id of ids ?? []) {
@@ -6379,15 +6483,16 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   for (const r of c.replies.filter(x => !x.tldr)) {
     // Each reply is a mark too: its own [Quote].
     // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
-    const head = "└ " + printable(authorName(r.author)) + " · " + ago(r.at) + editedMark(r);
-    let tail = "", col = 2 + width(head);
+    const stamp = " · " + ago(r.at) + editedMark(r);
+    const head = "└ " + ellipsize(printable(authorName(r.author)), Math.max(1, inner - 2 - width(stamp))) + stamp;
+    let row = edge + "│ " + fg(C.cyan) + ellipsize(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
     for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
-      if (col + 1 + q.length > W - 1) break;
+      if (col + 1 + q.length > W) { lines.push(row); row = edge + "│ "; col = 2; }
       controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + q.length, label });
-      tail += " " + (cur === controlKey(c.id, k, r.id) ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
+      row += " " + (cur === controlKey(c.id, k, r.id) ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
       col += 1 + q.length;
     }
-    lines.push(edge + "│ " + fg(C.cyan) + head + RESET + tail);
+    lines.push(row);
     for (const l of body(r.body, Math.max(2, inner - 2), 4)) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
     quotedIn(r.quotedIn, "  ");
   }
@@ -7638,14 +7743,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "margin": def({
-    summary: "the margin's cards (ADR 0004 contract 6): one row each (trim), whole with their replies (full), or off: marks only (the highlights and marks stay on the words, the byline says \"marks only\"). A wide reader has them in a column beside the text; a narrow one under each passage. The person's reading state, kept with the tile (PIE-873) and taken by a reader opened from it",
+    summary: "the margin's cards (ADR 0004 contract 6): one row each (trim), whole with their replies (full), or off: marks only (the highlights and marks stay on the words, the byline says \"marks\"). A wide reader has them in a column beside the text; a narrow one under each passage. Reading state agents may change for the person, kept with the tile (PIE-873) and taken by a reader opened from it",
     keys: "M cycles trim, full, off (marks only); a click on the byline's comment count",
-    touches: "tile", replay: "safe", person: "how the margin reads is the person's reading state; an agent reads threads with threads",
+    touches: "shape", replay: "safe",
     args: { mode: { type: "string", optional: true, about: "trim, full or off; left out, the next one" } },
-    run({ mode }, { surface, host }) {
+    run({ mode }, { surface, host }, actor) {
       const next = mode === undefined ? MARGIN_MODES[(MARGIN_MODES.indexOf(surface.marginMode) + 1) % MARGIN_MODES.length]! : (MARGIN_MODES as readonly string[]).includes(mode) ? mode as MarginMode : null;
       if (!next) throw new ActionRefused("mode is trim, full or off");
-      surface.marginMode = next;
+      surface.setMargin(next);
+      surface.noteAgent(actor, `comments: ${next === "off" ? "marks" : next}`);
       // Kept with the tile (PIE-873): a handover, a restart and the next note read the same way.
       host.keptChanged?.();
       host.ctx.flash(`margin: ${next === "trim" ? "cards a row each" : next === "full" ? "cards whole" : "off (highlights stay)"} · M`);
@@ -7742,8 +7848,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "thread.toggle": def({
-    summary: "expand a comment thread inline under its passage (its comment, replies and Select, Reply, Resolve controls), or collapse it; expand=true or false sets it. The person's reading state: an agent's is refused (threads, reply and resolve act on a thread without changing their view)", keys: "enter or a click on a comment mark",
-    touches: "tile", replay: "safe", person: "which threads are expanded is the person's reading state; threads, reply and resolve act on a thread without changing their view",
+    summary: "open a comment card (its comment, replies and Select, Reply, Resolve controls), or fold it to its gutter mark; expand=true or false sets it. Agents may change this reading state for the person without moving focus or selection", keys: "enter or a click on a comment mark",
+    touches: "shape", replay: "safe",
     args: {
       thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },
       expand: { type: "boolean", optional: true, about: "true expands, false collapses; left out, it toggles" },
@@ -7751,10 +7857,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ thread, expand }, { surface, host }, actor) {
       await surface.whole();
       const id = surface.threadId(thread);
-      surface.setExpanded(id, expand ?? !surface.expanded.has(id));
-      surface.readThread(id, host);
+      surface.setExpanded(id, expand ?? !surface.threadShown(id));
+      if (actor.kind === "user") surface.readThread(id, host);
+      surface.noteAgent(actor, `${surface.threadShown(id) ? "opened" : "folded"} a comment`);
       host.redraw();
-      return { thread: id, expanded: surface.expanded.has(id) };
+      return { thread: id, expanded: surface.threadShown(id) };
     },
   }),
   "reply": def({

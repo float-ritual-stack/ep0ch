@@ -18,9 +18,9 @@ import { annotationKind, annotationTone } from "@ep0ch/outline-core/annotation-m
 import type { RuleTone } from "@ep0ch/outline-core/rules";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
-import { authorName, type Comment } from "../socket";
+import { type Comment } from "../socket";
 import { C, ellipsize, fg, pad, RESET, surfaceBg } from "../style";
-import { ago, printable, wrap } from "../text";
+import { printable } from "../text";
 
 /** How the margin shows its cards: one row each, whole, or not at all (the spans stay). The person's reading state. */
 export type MarginMode = "trim" | "full" | "off";
@@ -51,40 +51,6 @@ export const kindOf = (c: Comment) => annotationKind(c.props ?? {}, c.body);
 /** An annotation drawn as a card: one with something to read (a body, or replies). */
 export const hasCard = (c: Comment) => !!c.body.trim() || c.replies.length > 0;
 
-/** Its tags, as written. */
-const tagsOf = (c: Comment) => (c.props?.tags ?? []).map(t => `#${printable(t)}`).join(" ");
-
-/**
- * A card's rows, `w` cells wide: `▌kind · who · when`, then (trimmed) its first line, or (full) its body and each reply.
- * Each row exactly `w` cells.
- */
-/** `say`: a body as the reader says it (references by their titles, PIE-770); without it, as typed. */
-export function cardRows(c: Comment, w: number, mode: MarginMode, say: (text: string) => string = t => t): string[] {
-  const ink = fg(toneInk(c.props)), edge = ink + "▌" + RESET;
-  const inner = Math.max(4, w - 2);
-  const n = c.replies.length;
-  const head = `${kindOf(c)} · ${printable(authorName(c.author))} · ${ago(c.at)}${c.edited ? " · edited" : ""}${c.lifecycle === "kept" ? " · kept" : c.open ? "" : ` · ${c.lifecycle}`}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""}`;
-  const rows = [edge + " " + ink + pad(head, inner) + RESET];
-  const body = printable(say(c.body).replace(/\t/g, " "), "", { lines: true });
-  if (mode === "trim") {
-    // A thread with a TL;DR (PIE-791) shows it: the post-it, the discussion behind it.
-    const first = printable(say(c.tldr?.body ?? c.replies.at(-1)?.body ?? c.body).replace(/\s+/g, " ")).trim();
-    const who = c.tldr ? "TL;DR " : c.replies.length ? `${printable(authorName(c.replies.at(-1)!.author))}: ` : "";
-    if (first || who) rows.push(edge + " " + fg(C.grey) + pad(ellipsize(who + first, inner), inner) + RESET);
-    const tags = tagsOf(c);
-    if (tags && rows.length < 3) rows.push(edge + " " + fg(C.dark) + pad(ellipsize(tags, inner), inner) + RESET);
-    return rows;
-  }
-  for (const l of body.split("\n").flatMap(l => (l ? wrap(l, inner) : [""])).slice(0, 12)) rows.push(edge + " " + fg(C.white) + pad(l, inner) + RESET);
-  for (const r of c.replies) {
-    wrap(`${printable(authorName(r.author))}: ${printable(say(r.body).replace(/\s+/g, " "))}`, Math.max(2, inner - 2)).slice(0, 6)
-      .forEach((l, j) => rows.push(edge + " " + fg(C.cyan) + pad((j ? "  " : "└ ") + l, inner) + RESET));
-  }
-  const tags = tagsOf(c);
-  if (tags) rows.push(edge + " " + fg(C.dark) + pad(ellipsize(tags, inner), inner) + RESET);
-  return rows;
-}
-
 /**
  * The margin column's width at reader width `w`: room for cards beside the words when the reader is wide (a third of
  * it, 24 to 36 cells), else 0 (the cards fold under their passages).
@@ -98,12 +64,12 @@ export function marginColumn(w: number, mode: MarginMode, cards: number): number
  * Cards placed in the side column: each at its passage's first row, or below the card above it (one blank row
  * between), so none overlap. `at` is the content row each starts on; `rows` its drawn rows.
  */
-export function placeCards(cards: readonly { thread: string; row: number; rows: string[] }[]): { thread: string; at: number; rows: string[] }[] {
+export function placeCards<T extends { thread: string; row: number; rows: string[] }>(cards: readonly T[]): (T & { at: number })[] {
   let free = -Infinity;
   return [...cards].sort((a, b) => a.row - b.row).map(c => {
     const at = Math.max(c.row, free);
     free = at + c.rows.length + 1;
-    return { thread: c.thread, at, rows: c.rows };
+    return { ...c, at };
   });
 }
 
