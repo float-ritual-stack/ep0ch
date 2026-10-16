@@ -116,6 +116,24 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await expect(act("edit.close", { discard: true }, "detail1")).rejects.toThrow(/no tile detail1/);
   });
 
+  test("a new card's preview follows the source cursor and can scroll away from it", async () => {
+    await fresh();
+    key(char("n"));
+    await until(() => !!B().model.composer, "the new card composer");
+    key({ kind: "paste", text: Array.from({ length: 80 }, (_, i) => `Bean row ${i}`).join("\n") });
+    key({ kind: "char", ch: "p", ctrl: true });
+    const rows = () => b.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+    const preview = () => { const lines = rows(); return lines.slice(lines.findIndex(l => l.includes("preview · ctrl+p hides")) + 1).join("\n"); };
+    expect(preview()).toContain("Bean row 79");
+    const d = B().model.composer!.session.draft;
+    const position = d.row;
+    const at = d.frame!.preview!, box = B().model.composerAt!;
+    key({ kind: "mouse", action: "wheel-up", button: 0, x: box.col + d.frame!.col + 3, y: box.row + at.row + 3 });
+    expect(preview()).not.toContain("Bean row 79");
+    expect(d.row).toBe(position);
+    key({ kind: "esc" });
+  });
+
   test("PIE-705: the readers row holds reader tiles in mode held, named and labelled as the details always were; p and reader.mode switch them", async () => {
     await withDetails();
     const tiles = () => B().layoutGet().tiles as any[];
@@ -143,12 +161,12 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(t("detail1").title).toMatch(/^detail 1\b/);
   });
 
-  test("{ } and < > change the tree's shares: the lanes' height, a lane's width in the columns, a reader's in the row", async () => {
+  test("tile.resize and < > change the tree's shares: the lanes' height, a lane's width in the columns, a reader's in the row", async () => {
     await withDetails();
     const lanesH = rect("preview").row;
-    key(char("}"));
+    await b.dispatch.press("tile.resize", { axis: "col", by: 1 }, "lanes");
     expect(rect("preview").row).toBeGreaterThan(lanesH);
-    key(char("{")); key(char("{"));
+    await b.dispatch.press("tile.resize", { axis: "col", by: -2 }, "lanes");
     expect(rect("preview").row).toBeLessThan(lanesH);
     const q = rect("Doing").cols;
     key(char(">"));
@@ -265,7 +283,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
 
   test("the next board builds the same tree from delivery.json", async () => {
     await fresh();
-    key(char("}")); key(char("T")); key(char("S")); key({ kind: "esc" });
+    await b.dispatch.press("tile.resize", { axis: "col", by: 1 }, "lanes"); key(char("T")); key(char("S")); key({ kind: "esc" });
     const before = shape(tree()), preview = rect("preview");
     await fresh(true);
     expect(shape(tree())).toEqual(before);

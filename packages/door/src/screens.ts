@@ -1,3 +1,4 @@
+import { readingRuler, useReadingRuler } from "./surface/selection";
 import { readReplies } from "./links";
 // Every screen of the board. Outline data arrives async; screens render "loading" until it lands.
 import { endsIn, listShares, revokeShares, startShare } from "./share-cli";
@@ -731,6 +732,17 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       ctx.flash(!keep.on ? "readers' headers stay plain" : keep.mode === "follow" ? "a reader's header takes each picture as it scrolls under" : "a reader's header takes the hero image as it scrolls under");
       ctx.redraw();
       return { on: heroHeaderOn(), mode: heroHeaderMode() };
+    },
+  }),
+  "reader.ruler": def({
+    summary: "show the reading line as a calm block highlight, on by default; kept for the next start",
+    keys: "power bar: reader.ruler", touches: "screen", replay: "ask",
+    args: { on: { type: "boolean", optional: true, about: "show the reading line; omitted toggles it" } },
+    run({ on }, { ctx }) {
+      useReadingRuler(on ?? !readingRuler());
+      writeState("reader-ruler.json", { on: readingRuler() });
+      ctx.redraw();
+      return { on: readingRuler() };
     },
   }),
   "reader.overscroll": def({

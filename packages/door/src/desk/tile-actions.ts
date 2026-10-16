@@ -188,7 +188,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.resize": def({
     summary: "grow (by>0) or shrink (by<0) tile=<tile> by steps along axis=row (width, default) or col (height), as its keys do; on the board tile=lanes is the lanes' row. layout.resize places a border exactly",
-    keys: "^W < > + -; board { } < >; drag a border",
+    keys: "^W < > + -; board < >; drag a border",
     touches: "shape", replay: "safe", says: (r, a) => `${a.by > 0 ? "grew" : "shrank"} ${r.tile}`,
     args: { by: { type: "number", about: "steps: +1 grows it by one key press, -2 shrinks it by two" }, axis: { type: "string", optional: true, about: "row (width, default) or col (height)" } },
     run({ by, axis }, { d, reader }, actor) {

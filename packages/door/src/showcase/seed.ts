@@ -537,7 +537,7 @@ export const HALF_WRITTEN = [
 export const OVERSCROLL = [
   SEED.overscroll,
   "",
-  "End (or G) goes to the last line: it sits on the bottom edge. Press it again, or keep scrolling with the wheel, j or space, and the last line comes up to the middle of the reader, with nothing under it. Home comes back to the top.",
+  "End (or G) goes to the last line: it sits on the bottom edge. Press it again, or keep scrolling with the wheel, PgDn or space, and the last line comes up to the middle of the reader, with nothing under it. Home comes back to the top.",
   "",
   "`ep0ch act reader.overscroll rows=none` stops every reader and draft at its last line as before; `rows=half` is the default, and a number of rows scrolls that far past the end. It's kept for the next start, as the theme is.",
   "",

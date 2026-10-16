@@ -666,7 +666,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (folded) {
         const n = body.filter(l => l.trim()).length, said = `▸ ${n} line${n === 1 ? "" : "s"} folded`;
         // The hint gives way by width, whole words at a time, never cut mid-word.
-        const hint = (fp2 ? [`${said} · f or a click on the title unfolds`, `${said} · f`] : [`${said} · z unfolds`]).find(x => vwidth(x) <= inner) ?? said;
+        const hint = (fp2 ? [`${said} · f, gutter or … unfolds`, `${said} · f`] : [`${said} · z unfolds`]).find(x => vwidth(x) <= inner) ?? said;
         cut(out.length, [0, 2], [2 + inner, Infinity]);
         out.push(fg(colour) + "│ " + fg(C.dark) + pad(hint, inner) + fg(colour) + " │" + RESET);
       } else {

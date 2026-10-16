@@ -1823,7 +1823,7 @@ The board's new-card composer is the same control too.
   takes keys, and only one you are in. One you open by key (`e`, `C`, `m`, `i`, from the lanes too) is
   yours as it opens, and focus moves to it; if you press `Esc` or move away before the note has been
   read, it doesn't open. One an agent opened doesn't take
-  your keys: `Tab`, `Esc`, the lanes and window keys keep working, `j k PgDn Space` scroll the reader,
+  your keys: `Tab`, `Esc`, the lanes and window keys keep working, `j k PgDn Space` scroll the held edit or comment,
   `x` refuses to close one holding an edit or a comment, and `e` or `⏎` enters it. The frame title
   and the hint row say which it is (`editing (e enters)`). One of yours you moved away from stays open, says
   `(kept open)`, and takes your keys again the moment they're back on its tile (PIE-812). The mouse wheel always scrolls whatever is
@@ -2722,7 +2722,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `thread.toggle` | `thread`, `expand=true\|false` (default toggles). Agents may change this reading state | `Enter` on a mark, or click `[–]` / `[+]` in the gutter or card header |
 | `link.select`, `link.follow`, `up` | `n` (from 1); `fresh=true` (follow) opens it in a new reader. An agent's is refused in the reader that has your keys (and its `link.follow n=` never moves your `[ ]` position); a web link or a figure an agent follows is never opened in your browser or viewer: it gets the address back | `[ ]`, `Enter`, `alt+Enter` or a click, `u` (`U` in the message reader) |
 | `elements`, `element.select`, `element.open` | `n` (from `elements`), or `by=1\|-1` (select: the next or previous), `n=0` lets go; `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `esc` lets go, `Enter`, `alt+Enter`, a click |
-| `scroll` | `by=` rows, or `to=top\|end`: the reader's own scroll. `to=end` puts the last line on the bottom edge; again, it goes on past the end (`reader.overscroll`, to the middle by default, PIE-622). It answers the viewport, with `atEnd` and `past` (the blank rows scrolled under the last line). An agent's is refused on the reader that has your keys: it uses `view.scrollTo` | `j k ↑↓ PgUp PgDn space Home End G`, the wheel |
+| `scroll` | `by=` rows, or `to=top\|end`: the reader's own scroll. `to=end` puts the last line on the bottom edge; again, it goes on past the end (`reader.overscroll`, to the middle by default, PIE-622). It answers the viewport, with `atEnd` and `past` (the blank rows scrolled under the last line). An agent's is refused on the reader that has your keys: it uses `view.scrollTo` | `PgUp PgDn space Home End G`, the wheel |
 | `callouts` | `show=true\|false` (default toggles): every callout open, or back as written. The person's only | `z` |
 | `callout.list` | none: the note's callouts (`n`, `line`, type, title, whether it starts folded, whether it's folded here) and the outline's callout types, with any problem in their declarations | |
 | `callout.type`, `callout.start` | `n` (from `callout.list`) or `line` (its header, 1 is the subject); `to=<type>` or `folded=true\|false`. One header line rewritten through the note's save, revision-checked, attributed; an agent never under a draft someone has open on the note | the type choice's `⏎`, `-`, `+` |
@@ -2929,3 +2929,10 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 ### Keeping your place (PIE-920)
 
 Reading and editing share a source position. Opening an edit keeps the first visible source line at the same screen row and starts the cursor on the reading line. Returning to reading keeps that view too. A held edit can be scrolled while another tile has the keys: the first click gives it focus, the next places the cursor, and typing or cursor movement brings the view back to the cursor. Its scroll bar remains visible. Try `act section name=one-place` in the showcase.
+
+Reading line (PIE-594): `--showcase`, section `reading-line`, demonstrates a click placing the calm
+block highlight, ↑↓ / j k moving through every block, ( ) stepping sections and [ ] stepping actions.
+The wheel and PgUp/PgDn keep the line where it was; an edge marker names it when it is out of view.
+The gutter chevron folds, and a folded line's trailing … opens it. `reader.ruler on=false` turns the
+highlight off (on by default). EchoNet's { } step messages; [ ] now has the same meaning in every
+reader. The board's former { } resize shortcuts use ^W < > or border dragging instead.

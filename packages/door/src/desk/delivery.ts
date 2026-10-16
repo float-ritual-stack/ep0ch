@@ -38,7 +38,7 @@ function boardTree(hub: string): SavedTree {
 }
 
 const LANES_HINT = "|08 |15g|08 boards · |15h l|08 lane · |15j k|08 card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n ^N|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15tab|08 area · |15q|08 menu";
-const READER_HINT = "|08 |15tab|08 area · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15q esc|08 lanes";
+const READER_HINT = "|08 |15tab|08 area · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15^W < > + -|08 size · |15q esc|08 lanes";
 
 /** The board as a screen spec. `hub`: the hub to show (`--screen board <id>`). */
 export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
@@ -59,8 +59,6 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
       { key: "alt+c", action: "tile.collapse", tile: "all", args: { on: false } },
       { key: "c", action: "tile.collapse", only: ["preview", "reader"] },
       { key: "x", action: "tile.close", only: ["preview", "reader"] },
-      { key: "{", action: "tile.resize", tile: "lanes", args: { axis: "col", by: -1 } },
-      { key: "}", action: "tile.resize", tile: "lanes", args: { axis: "col", by: 1 } },
       { key: "<", action: "tile.resize", args: { axis: "row", by: -1 }, unless: ["backlinks"] },
       { key: ">", action: "tile.resize", args: { axis: "row", by: 1 }, unless: ["backlinks"] },
     ],

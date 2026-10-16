@@ -91,14 +91,14 @@ describe("a reader (NoteSurface): the wheel, the keys and act at the end", () =>
     expect(vp().top).toBe(end + Math.floor(v.room / 2));
   });
 
-  test("the wheel and j keep going past the edge, and stop at the middle", async () => {
+  test("the wheel and PgDn keep going past the edge, and stop at the middle", async () => {
     const { s, h, vp } = open(long);
     for (let i = 0; i < 200; i++) s.wheel(1, h);
     await settle();
     const v = vp();
     expect(v.top).toBe(v.total - v.room + Math.floor(v.room / 2));
     s.key({ kind: "home" }, h); await settle();
-    for (let i = 0; i < 200; i++) s.key(char("j"), h);
+    for (let i = 0; i < 200; i++) s.key({ kind: "pgdn" }, h);
     await settle();
     expect(vp().top).toBe(v.top);
   });

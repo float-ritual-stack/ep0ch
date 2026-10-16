@@ -89,25 +89,26 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     desk.entered.clear();
   }, 30_000);
 
-  test("e then e opens it too; e then j lets it go and scrolls (the key isn't swallowed)", async () => {
+  test("e then e opens it too; e then j lets it go and moves the reading line (the key isn't swallowed)", async () => {
     window("60000");
     const { desk, rd, rows } = await deskOnHedge();
     key(char("e")); key(char("e"));
     await until(() => !!rd.surface.draft, "e e opened the edit");
     rd.surface.closeDraftAction(true);
     desk.entered.clear();
-    const before = rows().join("\n");
+    rows();
+    const before = rd.surface.position.reading;
     key(char("e"));
     expect(app.armed()).not.toBeNull();
     const runs = traced(() => key(char("j")));
     expect(app.armed()).toBeNull();
     // Done once: the key that let it go isn't run twice.
-    expect(runs.filter(r => r.name === "scroll")).toHaveLength(1);
+    expect(runs.filter(r => r.name === "reading.step")).toHaveLength(1);
     expect(runs.map(r => r.name)).not.toContain("edit");
     await Bun.sleep(100);
     expect(rd.surface.draft).toBeNull();
     expect(rows().join("\n")).not.toContain("✎ edit? ");
-    expect(rows().join("\n")).not.toBe(before);
+    expect(rd.surface.position.reading).not.toBe(before);
   }, 30_000);
 
   test("the reader moved on while armed: ⏎ opens nothing on the other note; a pasted newline never confirms", async () => {

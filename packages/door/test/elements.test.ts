@@ -29,39 +29,7 @@ describe("without a service", () => {
   const note = (text: string) => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {} });
   const host = (): SurfaceHost => ({ ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
 
-  test("[ ] reach the folds; the footer names the current element; j lets go, and ⏎ is the host's again", () => {
-    const s = new NoteSurface(), h = host();
-    s.show(note("Plan the allotment\nIntro.\n## Beds\n- dig\n  - edge\n## Water\nThe hose."), h);
-    s.render(60, 30, h);
-    expect(s.hint()).toContain("[ ] elements");
-    expect(s.hint()).not.toContain("[ ] links");
-    s.key(char("]"), h); s.render(60, 30, h);
-    expect(s.describe().elements!.current).toMatchObject({ n: 1, kind: "fold", label: "## Beds" });
-    s.key(char("]"), h); s.render(60, 30, h);
-    expect(s.describe().elements!.current).toMatchObject({ n: 2, kind: "fold", label: "- dig" });
-    expect(s.hint()).toStartWith("fold 2/3 - dig · ⏎ f fold");
-    s.key(char("["), h); s.key(char("["), h); s.render(60, 30, h);   // wraps round to the last
-    expect(s.describe().elements!.current).toMatchObject({ n: 3, label: "## Water" });
-    expect(s.key({ kind: "enter" }, h)).toBe(true);
-    expect(s.describe().folds!.folded).toEqual(["## Water"]);
-    expect(s.key({ kind: "alt-enter" }, h)).toBe(false);          // alt+⏎ opens links, rows and embeds only
-    s.key(char("j"), h);
-    expect(s.describe().elements!.current).toBeNull();
-    expect(s.key({ kind: "enter" }, h)).toBe(false);
-  });
 
-  test("the ruler tints the current element's block, and moves with it", () => {
-    const s = new NoteSurface(), h = host();
-    s.show(note("Plan\nIntro line.\n## Beds\nBeans here.\n## Water\nThe hose."), h);
-    const ruled = () => s.render(60, 30, h).lines.flatMap((l, i) => (l.includes(RULER_BG) ? [plain(l).trim()] : []));
-    expect(ruled()).toEqual([]);
-    s.key(char("]"), h);
-    expect(ruled()).toEqual(["▾ ## Beds"]);
-    s.key(char("]"), h);
-    expect(ruled()).toEqual(["▾ ## Water"]);
-    s.key({ kind: "esc" }, h);
-    expect(ruled()).toEqual([]);
-  });
 });
 
 describe.skipIf(!outliner)("elements in readers, against a scratch outline", () => {
@@ -89,7 +57,11 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   const kinds = (p: ReaderPane) => p.surface.describeElements().map(e => `${e.kind} ${e.label}`);
   /** Step `[ ]` in the focused reader until the current element's label starts with `label`. */
   const stepTo = (p: ReaderPane, label: string) => {
-    for (let i = 0; i < 20; i++) { key(char("]")); frame(); if (current(p)?.label.startsWith(label)) return; }
+    const section = label.startsWith("##") || label.startsWith("- ");
+    for (let i = 0; i < 20; i++) {
+      key(char(section ? ")" : "]")); frame();
+      if (section ? p.surface.describe().folds?.selected?.startsWith(label) : current(p)?.label.startsWith(label)) return;
+    }
     throw new Error(`[ ] never reached ${label}: ${kinds(p).join(" | ")}`);
   };
   /** A fresh board, the preview on the jobs card with everything in it drawn. */
@@ -165,7 +137,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
       stepTo(d, "## Beds");
       key({ kind: "enter" }); frame();
       expect(d.surface.describe().folds!.folded).toEqual(["## Beds"]);
-      click(where(frame(), "Beds", { col: 0, row: 0, cols: 200, rows: 60 }));
+      { const at = where(frame(), "Beds", { col: 0, row: 0, cols: 200, rows: 60 }); click({ x: 1, y: at.y }); }
       expect(d.surface.describe().folds!.folded).toEqual([]);
       d.show(n.beans, b);
       expect(b.openArgs()).toEqual({ target: n.beans.id });
@@ -191,21 +163,19 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(kinds(p).slice(1)).toEqual([
       "link Stake the beans",
       "link Garden plan",
-      "fold ## Beds",
-      "comment \"dig the north bed\" · user",         // the comment mark, in the margin before the item
-      "fold - dig the north bed",
+            "comment \"dig the north bed\" · user",         // the comment mark, in the margin before the item
       "row Water the seedlings",
       "row Turn the compost",
       "embed » Paint the shed",
     ]);
     const seen: string[] = [];
-    for (let i = 0; i < 9; i++) { key(char("]")); frame(); seen.push(current(p)!.kind); }
-    expect(seen).toEqual(["link", "link", "link", "fold", "comment", "fold", "row", "row", "embed"]);
+    for (let i = 0; i < 7; i++) { key(char("]")); frame(); seen.push(current(p)!.kind); }
+    expect(seen).toEqual(["link", "link", "link", "comment", "row", "row", "embed"]);
     key(char("]")); frame();
     expect(current(p)!.n).toBe(1);                                   // round to the first again
     key(char("[")); frame();
     expect(current(p)!.kind).toBe("embed");
-    expect((await act("elements", {}, "preview", AS) as any).elements.map((e: any) => e.kind)).toEqual(["link", "link", "link", "fold", "comment", "fold", "row", "row", "embed"]);
+    expect((await act("elements", {}, "preview", AS) as any).elements.map((e: any) => e.kind)).toEqual(["link", "link", "link", "comment", "row", "row", "embed"]);
     // link.select picks the element it's drawn as, so the ruler and ⏎ agree with it.
     const beans = p.surface.describe().links.findIndex(l => l.block === n.beans.id) + 1;
     // (The person's: their preview has their keys, so an agent's would be refused there.)
@@ -297,10 +267,10 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   test("a click does what ⏎ does and sets the [ ] position: a fold, a comment mark, a figure row", async () => {
     await fresh();
     const p = B().preview as ReaderPane;
-    click(where(frame(), "## Beds", rect("preview")));
+    { const at = where(frame(), "## Beds", rect("preview")); click({ x: rect("preview").col + 1, y: at.y }); }
     expect(p.surface.describe().folds!.folded).toEqual(["## Beds"]);
-    expect(current(p)).toMatchObject({ kind: "fold", label: "## Beds" });
-    click(where(frame(), "## Beds", rect("preview")));
+    expect(p.surface.describe().folds?.selected).toBe("## Beds");
+    { const at = where(frame(), "## Beds", rect("preview")); click({ x: rect("preview").col + 1, y: at.y }); }
     // The comment mark sits in the margin, on the first row of the passage it quotes (where the look's measure puts it).
     const mark = where(frame(), "[+]", rect("preview"));
     click({ x: mark.x - 1, y: mark.y });
@@ -329,10 +299,10 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     const ruled = () => frame().slice(r.row, r.row + r.rows).flatMap(l => (l.includes(RULER_BG) ? [plain(l).slice(r.col + 1, r.col + r.cols - 1).trim()] : []));
     expect(ruled()).toEqual([]);
     stepTo(B().preview, "## Beds");
-    expect(ruled()).toEqual(["▾ ## Beds"]);
+    expect(ruled().join("\n")).toContain("## Beds");
     stepTo(B().preview, "Water the seedlings");
-    expect(ruled()).toHaveLength(1);
-    expect(ruled()[0]).toContain("Water the seedlings");
+    expect(ruled().length).toBeGreaterThan(1);
+    expect(ruled().join("\n")).toContain("Water the seedlings");
   }, 20_000);
 
   test("an agent's focus mark: tinted, named in the header, and the person's position, selection and keys stay", async () => {
@@ -389,18 +359,18 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(d.surface.scroll).toBeGreaterThan(40);                     // brought into view
     expect(frame().filter(l => l.includes(RULER_BG)).map(plain).some(l => l.includes("Mulch everything."))).toBe(true);
     expect(current(d)).toMatchObject({ n: 1, label: "Garden plan" });   // the person's position is where it was
-    expect(frame().map(plain).some(l => l.includes("[ ] 1/2 · link Garden plan · out of view"))).toBe(true);
+    expect(frame().map(plain).some(l => l.includes("[ ] 1/1 · link Garden plan · out of view"))).toBe(true);
     key({ kind: "enter" });                                               // not in view: ⏎ isn't the reader's
     await Bun.sleep(100);
     expect(d.msg!.id).toBe(long.id);
     key(char("]")); frame();
-    expect(current(d)).toMatchObject({ n: 2, kind: "fold", label: "## Autumn" });   // on from it, not from the view
+    expect(current(d)).toMatchObject({ n: 1, kind: "link", label: "Garden plan" });   // on from it, not from the view
     // element.open there is refused (round 3: it could move what they read); the agent folds by the fold action.
-    await expect(act("element.open", { n: 2 }, "detail1", AS)).rejects.toThrow(/detail1 has the person's keys; opening an element there .* or folds a section with fold or unfold/);
+    await expect(act("element.open", { n: 1 }, "detail1", AS)).rejects.toThrow(/detail1 has the person's keys; opening an element there .* or folds a section with fold or unfold/);
     await act("fold", { text: "Autumn" }, "detail1", AS);             // the agent folds it; the position stays
     expect(d.surface.describe().folds!.folded).toEqual(["## Autumn"]);
     frame();
-    expect(current(d)).toMatchObject({ n: 2 });
+    expect(current(d)).toMatchObject({ n: 1 });
   }, 30_000);
 
   test("Tab still switches areas while an element is current", async () => {

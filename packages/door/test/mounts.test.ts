@@ -27,7 +27,6 @@ describe("a part of a screen (partSpec)", () => {
     expect(s.layout.policy?.opensInto).toBeUndefined();
     // Its keys that name a tile outside the part are gone (t slides the outline); the lanes' own stay.
     expect(s.keys!.map(k => k.key)).not.toContain("t");
-    expect(s.keys!.map(k => k.key)).toContain("{");
     expect(() => partSpec(boardSpec(), "nope")).toThrow(/no part nope; its parts: outline, board, lanes, readers, links/);
     expect(screenParts(boardSpec())).toEqual(expect.arrayContaining(["lanes", "readers", "preview", "tree"]));
   });

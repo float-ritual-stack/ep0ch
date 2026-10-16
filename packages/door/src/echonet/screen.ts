@@ -499,10 +499,10 @@ export class EchoReader extends ReaderPane {
     const m = this.message;
     return m && this.area ? `${this.area.tag.toUpperCase()} · message ${m.n} of ${this.list.length}` : this.msg ? `reading · ${subject(this.msg).slice(0, 40)}` : "message reader";
   }
-  override hint() { return this.message ? `] [ next prev · r reply · q quote · ${super.hint()}` : super.hint(); }
+  override hint() { return this.message ? `} { next prev · r reply · q quote · ${super.hint()}` : super.hint(); }
   /** It reads what its list opens: the desk's current note doesn't move it. */
   override select() {}
-  protected override emptyFor(): string { return "⏎ on a message in the list reads it here · ] [ then step through the area · r replies · q quotes"; }
+  protected override emptyFor(): string { return "⏎ on a message in the list reads it here · } { then step through the area · r replies · q quotes"; }
 
   override host(desk: DeskApi): SurfaceHost {
     const base = super.host(desk), a = this.area, net = this.net;
@@ -511,12 +511,12 @@ export class EchoReader extends ReaderPane {
       ...base,
       conference: true,
       ctx: net.ctxOf(a, desk),
-      // A link followed in a message is read here, on the message's own outline (alt+← comes back); ] [ go on through the list.
+      // A link followed in a message is read here, on the message's own outline (alt+← comes back); } { go on through the list.
       navigate: (m: Msg, how?: OpenHow) => { if (how?.by?.kind === "agent" && this.holdsKeys) { desk.ctx.flash(`not opened while you're in ${this.surface.sessionWord() ?? "a session"} here: ${subject(m).slice(0, 50)}`); return; } this.surface.show(m, h); desk.redraw(); },
       header: (m: Msg, _w: number, info: HeaderInfo) => {
         const found = this.list.find(x => x.msg.id === m.id);
         const comments = info.comments?.total ? [`|08■ ${info.comments.open ? `${info.comments.open} open` : `${info.comments.total} earlier`} repl${info.comments.total === 1 ? "y" : "ies"} on this copy · m lists them`] : [];
-        return (found ? [...headerOf(found, this.list.length, a), ...comments] : [`|15${subject(m)}`, `|08${authorName(m.author)} · ${bbsDate(m.updatedAt)} · not a message of ${a.tag.toUpperCase()} · ] [ back to the list`]).map(paint);
+        return (found ? [...headerOf(found, this.list.length, a), ...comments] : [`|15${subject(m)}`, `|08${authorName(m.author)} · ${bbsDate(m.updatedAt)} · not a message of ${a.tag.toUpperCase()} · } { back to the list`]).map(paint);
       },
       // SEEN-BY names the nodes the tosser's seen-by marks on it name, once its threads are read.
       footer: (m: Msg, w: number) => (this.list.some(x => x.msg.id === m.id) ? footerOf(m, a, w, this.msg?.id === m.id ? this.seen(m, desk) : []).map(paint) : []),
@@ -542,7 +542,7 @@ export class EchoReader extends ReaderPane {
     return [];
   }
 
-  /** The area's messages were read again: ] [ step through the new list, from the message shown. */
+  /** The area's messages were read again: } { step through the new list, from the message shown. */
   relist(area: Area, items: Message[]) {
     if (this.area?.key !== area.key) return;
     const shown = this.message?.msg.id;
@@ -593,11 +593,9 @@ export class EchoReader extends ReaderPane {
   override key(k: Key, desk: DeskApi): boolean {
     const c = ch(k);
     if (this.message && !this.holdsKeys && !desk.holdsKeys?.()) {
-      if (c === "]" || c === "[") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.step", { by: c === "]" ? 1 : -1 }); return true; }
+      if (c === "}" || c === "{") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.step", { by: c === "}" ? 1 : -1 }); return true; }
       if (c === "r") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.reply", {}); return true; }
       if (c === "q") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.quote", {}); return true; }
-      // The surface's [ ] (the next and previous element) are { } here.
-      if (c === "{" || c === "}") { void this.surface.runKey("element.select", { by: c === "}" ? 1 : -1 }, this.host(desk)); return true; }
     }
     return super.key(k, desk);
   }
@@ -706,7 +704,7 @@ export const ECHO_MESSAGE_ACTIONS = actionSet<KindHost>()("echo", {
 
 export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
   "echo.step": def({
-    summary: "read the next (by=1) or previous (by=-1) message of the area the reader was opened on, marked read as it's shown", keys: "] [",
+    summary: "read the next (by=1) or previous (by=-1) message of the area the reader was opened on, marked read as it's shown", keys: "} {",
     touches: "screen", replay: "safe", says: r => `read message ${r.n} of ${r.of}: ${r.subject.slice(0, 40)}`,
     args: { by: { type: "number", about: "1 the next, -1 the previous" } },
     run({ by }, { pane, desk }, actor) {
@@ -787,7 +785,7 @@ export function echoKinds(): TileKind[] {
       peek: p => ({ list: (p as EchoMessages).describe() }),
     },
     {
-      ...reader, kind: "echo.reader", word: "reader", about: "an EchoNet message: its header, the note, its FidoNet footer; ] [ step, r reply, q quote", noun: "the message reader", keys: undefined,
+      ...reader, kind: "echo.reader", word: "reader", about: "an EchoNet message: its header, the note, its FidoNet footer; } { step, r reply, q quote", noun: "the message reader", keys: undefined,
       make: () => new EchoReader(), actions: ECHO_READER_ACTIONS, inherits: reader.actions ? [reader.actions] : undefined,
       start: (p, env) => { const net = joinNet(p as EchoReader, env.tile); if (net) net.reader = p as EchoReader; },
       // An agent's open (`ep0ch open <id>`): a message of the area listed is read there; another note is shown in the reader.
@@ -825,7 +823,7 @@ export function echonetSpec(): ScreenSpec {
     hint: {
       "echo.areas": "|15j k|08 area · |15⏎|08 messages · |15r|08 reload · |15Tab|08 tiles · |15q|08 back",
       "echo.messages": "|15j k|08 message · |15⏎|08 read · |15Tab|08 tiles · |15q|08 areas",
-      "echo.reader": "|15] [|08 next prev · |15r|08 reply · |15q|08 quote · |15{ }|08 elements · |15esc|08 areas",
+      "echo.reader": "|15} {|08 next prev · |15r|08 reply · |15q|08 quote · |15[ ]|08 elements · |15esc|08 areas",
       "*": "|15Tab|08 tiles · |15q|08 areas",
     },
     layout: {

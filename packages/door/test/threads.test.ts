@@ -107,7 +107,7 @@ describe("marks only, without a service (PIE-873)", () => {
     const e = (s as any).elems.find((x: any) => x.kind === "comment" && x.thread === onNote.id);
     expect(rows[e.row]!.slice(e.from, e.to)).toBe("[+]");
     // The passage keeps its own mark on its line.
-    expect(rows.find(l => l.includes("Oil the chain"))).toMatch(/^\[\+\].*Oil the chain/);
+    expect(rows.find(l => l.includes("Oil the chain"))).toMatch(/^\s*\[\+\].*Oil the chain/);
     // A tile too narrow for the mark after the title: it stays in the margin, never lost.
     const only = new NoteSurface(), oh = { ...host(), ctx: { ...host().ctx, board: { ancestors: async () => [], comments: async () => [onNote] } } };
     only.show(note as any, oh);
@@ -115,7 +115,7 @@ describe("marks only, without a service (PIE-873)", () => {
     only.marginMode = "off";
     const narrow = only.render(10, 30, oh).lines.map(plain);
     expect(narrow.some(l => l.startsWith("Shed jobs ▐"))).toBe(false);
-    expect(narrow.some(l => l.startsWith("[+]"))).toBe(true);
+    expect(narrow.some(l => l.trimStart().startsWith("[+]"))).toBe(true);
   });
 });
 
@@ -171,7 +171,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     throw new Error(`[ ] never reached ${label}: ${P().surface.describeElements().map(e => `${e.kind} ${e.label}`).join(" | ")}`);
   };
   /** The mark in the margin beside `passage`: one cell left of the body. */
-  const markAt = (passage: string) => { const r = rect("preview"), at = where(frame(), passage, r); return { x: r.col + 1, y: at.y }; };
+  const markAt = (passage: string) => { const r = rect("preview"), at = where(frame(), passage, r); return { x: plain(frame()[at.y]!).indexOf("[+", r.col) >= 0 ? plain(frame()[at.y]!).indexOf("[+", r.col) : plain(frame()[at.y]!).indexOf("[–", r.col), y: at.y }; };
   /** The colour the mark beside `passage` is drawn in (whatever tint is under it). */
   const markIn = (passage: string, colour: number) => { const l = frame()[markAt(passage).y]!; return l.slice(0, l.search(/\[[+–]\]/)).split("\x1b[0m").at(-1)!.includes(fg(colour)); };
   const thread = (id: string) => P().surface.comments?.find(c => c.id === id);

@@ -180,30 +180,30 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
     expect(areas().areas![0]!.fresh).toBe(2);
   });
 
-  test("] and [ step the area, each read as it's shown; a newer upstream is said; the ends are said", async () => {
-    ch("]");
+  test("} and { step the area, each read as it's shown; a newer upstream is said; the ends are said", async () => {
+    ch("}");
     await until(() => reader().msg?.id === ids.c2, "the second copy");
     await until(() => screen().includes("a newer version is upstream"), "upstream said");
     expect(screen()).toContain("(rev 2, this copy is rev 1)");
-    ch("]");
+    ch("}");
     await until(() => reader().msg?.id === ids.c3, "the third");
-    ch("]");
+    ch("}");
     expect((app as any).message).toContain("end of CAFE.CHAT");
-    ch("["); ch("[");
+    ch("{"); ch("{");
     await until(() => reader().msg?.id === ids.c1, "back to the first");
-    ch("[");
+    ch("{");
     expect((app as any).message).toContain("this is the first message");
     await eventually(async () => (await unread(shack, `parent:((${ids.board})) from`)).length === 0, "all three read");
   });
 
-  test("a toss that brings a message while one is read: the list grows, and ] reaches it, new", async () => {
+  test("a toss that brings a message while one is read: the list grows, and } reaches it, new", async () => {
     const c4 = await shack.createBlock(ids.board, "Jam swap [from::cafe@box-a/0a1b2c3d-1111-4222-8333-000000000004] [echo::cafe.chat] [from-rev::1] [tossed::2026-10-11T05:04:00Z] [by::fern]\nPlum, two jars.", { kind: "agent", id: "echo-tosser" });
     await until(() => list().items?.length === 4 && reader().list.length === 4, "the fourth copy listed, and in the reader's list", 8000);
     expect(reader().msg?.id).toBe(ids.c1);
-    ch("]"); ch("]"); ch("]");
+    ch("}"); ch("}"); ch("}");
     await until(() => reader().msg?.id === c4.id, "the new copy read");
     expect(screen()).toContain("Msg  : 4 of 4");
-    ch("["); ch("["); ch("[");
+    ch("{"); ch("{"); ch("{");
     await until(() => reader().msg?.id === ids.c1 && !reader().msg?.partial, "back on the first, read whole");
   });
 

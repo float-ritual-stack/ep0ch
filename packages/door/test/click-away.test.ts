@@ -79,6 +79,8 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     const before = screen();
     const y = before.findIndex(l => /Orchard row \d+/.test(l));
     const label = before[y]!.match(/Orchard row \d+/)![0];
+    key({ kind: "mouse", action: "down", button: 0, x: before[y]!.indexOf(label) + 2, y });
+    key({ kind: "mouse", action: "up", button: 0, x: before[y]!.indexOf(label) + 2, y });
     key(char("e"));
     await until(() => !!rd.draft, "the edit");
     const after = screen();
@@ -108,6 +110,8 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     }
     const before = rows(), y = before.findIndex(l => /Crop \d+/.test(l));
     const label = before[y]!.match(/Crop \d+/)![0];
+    key({ kind: "mouse", action: "down", button: 0, x: before[y]!.indexOf(label) + 2, y });
+    key({ kind: "mouse", action: "up", button: 0, x: before[y]!.indexOf(label) + 2, y });
     key(char("e")); await until(() => !!rd.draft, "the raw table");
     expect(rows().findIndex(l => l.includes(label))).toBe(y);
     expect(rd.draft!.row).toBe(text.split("\n").findIndex(l => l.includes(label)));

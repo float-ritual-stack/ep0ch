@@ -1,3 +1,4 @@
+import { useReadingRuler } from "./surface/selection";
 // Opening the door on a terminal: the App over a service connection, its control socket, its first screens. The
 // door's own terminal (`ep0ch --no-daemon`, src/main.ts) and a door session (src/session/daemon.ts, every client
 // attached to it) open it the same way; only the terminal differs.
@@ -64,6 +65,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   useEditArm(readState<{ ms?: number }>("edit-arm.json")?.ms);
   useHyper(readState<{ on?: boolean }>("hyper.json")?.on);
   useHeroHeader(readState<{ on?: boolean; mode?: string }>("reader-hero.json"));
+  useReadingRuler(readState<{ on?: boolean }>("reader-ruler.json")?.on);
   useOverscroll(readState<{ rows?: unknown }>("reader-overscroll.json")?.rows);
   // Where a comment is written (PIE-770): composer.place keeps it; inline when nothing was chosen.
   useComposerPlace(readState<{ place?: unknown }>("composer-place.json")?.place);

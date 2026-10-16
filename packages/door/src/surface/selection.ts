@@ -13,8 +13,8 @@
 // `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
 // over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
 import { ch, isUp, isDown, type Key } from "../term";
-import { glyphWidth, RESET, surfaceBg, tint } from "../style";
-import { themed } from "../theme";
+import { bgRgb, glyphWidth, RESET, surfaceBg, tint } from "../style";
+import { theme, themed } from "../theme";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 
 /** A cell in rendered rows: `row` in content (not screen) rows, `col` in cells. */
@@ -56,13 +56,17 @@ export let AGENT_BG = "";
  * stay readable on it.
  */
 export let RULER_BG = "";
+export let RULER_IDLE_BG = "";
+let ruler = true;
+export const readingRuler = () => ruler;
+export const useReadingRuler = (on: boolean | undefined) => { ruler = on !== false; };
 /** A comment thread's quoted passage while the thread is expanded under it (PIE-420): a quiet olive. */
 export let THREAD_BG = "";
 /** Every other list item with the look's `list.zebra` on (PIE-673): just off the ground, at the built-in surface and strength. */
 export let ZEBRA_BG = "";
 /** The zebra stripe for a look (PIE-675): its `list.zebra.bg` surface at `list.zebra.strength`, capped dark. */
 export const zebraBg = (v?: Pick<StyleValues, "list.zebra.bg" | "list.zebra.strength">) => surfaceBg(v?.["list.zebra.bg"] ?? "raised", v?.["list.zebra.strength"] ?? 2);
-themed(() => { SELECT_BG = tint("select"); AGENT_BG = tint("agent"); RULER_BG = tint("ruler"); THREAD_BG = tint("thread"); ZEBRA_BG = zebraBg(); });
+themed(() => { SELECT_BG = tint("select"); AGENT_BG = tint("agent"); RULER_BG = tint("ruler"); RULER_IDLE_BG = bgRgb(theme().tint.ruler.map(c => Math.round(c * 0.55)) as [number, number, number]); THREAD_BG = tint("thread"); ZEBRA_BG = zebraBg(); });
 
 const SGR = /(\x1b\[[\d;]*m)/;
 const TAG = /[\u{100000}-\u{10FFFD}]/u;

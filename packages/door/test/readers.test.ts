@@ -116,11 +116,11 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       key({ kind: "esc" }); if (d.session) key({ kind: "esc" });
       expect(d.session).toBeNull();
       frame();
-      // Reading again: j, PgDn, space and the wheel scroll the detail.
+      // Reading again: Down places the reading line; PgDn, space and the wheel scroll the detail.
       key({ kind: "down" }); key({ kind: "pgdn" }); key(char(" "));
-      expect(scrollOf(d)).toBe(31);
+      expect(scrollOf(d)).toBe(30);
       wheel(rect("detail0"));
-      expect(scrollOf(d)).toBe(31 + SCROLL_ROWS);
+      expect(scrollOf(d)).toBe(30 + SCROLL_ROWS);
     }
   });
 
@@ -425,6 +425,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await fresh();
     key({ kind: "enter" });
     await whole(B().details[0]);
+    frame();
     key({ kind: "pgdn" });
     const lines = frame(), r = rect("detail0"), pv = rect("preview");
     expect(lines[r.row]).toMatch(/detail 1 · held · \d+%/);
