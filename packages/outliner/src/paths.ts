@@ -6,7 +6,7 @@ import {
   nearestDotEp0ch,
   outlineLayout,
   outlinesFolder,
-  whichOutline,
+  ignoredMachineNote, scratchEnv, whichOutline,
   type WhichOutline,
 } from "@ep0ch/outline-core/outline-location";
 
@@ -82,12 +82,17 @@ export function invocationFolder(env: NodeJS.ProcessEnv = process.env): string {
   return resolve(env.OUTLINER_WORKSPACE_ROOT?.trim() || process.cwd());
 }
 
+/** Machines already said to be set aside, so a command that asks the rule often says it once. */
+const said = new Set<string>();
+
 /**
  * The rule for `folder`: EP0CH_WS, else the nearest `.ep0ch`, else unnamed with the guess offered at init; the machine
  * by EP0CH_MACHINE, else that `.ep0ch`'s.
  */
 export function whichOutlineFor(folder: string, env: NodeJS.ProcessEnv = process.env): WhichOutline {
-  return whichOutline({ env: env.EP0CH_WS, machineEnv: env.EP0CH_MACHINE, folder, home: homeOf(env), fs: diskReader });
+  const which = whichOutline({ env: env.EP0CH_WS, machineEnv: env.EP0CH_MACHINE, scratch: scratchEnv(env), folder, home: homeOf(env), fs: diskReader });
+  if (which.ignoredMachine && !said.has(which.ignoredMachine.machine)) { said.add(which.ignoredMachine.machine); console.error(ignoredMachineNote(which.ignoredMachine)); }
+  return which;
 }
 
 /** The folder that names an outline for `folder` (its nearest `.ep0ch`), never a guess; undefined when none does. */
@@ -114,7 +119,7 @@ export function clientSocket(env: NodeJS.ProcessEnv = process.env, machine?: str
 
 /** The machine a host-level request from `env`'s folder goes to (EP0CH_MACHINE, else its `.ep0ch`'s), or none. */
 export function machineFor(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  try { return whichOutlineFor(invocationFolder(env), env).machine; } catch { return env.EP0CH_MACHINE?.trim() || undefined; }
+  try { return whichOutlineFor(invocationFolder(env), env).machine; } catch { return scratchEnv(env) ? undefined : env.EP0CH_MACHINE?.trim() || undefined; }
 }
 
 /**

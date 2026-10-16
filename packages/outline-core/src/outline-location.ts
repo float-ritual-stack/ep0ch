@@ -169,7 +169,31 @@ export function guessOutline(folderInput: string, home: string, fs: LocationRead
 }
 
 /** The machine an outline is on, and what named it; absent in a result means this machine (`machineSource: "flag"`: `--here` said so). */
-export interface OnMachine { machine?: string; machineSource?: "flag" | "env" | "file" }
+export interface OnMachine {
+  machine?: string; machineSource?: "flag" | "env" | "file";
+  /** A machine `EP0CH_MACHINE` or a `.ep0ch` named and `scratch` set aside (PIE-912); `ignoredMachineNote` says it. */
+  ignoredMachine?: { machine: string; source: "env" | "file" };
+}
+
+/**
+ * Whether a client is in an agent's scratch environment (`scripts/agent-env` sets EP0CH_AGENT_ENV) with the real ssh
+ * (PIE-912): then no machine named by `EP0CH_MACHINE` or a `.ep0ch` is reached, only one named by `--machine`. The fake
+ * ssh tests give (`EP0CH_SSH` in the temp folder, which refuses anything outside it) can't reach a real machine, so it
+ * guards nothing; any other `EP0CH_SSH` is as real as `ssh`.
+ */
+export const scratchEnv = (env: Record<string, string | undefined>): boolean => {
+  if (!env.EP0CH_AGENT_ENV?.trim()) return false;
+  const ssh = env.EP0CH_SSH?.trim();
+  if (!ssh) return true;
+  const roots = [env.TMPDIR?.trim(), "/tmp"].filter((r): r is string => !!r).map(r => r.replace(/\/+$/, "") + "/");
+  return !(roots.some(r => ssh.startsWith(r)) && !ssh.includes(".."));
+};
+
+/** What a client says (once, on stderr) when `scratch` set a machine aside, with the command that does reach it. */
+export function ignoredMachineNote(i: { machine: string; source: "env" | "file" }): string {
+  const from = i.source === "env" ? "EP0CH_MACHINE" : "this folder's .ep0ch";
+  return `ep0ch: ignoring machine ${i.machine} from ${from}: this is an agent-env scratch environment, which never reaches a real machine. Working on this machine; to reach ${i.machine} on purpose, add --machine ${i.machine}.`;
+}
 
 export type WhichOutline =
   | ({ kind: "named"; name: string; source: "flag" | "env" | "file"; file?: string; folder?: string } & OnMachine)
@@ -180,15 +204,21 @@ export type WhichOutline =
  * machine: `machineFlag` (`--machine`), then `machineEnv` (EP0CH_MACHINE), then the nearest `.ep0ch` when it names
  * the same outline (an opener that passes the outline on as EP0CH_WS keeps its machine). `here` (`--here`) says this
  * machine outright, over EP0CH_MACHINE and a `.ep0ch`'s machine: how "the one on this machine" is opened from a folder
- * whose `.ep0ch` puts that name on another (PIE-545).
+ * whose `.ep0ch` puts that name on another (PIE-545). `scratch` (`scratchEnv`) lets only `--machine` name one (PIE-912).
  */
-export function whichOutline(o: { flag?: string; env?: string; machineFlag?: string; machineEnv?: string; here?: boolean; folder: string; home: string; fs: LocationReader }): WhichOutline {
+export function whichOutline(o: { flag?: string; env?: string; machineFlag?: string; machineEnv?: string; here?: boolean; scratch?: boolean; folder: string; home: string; fs: LocationReader }): WhichOutline {
   const flag = o.flag?.trim(), env = o.env?.trim(), mflag = o.machineFlag?.trim(), menv = o.machineEnv?.trim();
   if (o.here && mflag) throw new Error(`--here and --machine ${mflag} both name the machine; leave one out`);
   if (mflag && !isMachineName(mflag)) throw new Error(`--machine ${JSON.stringify(mflag)} isn't an ssh config name (${MACHINE_NAME_PATTERN.source})`);
   if (menv && !isMachineName(menv)) throw new Error(`EP0CH_MACHINE=${JSON.stringify(menv)} isn't an ssh config name (${MACHINE_NAME_PATTERN.source})`);
-  const on = (fromFile?: string): OnMachine =>
-    o.here ? { machineSource: "flag" } : mflag ? { machine: mflag, machineSource: "flag" } : menv ? { machine: menv, machineSource: "env" } : fromFile ? { machine: fromFile, machineSource: "file" } : {};
+  // `scratch` (agent-env, PIE-912): only --machine reaches another machine; what the environment or a file names is said and set aside.
+  const on = (fromFile?: string): OnMachine => {
+    if (o.here) return { machineSource: "flag" };
+    if (mflag) return { machine: mflag, machineSource: "flag" };
+    const named = menv ? { machine: menv, machineSource: "env" as const } : fromFile ? { machine: fromFile, machineSource: "file" as const } : undefined;
+    if (!named) return {};
+    return o.scratch ? { ignoredMachine: { machine: named.machine, source: named.machineSource } } : named;
+  };
   // Named by --ws or EP0CH_WS: the folder's .ep0ch gives its machine only when it names the same outline (one that
   // can't be read gives none here; it is said when it's what names the outline).
   const sameAs = (name: string) => { try { const d = nearestDotEp0ch(o.folder, o.fs); return d?.name === name ? d.machine : undefined; } catch { return undefined; } };

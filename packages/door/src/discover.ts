@@ -8,7 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { type LocationReader, outlineLayout, outlinesFolder, whichOutline } from "@ep0ch/outline-core/outline-location";
+import { type LocationReader, ignoredMachineNote, outlineLayout, outlinesFolder, scratchEnv, whichOutline } from "@ep0ch/outline-core/outline-location";
 import { forwardPaths } from "@ep0ch/outline-core/machine";
 import type { OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { hostRequest, type HostStatus } from "./socket";
@@ -72,6 +72,9 @@ function flagValue(args: readonly string[], flag: string, what: string): string 
   return !v || v.startsWith("--") ? { error: `${flag} needs ${what}` } : v;
 }
 
+/** Machines already said to be set aside (agent-env, PIE-912): once per process. */
+const said = new Set<string>();
+
 /**
  * The target: the host (EP0CH_SOCKET, else the named machine's forward, else this machine's),
  * and the outline by the rule (`--ws`, EP0CH_WS, the nearest `.ep0ch` from `cwd`; the machine by `--machine`,
@@ -89,8 +92,9 @@ export function resolveTarget(args: readonly string[], env: Env = process.env, c
   const explicit = env.EP0CH_SOCKET?.trim();
   if (explicit && machineFlag) return { error: `--machine ${machineFlag} and EP0CH_SOCKET both name a host; leave one out` };
   let which;
-  try { which = whichOutline({ flag: ws, env: env.EP0CH_WS, machineFlag, machineEnv: env.EP0CH_MACHINE, here: args.includes("--here"), folder: resolve(cwd), home: homeOf(env), fs: disk }); }
+  try { which = whichOutline({ flag: ws, env: env.EP0CH_WS, machineFlag, machineEnv: env.EP0CH_MACHINE, here: args.includes("--here"), scratch: scratchEnv(env), folder: resolve(cwd), home: homeOf(env), fs: disk }); }
   catch (e) { return { error: (e as Error).message }; }
+  if (which.ignoredMachine && !said.has(which.ignoredMachine.machine)) { said.add(which.ignoredMachine.machine); console.error(ignoredMachineNote(which.ignoredMachine)); }
   // A socket named outright is the host, whatever machine a file or EP0CH_MACHINE names.
   const machine = explicit ? undefined : which.machine;
   const path = explicit || (machine ? forwardPaths(outlinesDir(env), machine).socket : hostSocketOf(env));
