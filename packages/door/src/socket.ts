@@ -1061,6 +1061,20 @@ export class SocketBoard implements Board {
     return backlinkCollectionOf(await this.request<BacklinkCollection>("references.backlinks", { query: { targetBlockId: id, limit } }), id);
   }
 
+  /**
+   * The comments under a note that the margin can't show because they have no target (PIE-933), with why: the service's
+   * own answer to opening each (`annotations.get`), never a guess here. `shown` is the ids `comments` returned.
+   */
+  async untargeted(noteId: string, shown: readonly string[]): Promise<Array<{ id: string; why: string }>> {
+    const known = new Set(shown);
+    const stray = (await this.children(noteId)).filter(child => child.props.type === "annotation" && !known.has(child.id)).slice(0, 20);
+    const found: Array<{ id: string; why: string }> = [];
+    for (const { id } of stray) {
+      try { await this.request("annotations.get", { annotationId: id }); } catch (error) { found.push({ id, why: error instanceof Error ? error.message : String(error) }); }
+    }
+    return found;
+  }
+
   /** Comment threads anchored on a block (open ones first). */
   async comments(blockId: string, shown?: { revision?: number; stale?: () => void }): Promise<Comment[]> {
     // A Resource's threads are read through the service's reconcile (PIE-650): it reads the text now and re-anchors

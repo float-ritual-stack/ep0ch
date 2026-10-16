@@ -871,13 +871,13 @@ export class OutlinerStore {
       }, (sequence) => this.changes.recordSequenceOnly(sequence, "resource-catalog"));
       this.annotations = new AnnotationRepository(this.database, this.resources, {
         create: (text, parentId, author, provenance) =>
-          this.create(text, parentId, author, provenance),
+          this.writingMarks(() => this.create(text, parentId, author, provenance)),
         update: (blockId, text, expectedRevision, mutation) =>
-          this.update(blockId, text, expectedRevision, mutation),
+          this.writingMarks(() => this.update(blockId, text, expectedRevision, mutation)),
         insertCanonical: (id, text, parentId, author, createdAt) =>
-          this.insertCanonicalBlock(id, text, parentId, author, createdAt),
+          this.writingMarks(() => this.insertCanonicalBlock(id, text, parentId, author, createdAt)),
         replaceCanonicalText: (blockId, text) =>
-          this.replaceCanonicalBlockText(blockId, text),
+          this.writingMarks(() => this.replaceCanonicalBlockText(blockId, text)),
         markMutation: (change) => this.bumpSequence(change),
         requireActive: (blockId) => this.requireActive(blockId),
         get: (blockId) => this.get(blockId),
@@ -5584,8 +5584,21 @@ export class OutlinerStore {
     }
   }
 
+  /** Above 0 while the annotation repository writes a mark's block: it stores the target itself, right after. */
+  private markWrites = 0;
+
+  private writingMarks<T>(write: () => T): T {
+    this.markWrites += 1;
+    try { return write(); } finally { this.markWrites -= 1; }
+  }
+
   private replaceProperties(blockId: string, properties: readonly PropertyRecord[]): void {
     this.replacePropertyIndex(blockId, properties);
+    // Any other write that leaves a block a comment (`[type::annotation]`) gives it its target in this same
+    // transaction, so a comment can't exist without one (PIE-933): the repository is the one place that stores it.
+    if (this.markWrites === 0 && properties.some((property) => property.scope === "block" && property.key === "type" && property.value.trim() === "annotation")) {
+      this.annotations.adopt(blockId);
+    }
     const blockProperties = properties
       .filter((property) => property.scope === "block")
       .map(({ key, value }) => ({ key, value }));

@@ -174,7 +174,7 @@ describe("backlink source facets", () => {
   test("a malformed comment keeps its kind but gets no comment facet instead of failing the query", () => {
     const workspace = store();
     const target = workspace.create("Seed swap [page::Seed Swap]");
-    const odd = workspace.create("Comment on [[Seed Swap]] [type::annotation] [annotation-status::archived]");
+    const odd = workspace.create("Comment on [[Seed Swap]] [type::annotation] [annotation-status::archived]", target.id);
     const facets = facetsOf(workspace.queryBacklinks({ targetBlockId: target.id, limit: 10 }), odd);
     expect(facets?.kind).toBe("comment");
     expect(facets?.comment).toBeUndefined();

@@ -10,7 +10,9 @@ import { blockAnnotationRepresentation } from "./annotation-representations";
 import { checklistItems, updateChecklistText } from "./checklist-items";
 import {readCaptureBefore} from "./capture-history";
 import { Database } from "bun:sqlite";
+import { getProperty } from "./properties";
 import {
+  ANNOTATION_TYPE,
   annotationSourceHash,
   createTextQuoteAnchor,
   createAnnotationReferenceContext,
@@ -314,6 +316,15 @@ function eventFromRow(row: ResolutionRow): AnnotationResolutionEvent {
     appliesCurrent,
     createdAt: iso(row.created_at, "Resolution event time"),
   };
+}
+
+/**
+ * Why a comment can't be opened when it has no target (PIE-933): said in the words of what a person sees. A comment
+ * written through the service always has one (`adopt` gives one to any other write); one that predates that is
+ * given its target by the repair script.
+ */
+export function missingTargetMessage(annotationId: string): string {
+  return `${annotationId} is marked as a comment or reply but has no target: it was written as plain text rather than through the comments service, so no note shows it and it can't be opened, answered or resolved. Any edit to it gives it one; or the sysop runs the repair: bun packages/outliner/scripts/repairs/2026-10-16-annotation-targets.ts <outline database> (with the outline host stopped and a backup taken).`;
 }
 
 export class AnnotationRepository {
@@ -1284,6 +1295,22 @@ export class AnnotationRepository {
     const parentId = subject.kind === "block" ? subject.blockId : this.ensureSystemRoot();
     const block = this.blocks.create(formatAnnotationBlock(input), parentId, author, provenance);
     this.insertTarget(block.id, input.target, block.createdAt);
+    this.recordCapture(block, input, currentTarget, currentPassageTargets);
+    return this.get(block.id);
+  }
+
+  /**
+   * The first resolution event of a mark whose target is stored: where it sits now, and (for a passage) whether the
+   * words are found. One place for a mark made through the service (`createFromCurrentWrite`) and one adopted
+   * (`adopt`), so both read back the same.
+   */
+  private recordCapture(
+    block: Block,
+    input: Pick<AnnotationCreateInput, "target">,
+    currentTarget?: AnnotationTarget,
+    currentPassageTargets?: ReadonlyMap<string,AnnotationTarget>,
+  ): void {
+    const subject = input.target.representation.subject;
     const current = subject.kind === "block" && input.target.listItemId ? this.blocks.requireActive(subject.blockId) : null;
     const representation = current ? blockAnnotationRepresentation(current) : input.target.representation;
     const resolution = current && !currentTarget ? reanchorAnnotationTarget(input.target, representation, current.text) : null;
@@ -1305,7 +1332,59 @@ export class AnnotationRepository {
       appliesCurrent: true,
       createdAt: block.createdAt,
     });
-    return this.get(block.id);
+  }
+
+  /**
+   * A comment whose block was written some other way (a note's text with `[type::annotation]` in it, from an
+   * extension, an import, an agent's plain write) gets its target here, in the same transaction as that write: it is a
+   * comment on the note it sits under, as a comment made through the service would be (PIE-933). The one place a mark
+   * gets a target, so a comment can't exist without one. Does nothing for a block that has one or isn't a comment
+   * (a reply needs no target of its own: its root has it). A comment whose own properties don't read (an unknown
+   * `annotation-status`) is saved as written, as any text is, and not adopted: it would break its note's margin
+   * (`untargeted` says why). Returns whether the block has a target.
+   */
+  adopt(blockId: string): boolean {
+    const block = this.blocks.get(blockId);
+    if (!block || getProperty(block.properties, "type") !== ANNOTATION_TYPE) return true;
+    if (this.database.query("SELECT 1 AS found FROM annotation_targets WHERE annotation_block_id = ?").get(blockId)) return true;
+    const note = block.parentId === null ? null : this.blocks.get(block.parentId);
+    if (!note || note.effectiveDeletedRootId || note.deletedAt) {
+      throw new Error(`${blockId} has [type::annotation], so it is a comment, and a comment sits under the note it is on: put it under that note, or take the type out of its text. Comments are made with outline_comment (annotations.create), which writes the comment and its target together.`);
+    }
+    try { parseAnnotationBlockContent(block); } catch { return false; }
+    const target = blockCommentTarget(note);
+    this.insertTarget(block.id, target, block.createdAt);
+    this.recordCapture(block, { target });
+    return true;
+  }
+
+  /**
+   * Every comment with no target, and why: the block is a comment (`type::annotation`) with no row in
+   * `annotation_targets`. `why` is in a person's words. The readers' answer (the thread inbox, the door) and the
+   * repair's list.
+   */
+  untargeted(): Array<{ id: string; noteId: string | null; why: string }> {
+    const rows = this.database.query(`
+      SELECT DISTINCT p.block_id AS id FROM block_properties p JOIN blocks b ON b.id = p.block_id
+      WHERE p.scope = 'block' AND p.key = 'type' AND p.value = ? AND b.effective_deleted_root_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM annotation_targets t WHERE t.annotation_block_id = p.block_id)
+      ORDER BY b.created_at, b.id
+    `).all(ANNOTATION_TYPE) as Array<{ id: string }>;
+    return rows.map(({ id }) => {
+      const block = this.blocks.get(id)!;
+      let why = missingTargetMessage(id);
+      try { parseAnnotationBlockContent(block); } catch (error) {
+        why = `${id} is marked as a comment but its properties don't read (${error instanceof Error ? error.message : String(error)}), so it has no target: fix the property in its text and save it, and it becomes a comment on the note it sits under.`;
+      }
+      return { id, noteId: block.parentId, why };
+    });
+  }
+
+  /** Every comment with no target, given one (`adopt`): the ids fixed, and the ones that can't be (`untargeted`). The repair script's (scripts/repairs). */
+  adoptStrays(): { adopted: string[]; unreadable: Array<{ id: string; why: string }> } {
+    const adopted: string[] = [];
+    for (const { id } of this.untargeted()) if (this.adopt(id)) adopted.push(id);
+    return { adopted, unreadable: this.untargeted().map(({ id, why }) => ({ id, why })) };
   }
 
   private replyFromCurrentWrite(
@@ -1922,7 +2001,7 @@ export class AnnotationRepository {
 
   private targetRow(annotationId: string): AnnotationTargetRow {
     const row = this.database.query("SELECT * FROM annotation_targets WHERE annotation_block_id = ?").get(annotationId) as AnnotationTargetRow | null;
-    if (!row) throw new Error(`Annotation target not found: ${annotationId}`);
+    if (!row) throw new Error(missingTargetMessage(annotationId));
     const target = parseStoredTarget(row.original_target_json);
     const subject = target.representation.subject;
     if (

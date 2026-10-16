@@ -492,9 +492,12 @@ async function threadsTool(outlines: McpOutlines, args: Record<string, unknown>)
     const read = await recordForMcp(outlines, target, target.id);
     if ("error" in read) return toolError(read.error);
     const rows = threadRows(await target.board.comments(target.id));
+    const untargeted = await target.board.untargeted(target.id, rows.map(r => r.thread)).catch(() => []);
     return toolText({
       uri: target.uri, id: target.id, revision: read.record.revision, reachability: read.access,
       counts: { open: rows.filter(r => r.status === "open").length, resolved: rows.filter(r => r.status === "resolved").length },
+      // Comments under this note that no thread lists, and why (PIE-933): never silently missing.
+      ...(untargeted.length ? { untargeted } : {}),
       threads: inboxThreads(rows, { status, ...(typeof args.lastFrom === "string" ? { lastFrom: args.lastFrom } : {}), ...(typeof args.mentions === "string" ? { mentions: args.mentions } : {}) }),
     });
   }
@@ -514,13 +517,16 @@ async function threadsTool(outlines: McpOutlines, args: Record<string, unknown>)
   // The index narrows to the notes holding threads by status and time; each note's threads are then read and filtered
   // by who spoke last and mentions. A note that read nothing after filtering isn't shown.
   const candidates = notesWithThreads(await board.index(), { status, ...(since !== undefined ? { since } : {}) });
-  const found: { at: number; note: { uri: string; id: string; title: string; threads: ReturnType<typeof threadRows> } }[] = [];
+  const found: { at: number; note: { uri: string; id: string; title: string; threads: ReturnType<typeof threadRows>; untargeted?: { id: string; why: string }[] } }[] = [];
   let scanned = 0;
   for (const c of candidates.slice(0, INBOX_SCAN)) {
     scanned++;
-    const threads = inboxThreads(threadRows(await board.comments(c.noteId)), query);
+    const all = threadRows(await board.comments(c.noteId));
+    const threads = inboxThreads(all, query);
+    // A comment under the note that no thread lists has no target; the inbox says so rather than skip the note (PIE-933).
+    const untargeted = await board.untargeted(c.noteId, all.map(r => r.thread)).catch(() => []);
     // Ordered by the newest comment among the threads that matched, not by the note's newest activity.
-    if (threads.length) found.push({ at: Math.max(...threads.map(t => Date.parse(t.comments.at(-1)!.at ?? "") || 0)), note: { uri: blockUri(board, c.noteId), id: c.noteId, title: previewTitle(c.title), threads } });
+    if (threads.length || untargeted.length) found.push({ at: threads.length ? Math.max(...threads.map(t => Date.parse(t.comments.at(-1)!.at ?? "") || 0)) : c.at, note: { uri: blockUri(board, c.noteId), id: c.noteId, title: previewTitle(c.title), threads, ...(untargeted.length ? { untargeted } : {}) } });
   }
   found.sort((a, b) => b.at - a.at);
   const notes = found.slice(0, limit).map(f => f.note);
@@ -528,6 +534,7 @@ async function threadsTool(outlines: McpOutlines, args: Record<string, unknown>)
   return toolText({
     outline: board.address.outline, machine: board.address.machine, ...target.served, access: { level: access.level },
     query, notes, threadCount: notes.reduce((n, x) => n + x.threads.length, 0),
+    ...(notes.some(n => n.untargeted) ? { untargetedCount: notes.reduce((n, x) => n + (x.untargeted?.length ?? 0), 0) } : {}),
     completeness: { kind: more ? "truncated" : "complete", limit, more },
     said: "Each note's threads are as outline_threads reads them for that note; outline_reply and outline_resolve_thread answer.",
   });
