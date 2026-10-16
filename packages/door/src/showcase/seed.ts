@@ -1278,7 +1278,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const welcomeView = await make(landing.id, WELCOME_VIEW_TEXT);
   await board.moveInView({ view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, { kind: "user" });
 
-  notes.asks = await make(notes.root.id, `${SEED.asks}\n\nPress e, go to the end, and write @planter show the seed counts on its own line. Keep typing on the next line. The answer stays folded and its running view opens beside this note. Open the fold to edit or keep the script. Or ask @planter describe the beds: its plain answer streams beside you as you keep writing.\n\n`);
+  notes.asks = await make(notes.root.id, `${SEED.asks}\n\nBare \`@tidy\` fixes list nesting and spacing above. \`@tidy wrap each item in a callout\` rewrites the passage as asked (Haiku by default, or tidy’s config.answer). It lands as one lit, attributed edit: ctrl+z undoes it. Every ask says what changed or why it could not run.\n\nPress e, go to the end, and write @planter show the seed counts on its own line. Keep typing on the next line. The answer stays folded and its running view opens beside this note. Open the fold to edit or keep the script. Or ask @planter describe the beds: its plain answer streams beside you as you keep writing.\n\n`);
   if (opts.ticketsConfig) {
     const folder = join(opts.ticketsConfig, "pi-herdr-outliner", "extensions", "showcase-planter");
     mkdirSync(folder, { recursive: true });

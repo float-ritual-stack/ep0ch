@@ -3,9 +3,30 @@
   "id": "tidy",
   "version": 1,
   "name": "Tidy",
-  "description": "An agent you address while you write: @tidy tidies the paragraph above the line.",
-  "run": ["bun", "tidy.ts"],
+  "description": "@tidy formats the passage above; @tidy <instruction> rewrites it as asked.",
+  "run": [
+    "bun",
+    "tidy.ts"
+  ],
   "agents": [
-    { "name": "tidy", "description": "Tidies the markdown of the paragraph above (or, with \"all\", everything above)", "effects": "read" }
-  ]
+    {
+      "name": "tidy",
+      "description": "Formats nesting and spacing above; with an instruction, rewrites the passage as asked",
+      "effects": "spend",
+      "deadline": "10s"
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Prompt on stdin, JSON replacement and message on stdout, as marginalia config.answer. Default: claude -p --model haiku --tools \"\"."
+      }
+    },
+    "additionalProperties": false
+  }
 }

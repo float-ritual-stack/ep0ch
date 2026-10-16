@@ -395,6 +395,7 @@ export class AgentRequests {
         blockId, requestKey: line.requestKey, agent: line.agent, extensionId: bound.extension.id, request: line.request,
         status: verdict.denied ? "nothing" : "waiting", message: `${verdict.denied ? "" : "held: "}${verdict.why}`, requestedBy: by, requestedAt: new Date(this.now).toISOString(),
       });
+      this.deps.changed(blockId, { line: line.text, state: verdict.denied ? "nothing" : "waiting", warning: `${verdict.denied ? "" : "held: "}${verdict.why}` });
     }
     if (out.recorded.length) this.deps.changed(blockId);
     return out;
@@ -552,9 +553,12 @@ export class AgentRequests {
       }
     }
     const before = new Set(this.store.agentRequestBaseline(blockId) ?? []);
-    const answered = new Set(this.store.agentRequests(blockId).map((row) => row.requestKey));
+    const rows = new Map(this.store.agentRequests(blockId).map(row => [row.requestKey, row]));
+    const answered = new Set(rows.keys());
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
+      const row = rows.get(line.requestKey);
+      if (row) this.deps.changed(blockId, { line: line.text, state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
       // The key includes the wording; other lines changing leave its deadline alone.
       if (this.timers.has(key)) continue;
       if (before.has(line.requestKey) || answered.has(line.requestKey) || this.running.has(key)) continue;
@@ -759,7 +763,11 @@ export class AgentRequests {
       // Not answered (the line changed): put back what was known before this run, or nothing.
       else if (current && previous) this.store.putAgentRequest(previous);
       else if (current) this.store.pruneAgentRequests(blockId, this.store.agentRequests(blockId).map((row) => row.requestKey).filter((candidate) => candidate !== requestKey));
-      this.deps.changed(blockId, { line: line.text, state: answer?.status ?? "withdrawn", ...(answer?.status === "replied" ? { blocks: blocks || 1, beside: true } : {}) });
+      // Different whitespace, or an identical ask twice, shares one run but every visible line gets its outcome.
+      const text = await this.deps.readDraft(blockId).catch(() => null);
+      const marks = text ? requestLines(text.text, this.registry.agentNames()).filter(l => l.requestKey === requestKey) : [line];
+      for (const mark of marks) this.deps.changed(blockId, { line: mark.text, state: answer?.status ?? "withdrawn",
+        ...(answer?.message ? { warning: answer.message } : {}), ...(answer?.status === "replied" ? { blocks: blocks || 1, beside: true } : {}) });
       const again = this.again.get(key);
       if (again) {
         this.again.delete(key);

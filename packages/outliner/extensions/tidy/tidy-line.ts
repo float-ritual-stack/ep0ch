@@ -23,3 +23,30 @@ export function tidyLine(line: string): string {
   }
   return lead + body + tidyGap(out.slice(cursor));
 }
+
+/** Keep relative parent/child order, normalizing each increase to one two-space level. */
+export function tidyPassage(lines: string[]): { replacement: string; message: string } {
+  const indents: number[] = [];
+  let nested = 0, trimmed = 0, formatted = 0;
+  let fence = "";
+  const replacement = lines.map(line => {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) { if (!fence) fence = marker; else if (marker[0] === fence[0] && marker.length >= fence.length) fence = ""; return line; }
+    if (fence) return line;
+    let out = tidyLine(line);
+    if (/\s+$/.test(line)) trimmed++;
+    if (out !== line.trimEnd()) formatted++;
+    const item = /^(\s*)(?:[-*+]|\d{1,9}[.)])\s+/.exec(out);
+    if (item) {
+      const indent = item[1]!.replaceAll("\t", "  ").length;
+      while (indents.length && indent < indents.at(-1)!) indents.pop();
+      if (!indents.length || indent > indents.at(-1)!) indents.push(indent);
+      const lead = "  ".repeat(indents.length - 1);
+      if (lead !== item[1]) { out = lead + out.slice(item[1]!.length); nested++; }
+    } else if (out && !/^\s/.test(out)) indents.length = 0;
+    return out;
+  }).join("\n");
+  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+  const changes = [nested ? `fixed nesting in ${count(nested, "item")}` : "", trimmed ? `trimmed ${count(trimmed, "line")}` : "", formatted ? `formatted ${count(formatted, "line")}` : ""].filter(Boolean);
+  return { replacement, message: changes.join(", ") || "nothing to tidy above" };
+}

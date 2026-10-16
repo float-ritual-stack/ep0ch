@@ -927,7 +927,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "asks", need: "keep typing while an agent's answer arrives", part: "draft.patch, folds and the comment tile's dock pair", files: "src/edit.ts, src/desk/answer-tile.ts, outliner/src/agent-requests.ts",
-    aside: "ctrl+n starts an unsaved note · type a title, then @ask whats up: its inline warning names the agents here · @prior-art finds earlier related notes from this ask and the note without a reference · e edits the note · write @planter show the seed counts on a new line and keep typing below it · the answer opens beside without taking the keys · open its fold to edit the source · ctrl+s saves both your words and the answer",
+    aside: "ctrl+n starts an unsaved note · bare @tidy fixes nesting and spacing above; @tidy wrap each item in a callout rewrites the passage as asked, lit as ext:tidy and undone with ctrl+z · each ask says what changed or why it could not run; an answer tile shows that result too · type a title, then @ask whats up: its inline warning names the agents here · @prior-art finds earlier related notes from this ask and the note without a reference · e edits the note · write @planter show the seed counts on a new line and keep typing below it · the answer opens beside without taking the keys · open its fold to edit the source · ctrl+s saves both your words and the answer",
     stage(n, show) {
       const r = new ReaderPane();
       return deskOf({ title: "showcase · asks", panes: [r], names: ["notes"] }, show, [[r, n.asks]]);

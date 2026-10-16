@@ -954,7 +954,7 @@ export class Draft {
   askStatus(line: string, room = Infinity): string {
     const ask = this.asks.get(line);
     if (!ask) return "";
-    if (ask.warning) return ` · ${ask.warning}`;
+    if (ask.warning) return ` · ${ask.warning}${ask.beside ? " · beside ▸" : ""}`;
     const short = ` · ${ask.state}${ask.beside ? " · beside ▸" : ""}`;
     const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}`;
     return width(full) <= room ? full : short;

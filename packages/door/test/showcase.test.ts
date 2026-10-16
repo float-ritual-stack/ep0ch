@@ -6,7 +6,7 @@ import { unsent } from "../src/draft-session";
 import { osc52 } from "../src/surface/selection";
 import { surfaceBg } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -3622,6 +3622,42 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(saved.projections.some((p: any) => p.reason?.includes("no agent answers @ask"))).toBe(true);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
+  }, 30000);
+
+  test("tidy instructions patch an unsaved passage once and every ask explains its outcome (PIE-916)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "asks" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "asks")).top;
+    const folder = join(scratch.root, "config/pi-herdr-outliner/extensions/tidy");
+    const replacement = "> [!note] Apples\n> Keep apples\n\n> [!note] Pears\n> Keep pears";
+    const model = join(folder, "fixture-answer.ts");
+    writeFileSync(model, `const prompt = await Bun.stdin.text();
+if (!prompt.includes("wrap each item in a callout") || !prompt.includes("- apples") || prompt.includes("@tidy")) process.exit(2);
+console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, message: "rewrote 2 items as callouts" }));`);
+    writeFileSync(join(folder, "config.json"), JSON.stringify({ config: { answer: ["bun", model] } }));
+    await app.loadExtensions(true);
+    await (app as any).dispatch.press("note.new", { opens: "tab" });
+    await until(() => [...stage.panes.values()].some(p => p.surface?.draft), "new draft");
+    const r = [...stage.panes.values()].find(p => p.surface?.draft) as ReaderPane;
+    const d = r.surface.draft!, tile = stage.nameOf([...stage.panes].find(([, p]) => p === r)![0]);
+    const instruction = "@tidy wrap each item in a callout";
+    const source = `Orchard\n- apples\n- pears\n${instruction}\n${instruction}\n@tidy yo\n`;
+    await stage.dispatch.press("draft.paste", { text: source }, tile);
+    await until(() => d.text.includes("> [!note] Apples"), "the instructed rewrite in the live draft", 8000);
+    await until(() => d.askStatus(instruction).includes("rewrote 2 items as callouts") && d.askStatus("@tidy yo").includes("answer command exited 2"), "every ask's outcome", 8000);
+    expect(d.text).toContain(instruction + "\n" + instruction);
+    expect((await board.get(d.blockId))!.text).toBe("");
+    expect(d.flashes.some(s => s.label.includes("tidy"))).toBe(true);
+    await stage.dispatch.press("draft.place", { line: d.lines.indexOf(instruction) + 1, col: 1 }, tile);
+    screen();
+    await stage.dispatch.press("ask.beside", { ask: instruction }, tile);
+    await until(() => [...stage.panes.values()].some(p => p.kind === "answer"), "the answer tile");
+    const answer = [...stage.panes.values()].find(p => p.kind === "answer");
+    expect(answer?.render(100, 10, false, stage).lines.map(plain).join("\n")).toContain("rewrote 2 items as callouts");
+    await stage.dispatch.press("draft.undo", {}, tile);
+    expect(d.text).toBe(source);
+    await stage.dispatch.press("edit.close", { discard: true }, tile);
   }, 30000);
 
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {
