@@ -123,14 +123,18 @@ export const MOUSE_RIGHT = 2;
  */
 export type RowGesture = "focus" | "select" | "open" | "fresh";
 /** A press as the list is told it: its modifier bits, and whether it gave the list's tile the keys. */
-export interface RowPress { mods?: number; button?: number; focusing?: boolean; now?: number }
+export interface RowPress {
+  mods?: number; button?: number; focusing?: boolean; now?: number;
+  /** The row pressed is the selected one, the person's own pick: a list that opens on a second click (PIE-944) says so, and a press on it opens. */
+  selected?: boolean;
+}
 
 /** The presses on a list's rows, so a second one on the same row soon after is a double click. */
 export class RowPresses {
   private last: { row: number; at: number } | null = null;
   /**
    * A press on row `row`: what it asks for. A double click opens even when its first press gave the list the keys;
-   * a single press that did only selects, whatever modifier it carried (a first click never navigates).
+   * a press on the selected row opens (`selected`: a second click, however slow); a single press that did only selects, whatever modifier it carried (a first click never navigates).
    */
   press(row: number, p: RowPress = {}): RowGesture {
     const now = p.now ?? Date.now(), l = this.last;
@@ -139,6 +143,7 @@ export class RowPresses {
     this.last = twice ? null : { row, at: now };
     if (twice) return "open";
     if (p.focusing) return "focus";
+    if (p.selected) return "open";
     return (p.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL) || p.button === MOUSE_MIDDLE ? "fresh" : "select";
   }
   /** The list changed under the pointer (another note's rows): the next press starts afresh. */

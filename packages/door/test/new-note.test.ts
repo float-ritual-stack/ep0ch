@@ -110,6 +110,33 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect(new Set(outside.replies)).toEqual(new Set([linked.id, both.id]));
   });
 
+  test("the thread panel's rows (PIE-944): a click only selects; a second click on the selected row opens it", async () => {
+    const parent = (await board.newNote("Hedge plans", undefined)).note;
+    const first = (await board.newNote(`Lay it in March [replyTo::${parent.id}]`, parent.id)).note;
+    const second = (await board.newNote(`Or October [replyTo::${parent.id}]`, parent.id)).note;
+    const app = new App(term(() => {}) as any, board, Date.now(), () => {});
+    const reader = new MessageReader([parent], 0);
+    app.push(reader); reader.render(app);
+    await reader.dispatch.act({ action: "note.thread" }, { kind: "user" });
+    reader.render(app);
+    const mode = reader.surface.replyLinks!, host = reader.host(app);
+    const at = (id: string) => { const row = mode.rowsAt.findIndex(r => r.kind === "child" && r.child.block.id === id); return { x: mode.rect.x + 2, y: mode.rect.y + 1 + row }; };
+    const click = (id: string) => { const { x, y } = at(id); reader.surface.press(x, y, host); reader.surface.release(x, y, host); };
+    // The thread: the note, marked and selected, with its two replies under it.
+    const ids = mode.rowsAt.map(r => r.kind === "child" ? r.child.block.id : r.kind);
+    expect(ids[0]).toBe(parent.id);
+    expect(new Set(ids)).toEqual(new Set([parent.id, first.id, second.id]));
+    click(second.id);
+    expect(reader.surface.replyLinks).not.toBeNull();
+    expect(mode.rowsAt[mode.selected]).toMatchObject({ child: { block: { id: second.id } } });
+    expect(reader.surface.msg!.id).toBe(parent.id);
+    await Bun.sleep(450);
+    click(second.id);
+    const top = () => app.screens().at(-1) as MessageReader;
+    await until(() => top() !== reader && top().surface.msg?.id === second.id, "the second click on the selected row opens it in a reader of its own");
+    expect(reader.surface.replyLinks).toBeNull();
+  });
+
   test("quoting freezes the excerpt with its anchor while source scrolling leaves the reply cursor alone", async () => {
     const parent = (await board.newNote("Pear harvest\n\nKeep the ripe pears. ^pears\n\n" + "Leave the windfalls.\n".repeat(80), undefined)).note;
     let key: (k: Key) => void = () => {};

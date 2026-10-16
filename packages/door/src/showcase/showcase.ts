@@ -523,6 +523,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "thread", need: "read a thread as a tree, and pick a post without leaving the one you're reading: the root, the parents down to this note, the posts beside each, this note's replies, who wrote each and how long ago",
+    part: "the reader's THREAD panel (PIE-944, note.thread): the thread as the service answers it (links.ts readThread: each post's replyTo, the replies at each level from the one membership query readReplies), drawn by the links model's rows (threadRows, linkRowLine) in the reader's own side list; the note you are on marked ►, a long level folded around it with a count (⏎ on the fold shows them); one click rule for every list's rows (RowPresses, src/scroll.ts): a click selects, a second click on the selected row, a double click or ⏎ opens; T the full list, b the outlinks and backlinks",
+    files: "src/links.ts (readThread, threadRows, ThreadData), src/scroll.ts (RowPresses, `selected`), src/surface/note.ts (openReplyLinks, note.thread.pick, note.thread.open)",
+    aside: "left: a reply three deep in the leek thread, its panel open on the right · the root, the chain down to this note, the eight answers to the question folded around the one it sits under (2 earlier, 1 later), this note's two replies under it · click a row: it only selects · click it again (or double click, or ⏎) opens it · ⏎ on a ┄ row shows the folded posts · `act note.thread.pick n=3` and `act note.thread.open n=3` do it for an agent, attributed; they never take your keys",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · thread", panes: [r], names: ["reader"], layout: ([a]) => leaf(a!) }, show, [[r, n.threadHere]], d => { void d.press(r, NOTE_ACTIONS, "note.thread"); });
+    },
+  },
+  {
     key: "links-block", need: "put a live list with a preview in a note (an outbox in a day's plan): ::links with a query, its rows and the selected one's preview inline", part: "the inline ::links component with query: and preview: (PIE-693): the links model's matches group from blocks.query and blocks.facets, the selected row previewed as the reader draws an embed of it; [ ] steps the rows, ⏎ opens one where opens land, alt+⏎ in a new detail; ⏎ on its ⏎ in goes into the list (a reader mode: j k, / filter, esc out); links.blocks, links.pick, links.open, links.enter", files: "src/links.ts (linkBlockAt, renderLinkBlock, questionRows), src/surface/note.ts (linkBlockUI, linksMode), src/embeds.ts",
     aside: "the day's plan holds its outbox: `::links{query=\"type=letter mail=waiting\" preview=right}` lists the three waiting letters (the sent one isn't), the selected one drawn beside the list · [ ] onto a letter and the preview follows; your keys stay in the note · ⏎ opens it here, alt+⏎ in a new detail; a click selects, a double click opens · ⏎ on ⏎ in (or a click on it) goes in: j k move, / filters, esc comes out, any other key leaves and does what it does · a query the service can't read (`type!=letter`) shows its whole refusal in the frame: the query, what was read, the did-you-mean and an example · `act links.blocks`, `links.pick n=2` (an agent's answers and moves nothing of yours), `links.open n=2`",
     stage(n, show) {

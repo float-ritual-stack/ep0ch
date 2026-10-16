@@ -81,7 +81,7 @@ import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
-import { isAnnotationBlock, readReplies, linkRows, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
+import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { RowPresses } from "../scroll";
 import { ListPicker } from "./picker";
@@ -562,7 +562,7 @@ export { leaveSaid, propertyChange, type LeaveResult };
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
-type ReplyLinksMode = ReaderMode<SurfaceHost> & { truncated: boolean; data: LinkData; selected: number; group: LinkGroupName; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[] };
+type ReplyLinksMode = ReaderMode<SurfaceHost> & { truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 /** Moving and sizing the floating composer by keys (ctrl+g, PIE-785): arrows or h j k l move it, shift with them sizes it. */
@@ -1104,7 +1104,8 @@ export class NoteSurface {
     if (this.replyLinks) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
       const mode = this.replyLinks!;
       mode.rect = { x: col, y: row, w: cols, h: rows };
-      const data = linkRows(mode.data, { shut: new Set(), kinds: new Set(), backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS, only: new Set([mode.group]) });
+      const data = mode.group === "thread" ? threadRows(mode.thread, mode.unfolded)
+        : linkRows(mode.data, { shut: new Set(), kinds: new Set(), backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS, only: new Set([mode.group]) });
       if (mode.truncated && mode.group === "children" && data[0]?.kind === "group") data[0].note = "first 1000 replies";
       mode.rowsAt = data;
       mode.selected = Math.min(mode.selected, Math.max(0, data.length - 1));
@@ -2500,16 +2501,16 @@ export class NoteSurface {
     if (actor.kind === "user" && this.editing) throw new ActionRefused("finish the draft before opening its thread");
     const previous = this.replyLinks;
     const m = this.requireNote();
-    const [replies, links, backlinks] = await Promise.all([readReplies(host.ctx.board, m.id, host.conference), host.ctx.board.authoredLinks(m.id), host.ctx.board.backlinks(m.id)]);
+    const [replies, links, backlinks, thread] = await Promise.all([readReplies(host.ctx.board, m.id, host.conference), host.ctx.board.authoredLinks(m.id), host.ctx.board.backlinks(m.id), readThread(host.ctx.board, m, host.conference)]);
     const out = { replies: replies.children.map(c => c.block.id), truncated: replies.truncated };
     if (actor.kind === "agent" || movedOn(host, this, m.id)) return out;
     const data: LinkData = { links: { kind: "ready", value: links }, backlinks: { kind: "ready", value: backlinks }, children: { kind: "ready", value: replies.children } };
-    if (refresh) { if (previous && this.replyLinks === previous) { previous.data = data; previous.truncated = replies.truncated; } host.redraw(); return out; }
-    const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.groups" | "note.thread.full", args = {}) => { void this.runKey(action, args, host); };
+    if (refresh) { if (previous && this.replyLinks === previous) { previous.data = data; previous.thread = thread; previous.truncated = replies.truncated; } host.redraw(); return out; }
+    const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.groups" | "note.thread.full", args: Record<string, unknown> = {}) => { void this.runKey(action, args, host); };
     const mode: ReplyLinksMode = {
       name: "replies", of: m, word: "replies", holdsKeys: true, editing: () => false, covers: () => false,
-      data, truncated: replies.truncated,
-      selected: 1, group: "children", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [],
+      data, thread, unfolded: new Set(), presses: new RowPresses(), picked: false, truncated: replies.truncated,
+      selected: Math.max(0, threadRows(thread).findIndex(r => r.kind === "child" && r.thread?.here)), group: "thread", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [],
       key: k => {
         const c = ch(k);
         if (k.kind === "esc" || c === "t" || c === "q") run("note.thread.close");
@@ -2520,13 +2521,18 @@ export class NoteSurface {
         else if (c === "T") run("note.thread.full");
         return true;
       },
-      click: (x, y) => {
+      click: (x, y, host) => {
         y += this.drawn?.heroRows ?? 0;
         const r = mode.rect;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
         if (y === r.y) { run(x < r.x + 22 ? "note.thread.full" : x < r.x + 32 ? "note.thread.groups" : "note.thread.close"); return true; }
-        const n = y - r.y - 1 + Math.max(0, mode.selected - r.h + 4);
-        run("note.thread.open", { n: n + 1 }); return true;
+        const i = y - r.y - 1 + Math.max(0, mode.selected - r.h + 4);
+        if (i < 0 || i >= mode.rowsAt.length) return true;
+        // One rule for every list's rows (RowPresses): a click selects (the one that gave the reader the keys only does that),
+        // a second on the selected row, a double click or ⏎ opens, an alt- or ctrl-click is the same open here.
+        const g = mode.presses.press(i, { focusing: !!host.focusing, selected: mode.picked && i === mode.selected });
+        if (g === "open" || g === "fresh") run("note.thread.open", { n: i + 1 }); else run("note.thread.pick", { n: i + 1 });
+        return true;
       },
       wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("note.thread.pick", { by: dir }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("replies"); return { left: "nothing" }; },
@@ -7500,16 +7506,23 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run(_, { surface, host }) { surface.closeReplyLinks(); host.redraw(); return { closed: true }; },
   }),
   "note.thread.pick": def({
-    summary: "move through the replies", keys: "j k up down, wheel in the replies", touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", about: "rows to move" } },
-    run({ by }, { surface, host }) { const m = surface.replyLinks; if (m) m.selected = Math.max(0, Math.min(m.rowsAt.length - 1, m.selected + by)); host.redraw(); return { selected: m?.selected }; },
+    summary: "move through the thread, or select one row (n)", keys: "j k up down, wheel, a click in the thread", touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", optional: true, about: "rows to move" }, n: { type: "number", optional: true, about: "row number to select (starts at one): a click" } },
+    run({ by, n }, { surface, host }) {
+      const m = surface.replyLinks;
+      if (m) { m.selected = Math.max(0, Math.min(m.rowsAt.length - 1, n !== undefined ? n - 1 : m.selected + (by ?? 0))); m.picked = true; }
+      host.redraw(); return { selected: m?.selected };
+    },
   }),
   "note.thread.groups": def({
-    summary: "cycle replies, outlinks and backlinks", keys: "b in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
-    run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.group = m.group === "children" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "children"; m.selected = 1; } host.redraw(); return { group: m?.group }; },
+    summary: "cycle the thread, outlinks and backlinks", keys: "b in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
+    run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.group = m.group === "thread" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "thread"; m.selected = m.group === "thread" ? Math.max(0, threadRows(m.thread, m.unfolded).findIndex(r => r.kind === "child" && r.thread?.here)) : 1; m.picked = false; } host.redraw(); return { group: m?.group }; },
   }),
   "note.thread.open": def({
-    summary: "read the selected reply", keys: "enter, click in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
-    async run({ n }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1], target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.followFromDraft(target, host); return { opened: note && "id" in note ? note.id : null }; },
+    summary: "read the selected post of the thread (a fold row opens its posts, the note you are on closes the panel)", keys: "enter, a second click on the selected row or a double click in the thread", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
+    async run({ n }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
+      if (m && row?.kind === "fold") { m.unfolded.add(row.key.slice(`fold${SEP}`.length)); m.selected = m.rowsAt.indexOf(row); m.picked = true; host.redraw(); return { unfolded: row.count }; }
+      if (m && row?.kind === "child" && row.thread?.here) { surface.closeReplyLinks(); host.redraw(); return { opened: null }; }
+      const target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.followFromDraft(target, host); return { opened: note && "id" in note ? note.id : null }; },
   }),
   "note.thread.full": def({
     summary: "open the full THREAD message list", keys: "T or the replies header", touches: "screen", replay: "safe", person: "the person's screen", args: {},

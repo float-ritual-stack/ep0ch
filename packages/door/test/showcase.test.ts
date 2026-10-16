@@ -394,6 +394,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     tags: ["Before the first frost", "#frost-jobs", "#compost"],
     // The swap thread, its links with every group, and the same tile with Children alone (its replies).
     children: ["Seed swap thread", "links · Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
+    // The leek thread, opened on a reply three deep: the panel's tree with the note marked and a level folded around it.
+    thread: ["Who has spare leek seedlings?", "THREAD", "► Ben: mine are still in modules", "2 more earlier", "1 more later"],
     // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
     "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
     presence: ["who's online", "last callers · live"],
@@ -1944,6 +1946,36 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(stage().overlays.top()?.name).not.toBe("policy");
     for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
+  }, 30_000);
+
+  test("thread (PIE-944): the panel draws the thread as a tree around the note; a click only selects, a second opens, ⏎ on a fold shows its posts", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "thread" } })).toMatchObject({ key: "thread" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "thread")).top; };
+    const reader = () => (stage().layoutGet().tiles as any[]).find(t => t.name === "reader");
+    const rows = () => (reader()?.threadPanel?.rows ?? []) as { n: number; text: string; context?: string; selected?: boolean; id?: string }[];
+    await until(() => reader()?.showing?.id === seeded.notes.threadHere.id && rows().length > 5, "the thread panel on the reply three deep ", 8000);
+    // The root, the chain to the note, the posts beside each (folded around the chain at the busy level), the note marked, its replies.
+    expect(rows().map(r => r.text)).toEqual([
+      "Who has spare leek seedlings?", "2 more earlier", "Dee: the garden centre has them", "Eli: not this year, sorry", "Fay: I can bring some on Saturday",
+      "Ana: how many do you need?", "Ben: mine are still in modules", "Fay: no rush, Saturday is fine", "Ana: I'll hold a dozen back", "Gus: try the seed swap", "Hal: mine bolted", "1 more later",
+    ]);
+    const here = rows().find(r => r.selected)!;
+    expect(here.text).toBe("Ben: mine are still in modules");
+    expect(here.context).toMatch(/^you are here · .+ · \d/);
+    // A click selects the row, and only that: the reader stays where it was.
+    const n = rows().findIndex(r => r.text === "Eli: not this year, sorry") + 1;
+    await (stage() as any).dispatch.press("note.thread.pick", { n }, "reader");
+    expect(rows().find(r => r.selected)!.text).toBe("Eli: not this year, sorry");
+    expect(reader().showing.id).toBe(seeded.notes.threadHere.id);
+    // ⏎ (or a second click) on the fold shows the posts it hid.
+    const fold = rows().findIndex(r => r.text === "2 more earlier") + 1;
+    expect(await (stage() as any).dispatch.press("note.thread.open", { n: fold }, "reader")).toMatchObject({ unfolded: 2 });
+    expect(rows().map(r => r.text)).toContain("Ana: I have a tray going spare");
+    // Opening a post reads it.
+    const eli = rows().find(r => r.text === "Eli: not this year, sorry")!.n;
+    await (stage() as any).dispatch.press("note.thread.open", { n: eli }, "reader");
+    await until(() => reader()?.showing?.title === "Eli: not this year, sorry", "Eli's post read", 8000);
   }, 30_000);
 
   test("children (PIE-693): a thread's replies are a group of its links, narrowed by Stage; a tile's groups are chosen by act and saved; ⏎ opens a reply in the reader", async () => {

@@ -84,6 +84,8 @@ export const SEED = {
   hedge: "Hedge trimming plan",
   compost: "Compost bay rules",
   swap: "Seed swap thread",
+  thread: "Who has spare leek seedlings?",
+  threadHere: "Ben: mine are still in modules",
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
   society: "Allotment society",
@@ -1396,6 +1398,16 @@ if (request.input.request === "describe the beds") {
   await make(notes.swap.id, "Ana: runner beans to swap [type::offer] [status::waiting]\nTwo jars, saved from last year's best row.");
   await make(notes.swap.id, "Ben: took the leek seedlings [type::offer] [status::done]\nThank you, they're in.", SEED_AGENT);
   await make(notes.swap.id, "Cal: labels and a pencil [type::offer] [status::active]\nI'll write the labels on the day.");
+  // A thread three deep, its replies stamped replyTo as R writes them (PIE-944): eight answers to the question, the fifth with
+  // two answers of its own, the second of those the note the thread panel is opened on, with two replies under it.
+  notes.thread = await make(notes.root.id, `${SEED.thread}\nFor the new bed by the water butt, about a dozen.`);
+  const answer = (parent: Msg, text: string, by?: Actor) => make(parent.id, `${text}\n[replyTo::${parent.id}]`, by);
+  const answers: Msg[] = [];
+  for (const t of ["Ana: I have a tray going spare", "Cal: ask the plot 14 neighbour", "Dee: the garden centre has them", "Eli: not this year, sorry", "Fay: I can bring some on Saturday", "Gus: try the seed swap", "Hal: mine bolted", "Ivy: last year's were tiny"]) answers.push(await answer(notes.thread, t, answers.length % 2 ? SEED_AGENT : undefined));
+  await answer(answers[4]!, "Ana: how many do you need?");
+  notes.threadHere = await answer(answers[4]!, SEED.threadHere);
+  await answer(notes.threadHere, "Fay: no rush, Saturday is fine", SEED_AGENT);
+  await answer(notes.threadHere, "Ana: I'll hold a dozen back");
   // A status the built-in families don't know (PIE-819): named as written, and a rule note in Rules puts it in done.
   await make(notes.swap.id, "Dee: a question about the time [status::answered]\nIs it ten or eleven? Ten, said Ana.");
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
@@ -1742,6 +1754,12 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
     if (name === "root") continue;
     const hit = kids.find(k => titleOf(k) === title);
     if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
+  }
+  // The thread's reply the panel opens on sits deeper than the root's children (PIE-944): found down the thread.
+  for (let level = notes.thread ? [notes.thread] : []; level.length && !notes.threadHere;) {
+    level = (await Promise.all(level.map(m => board.children(m.id)))).flat();
+    const hit = level.find(k => titleOf(k) === SEED.threadHere);
+    if (hit) notes.threadHere = (await board.get(hit.id)) ?? hit;
   }
   return { root, notes };
 }

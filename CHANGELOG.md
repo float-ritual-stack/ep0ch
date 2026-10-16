@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The thread panel is a tree, and a click only selects (PIE-944)
+
+`t` in a reader opens the thread as a phpBB-style tree: the root post, the chain of parents down to the note you're
+reading (marked ►), the posts beside each and the note's replies, each with its author and how long ago. A level with
+many posts, a long chain and a long run of replies fold around the note with a count; ⏎ (or a second click) on the
+fold shows them. `T` is still the full list and `b` the outlinks and backlinks. A click on a row of the panel now only
+selects it (the click that gave the reader the keys too); a second click on the selected row, a double click or ⏎
+opens it. The kitchen sink's `thread` section shows it.
+
 ### The Deploys note's table draws (PIE-941)
 
 The Deploys note `ep0ch install` writes failed to draw its table ("String.prototype.repeat argument must be greater

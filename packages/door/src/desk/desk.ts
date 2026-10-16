@@ -2698,6 +2698,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined,
       editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined,
       commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined,
+      threadPanel: p instanceof ReaderPane ? p.surface.replyLinks?.describe() : undefined,
     };
   }
 
