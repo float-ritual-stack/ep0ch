@@ -445,6 +445,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The Markdown figures on the left (a decision first), the keys read from the registry on the right.
     figures: ["Figures, written in Markdown", "SQUASH BEDS", "Raised beds", "The reader's keys", "[e]"],
     // A guide note with a [[page]] nobody wrote yet, for ctrl+n, the offer and the page title fill.
+    "move-note": ["Moving notes", "Cold frame"],
     newnotes: ["New notes from anywhere", "Seed swap ledger", "ctrl+n"],
     // A reader and a terminal whose program asked for the mouse, each with its ⋯.
     menu: ["Allotment notebook", "this program asked for the mouse", "⋯"],
@@ -4892,12 +4893,12 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const id = writing().surface.draft.blockId;
     expect((await board.get(id))!.parentId).toBe(guide);
     expect(writing()).not.toBe(reader());
-    // It says where it lands (PIE-883); the person's note.place (a click on that row, in a door) asks in the power bar
+    // It says where it lands (PIE-883); the person's note.move (a click on that row, in a door) asks in the power bar
     // where to move it; esc there and it stays.
     await until(() => /→ Kitchen sink › New notes from anywhere +\[move ▸\]/.test(screen()), "where it lands");
-    expect(await stage().dispatch.press("note.place", {}, writing().surface.draft && stage().nameOf(stage().focus))).toMatchObject({ asking: "parent" });
+    expect(await stage().dispatch.press("note.move", {}, writing().surface.draft && stage().nameOf(stage().focus))).toMatchObject({ asking: "to" });
     const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
-    await until(() => asking()?.scope === "ask" && asking()!.rows[0]?.label === "the top of the Inbox", "the power bar asking where", 5000);
+    await until(() => asking()?.scope === "ask" && /^its parent: /.test(asking()!.rows[0]?.label ?? ""), "the power bar asking where", 5000);
     press({ kind: "esc" });
     await until(() => asking()?.scope !== "ask", "the bar put away");
     expect((await board.get(id))!.parentId).toBe(guide);
@@ -5093,6 +5094,66 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await until(() => ids()[0] === moving, "the drag");
     press({ kind: "esc" });
   }, 30_000);
+
+  test("move a note (PIE-943): tree.move through act, alt+↓ alt+→ alt+← and ctrl+z by keys, the picker asked for by Z", async () => {
+    (app as any).lastInput = 0;
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    const n = SECTIONS.findIndex(s => s.key === "move-note") + 1;
+    expect(await app.act({ action: "section", args: { name: "move-note" }, as: "test-agent" })).toEqual({ section: n, key: "move-note" });
+    const stage = () => { screen(); return S().stages.get(n - 1).top as any; };
+    const tree = () => [...stage().panes.values()].find((p: any) => p.kind === "tree") as any;
+    const rows = () => tree().describe().rows as { n: number; text: string; depth: number; id?: string; selected?: true }[];
+    const parent = seeded.notes.moving.id;
+    const kids = async () => (await board.children(parent)).map(m => m.text.split("\n")[0]);
+    await until(() => rows().some(r => r.text === "Potting bench"), "the children of Moving notes in the outline", 8000);
+    const depthOf = (title: string) => rows().find(r => r.text === title)?.depth ?? -1;
+    const id = (title: string) => rows().find(r => r.text === title)!.id!;
+    expect(await kids()).toEqual(["Cold frame", "Seed trays", "Potting bench"]);
+    // An agent puts Seed trays first: attributed, and the person's selection stays on its row.
+    const selected = () => rows().find(r => r.selected)?.text;
+    const was = selected();
+    expect(await app.act({ action: "tree.move", args: { id: id("Seed trays"), step: "up" }, as: "test-agent" })).toMatchObject({ moved: id("Seed trays"), parent });
+    await until(() => rows().filter(r => r.depth === rows().find(x => x.text === "Cold frame")!.depth).map(r => r.text).join().startsWith("Seed trays,Cold frame"), "Seed trays first in the outline");
+    expect(await kids()).toEqual(["Seed trays", "Cold frame", "Potting bench"]);
+    expect(selected()).toBe(was);
+    // A move under a system note is the guard's, as outline_move's: refused, said.
+    const trash = (await board.roots()).find(r => r.props["system-view"] === "trash")!.id;
+    await expect(app.act({ action: "tree.move", args: { id: id("Seed trays"), to: trash }, as: "test-agent" })).rejects.toThrow(/which the service fills itself/);
+    // The person, by keys: into the stage (the outline has them), onto Cold frame, alt+↓, alt+→ (in under the note above), alt+←, ctrl+z.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    tree().selectRow(rows().find(r => r.text === "Cold frame")!.n - 1, stage(), false);
+    press({ kind: "alt-down" });
+    await until(() => rows().map(r => r.text).join().includes("Seed trays,Potting bench,Cold frame"), "alt+↓");
+    expect(await kids()).toEqual(["Seed trays", "Potting bench", "Cold frame"]);
+    press({ kind: "alt-right" });
+    await until(() => depthOf("Cold frame") > depthOf("Potting bench") && depthOf("Potting bench") >= 0, "alt+→: in under Potting bench");
+    expect((await board.get(id("Cold frame")))!.parentId).toBe(id("Potting bench"));
+    press({ kind: "alt-left" });
+    await until(() => depthOf("Cold frame") === depthOf("Potting bench") && depthOf("Potting bench") >= 0, "alt+←: out again");
+    expect(await kids()).toEqual(["Seed trays", "Potting bench", "Cold frame"]);
+    press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => depthOf("Cold frame") > depthOf("Potting bench") && depthOf("Potting bench") >= 0, "ctrl+z put the outdent back");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => depthOf("Cold frame") >= 0 && depthOf("Cold frame") <= depthOf("Potting bench"), "ctrl+z put the indent back");
+    // The picker: > (note.move) asks in the power bar where, the note's parent first; esc and nothing moved.
+    const reader = [...stage().panes.entries()].find(([, p]: any) => p.kind === "reader")!;
+    tree().selectRow(rows().find(r => r.text === "Moving notes")!.n - 1, stage());
+    await until(() => (reader[1] as any).msg?.id === parent, "the reader on Moving notes");
+    // Z, with the reader's keys (the menu's row and note.move are the same action).
+    await stage().dispatch.press("tile.focus", {}, stage().nameOf(reader[0]));
+    press({ kind: "char", ch: "Z" });
+    const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
+    await until(() => asking()?.scope === "ask" && (asking()?.rows.length ?? 0) > 0, "the power bar asking where", 5000).catch(() => { throw new Error(JSON.stringify(asking())); });
+    expect(asking()!.rows[0]!.label).toBe("its parent: Kitchen sink");
+    press({ kind: "esc" });
+    await until(() => asking()?.scope !== "ask", "the bar put away");
+    // An agent names it: the greenhouse.
+    const bench = id("Potting bench");
+    expect(await app.act({ action: "note.move", args: { id: bench, to: seeded.notes.greenhouse.id }, as: "test-agent" })).toMatchObject({ parent: seeded.notes.greenhouse.id });
+    expect((await board.get(bench))!.parentId).toBe(seeded.notes.greenhouse.id);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 60_000);
 
   test("folds: a tile folds to a spine by the glyph's click, alt+click, alt+h and act, and a click on the spine opens it at its size", async () => {
     (app as any).lastInput = 0;

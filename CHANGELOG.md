@@ -25,6 +25,18 @@ attributed like any move: the service finds them by their properties, never thei
 Trash, Bookmarks or a guide (the service fills them itself) and a note under itself. The refusal says what the note is
 and why. `outline_trash` of a system note, or of a note that holds the Inbox, Trash or Bookmarks, is still refused, now saying what it is. No wire change.
 
+### Move a note from the door (PIE-943)
+
+The door had no way to give a note a new parent. Now `note.move` is one action, run by a key, a click or `act`:
+`Z` in any reader (or "move to…" in the tile menu, or a click on a new note's `→ …` row) asks in the power bar where,
+with the note's parents and the notes you moved to lately first, then the Inbox, then any note by its words. In the
+outline tile, `alt+↑` `alt+↓` put the selected note up or down among its siblings, `alt+→` moves it in under the note
+above, `alt+←` out after its parent (a Mac terminal that sends Option+arrows as `alt+b` `alt+f` works too), `Z` asks
+where, `ctrl+z` puts the last move back, and a drag onto a row moves the note under it (with `alt` held, above or below
+it). An agent's `act note.move` / `tree.move` takes `to=`, `before=`, `after=`, `step=` or `revision=` and goes by
+`outline_move`'s rules; it never moves your selection. `note.place` (PIE-883) is now `note.move to=…`. New kitchen-sink
+section `move-note`. No protocol or schema change.
+
 ### A read never creates an outline, and an empty outline file never holds an install back (PIE-938)
 
 `ep0ch show --ws pie <id>` run in a folder with no `.ep0ch` on a machine that doesn't have `pie` (a builder's worktree

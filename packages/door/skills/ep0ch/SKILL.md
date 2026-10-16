@@ -212,6 +212,12 @@ yourself (path 1): `/exit`, then `claude --continue`.
   links of), `new` in a new detail beside that reader; `backlinks.view filter=…` filters. In the outline tree,
   `tree.links n=<row>` shows a row's links under it and `tree.pick n=<row> [open=true]` picks one (`peek`'s
   `tree.rows` numbers them). A virtual branch opened in the tree lists its matches under its children; `tree.depth n=<row> depth=0..8|authored` sets how far they open (writes nothing). Folding a group (`backlinks.fold`) is the person's view.
+- **Move a note** (PIE-943): `note.move [id=<note>] to=<inbox|root|id|((ref))|[[page]]|Work ID> [position=<from 1>]`, or
+  `before=<sibling>`, `after=<sibling>`, or `step=up|down|in|out` (one place among its siblings; in under the note
+  above, out after its parent); `revision=<n>` refuses a note changed since you read it. `tree.move n=<row>|id=<note>`
+  takes the same (any note by id, shown in the tree or not) and `undo=true`. Recorded as you, by `outline_move`'s rules
+  (the guard on system notes is that tool's); your move never takes the person's selection. The person's `Z` in a
+  reader, and `alt+↑ alt+↓ alt+→ alt+←` in the outline, are these same actions.
 - **New notes and pages** (every screen, PIE-544): `note.new text=… [near=<id>|inbox=true]` makes a note where the
   outline's placement rule puts it (under `near`, else the top of the Inbox; a `near` that's gone is refused, with
   the `inbox=true` command to run instead), as you, said on the status bar (with no door open: `ep0ch new "<text>"

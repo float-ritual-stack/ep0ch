@@ -60,6 +60,8 @@ export const SEED = {
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
   newNotes: "New notes from anywhere",
+  moving: "Moving notes",
+  greenhouse: "Greenhouse",
   recentFiles: "Files a session touched",
   headings: "Headings and dividers",
   spacingLab: "Spacing lab",
@@ -497,6 +499,15 @@ export const CALLOUT_TYPE = [
   `${SEED.calloutType} [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]`,
   "",
   "Declares a callout type: `> [!recipe]` (or `> [!dish]`) draws with this icon and tone, and offers it wherever types are offered.",
+].join("\n");
+
+/**
+ * The move-note section's note (PIE-943): three notes to move about under it and the Greenhouse to move one into.
+ */
+export const MOVING_NOTES = [
+  SEED.moving,
+  "",
+  "**Z** moves the note you're reading under another (the picker lists its parents and the notes you moved to lately first, then the Inbox; type to find any other). In the outline on the left, **alt+↑ alt+↓** put a note up or down among its siblings, **alt+→** moves it in under the note above and **alt+←** out after its parent; **ctrl+z** puts the last move back. Drag a row onto another to move it under that row, with alt held to put it beside it.",
 ].join("\n");
 
 /**
@@ -1432,6 +1443,9 @@ if (request.input.request === "describe the beds") {
   notes.markdownFigures = await board.update(notes.markdownFigures.id, markdownFiguresText(block.id), notes.markdownFigures.revision!);
   notes.keys = await make(notes.root.id, KEYS_TEXT);
   notes.newNotes = await make(notes.root.id, NEW_NOTES);
+  notes.moving = await make(notes.root.id, MOVING_NOTES);
+  for (const t of ["Cold frame\nThe lid wants new hinges.", "Seed trays\nWashed and stacked by the door.", "Potting bench\nA coat of oil before spring."]) await make(notes.moving.id, t);
+  notes.greenhouse = await make(notes.root.id, `${SEED.greenhouse}\nWhere the seedlings go once they have two leaves.`);
   notes.recentFiles = await make(notes.root.id, recentFilesText());
   {
     const day = await make(notes.recentFiles.id, "2026-03-11 [file-day::2026-03-11] [machine::file-touch]", SEED_AGENT);

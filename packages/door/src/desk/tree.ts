@@ -26,6 +26,9 @@ import { Fold } from "../fold";
 import { readView, type ViewRead } from "../views";
 import { RowView, type RowPress } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
+import { askInBar } from "../bar/ask";
+import { moveBy, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs, type MoveDone } from "../note-move";
+import type { WriteBoard } from "../mcp-writes";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
 
@@ -93,6 +96,8 @@ export class TreePane implements Pane {
   private rows: TreeRow[] = [];
   private sel = 0;
   private view = new RowView();
+  /** A row pressed and dragged (PIE-943): where it would land if let go now (`over`, and `beside` with alt held). */
+  private drag: { id: string; from: number; over: number | null; beside: boolean; moved: boolean } | null = null;
   private timer: Timer | null = null;
   private reload: Timer | null = null;
   title() { return "outline"; }
@@ -101,7 +106,7 @@ export class TreePane implements Pane {
     const r = this.rows[this.sel];
     if (r?.kind === "branch-note") return r.role === "more" ? "⏎ read more matches · D depth" : "⏎ D change the depth · h back";
     if (r && r.kind !== "block") return r.kind === "resource" ? "⏎ show the resource · h back" : r.kind === "group" || r.kind === "kind" ? "⏎ space fold · h back" : "⏎ open · l its links · h back";
-    return r?.kind === "block" && (isBranch(r.m) || r.via) ? "←→ fold · ⏎ read · L links · D depth" : "←→ fold · ⏎ read · L links";
+    return r?.kind === "block" && (isBranch(r.m) || r.via) ? "←→ fold · ⏎ read · L links · D depth" : "←→ fold · ⏎ read · L links · alt+↑↓←→ move · Z move to";
   }
   /** The row it has selected: a preview tile following the tree starts there. */
   selected(): Msg | null {
@@ -383,6 +388,13 @@ export class TreePane implements Pane {
     return { view, depth: this.depthOf(view), authored: b.depth === undefined };
   }
 
+  /** Whether row `i` is among the rows under row `from` (a note can't be dropped inside itself). */
+  private under(i: number, from: number): boolean {
+    const d = this.rows[from]?.depth ?? 0;
+    for (let j = from + 1; j < this.rows.length && this.rows[j]!.depth > d; j++) if (j === i) return true;
+    return false;
+  }
+
   /** The row above `i` that it sits under, or -1. */
   parentRow(i: number): number { const d = this.rows[i]?.depth ?? 0; return this.rows.findLastIndex((r, j) => j < i && r.depth < d); }
 
@@ -505,6 +517,39 @@ export class TreePane implements Pane {
     return { row: i + 1, id: m.id };
   }
 
+  /**
+   * Move the note of row `i` (PIE-943), as `actor`: `undo` puts back its last move; `step` (up, down, in, out) or
+   * `to`/`before`/`after` say where (the shared `moveBy`, so a key here, the reader's picker and `act` agree); with none
+   * the person is asked in the power bar. The lists it left and joined are read again, a note moved in opens its new
+   * parent, and the person's selection follows the note (an agent's leaves it).
+   */
+  async moveRow(at: number | string, a: Omit<MoveArgs, "id"> & { undo?: boolean }, desk: DeskApi, actor: Actor): Promise<Record<string, unknown>> {
+    // A row of the tree, or (act's id= for a note the tree isn't showing) a note by its id.
+    const r = typeof at === "number" ? this.rows[at] : undefined;
+    if (typeof at === "number") {
+      if (!r) throw new ActionRefused(this.roots ? `no row ${at + 1}; the tree has ${this.rows.length}` : "the outline is still being read");
+      if (r.kind !== "block") throw new ActionRefused(`row ${at + 1} is ${r.kind === "resource" ? "a resource" : r.kind === "branch-note" ? "a line of a view's results" : "a link or a group"}: only a note moves`);
+    }
+    const id = r?.kind === "block" ? r.m.id : String(at), board = desk.ctx.board as WriteBoard, agent = actor.kind === "agent";
+    const finish = async (done: MoveDone) => {
+      this.due = new Set([...(this.due instanceof Set ? this.due : []), done.previousParent, done.parent]);
+      await this.reread(desk);
+      // Moved into another note that's in sight (a step in, a drop on a row): it opens, so the note is seen where it went.
+      const into = !agent && done.parent && done.parent !== done.previousParent ? this.rows.find(x => x.kind === "block" && x.m.id === done.parent && !x.via) : undefined;
+      if (into && into.kind === "block") await this.expand(into.m, desk, true, into.foldId);
+      const j = this.rows.findIndex(x => x.kind === "block" && x.m.id === id && x.via === undefined);
+      if (j >= 0 && !agent) this.sel = j;
+      desk.ctx.flash(done.said);
+      desk.redraw();
+      return { row: j + 1, ...done };
+    };
+    if (a.undo) return finish(await undoMove(board, actor, id));
+    const { undo: _, ...where } = a;
+    if ([where.to, where.before, where.after, where.step].some(x => x !== undefined)) return finish(await moveBy(board, id, where, actor));
+    if (agent) throw new ActionRefused("say where: step=up|down|in|out, to=<inbox, root, or a note's id, ((ref)), [[page]], Work ID>, before= or after=");
+    return askInBar(desk.ctx as never, "Move the note", [await moveQuestion(board, id)], {}, actor, answers => moveBy(board, id, { ...where, to: answers.to! }, actor).then(finish)) as Promise<Record<string, unknown>>;
+  }
+
   /** The rows in words, numbered from 1, as agents pick them. */
   describe() {
     const r = this.rows[this.sel];
@@ -547,12 +592,22 @@ export class TreePane implements Pane {
       }
       return linkRowLine(r, { cols: w, selected: on, focused, nest: this.panels.has(r.key) });
     });
+    // A note being dragged (PIE-943): the row it would land on says how, and which note it is.
+    const d = this.drag;
+    const at = d?.over != null ? d.over - this.view.top : -1;
+    if (d && d.moved && at >= 0 && at < lines.length) {
+      const target = this.rows[d.over!], dragged = this.rows.find(x => x.kind === "block" && x.m.id === d.id);
+      if (target?.kind === "block" && dragged?.kind === "block") {
+        const how = d.beside ? (d.over! < d.from ? "above" : "below") : "under";
+        lines[at] = fg(C.black) + "\x1b[43m" + pad(`${"  ".repeat(target.depth)}⇢ ${how} ${subject(target.m)}  ← ${subject(dragged.m).slice(0, 30)}`, w) + RESET;
+      }
+    }
     return { lines };
   }
 
   // ── keys and the mouse ─────────────────────────────────────────────────────
 
-  private run(desk: DeskApi, name: "tree.links" | "tree.pick" | "tree.fold" | "tree.depth", args: Record<string, unknown>) { runOwn(TREE_ACTIONS, name, args, { pane: this, desk }); }
+  private run(desk: DeskApi, name: "tree.links" | "tree.pick" | "tree.fold" | "tree.depth" | "tree.move", args: Record<string, unknown>) { runOwn(TREE_ACTIONS, name, args, { pane: this, desk }); }
 
   key(k: Key, desk: DeskApi): boolean {
     const row = this.rows[this.sel], n = this.rows.length;
@@ -564,6 +619,13 @@ export class TreePane implements Pane {
     if (k.kind === "home") return pickTo(0);
     if (k.kind === "end") return pickTo(n - 1);
     if (!row) return false;
+    // alt+↑ alt+↓ put the note up or down among its siblings, alt+← out to its parent's level, alt+→ in under the note above
+    // (Tab is the tiles', Cmd the terminal's; the board's lanes and the Welcome list use alt+↑ alt+↓ the same way). ctrl+z puts the last move back.
+    // A Mac terminal sends Option+← and Option+→ as alt+b and alt+f unless it reports the arrows (the reader reads them as back and forward; this isn't one).
+    const step = { "alt-up": "up", "alt-down": "down", "alt-left": "out", "alt-right": "in" }[k.kind as string] ?? (k.kind === "alt" ? { b: "out", f: "in" }[k.ch] : undefined);
+    if (step) { if (row.kind === "block") this.run(desk, "tree.move", { n: this.sel + 1, step }); return true; }
+    if (ch(k) === "Z" && row.kind === "block") { this.run(desk, "tree.move", { n: this.sel + 1 }); return true; }
+    if (k.kind === "char" && k.ctrl && k.ch === "z" && row.kind === "block" && MOVE_UNDO.last("you", row.m.id)) { this.run(desk, "tree.move", { n: this.sel + 1, undo: true }); return true; }
     if (ch(k) === "L") { this.run(desk, "tree.links", { n: this.sel + 1 }); return true; }
     const right = k.kind === "right" || ch(k) === "l", left = k.kind === "left" || ch(k) === "h", space = ch(k) === " ";
     const linkRow = row.kind !== "block" && row.kind !== "group" && row.kind !== "kind";
@@ -596,9 +658,26 @@ export class TreePane implements Pane {
    */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.wheel(k.action === "wheel-up" ? -1 : 1, desk); return true; }
+    // A note dragged (PIE-943): over another row it goes under it, with alt held beside it (above it when that row is
+    // above where it started, else below); let go on its own row it was a click, and the press already did that.
+    const d = this.drag;
+    if (d && (k.action === "drag" || k.action === "up")) {
+      const over = this.view.top + y, target = this.rows[over];
+      d.over = target?.kind === "block" && target.m.id !== d.id && !this.under(over, d.from) ? over : null;
+      d.beside = !!((k.mods ?? 0) & 8);
+      if (k.action === "drag") { d.moved = d.moved || over !== d.from; desk.redraw(); return true; }
+      this.drag = null;
+      if (d.over !== null && target?.kind === "block") {
+        const to = target.m.id;
+        this.run(desk, "tree.move", { id: d.id, ...(d.beside ? { [d.over < d.from ? "before" : "after"]: to } : { to }) });
+      }
+      desk.redraw();
+      return true;
+    }
     if (k.action !== "down") return true;
     const i = this.view.top + y, row = this.rows[i];
     if (!row) return true;
+    if (row.kind === "block" && k.button === 0) this.drag = { id: row.m.id, from: i, over: null, beside: false, moved: false };
     const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
     if (i !== this.sel) this.run(desk, "tree.pick", { n: i + 1 });
     const onMark = x <= row.depth * 2 + 1;
@@ -671,6 +750,33 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
     run({ n, id, show }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
       return { row: i + 1, shown: pane.toggleLinks(i, desk, show, actor.kind === "agent") };
+    },
+  }),
+  "tree.move": def({
+    summary: "move the note of a row of the outline tree (tile=<its name>): n (from 1) or id, else the selected row; step=up or down (one place among its siblings), in (last under the note above it) or out (right after its parent), or to= (inbox, root, an id, ((ref)), [[page]] or Work ID; position= its place among the children, from 1, default first), before= or after= a sibling, or undo=true (puts its last move back). With none of them the person is asked in the power bar (\"Move to…\"). The shared note move (note.move): the service's move, revision= checked when given, recorded as who asks; the lists it left and joined are read again, a note moved into one in sight opens it, and the person's selection follows it (an agent's never moves it)",
+    keys: "alt+↑ alt+↓ (up, down), alt+→ or alt+f (in), alt+← or alt+b (out), Z (move to…), ctrl+z (undo), a drag onto a row (under it; alt held: above or below it)",
+    touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
+    menu: [
+      { label: "move up", group: "Outline", key: "alt+↑", args: { step: "up" }, now: (host, _t) => host.pane.selected() ? undefined : { hide: true } },
+      { label: "move down", group: "Outline", key: "alt+↓", args: { step: "down" }, now: (host, _t) => host.pane.selected() ? undefined : { hide: true } },
+      { label: "indent (in under the note above)", group: "Outline", key: "alt+→", args: { step: "in" }, now: (host, _t) => host.pane.selected() ? undefined : { hide: true } },
+      { label: "outdent (out to its parent's level)", group: "Outline", key: "alt+←", args: { step: "out" }, now: (host, _t) => host.pane.selected() ? undefined : { hide: true } },
+      { label: "move to…", group: "Outline", key: "Z", now: (host, _t) => host.pane.selected() ? undefined : { hide: true } },
+    ],
+    args: {
+      n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
+      id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
+      step: { type: "string", optional: true, about: "up, down, in or out" },
+      to: { type: "string", optional: true, about: "under this note: inbox, root, or an id, ((ref)), [[page]] or Work ID" },
+      before: { type: "string", optional: true, about: "a sibling to go just above" },
+      after: { type: "string", optional: true, about: "a sibling to go just below" },
+      position: { type: "number", optional: true, about: "with to=: its place among the children, from 1 (default first)" },
+      revision: { type: "number", optional: true, about: "the note's revision as you read it; one changed since is refused" },
+      undo: { type: "boolean", optional: true, about: "put its last move back" },
+    },
+    run({ n, id, undo, ...where }, { pane, desk }, actor) {
+      const i = n === undefined && id !== undefined ? pane.list().findIndex(r => rowBlock(r)?.startsWith(id)) : rowOf(pane, n, id);
+      return pane.moveRow(i >= 0 ? i : id!, { ...where, ...(undo ? { undo } : {}) }, desk, actor);
     },
   }),
   "tree.pick": def({
