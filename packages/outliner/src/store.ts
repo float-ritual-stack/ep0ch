@@ -62,7 +62,7 @@ import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type Mac
 import { ReadMarks } from "./read-marks";
 import {
   firstLineWithoutPropertyTokens,
-  withHeaderDashes,
+  titlePropertyRanges,
   formatProperty,
   matchingPropertyRecords,
   matchesFilters,
@@ -781,7 +781,7 @@ function treeLabel(text: string, resolved: ResolvedBlockReferences, metadata: Pi
   const markerLines = literalMarkerLineRanges(title);
   if (metadata.properties.length) {
     replaceRanges([
-      ...withHeaderDashes(title, parsePropertyRecords(title).filter(record => record.syntax !== "hashtag")),
+      ...titlePropertyRanges(title),
       ...markerLines,
     ].sort((left, right) => left.start - right.start), "");
     let lineStart = 0;

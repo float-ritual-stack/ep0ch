@@ -354,13 +354,17 @@ export function withHeaderDashes<T extends SourceRange>(text: string, ranges: re
   return dashes.length ? [...ranges, ...dashes].sort((left, right) => left.start - right.start) : [...ranges];
 }
 
+export function titlePropertyRanges(text: string): SourceRange[] {
+  const tags = new Set(headerLine(text, scanPropertyLiteralRanges(text)).tags.map(tag => tag.start));
+  return withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag" || tags.has(property.start)));
+}
+
 export function firstLineWithoutPropertyTokens(text: string): string | undefined {
   // A mark's title is its own words, not its generated heading (outline-core's annotation-marks.ts).
   const mark = markTitleLine(text);
   if (mark) return mark.text;
   // The header's chips go with the ` - ` between and before them: `Seed order - [a::1] - [b::2]` is "Seed order".
-  const tags = new Set(headerLine(text, scanPropertyLiteralRanges(text)).tags.map(tag => tag.start));
-  const tokens = withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag" || tags.has(property.start)));
+  const tokens = titlePropertyRanges(text);
   // Matched literal-region markers are hidden in Detail, so they are never the title.
   const markerStarts = literalMarkerLineStarts(text);
   let tokenIndex = 0;
