@@ -2988,7 +2988,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A ◄ or → mark cut off by the title's end isn't a click (PIE-855): past it is the border, or the corner's controls.
     const titleEnd = r.col + 3 + width(title);
     this.wireChips = this.wireChips.flatMap(c => (c.id !== id || c.to <= titleEnd ? [c] : c.from < titleEnd - 1 ? [{ ...c, to: titleEnd - 1 }] : []));
-    const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.msg) : null;
+    const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.titleNote!) : null;
     if (shownTitle && !visibleText(title).includes(shownTitle)) this.cutTitles.add(id); else this.cutTitles.delete(id);
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
     // whose controls sit on its header, doesn't repeat them along its frame.
@@ -3210,7 +3210,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private noteOf(id: number): Msg | null {
     const p = this.panes.get(id);
     // Not a list that only has a note selected (the river's Library, a #tag column): its border names the list.
-    return p instanceof ReaderPane && p.msg && isOutlineNote(p.msg) && !p.msg.id.startsWith("file:") && !kindOf(p)?.lists?.(p) ? p.msg : null;
+    return p instanceof ReaderPane && p.msg && isOutlineNote(p.msg) && !p.msg.id.startsWith("file:") && !kindOf(p)?.lists?.(p) ? p.titleNote : null;
   }
   private plainName(id: number) {
     const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id);

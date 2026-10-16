@@ -287,6 +287,8 @@ export class ReaderPane implements Pane {
    */
   constructor(readonly follows = false) {}
   get msg() { return this.surface.msg; }
+  /** The title follows the text being written, before its first save. */
+  get titleNote() { const m = this.msg; return m && this.surface.draft ? { ...m, text: this.surface.draft.text } : m; }
   subject() { const m = this.surface.msg; return m && isOutlineNote(m) ? m.id : null; }
   claims(k: Key): boolean { return !this.holdsKeys && this.surface.claims(k); }
   /** Held on its note (p, alt+⏎, or pinned to a page): it doesn't follow the current note. */
@@ -377,7 +379,7 @@ export class ReaderPane implements Pane {
     const st = this.surface.state();
     if (this.label !== null) {
       // A float says what it holds; in the row, which detail it is and whether ⏎ opens here.
-      if (this.floating) return this.msg ? subject(this.msg) || this.label : "float";
+      if (this.floating) return this.msg ? subject(this.titleNote!) || this.label : "float";
       return [this.label, this.msg ? "" : "empty", this.opensHere ? "⏎ opens here" : "", st].filter(Boolean).join(" · ");
     }
     if (!this.holding) return ["reader", st].filter(Boolean).join(" · ");
@@ -541,7 +543,7 @@ export class ReaderPane implements Pane {
     const s = this.surface, hold = s.draft ? "✎" : s.session ? "¶" : s.panel ? "≡" : "";
     const marks = [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET, ...(this.newComments() ? [fg(C.yellow) + "■" + RESET] : [])];
     // The same title as its border (PIE-809): the Work ID first.
-    return { title: this.msg ? headedTitle(this.msg) : this.title(), marks };
+    return { title: this.msg ? headedTitle(this.titleNote!) : this.title(), marks };
   }
 
   /** Showing a note that isn't a block (a Resource, a file): it is read here, never edited. */

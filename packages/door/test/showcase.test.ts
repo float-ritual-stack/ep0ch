@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { editorClick } from "../src/surface/editor";
 import type { Desk } from "../src/desk/desk";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
@@ -3528,6 +3529,55 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
   }, 40_000);
+
+  test("asks in a new unsaved note show unknown agents, live titles and fitting badges (PIE-914)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "asks" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "asks")).top;
+    await (app as any).dispatch.press("note.new", { opens: "float" });
+    const writing = () => [...stage.panes.values()].find(p => p.surface?.draft) as ReaderPane;
+    await until(() => !!writing(), "the new draft");
+    const r = writing(), d = r.surface.draft!;
+    const tile = stage.nameOf([...stage.panes].find(([, p]) => p === r)![0]);
+    await stage.dispatch.press("draft.paste", { text: "yo yo yo this is a test\n\n@ask whats up\n\n@prior-art agent in the outline how do you do\n\n@prior-art when did this trigger ...\n" }, tile);
+    screen();
+    expect(screen()).toMatch(/[═─].*yo yo yo this is a test/);
+    expect(r.title()).toContain("yo yo yo this is a test");
+    expect(r.surface.render(80, 40, r.host(stage)).lines.map(plain).join("\n")).toContain("editing · yo yo yo this is a test");
+    await until(() => screen().includes("no agent answers @ask"), "the unknown ask explained");
+    expect(d.text).toContain("@ask whats up");
+    await until(() => d.answerFolds().length === 2 && d.text.includes("I find earlier related notes"), "both prior-art answers", 15000).catch(error => { throw new Error(`${error.message}\n${d.text}\n${JSON.stringify([...d.asks])}`); });
+    const narrow = d.render(48, 60).map(plain);
+    expect(narrow.join("\n")).toContain("beside ▸");
+    expect(narrow.every(line => Bun.stringWidth(line) <= 48)).toBe(true);
+    expect(narrow.join("\n")).toContain("agents here:");
+    const ask = "@ask whats up", askRow = d.lines.indexOf(ask);
+    await stage.dispatch.press("draft.place", { line: askRow + 1, col: 1 }, tile);
+    const raw = r.surface.render(48, 60, r.host(stage)).lines.map(plain), y = raw.findIndex(line => line.includes(ask));
+    expect(editorClick(d, d.frame!.col + ask.length, y)).toBe(true);
+    expect(d.col).toBe(ask.length);
+    await stage.dispatch.press("draft.place", { line: askRow + 1, col: 1 }, tile);
+    editorClick(d, d.frame!.col + ask.length, y, true);
+    expect((await stage.dispatch.press("draft.copy", {}, tile) as { text: string }).text).toBe(ask);
+    await stage.dispatch.press("draft.place", { line: d.lines.length, col: d.lines.at(-1)!.length + 1 }, tile);
+    await stage.dispatch.press("draft.paste", { text: "\nOrdinary prose that runs beyond a narrow tile should keep its original paragraph ending\ncontinued.\n" }, tile);
+    await stage.dispatch.press("rich.toggle", {}, tile);
+    const rich = r.surface.render(48, 60, r.host(stage)).lines.map(plain);
+    expect(rich.join("\n")).toContain("no agent answers @ask");
+    const ending = rich.findIndex(line => line.includes("ending")), continued = rich.findIndex(line => line.includes("continued."));
+    expect(ending).toBeGreaterThanOrEqual(0);
+    expect(continued).toBeGreaterThanOrEqual(0);
+    expect(continued - ending).toBeLessThanOrEqual(1);
+    await stage.dispatch.press("rich.toggle", {}, tile);
+    expect((await board.get(d.blockId))!.text).toBe("");
+    await stage.dispatch.press("edit.save", {}, tile);
+    expect((await board.get(d.blockId))!.text).toContain("@ask whats up");
+    const saved = await board.request<any>("resources.projection.read", { blockId: d.blockId });
+    expect(saved.projections.some((p: any) => p.reason?.includes("no agent answers @ask"))).toBe(true);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+  }, 30000);
 
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {
     (app as any).lastInput = 0;

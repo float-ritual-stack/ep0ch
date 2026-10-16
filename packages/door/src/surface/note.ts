@@ -2303,7 +2303,7 @@ export class NoteSurface {
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
       ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
-      title: `editing · ${subject(m)}`,
+      title: `editing · ${subject({ ...m, text: d.text })}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
         // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down.
