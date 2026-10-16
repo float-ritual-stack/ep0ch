@@ -3294,7 +3294,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => marks.changes!.every(m => screen().includes(m)), "the what-changed section");
     const stage = () => S().stages.get(S().sel).top;
     const bar = () => { (app as any).paint(); return plain(painted.at(-1) ?? ""); };
-    await until(() => app.whatChanged.list().some(r => r.kind === "commented" && !r.seen), "the section agent finished");
+    await until(() => app.whatChanged.list().some(r => r.kind === "commented" && r.who === "garden-agent"), "the section agent finished");
     // A round more, after the person looked.
     app.whatChanged.markSeen();
     await gardenRound(board, seeded.notes);
@@ -3307,7 +3307,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const listed = await app.act({ action: "changes.list", args: {}, as: "test-agent" }) as any;
     expect(listed.changed.filter((r: any) => !r.seen).map((r: any) => [r.title, r.who, r.kind, r.seen]).sort()).toEqual([["Bean row log", "garden-agent", "edited", false], ["Compost bay log", "garden-agent", "edited", false], ["See HOME-042 for the plan.", "garden-agent", "commented", false], ["Shed door log", "garden-agent", "edited", false]]);
     expect(app.whatChanged.count()).toBe(4);
-    // A click on +3 new opens the list in the drawer, and looking clears the count.
+    // Looking at the list clears the count.
     const at = (app as any).changedAt;
     expect(at).not.toBeNull();
     press({ kind: "mouse", action: "down", button: 0, x: at.from + 1, y: at.row });
