@@ -29,7 +29,7 @@ export function fixOutlineFiles(files: readonly OutlineFiles[], options: { moveS
   for (const { folder, scripts, backup: previousBackup } of files) {
     if (options.retireBackups && previousBackup) {
       unlinkSync(join(folder, ".ep0ch.bak"));
-      done.push(`${folder}/.ep0ch.bak: retired the previous install’s binding backup`);
+      done.push(`${folder}/.ep0ch.bak: retired the previous binding backup`);
     }
     const backup = migrateBinding(folder);
     if (backup) done.push(`${folder}/.ep0ch/config.toml: binding moved; kept ${backup}`);

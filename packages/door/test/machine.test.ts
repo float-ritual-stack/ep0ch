@@ -131,7 +131,7 @@ describe("--machine: an outline on another machine, through the forward", () => 
     expect(readFileSync(join(far, ".ep0ch"), "utf8")).toBe('ws = "garden"\nmachine = "box-a"\n');
     const init = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "init", "fern", "--create", "--json"], { cwd: far, env });
     expect(JSON.parse(init.stdout.toString())).toMatchObject({ name: "fern", created: true });
-    expect(readFileSync(join(far, ".ep0ch"), "utf8")).toBe('ws = "fern"\nmachine = "box-a"\n');
+    expect(readFileSync(join(far, ".ep0ch", "config.toml"), "utf8")).toBe('ws = "fern"\nmachine = "box-a"\n');
     const { hostRequest } = await import("../src/socket");
     expect((await hostRequest<{ outlines: { name: string }[] }>(host.sock, "outlines.list")).outlines.map(o => o.name)).toContain("fern");
     // `status` is this machine's host unless --machine names another: what another machine is asked.

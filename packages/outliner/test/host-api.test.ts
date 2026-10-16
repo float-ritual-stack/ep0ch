@@ -35,8 +35,9 @@ test("QuickJS calls the real host API and streams completed writes before the ru
 });
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
-async function setup() {
+async function setup(prepare?: (root: string) => Promise<void>) {
   const root = mkdtempSync(join(tmpdir(), "outliner-host-api-"));
+  await prepare?.(root);
   const { env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
@@ -296,4 +297,22 @@ test("only opted-in dotted-folder scripts run, read-only unless they declare wri
   expect(page.kind === "changes" && page.changes.find(c => c.blockId === made.id)).toMatchObject({
     actor: { author: "agent", actorId: "script:writer" }, requestedBy: { author: "agent", actorId: "seed-requester" },
   });
+});
+
+
+test("editing a dotted-folder script reloads its opt-in without an explicit reload", async () => {
+  const { client, root } = await setup(async root => {
+    await Bun.write(join(root, "scripts", "unused.ts"), "return 'unused';");
+    await Bun.write(join(root, ".ep0ch", "scripts", "watched.ts"), "return 'not opted in';");
+  });
+  const file = join(root, ".ep0ch", "scripts", "watched.ts");
+  await Bun.write(file, "// ep0ch-script\nreturn 'Ready';");
+  let active = false;
+  const deadline = Date.now() + 2500;
+  do {
+    const listed = await client.request<{ extensions: { name?: string; state: string }[] }>({ action: "extensions.list" });
+    active = listed.extensions.some(e => e.name === "watched" && e.state === "active");
+    if (!active) await Bun.sleep(20);
+  } while (!active && Date.now() < deadline);
+  expect(active).toBe(true);
 });

@@ -48,8 +48,8 @@ test("a .ep0ch's machine: the forward's socket, and a client that starts the for
   const notes = join(root, "work", "far-notes");
   mkdirSync(join(notes, "deep"), { recursive: true });
   writeDotEp0ch(notes, "pie", { machine: "box-a" });
-  expect(readFileSync(join(notes, ".ep0ch"), "utf8")).toBe('ws = "pie"\nmachine = "box-a"\n');
-  expect(boundFolderOf(join(notes, "deep"))).toEqual({ folder: notes, configPath: join(notes, ".ep0ch"), outline: "pie", machine: "box-a" });
+  expect(readFileSync(join(notes, ".ep0ch", "config.toml"), "utf8")).toBe('ws = "pie"\nmachine = "box-a"\n');
+  expect(boundFolderOf(join(notes, "deep"))).toEqual({ folder: notes, configPath: join(notes, ".ep0ch", "config.toml"), outline: "pie", machine: "box-a" });
   const paths = resolveClientPaths(envFor(join(notes, "deep")));
   const forward = join(root, "outlines", ".remote", "box-a.sock");
   expect(paths).toMatchObject({ mode: "remote", machine: "box-a", socket: forward, outline: "pie", database: "" });

@@ -471,7 +471,7 @@ export class OutlinerServer {
     this.extensionRegistry = new ExtensionRegistry({
       roots,
       sources: () => scriptSources(store),
-      watchPaths: store.workspaceRoot ? [join(store.workspaceRoot, "scripts")] : [],
+      watchPaths: store.workspaceRoot ? [join(store.workspaceRoot, ".ep0ch", "scripts"), join(store.workspaceRoot, "scripts")] : [],
       outlineName: () => this.outline?.name,
       socketPath: () => this.socketPath,
       onChange: () => {

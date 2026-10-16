@@ -64,7 +64,7 @@ const result = await runHerdrScenario({
     await terminal.write(`\x1b[<0;${column + 1};${row + 1}M\x1b[<0;${column + 1};${row + 1}m`);
     await closed("chooser closed after click");
     const jamTree = await newTree(project, before, "Tree opened on the picked outline");
-    assert.equal(readFileSync(join(jam!, ".ep0ch"), "utf8"), 'ws = "project"\n');
+    assert.equal(readFileSync(join(jam!, ".ep0ch", "config.toml"), "utf8"), 'ws = "project"\n');
     const jamPane = await s.adoptDetached(jamTree.clientId, "tree", project);
     await s.waitVisible(jamPane, "Tree [Note]");
     await s.checkpoint("01-mouse-pick-opened-tree");
@@ -106,7 +106,7 @@ const result = await runHerdrScenario({
     const fernClient = outlineClient("fern-ledger");
     await newTree(fernClient, new Set(), "Tree opened on the new outline");
     assert.deepEqual(await names(), ["fern-ledger", "project"]);
-    assert.equal(readFileSync(join(fern!, ".ep0ch"), "utf8"), 'ws = "fern-ledger"\n');
+    assert.equal(readFileSync(join(fern!, ".ep0ch", "config.toml"), "utf8"), 'ws = "fern-ledger"\n');
     await s.record("outlines-after", { entries: outlineEntries(), baseline });
     assert.deepEqual(outlineEntries(), [...baseline, "fern-ledger.sqlite"].sort());
   },
