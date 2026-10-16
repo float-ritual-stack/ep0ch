@@ -696,7 +696,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const row = () => sc.render(app).lines.map(plain).findIndex(l => l.includes("Reading here after the ledger."));
     const y = row(), place = reader.surface.position.reading, total = reader.surface.viewport()!.total;
     expect(y).toBeGreaterThan(0);
-    await board.update(embedded.id, `Seed ledger\n${"A newly loaded seed row.\n".repeat(30)}`, embedded.revision);
+    await board.update(embedded.id, `Seed ledger\n${"A newly loaded seed row.\n".repeat(30)}`, embedded.revision!);
     await until(() => { screen(); return reader.surface.viewport()!.total > total; }, "the embed's new height");
     expect(reader.surface.position.reading).toBe(place);
     expect(row()).toBe(y);
