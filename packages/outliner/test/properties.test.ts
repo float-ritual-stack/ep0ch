@@ -45,7 +45,7 @@ test("a media line is content, never the preamble: an image right under the subj
     { key: "img", scope: "inline", placement: "trailing-metadata", line: 1 },
     { key: "hero-focus", scope: "inline", placement: "trailing-metadata", line: 1 },
     { key: "alt", scope: "inline", placement: "trailing-metadata", line: 1 },
-    { key: "season", scope: "block", placement: "metadata-line", line: 3 },
+    { key: "season", scope: "inline", placement: "metadata-line", line: 3 },
     { key: "img", scope: "inline", placement: "trailing-metadata", line: 5 },
     { key: "size", scope: "inline", placement: "trailing-metadata", line: 5 },
   ]);
@@ -57,7 +57,6 @@ test("classifies the metadata preamble separately from body properties", () => {
   const text = [
     "",
     "# Subject [type::roadmap-item]",
-    "",
     "[status::planned]",
     "owner:: evan",
     "",
@@ -74,12 +73,12 @@ test("classifies the metadata preamble separately from body properties", () => {
     line,
   }))).toEqual([
     { key: "type", value: "roadmap-item", scope: "block", syntax: "bracket", line: 1 },
-    { key: "status", value: "planned", scope: "block", syntax: "bracket", line: 3 },
-    { key: "owner", value: "evan", scope: "block", syntax: "bare", line: 4 },
-    { key: "work-stage", value: "next", scope: "inline", syntax: "bracket", line: 6 },
-    { key: "ctx", value: "later", scope: "line", syntax: "bare", line: 7 },
-    { key: "tag", value: "body", scope: "inline", syntax: "bracket", line: 7 },
-    { key: "late", value: "inline", scope: "inline", syntax: "bracket", line: 8 },
+    { key: "status", value: "planned", scope: "block", syntax: "bracket", line: 2 },
+    { key: "owner", value: "evan", scope: "block", syntax: "bare", line: 3 },
+    { key: "work-stage", value: "next", scope: "inline", syntax: "bracket", line: 5 },
+    { key: "ctx", value: "later", scope: "line", syntax: "bare", line: 6 },
+    { key: "tag", value: "body", scope: "inline", syntax: "bracket", line: 6 },
+    { key: "late", value: "inline", scope: "inline", syntax: "bracket", line: 7 },
   ]);
   expect(parseProperties(text)).toEqual([
     { key: "type", value: "roadmap-item" },
@@ -259,7 +258,7 @@ test("patch ordinals exclude literal tokens and preserve exact adjacent source",
 test("appends to eligible metadata instead of property-shaped literals", () => {
   const text = "Title\n`[fake::literal]`\n[status::open]\nBody";
   expect(patchPropertyText(text, [{ op: "append", key: "owner", value: "evan" }])).toBe(
-    "Title\n[owner::evan]\n`[fake::literal]`\n[status::open]\nBody",
+    "Title\n`[fake::literal]`\n[status::open] [owner::evan]\nBody",
   );
 });
 

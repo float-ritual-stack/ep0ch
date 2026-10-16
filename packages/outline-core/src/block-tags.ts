@@ -8,6 +8,7 @@
 // before it skipped) whose tokens the service calls block-scope metadata lines (`[key::value]` runs, hashtags among
 // them). A `#tag` line further down is body text and stays, so does a dashed one (`- #a - #b`): it is a body line that
 // also counts as the block's tags, and when it is the first line of the body a reader draws no second row for them.
+import { frontMatterLines } from "./header-line";
 import { isMediaLine } from "./media-line";
 import { isPropertyTokenLine } from "./property-grammar";
 
@@ -30,10 +31,9 @@ export function metadataLines(text: string, tokens: readonly TagRecord[] | null)
   const out = new Set<number>();
   const meta = tokens ? new Set(tokens.filter(t => t.scope === "block" && t.placement === "metadata-line").map(t => t.line)) : null;
   const lines = text.split("\n");
-  // Blank lines, and the media lines a note may open with (its picture: content, PIE-598), come before the preamble.
-  let i = 1;
-  while (i < lines.length && (!lines[i]!.trim() || isMediaLine(lines[i]!))) i++;
-  for (; i < lines.length && (meta ? meta.has(i) : isPropertyTokenLine(lines[i]!) && !isMediaLine(lines[i]!)); i++) out.add(i);
+  for (const i of frontMatterLines(text)) {
+    if (i > 0 && (meta ? meta.has(i) : isPropertyTokenLine(lines[i]!) && !isMediaLine(lines[i]!))) out.add(i);
+  }
   return out;
 }
 

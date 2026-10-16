@@ -1,6 +1,6 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { isLinkValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
+import { isLinkValue, propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
@@ -338,8 +338,11 @@ function movedBetween(before: readonly string[], after: readonly string[], among
 /** A block's value for `key` within a query's property scope, from the loaded graph: what a property sort compares. */
 function scopedValue(graph: LoadedGraph, scope: PropertyQueryScope | undefined) {
   const wanted = scope ?? "block";
-  return (block: Block, key: string) => graph.propertyRecordsByBlock.get(block.id)
-    ?.find(record => record.key === key && (wanted === "all" || record.scope === wanted))?.value;
+  return (block: Block, key: string) => {
+    const value = graph.propertyRecordsByBlock.get(block.id)
+      ?.find(record => record.key === key && (wanted === "all" || record.scope === wanted))?.value;
+    return value === undefined ? undefined : splitPropertyValue(value)[0];
+  };
 }
 
 interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
@@ -3911,7 +3914,7 @@ export class OutlinerStore {
     if (counted || questionKeys(query).length) {
       const scope = query.propertyScope ?? "block";
       const records = (block: Block) => (graph.propertyRecordsByBlock.get(block.id) ?? []).filter(record => scope === "all" || record.scope === scope);
-      const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key).map(record => record.value);
+      const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key || key === "tag" && record.key === "tags").flatMap(record => splitPropertyValue(record.value));
       if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
       if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key), query.facetValues, query.facetKeys);
       const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope))].filter(Boolean).join(" · ");

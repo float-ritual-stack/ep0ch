@@ -85,7 +85,6 @@ test("projects every property-heavy occurrence with stable identity and exact so
 test("retains block, line, and inline scopes without suppressing unknown keys", () => {
   const text = [
     "# Subject [type::roadmap-item]",
-    "",
     "[status::planned]",
     "owner:: evan",
     "",
@@ -100,7 +99,7 @@ test("retains block, line, and inline scopes without suppressing unknown keys", 
     { key: "owner", scope: "block", syntax: "bare", placement: "metadata-line" },
     { key: "unknown-widget", scope: "inline", syntax: "bracket", placement: "trailing-metadata" },
     { key: "ctx", scope: "line", syntax: "bare", placement: "metadata-line" },
-    { key: "related-to", scope: "inline", syntax: "bracket", placement: "trailing-metadata" },
+    { key: "related-to", scope: "inline", syntax: "bracket", placement: "metadata-line" },
   ]);
   expect(filterPropertyInspectorEntries(entries)).toEqual([...entries]);
   expect(filterPropertyInspectorEntries(entries, { scopes: ["line", "inline"] }).map((entry) => entry.key)).toEqual([
@@ -116,7 +115,6 @@ test("retains block, line, and inline scopes without suppressing unknown keys", 
 test("replaces block metadata in preview while preserving authored body properties", () => {
   const text = [
     "# Subject [type::roadmap-item]",
-    "",
     "[status::planned]",
     "owner:: evan",
     "",

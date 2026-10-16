@@ -9,13 +9,13 @@
 // blanks after the last. A token inside a literal range the caller names (a code span, a fence: the service's literal
 // scan) is text, and so is one that other text follows (`[who::Sam] said so` is an inline aside). What comes before the
 // run, less a separating ` -`, is the line's prose: usually the note's title. The body is the prose, then every line
-// after the header line. A hashtag among the chips doesn't end the run: it stays in the prose (it is prose, and a tag).
+// after the header line. A hashtag among the chips doesn't end the run: it leaves the displayed title with the chips, but stays in the export body.
 //
 // Front matter carries the chips as written, in order: values stay verbatim strings (never a date), and a key written
 // twice becomes a list at its first place. Rebuilding joins the prose and the chips with ` - `. Only spacing, the
 // separators and where a repeated key's values sit are normalized; `headerLine` reads the rebuilt line back to the same
 // prose and chips.
-import { HASHTAG_VALUE_PATTERN, propertyTokensInLine } from "./property-grammar";
+import { HASHTAG_VALUE_PATTERN, isEscapedAt, propertyTokensInLine } from "./property-grammar";
 
 /** One header chip: its key as written, its value (trimmed, otherwise verbatim), where it sits in the text. */
 export interface HeaderChip {
@@ -36,7 +36,7 @@ export interface HeaderLine {
   end: number;
   /** How much of the header line, from its start, the prose keeps verbatim (hashtags among the chips follow it). */
   kept: number;
-  /** The header line without its chips (and without the ` -` before them); hashtags among them come after. */
+  /** The header line without its chips (and without the ` -` before them); trailing hashtags. */
   prose: string;
   /**
    * The ` -` separators of the run (each hyphen with the blanks before it), as offsets in the text: what a title takes
@@ -44,6 +44,7 @@ export interface HeaderLine {
    */
   dashes: LiteralRange[];
   chips: HeaderChip[];
+  tags: LiteralRange[];
   /** The prose, then every line after the header line: the note without its chips. Its first line is always the prose. */
   body: string;
 }
@@ -65,40 +66,44 @@ const PROSE_TAIL = /(?:[ \t]+-)?[ \t]+$/;
 export function headerLine(text: string, literal: readonly LiteralRange[] = []): HeaderLine {
   const lines = text.split("\n");
   const line = lines.findIndex(l => l.trim() !== "");
-  if (line < 0) return { line: -1, offset: 0, end: 0, kept: 0, prose: "", dashes: [], chips: [], body: "" };
+  if (line < 0) return { line: -1, offset: 0, end: 0, kept: 0, prose: "", dashes: [], chips: [], tags: [], body: "" };
   let offset = 0;
   for (let i = 0; i < line; i++) offset += lines[i]!.length + 1;
   const source = lines[line]!;
   const inLiteral = (at: number) => literal.some(r => r.start <= at && at < r.end);
   const tokens = propertyTokensInLine(source).filter(t => !inLiteral(offset + t.start));
-  // The run: back from the line's end, the last token followed by blanks only, each before it by a separator.
-  let first = tokens.length, end = source.replace(/[ \t\r]+$/, "").length;
-  const tags: string[][] = [];
+  const tagged = [...source.matchAll(HASHTAG)]
+    .filter(m => !inLiteral(offset + m.index) && !isEscapedAt(source, m.index) && !tokens.some(t => t.start <= m.index && m.index < t.end))
+    .map(m => ({ start: m.index, end: m.index + m[0].length }));
+  const pieces = [...tokens, ...tagged].sort((a, b) => a.start - b.start);
+  let end = source.trimEnd().length;
+  const run: typeof pieces = [];
   const dashes: LiteralRange[] = [];
-  const dashIn = (from: number, to: number) => {
-    // The hyphen (never one inside a hashtag), with the blanks right before it.
-    const k = source.slice(from, to).replace(HASHTAG, h => " ".repeat(h.length)).indexOf("-");
-    if (k < 0) return;
-    let start = from + k;
-    while (start > from && /[ \t]/.test(source[start - 1]!)) start--;
-    dashes.unshift({ start: offset + start, end: offset + from + k + 1 });
-  };
-  for (let i = tokens.length - 1; i >= 0; i--) {
-    const t = tokens[i]!;
-    const between = source.slice(t.end, end);
-    const after = between.replace(HASHTAG, "");
-    if (i === tokens.length - 1 ? after.trim() !== "" : !SEPARATOR.test(after)) break;
-    tags.unshift(between.match(HASHTAG) ?? []);
-    if (i < tokens.length - 1) dashIn(t.end, end);
-    first = i;
-    end = t.start;
+  for (const piece of [...pieces].reverse()) {
+    const gap = source.slice(piece.end, end);
+    if (run.length ? !SEPARATOR.test(gap) : gap.trim() !== "") break;
+    if (gap.includes("-")) dashes.push({ start: offset + piece.end, end: offset + piece.end + gap.indexOf("-") + 1 });
+    run.unshift(piece);
+    end = piece.start;
   }
-  const run = tokens.slice(first);
-  const chips = run.map(t => ({ key: t.raw.slice(1, t.raw.indexOf("::")), value: t.value, start: offset + t.start, end: offset + t.end }));
-  const before = run.length ? source.slice(0, run[0]!.start).replace(PROSE_TAIL, "") : source.replace(/[ \t\r]+$/, "");
-  if (run.length && before.length < run[0]!.start) dashIn(before.length, run[0]!.start);
-  const prose = [before, ...tags.flat()].filter(Boolean).join(" ");
-  return { line, offset, end: offset + source.length, kept: before.length, prose, dashes, chips, body: [prose, ...lines.slice(line + 1)].join("\n") };
+  const before = source.slice(0, end).replace(PROSE_TAIL, "");
+  if (source.slice(before.length, end).includes("-")) dashes.push({ start: offset + before.length, end: offset + source.slice(0, end).lastIndexOf("-") + 1 });
+  dashes.sort((a, b) => a.start - b.start);
+  const starts = new Set(run.map(t => t.start));
+  const chips = tokens.filter(t => starts.has(t.start)).map(t => ({ key: t.raw.slice(1, t.raw.indexOf("::")), value: t.value, start: offset + t.start, end: offset + t.end }));
+  const tags = tagged.filter(t => starts.has(t.start)).map(t => ({ start: offset + t.start, end: offset + t.end }));
+  // Export keeps authored tags in the body even though the displayed title leaves them out.
+  const bodyTitle = [before, ...tags.map(t => text.slice(t.start, t.end))].filter(Boolean).join(" ");
+  return { line, offset, end: offset + source.length, kept: before.length, prose: before, dashes, chips, tags, body: [bodyTitle, ...lines.slice(line + 1)].join("\n") };
+}
+
+/** The title and its first paragraph, bounded by the first blank line. */
+export function frontMatterLines(text: string): Set<number> {
+  const lines = text.split("\n");
+  const start = lines.findIndex(line => line.trim() !== "");
+  const found = new Set<number>();
+  for (let i = start; i >= 0 && i < lines.length && lines[i]!.trim(); i++) found.add(i);
+  return found;
 }
 
 /**
@@ -110,7 +115,7 @@ export function bodyOffset(h: HeaderLine, at: number): number {
   if (at < h.offset) return -1;
   if (at < h.offset + h.kept) return at - h.offset;
   if (at <= h.end) return -1;
-  return at - (h.end + 1) + h.prose.length + 1;
+  return at - (h.end + 1) + h.body.split("\n", 1)[0]!.length + 1;
 }
 
 /** A chip as the outline writes it. */
@@ -243,6 +248,7 @@ export function readNoteFile(file: string): { identity: NoteIdentity; chips: { k
 /** A header line without its run's ` -` separators (the chips stay): for a client that strips the tokens itself. */
 export function withoutHeaderDashes(line: string): string {
   let out = "", cursor = 0;
-  for (const d of headerLine(line).dashes) { out += line.slice(cursor, d.start); cursor = d.end; }
+  const header = headerLine(line);
+  for (const d of [...header.dashes, ...header.tags].sort((a, b) => a.start - b.start)) { out += line.slice(cursor, d.start); cursor = d.end; }
   return out + line.slice(cursor);
 }

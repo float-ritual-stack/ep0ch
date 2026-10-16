@@ -162,13 +162,16 @@ export function isPropertyTokenLine(line: string): boolean {
 }
 
 /**
- * A value as a list: split at the commas outside a link or a bracket, trimmed, empty items dropped
- * (`[[PC-967]], ((id|plan, step 6)), notes` is three). A value with no comma is one item.
+ * Explicit bracket lists split at commas outside quotes and links. Plain text, including commas, is one value.
  */
 export function splitPropertyValue(value: string): string[] {
+  value = value.trim();
+  if (!value.startsWith("[") || !value.endsWith("]") || isLinkValue(value)) return value ? [value] : [];
+  value = value.slice(1, -1);
   const references = new Map(blockReferenceOccurrences(value, []).map(reference => [reference.start, reference.end]));
   const items: string[] = [];
   let depth = 0;
+  let quote = "";
   let from = 0;
   for (let at = 0; at < value.length; at += 1) {
     const skip = references.get(at);
@@ -177,6 +180,11 @@ export function splitPropertyValue(value: string): string[] {
       continue;
     }
     const character = value[at];
+    if (quote) {
+      if (character === quote && value[at - 1] !== "\\") quote = "";
+      continue;
+    }
+    if ((character === "'" || character === '"') && !value.slice(from, at).trim()) { quote = character; continue; }
     if (character === "[") depth += 1;
     else if (character === "]") depth = Math.max(0, depth - 1);
     else if (character === "," && depth === 0) {
@@ -185,7 +193,7 @@ export function splitPropertyValue(value: string): string[] {
     }
   }
   items.push(value.slice(from));
-  return items.map(item => item.trim()).filter(Boolean);
+  return items.map(item => item.trim()).map(item => /^(?:'[^]*'|"[^]*")$/.test(item) ? item.slice(1, -1) : item).filter(Boolean);
 }
 
 /** A value that is one link written whole: `[[page]]`, `[[page|label]]`, `((id))`, `((id|label))`, `!((id))`. */
@@ -197,18 +205,19 @@ export function isLinkValue(value: string): boolean {
 
 /**
  * Whether a property's `value` satisfies a filter's `wanted`: the same, caselessly, a path below it when `wanted` ends in
- * `/*` (`project=x/*` holds `x` and `x/y`), or, when `wanted` is one link
- * (`related=[[PC-967]]`), a list of values that holds that link as an item. Anything else compares whole.
+ * `/*` (`project=x/*` holds `x` and `x/y`). Any item of an explicit list can satisfy the filter.
  */
 export function propertyValueHolds(value: string, wanted: string): boolean {
   const lower = wanted.trim().toLowerCase();
-  if (value.trim().toLowerCase() === lower) return true;
-  // A path (`project=x/y/*`, PIE-881): the value is that path or any below it, as `#jazz` holds `jazz/hands`.
-  if (lower.endsWith("/*") && lower.length > 2) {
-    const path = lower.slice(0, -2), mine = value.trim().toLowerCase();
-    return mine === path || mine.startsWith(`${path}/`);
-  }
-  return isLinkValue(wanted) && splitPropertyValue(value).some(item => item.toLowerCase() === lower);
+  return splitPropertyValue(value).some(item => {
+    const mine = item.toLowerCase();
+    if (mine === lower) return true;
+    if (lower.endsWith("/*") && lower.length > 2) {
+      const path = lower.slice(0, -2);
+      return mine === path || mine.startsWith(`${path}/`);
+    }
+    return false;
+  });
 }
 
 /**

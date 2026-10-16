@@ -78,9 +78,9 @@ describe("a value holding links parses whole", () => {
   });
 
   test("a list splits at commas outside links, never inside one", () => {
-    expect(splitPropertyValue(`[[PC-967]], ((${ID}|plan, step 6)), notes`)).toEqual(["[[PC-967]]", `((${ID}|plan, step 6))`, "notes"]);
-    expect(splitPropertyValue("a, b,, c")).toEqual(["a", "b", "c"]);
-    expect(splitPropertyValue("[[A, B]], [x, y]")).toEqual(["[[A, B]]", "[x, y]"]);
+    expect(splitPropertyValue(`[[[PC-967]], ((${ID}|plan, step 6)), notes]`)).toEqual(["[[PC-967]]", `((${ID}|plan, step 6))`, "notes"]);
+    expect(splitPropertyValue("[a, b,, c]")).toEqual(["a", "b", "c"]);
+    expect(splitPropertyValue("[[[A, B]], [x, y]]")).toEqual(["[[A, B]]", "[x, y]"]);
     expect(splitPropertyValue("single")).toEqual(["single"]);
   });
 
@@ -114,7 +114,7 @@ describe("a value holding links parses whole", () => {
   });
 
   test("a link filter finds a list that holds the link; other filters compare whole", () => {
-    const value = `[[PC-967]], ((${ID}|plan, step 6))`;
+    const value = `[[[PC-967]], ((${ID}|plan, step 6))]`;
     expect(propertyValueHolds(value, "[[pc-967]]")).toBe(true);
     expect(propertyValueHolds(value, `((${ID}|plan, step 6))`)).toBe(true);
     expect(propertyValueHolds(value, "[[PC-9]]")).toBe(false);

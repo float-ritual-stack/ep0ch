@@ -299,10 +299,28 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; process.env.EP0CH_EDIT_ARM = "off"; });
 
+  test("front matter: the properties panel separates scopes and draws list chips", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "front-matter" }, as: "test-agent" });
+    await until(() => screen().includes("Early sowing notes"), "front matter reader");
+    press({ kind: "enter" });
+    ch("I");
+    await until(() => screen().includes("[ beans ]"), "list chips");
+    await until(() => screen().includes("Inline and line properties"), "property scopes");
+    const drawn = screen();
+    expect(drawn).toContain("[ frost ]");
+    expect(drawn).toContain("Block properties");
+    expect(drawn).toContain("Inline and line properties");
+    expect(drawn).not.toContain("A plan for the seed bed, #epic");
+    press({ kind: "esc" });
+    press({ kind: "esc" });
+  });
+
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
+    "front-matter": ["Early sowing notes", "A plan for the seed bed"],
     detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · M comments mode"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],

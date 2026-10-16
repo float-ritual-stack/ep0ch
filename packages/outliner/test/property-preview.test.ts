@@ -48,10 +48,10 @@ test("previews block properties and token placement with the save-time parser", 
     placement: "trailing-metadata", scope: "block", syntax: "bracket",
   }]);
 
-  // Text typed after a trailing subject token turns it into inline prose.
+  // Prose in front matter does not end block scope.
   const typed = await preview(drafts.typedAfterTrailing);
-  expect(typed.properties).toEqual([]);
-  expect(typed.tokens).toMatchObject([{ key: "stage", placement: "inline", scope: "inline", line: 0 }]);
+  expect(typed.properties).toEqual([{ key: "stage", value: "queued" }]);
+  expect(typed.tokens).toMatchObject([{ key: "stage", placement: "inline", scope: "block", line: 0 }]);
 
   const preamble = await preview(drafts.preamble);
   expect(preamble.properties).toEqual([{ key: "type", value: "note" }, { key: "stage", value: "doing" }]);
@@ -96,4 +96,27 @@ test("rejects a preview without text", async () => {
   await expect(
     client.request({ action: "properties.preview" } as unknown as RequestInput),
   ).rejects.toThrow("properties.preview requires text");
+});
+
+test("front matter keeps raw garden notes and finds every explicit list value", async () => {
+  const { client } = await startService();
+  const text = "## Early sowing\n- [ctx::evening] - [project::garden]\nA thought about seedlings\n- connectTo:: ['beans', 'frost']\n- tags:: [neat, spring]\n- description:: cool, dry\n\nBody with [inline::data]\n- key:: stuff";
+  const saved = await client.request<{ id: string; text: string }>({ action: "create", text });
+  expect(saved.text).toBe(text);
+  const preview = await client.request<PropertyParsePreview>({ action: "properties.preview", text });
+  expect(preview.tokens.find(p => p.key === "connectto")?.scope).toBe("block");
+  expect(preview.tokens.find(p => p.key === "inline")?.scope).toBe("inline");
+  expect(preview.tokens.find(p => p.key === "key")?.scope).toBe("line");
+  const query = (where: string, extra = {}) => client.request<VisibleBlockCollection & { groups?: { value: string | null; ids: string[] }[] }>({ action: "blocks.query", query: { where, ...extra } });
+  for (const where of ["connectTo=beans", "connectto=frost", "tag=neat", "tags=spring", 'description="cool, dry"']) {
+    expect((await query(where)).blocks.map(b => b.id)).toContain(saved.id);
+  }
+  expect((await query("description=cool")).blocks).toHaveLength(0);
+  const grouped = await query("project=garden", { group: "connectTo" });
+  expect(grouped.groups).toEqual([{ value: "beans", count: 1, ids: [saved.id] }, { value: "frost", count: 1, ids: [saved.id] }]);
+  const repeated = await client.request<{ id: string }>({ action: "create", text: "Later sowing [project::garden] [connectto::zucchini] [connectto::asparagus] [tag::neat]" });
+  expect((await query("project=garden", { sort: "connectto" })).blocks.map(b => b.id)).toEqual([saved.id, repeated.id]);
+  expect((await query("connectto=asparagus")).blocks.map(b => b.id)).toEqual([repeated.id]);
+  expect((await query("tag=neat")).blocks.map(b => b.id)).toContain(repeated.id);
+
 });

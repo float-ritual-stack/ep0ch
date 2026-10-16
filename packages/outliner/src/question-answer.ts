@@ -120,7 +120,7 @@ export function questionKeys(query: NormalizedBlockSearchQuery): string[] {
  * (`known`), the three nearest by spelling; undefined when every key is carried. A known key with no matches is no hint.
  */
 export function questionHint(query: NormalizedBlockSearchQuery, known: ReadonlySet<string>): string | undefined {
-  const missing = questionKeys(query).filter(key => !known.has(key));
+  const missing = questionKeys(query).filter(key => !known.has(key) && !(key === "tag" && known.has("tags")));
   if (!missing.length) return undefined;
   return missing.map(key => {
     const nearest = [...known].map(k => ({ k, d: distance(key, k) })).sort((a, b) => a.d - b.d || a.k.localeCompare(b.k)).slice(0, 3).map(x => x.k);

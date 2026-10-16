@@ -20,7 +20,7 @@ describe("the header line", () => {
     expect(h.prose).toBe("Seed order");
     // The separators, for a title to leave out with the chips.
     expect(h.dashes.map(d => "Seed order - [type::errand] - [area::garden]".slice(d.start, d.end))).toEqual([" -", " -"]);
-    expect(withoutHeaderDashes("Shed [a::1] #t - [b::2]")).toBe("Shed [a::1] #t [b::2]");
+    expect(withoutHeaderDashes("Shed [a::1] #t - [b::2]")).toBe("Shed [a::1]  [b::2]");
     expect(h.chips.map(c => c.key)).toEqual(["type", "area"]);
   });
 
@@ -39,9 +39,9 @@ describe("the header line", () => {
     expect(h.body).toBe("\nTea, milk, oats.");
   });
 
-  test("a hashtag among the chips stays with the prose, and the run goes on past it", () => {
+  test("a hashtag among the chips leaves the title but stays in the export body", () => {
     const h = headerLine("Shed jobs [type::list] #bikes [area::shed]");
-    expect(h.prose).toBe("Shed jobs #bikes");
+    expect(h.prose).toBe("Shed jobs");
     expect(h.dashes).toEqual([]);
     expect(h.chips.map(c => c.key)).toEqual(["type", "area"]);
   });
