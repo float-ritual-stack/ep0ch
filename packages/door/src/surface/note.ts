@@ -70,7 +70,7 @@ import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
-import { moveBy, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
+import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
 import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
@@ -3665,8 +3665,10 @@ export class NoteSurface {
     if (c === "f" && this.msg && !this.msg.partial) { void this.runKey("fold.toggle", {}, host); return true; }
     if (c === "F" && this.msg && !this.msg.partial) { void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true; }
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
-    // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places moved to lately first.
+    // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places changed lately first.
     if (c === "Z" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", {}, host); return true; }
+    // alt+↑ alt+↓: this note up or down among its siblings, as they do in the outline tile, the board's lanes and the Welcome list.
+    if ((k.kind === "alt-up" || k.kind === "alt-down") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", { step: k.kind === "alt-up" ? "up" : "down" }, host); return true; }
     // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
     if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
     // The margin's cards (ADR 0004 contract 6): a row each, whole, or off.
@@ -8302,9 +8304,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "note.move": def({
-    summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes moved to lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
-    keys: "Z in a reader, the tile menu's \"move to…\", a click on the `→ …` row of a new note's edit",
-    touches: "nothing", replay: "ask", menu: { label: "move to…", group: "note", key: "Z" },
+    summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes changed lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
+    keys: "Z (move to…), alt+up alt+down (up, down among its siblings) in a reader, the tile menu's rows, a click on the `→ …` row of a new note's edit",
+    touches: "nothing", replay: "ask",
+    menu: { label: "move to…", group: "note", key: "Z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
     says: r => String((r as { said?: string }).said ?? "moved a note"),
     args: {
       id: { type: "string", optional: true, about: "the note to move (default: the one shown)" },
@@ -8319,7 +8322,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const id = args.id ?? surface.requireNote().id;
       const asked = [args.to, args.before, args.after, args.step].some(x => x !== undefined);
       const run = async (a: MoveArgs) => {
-        const done = await moveBy(host.ctx.board, id, a, actor);
+        const done = await moveNote(host.ctx.board, id, intentOf(a), actor, { revision: a.revision });
         // The reader showing it reads its place again; the person's is told where it went.
         if (surface.msg?.id === id) {
           const fresh = await host.ctx.board.get(id).catch(() => null);
@@ -8332,7 +8335,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       };
       if (asked) return run(args);
       if (actor.kind === "agent") throw new ActionRefused("say where: to=<inbox, root, or a note's id, ((ref)), [[page]], Work ID>, before=, after= or step=up|down|in|out");
-      return askInBar(host.ctx as never, "Move the note", [await moveQuestion(host.ctx.board, id)], {}, actor, answers => run({ ...args, to: answers.to! }));
+      return askInBar(host.ctx as never, "Move the note", [moveQuestion(id)], {}, actor, answers => run({ ...args, to: answers.to! }));
     },
   }),
   "note.move.undo": def({

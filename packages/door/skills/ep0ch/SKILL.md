@@ -217,7 +217,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   above, out after its parent); `revision=<n>` refuses a note changed since you read it. `tree.move n=<row>|id=<note>`
   takes the same (any note by id, shown in the tree or not) and `undo=true`. Recorded as you, by `outline_move`'s rules
   (the guard on system notes is that tool's); your move never takes the person's selection. The person's `Z` in a
-  reader, and `alt+↑ alt+↓ alt+→ alt+←` in the outline, are these same actions.
+  reader, `alt+↑ alt+↓` in a reader, and `alt+↑ alt+↓` (`K J`), `I`, `O` in the outline are these same actions (a river column's is `column.move`).
 - **New notes and pages** (every screen, PIE-544): `note.new text=… [near=<id>|inbox=true]` makes a note where the
   outline's placement rule puts it (under `near`, else the top of the Inbox; a `near` that's gone is refused, with
   the `inbox=true` command to run instead), as you, said on the status bar (with no door open: `ep0ch new "<text>"

@@ -1116,28 +1116,52 @@ async function namedBlock(client: AgentToolsClient, ref: unknown, role: string):
   }
 }
 
+/** The place a step takes `block` to, in the arguments `moveBlock` already reads: or a refusal that says which edge it is at. */
+async function stepIntent(client: AgentToolsClient, block: Block, input: { step?: MoveStep; parent?: string; before?: string; after?: string; position?: number; revision?: number }) {
+  const { step, ...rest } = input;
+  if (rest.parent !== undefined || rest.before !== undefined || rest.after !== undefined || rest.position !== undefined) throw new WorkToolRefusal("Give a step (up, down, in, out) or a place (parent, before, after), not both");
+  if (step !== "up" && step !== "down" && step !== "in" && step !== "out") throw new WorkToolRefusal("step is up, down, in (last under the note above it) or out (right after its parent)");
+  const siblings = await client.request<Block[]>({ action: "children", parentId: block.parentId });
+  const i = siblings.findIndex(sibling => sibling.id === block.id);
+  const edge = block.parentId === null ? " at the top level" : " under its parent";
+  if (step === "up") { if (i <= 0) throw new WorkToolRefusal(`${label(block)} is already first${edge}`); return { ...rest, before: siblings[i - 1]!.id }; }
+  if (step === "down") { if (i < 0 || i >= siblings.length - 1) throw new WorkToolRefusal(`${label(block)} is already last${edge}`); return { ...rest, after: siblings[i + 1]!.id }; }
+  if (step === "in") {
+    if (i <= 0) throw new WorkToolRefusal(`${label(block)} has no note above it to go in under`);
+    return { ...rest, parent: siblings[i - 1]!.id };
+  }
+  if (block.parentId === null) throw new WorkToolRefusal(`${label(block)} is at the top level: there is no outer level to go out to`);
+  return { ...rest, after: block.parentId };
+}
+
 export type MoveResult =
-  | { outcome: "applied"; id: string; ref: string; parentId: string | null; position: number; previousParentId: string | null; revision: number; said: string }
+  | { outcome: "applied"; id: string; ref: string; parentId: string | null; position: number; previousParentId: string | null; previousPosition: number; revision: number; said: string }
   | { outcome: "unchanged"; id: string; ref: string; parentId: string | null; position: number; said: string };
+
+/** One place among its siblings (`up`, `down`), in under the sibling above (`in`), or out to right after its parent (`out`). */
+export type MoveStep = "up" | "down" | "in" | "out";
 
 /**
  * Moves a note to a new place: under `parent` (a ref, or `root`) at `position` (0 first, default last), or `before` or
- * `after` a sibling note. With `revision`, only the note as it was read. The service's `move`, attributed to the agent.
+ * `after` a sibling note, or one `step` (up, down, in under the sibling above, out after its parent). With `revision`, only
+ * the note as it was read. The service's `move`, attributed to `actor` (an agent; the door's person passes `author: "user"`).
+ * This is the one rule for where a move lands: the door's keys, drags and picker, outline_move and the CLI all come here.
  * A system note moves like any note (the service finds the Inbox, Trash, Bookmarks and the Deploys record by their
  * properties, never their place). Refused, saying what to give instead: a place under a view or guide the service
  * keeps (Trash, Bookmarks, a guide; the Inbox and the Deploys record take children), a place inside the note itself, a note in Trash, a ref that doesn't resolve (with the nearest notes).
  */
 export async function moveBlock(
   client: AgentToolsClient,
-  input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision?: number },
+  raw: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision?: number; step?: MoveStep },
   actor: AgentActor,
 ): Promise<MoveResult> {
-  const block = await writableBlock(client, input.ref);
+  const block = await writableBlock(client, raw.ref);
+  const input = raw.step === undefined ? raw : await stepIntent(client, block, raw);
   if (input.revision !== undefined && input.revision !== block.revision) {
     throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${input.revision}): outline_read it again, and move it only if it's still the note you mean`);
   }
   const given = (["parent", "before", "after"] as const).filter(key => input[key] !== undefined);
-  if (given.length !== 1) throw new WorkToolRefusal("Give exactly one of parent (under it; or root), before or after (beside a note)");
+  if (given.length !== 1) throw new WorkToolRefusal("Give exactly one of parent (under it; or root), before or after (beside a note), or a step");
   if (input.position !== undefined && given[0] !== "parent") throw new WorkToolRefusal("position goes with parent (before and after are the place already)");
   let parentId: string | null;
   let beside: Block | null = null;
@@ -1167,6 +1191,7 @@ export async function moveBlock(
     const before = (await client.request<Block[]>({ action: "children", parentId })).findIndex(sibling => sibling.id === block.id);
     if (before === position) return { outcome: "unchanged", id: block.id, ref: `((${block.id}))`, parentId, position, said: `${label(block)} is already ${where} at position ${position}` };
   }
+  const previousPosition = (await client.request<Block[]>({ action: "children", parentId: block.parentId })).findIndex(sibling => sibling.id === block.id);
   // The service refuses a place inside the note itself; the refusal here says what to give instead.
   const moved = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) }).catch(e => {
     if (e instanceof Error && /beneath itself/.test(e.message)) {
@@ -1174,7 +1199,7 @@ export async function moveBlock(
     }
     throw e;
   });
-  return { outcome: "applied", id: block.id, ref: `((${block.id}))`, parentId, position, previousParentId: block.parentId, revision: moved.revision, said: `moved ${label(block)} ${where} at position ${position}` };
+  return { outcome: "applied", id: block.id, ref: `((${block.id}))`, parentId, position, previousParentId: block.parentId, previousPosition, revision: moved.revision, said: `moved ${label(block)} ${where} at position ${position}` };
 }
 
 export type TrashResult =

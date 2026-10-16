@@ -235,7 +235,7 @@ interface AgentTools {
   patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
   setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
   assignWorkId(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; workId: string; page: string }>;
-  moveBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
+  moveBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor & { author?: "user" | "agent" }): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
   trashBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
   restoreBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied"; said: string } & Record<string, unknown>>;
   resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
@@ -263,13 +263,12 @@ export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{
 }
 
 /**
- * An agent's move of note `ref`: under `place.parent` (a ref, or `root`) at `position` (default first), or `before` or
- * `after` a sibling. The outliner's own `moveBlock`, the one outline_move runs, with its rules (a system note moves like any
- * note, nothing goes under Trash, Bookmarks or a guide), attributed; with `revision`, only the note as it was read.
+ * A move of note `input.ref` by the outliner's own `moveBlock`, the one rule for where a note lands (outline_move, the CLI
+ * and the door's person all come here): under `parent` (a ref, or `root`) at `position`, `before` or `after` a sibling, or
+ * one `step`; with `revision`, only the note as it was read. `actor.author` is who asked ("user" for the person).
  */
-export async function moveAsAgent(board: WriteBoard, ref: string, place: { parent?: string; before?: string; after?: string; position?: number; revision?: number }, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>> {
-  const beside = place.before !== undefined || place.after !== undefined;
-  return (await loadAgentTools()).moveBlock(clientOf(board), { ref, ...place, ...(beside ? {} : { position: place.position ?? 0 }) }, actor);
+export async function moveWithRules(board: WriteBoard, input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision?: number; step?: string }, actor: WriteActor & { author?: "user" | "agent" }): Promise<{ outcome: "applied" | "unchanged"; said: string; parentId?: string | null; position: number; previousParentId?: string | null; previousPosition: number } & Record<string, unknown>> {
+  return (await loadAgentTools()).moveBlock(clientOf(board), input, actor) as never;
 }
 
 /**
