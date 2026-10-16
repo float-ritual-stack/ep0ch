@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { editorClick } from "../src/surface/editor";
 import type { Desk } from "../src/desk/desk";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
@@ -3551,6 +3552,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(narrow.join("\n")).toContain("beside ▸");
     expect(narrow.every(line => Bun.stringWidth(line) <= 48)).toBe(true);
     expect(narrow.join("\n")).toContain("agents here:");
+    const ask = "@ask whats up", askRow = d.lines.indexOf(ask);
+    await stage.dispatch.press("draft.place", { line: askRow + 1, col: 1 }, tile);
+    const raw = r.surface.render(48, 60, r.host(stage)).lines.map(plain), y = raw.findIndex(line => line.includes(ask));
+    expect(editorClick(d, d.frame!.col + ask.length, y)).toBe(true);
+    expect(d.col).toBe(ask.length);
+    await stage.dispatch.press("draft.place", { line: askRow + 1, col: 1 }, tile);
+    editorClick(d, d.frame!.col + ask.length, y, true);
+    expect((await stage.dispatch.press("draft.copy", {}, tile) as { text: string }).text).toBe(ask);
     await stage.dispatch.press("draft.place", { line: d.lines.length, col: d.lines.at(-1)!.length + 1 }, tile);
     await stage.dispatch.press("draft.paste", { text: "\nOrdinary prose that runs beyond a narrow tile should keep its original paragraph ending\ncontinued.\n" }, tile);
     await stage.dispatch.press("rich.toggle", {}, tile);

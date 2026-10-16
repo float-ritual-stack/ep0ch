@@ -1019,7 +1019,8 @@ export class Draft {
   private posIn(rows: VRow[], vi: number, x: number): { row: number; col: number } {
     if (!rows.length) return { row: 0, col: 0 };
     vi = Math.max(0, Math.min(rows.length - 1, vi));
-    const r = rows[vi]!, last = rows[vi + 1]?.line !== r.line;
+    const r = rows[vi]!, last = rows[vi + 1]?.line !== r.line || !!rows[vi + 1]?.status;
+    if (r.status) return { row: r.line, col: this.lines[r.line]!.length };
     const cp = Math.min(r.start + Math.max(0, x - r.indent), last ? r.end : Math.max(r.start, r.end - 1));
     const line = this.lines[r.line]!;
     return { row: r.line, col: [...line].slice(0, cp).join("").length };
