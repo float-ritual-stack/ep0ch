@@ -1046,7 +1046,7 @@ export class NoteSurface {
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
-    if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.source = []; }
+    if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -1523,6 +1523,7 @@ export class NoteSurface {
     if (view && view.row >= this.positionRows.origin && view.row < top) view.row = top;
     this.positionRows.origin = top;
     this.positionRows.leading = this.hero?.full ?? 0;
+    this.positionRows.settle();
     const whole = new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id));
     const gutterRow = (k: Mark) => whole.has(k.thread) ? (title?.row ?? 1) : top + k.row - this.scroll;
     this.elems = laid.elems.map(e => e.kind === "comment" && whole.has(e.thread!)
