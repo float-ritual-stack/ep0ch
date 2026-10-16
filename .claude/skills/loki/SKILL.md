@@ -81,7 +81,7 @@ file: edit it like any rule. `EP0CH_FRESHNESS=off` stops the sweep for a session
 
 ## The build log
 
-The rules are pie's: How this workboard works (d5b3e557), sections 'Requests and patch notes' and 'Build logs and Welcome'.
+The rules are pie's: [[house-rules]] (House rules: how we work in pie, e19f9fe0), sections 'Requests and patch notes' and 'Build logs, snapshots and Welcome'.
 
 Use `ep0ch view order` to place the build log in Welcome's hand order.
 
