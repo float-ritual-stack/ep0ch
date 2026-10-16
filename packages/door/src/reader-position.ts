@@ -24,6 +24,8 @@ export class PositionRows {
     if (!this.source.length) { this.position.view = null; return; }
     let at = Math.min(Math.max(0, top), this.source.length - 1);
     while (at < this.source.length - 1 && this.source[at]! < 0) at++;
+    while (at > 0 && this.source[at]! < 0) at--;
+    if (this.source[at]! < 0) { this.position.view = null; return; }
     const line = this.source[at]!;
     while (at > 0 && this.source[at - 1] === line) at--;
     this.position.view = { line, row: this.origin + Math.max(0, this.leading - top) + at - top };

@@ -169,7 +169,6 @@ export class ElementEdit {
     this.top = scrolled(this.top, by, lastTop(this.total, this.room));
     this.draft.follow = false;
   }
-  private painted: { patch: string | undefined; cursor: number } | null = null;
   private spots: (TableCellBox & { field: ElementField; caret?: number })[] = [];
   private controls: { from: number; to: number; action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place"; op?: string }[] = [];
   constructor(readonly draft: Draft) { this.positionRows = new PositionRows(draft.position); this.positionRows.origin = 2; }
@@ -194,6 +193,7 @@ export class ElementEdit {
     const d = this.draft;
     if (d.busy) throw new Error("the save is still landing");
     this.on = true;
+    d.leaveRawView();
     // A raw selection can cross prose and delimiters; rich input belongs to one field.
     d.place(d.row, d.col);
     if (!this.current()) {
@@ -203,7 +203,6 @@ export class ElementEdit {
     }
   }
   move(direction: string) {
-    this.painted = null;
     const cur = this.current(), fields = this.elements().flatMap(e => e.fields.flat());
     if (!cur) { const f = fields.find(f => f.line >= this.draft.row) ?? fields[0]; if (f) this.draft.place(f.line, f.start); return; }
     const { element: e, field: f, row, col } = cur;
@@ -313,7 +312,6 @@ export class ElementEdit {
     if (!s) return false;
     const current = this.current();
     if (extend && current && (current.field.line !== s.field.line || current.field.start !== s.field.start)) return true;
-    this.painted = null;
     const cellX = Math.max(0, x - s.x - s.inset);
     let offset = s.offset, used = 0;
     for (const ch of s.text) { if (used + width(ch) > cellX) break; used += width(ch); offset += ch.length; }
@@ -364,22 +362,16 @@ export class ElementEdit {
         spots.push({ ...box, y: base + box.y, field: f, ...(active ? { caret: d.col - f.start } : {}) });
         if (active && d.col - f.start >= box.offset && d.col - f.start <= box.offset + box.text.length) cursor = base + box.y;
       }
-      let line = e.start;
-      sourceRows.push(...rendered.map((_, y) => {
-        line = spots.find(s => s.y === base + y)?.field.line ?? line;
-        return line;
-      }));
+      sourceRows.push(...rendered.map((_, y) => spots.find(s => s.y === base + y)?.field.line ?? -1));
       body.push(...rendered); at = e.end;
     }
     if (at < d.lines.length) prose(at, d.lines.length);
     const room = Math.max(1, h - 2);
     this.positionRows.source = sourceRows;
-    if (this.painted && this.painted.patch !== d.patches.at(-1)?.patchId && cur) this.top = Math.max(0, this.top + cursor - this.painted.cursor);
-    this.painted = { patch: d.patches.at(-1)?.patchId, cursor };
     this.total = body.length; this.room = room;
     if (d.follow) this.top = follow(cursor, this.top, room);
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
-    d.frame = null;
+    d.leaveRawView();
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
       fg(C.cyan) + pad(d.note || attribution || "Tab/↑↓ cells · alt+r/d row · alt+v/x column · ctrl+s save · ctrl+o raw", w) + RESET,
       ...body.slice(this.top, this.top + room)];

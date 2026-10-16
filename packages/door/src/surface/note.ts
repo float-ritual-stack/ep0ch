@@ -1041,7 +1041,7 @@ export class NoteSurface {
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.source = []; }
-    this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
+    this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
@@ -1497,7 +1497,6 @@ export class NoteSurface {
     const top = head.length;
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
     const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
-    const firstView = this.position.view === null;
     this.positionRows.source = doc.source.map(line => noteLines[line] ?? -1);
     // A growing header must not cover an anchor that was visible; wrapped lines already above it stay there.
     const view = this.position.view;
@@ -1570,7 +1569,6 @@ export class NoteSurface {
     if (full && current && this.lastReveal) bringIn([current.row, current.row + 1]);
     if (this.position.view || this.scroll > this.maxScroll) this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
     room = roomAt(this.scroll);
-    if (firstView) this.readingLine(this.positionRows.source.find(line => line >= 0) ?? 0);
     const heroRows = full ? Math.max(0, full - this.scroll) : 0;
     h -= heroRows;
     this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + (title.big ? 2 : title.rows)] : [0, 1] };
@@ -3824,7 +3822,11 @@ export class NoteSurface {
 
   private setElem(e: Element) {
     const d = this.drawn;
-    if (d) { this.anchorView(); this.readingLine(d.lines[d.doc.source[e.row - d.top]!] ?? 0); }
+    if (d) {
+      this.anchorView();
+      const line = d.lines[d.doc.source[e.row - d.top]!];
+      if (line !== undefined) this.readingLine(line);
+    }
     this.cur = e.key;
     const l = e.link;
     this.link = l ? this.links.findIndex(x => sameLink(x, l)) : -1;

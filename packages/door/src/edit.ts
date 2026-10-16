@@ -72,6 +72,12 @@ export class Draft {
     this.positionRows.position = position;
     this.follow = false;
   }
+  /** Rich editing owns the rows now; patches must not compensate through a stale raw layout too. */
+  leaveRawView() {
+    this.shown = { w: 0, h: 15, rows: [] };
+    this.frame = null;
+    this.anchoredRow = null;
+  }
   get scrollFigure() { return { top: this.top, room: this.shown.h, total: this.shown.rows.length }; }
   /** The screen row of the cursor in the last render (the completion popup opens under it). */
   cursorRow = 0;
@@ -345,9 +351,11 @@ export class Draft {
       return o + shift;
     };
     const cursor = at(this.offsetOf(this.row, this.col));
+    const view = this.position.view, viewOffset = view ? this.offsetOf(view.line, 0) : null;
     const a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : null;
     const anchor = a === null || cs.some(c => a > c.at && a < c.at + c.removed) ? null : at(a);
     this.lines = to.split("\n");
+    if (view && viewOffset !== null) view.line = this.placeOf(at(viewOffset)).row;
     const p = this.placeOf(cursor);
     this.row = p.row; this.col = p.col;
     this.anchor = anchor === null || anchor === cursor ? null : this.placeOf(anchor);
@@ -823,6 +831,7 @@ export class Draft {
     this.settle();
     this.record(USER, "a change");
     const before = this.text, after = applyLocated(before, spans);
+    const view = this.position.view, viewOffset = view ? this.offsetOf(view.line, 0) : null;
     // What stays put on screen: the cursor's row while it's in view, else the top row's text.
     const w = this.shown.w;
     let keep: { offset: number; screen: number } | null = null;
@@ -835,6 +844,7 @@ export class Draft {
     const anchor = this.anchor ? map(this.offsetOf(this.anchor.row, this.anchor.col)) : null;
     const flashes = this.flashes.map(f => ({ ...f, start: map(f.start), end: map(f.end) }));
     this.lines = after.split("\n");
+    if (view && viewOffset !== null) view.line = this.placeOf(map(viewOffset)).row;
     const c = this.placeOf(cursor);
     this.row = c.row; this.col = c.col;
     this.anchor = anchor === null ? null : this.placeOf(anchor);

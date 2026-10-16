@@ -89,6 +89,42 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     key({ kind: "esc" });
   });
 
+  test.each([false, true])("PIE-920: a reader table opens raw edit on the visible data row (callout=%s)", async (callout) => {
+    const table = "| Crop | Count |\n| --- | --- |\n" + Array.from({ length: 50 }, (_, i) => `| Crop ${i} | ${i} |`).join("\n");
+    const text = "Harvest inventory\n" + (callout ? "> [!note]\n" + table.split("\n").map(l => "> " + l).join("\n") : table);
+    const id = await create(text);
+    desk.openBlock(await current(id)); desk.focusOn("reader");
+    await until(() => reader()?.msg?.id === id && !reader().msg!.partial, "the table");
+    const rd = reader(), name = D().nameOf(D().focus);
+    const rows = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
+    rows();
+    let previous = -1;
+    for (let step = 0; step < 30; step++) {
+      await D().dispatch.press("scroll", { by: 1 }, name);
+      const visible = rows().join("\n").match(/Crop (\d+)/);
+      const next = Number(visible![1]);
+      expect(next).toBeGreaterThanOrEqual(previous);
+      previous = next;
+    }
+    const before = rows(), y = before.findIndex(l => /Crop \d+/.test(l));
+    const label = before[y]!.match(/Crop \d+/)![0];
+    key(char("e")); await until(() => !!rd.draft, "the raw table");
+    expect(rows().findIndex(l => l.includes(label))).toBe(y);
+    expect(rd.draft!.row).toBe(text.split("\n").findIndex(l => l.includes(label)));
+    key({kind: "esc"});
+  });
+
+  test("PIE-920: reopening the same note preserves a held edit viewport", async () => {
+    const {id, rd} = await editing("Long inventory\n" + Array.from({length: 80}, (_, i) => `Shelf ${i}`).join("\n"));
+    const rows = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
+    rows(); rd.draft!.scrollBy(20); clickElsewhere();
+    const before = rows(), y = before.findIndex(l => /Shelf \d+/.test(l));
+    const label = before[y]!.match(/Shelf \d+/)![0];
+    desk.openBlock(await current(id));
+    expect(rows().findIndex(l => l.includes(label))).toBe(y);
+    await D().dispatch.press("edit.close", {discard: true}, "reader");
+  });
+
   test("PIE-920: scrolling a held edit survives focus; the next click places the cursor and typing follows it", async () => {
     const { rd } = await editing("Cane inventory\n" + Array.from({ length: 90 }, (_, i) => `Cane number ${i}`).join("\n"));
     const d = rd.draft!;
