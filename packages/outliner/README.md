@@ -2086,6 +2086,9 @@ rating > 3
   or `blocks.query`). Tree re-reads a saved view when the workspace changes, not
   on a timer, so an open `updated >= -7d` view shows blocks aging out at the next
   change or refresh. `updated=…` is still a property equality clause.
+  **One rule for `-N<unit>` everywhere** (PIE-922; outline-core's `readDateBound`, which `created`/`updated` and
+  property comparisons both call): `d` and `w` are calendar days (`-7d` is the whole day seven days ago, so
+  `updated >= -7d` includes all of it from midnight), `m` and `h` are instants (`-40m` is exactly forty minutes ago).
 - **Comparisons on any property** (PIE-769): a property key, then `<`, `<=`, `>` or `>=`, then a bound, with or
   without spaces (`due <= +3d`, `rating>3`). The bound decides how values compare: a **date** when it reads as one
   (`today`, `tomorrow`, `yesterday`, `now`, `-7d`, `+3d` and `+2w` (that calendar day), `-12h` or `-30m` (that moment), or any
