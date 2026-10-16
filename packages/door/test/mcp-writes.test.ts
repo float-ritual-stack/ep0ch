@@ -141,7 +141,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const board = boardOn(here, "pond-notes", HERE);
     const target = await board.request<{ id: string; revision: number; text: string }>("create", { parentId: null, text: "Runner beans for the school garden.", author: "user" });
     const source = await board.request<{ id: string }>("create", { parentId: null, author: "user", text: [
-      "Seed suggestion [script::seed-suggestion]", "```js",
+      "Seed suggestion [script::seed-suggestion] [effects::write]", "```js",
       `return await tools.outline_patch({ ref: '${target!.id}', revision: ${target!.revision}, patches: [{ observed: 'Runner beans', replacement: 'Broad beans' }] });`,
       "```",
     ].join("\n") });
@@ -154,14 +154,14 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await board.get(target!.id))!.text).toBe(target!.text);
     const proposal = (await board.children(target!.id)).find(n => n.props.type === "draft-proposal");
     expect(proposal!.text).toContain("Broad beans");
-    expect(String(proposal!.author)).toContain("mcp:chat.example.test");
+    expect(String(proposal!.author)).toContain("script:seed-suggestion");
   });
 
   test("an MCP script can comment, reply, edit its reply and resolve the thread", async () => {
     const board = boardOn(here, "garden-notes", HERE);
     const target = await board.request<{ id: string }>("create", { author: "user", text: "Seed exchange" });
     const source = await board.request<{ id: string }>("create", { author: "user", text: [
-      "Seed conversation [script::seed-conversation]", "```js",
+      "Seed conversation [script::seed-conversation] [effects::write]", "```js",
       `const c = await tools.outline_comment({ref:'${target.id}', whole:true, body:'Count the packets'});`,
       `const r = await tools.outline_reply({thread:c.thread, body:'Six packets'});`,
       `await tools.outline_reply({edit:r.reply, observed:'Six packets', body:'Seven packets'});`,

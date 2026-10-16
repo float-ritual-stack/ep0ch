@@ -1,3 +1,4 @@
+import { fixOutlineFiles, outlineFiles } from "./outline-files";
 // `ep0ch doctor` and `ep0ch install [--apply]` (PIE-450). The dry run (the default) prints the plan; --apply runs
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Outlines are only
 // ever copied; no outline is created; no unit, Herdr config or plugin link is changed.
@@ -20,7 +21,7 @@ import { ep0ch } from "../session/place";
 import { copyName, type CopyUpdate, newsWords } from "@ep0ch/outliner/extension-update";
 
 type Env = Record<string, string | undefined>;
-export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]";
+export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]";
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
@@ -172,6 +173,10 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
   const say = (s: string) => { record(s); show(`    ✓ ${s}`); };
   const child = task.child;
   switch (step.id) {
+    case "outline-files": {
+      for (const line of fixOutlineFiles(f.outlineFiles ?? [], { retireBackups: true })) say(line);
+      return;
+    }
     case "backup": {
       const backups = step.backups ?? [];
       const sizes = backups.map(b => { try { return statSync(b.path).size; } catch { return 0; } });
@@ -433,8 +438,8 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   if (at >= 0 && !isMachineName(machineName)) { io.err(`ep0ch: --machine-name takes a machine name, the ssh name other machines reach this one by (letters, digits, . _ -; up to 32); got ${JSON.stringify(machineName ?? "")}`); return 2; }
   // `--dials-in`: this machine calls the others for EchoNet and is never called; `--no-dials-in` undoes it.
   const dials = rest.includes("--dials-in") ? true : rest.includes("--no-dials-in") ? false : undefined;
-  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--backups", "--dials-in", "--no-dials-in"].includes(a));
-  if (unknown.length || (rest.includes("--dials-in") && rest.includes("--no-dials-in")) || (args[0] === "doctor" && (args.includes("--apply") || at >= 0 || dials !== undefined)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
+  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--fix", "--move-scripts", "--backups", "--dials-in", "--no-dials-in"].includes(a));
+  if ((args.includes("--move-scripts") && !args.includes("--fix")) || (args[0] !== "doctor" && args.includes("--fix")) || unknown.length || (rest.includes("--dials-in") && rest.includes("--no-dials-in")) || (args[0] === "doctor" && (args.includes("--apply") || at >= 0 || dials !== undefined)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
   const home = resolve(env.HOME || homedir());
   if (!json) { const { out, err } = io; io = { ...io, out: s => out(tilde(s, home)), err: s => err(tilde(s, home)) }; }
   const progress = io.progress ?? new Progress({ mode: progressMode({ json, terminal: io.terminal, env }), out: io.out, terminal: io.terminal, env, tidy: s => tilde(s, home) });
@@ -465,8 +470,13 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     onProgress: p => checking.count(p.done, p.total, p.waiting.length ? `waiting on ${p.waiting.join(", ")}` : undefined), onLine: checking.child });
   checking.end(true);
   if (args[0] === "doctor") {
+    let repaired: string[] = [];
+    if (args.includes("--fix")) {
+      repaired = fixOutlineFiles(facts.outlineFiles ?? [], { moveScripts: args.includes("--move-scripts") });
+      facts.outlineFiles = outlineFiles(io.cwd ?? process.cwd(), facts.host.folder);
+    }
     const report = doctorReport(facts);
-    io.out(json ? JSON.stringify(report, null, 2) : formatDoctor(facts, report.checks));
+    io.out(json ? JSON.stringify({ ...report, repaired }, null, 2) : [...repaired, formatDoctor(facts, report.checks)].join("\n"));
     return report.ok ? 0 : 1;
   }
   const apply = args.includes("--apply");

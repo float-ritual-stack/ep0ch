@@ -1,7 +1,7 @@
 // The host API (src/host-api.ts, scripting slice 1, PIE-720): the agent tools as plain functions over the service, as a
 // script calls them. Against a private scratch service; fictional notes only.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -35,8 +35,9 @@ test("QuickJS calls the real host API and streams completed writes before the ru
 });
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
-async function setup() {
+async function setup(prepare?: (root: string) => Promise<void>) {
   const root = mkdtempSync(join(tmpdir(), "outliner-host-api-"));
+  await prepare?.(root);
   const { env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
@@ -56,23 +57,31 @@ async function setup() {
     expect(exitCode).toBe(0);
     return JSON.parse(stdout) as Record<string, unknown>;
   };
-  return { store, client, cliRead, root };
+  const cliExt = async () => {
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "../../door/src/main.ts"), "ext", "ls", "--json"], {
+      cwd: root, env: { PATH: process.env.PATH!, HOME: root, ...env }, stdout: "pipe", stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, err).toBe(0);
+    return out;
+  };
+  return { store, client, cliRead, cliExt, root };
 }
 
 test("script blocks and outline script files load through the extension registry", async () => {
   const { client, root } = await setup();
   const api = hostApi(client, { actorId: "seed-author" });
   await api.call("outline_create", { parent: "root", text: "Seed count [script::seed-count]\n```js\nreturn await q('type=supply');\n```" });
-  await Bun.write(join(root, "scripts", "labels.ts"), "return await read('root');");
+  await Bun.write(join(root, ".ep0ch", "scripts", "labels.ts"), "// ep0ch-script\nreturn await read('root');");
   const listed = await client.request<{ extensions: { name?: string; state: string }[] }>({ action: "extensions.list", reload: true });
   expect(listed.extensions.find(e => e.name === "seed-count")?.state).toBe("active");
   expect(listed.extensions.find(e => e.name === "labels")?.state).toBe("active");
 });
 
-test("a block script starts at once, writes as its author, and its complete run undoes in one step", async () => {
+test("a block script starts at once, writes as the script, and its complete run undoes in one step", async () => {
   const { client, store } = await setup();
   const api = hostApi(client, { actorId: "seed-author" });
-  const source = await api.call("outline_create", { parent: "root", text: "Seed report [script::seed-report]\n```js\nconst a = await tools.outline_create({ parent: 'root', text: 'Labels [type::supply]' });\nawait tools.outline_patch({ ref: a.id, revision: a.revision, patches: [{observed: 'Labels', replacement: 'Paper labels'}] });\nreturn 'Ready for planting';\n```" }) as { id: string };
+  const source = await api.call("outline_create", { parent: "root", text: "Seed report [script::seed-report] [effects::write]\n```js\nconst a = await tools.outline_create({ parent: 'root', text: 'Labels [type::supply]' });\nawait tools.outline_patch({ ref: a.id, revision: a.revision, patches: [{observed: 'Labels', replacement: 'Paper labels'}] });\nreturn 'Ready for planting';\n```" }) as { id: string };
   const listed = await client.request<{ extensions: { id: string; name?: string }[] }>({ action: "extensions.list", reload: true });
   const extension = listed.extensions.find(e => e.name === "seed-report")!;
   const run = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
@@ -83,7 +92,7 @@ test("a block script starts at once, writes as its author, and its complete run 
   expect(store.get(log)?.text).toContain("· done");
   expect(store.get(log)?.text).toContain("Ready for planting");
   const made = store.queryBlocks({ where: "type=supply" }).blocks[0]!;
-  expect(store.get(made.id)?.actorId).toBe("seed-author");
+  expect(store.get(made.id)?.actorId).toBe("script:seed-report");
   expect(store.get(made.id)?.text).toContain("Paper labels");
   await client.request({ action: "extensions.undo", undo: run.undo });
   expect(store.get(made.id)?.effectiveDeletedRootId).toBeTruthy();
@@ -183,7 +192,7 @@ test("a script can patch whitespace source spans but cannot patch an empty span"
 test("undo never trashes somebody else's child added while a script is running", async () => {
   const { client, store } = await setup();
   const api = hostApi(client, { actorId: "seed-author" });
-  await api.call("outline_create", { parent: "root", text: `Seed family [script::seed-family]
+  await api.call("outline_create", { parent: "root", text: `Seed family [script::seed-family] [effects::write]
 \`\`\`js
 const parent = await tools.outline_create({ parent: 'root', text: 'Seed tray [type::tray]' });
 while (!(await q('signal=ready')).blocks.length) {}
@@ -231,7 +240,7 @@ test("a rule names a script through the existing trigger path", async () => {
 test("a granted script ask keeps the invocation chain while its writes arrive", async () => {
   const { client, store } = await setup();
   store.create("Seed permission [invoke-from::seed-helper] [invoke-to::count-again] [max-hops::2]", null, "user");
-  const source = await client.request<{ id: string }>({ action: "create", author: "agent", provenance: { actorId: "seed-helper" }, text: "Repeat count [script::count-again]\n```js\nawait tools.outline_create({ parent: 'root', text: 'Follow-up seeds\\n@count-again' });\nreturn 'Counted once';\n```" });
+  const source = await client.request<{ id: string }>({ action: "create", author: "agent", provenance: { actorId: "seed-helper" }, text: "Repeat count [script::count-again] [effects::write]\n```js\nawait tools.outline_create({ parent: 'root', text: 'Follow-up seeds\\n@count-again' });\nreturn 'Counted once';\n```" });
   await client.request({ action: "extensions.list", reload: true });
   await client.request({ action: "create", author: "agent", provenance: { actorId: "seed-helper" }, text: "Seed plan\n@count-again" });
   const deadline = Date.now() + 4000;
@@ -256,3 +265,65 @@ test.each([
   expect(store.agentRequests(ask.id)[0]?.status).toBe("failed");
   expect(store.agentRequests(ask.id)[0]?.message).toContain(message);
 }, 10_000);
+
+
+test("only opted-in dotted-folder scripts run, read-only unless they declare write", async () => {
+  const { client, store, root, cliExt } = await setup();
+  await Bun.write(join(root, "scripts", "stray.ts"), "throw new Error('must not execute');");
+  await Bun.write(join(root, ".ep0ch", "scripts", "helper.ts"), "throw new Error('must not execute');");
+  const code = "await tools.outline_create({ parent: 'root', text: 'Seed packet [type::packet]' });";
+  await Bun.write(join(root, ".ep0ch", "scripts", "reader.ts"), "// ep0ch-script\n" + code);
+  await Bun.write(join(root, ".ep0ch", "scripts", "writer.ts"), "// ep0ch-script effects=write\n" + code);
+  const listed = await client.request<{ extensions: { id: string; name?: string; state: string; error?: string }[] }>({ action: "extensions.list", reload: true });
+  expect(listed.extensions.find(e => e.name === "stray")?.state).not.toBe("active");
+  expect(listed.extensions.some(e => e.error?.includes("scripts/stray.ts"))).toBe(true);
+  expect(listed.extensions.some(e => e.error?.includes("helper.ts") && e.error.includes("opt in"))).toBe(true);
+  expect(await cliExt()).toContain("opt in");
+  for (const name of ["reader", "writer"]) {
+    const extension = listed.extensions.find(e => e.name === name)!;
+    expect(extension?.state).toBe("active");
+    const run = await client.request<{ written: string[] }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", mutation: { author: "agent", actorId: "seed-requester" } });
+    const deadline = Date.now() + 4000;
+    while (store.get(run.written[0]!)?.text.includes("· working") && Date.now() < deadline) await Bun.sleep(10);
+    const log = store.require(run.written[0]!);
+    expect(log.actorId).toBe(`script:${name}`);
+    expect(log.text).toContain("onBehalfOf: seed-requester");
+    expect(log.text).toContain(name === "reader" ? "read-only" : "· done");
+    expect(store.queryBlocks({ where: "type=packet" }).blocks.length).toBe(name === "reader" ? 0 : 1);
+  }
+  const made = store.queryBlocks({ where: "type=packet" }).blocks[0]!;
+  expect(store.require(made.id).actorId).toBe("script:writer");
+  const page = store.changes.since(0, 1000);
+  expect(page.kind === "changes" && page.changes.find(c => c.blockId === made.id)).toMatchObject({
+    actor: { author: "agent", actorId: "script:writer" }, requestedBy: { author: "agent", actorId: "seed-requester" },
+  });
+});
+
+
+test("editing a dotted-folder script reloads its opt-in without an explicit reload", async () => {
+  const { client, root } = await setup(async root => {
+    await Bun.write(join(root, "scripts", "unused.ts"), "return 'unused';");
+    await Bun.write(join(root, ".ep0ch", "scripts", "watched.ts"), "return 'not opted in';");
+  });
+  const file = join(root, ".ep0ch", "scripts", "watched.ts");
+  await Bun.write(file, "// ep0ch-script\nreturn 'Ready';");
+  let active = false;
+  const deadline = Date.now() + 2500;
+  do {
+    const listed = await client.request<{ extensions: { name?: string; state: string }[] }>({ action: "extensions.list" });
+    active = listed.extensions.some(e => e.name === "watched" && e.state === "active");
+    if (!active) await Bun.sleep(20);
+  } while (!active && Date.now() < deadline);
+  expect(active).toBe(true);
+});
+
+
+test("an unreadable script is listed without hiding other scripts", async () => {
+  const { client, root, cliExt } = await setup();
+  mkdirSync(join(root, ".ep0ch", "scripts", "unreadable.ts"), { recursive: true });
+  await Bun.write(join(root, ".ep0ch", "scripts", "readable.ts"), "// ep0ch-script\nreturn 'Ready';");
+  const listed = await client.request<{ extensions: { name?: string; state: string; error?: string }[] }>({ action: "extensions.list", reload: true });
+  expect(listed.extensions.find(e => e.name === "readable")?.state).toBe("active");
+  expect(listed.extensions.some(e => e.error?.includes("unreadable.ts"))).toBe(true);
+  expect(await cliExt()).toContain("unreadable.ts");
+});

@@ -9,6 +9,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./outline-binding": "./src/outline-binding.ts",
     "./agent-tools": "./src/agent-tools.ts",
     "./mcp-write": "./src/mcp-write.ts",
     "./host-api": "./src/host-api.ts",

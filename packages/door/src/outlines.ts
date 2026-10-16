@@ -1,3 +1,4 @@
+import { writeDotEp0ch as writeBinding } from "@ep0ch/outliner/outline-binding";
 // `ep0ch outline …`, `ep0ch init` and `ep0ch status`: the outline host's outlines, like `herdr session …` (PIE-466),
 // named by folder (PIE-530). Every command asks the host itself (`outlines.*`, each on its own short connection).
 // `attach` opens the door on the outline, the same as `ep0ch --ws <name>`. `--json` prints the host's answer for
@@ -5,10 +6,9 @@
 //
 // A folder that names no outline (no --ws, no EP0CH_WS, no .ep0ch) gets the home base when the door opens there
 // (src/home.ts): never a guess taken silently. Choosing there offers to write `.ep0ch`, so the next `ep0ch` is direct.
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { dirname, join, resolve } from "node:path";
-import { DOT_EP0CH, formatDotEp0ch, isMachineName, mayCreate, missingOutline, parseDotEp0ch, tooBroadToName } from "@ep0ch/outline-core/outline-location";
+import { isMachineName, mayCreate, missingOutline, tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { homedir, hostname } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
@@ -96,18 +96,7 @@ export function hostSocket(env: Record<string, string | undefined> = process.env
  * unless `replace`.
  */
 export function writeDotEp0ch(folder: string, name: string, replace = false, machine?: string): string {
-  const file = join(resolve(folder), DOT_EP0CH);
-  let current: string | undefined;
-  try { current = readFileSync(file, "utf8"); } catch { current = undefined; }
-  // The folder's persona stays with the folder when the outline it names changes.
-  let agent: string | undefined;
-  try { agent = current === undefined ? undefined : parseDotEp0ch(current, file).agent; } catch { agent = undefined; }
-  const text = formatDotEp0ch(name, machine, agent);
-  if (current === text) return file;
-  if (current !== undefined && !replace) throw new Error(`${file} already names an outline; it was left as it is`);
-  writeFileSync(`${file}.${process.pid}.tmp`, text, { mode: 0o644 });
-  renameSync(`${file}.${process.pid}.tmp`, file);
-  return file;
+  return writeBinding(folder, name, { replace, machine });
 }
 
 /**

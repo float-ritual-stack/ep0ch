@@ -112,9 +112,10 @@ export interface DotEp0ch extends DotEp0chNames { folder: string; file: string }
 /** The nearest `.ep0ch` from `folder` up to `/`. A malformed one throws (it names its file). */
 export function nearestDotEp0ch(folderInput: string, fs: LocationReader): DotEp0ch | undefined {
   for (let folder = resolve(folderInput); ; folder = dirname(folder)) {
-    const file = join(folder, DOT_EP0CH);
-    const text = fs.readFile(file);
-    if (text !== undefined) return { folder, file, ...parseDotEp0ch(text, file) };
+    for (const file of [join(folder, DOT_EP0CH, "config.toml"), join(folder, DOT_EP0CH)]) {
+      const text = fs.readFile(file);
+      if (text !== undefined) return { folder, file, ...parseDotEp0ch(text, file) };
+    }
     if (dirname(folder) === folder) return undefined;
   }
 }

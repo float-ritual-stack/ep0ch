@@ -14,7 +14,7 @@ import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Fac
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "session" | "backups";
+export type StepId = "outline-files" | "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "session" | "backups";
 
 export interface Step {
   id: StepId;
@@ -575,5 +575,5 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
     schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${from}.sqlite`) }));
   }
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
+  return { steps: [backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
 }

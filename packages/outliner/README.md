@@ -3136,6 +3136,10 @@ property-query interface as a separate View action.
 
 ### Recorded scripts
 
+Scripts default to read; writes and door actions require `[effects::write]`. Runs are attributed to
+`script:<name>`, with the requester recorded separately. Files opt in through the
+[script contract](docs/extensions/README.md#script-blocks-and-files-pie-601).
+
 A `[script::name]` block may hold an `actions` fence as well as a TypeScript/JavaScript fence.
 Action lines use the power bar’s shared quote grammar; `{slot}` argument values are required run arguments.
 The loader exposes them through the existing extension manifest, and the same script runtime awaits each

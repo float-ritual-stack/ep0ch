@@ -153,3 +153,9 @@ test("only <name>.sqlite files are outlines: the owner lock, WAL and other files
   expect(outlineOfFile("notes.txt")).toBeNull();
   expect(outlineOfFile(".sqlite")).toBeNull();
 });
+
+
+test("a directory binding names the outline, machine and persona from nested folders", () => {
+  const fs = disk({ "/garden/.ep0ch/config.toml": 'ws = "garden"\nmachine = "box-a"\nagent = "scout"\n' });
+  expect(nearestDotEp0ch("/garden/notes/deep", fs)).toEqual({ folder: "/garden", file: "/garden/.ep0ch/config.toml", name: "garden", machine: "box-a", agent: "scout" });
+});

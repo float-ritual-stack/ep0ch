@@ -117,7 +117,7 @@ describe.skipIf(!outliner)("the home base", () => {
       expect(opened.out + opened.err).toContain("garden");
       const door = await h.on(p => p.screen !== "home base" && p.outline === "garden", "the door on garden");
       expect(door.outline).toBe("garden");
-      expect(readFileSync(join(dir, "work/jam-shelf/.ep0ch"), "utf8")).toBe('ws = "garden"\nmachine = "box-a"\n');
+      expect(readFileSync(join(dir, "work/jam-shelf/.ep0ch/config.toml"), "utf8")).toBe('ws = "garden"\nmachine = "box-a"\n');
       expect(JSON.parse(readFileSync(join(dir, "state/machines.json"), "utf8")).machines.map((m: any) => m.name)).toEqual(["box-a"]);
     } finally { await h.end(); }
     // The next `ep0ch` there opens it directly: the folder names it now, on its machine.

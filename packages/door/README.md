@@ -55,8 +55,14 @@ the ask. Clicking or moving the caret onto the ask opens its fold and selects th
 the fold, ↑/↓ or the wheel scrolls, and a click or 1–9 follows a link. The paired tile leaves the editor's keys alone. The `asks` showcase demonstrates this with `@planter`.
 
 A reply whose first line declares `[script::name]` is kept as a script block and runs immediately. Scripts
+default to read-only; `[effects::write]` declares writes and door actions. Runs are attributed to
+`script:<name>`, with the requester recorded separately. Files must opt in with `// ep0ch-script` in
+the outline folder’s `.ep0ch/scripts/`; `ep0ch ext ls` explains ignored files. Scripts
 can return `{ data, view: view.table({ columns, rows }) }`; `view` has constructors for the existing
 component primitives, drawn through the same component renderer. The reply links its source and run note.
+
+Bindings live in `.ep0ch/config.toml`. `ep0ch doctor --fix` repairs old `.ep0ch` files, preserving
+`.ep0ch.bak`; old scripts move only with an explicit `ep0ch doctor --fix --move-scripts`.
 
 ## Getting started
 

@@ -123,7 +123,7 @@ test("one socket serves two outlines, routed by the request's outline", async ()
   expect(fredPing.location?.workspaceRoot).toBe(layoutOf(root).folder("fred"));
   expect(existsSync(join(layoutOf(root).folder("fred"), "prompts"))).toBe(true);
   // The outline's own folder names it, so a program working there reaches it.
-  expect(readFileSync(join(layoutOf(root).folder("fred"), ".ep0ch"), "utf8")).toBe('ws = "fred"\n');
+  expect(readFileSync(join(layoutOf(root).folder("fred"), ".ep0ch", "config.toml"), "utf8")).toBe('ws = "fred"\n');
   expect(host.socketPath).toBe(join(root, "outlines", ".host", "host.sock"));
   expect(statSync(layoutOf(root).hostDir).mode & 0o777).toBe(0o700);
 });
@@ -418,7 +418,7 @@ test("the host process and the CLI: create, import refusals, init and list go th
   const init = cli(project, "init");
   expect(init.code).toBe(0);
   expect(init.stdout).toContain("created outline jam-shelf");
-  expect(readFileSync(join(project, ".ep0ch"), "utf8")).toBe('ws = "jam-shelf"\n');
+  expect(readFileSync(join(project, ".ep0ch", "config.toml"), "utf8")).toBe('ws = "jam-shelf"\n');
   // From a subfolder, the CLI now talks to that outline.
   const note = cli(join(project, "notes"), "create", "--text", "Jam shelf's fictional label");
   expect(note.code, note.stderr).toBe(0);

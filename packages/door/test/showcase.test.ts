@@ -3579,7 +3579,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   test("scripts run by name with slots from slash and by their bound key", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
-    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds]\n```actions\nblock.mark id="{note}" reason="Check seeds"\n```' });
+    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds] [effects::write]\n```actions\nblock.mark id="{note}" reason="Check seeds"\n```' });
     await board.request("extensions.list", { reload: true });
     await until(() => !!extensionList()?.extensions.find(e => e.name === "bound-seeds"), "bound script loaded");
     await app.dispatch.act({ action: "bar.open", args: { query: `bound-seeds note=${seeded.notes.shed.id}`, scope: "notes" } }, USER);
@@ -3599,7 +3599,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(app.bar).toBeTruthy();
     press({ kind: "esc" });
     expect(await board.children(clash.id)).toHaveLength(0);
-    const inline = await board.request<{ id: string }>("create", { author: "user", text: `While typing [script::while-typing]\n\`\`\`js\nawait act("marks.list");\nawait act("open", {id: "${seeded.notes.shed.id}"}); return "Opened beside";\n\`\`\`` });
+    const inline = await board.request<{ id: string }>("create", { author: "user", text: `While typing [script::while-typing] [effects::write]\n\`\`\`js\nawait act("marks.list");\nawait act("open", {id: "${seeded.notes.shed.id}"}); return "Opened beside";\n\`\`\`` });
     await board.request("extensions.list", { reload: true });
     await until(() => !!extensionList()?.extensions.find(e => e.name === "while-typing"), "inline script loaded");
     screen();
@@ -3655,11 +3655,11 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const target = seeded.notes.scriptTarget.id;
     const proposed = mode === "proposal" || mode === "dismiss" ? await board.request<{proposalId: string}>("draft.patch", {
       blockId: target, revision: (await board.get(target))!.revision,
-      patches: [{observed: "Prepare", replacement: "Sort"}], propose: "always", mutation: {author: "agent", actorId: "seed-writer"},
+      patches: [{observed: "Prepare", replacement: "Sort"}], propose: "always", mutation: {author: "agent", actorId: `script:draft-labels-${mode}`},
     }) : null;
     if (mode === "dismiss") press({kind: "paste", text: `\n!((${proposed!.proposalId}))\n`});
     const source = await board.request<{ id: string }>("create", { author: "agent", provenance: { actorId: "seed-writer" }, text: [
-      `Draft labels [script::draft-labels-${mode}]`, "```js",
+      `Draft labels [script::draft-labels-${mode}] [effects::write]`, "```js",
       `const note = await read('${target}');`,
       mode === "proposal" ? `await act('proposal.apply', {id:'${proposed!.proposalId}'});` : `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'Prepare', replacement:'Sort'}]});`,
       `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'seed labels', replacement:'seed envelopes'}]});`,
@@ -3674,7 +3674,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const extension = extensionList()!.extensions.find(e => e.name === `draft-labels-${mode}`)!;
     const run = await app.act({ action: `ext.${extension.id}.run`, as: "test-agent" }) as { written: string[]; undo: string };
     press({ kind: "paste", text: " Still here." });
-    await untilAsync(async () => (await board.children(target)).some(n => n.text === "Extra envelopes"), "draft patched");
+    await untilAsync(async () => (await board.children(target)).some(n => n.text === "Extra envelopes"), "draft patched").catch(async error => { throw new Error(`${error.message}; run: ${(await board.get(run.written[0]!))?.text}`); });
     if (saveBeforeEnd) {
       press({ kind: "char", ch: "s", ctrl: true });
       await until(() => ![...stage.panes.values()].some((p: any) => p.editing), "draft saved and closed").catch(error => { throw new Error(`${error.message}; draft: ${draft.note}\n${screen()}`); });
@@ -3706,7 +3706,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const stage = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top;
     const target = await board.request<{id: string}>("create", {author: "user", text: "Seed plan\n\nPrepare the labels."});
     await app.act({action: "open", args: {id: target.id}, tile: "notes", as: "test-agent"});
-    await board.request("create", {author: "user", text: "Open seed plan [script::open-seed-plan]\n```js\nawait act('edit');\n```"});
+    await board.request("create", {author: "user", text: "Open seed plan [script::open-seed-plan] [effects::write]\n```js\nawait act('edit');\n```"});
     await board.request("extensions.list", {reload: true});
     await until(() => !!extensionList()?.extensions.find(e => e.name === "open-seed-plan"), "edit script bound");
     const extension = extensionList()!.extensions.find(e => e.name === "open-seed-plan")!;
@@ -3750,7 +3750,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(draft.text).toContain("Still writing this note.");
     const { idle: _idle, ...person } = app.person();
     const source = await board.request<{id: string}>("create", {author: "user", text:
-      `Open the shed [script::open-the-shed]\n\`\`\`js\nawait act('open', {id:'${seeded.notes.shed.id}'});\n\`\`\``});
+      `Open the shed [script::open-the-shed] [effects::write]\n\`\`\`js\nawait act('open', {id:'${seeded.notes.shed.id}'});\n\`\`\``});
     await board.request("extensions.list", {reload: true});
     await until(() => !!extensionList()?.extensions.find(e => e.name === "open-the-shed"), "open script bound");
     const extension = extensionList()!.extensions.find(e => e.name === "open-the-shed")!;

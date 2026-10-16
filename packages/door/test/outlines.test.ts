@@ -122,12 +122,12 @@ describe("which outline the door opens (PIE-530)", () => {
     const garden = join(base, "work", "garden"), deep = join(garden, "beds", "peas");
     mkdirSync(deep, { recursive: true });
     writeDotEp0ch(garden, "garden");
-    expect(readFileSync(join(garden, ".ep0ch"), "utf8")).toBe('ws = "garden"\n');
+    expect(readFileSync(join(garden, ".ep0ch", "config.toml"), "utf8")).toBe('ws = "garden"\n');
     const host = hostSocketOf(env);
     expect(host).toBe(join(base, "outlines", ".host", "host.sock"));
     expect(resolveTarget(["--ws", "float-hub"], env, deep)).toEqual({ path: host, outline: "float-hub", attach: true, remote: false, why: "the outline float-hub (--ws float-hub)" });
     expect(resolveTarget([], { ...env, EP0CH_WS: "pie" }, deep)).toMatchObject({ outline: "pie", why: "the outline pie (EP0CH_WS=pie)" });
-    expect(resolveTarget([], env, deep)).toEqual({ path: host, outline: "garden", attach: true, remote: false, why: `the outline garden (${join(garden, ".ep0ch")})` });
+    expect(resolveTarget([], env, deep)).toEqual({ path: host, outline: "garden", attach: true, remote: false, why: `the outline garden (${join(garden, ".ep0ch", "config.toml")})` });
     // EP0CH_SOCKET names a host's socket outright, asked for the same name.
     expect(resolveTarget([], { ...env, EP0CH_SOCKET: "/fictional/env.sock" }, deep)).toMatchObject({ path: "/fictional/env.sock", outline: "garden", remote: true });
     // --ws takes a name, never a folder.
@@ -226,7 +226,7 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     mkdirSync(deep, { recursive: true });
     const init = await run(garden, "init", "--json");
     expect(init.code, init.err).toBe(0);
-    expect(JSON.parse(init.out)).toMatchObject({ name: "garden", created: true, file: join(garden, ".ep0ch") });
+    expect(JSON.parse(init.out)).toMatchObject({ name: "garden", created: true, file: join(garden, ".ep0ch", "config.toml") });
     const database = async (target: ReturnType<typeof resolveTarget>) => {
       if (!("outline" in target)) throw new Error(JSON.stringify(target));
       expect(await attachTarget(target)).toEqual({ created: false });

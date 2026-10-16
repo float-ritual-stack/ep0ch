@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Scripts opt in and run read-only by default (PIE-908)
+
+Only header-opted-in files in the outline folder’s `.ep0ch/scripts/` load. `ep0ch ext ls` explains ignored
+files. Write effects must be declared; runs and writes belong to `script:<name>`, with the requester recorded
+separately. Bindings now live in `.ep0ch/config.toml`. `ep0ch doctor --fix` and install repair old binding
+files, keeping `.ep0ch.bak`; scripts move only with `doctor --fix --move-scripts` after review.
+
 ### Agents and extensions wake each other by default (PIE-906) (#592, #593)
 
 - **Changed:** Evan's agents and extensions may wake each other without his `r`; `[invoke-…]` notes now only deny or narrow; an ask a person started (over the OAuth'd connector, or a line an extension copied from the person's note) runs as the person's; a line is held only when a loop guard trips (repeat, hops, budget, cap), and says which. The showcase explains it (#593).

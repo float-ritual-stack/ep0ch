@@ -44,7 +44,7 @@ export class MacroRecording {
     const replay = recording.steps.some((s, i) => finished[i] && s.replay === "ask") ? "Includes actions that write or reach outside the door. Run explicitly from the power bar." : "Recorded actions are safe to replay.";
     const body = lines.join("\n");
     const fence = "`".repeat(Math.max(3, ...[...body.matchAll(/`+/g)].map(m => m[0].length + 1)));
-    const text = `${recording.name} [script::${recording.name}]\n${replay}\n\n${fence}actions\n${body}\n${fence}`;
+    const text = `${recording.name} [script::${recording.name}] [effects::write]\n${replay}\n\n${fence}actions\n${body}\n${fence}`;
     try {
       const saved = await ctx.board.newNote(text, recording.near, USER);
       ctx.flash(`Saved ${recording.name} · ${lines.length} actions · ((${saved.note.id})) · run it from ^K`);

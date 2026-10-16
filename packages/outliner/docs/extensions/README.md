@@ -10,7 +10,21 @@ code; clients (Detail, the door, the publisher, agents) only draw what the servi
 ## Script blocks and files (PIE-601)
 
 A block with `[script::name]` and a closed `js` or `ts` fence loads through the same registry as folder
-extensions. Files in the outline folder's `scripts/` directory (`.js` or `.ts`) use that load path too.
+extensions. Files load only from `<outline folder>/.ep0ch/scripts/` (`.js` or `.ts`), and only when their
+first line is `// ep0ch-script`. The filename supplies the name. Files without that header, and files in the
+old `scripts/` folder, remain inactive; `ep0ch ext ls` explains why. Discovery never executes the file.
+
+Scripts default to read-only. A file declares writes with `// ep0ch-script effects=write`; a block uses
+`[effects::write]`. Read scripts can query and read, but cannot call write tools or dispatch door actions.
+The runtime still records their progress in a run note. Recorded action scripts declare write effects.
+
+Bindings now live in `.ep0ch/config.toml`; clients also read old `.ep0ch` files until repaired.
+`ep0ch doctor` checks bound ancestors and outline side folders for old bindings, and only outline side
+folders for legacy `scripts/`. Project build/test scripts are left alone.
+`ep0ch doctor --fix` (also the binding step of `ep0ch install --apply`) moves the binding verbatim and
+keeps `.ep0ch.bak` until the next install. Review old scripts first, then explicitly choose `ep0ch doctor --fix --move-scripts`
+to move them. It refuses to replace an existing `.ep0ch/scripts/`; move reviewed files individually there.
+Moving a file does not opt it in.
 The door lists scripts by name in the power bar; the name works in `/` too, followed by `slot=value`
 arguments from an `actions` fence. `ext.<id>.run` remains the dispatcher action.
 A block's `[keys::alt+S]` binds a key (several separated by commas); the dispatcher reports clashes with
@@ -34,7 +48,7 @@ extensions. Saving a malformed source still saves the block; the registry report
 Starting a run returns immediately with its progress note and undo receipt. Each completed host call
 updates that child note; the run shows its author, source revision and the source diff since the previous
 run in this host. A source changed during a run stops its remaining host calls. Writes are attributed to
-the source author, with the requester recorded beside them. There is no text-approval gate.
+`script:<name>` (`author: agent`), with whoever woke it recorded as `requestedBy`. There is no text-approval gate.
 
 `extensions.undo` with the returned receipt takes back saved writes, writes through door actions and live
 draft patches together. The draft's own patch comparison preserves intervening typing; a conflict refuses
