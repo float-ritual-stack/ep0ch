@@ -260,9 +260,9 @@ export class AgentRequests {
     return requestLines(block.text, null).map((line) => line.requestKey);
   }
 
-  private lines(block: Block): RequestLine[] {
+  private lines(block: Block, names: ReadonlySet<string> | null = this.registry.agentNames()): RequestLine[] {
     if (block.effectiveDeletedRootId || this.store.extensionOwner(block.id)) return [];
-    return requestLines(block.text, this.registry.agentNames());
+    return requestLines(block.text, names);
   }
 
   private key(blockId: string, requestKey: string): string {
@@ -947,7 +947,7 @@ export class AgentRequests {
     const block = this.store.get(blockId);
     if (!block) return [];
     const rows = new Map(this.store.agentRequests(blockId).map((row) => [row.requestKey, row]));
-    const lines = requestLines(block.text, null);
+    const lines = this.lines(block, null);
     // A note a reader opens: what it holds now is the baseline a later save is compared with.
     if (this.store.agentRequestBaseline(blockId) === null) this.remember(blockId, this.shapes(block));
     return lines

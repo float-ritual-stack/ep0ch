@@ -123,7 +123,7 @@ async function findings(request: Block, ask: { model: boolean; words?: string })
   const dupes = all.filter((h) => alike(title, h.title) >= 0.5);
   let verdict = dupes.length
     ? `Likely duplicate${dupes.length === 1 ? "" : "s"}: ${dupes.slice(0, 3).map((h) => h.link).join(", ")} (most of the same words in the title).`
-    : all.length ? "No likely duplicates (judged by the titles' words alone)." : "Nothing like this yet.";
+    : sections.some(s => s.lines.length || s.error) ? "No likely duplicates (judged by the titles' words alone)." : "Nothing like this yet.";
   // Only the agent (effects: spend) asks the model; the action run by hand never does.
   if (ask.model && config.answer?.length) verdict = await judged(request, list.join("\n")).catch((error: Error) => `${verdict} The answer command failed: ${error.message}`);
   return { body: [...list, verdict].join("\n").trim(), found: all.length };
