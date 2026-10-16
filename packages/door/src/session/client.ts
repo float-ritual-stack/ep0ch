@@ -347,7 +347,7 @@ function reattach(message: string, o: { args?: string[]; watch?: boolean }): voi
 export interface Handover { name: string; pid: [number, number | null]; code: [string | null, string | null]; programs: number; terminals: number }
 export interface UpgradeResult { ok: boolean; message: string; handover?: Handover }
 
-export async function upgradeSession(place: Place, o: { clients?: boolean; handoff?: boolean } = {}): Promise<UpgradeResult> {
+export async function upgradeSession(place: Place, o: { clients?: boolean; handoff?: boolean; whenIdle?: boolean } = {}): Promise<UpgradeResult> {
   const path = sessionSocket(place.dir), name = placeLabel(place);
   const before = await sessionInfo(path);
   if (!before) return { ok: false, message: `no session runs for ${name} · \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` starts one` };
@@ -357,7 +357,8 @@ export async function upgradeSession(place: Place, o: { clients?: boolean; hando
     const n = before.clients.length;
     return { ok: true, message: `${name}: the session (pid ${before.pid}) runs ${before.code.commit?.slice(0, 9) ?? "this code"} already · its ${n} terminal${n === 1 ? "" : "s"} start${n === 1 ? "s" : ""} again on this checkout${o.clients ? "" : ` (\`${ep0ch(process.env, place)}session restart ${sessionFlags({ place })}\` hands it over anyway, for changes not committed yet)`}` };
   }
-  const r = await askSession(path, { t: "upgrade" }, 60_000);
+  if (o.whenIdle && before.proto !== PROTOCOL) return { ok: false, message: `${name}: the session speaks protocol ${before.proto}, install expects ${PROTOCOL}; left running because it cannot enforce an idle-only handover. Once typing ends, run \`${ep0ch(process.env, place)}session upgrade ${sessionFlags({ place })}\`` };
+  const r = await askSession(path, { t: "upgrade", ...(o.whenIdle ? { whenIdle: true } : {}) }, 60_000);
   if (r?.t !== "ask" || r.message !== "handed over") return { ok: false, message: `${name}: ${r?.t === "ask" ? r.message : "the session didn't answer the handoff"}` };
   const after = await sessionInfo(path);
   const progs = before.terminals.length, n = before.clients.length;
@@ -374,7 +375,7 @@ export function handoverMessage(h: Handover): string {
  * Every session on this state dir onto the checkout's code (`session upgrade --all`, `ep0ch install`), one by one. One
  * already on this code is left as it is (its terminals aren't restarted) unless `clients` or `handoff` asks for that.
  */
-export async function upgradeAll(o: { clients?: boolean; handoff?: boolean } = {}): Promise<UpgradeResult[]> {
+export async function upgradeAll(o: { clients?: boolean; handoff?: boolean; whenIdle?: boolean } = {}): Promise<UpgradeResult[]> {
   const out: UpgradeResult[] = [];
   const { commit: here, dir: checkout } = codeVersion();
   for (const r of await runningSessions()) {

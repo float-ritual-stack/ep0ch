@@ -19,10 +19,16 @@ After a merge to main (yours, or a sha an agent hands you):
 2. Peek the person's door before `ep0ch install --apply` (`door_peek`, or `ep0ch peek`: `person.typingIn`, `busy`). If
    they're typing in an editor, a comment or the drawer, wait or batch the pending deploys into one, unless they've
    said to deploy: the handover to the new code once cost Evan his comment layout mid-draft.
-3. `ep0ch install` prints the plan; read it (outlines to migrate, what restarts). Then `ep0ch install --apply`: it
-   backs up every outline, fast-forwards `~/projects/ep0ch`, links `ep0ch`, runs a schema step on every outline
-   behind, and restarts the outline host when its code changed. It refuses before updating if an outline can't take
-   the step; follow what it prints.
+3. Deploy both legs with one command: `ssh float-2 'cd ~/projects/ep0ch && ep0ch install --apply'`.
+   The host's `ep0ch install` shows the plan first when needed. Install backs up the outlines, fast-forwards the
+   checkout, migrates and restarts the host, then updates its `.host/clients` sequentially over ssh. Register
+   float-box once on float-2 with `ep0ch install --apply --add-client float-box`; `--remove-client <ssh-name>`
+   removes one. Read every leg's ✓ or !: a failed client leaves the host successful and prints the exact command
+   to run by hand. Busy door sessions stay running; after typing ends, run that command again. `--as-client`
+   prevents fan-out from a client. The laptop has its own host and stays separate.
+   For PIE-905's first rollout, update float-2 and float-box once with their existing `ep0ch install --apply`
+   while the door is idle, then register float-box: the old installer cannot accept `--as-client`. If install
+   leaves an older session protocol running, finish typing and use the exact session-upgrade command it prints.
 4. `ep0ch doctor`: the host, the CLI and the doors on one `PROTOCOL`, nothing behind.
 5. Restart what install doesn't:
    - the publishers, after any deploy that touched the outliner, outline-core or the web pages:

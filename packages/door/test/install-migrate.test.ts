@@ -24,13 +24,17 @@ const M = N + 1, STEP_FILE = `${String(M).padStart(4, "0")}-seed-trays.ts`;
 const root = mkdtempSync(join(tmpdir(), "ep0ch-im-"));
 const repo = join(root, "repo"), origin = join(root, "origin.git"), home = join(root, "home"), outlines = join(root, "outlines");
 const state = join(root, "state"), bin = join(root, "bin"), units = join(root, "units");
+const clientRepo = join(root, "client-repo"), clientHome = join(root, "client-home"), clientOutlines = join(root, "client-outlines"), clientBin = join(root, "client-bin");
+const sshLog = join(root, "ssh.jsonl");
 const bun = process.execPath;
 const sock = join(outlines, ".host", "host.sock");
 
 /** The whole environment every command here runs with: nothing inherited, so nothing reaches the person's stack. */
 const env: Record<string, string> = {
   HOME: home, PATH: [bin, dirname(bun), "/usr/bin", "/bin"].join(":"), EP0CH_OUTLINES: outlines, EP0CH_STATE: state,
-  XDG_CONFIG_HOME: join(home, ".config"), XDG_STATE_HOME: join(home, ".local/state"), TMPDIR: join(root, "tmp"), LANG: "C.UTF-8",
+  EP0CH_SSH: join(bin, "ssh"), FAKE_SSH_HOME: clientHome, FAKE_SSH_OUTLINES: clientOutlines,
+  FAKE_SSH_STATE: join(root, "client-state"), FAKE_SSH_BIN: clientBin, FAKE_SSH_LOG: sshLog, FAKE_SSH_REFUSE: "away",
+  XDG_CONFIG_HOME: join(home, ".config"), XDG_STATE_HOME: join(home, ".local/state"), TMPDIR: tmpdir(), LANG: "C.UTF-8",
   GIT_AUTHOR_NAME: "Wren", GIT_AUTHOR_EMAIL: "wren@example.com", GIT_COMMITTER_NAME: "Wren", GIT_COMMITTER_EMAIL: "wren@example.com",
 };
 
@@ -75,7 +79,8 @@ beforeAll(async () => {
   const files = sh(["git", "-C", top, "ls-files", "-co", "--exclude-standard", "--deduplicate"]).split("\n").filter(f => f && existsSync(join(top, f)));
   writeFileSync(join(root, "files"), files.join("\n"));
   mkdirSync(repo);
-  sh(["sh", "-c", `tar -C '${top}' -cf - -T '${join(root, "files")}' | tar -C '${repo}' -xf -`]);
+  sh(["tar", "-C", top, "-cf", join(root, "repo.tar"), "-T", join(root, "files")]);
+  sh(["tar", "-C", repo, "-xf", join(root, "repo.tar")]);
   sh(["git", "init", "-q", "-b", "main", repo]);
   git("add", "-A"); git("commit", "-qm", "the garden as it was");
   oldHead = git("rev-parse", "HEAD");
@@ -90,6 +95,22 @@ beforeAll(async () => {
   newHead = git("rev-parse", "HEAD");
   git("push", "-q", "origin", "main"); git("reset", "-q", "--hard", oldHead);
   sh([bun, "install", "--frozen-lockfile"], repo, 300_000);
+  for (const d of [clientHome, clientOutlines, clientBin, join(clientOutlines, ".host")]) mkdirSync(d, { recursive: true, mode: 0o700 });
+  sh(["git", "clone", "-q", origin, clientRepo]);
+  sh(["git", "-C", clientRepo, "reset", "--hard", oldHead]);
+  sh([bun, "install", "--frozen-lockfile"], clientRepo, 300_000);
+  writeFileSync(join(bin, "ssh"), `#!/bin/sh\nexec '${bun}' '${top}/packages/outliner/test/fake-ssh.ts' "$@"\n`);
+  chmodSync(join(bin, "ssh"), 0o755);
+  // A remote install must see the restarted host before it touches the client checkout.
+  writeFileSync(join(root, "client-install.ts"), `import { hostRequest } from "${repo}/packages/door/src/socket";
+await hostRequest("${sock}", "ping", { outline: "allotment" });
+const p = Bun.spawn(["${bun}", "${clientRepo}/packages/door/src/main.ts", ...process.argv.slice(2)], {
+  cwd: "${clientHome}", env: { ...process.env, XDG_CONFIG_HOME: "${clientHome}/.config", XDG_STATE_HOME: "${clientHome}/.local/state", EP0CH_DAILY_AGENT: "sh" }, stdio: ["ignore", "inherit", "inherit"] });
+process.exit(await p.exited);
+`);
+  writeFileSync(join(clientBin, "ep0ch"), `#!/bin/sh\nexec '${bun}' '${root}/client-install.ts' "$@"\n`);
+  chmodSync(join(clientBin, "ep0ch"), 0o755);
+  writeFileSync(join(clientOutlines, ".host/clients"), "must-not-recurse\n");
 
   // The host's unit, and a systemctl that runs it: start, stop (waiting for it to go), restart, show.
   writeFileSync(join(home, ".config/systemd/user/outliner-host.service"),
@@ -145,18 +166,23 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(sessionPid).toBeGreaterThan(0);
     expect([version("allotment"), version("compost")]).toEqual([N, N]);
 
+    writeFileSync(join(outlines, ".host/clients"), "away\n");
     // The dry run says what will happen, changes nothing.
-    const plan = await ep0ch("install");
+    const plan = await ep0ch("install", "--add-client", "workstation");
     expect(plan.code).toBe(0);
+    expect(plan.out).toContain("away, workstation");
+    expect(existsSync(sshLog)).toBe(false);
+    expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("away\n");
     expect(plan.out).toContain(`schema ${N} → ${M}: will migrate 2 outlines (allotment, compost) with ${STEP_FILE}`);
     expect(plan.out).toContain("systemctl --user stop outliner-host.service");
     expect(git("rev-parse", "HEAD")).toBe(oldHead);
 
     // Apply: backed up, fast-forwarded, the host stopped, allotment migrated, compost refused by its script.
-    const first = await ep0ch("install", "--apply", "--json");
+    const first = await ep0ch("install", "--apply", "--add-client", "workstation", "--json");
     expect(first.code).toBe(1);
     const r1 = JSON.parse(first.out) as { ok: boolean; steps: { id: string; status: string; done?: string[]; error?: string; recover?: string }[] };
     expect(r1.ok).toBe(false);
+    expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("away\nworkstation\n");
     expect(r1.steps.find(s => s.id === "repo")!.done!.join(" ")).toContain(`fast-forwarded ${oldHead.slice(0, 7)} → ${newHead.slice(0, 7)}`);
     const schema = r1.steps.find(s => s.id === "schema")!;
     expect(schema.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", `allotment: schema ${N} → ${M}`]);
@@ -171,6 +197,8 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     for (const name of ["allotment", "compost"]) { const db = new Database(copy(name), { readonly: true }); expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(N); db.close(); }
     // Nothing after it ran: the host is down, compost as it was, the session on the old code.
     expect(r1.steps.map(s => s.id)).not.toContain("host");
+    expect(existsSync(sshLog)).toBe(false);
+    expect(sh(["git", "-C", clientRepo, "rev-parse", "HEAD"])).toBe(oldHead);
     expect(await hostLive(sock, 1000)).toBeFalsy();
     expect([version("allotment"), version("compost")]).toEqual([M, N]);
     expect(existsSync(join(home, "backups/ep0ch", backup, "allotment.sqlite"))).toBe(true);
@@ -205,10 +233,41 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect([version("allotment"), version("compost")]).toEqual([M, M]);
     // The host opens both on the new code (a ping opens the outline it names, and it refuses one at another schema).
     for (const outline of ["allotment", "compost"]) expect(await hostRequest(sock, "ping", { outline })).toMatchObject({ protocolVersion: expect.any(Number) });
+    // An unreachable leg is reported, then the next client really installs the new checkout.
+    const clients = r2.steps.find(s => s.id === "clients")!;
+    expect(clients.done!.join("\n")).toContain("! away");
+    expect(clients.done!.join("\n")).toContain("ssh -- away 'ep0ch install --apply --as-client'");
+    expect(clients.done!.join("\n")).toContain("✓ workstation");
+    expect(sh(["git", "-C", clientRepo, "rev-parse", "HEAD"])).toBe(newHead);
+    const calls = readFileSync(sshLog, "utf8").trim().split("\n").map(l => JSON.parse(l));
+    expect(calls.map(a => a[a.indexOf("--") + 1])).toEqual(["away", "workstation"]);
     // The session: a new daemon on the new commit.
     const list = JSON.parse((await ep0ch("session", "list", "--json")).out) as { pid: number; code: { commit: string } }[];
     expect(list).toHaveLength(1);
     expect(list[0]!.pid).not.toBe(sessionPid);
     expect(list[0]!.code.commit).toBe(newHead);
+    sh(["git", "-C", clientRepo, "switch", "-c", "client-work"]);
+    const blocked = await ep0ch("install", "--apply", "--json");
+    expect(blocked.code).toBe(0);
+    expect(JSON.parse(blocked.out).steps.find((s: { id: string }) => s.id === "clients").done.join("\n")).toContain("! workstation");
+    sh(["git", "-C", clientRepo, "switch", "main"]);
+    for (const name of ["away", "workstation"]) {
+      const removed = await ep0ch("install", "--apply", "--remove-client", name, "--json");
+      expect(removed.code).toBe(0);
+      expect(readFileSync(join(outlines, ".host/clients"), "utf8").split("\n")).not.toContain(name);
+    }
+    expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("");
+
+    // A daemon on a previous session protocol cannot promise to honour the idle-only request.
+    const protocol = join(repo, "packages/door/src/session/protocol.ts");
+    writeFileSync(protocol, readFileSync(protocol, "utf8").replace(/export const PROTOCOL = (\d+);/, (_, n) => `export const PROTOCOL = ${Number(n) + 1};`));
+    git("add", "packages/door/src/session/protocol.ts"); git("commit", "-qm", "the next session protocol"); git("push", "-q", "origin", "main");
+    const oldPid = list[0]!.pid;
+    const deferred = await ep0ch("install", "--apply", "--json");
+    expect(deferred.code).toBe(1);
+    expect(JSON.parse(deferred.out).steps.find((s: { id: string }) => s.id === "session").error).toContain("cannot enforce an idle-only handover");
+    expect(JSON.parse((await ep0ch("session", "list", "--json")).out)[0].pid).toBe(oldPid);
+    expect((await ep0ch("session", "upgrade", "--all")).code).toBe(0);
+    expect(JSON.parse((await ep0ch("session", "list", "--json")).out)[0].pid).not.toBe(oldPid);
   }, 600_000);
 });
