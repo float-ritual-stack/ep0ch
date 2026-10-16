@@ -269,9 +269,7 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
 /**
  * A provider line such as `jira::`, `jira:: --comments` or floatty's
  * `- jira:: --comments`. It is recognized only for the keys a caller supplies
- * (provider keys), so general property parsing keeps its meaning: an empty
- * `status::` and a bulleted `- status:: done` remain prose, and
- * `parsePropertyRecords` output is unchanged for every input.
+ * (provider keys). Empty values remain provider directives rather than properties.
  */
 export interface PropertyDirectiveLine {
   key: string;
@@ -352,8 +350,7 @@ export function stripPropertyTokens(text: string): string {
  * takes out of the first line.
  */
 export function withHeaderDashes<T extends SourceRange>(text: string, ranges: readonly T[]): (T | SourceRange)[] {
-  const header = headerLine(text, scanPropertyLiteralRanges(text));
-  const dashes = [...header.dashes, ...header.tags];
+  const dashes = headerLine(text, scanPropertyLiteralRanges(text)).dashes;
   return dashes.length ? [...ranges, ...dashes].sort((left, right) => left.start - right.start) : [...ranges];
 }
 
@@ -362,7 +359,8 @@ export function firstLineWithoutPropertyTokens(text: string): string | undefined
   const mark = markTitleLine(text);
   if (mark) return mark.text;
   // The header's chips go with the ` - ` between and before them: `Seed order - [a::1] - [b::2]` is "Seed order".
-  const tokens = withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag"));
+  const tags = new Set(headerLine(text, scanPropertyLiteralRanges(text)).tags.map(tag => tag.start));
+  const tokens = withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag" || tags.has(property.start)));
   // Matched literal-region markers are hidden in Detail, so they are never the title.
   const markerStarts = literalMarkerLineStarts(text);
   let tokenIndex = 0;

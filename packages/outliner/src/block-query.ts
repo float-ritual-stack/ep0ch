@@ -3,7 +3,7 @@ import { firstLineWithoutPropertyTokens, matchesFilters, normalizePropertyKey } 
 import { ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "@ep0ch/outline-core/query-atoms";
 import { QUESTION_DEFAULT_LIMIT, QUESTION_MAX_LIMIT } from "@ep0ch/outline-core/protocol";
 import { ROADMAP_WORK_STAGES } from "./types";
-import { isPropertyKey, isWritablePropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
+import { isPropertyKey, isWritablePropertyValue, splitPropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import { readBound, readDate, readDateBound, readNumber, valueHolds, wallClock } from "@ep0ch/outline-core/dates";
 import type {
   Block,
@@ -816,7 +816,7 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
   switch (expression.kind) {
     case "tag": {
       const tag = expression.tag;
-      return (_subject, properties) => tagMatches(properties.filter(p => p.key === "tag").map(p => p.value), tag);
+      return (_subject, properties) => tagMatches(properties.filter(p => p.key === "tag" || p.key === "tags").flatMap(p => splitPropertyValue(p.value)), tag);
     }
     case "title": {
       const needle = expression.text.toLowerCase();

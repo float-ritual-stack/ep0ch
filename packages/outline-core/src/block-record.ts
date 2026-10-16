@@ -1,9 +1,9 @@
-import { splitPropertyValue } from "./property-grammar";
 // A block as a record (PIE-534, for PIE-533): one shape for "everything the outline knows about this note", which the
 // service builds (`blocks.records`) and every consumer reads: `ep0ch find --json`, `ep0ch export`, and later
 // interpolation, `::graph-*`, extensions and publishing. This file is the shape and its one builder; the service passes
 // what it read (the block, its parsed properties, children, tasks, links, backlinks, resources) and nothing here reads
 // anything. `recordJson` writes it deterministically: sorted keys, one timestamp format (ISO 8601, UTC, milliseconds).
+import { splitPropertyValue } from "./property-grammar";
 import { bodyOffset, headerLine, type LiteralRange } from "./header-line";
 
 export type TaskStatus = import("./checklist-marks").ChecklistStatus;

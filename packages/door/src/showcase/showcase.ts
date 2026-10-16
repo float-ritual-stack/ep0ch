@@ -169,14 +169,6 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "front-matter", need: "read and query the note's front matter", part: "outline-core header-line and property-grammar, the service property records and the reader's PropertyPanel", files: "outline-core/src/header-line.ts, outline-core/src/property-grammar.ts, src/surface/props-panel.ts",
-    aside: "i or click the property count: block properties together, inline and line properties below, list values as chips · find connectTo=beans, connectto=frost, tag=neat or tag=epic · group=connectto puts the sowing note under beans and frost · the trailing #epic leaves the title; the source stays exactly as written",
-    stage(n, show) {
-      const a = new ReaderPane(), b = new ReaderPane();
-      return deskOf({ title: "showcase · front matter", panes: [a, b], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[a, n.frontMatter], [b, n.frontMatterAgent]]);
-    },
-  },
-  {
     key: "detail", need: "open one addressed block as the whole screen", part: "the detail screen: a ScreenSpec hosting the detail tile's NoteSurface", files: "src/desk/screen-specs.ts, src/desk/builtin-tiles.ts, src/desk/tiles.ts, src/surface/note.ts",
     stage(n) {
       return openScreen("detail", { note: n.notebook?.id, persist: false });
@@ -955,6 +947,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · one place", panes: [a, b], names: ["reader", "short"], layout: ([x, y]) => row(0.62, x!, y!) }, show, [[a, n.overscroll], [b, n.shed]]);
+    },
+  },
+  {
+    key: "front-matter", need: "read and query the note's front matter", part: "outline-core header-line and property-grammar, the service property records and the reader's PropertyPanel", files: "outline-core/src/header-line.ts, outline-core/src/property-grammar.ts, src/surface/props-panel.ts",
+    aside: "i or click the property count: block properties together, inline and line properties below, list values as chips · find connectTo=beans, connectto=frost, tag=neat or tag=epic · group=connectto puts the sowing note under beans and frost · the trailing #epic leaves the title; the source stays exactly as written",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · front matter", panes: [a, b], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[a, n.frontMatter], [b, n.frontMatterAgent]]);
     },
   },
 ];

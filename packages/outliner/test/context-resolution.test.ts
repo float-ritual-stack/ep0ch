@@ -27,7 +27,7 @@ function resolve(text: string, line: number, ancestors: ContextBlock[] = [], exp
   return resolveContextKey({ block: { id: "self", text }, line, ancestors, matcher: acme, ...(explicitKey ? { explicitKey } : {}) });
 }
 
-test("provider lines accept the bullet form and an empty value without loosening general properties", () => {
+test("provider lines accept bullets and empty directives; nonempty values also have property scope", () => {
   const text = [
     "Call about the rollout ACME-12",
     "- jira:: --comments",
@@ -43,9 +43,9 @@ test("provider lines accept the bullet form and an empty value without loosening
     { line: 2, explicitKey: undefined, options: { unknown: [] }, indent: "" },
     { line: 3, explicitKey: "ACME-7", options: { compact: true, unknown: ["--wat"] }, indent: "  " },
   ]);
-  // The general parser is unchanged: bullets and empty values stay prose.
-  expect(previewPropertyParse(text).tokens.map(({ key, value }) => ({ key, value }))).toEqual([]);
-  expect(previewPropertyParse("- status:: done").tokens).toEqual([]);
+  // Nonempty bulleted values are properties; empty directives stay provider-owned.
+  expect(previewPropertyParse(text).tokens.map(({ key, value }) => ({ key, value }))).toEqual([{ key: "jira", value: "--comments" }, { key: "jira", value: "ACME-7 --compact --wat" }, { key: "status", value: "done" }]);
+  expect(previewPropertyParse("- status:: done").tokens).toMatchObject([{ key: "status", value: "done", scope: "block" }]);
   expect(previewPropertyParse("status::").tokens).toEqual([]);
   expect(previewPropertyParse("jira:: --comments").tokens.map(({ key, value, scope }) => ({ key, value, scope })))
     .toEqual([{ key: "jira", value: "--comments", scope: "block" }]);

@@ -29,7 +29,7 @@ import { annotationKind, annotationTone, isTldr } from "@ep0ch/outline-core/anno
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { ExtensionsListResult } from "./extension-registry";
 import { onItsPage, plainBody } from "./publish-marginalia";
-import { parsePropertyRecords, stripPropertyTokens } from "./properties";
+import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "./properties";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
 import { extractAnnotationBody } from "./annotations";
 import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, ChecklistUpdateReceipt, MarkQuoteReceipt, ProjectedBlockCollection } from "./types";
@@ -326,7 +326,7 @@ export class PageMarginalia {
     const found = quote ? findDrawnPassage(view.blocks, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
     const placed = !!found?.ok || (!share && !!quote);
     if (share && !(await share.active())) return ended();
-    const title = plainBody(stripPropertyTokens(view.root.text.split("\n")[0] ?? "")).replace(/^\s*#{1,6}\s+/, "").trim();
+    const title = plainBody(firstLineWithoutPropertyTokens(view.root.text) ?? "").replace(/^\s*#{1,6}\s+/, "").trim();
     // The page's own address (on this host, below this listener's or this share's base), else the note's path.
     let url = `${base}/p/${view.root.id}`;
     try {

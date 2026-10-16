@@ -67,22 +67,22 @@ test("markers stand alone on a line, tolerate spacing and case, and do not nest"
     ["<!--literal-->", "<!--/literal-->"],
     ["   <!--  LITERAL  -->  ", "<!-- /Literal -->\t"],
   ]) {
-    expect(tokens(`Title\n${open}\n[a::1]\n${close}\n[b::2]`)).toEqual(["b=2:inline"]);
+    expect(tokens(`Title\n${open}\n[a::1]\n${close}\n[b::2]`)).toEqual(["b=2:block"]);
   }
   // Four spaces or a tab is indented code, and trailing prose makes it an ordinary line.
   expect(scanLiteralRegions("Title\n    <!-- literal -->\n[a::1]\n<!-- /literal -->").regions).toEqual([]);
-  expect(tokens("Title\n    <!-- literal -->\n[a::1]\n<!-- /literal -->")).toEqual(["a=1:inline"]);
+  expect(tokens("Title\n    <!-- literal -->\n[a::1]\n<!-- /literal -->")).toEqual(["a=1:block"]);
   expect(scanLiteralRegions("Title\n\t<!-- literal -->\n[a::1]\n<!-- /literal -->").regions).toEqual([]);
-  expect(tokens("Title\n\t<!-- literal -->\n[a::1]\n<!-- /literal -->")).toEqual(["a=1:inline"]);
+  expect(tokens("Title\n\t<!-- literal -->\n[a::1]\n<!-- /literal -->")).toEqual(["a=1:block"]);
   expect(scanLiteralRegions("Title\n<!-- literal -->\n[a::1]\n\t<!-- /literal -->").unterminated).not.toBeNull();
-  expect(tokens("Title\n<!-- literal --> note\n[a::1]\n<!-- /literal -->")).toEqual(["a=1:inline"]);
+  expect(tokens("Title\n<!-- literal --> note\n[a::1]\n<!-- /literal -->")).toEqual(["a=1:block"]);
   // A second opener is text; the first closer ends the region.
   expect(tokens("T\n<!-- literal -->\n<!-- literal -->\n[a::1]\n<!-- /literal -->\n[b::2]\n<!-- /literal -->"))
-    .toEqual(["b=2:inline"]);
+    .toEqual(["b=2:block"]);
   // A stray closer protects nothing.
-  expect(tokens("Title\n<!-- /literal -->\n[a::1]")).toEqual(["a=1:inline"]);
+  expect(tokens("Title\n<!-- /literal -->\n[a::1]")).toEqual(["a=1:block"]);
   // CRLF notes behave the same.
-  expect(tokens("Title\r\n<!-- literal -->\r\n[a::1]\r\n<!-- /literal -->\r\n[b::2]")).toEqual(["b=2:inline"]);
+  expect(tokens("Title\r\n<!-- literal -->\r\n[a::1]\r\n<!-- /literal -->\r\n[b::2]")).toEqual(["b=2:block"]);
 });
 
 test("fences inside regions keep their content and hide a closer they contain", () => {
@@ -96,7 +96,7 @@ test("fences inside regions keep their content and hide a closer they contain", 
     "<!-- /literal -->",
     "[b::2]",
   ].join("\n");
-  expect(tokens(fenceInRegion)).toEqual(["b=2:inline"]);
+  expect(tokens(fenceInRegion)).toEqual(["b=2:block"]);
 
   // A fence opened inside a region and never closed runs to the end, so the
   // closer is code: the region is unterminated and skips nothing.
@@ -108,25 +108,25 @@ test("fences inside regions keep their content and hide a closer they contain", 
 test("markers inside a fence are code, not a region", () => {
   const regionInFence = "Title\n```\n<!-- literal -->\n```\n[a::1]\n```\n<!-- /literal -->\n```";
   expect(scanLiteralRegions(regionInFence)).toEqual({ regions: [], unterminated: null });
-  expect(tokens(regionInFence)).toEqual(["a=1:inline"]);
+  expect(tokens(regionInFence)).toEqual(["a=1:block"]);
 });
 
 test("inline code does not pair backticks across a region boundary", () => {
   const text = "Title\n<!-- literal -->\nopen ` here\n<!-- /literal -->\nclose ` [a::1]\n[b::2]";
   // The backtick outside is unmatched: an unclosed run is text (PIE-764), so it hides nothing.
-  expect(tokens(text)).toEqual(["a=1:inline", "b=2:inline"]);
+  expect(tokens(text)).toEqual(["a=1:block", "b=2:block"]);
 });
 
 test("a region on the subject line or in the preamble keeps its properties out", () => {
   const onSubject = "<!-- literal -->\nTitle [a::1]\n<!-- /literal -->\n[b::2]";
-  expect(tokens(onSubject)).toEqual(["b=2:inline"]);
+  expect(tokens(onSubject)).toEqual(["b=2:block"]);
 
   const inPreamble = "Title\n[type::note]\n<!-- literal -->\n[stage::queued]\n<!-- /literal -->\n[owner::sam]";
-  expect(tokens(inPreamble)).toEqual(["type=note:block", "owner=sam:inline"]);
+  expect(tokens(inPreamble)).toEqual(["type=note:block", "owner=sam:block"]);
 
-  // A marker line ends the property-only run after the subject.
+  // A marker protects its contents, but does not end the first paragraph.
   const beforePreamble = "Title\n<!-- literal -->\nx:: y\n<!-- /literal -->\n[type::note]";
-  expect(tokens(beforePreamble)).toEqual(["type=note:inline"]);
+  expect(tokens(beforePreamble)).toEqual(["type=note:block"]);
 });
 
 test("an unterminated region skips nothing and is reported", () => {

@@ -1,3 +1,4 @@
+import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -112,11 +113,25 @@ test("front matter keeps raw garden notes and finds every explicit list value", 
     expect((await query(where)).blocks.map(b => b.id)).toContain(saved.id);
   }
   expect((await query("description=cool")).blocks).toHaveLength(0);
+  expect((await query("#neat")).blocks.map(b => b.id)).toContain(saved.id);
+  const view = await client.request<{ id: string }>({ action: "create", text: "Sowing list [type::virtual-branch] [query::project=garden]" });
+  expect((await query("connectto=beans", { rankViewId: view.id })).blocks.map(b => b.id)).toContain(saved.id);
   const grouped = await query("project=garden", { group: "connectTo" });
   expect(grouped.groups).toEqual([{ value: "beans", count: 1, ids: [saved.id] }, { value: "frost", count: 1, ids: [saved.id] }]);
   const repeated = await client.request<{ id: string }>({ action: "create", text: "Later sowing [project::garden] [connectto::zucchini] [connectto::asparagus] [tag::neat]" });
   expect((await query("project=garden", { sort: "connectto" })).blocks.map(b => b.id)).toEqual([saved.id, repeated.id]);
   expect((await query("connectto=asparagus")).blocks.map(b => b.id)).toEqual([repeated.id]);
   expect((await query("tag=neat")).blocks.map(b => b.id)).toContain(repeated.id);
+  const tagged = await client.request<{ id: string }>({ action: "create", text: "A #spring plan [ctx::evening] #epic\r\n\r\nKeep the poles dry." });
+  const records = await client.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [saved.id, tagged.id] });
+  expect(records.records[0]!.properties.find(p => p.key === "connectto")?.values).toEqual(["beans", "frost"]);
+  expect(records.records[1]!.title).toBe("A #spring plan");
+  expect(records.records[1]!.text).toContain("#epic");
+  const quoted = await client.request<{ id: string }>({ action: "create", text: 'Tray labels [labels::["a]b", "c"]]' });
+  expect((await query("labels=c")).blocks.map(b => b.id)).toContain(quoted.id);
+  const firstTag = await client.request<{ id: string }>({ action: "create", text: "Apricot bed [project::garden] [tags::[apricot, summer]]" });
+  expect((await query("project=garden", { sort: "tag" })).blocks.map(b => b.id)).toEqual([firstTag.id, saved.id, repeated.id]);
+
+
 
 });

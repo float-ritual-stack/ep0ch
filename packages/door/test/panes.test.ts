@@ -71,7 +71,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     hub = await create(null, "Orchard board");
     queued = await create(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
     await create(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
-    const body = (t: string) => `${t}\n${Array.from({ length: 20 }, (_, i) => `${t} line ${i + 1}: the ladder leans on the pear tree.`).join("\n")}`;
+    const body = (t: string) => `${t}\n\n${Array.from({ length: 20 }, (_, i) => `${t} line ${i + 1}: the ladder leans on the pear tree.`).join("\n")}`;
     const prune = await create(null, body("Prune the apples [stage::queued]"));
     await create(null, body("Net the cherries [stage::queued]"));
     await create(null, body("Mend the fence [stage::doing]"));

@@ -163,7 +163,7 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
 
   test("find --json: block records, built by the service", async () => {
     const [r] = JSON.parse((await run(["find", "--query", "tag=spring", "--json"], env)).out) as BlockRecord[];
-    expect(r).toMatchObject({ id: ids.order, title: "Seed order for the plot", parent: ids.plot, children: [ids.ask], properties: [{ key: "type", values: ["errand"] }, { key: "ctx", values: ["2026-03-09 @ 09:27:29 AM"] }, { key: "tag", values: ["seeds", "spring"] }], tasks: [{ status: "todo", text: "order the beans" }] });
+    expect(r).toMatchObject({ id: ids.order, title: "Seed order for the plot", parent: ids.plot, children: [ids.ask], properties: [{ key: "type", values: ["errand"] }, { key: "ctx", values: ["2026-03-09 @ 09:27:29 AM"] }, { key: "tag", values: ["seeds", "spring"] }, { key: "when", values: ["before Friday"] }], tasks: [{ status: "todo", text: "order the beans" }] });
   }, 30_000);
 
   test("export md writes each figure as its ASCII twin, answered from the outline; --source keeps the block", async () => {

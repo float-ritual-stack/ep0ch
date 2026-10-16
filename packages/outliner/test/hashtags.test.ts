@@ -125,11 +125,11 @@ test("a hashtag-only body line cannot redirect an appended property out of the p
 test("authored hashtags remain readable while structural metadata is hidden", () => {
   const text = "A #rabbit-hole [type::note]\n[tag::navigation]\n\nRemember #y2026/q1.";
   expect(propertyInspectorAuthoredText(text)).toBe("A #rabbit-hole\n\nRemember #y2026/q1.");
-  expect(firstLineWithoutPropertyTokens(text)?.trim()).toBe("A #rabbit-hole");
+  expect(firstLineWithoutPropertyTokens(text)?.trim()).toBe("A");
   expect(stripProperties("#rabbit-hole [type::note]")).toBe("#rabbit-hole");
   const store = makeStore();
   const block = store.create(text);
-  expect(store.readTreeIndex().blocks.find(entry => entry.id === block.id)?.preview).toBe("A #rabbit-hole");
+  expect(store.readTreeIndex().blocks.find(entry => entry.id === block.id)?.preview).toBe("A");
 });
 
 test("an imported quarter tag is queryable independently of storage dates and uses exact matching", () => {

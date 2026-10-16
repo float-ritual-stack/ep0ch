@@ -56,13 +56,22 @@ export function propertyValueEnd(text: string, from: number): number {
   // The value's own structure: a reference here is grammar, wherever the token sits.
   const references = new Map(blockReferenceOccurrences(line, []).map(reference => [reference.start, reference.end]));
   let depth = 1;
+  let quote = "";
   for (let at = 0; at < line.length; at += 1) {
+    const character = line[at];
+    if (quote) {
+      if (character === quote && !isEscapedAt(line, at)) quote = "";
+      continue;
+    }
+    if (depth > 1 && (character === "'" || character === '"') && /[\[,]\s*$/.test(line.slice(0, at))) {
+      quote = character;
+      continue;
+    }
     const skip = references.get(at);
     if (skip !== undefined) {
       at = skip - 1;
       continue;
     }
-    const character = line[at];
     if (character === "[") depth += 1;
     else if (character === "]" && --depth === 0) return at > 0 ? from + at : -1;
   }
@@ -181,7 +190,7 @@ export function splitPropertyValue(value: string): string[] {
     }
     const character = value[at];
     if (quote) {
-      if (character === quote && value[at - 1] !== "\\") quote = "";
+      if (character === quote && !isEscapedAt(value, at)) quote = "";
       continue;
     }
     if ((character === "'" || character === '"') && !value.slice(from, at).trim()) { quote = character; continue; }

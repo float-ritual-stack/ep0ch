@@ -4,10 +4,7 @@
 // of losing them with the properties. It sits on the property grammar and the media line, does no I/O, and is the one
 // definition the door, Detail and the web pages share; a change to what it matches bumps PROTOCOL.
 //
-// A metadata line is a line of the preamble: the run of lines right after the subject (blank lines and media lines
-// before it skipped) whose tokens the service calls block-scope metadata lines (`[key::value]` runs, hashtags among
-// them). A `#tag` line further down is body text and stays, so does a dashed one (`- #a - #b`): it is a body line that
-// also counts as the block's tags, and when it is the first line of the body a reader draws no second row for them.
+// Metadata-only lines within the first paragraph are hidden. Prose and lines after its first blank stay in place.
 import { frontMatterLines } from "./header-line";
 import { isMediaLine } from "./media-line";
 import { isPropertyTokenLine } from "./property-grammar";

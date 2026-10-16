@@ -44,6 +44,8 @@ describe("the header line", () => {
     expect(h.prose).toBe("Shed jobs");
     expect(h.dashes).toEqual([]);
     expect(h.chips.map(c => c.key)).toEqual(["type", "area"]);
+    expect(h.body).toBe("Shed jobs #bikes");
+    expect(headerLine("Shed #bikes jobs #garden\r\n\r\nBody").prose).toBe("Shed #bikes jobs");
   });
 
   test("a token in a literal range or escaped is text; values are kept verbatim; keys as written", () => {

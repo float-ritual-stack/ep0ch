@@ -1,20 +1,7 @@
-// A note's header line: the `[key::value]` chips that end its first line (PIE-534). This file is the one definition.
-// The service's parser gives exactly these chips block scope (properties.ts), the service's titles leave them and their
-// separators out, Detail's property table marks them `header`, and an export moves them into a Markdown file's front
-// matter and back. It sits on the property grammar (property-grammar.ts) and does no I/O; a change to what it matches
-// bumps PROTOCOL (and the outliner's PROPERTY_PARSER_VERSION).
-//
-// The header line is the first line that holds anything but blanks. Its chips are the run of unescaped `[key::value]`
-// tokens at its end, separated by blanks or by ` - ` (`Seed order [type::errand] - [area::garden]`), with nothing but
-// blanks after the last. A token inside a literal range the caller names (a code span, a fence: the service's literal
-// scan) is text, and so is one that other text follows (`[who::Sam] said so` is an inline aside). What comes before the
-// run, less a separating ` -`, is the line's prose: usually the note's title. The body is the prose, then every line
-// after the header line. A hashtag among the chips doesn't end the run: it leaves the displayed title with the chips, but stays in the export body.
-//
-// Front matter carries the chips as written, in order: values stay verbatim strings (never a date), and a key written
-// twice becomes a list at its first place. Rebuilding joins the prose and the chips with ` - `. Only spacing, the
-// separators and where a repeated key's values sit are normalized; `headerLine` reads the rebuilt line back to the same
-// prose and chips.
+// Shared header presentation and front-matter boundaries. The service uses frontMatterLines for block scope;
+// headerLine finds only the trailing chips and tags a displayed title leaves out. Mid-title tags stay prose.
+// Exports retain tags in the body and move header chips into YAML, without changing the stored source.
+// Changes here bump PROTOCOL and the outliner's PROPERTY_PARSER_VERSION.
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, propertyTokensInLine } from "./property-grammar";
 
 /** One header chip: its key as written, its value (trimmed, otherwise verbatim), where it sits in the text. */
@@ -34,7 +21,7 @@ export interface HeaderLine {
   offset: number;
   /** Offset of the header line's end (its newline, or the text's end). */
   end: number;
-  /** How much of the header line, from its start, the prose keeps verbatim (hashtags among the chips follow it). */
+  /** How much of the header line, from its start, the prose keeps verbatim. */
   kept: number;
   /** The header line without its trailing chips, hashtags and separators. */
   prose: string;
@@ -54,8 +41,8 @@ export interface LiteralRange { start: number; end: number }
 
 /** What may sit between two chips of the run: blanks, or a ` - ` separator (a hyphen with blanks on both sides). */
 const SEPARATOR = /^(?:[ \t]*|[ \t]+-[ \t]+)$/;
-/** A hashtag among the chips (`Shed [type::job] #bikes`): it stays with the prose, and the run goes on past it. */
-const HASHTAG = new RegExp(`(?<=^|[ \\t])#(?=[^ \\t]*\\p{L})(?:${HASHTAG_VALUE_PATTERN.source})(?=[ \\t]|$)`, "gu");
+/** A hashtag in the trailing metadata run (`Shed [type::job] #bikes`). */
+const HASHTAG = new RegExp(`(?<=^|[ \\t])#(?=[^ \\t]*\\p{L})(?:${HASHTAG_VALUE_PATTERN.source})(?=[ \\t\\r]|$)`, "gu");
 /** A separating ` - ` (or a trailing blank run) at the end of the prose. */
 const PROSE_TAIL = /(?:[ \t]+-)?[ \t]+$/;
 

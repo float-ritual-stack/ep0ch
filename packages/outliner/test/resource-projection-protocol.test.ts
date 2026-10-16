@@ -130,6 +130,7 @@ test("the service advertises resources.projection and reads stored snapshots wit
     "jira::",
     "compare ACME-12 and ACME-13",
     "jira::",
+    "",
     "jira:: OTHER-1",
   ].join("\n"));
   const result = await read(client, note.id);
@@ -141,7 +142,7 @@ test("the service advertises resources.projection and reads stored snapshots wit
     { line: 5, status: "not-fetched", key: "ACME-14", step: "preceding-line" },
     { line: 7, status: "not-registered", key: "ACME-15", step: "preceding-line" },
     { line: 9, status: "ambiguous", key: undefined, step: "preceding-line" },
-    { line: 10, status: "unavailable", key: "OTHER-1", step: "explicit" },
+    { line: 11, status: "unavailable", key: "OTHER-1", step: "explicit" },
   ]);
   const [first, stale, notFetched, unregistered, ambiguous, noSource] = result.projections as ResourceProjection[];
   // Only the provider's allowed fields are shown, in its order.

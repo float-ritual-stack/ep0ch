@@ -320,7 +320,6 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-    "front-matter": ["Early sowing notes", "A plan for the seed bed"],
     detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · M comments mode"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
@@ -451,6 +450,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     asks: ["Keep writing while the answer arrives"],
     scripts: ["Seed report", "Press alt+S"],
     "one-place": ["The long row of runner beans", "Bike shed"],
+    "front-matter": ["Early sowing notes", "A plan for the seed bed"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
