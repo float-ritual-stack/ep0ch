@@ -126,6 +126,9 @@ describe("query grammar", () => {
     expect(check("updated <= 2026-09-20", "2026-09-21T00:00:00.000Z")).toBe(false);
     expect(check("updated >= -7d", "2026-09-20T15:00:00.000Z")).toBe(true);
     expect(check("updated >= -7d", "2026-09-20T14:59:59.999Z")).toBe(false);
+    // Minutes, for a check-in that looks back half an hour (Evan, Oct 16).
+    expect(check("updated >= -40m", "2026-09-27T14:20:00.000Z")).toBe(true);
+    expect(check("updated >= -40m", "2026-09-27T14:19:59.999Z")).toBe(false);
     expect(check("updated >= today", "2026-09-27T00:00:00.000Z")).toBe(true);
     expect(check("updated < yesterday", "2026-09-26T00:00:00.000Z")).toBe(false);
     expect(check("updated > 2026-09-27T14:00", "2026-09-27T14:30:00.000Z")).toBe(true);

@@ -1452,7 +1452,7 @@ export type QueryComparison = "<" | "<=" | ">" | ">=";
  * Boolean property/timestamp predicate. Property leaves have filter semantics
  * (presence or case-insensitive equality within propertyScope; a value that reads as a date also holds for the
  * values on that day, or a span holding it). Time values are
- * YYYY-MM-DD, an ISO datetime, now, today, yesterday or -N{h,d,w}; relative
+ * YYYY-MM-DD, an ISO datetime, now, today, yesterday or -N{m,h,d,w}; relative
  * values resolve when the service evaluates the query.
  */
 export type QueryExpression =

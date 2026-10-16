@@ -2080,7 +2080,7 @@ rating > 3
   with or without spaces. A `YYYY-MM-DD` date is a whole UTC day:
   `> 2026-09-20` starts on the 21st and `<= 2026-09-20` includes all of the
   20th. `today` and `yesterday` are UTC days too. ISO datetimes (UTC unless an
-  offset is given), `now` and `-N` followed by `h`, `d` or `w` are instants;
+  offset is given), `now` and `-N` followed by `m`, `h`, `d` or `w` are instants;
   an impossible date or time such as `2026-02-30T10:00Z` is an error. Relative
   values resolve each time the service evaluates the query (every `views.read`
   or `blocks.query`). Tree re-reads a saved view when the workspace changes, not
@@ -2088,7 +2088,7 @@ rating > 3
   change or refresh. `updated=…` is still a property equality clause.
 - **Comparisons on any property** (PIE-769): a property key, then `<`, `<=`, `>` or `>=`, then a bound, with or
   without spaces (`due <= +3d`, `rating>3`). The bound decides how values compare: a **date** when it reads as one
-  (`today`, `tomorrow`, `yesterday`, `now`, `-7d`, `+3d` and `+2w` (that calendar day), `-12h` (that moment), or any
+  (`today`, `tomorrow`, `yesterday`, `now`, `-7d`, `+3d` and `+2w` (that calendar day), `-12h` or `-30m` (that moment), or any
   date as people write one, below), a
   **number** when it is a decimal (`3`, `-2.5`), and **text** otherwise (ignoring case, in the locale's order:
   `stage >= beta`). A value that can't be read as the bound's kind doesn't match, and the answer's `hint` names it
