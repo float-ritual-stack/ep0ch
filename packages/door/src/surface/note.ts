@@ -2509,7 +2509,13 @@ export class NoteSurface {
     const out = { replies: replies.children.map(c => c.block.id), truncated: replies.truncated };
     if (actor.kind === "agent" || movedOn(host, this, m.id)) return out;
     const data: LinkData = { links: { kind: "ready", value: links }, backlinks: { kind: "ready", value: backlinks }, children: { kind: "ready", value: replies.children } };
-    if (refresh) { if (previous && this.replyLinks === previous) { previous.data = data; previous.thread = thread; previous.truncated = replies.truncated || thread.truncated; } host.redraw(); return out; }
+    if (refresh) {
+      if (previous && this.replyLinks === previous) {
+        // The selection stays on its post when the thread changes under it (a reply arrived above it).
+        const keep = previous.rowsAt[previous.selected]?.key;
+        previous.data = data; previous.thread = thread;
+        const at = previous.group === "thread" && keep ? threadRows(thread, previous.unfolded).findIndex(r => r.key === keep) : -1;
+        if (at >= 0) previous.selected = at; previous.truncated = replies.truncated || thread.truncated; } host.redraw(); return out; }
     const row = (n?: number) => mode.rowsAt[n === undefined ? mode.selected : n - 1];
     // ⏎ and a second click: a fold row shows its posts, any other row is read.
     const go = (n?: number) => run(row(n)?.kind === "fold" ? "note.thread.unfold" : "note.thread.open", n === undefined ? {} : { n });

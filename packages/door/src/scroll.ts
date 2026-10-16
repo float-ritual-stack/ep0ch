@@ -150,8 +150,9 @@ export class RowPresses {
     this.last = twice ? null : { row, at: now };
     if (twice) return "open";
     if (p.focusing) return "focus";
-    if (p.selected) return "open";
-    return (p.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL) || p.button === MOUSE_MIDDLE ? "fresh" : "select";
+    // An alt-, ctrl- or middle-click is the fresh open, on the selected row too.
+    if ((p.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL) || p.button === MOUSE_MIDDLE) return "fresh";
+    return p.selected ? "open" : "select";
   }
   /** The list changed under the pointer (another note's rows): the next press starts afresh. */
   forget() { this.last = null; }
