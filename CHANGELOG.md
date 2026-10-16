@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Agents and extensions wake each other by default (PIE-906) (#592, #593)
+
+- **Changed:** Evan's agents and extensions may wake each other without his `r`; `[invoke-…]` notes now only deny or narrow; an ask a person started (over the OAuth'd connector, or a line an extension copied from the person's note) runs as the person's; a line is held only when a loop guard trips (repeat, hops, budget, cap), and says which. The showcase explains it (#593).
+- **Deployment:** PROTOCOL 189; `ep0ch install --apply` on each machine.
+
 ### Plain inline answers stream while you type (PIE-903)
 
 - PIE-903: plain inline agent answers stream through the existing draft patch, answer fold and beside tile;
