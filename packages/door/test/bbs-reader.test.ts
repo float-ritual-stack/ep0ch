@@ -160,6 +160,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
 
   test("comments: a comment mark's thread expands inline with ⏎, and m opens the thread list", async () => {
     const r = await open();
+    key(char("M")); key(char("M"));
     stepTo(r, "\"The gate code");
     expect(current(r)?.kind).toBe("comment");
     key({ kind: "enter" });

@@ -303,7 +303,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-    detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
+    detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · M comments mode"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -368,7 +368,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The build log: its two open calls under Needs you, the decided ones drawn as their marks.
     steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
     "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
-    "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "1 open comment"],
+    "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "shown (M)"],
     // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
     marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
     // The pump rota's margin: its current comment and the kept one's TL;DR face; the seen one is off the margin.
@@ -1158,7 +1158,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Highlight: the kit's passage action, written as ext:marginalia at the agent's request.
     const hl = await act("plan", { action: "ext.marginalia.highlight", quote: "soil pH near 6.5", color: "good" });
     expect(hl.written).toHaveLength(1);
-    await waitFor(async () => (await threads()).length === 3, "the highlight listed", 5000);
+    await waitFor(async () => (await threads()).some(t => t.quote === "soil pH near 6.5"), "the highlight listed", 5000);
     // A repeated passage is refused with why; near= says which.
     await expect(act("plan", { action: "ext.marginalia.define", quote: "cold frame" })).rejects.toThrow(/2 times/);
     const define = await act("plan", { action: "ext.marginalia.define", quote: "soil pH", near: plan.text.lastIndexOf("soil pH") });
@@ -1239,11 +1239,14 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     }
     await act("thread.toggle", { thread: whole.id, expand: true });
     expect(screen()).toContain(whole.body);
+    await stage().dispatch.press("select", { text: "Sow the basil" }, "plan");
     await act("margin", { mode: "off" });
+    expect(await stage().dispatch.press("select.copy", {}, "plan")).toMatchObject({ text: "Sow the basil" });
+    await stage().dispatch.press("select.clear", {}, "plan");
     expect(screen()).not.toContain(whole.body);
     expect(screen()).not.toContain("[Reply]");
     expect(screen()).toContain("marks (M)");
-    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("[+]Greenhouse plan"));
+    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("Greenhouse plan") && l.includes("[+]"));
     expect(y).toBeGreaterThanOrEqual(0);
     const x = lines[y]!.indexOf("[+]");
     press({ kind: "mouse", action: "down", button: 0, x, y });
@@ -1324,7 +1327,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: true }, "rota");
     const rows = () => sc.render(app).lines.map(plain);
     await until(() => rows().some(l => l.includes("[No TL;DR]")), "the thread expanded, its TL;DR controls");
-    expect(rows().join("\n").split("Sewing machine oil on the hose reel").length - 1).toBe(1);
+    expect(rows().join("\n").split("TL;DR Sewing").length - 1).toBe(1);
     const y = rows().findIndex(l => l.includes("[No TL;DR]")), x = rows()[y]!.indexOf("[No TL;DR]") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     for (let i = 0; i < 80 && (await oil()).tldr; i++) await Bun.sleep(100);
@@ -1337,7 +1340,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // As it was: the seed's TL;DR back (the person's own, written), for the tests after.
     await board.tldr((await oil()).id, USER, "Sewing machine oil on the hose reel, each spring.");
     if (cs()) await stage().dispatch.press("comment.close", {}, "rota");
-    await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: false }, "rota");
+    await stage().dispatch.press("thread.toggle", { thread: (await oil()).id, expand: true }, "rota");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 

@@ -2933,7 +2933,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : joined ? surfaceBg("raised", lv["bg.strength"]) : "";
     canvas.clear(r, dock || float ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
-    const gutter = pane instanceof ReaderPane ? Math.min(pane.surface.gutterWidth(), Math.max(0, framed.cols - 8)) : 0;
+    const reader = pane instanceof ReaderPane ? pane : null;
+    const gutter = reader ? Math.min(reader.surface.gutterWidth(), 3 * Math.floor(Math.max(0, framed.cols - 8) / 3)) : 0;
+    if (reader) reader.gutterCols = gutter;
     const inner = contentRect({ ...framed, col: framed.col + gutter, cols: framed.cols - gutter }, look, !!pane.measured, pane.beside?.() ?? 0);
     if (gutter) this.gutters.set(id, { col: framed.col, row: inner.row, cols: gutter, rows: inner.rows });
     else this.gutters.delete(id);

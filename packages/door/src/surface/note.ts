@@ -117,7 +117,7 @@ export interface SurfaceHost {
    */
   readonly look?: Look;
   /** The tile host draws the gutter outside its padded, measured content rectangle. */
-  readonly externalGutter?: boolean;
+  readonly externalGutter?: number;
   /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
   navigate(m: Msg, how?: OpenHow): void;
   /**
@@ -658,8 +658,8 @@ export class NoteSurface {
     const look = host?.look ?? lookFor(this.src, { page: lookPage(m) }, w);
     this.lastLook = look;
     const mx = look.values["margin.x"];
-    this.gutterStart = host?.externalGutter ? -this.gutterWidth() : 0;
-    this.bx = (host?.externalGutter ? 0 : this.gutterWidth()) + Math.max(0, Math.min(mx, Math.floor(w / 4)));
+    this.gutterStart = host?.externalGutter !== undefined ? -host.externalGutter : 0;
+    this.bx = (host?.externalGutter !== undefined ? 0 : this.gutterWidth()) + Math.max(0, Math.min(mx, Math.floor(w / 4)));
     this.bxRight = Math.max(0, Math.min(mx - 1, Math.floor(w / 4)));
     this.my = look.values["margin.y"];
     return look;
@@ -700,8 +700,7 @@ export class NoteSurface {
    */
   folded = new Set<string>();
   /**
-   * Comment threads expanded inline under their passage (PIE-420), by thread id: like `folded`, this
-   * reader's reading state and the person's alone (an agent's action never expands or collapses one).
+   * Comment threads opened in full, by thread id: local reading state, also changeable by an agent acting for the person.
    */
   expanded = new Set<string>();
   /** Explicit folds suppress the compact margin card too, independently of the margin mode. */
@@ -1219,7 +1218,7 @@ export class NoteSurface {
    * summary is on with its links. One builder: the reading render and a digest's host (stickyHeader) both draw it.
    */
   private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null, sized = true): HeaderBlock {
-    const gx = this.printed || host?.externalGutter ? 0 : this.gutterWidth();
+    const gx = this.printed || host?.externalGutter !== undefined ? 0 : this.gutterWidth();
     w = Math.max(1, w - gx);
     // The Work ID heads the title line (PIE-809), not this one.
     const meta = [authorName(m.author), bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
@@ -1559,6 +1558,7 @@ export class NoteSurface {
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     this.composerRows = comp?.passage ? [top + comp.passage[0] - this.scroll, top + Math.max(comp.passage[1], comp.after ?? 0) - this.scroll] : null;
+    this.restoreCommentSelection();
     this.selectionControl(w);
     // The body's images, past its inset (the look's margin), cut to the rows shown.
     const bx = this.bx;
@@ -1596,9 +1596,9 @@ export class NoteSurface {
         if (at >= 0 && at < room) this.hits.push({ row: top + at, from: bx + im.col, to: Math.min(w, bx + im.col + im.cols), image: e.key });
       }
     }
-    for (const k of marks) {
+    for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
-      if (row >= 0 && row < top + room) this.hits.push({ row, from: this.gutterStart + (k.col ?? 0), to: this.gutterStart + (k.col ?? 0) + 3, thread: k.thread, elem: `comment:${k.thread}` });
+      if (row >= (whole.has(k.thread) ? 0 : top) && row < top + room && (host?.externalGutter === undefined || (k.col ?? 0) + 3 <= host.externalGutter)) this.hits.push({ row, from: this.gutterStart + (k.col ?? 0), to: this.gutterStart + (k.col ?? 0) + 3, thread: k.thread, elem: `comment:${k.thread}` });
     }
     for (const c of controls) {
       const row = c.row - this.scroll;
@@ -1679,9 +1679,9 @@ export class NoteSurface {
     }
     const gutter: { row: number; text: string }[] = [];
     const gutterRows = new Map<number, string>();
-    for (const k of marks) {
+    for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
-      if (row < 0 || row >= top + room) continue;
+      if (row < (whole.has(k.thread) ? 0 : top) || row >= top + room) continue;
       const glyph = this.threadShown(k.thread) ? "[–]" : "[+]";
       const old = gutterRows.get(row) ?? "";
       gutterRows.set(row, pad(old, k.col ?? 0) + fg(k.open ? C.yellow : C.dark) + glyph + RESET);
@@ -1689,14 +1689,14 @@ export class NoteSurface {
     // An open card can sit below its passage; its gutter control stays beside its header too.
     for (const c of controls.filter(c => c.control === "toggle")) {
       const row = top + c.row - this.scroll, mark = marks.find(k => k.thread === c.thread);
-      if (row < top || row >= top + room || !mark) continue;
+      if (row < top || row >= top + room || !mark || (host?.externalGutter !== undefined && (mark.col ?? 0) + 3 > host.externalGutter)) continue;
       const col = mark.col ?? 0;
       gutterRows.set(row, " ".repeat(col) + fg(mark.open ? C.yellow : C.dark) + "[–]" + RESET);
       this.hits.push({ row, from: this.gutterStart + col, to: this.gutterStart + col + 3,
         thread: c.thread, elem: controlKey(c.thread, "toggle") });
     }
     for (const [row, text] of gutterRows) {
-      if (host?.externalGutter) gutter.push({ row, text });
+      if (host?.externalGutter !== undefined) gutter.push({ row, text });
       else lines[row] = pad(text, this.gutterWidth()) + tailFrom(lines[row] ?? "", this.gutterWidth());
     }
     if (foot) {
@@ -1820,6 +1820,8 @@ export class NoteSurface {
     const inset = " ".repeat(this.bx);
     const body = doc.lines.map(l => (width(l) + this.bx > w ? pad(inset + l, w) : inset + l));
     const marks = this.commentMarks(m, doc, noteLines);
+    if (this.printed) for (const row of new Set(marks.map(k => k.row))) if (body[row])
+      body[row] = fg(marks.some(k => k.row === row && k.open) ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
     const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
     // Both placements use the same card and controls; width alone chooses beside or below the passage.
     const cards = mcols ? placeCards(cardThreads.flatMap(c => {
@@ -1829,6 +1831,7 @@ export class NoteSurface {
       return [{ thread: c.id, row: k.row, rows: card.lines, controls: card.controls, images: card.images }];
     })) : [];
     for (const card of cards) for (const c of card.controls) {
+      if (elems.some(e => e.key === controlKey(c.thread, c.control, c.value))) continue;
       const row = top + card.at + c.row, from = w - mcols + 2 + c.from, to = w - mcols + 2 + c.to;
       elems.push({ key: controlKey(c.thread, c.control, c.value), kind: "control", row, from, to,
         ruler: [row, row + 1], label: c.label, thread: c.thread, control: c.control, value: c.value });
@@ -3877,6 +3880,7 @@ export class NoteSurface {
 
   /** Open or fold a card in this reader without moving its focus or selection. */
   setExpanded(thread: string, on: boolean) {
+    this.keepCommentSelection();
     if (on) { this.expanded.add(thread); this.foldedThreads.delete(thread); }
     else { this.expanded.delete(thread); this.foldedThreads.add(thread); }
     if (this.marginMode === "off") {
@@ -3884,9 +3888,33 @@ export class NoteSurface {
     }
   }
 
+  private commentSelection: { selection: Selection; text: string; from: number } | null = null;
+
+  private keepCommentSelection() {
+    const selection = this.selection, rows = this.selRows();
+    const source = selection && this.sourceOf(selection);
+    if (selection && rows && source && !this.commentSelection)
+      this.commentSelection = { selection, text: selection.text(rows), from: source.from };
+  }
+
+  private restoreCommentSelection() {
+    const saved = this.commentSelection;
+    this.commentSelection = null;
+    if (!saved || this.selection !== saved.selection) return;
+    // The same source occurrence survives both inserted cards and a side column rewrapping the words.
+    for (let n = 1; ; n++) {
+      let next: Selection;
+      try { next = this.selectBy({ text: saved.text, n }); } catch { return; }
+      if (this.sourceOf(next)?.from !== saved.from) continue;
+      next.keys = saved.selection.keys;
+      this.selection = this.stamp(next);
+      return;
+    }
+  }
+
   private openedWhileOff = new Set<string>();
 
-  setMargin(mode: MarginMode) { this.marginMode = mode; this.openedWhileOff.clear(); }
+  setMargin(mode: MarginMode) { this.keepCommentSelection(); this.marginMode = mode; this.openedWhileOff.clear(); }
 
   threadShown(thread: string): boolean {
     if (this.marginMode === "off") return this.openedWhileOff.has(thread);
@@ -4128,7 +4156,7 @@ export class NoteSurface {
       from: this.gutterStart + (k.col ?? 0), to: this.gutterStart + (k.col ?? 0) + 3,
       ruler: [top + k.rows[0], top + k.rows[1]], label: k.label, thread: k.thread });
     const quoteOf = new Map(marks.map(k => [k.thread, k.label.split(" · ")[0]!]));
-    for (const c of controls) out.push({ key: controlKey(c.thread, c.control, c.value), kind: "control", row: top + c.row, from: c.from + this.bx, to: c.to + this.bx, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control, ...(c.value !== undefined ? { value: c.value } : {}) });
+    for (const c of controls) if (!out.some(e => e.key === controlKey(c.thread, c.control, c.value))) out.push({ key: controlKey(c.thread, c.control, c.value), kind: "control", row: top + c.row, from: c.from + this.bx, to: c.to + this.bx, ruler: [top + c.row, top + c.row + 1], label: `${c.label} · ${quoteOf.get(c.thread) ?? "a thread"}`, thread: c.thread, control: c.control, ...(c.value !== undefined ? { value: c.value } : {}) });
     return out.sort((a, b) => a.row - b.row || a.from - b.from);
   }
 
@@ -4836,7 +4864,7 @@ export class NoteSurface {
       const other = !a ? null : cur.startsWith(`${a.now}#`) ? a.was + cur.slice(a.now.length) : cur.startsWith(`${a.was}#`) ? a.now + cur.slice(a.was.length) : null;
       if (other && drawn(other)) { if (this.picker?.key === cur) this.picker.key = other; this.cur = other; }
       // A step isn't let go of while the steps are read again: it's back once they are.
-      else if (!(cur.startsWith("task:") && loading)) this.letGo();
+      else if (!(cur.startsWith("task:") && loading) && !this.comments?.some(c => cur.startsWith(`ctl:${c.id}:`))) this.letGo();
     }
     // The step under an open status choice changed (its text, or it's gone): the choice closes rather than
     // act on whatever is there now.
@@ -6424,7 +6452,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   if (trim) {
     const summary = c.tldr ? `TL;DR ${c.tldr.body}` : c.replies.at(-1)?.body ?? c.body;
     lines.push(edge + "│ " + fg(C.grey) + ellipsize(body(summary, inner).join(" "), inner) + RESET);
-    return { lines, images, controls: [
+    return { lines, images: [], controls: [
       { thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" },
       { thread: c.id, control: "card", row: 0, from: 0, to: W - 3, label: "Open thread" },
       { thread: c.id, control: "card", row: 1, from: 0, to: W, label: "Open thread" },
@@ -7814,7 +7842,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "thread.toggle": def({
-    summary: "expand a comment thread inline under its passage (its comment, replies and Select, Reply, Resolve controls), or collapse it; expand=true or false sets it. Agents may change this reading state for the person without moving focus or selection", keys: "enter or a click on a comment mark",
+    summary: "open a comment card (its comment, replies and Select, Reply, Resolve controls), or fold it to its gutter mark; expand=true or false sets it. Agents may change this reading state for the person without moving focus or selection", keys: "enter or a click on a comment mark",
     touches: "shape", replay: "safe",
     args: {
       thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },

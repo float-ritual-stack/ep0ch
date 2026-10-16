@@ -1905,8 +1905,8 @@ in the lanes comments in the preview.
 | a link, a comment mark, back or forward while the comment is unsent | asks in the power bar: save and continue (kept as unsent), keep writing, discard (a copy stays on disk); `⏎` or a click on a row, esc keeps writing (`comment.leaving`). An agent's action never asks |
 | `C`, nothing selected; or a click on `[comment]` after the note's date | write a comment on the whole note (PIE-846, `comment.note`): the box opens at the top of the note, where whole-note threads sit (their card on the margin's first row); everything else is as above |
 | `m` | the note's comment threads: `j k` pick, `r` reply, `e` edit the comment's words, `s` seen, `p` keep, `t` TL;DR (with no model set up for @margin, it says how to set one up; nothing is written), `T` takes the TL;DR away, `C` a new comment |
-| `M`, or a click on the comment count after the note's date | the margin: cards a row each → whole → **marks only** (PIE-873: the highlights and `▐` marks stay, the cards go; the count then reads `4 comments · marks only (M)`, a comment on the whole note is one `▐` after the title, which a click opens; `m` still lists the threads). Kept with the tile: a handover, a restart and the next note read the same way, and a reader opened from it starts the same |
-| `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it; its `[Edit]` (and each reply's) edits those words |
+| `M`, or a click on the comment count | comments: **shown** (trim) → **full** → **marks**. The byline names the mode and `(M)`. Marks hides every card; returning restores the threads. Kept with the tile across a restart and inherited by a reader opened from it |
+| Click `[–]` / `[+]`, or `⏎` on a comment mark | fold or open that thread. Marks and fold controls live in a fixed left gutter outside padding, margin and measure; a folded whole-note thread also leaves a mark after the title. Its `[Edit]` edits the comment |
 | `Esc` | back a step; with unsent text it asks for a second `Esc`, which puts the comment aside (`C` brings it back, on selected words or the whole note) |
 
 - **Edit after posting (PIE-763):** `e` on a thread in the list, or `[Edit]` on an expanded thread or one of its replies,
@@ -1939,9 +1939,9 @@ in the lanes comments in the preview.
   takes an actor id only on agent comments). Resolve and reopen record `actorId: ep0ch-door:<hostname>`.
   An agent's comments and replies (below) are `author: agent` with the agent's actor id, and so is one
   you and an agent both wrote (see "Who a write is recorded as").
-- The reader's header counts open comments; a links tile lists them under Backlinks (kind Comment, `h` shows the resolved ones) and refreshes on outline events.
+- The reader's header counts comments and names their display mode; a links tile lists them under Backlinks (kind Comment, `h` shows the resolved ones) and refreshes on outline events.
 
-### Threads inline (PIE-420)
+### Comment cards (PIE-910)
 
 Each thread has a `[–]` on its card header and a gutter control at the reader's fixed left edge.
 Click either to fold it to `[+]`, leaving no inline stub; click `[+]` to open it. Whole-note threads
@@ -1967,7 +1967,7 @@ Agents can use `margin` and `thread.toggle` for the person, attributed on screen
   the quote back. In the thread list (`m`), `q` quotes the current thread and `space` picks several first.
   A highlight is a mark too: expand it and Quote it. `act quote threads=<id>,<id> where=inbox|note|<block>`.
 - **Agents** use `threads`, `reply`, `resolve` and `quote` on an expanded thread as on any other. Which threads are
-  expanded is your reading state: `thread.toggle` is yours only, an agent's `element.open` on a mark opens
+  expanded is local reading state: agents may use `thread.toggle` and `margin` for you. An agent's `element.open` on a mark opens
   its own thread list without expanding anything, and on a control it's refused with the action to use.
 
 ## Reading notes
@@ -2076,7 +2076,7 @@ Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text
 
 `[` and `]` step through everything a reader draws, in reading order (PIE-441): links (in the text, the
 summary line, an image or a video), headings and list items that fold, the rows of a live figure or an
-embedded view that stand for a note, embeds (their title), comment marks (`▐` in the margin beside the
+embedded view that stand for a note, embeds (their title), comment marks (`[+]` / `[–]` in the fixed gutter beside the
 lines a comment quotes; yellow while it's open, dim once resolved), and the controls of a thread expanded
 under its passage. `( )` still jumps between folds only. The reader's footer
 names the current one (`[ ] 2/9 · link Stake the beans · ⏎ follow · alt⏎ new`), and the block it's in gets
