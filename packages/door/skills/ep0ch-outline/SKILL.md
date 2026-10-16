@@ -591,7 +591,7 @@ doesn't have the environment variable: the service reads the group when a call s
 - `[keys::alt+S]` binds a script key; clashes are reported and typing keeps its keys.
 - A rule's `[rule-on::script:name]` invokes it through the existing rule triggers.
 - An inline `@name slot=value` ask invokes it after the quiet timer; names use lowercase letters, digits and hyphens, starting with a letter, up to 32 characters.
-- A run uses the source author's attribution and records the requester alongside it.
+- A run is attributed to `script:<name>` and records the requester separately. Scripts default to read-only; a block declares writes with `[effects::write]`.
 - The child run note streams progress and records the source revision and changes since the previous run in this host.
 - `extensions.undo` with the returned `undo` receipt undoes the whole run's saved writes, door-action writes and draft patches; conflicts preserve intervening edits, and receipts last for this host process.
 - An agent-written `[script::]` runs as soon as invoked, attributed, with no approval gate.
@@ -615,7 +615,9 @@ For the full contract, read [Script blocks and files](../../../outliner/docs/ext
 **Scripts:** `[script::]` blocks run through the host API (#583), macros save action lines (#585), bindings reach
 keys, named commands, rules and `@name` (#588), and `@asks` answer in place while the person keeps typing (#590, #591).
 Read ((d6ac2691-0585-4d09-9f89-435ee3be0ca3|the scripting design)) in pie for the shared parts.
-Until PIE-908 lands, never keep files in `<outline folder>/scripts/`: `.ts`/`.js` files there load as write agents.
+Script files opt in under `<outline folder>/.ep0ch/scripts/` with `// ep0ch-script` on the first line.
+They run read-only by default; `// ep0ch-script effects=write` declares writes. Files in the old `scripts/`
+folder stay inactive; review them before `ep0ch doctor --fix --move-scripts`.
 
 Extensions are trusted user code, like editor plugins, run by the service. Their data behaves as if the
 person had copied it in: real blocks, namespaced properties (`jira.status`), queryable, linkable,
