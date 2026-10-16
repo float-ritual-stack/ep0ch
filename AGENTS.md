@@ -148,7 +148,9 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   `EP0CH_STATE`, `EP0CH_CONTROL`, `EP0CH_OUTLINES` (scratch) and `TMPDIR` in `~/.agent-env/<name>/`, with every
   inherited `EP0CH_*` unset (set both `EP0CH_CONTROL` and `EP0CH_STATE` if you ever do it by hand). Wrap commands,
   never your own session (your outline tools would follow it to the scratch folder). Name the scratch outline with
-  `--ws`, and end a session you tested yourself. `bun scripts/snap.ts` scenarios that write need `EP0CH_SOCKET` at a
+  `--ws`, and end a session you tested yourself. Under agent-env a `.ep0ch`'s `machine` and an inherited
+  `EP0CH_MACHINE` are ignored (said on stderr), so a command run from this repo never reaches float-2's live host;
+  only an explicit `--machine <ssh-name>` does (PIE-912). `bun scripts/snap.ts` scenarios that write need `EP0CH_SOCKET` at a
   scratch host and `EP0CH_SNAP_WRITES=1`.
 - **Never attach to or type into a Herdr pane you didn't make** (the real-pane recipe is in ep0ch-core).
 - **A test naming a machine** (`--machine`, `EP0CH_MACHINE`, a `.ep0ch`'s `machine`) runs with `EP0CH_OUTLINES` under

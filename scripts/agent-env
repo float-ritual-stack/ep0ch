@@ -10,6 +10,10 @@
 #   scripts/agent-env <name> --clean             remove the agent's folder
 #   (any other scratch folder: scripts/scratch-clean <dir>)
 #
+# A machine is never reached by accident (PIE-912): under agent-env the `machine` of the folder's .ep0ch and an
+# inherited EP0CH_MACHINE are ignored, with a line on stderr, so `ep0ch outline create x` run from a repo that names
+# another machine makes x here, in the scratch outlines folder. Only `--machine <ssh-name>` on the command reaches one.
+#
 # The folder is $EP0CH_AGENT_ROOT/<name> (default ~/.agent-env/<name>, mode 700), short enough for sockets; its temp
 # folder is $EP0CH_AGENT_TMP/ep0ch-agent-<uid>/<name> (default under /tmp, outside $HOME and its ~/.ep0ch). The
 # person's settings are cleared by packages/door/scripts/test-door-env.sh, the same as a test door's.
@@ -25,6 +29,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 usage() { sed -n "6,9p" "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+case ${1:-} in -h|--help) sed -n "2,/^set -euo/p" "$0" | sed "/^set -euo/d; s/^# \{0,1\}//"; exit 0;; esac
 [ $# -ge 1 ] || usage
 name=$1; shift
 case $name in ''|*/*|.*|-*) echo "agent-env: a name is letters, digits, - and _ (got \"$name\")" >&2; exit 2;; esac

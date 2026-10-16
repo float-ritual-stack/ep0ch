@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatDotEp0ch, guessOutline, isMachineName, outlineOfFile, type LocationReader, nearestDotEp0ch, outlineLayout, outlinesFolder, parseDotEp0ch,
-  mayCreate, missingOutline, sessionPersona, slugifyOutlineName, whichOutline,
+  ignoredMachineNote, mayCreate, missingOutline, scratchEnv, sessionPersona, slugifyOutlineName, whichOutline,
 } from "../src/outline-location";
 
 /** A disk made of paths: files with their text, and folders that hold a `.git`. */
@@ -113,6 +113,22 @@ describe("which outline (PIE-530)", () => {
     ]);
     expect(layout.remote("box-a")).toEqual({ socket: "/home/sam/outlines/.remote/box-a.sock", control: "/home/sam/outlines/.remote/box-a.ctl", config: "/home/sam/outlines/.remote/box-a.json" });
     expect(slugifyOutlineName("Évan's Fictional Garden!")).toBe("evan-s-fictional-garden");
+  });
+});
+
+describe("a scratch environment's machine (PIE-912)", () => {
+  const fs = disk({ "/work/far/.ep0ch": 'ws = "jam-shelf"\nmachine = "box-a"\n' });
+  test("only --machine names a machine; a file's and EP0CH_MACHINE are set aside, and said", () => {
+    const folder = "/work/far";
+    expect(whichOutline({ folder, home: HOME, fs, scratch: true })).toEqual({ kind: "named", name: "jam-shelf", source: "file", file: "/work/far/.ep0ch", folder, ignoredMachine: { machine: "box-a", source: "file" } });
+    expect(whichOutline({ folder, machineEnv: "box-b", home: HOME, fs, scratch: true })).toMatchObject({ ignoredMachine: { machine: "box-b", source: "env" } });
+    expect(whichOutline({ folder, machineFlag: "box-c", home: HOME, fs, scratch: true })).toMatchObject({ machine: "box-c", machineSource: "flag" });
+    expect(ignoredMachineNote({ machine: "box-a", source: "file" })).toContain("--machine box-a");
+  });
+  test("scratchEnv is agent-env with the real ssh: a fake EP0CH_SSH can't reach a real machine", () => {
+    expect(scratchEnv({ EP0CH_AGENT_ENV: "tester" })).toBe(true);
+    expect(scratchEnv({ EP0CH_AGENT_ENV: "tester", EP0CH_SSH: "/tmp/fake-ssh" })).toBe(false);
+    expect(scratchEnv({})).toBe(false);
   });
 });
 

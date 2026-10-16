@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A command run under agent-env never reaches the machine a folder names (PIE-912)
+
+- Under `scripts/agent-env`, a `.ep0ch`'s `machine` and an inherited `EP0CH_MACHINE` are ignored, with a line on stderr saying so; only `--machine <ssh-name>` reaches another machine. Running `ep0ch outline create` from the repo under agent-env used to create the outline on float-2's live host.
+- **Deployment:** PROTOCOL 195. `ep0ch install --apply` on float-2, float-box and the MacBook.
+
 ### Queries can look back in minutes
 
 - `updated >= -30m` (and `-40m`, any `-Nm`) now works in queries, views, `ep0ch find --query` and the MCP tools. Before, only `h`, `d` and `w` were understood, so "the last half hour" had to be written as `-1h`.
