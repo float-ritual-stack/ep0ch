@@ -3807,7 +3807,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await app.act({ action: "edit", tile: "notes", as: "test-agent" });
     const draft = ([...stage.panes.values()].find((p: any) => p.editing) as any).surface.draft;
     press({ kind: "enter" });
-    press({ kind: "end" });
+    await stage.dispatch.press("draft.place", { line: draft.lines.length }, "notes");
     press({ kind: "paste", text: "\n\nKeep typing here." });
     const target = seeded.notes.scriptTarget.id;
     const proposed = mode === "proposal" || mode === "dismiss" ? await board.request<{proposalId: string}>("draft.patch", {
@@ -3874,7 +3874,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       const reader = [...stage.panes.values()].find((p: any) => p.editing) as ReaderPane;
       const draft = reader.surface.draft!;
       press({kind: "enter"});
-      press({kind: "end"});
+      await stage.dispatch.press("draft.place", {line: draft.lines.length}, "notes");
       press({kind: "paste", text: "\n\nStill typing."});
       // The first lease must expire unless the script-created heartbeat remains usable after completion.
       await Bun.sleep(DRAFT_LEASE_MS + 1000);
@@ -4396,8 +4396,8 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     // At the top the picture is in view: the header knows its hero, at step 0, and is plain.
     expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null, focus: { x: 0.85, y: 0.6 } }, on: true, mode: "first" });
     expect(titleRow()).not.toContain("\x1b[48;2;");
-    // Scrolled past it (an agent's scroll, through act): the header takes it, in this terminal's cells, by steps.
-    await app.act({ action: "scroll", args: { by: 1 }, as: "test-agent" });
+    // The person's first step has no extra attribution row changing the header height.
+    await S().stages.get(S().sel).top.dispatch.press("scroll", { by: 1 }, "reader");
     await until(() => reader().header.backdrop?.drawn === "cells", "the first step drawn", 8000);
     expect(reader().header.backdrop).toMatchObject({ image: "evening-beds.jpg", line: 2, step: 1, of: 3 });
     await app.act({ action: "scroll", args: { by: 4 }, as: "test-agent" });
