@@ -3551,8 +3551,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(narrow.join("\n")).toContain("beside ▸");
     expect(narrow.every(line => Bun.stringWidth(line) <= 48)).toBe(true);
     expect(narrow.join("\n")).toContain("agents here:");
+    await stage.dispatch.press("draft.place", { line: d.lines.length, col: d.lines.at(-1)!.length + 1 }, tile);
+    await stage.dispatch.press("draft.paste", { text: "\nOrdinary prose that runs beyond a narrow tile should keep its original paragraph ending\ncontinued.\n" }, tile);
     await stage.dispatch.press("rich.toggle", {}, tile);
-    expect(r.surface.render(48, 60, r.host(stage)).lines.map(plain).join("\n")).toContain("no agent answers @ask");
+    const rich = r.surface.render(48, 60, r.host(stage)).lines.map(plain);
+    expect(rich.join("\n")).toContain("no agent answers @ask");
+    const ending = rich.findIndex(line => line.includes("ending")), continued = rich.findIndex(line => line.includes("continued."));
+    expect(ending).toBeGreaterThanOrEqual(0);
+    expect(continued).toBeGreaterThanOrEqual(0);
+    expect(continued - ending).toBeLessThanOrEqual(1);
     await stage.dispatch.press("rich.toggle", {}, tile);
     expect((await board.get(d.blockId))!.text).toBe("");
     await stage.dispatch.press("edit.save", {}, tile);
