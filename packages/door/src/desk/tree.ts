@@ -27,6 +27,7 @@ import { readView, type ViewRead } from "../views";
 import { RowView, type RowPress } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
 import { askInBar } from "../bar/ask";
+import { lastTrashed } from "../note-trash";
 import { moveBy, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs, type MoveDone } from "../note-move";
 import type { WriteBoard } from "../mcp-writes";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
@@ -98,6 +99,10 @@ export class TreePane implements Pane {
   private view = new RowView();
   /** A row pressed and dragged (PIE-943): where it would land if let go now (`over`, and `beside` with alt held). */
   private drag: { id: string; from: number; over: number | null; beside: boolean; moved: boolean } | null = null;
+  /** How many times the person picked a row (a move that finishes later leaves a selection they changed meanwhile). */
+  private picks = 0;
+  private drawnW = 0;
+  private drawnH = 0;
   private timer: Timer | null = null;
   private reload: Timer | null = null;
   title() { return "outline"; }
@@ -388,6 +393,14 @@ export class TreePane implements Pane {
     return { view, depth: this.depthOf(view), authored: b.depth === undefined };
   }
 
+  /** Whether the person's last move of note `id` is newer than the last note they trashed (ctrl+z then means the move). */
+  private undoable(id: string, desk: DeskApi): boolean {
+    const e = MOVE_UNDO.last("you", id);
+    if (!e) return false;
+    const trashed = lastTrashed(desk.ctx.board, USER)?.seq;
+    return trashed === undefined || (e.seq ?? 0) > trashed;
+  }
+
   /** Whether row `i` is among the rows under row `from` (a note can't be dropped inside itself). */
   private under(i: number, from: number): boolean {
     const d = this.rows[from]?.depth ?? 0;
@@ -502,6 +515,7 @@ export class TreePane implements Pane {
 
   /** The person moved the selection to row `i` (a key, a click, `tree.pick`); `show`: its note becomes the current one. */
   selectRow(i: number, desk: DeskApi, show = true) {
+    this.picks++;
     this.sel = Math.max(0, Math.min(this.rows.length - 1, i));
     if (show) this.pick(desk); else desk.redraw();
   }
@@ -530,6 +544,7 @@ export class TreePane implements Pane {
       if (!r) throw new ActionRefused(this.roots ? `no row ${at + 1}; the tree has ${this.rows.length}` : "the outline is still being read");
       if (r.kind !== "block") throw new ActionRefused(`row ${at + 1} is ${r.kind === "resource" ? "a resource" : r.kind === "branch-note" ? "a line of a view's results" : "a link or a group"}: only a note moves`);
     }
+    const pickedAtStart = this.picks;
     const id = r?.kind === "block" ? r.m.id : String(at), board = desk.ctx.board as WriteBoard, agent = actor.kind === "agent";
     const finish = async (done: MoveDone) => {
       this.due = new Set([...(this.due instanceof Set ? this.due : []), done.previousParent, done.parent]);
@@ -538,7 +553,8 @@ export class TreePane implements Pane {
       const into = !agent && done.parent && done.parent !== done.previousParent ? this.rows.find(x => x.kind === "block" && x.m.id === done.parent && !x.via) : undefined;
       if (into && into.kind === "block") await this.expand(into.m, desk, true, into.foldId);
       const j = this.rows.findIndex(x => x.kind === "block" && x.m.id === id && x.via === undefined);
-      if (j >= 0 && !agent) this.sel = j;
+      // (Not if the person moved the selection while this was read.)
+      if (j >= 0 && !agent && this.picks === pickedAtStart) this.sel = j;
       desk.ctx.flash(done.said);
       desk.redraw();
       return { row: j + 1, ...done };
@@ -567,6 +583,7 @@ export class TreePane implements Pane {
   // ── drawing ────────────────────────────────────────────────────────────────
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+    this.drawnW = w; this.drawnH = h;
     if (!this.roots) return { lines: [dim("dialing the outline…")] };
     this.view.place(this.sel, this.rows.length, h);
     const lines = this.rows.slice(this.view.top, this.view.top + h).map((r, i) => {
@@ -625,7 +642,7 @@ export class TreePane implements Pane {
     const step = { "alt-up": "up", "alt-down": "down", "alt-left": "out", "alt-right": "in" }[k.kind as string] ?? (k.kind === "alt" ? { b: "out", f: "in" }[k.ch] : undefined);
     if (step) { if (row.kind === "block") this.run(desk, "tree.move", { n: this.sel + 1, step }); return true; }
     if (ch(k) === "Z" && row.kind === "block") { this.run(desk, "tree.move", { n: this.sel + 1 }); return true; }
-    if (k.kind === "char" && k.ctrl && k.ch === "z" && row.kind === "block" && MOVE_UNDO.last("you", row.m.id)) { this.run(desk, "tree.move", { n: this.sel + 1, undo: true }); return true; }
+    if (k.kind === "char" && k.ctrl && k.ch === "z" && row.kind === "block" && this.undoable(row.m.id, desk)) { this.run(desk, "tree.move", { n: this.sel + 1, undo: true }); return true; }
     if (ch(k) === "L") { this.run(desk, "tree.links", { n: this.sel + 1 }); return true; }
     const right = k.kind === "right" || ch(k) === "l", left = k.kind === "left" || ch(k) === "h", space = ch(k) === " ";
     const linkRow = row.kind !== "block" && row.kind !== "group" && row.kind !== "kind";
@@ -662,7 +679,9 @@ export class TreePane implements Pane {
     // above where it started, else below); let go on its own row it was a click, and the press already did that.
     const d = this.drag;
     if (d && (k.action === "drag" || k.action === "up")) {
-      const over = this.view.top + y, target = this.rows[over];
+      // Let go outside the tile (over the reader beside it) moves nothing.
+      const inside = x >= 0 && x < this.drawnW && y >= 0 && y < this.drawnH;
+      const over = this.view.top + y, target = inside ? this.rows[over] : undefined;
       d.over = target?.kind === "block" && target.m.id !== d.id && !this.under(over, d.from) ? over : null;
       d.beside = !!((k.mods ?? 0) & 8);
       if (k.action === "drag") { d.moved = d.moved || over !== d.from; desk.redraw(); return true; }

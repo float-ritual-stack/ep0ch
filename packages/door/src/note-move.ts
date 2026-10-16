@@ -46,6 +46,7 @@ export async function moveNote(board: WriteBoard, id: string, place: Place, acto
   if (actor.kind === "agent") {
     const a = "parent" in place ? { parent: place.parent === null ? "root" : place.parent, ...(place.position !== undefined ? { position: place.position } : {}) } : place;
     const r = await moveAsAgent(board, id, a, { actorId: recordedActorId(actor) }) as { outcome: string; said: string; parentId?: string | null; position?: number };
+    if (r.outcome !== "unchanged" && oldPosition >= 0 && opts.undoable !== false) MOVE_UNDO.push({ by: partyOf(actor), context: id, id, title: subject(m), parent: oldParent, position: oldPosition });
     return { moved: id, parent: r.parentId ?? null, position: r.position ?? 0, previousParent: oldParent, ...(r.outcome === "unchanged" ? { unchanged: true as const } : {}), said: r.said };
   }
   let parent: string | null, position: number;
