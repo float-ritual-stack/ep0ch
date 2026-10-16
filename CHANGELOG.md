@@ -18,6 +18,13 @@ A new install writes them between `---`. A table figure with nothing to draw now
 `rows:` between `---` lines, and no figure takes a negative width into a repeat. A Deploys note an earlier install made
 needs its `::graph-table` lines wrapped in `---` once (edit the note, or delete it and run `ep0ch install --apply`).
 
+### An agent can move the notes the service keeps (PIE-942)
+
+`outline_move` now moves a system note (Deploys, a snapshot record, the Inbox, Trash, Bookmarks, a guide) anywhere,
+attributed like any move: the service finds them by their properties, never their place. Refused still: a place under
+Trash, Bookmarks or a guide (the service fills them itself) and a note under itself. The refusal says what the note is
+and why. `outline_trash` of a system note is still refused, now saying what it is. No wire change.
+
 ### A read never creates an outline, and an empty outline file never holds an install back (PIE-938)
 
 `ep0ch show --ws pie <id>` run in a folder with no `.ep0ch` on a machine that doesn't have `pie` (a builder's worktree

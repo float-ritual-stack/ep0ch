@@ -39,6 +39,21 @@ export type PlacementRule = (intent: NewNoteIntent, reads: PlacementReads) => Pl
 export const isSystemNote = (block: Block): boolean =>
   block.author === "system" || block.properties.some(p => p.key === "system-view" || p.key === "system-doc");
 
+const propertyValue = (block: Block, key: string): string | undefined => block.properties.find(p => p.key === key)?.value.trim().toLowerCase();
+
+/** What a system note is, in the words a refusal uses: the Inbox, Trash, Bookmarks, the Deploys record, a snapshot record, a guide. */
+export function systemNoteKind(block: Block): string {
+  const view = propertyValue(block, "system-view");
+  if (view === "inbox") return "the Inbox";
+  if (view === "trash") return "Trash";
+  if (view === "bookmarks") return "Bookmarks";
+  if (view === "deploys") return "the Deploys record";
+  if (view) return `the ${view} view`;
+  if (propertyValue(block, "system-doc") !== undefined) return "a guide";
+  if (propertyValue(block, "type") === "snapshot") return "a snapshot record";
+  return "a note the service made";
+}
+
 /** A note made from inside another goes under it, last; never under a system note other than the Inbox. */
 const underNear: PlacementRule = (intent, reads) => {
   if (intent.kind !== "note" || !intent.near) return null;
