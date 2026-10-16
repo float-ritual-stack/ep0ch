@@ -393,7 +393,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       await expect(app.act({ action: "note.place", tile, args: {}, as: "gardener" })).rejects.toThrow("say where");
       // An agent's goes by outline_move's rules: never under Trash, Bookmarks or a guide.
       const trash = (await board.roots()).find(r => r.text.startsWith("Trash"))!.id;
-      await expect(app.act({ action: "note.place", tile, args: { parent: trash }, as: "gardener" })).rejects.toThrow("system note");
+      await expect(app.act({ action: "note.place", tile, args: { parent: trash }, as: "gardener" })).rejects.toThrow("which the service fills itself");
       // Dragged to the right edge: docked there, its edit still open.
       r = desk.rectsNow().get(desk.idNamed(tile));
       const cols = desk.area.cols;
