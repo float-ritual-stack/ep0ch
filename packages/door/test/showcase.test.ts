@@ -432,6 +432,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "rich-edit": ["Seed inventory", "Beans", "Packets"],
     asks: ["Keep writing while the answer arrives"],
     scripts: ["Seed report", "Press alt+S"],
+    "one-place": ["The long row of runner beans", "Bike shed"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -547,6 +548,28 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   });
 
+  test("one-place: act keeps the source line across view and edit and exposes the edit scroll bar", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "one-place" }, as: "place-check" });
+    screen();
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "one-place")).top as Desk;
+    await until(() => (desk.pane("reader") as ReaderPane).msg?.id === seeded.notes.overscroll.id, "the long note");
+    screen();
+    await desk.dispatch.press("scroll", { by: 20 }, "reader");
+    const rows = () => sc.render(app).lines.map(plain);
+    const before = rows(), y = before.findIndex(l => /Cane \d+:/.test(l));
+    const label = before[y]!.match(/Cane \d+:/)![0];
+    await desk.dispatch.press("edit", {}, "reader");
+    expect(rows().findIndex(l => l.includes(label))).toBe(y);
+    const rd = desk.pane("reader") as ReaderPane;
+    expect(rd.surface.draft!.scrollFigure.total).toBeGreaterThan(rd.surface.draft!.scrollFigure.room);
+    await desk.dispatch.press("draft.scroll", { by: 8 }, "reader");
+    const edited = rows(), ey = edited.findIndex(l => /Cane \d+:/.test(l));
+    const next = edited[ey]!.match(/Cane \d+:/)![0];
+    await desk.dispatch.press("edit.close", {}, "reader");
+    expect(rows().findIndex(l => l.includes(next))).toBe(ey);
+  });
+
   test("editing works in a section, by keys: e, type, a click away and back keeps it (PIE-812), ctrl+s writes to the showcase outline", async () => {
     ch("5"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
@@ -655,6 +678,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const before = d.text;
     // A file dropped on the terminal arrives as a paste of its path (quoted, as some terminals send it): typed in as
     // text, as every paste is; ctrl+v on it makes it the picture.
+    press({ kind: "end" });
     const dropped = `'${join(SHOWCASE_ASSETS, "seed-packet.webp")}'`;
     press({ kind: "paste", text: dropped });
     expect(d.lines[d.row].endsWith(dropped)).toBe(true);
@@ -2219,6 +2243,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     };
     const find = (text: string) => { const r = rows(); const y = r.findIndex(l => l.includes(text)); return { y, x: y >= 0 ? r[y]!.indexOf(text) : -1 }; };
     await until(() => cs()?.place === "floating" && !!rect(), "the floating comment drawn");
+    // The prior journey deletes comments; a held composer keeps its snapshot until it closes.
+    await stage().dispatch.press("comment.close", { discard: true }, "floating");
+    await stage().dispatch.press("open", { id: note }, "floating");
+    const threadCount = (await board.comments(note)).length;
+    await until(() => { rows(); return surf().comments?.length === threadCount; }, "the fresh comment gutter");
+    await stage().dispatch.press("passage.select", { quote: MARGIN_LINES.floating }, "floating");
+    await stage().dispatch.press("comment.write", { body: "" }, "floating");
+    await stage().dispatch.press("comment.place", { place: "floating" }, "floating");
+    rows();
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // In by a click in its text, then typed.
@@ -2286,6 +2319,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => cs()?.mode === "compose" && !!rect(), "opened again");
     expect(cs()!.float).toBeNull();
     sc.render(app);
+    // Reopening fetches comments again; their gutter changes the room the floating box has.
+    await until(() => { sc.render(app); return surf().comments?.length === threadCount; }, "the restored comment gutter");
     expect(rect(), JSON.stringify([rect(), r0, cs()!.composer!.text])).toMatchObject({ col: r0.col, cols: r0.cols });
     // As it was: the comment let go of (its put-aside text with it).
     await stage().dispatch.press("comment.close", { discard: true }, "floating");
@@ -3783,7 +3818,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await app.act({ action: "edit", tile: "notes", as: "test-agent" });
     const draft = ([...stage.panes.values()].find((p: any) => p.editing) as any).surface.draft;
     press({ kind: "enter" });
-    press({ kind: "end" });
+    await stage.dispatch.press("draft.place", { line: draft.lines.length }, "notes");
     press({ kind: "paste", text: "\n\nKeep typing here." });
     const target = seeded.notes.scriptTarget.id;
     const proposed = mode === "proposal" || mode === "dismiss" ? await board.request<{proposalId: string}>("draft.patch", {
@@ -3850,8 +3885,8 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       const reader = [...stage.panes.values()].find((p: any) => p.editing) as ReaderPane;
       const draft = reader.surface.draft!;
       press({kind: "enter"});
-      press({kind: "end"});
-      press({kind: "paste", text: "\n\nStill typing."});
+      await stage.dispatch.press("draft.place", {line: draft.lines.length}, "notes");
+      await stage.dispatch.press("draft.paste", {text: "\n\nStill typing."}, "notes");
       // The first lease must expire unless the script-created heartbeat remains usable after completion.
       await Bun.sleep(DRAFT_LEASE_MS + 1000);
       const patched = await board.request("draft.patch", {
@@ -3863,6 +3898,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       expect(draft.text).toContain("Still typing.");
       expect((await board.get(target.id))!.text).toContain("Prepare the labels.");
     } finally {
+      await stage.dispatch.press("edit.close", {discard: true}, "notes");
       for (let i = 0; i < 5 && S().focus === "stage"; i++) press({kind: "esc"});
     }
   }, 30_000);

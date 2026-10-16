@@ -1,3 +1,4 @@
+import type { ReaderPosition } from "./reader-position";
 // One draft session (PIE-516): the lifecycle every draft goes through, whatever it's for. A draft opens
 // (bringing back the text put aside at its place), is typed in, is held on the service while it edits a
 // block, and ends in one of three ways: written (saved, sent or created), closed with nothing changed, or
@@ -143,7 +144,7 @@ export class DraftSession {
    * block's draft is held on the service, so an agent's `draft.patch` lands in it while it's open. An agent
    * doesn't open a draft of a block someone else has open in one (`agentRefusal`).
    */
-  static open(target: DraftTarget, init: { text?: string; base?: number; props?: PropertyList; by?: Actor }, env: SessionEnv = {}): DraftSession {
+  static open(target: DraftTarget, init: { text?: string; base?: number; props?: PropertyList; by?: Actor; position?: ReaderPosition }, env: SessionEnv = {}): DraftSession {
     const by = init.by ?? USER;
     if (target.blockId) { const why = agentRefusal(by, { board: env.board, blockId: target.blockId }); if (why) throw new ActionRefused(why); }
     const s = new DraftSession(target, new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? []), by, env);
@@ -158,6 +159,10 @@ export class DraftSession {
       // The last draft written here, on the text this one starts from: its history carries on (PIE-621).
       const h = histories.get(target.place);
       if (h && h.revision === s.draft.base) s.draft.adopt(h.steps);
+    }
+    if (init.position) {
+      if (s.draft.restored !== null) init.position.cursor = { row: s.draft.row, col: s.draft.col };
+      s.draft.usePosition(init.position);
     }
     if (target.blockId) {
       registry(env.board).add(s);

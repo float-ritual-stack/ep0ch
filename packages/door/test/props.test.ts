@@ -504,6 +504,7 @@ describe("review: property actions", () => {
     const body = Array.from({ length: 80 }, (_, i) => `line ${i}`).join("\n");
     const { s, h } = panelRig(`Card\n[priority::high]\n\n${body}`, () => [tok("priority", "high", 1, 0)]);
     s.key(char("i"), h);
+    s.render(60, 30, h);
     s.key({ kind: "pgdn" }, h);
     expect(s.scroll).toBe(15);
     s.key(char(" "), h);

@@ -37,6 +37,7 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     const rd = reader();
     key(char("e"));
     await until(() => !!rd.draft, "the draft");
+    await D().dispatch.press("draft.place", { line: 1 }, D().nameOf(D().focus));
     return { id, rd, name: D().nameOf(D().focus) as string };
   }
 
@@ -63,6 +64,94 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     app.push(new MainMenu()); app.push(desk);
   }, 30_000);
   afterAll(async () => { app?.quit(); board?.close(); other?.close(); await scratch.dispose(); });
+
+  test("PIE-920: a folded reader opens the same source line in the same screen row, with an edit scroll bar", async () => {
+    const text = "The orchard\n[topic::fruit]\n## Hidden\nSecret seedlings\n## Rows\n" + Array.from({ length: 80 }, (_, n) => `Orchard row ${n}`).join("\n");
+    const id = await create(text);
+    desk.openBlock((await current(id)));
+    desk.focusOn("reader");
+    await until(() => reader()?.msg?.id === id && !reader().msg!.partial, "the orchard");
+    const rd = reader(), name = D().nameOf(D().focus);
+    await D().dispatch.press("fold", { text: "Hidden" }, name);
+    desk.render(app);
+    await D().dispatch.press("scroll", { by: 30 }, name);
+    const screen = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
+    const before = screen();
+    const y = before.findIndex(l => /Orchard row \d+/.test(l));
+    const label = before[y]!.match(/Orchard row \d+/)![0];
+    key(char("e"));
+    await until(() => !!rd.draft, "the edit");
+    const after = screen();
+    expect(after.findIndex(l => l.includes(label))).toBe(y);
+    expect(rd.draft!.row).toBe(text.split("\n").indexOf(label));
+    expect(rd.draft!.col).toBe(0);
+    expect(rd.render(70, 35, false, D()).scroll).toBeDefined();
+    key({ kind: "esc" });
+  });
+
+  test.each([false, true])("PIE-920: a reader table opens raw edit on the visible data row (callout=%s)", async (callout) => {
+    const table = "| Crop | Count |\n| --- | --- |\n" + Array.from({ length: 50 }, (_, i) => `| Crop ${i} | ${i} |`).join("\n");
+    const text = "Harvest inventory\n" + (callout ? "> [!note]\n" + table.split("\n").map(l => "> " + l).join("\n") : table);
+    const id = await create(text);
+    desk.openBlock(await current(id)); desk.focusOn("reader");
+    await until(() => reader()?.msg?.id === id && !reader().msg!.partial, "the table");
+    const rd = reader(), name = D().nameOf(D().focus);
+    const rows = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
+    rows();
+    let previous = -1;
+    for (let step = 0; step < 30; step++) {
+      await D().dispatch.press("scroll", { by: 1 }, name);
+      const visible = rows().join("\n").match(/Crop (\d+)/);
+      const next = Number(visible![1]);
+      expect(next).toBeGreaterThanOrEqual(previous);
+      previous = next;
+    }
+    const before = rows(), y = before.findIndex(l => /Crop \d+/.test(l));
+    const label = before[y]!.match(/Crop \d+/)![0];
+    key(char("e")); await until(() => !!rd.draft, "the raw table");
+    expect(rows().findIndex(l => l.includes(label))).toBe(y);
+    expect(rd.draft!.row).toBe(text.split("\n").findIndex(l => l.includes(label)));
+    key({kind: "esc"});
+  });
+
+  test("PIE-920: reopening the same note preserves a held edit viewport", async () => {
+    const {id, rd} = await editing("Long inventory\n" + Array.from({length: 80}, (_, i) => `Shelf ${i}`).join("\n"));
+    const rows = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
+    rows(); rd.draft!.scrollBy(20); clickElsewhere();
+    const before = rows(), y = before.findIndex(l => /Shelf \d+/.test(l));
+    const label = before[y]!.match(/Shelf \d+/)![0];
+    desk.openBlock(await current(id));
+    expect(rows().findIndex(l => l.includes(label))).toBe(y);
+    await D().dispatch.press("edit.close", {discard: true}, "reader");
+  });
+
+  test("PIE-920: scrolling a held edit survives focus; the next click places the cursor and typing follows it", async () => {
+    const { rd } = await editing("Cane inventory\n" + Array.from({ length: 90 }, (_, i) => `Cane number ${i}`).join("\n"));
+    const d = rd.draft!;
+    const screen = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
+    const at = (label: string) => { const lines = screen(), y = lines.findIndex(l => l.includes(label)); return { x: lines[y]!.indexOf(label) + 3, y }; };
+    clickElsewhere();
+    const first = at("Cane number 0");
+    for (let i = 0; i < 12; i++) key({ kind: "mouse", action: "wheel-down", button: 65, ...first });
+    const before = screen();
+    const y = before.findIndex(l => /Cane number \d+/.test(l));
+    const label = before[y]!.match(/Cane number \d+/)![0];
+    expect(label).not.toBe("Cane number 0");
+    const here = at(label), cursor = { row: d.row, col: d.col };
+    const click = () => { key({ kind: "mouse", action: "down", button: 0, ...here }); key({ kind: "mouse", action: "up", button: 0, ...here }); };
+    click();
+    expect(screen().findIndex(l => l.includes(label))).toBe(y);
+    expect({ row: d.row, col: d.col }).toEqual(cursor);
+    click();
+    expect(d.row).toBe(d.lines.indexOf(label));
+    expect(d.anchor).toBeNull();
+    const placed = d.row;
+    for (let i = 0; i < 12; i++) key({ kind: "mouse", action: "wheel-down", button: 65, ...here });
+    type("!");
+    expect(d.row).toBe(placed);
+    expect(screen().join("\n")).toContain(d.lines[placed]!);
+    key({ kind: "esc" }); key({ kind: "esc" });
+  });
 
   test("a click on another tile leaves the edit open as it was; the keys coming back are in it at the same cursor (PIE-812)", async () => {
     const { id, rd, name } = await editing("Plant the leeks\nin the far bed");

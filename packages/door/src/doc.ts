@@ -171,8 +171,8 @@ export interface DocMedia { path: string; kind: string; row: number; line: numbe
 /**
  * `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. `media[i].row`:
  * the row that names the image or video (its caption, or the line in its place). `source[r]`: the
- * body line rendered row `r` comes from (the first line of a table, callout, fence or figure for all of its
- * rows). `heads`: each fold point drawn, at its row, with the columns of its disclosure (a heading's whole
+ * body line rendered row `r` comes from (the first line of a fence or figure for all of its
+ * rows; -1 for decoration without source text). `heads`: each fold point drawn, at its row, with the columns of its disclosure (a heading's whole
  * row, a list item's indent and mark).
  */
 export interface Doc {
@@ -455,7 +455,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const surfaceFrom = out.length;
       drawn(framed || bar ? row("") : "", py, i);
       const base = out.length;
-      sub.lines.forEach((l, r) => { out.push(row(l)); source.push(off + (sub.source[r] ?? 0)); });
+      sub.lines.forEach((l, r) => { out.push(row(l)); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
       for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
       adopt(sub, base, left, off, framed ? { inner } : undefined);
       if (!framed) sub.lines.forEach((_, r) => { if (left > 0 && !trims.get(base + r)?.edge) cut(base + r, [0, left]); });
@@ -502,11 +502,11 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         out.push(fg(colour) + "╭─" + title + "─".repeat(Math.max(0, W - 3 - vwidth(title))) + "╮" + RESET);
         mark();
         const base = out.length;
-        sub.lines.forEach((l, r) => { out.push(fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET); source.push(off + (sub.source[r] ?? 0)); });
+        sub.lines.forEach((l, r) => { out.push(fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
         for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
         edge(base - 1);
         adopt(sub, base, 2, off, { inner });
-        out.push(fg(colour) + "╰" + "─".repeat(Math.max(0, W - 2)) + "╯" + RESET);
+        out.push(fg(colour) + "╰" + "─".repeat(Math.max(0, W - 2)) + "╯" + RESET); source.push(-1);
         edge(out.length - 1);
         i = end - 1;
         continue;
@@ -631,7 +631,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           const sub = renderDoc(body.join("\n"), { ...env, nested: true, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, decorate: undefined, literal: undefined });
           mark();
           const base0 = out.length;
-          sub.lines.forEach((l, r) => { out.push(l); source.push(i + 1 + (sub.source[r] ?? 0)); });
+          sub.lines.forEach((l, r) => { out.push(l); source.push(sub.source[r]! < 0 ? -1 : i + 1 + sub.source[r]!); });
           adopt(sub, base0, 0, i + 1, undefined, cb.depth);
           if (byline) { out.push(bylineRow(W)); source.push(i + 1 + byline.line); }
         }
@@ -682,14 +682,15 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           });
           mark();
           const base = out.length;
-          sub.lines.forEach((l, r) => { out.push(framed(l)); source.push(off + (sub.source[r] ?? 0)); });
+          sub.lines.forEach((l, r) => { out.push(framed(l)); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
           for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
           adopt(sub, base, 2, off, { inner }, cb.depth);
           if (byline) { out.push(framed(bylineRow(inner))); source.push(off + byline.line); }
         }
       }
+      mark();
       edge(out.length);
-      out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET);
+      out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET); source.push(-1);
       blocks.push({ kind: "callout", row: top, rows: out.length - top, line: i, end: cb.end, inner: [i + 1, cb.end], strip: cb.depth, text: written, col: bw - 2 });
       i = cb.end - 1;
       continue;
@@ -698,8 +699,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // Table: header row, separator row, body rows.
     if (startsTable(src, i)) {
       const end = tableEnd(src, i), rows = src.slice(i, end);
+      const mapped: number[] = [];
+      const drawn = table(rows, W, lit(end - 1), box => { mapped[box.y] = i + (box.row ? box.row + 1 : 0); });
+      for (let y = 0; y < drawn.length; y++) {
+        out.push(drawn[y]!); source.push(mapped[y] ?? -1);
+      }
       i = end - 1;
-      out.push(...table(rows, W, lit(i)));
       continue;
     }
 

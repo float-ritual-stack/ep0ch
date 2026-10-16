@@ -1,3 +1,4 @@
+import { ReaderPosition, PositionRows } from "./reader-position";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
@@ -60,8 +61,24 @@ export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "clos
 
 export class Draft {
   lines: string[];
-  row = 0;
-  col = 0;
+  position = new ReaderPosition();
+  private positionRows = new PositionRows(this.position);
+  get row() { return this.position.cursor.row; }
+  set row(value: number) { this.position.cursor.row = value; }
+  get col() { return this.position.cursor.col; }
+  set col(value: number) { this.position.cursor.col = value; }
+  usePosition(position: ReaderPosition) {
+    this.position = position;
+    this.positionRows.position = position;
+    this.follow = false;
+  }
+  /** Rich editing owns the rows now; patches must not compensate through a stale raw layout too. */
+  leaveRawView() {
+    this.shown = { w: 0, h: 15, rows: [] };
+    this.frame = null;
+    this.anchoredRow = null;
+  }
+  get scrollFigure() { return { top: this.top, room: this.shown.h, total: this.shown.rows.length }; }
   /** The screen row of the cursor in the last render (the completion popup opens under it). */
   cursorRow = 0;
   readonly asks = new Map<string, import("@ep0ch/outline-core/protocol").AskProgress>();
@@ -334,9 +351,11 @@ export class Draft {
       return o + shift;
     };
     const cursor = at(this.offsetOf(this.row, this.col));
+    const view = this.position.view, viewOffset = view ? this.offsetOf(view.line, 0) : null;
     const a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : null;
     const anchor = a === null || cs.some(c => a > c.at && a < c.at + c.removed) ? null : at(a);
     this.lines = to.split("\n");
+    if (view && viewOffset !== null) view.line = this.placeOf(at(viewOffset)).row;
     const p = this.placeOf(cursor);
     this.row = p.row; this.col = p.col;
     this.anchor = anchor === null || anchor === cursor ? null : this.placeOf(anchor);
@@ -812,6 +831,7 @@ export class Draft {
     this.settle();
     this.record(USER, "a change");
     const before = this.text, after = applyLocated(before, spans);
+    const view = this.position.view, viewOffset = view ? this.offsetOf(view.line, 0) : null;
     // What stays put on screen: the cursor's row while it's in view, else the top row's text.
     const w = this.shown.w;
     let keep: { offset: number; screen: number } | null = null;
@@ -824,11 +844,13 @@ export class Draft {
     const anchor = this.anchor ? map(this.offsetOf(this.anchor.row, this.anchor.col)) : null;
     const flashes = this.flashes.map(f => ({ ...f, start: map(f.start), end: map(f.end) }));
     this.lines = after.split("\n");
+    if (view && viewOffset !== null) view.line = this.placeOf(map(viewOffset)).row;
     const c = this.placeOf(cursor);
     this.row = c.row; this.col = c.col;
     this.anchor = anchor === null ? null : this.placeOf(anchor);
     if (keep && w) {
       const p = this.placeOf(map(keep.offset)), rows = this.layout(w);
+      this.positionRows.source = rows.map(r => r.line);
       this.top = Math.max(0, this.viOf(rows, p.row, p.col) - keep.screen);
       this.anchoredRow = keep.screen;
     }
@@ -895,6 +917,7 @@ export class Draft {
 
   /** Put the cursor at line `row`, column `col` (UTF-16, clamped); `extend` keeps or starts a selection. */
   place(row: number, col: number, extend = false) {
+    this.follow = true;
     this.anchoredRow = null;
     const r = Math.max(0, Math.min(this.lines.length - 1, row));
     if (extend) this.anchor ??= { row: this.row, col: this.col };
@@ -917,7 +940,8 @@ export class Draft {
 
   // ── the view: soft-wrapped rows, the wheel, the mouse ──────────────────────
 
-  private top = 0;
+  private get top() { return this.positionRows.top; }
+  private set top(value: number) { this.positionRows.top = value; }
   /** The view follows the cursor; false after the wheel scrolled it, until the next key. */
   follow = true;
   /** The column up and down keep to (cells from the row's left), while they repeat. */
@@ -1053,6 +1077,8 @@ export class Draft {
   render(w: number, h: number): string[] {
     const w1 = Math.max(4, w);
     const rows = this.layout(w1);
+    this.positionRows.source = rows.map(r => r.line);
+    this.positionRows.origin = this.frame?.row ?? 0;
     this.shown = { w: w1, h: Math.max(1, h), rows };
     const at = this.cursorIn(rows), sel = this.selection();
     // Following the cursor, the view keeps a few rows around it (scrolloff, PIE-622): on the last line too, where

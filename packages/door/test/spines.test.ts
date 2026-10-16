@@ -257,7 +257,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     key({ kind: "end" });
     for (const ch of " and oil the hinge") key(char(ch));
     key(char("c"));
-    expect(d.draft!.text.split("\n")[0]).toEndWith("and oil the hingec");
+    expect(d.draft!.lines[d.draft!.row]).toEndWith("and oil the hingec");
     expect(!!folded(d)).toBe(false);
     key({ kind: "esc" }); key({ kind: "esc" });
     expect(d.draft).toBeNull();

@@ -1,3 +1,4 @@
+import { PositionRows } from "../reader-position";
 // A rendered view of a Draft, never another text buffer. Adapters own source spans and structural
 // operations; Draft owns typing, selection, undo, revisions and incoming patches.
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
@@ -158,17 +159,19 @@ registerElementEditor({
 
 export class ElementEdit {
   on = false;
-  private top = 0;
+  private positionRows: PositionRows;
+  private get top() { return this.positionRows.top; }
+  private set top(value: number) { this.positionRows.top = value; }
+  get scrollFigure() { return { top: this.top, room: this.room, total: this.total }; }
   private total = 0;
   private room = 1;
   scroll(by: number) {
     this.top = scrolled(this.top, by, lastTop(this.total, this.room));
     this.draft.follow = false;
   }
-  private painted: { patch: string | undefined; cursor: number } | null = null;
   private spots: (TableCellBox & { field: ElementField; caret?: number })[] = [];
   private controls: { from: number; to: number; action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place"; op?: string }[] = [];
-  constructor(readonly draft: Draft) {}
+  constructor(readonly draft: Draft) { this.positionRows = new PositionRows(draft.position); this.positionRows.origin = 2; }
   elements() {
     const d = this.draft;
     const elements = [...editors.values()].flatMap(e => e.read(d.lines)).sort((a, b) => a.start - b.start);
@@ -190,6 +193,7 @@ export class ElementEdit {
     const d = this.draft;
     if (d.busy) throw new Error("the save is still landing");
     this.on = true;
+    d.leaveRawView();
     // A raw selection can cross prose and delimiters; rich input belongs to one field.
     d.place(d.row, d.col);
     if (!this.current()) {
@@ -199,7 +203,6 @@ export class ElementEdit {
     }
   }
   move(direction: string) {
-    this.painted = null;
     const cur = this.current(), fields = this.elements().flatMap(e => e.fields.flat());
     if (!cur) { const f = fields.find(f => f.line >= this.draft.row) ?? fields[0]; if (f) this.draft.place(f.line, f.start); return; }
     const { element: e, field: f, row, col } = cur;
@@ -309,7 +312,6 @@ export class ElementEdit {
     if (!s) return false;
     const current = this.current();
     if (extend && current && (current.field.line !== s.field.line || current.field.start !== s.field.start)) return true;
-    this.painted = null;
     const cellX = Math.max(0, x - s.x - s.inset);
     let offset = s.offset, used = 0;
     for (const ch of s.text) { if (used + width(ch) > cellX) break; used += width(ch); offset += ch.length; }
@@ -319,20 +321,29 @@ export class ElementEdit {
     run("draft.place", { line: s.field.line + 1, col: (atom?.start ?? col) + 1, extend });
     return true;
   }
-  render(w: number, h: number, draw: (text: string, width: number) => string[], attribution?: string): string[] {
+  render(w: number, h: number, draw: (text: string, width: number) => { lines: string[]; source: number[] }, attribution?: string): string[] {
     const d = this.draft, cur = this.current();
     const labels = [["[raw ^O]", "rich.toggle"], ["[+row]", "rich.change", "row.add"], ["[-row]", "rich.change", "row.remove"], ["[+col]", "rich.change", "column.add"], ["[-col]", "rich.change", "column.remove"]];
     let x = 0; this.controls = labels.map(([label, action, op]) => { const c = { from: x, to: x + label!.length, action: action as "rich.toggle" | "rich.change", op }; x += label!.length + 1; return c; });
     const body: string[] = [], spots: typeof this.spots = [];
     const hidden = d.hiddenAnswerLines();
-    const source = (start: number, end: number) => d.lines.slice(start, end).filter((_, i) => !hidden.has(start + i)).map(line => {
-      const room = w - width(line), status = d.askStatus(line, room);
-      return !status ? line : line + (width(status) <= room ? status : `\n${status.trim()}`);
-    }).join("\n");
+    const sourceRows: number[] = [];
+    const prose = (start: number, end: number) => {
+      const lines: number[] = [], text: string[] = [];
+      for (let i = start; i < end; i++) {
+        if (hidden.has(i)) continue;
+        const line = d.lines[i]!, status = d.askStatus(line, w - width(line));
+        text.push(line + (status && width(status) <= w - width(line) ? status : "")); lines.push(i);
+        if (status && width(status) > w - width(line)) { text.push(status.trim()); lines.push(i); }
+      }
+      const doc = draw(text.join("\n"), w);
+      body.push(...doc.lines);
+      sourceRows.push(...doc.source.map(i => lines[i] ?? -1));
+    };
     let at = 0, cursor = 0;
     for (const e of this.elements()) {
       if (hidden.has(e.start)) continue;
-      if (e.start > at) body.push(...draw(source(at, e.start), w));
+      if (e.start > at) prose(at, e.start);
       const values = e.fields.map(row => row.map(f => {
         // Source spelling while editing keeps escaped characters and the cursor honest.
         let text = d.lines[f.line]!.slice(f.start, f.end);
@@ -351,16 +362,16 @@ export class ElementEdit {
         spots.push({ ...box, y: base + box.y, field: f, ...(active ? { caret: d.col - f.start } : {}) });
         if (active && d.col - f.start >= box.offset && d.col - f.start <= box.offset + box.text.length) cursor = base + box.y;
       }
+      sourceRows.push(...rendered.map((_, y) => spots.find(s => s.y === base + y)?.field.line ?? -1));
       body.push(...rendered); at = e.end;
     }
-    if (at < d.lines.length) body.push(...draw(source(at, d.lines.length), w));
+    if (at < d.lines.length) prose(at, d.lines.length);
     const room = Math.max(1, h - 2);
-    if (this.painted && this.painted.patch !== d.patches.at(-1)?.patchId && cur) this.top = Math.max(0, this.top + cursor - this.painted.cursor);
-    this.painted = { patch: d.patches.at(-1)?.patchId, cursor };
+    this.positionRows.source = sourceRows;
     this.total = body.length; this.room = room;
     if (d.follow) this.top = follow(cursor, this.top, room);
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
-    d.frame = null;
+    d.leaveRawView();
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
       fg(C.cyan) + pad(d.note || attribution || "Tab/↑↓ cells · alt+r/d row · alt+v/x column · ctrl+s save · ctrl+o raw", w) + RESET,
       ...body.slice(this.top, this.top + room)];

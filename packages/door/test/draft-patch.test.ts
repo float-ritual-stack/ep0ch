@@ -307,7 +307,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(elementEdit(e.d).elements()[1]!.fields[1]![0]!.value).toBe("Radish\nSpring");
     await NOTE_ACTIONS.run("rich.set", { value: "one two three four five six" }, { surface: e.s, host: e.h }, USER);
     const view = elementEdit(e.d);
-    const drawn = view.render(26, 30, text => text.split("\n")).map(visible);
+    const drawn = view.render(26, 30, (text, width) => e.s.snippetDoc(text, width)).map(visible);
     const y = drawn.findIndex(line => line.includes("six"));
     expect(y).toBeGreaterThan(1);
     view.click(drawn[y]!.indexOf("six"), y, (action, args = {}) => {
@@ -376,13 +376,38 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(e.id))!.text).toContain('["Peas", 2]');
   });
 
+  test.each([false, true])("PIE-920: a patch above a rich table keeps its row still (raw first=%s)", async raw => {
+    const e = await editing("Inventory\nBefore the table.\n\n| Crop | Count |\n| --- | --- |\n" + Array.from({length: 20}, (_, i) => `| Crop ${i} | ${i} |`).join("\n"));
+    if (raw) e.s.render(60, 12, e.h);
+    await NOTE_ACTIONS.run("rich.toggle", {on: true}, {surface:e.s, host:e.h}, USER);
+    await NOTE_ACTIONS.run("draft.place", {line: e.d.lines.findIndex(l => l.includes("Crop 10")) + 1, col: 3}, {surface:e.s, host:e.h}, USER);
+    const rows = () => e.s.render(60, 12, e.h).lines.map(visible);
+    const y = rows().findIndex(l => l.includes("Crop 10"));
+    expect(y).toBeGreaterThan(1);
+    const result = await agent.request("draft.patch", {blockId:e.id, revision:e.d.base,
+      patches:[{observed:"Before the table.", replacement:"Before the table.\nAdded above.\nAnother line."}], mutation:{author:"agent", actorId:"tidy"}});
+    expect(result).toMatchObject({outcome:"applied"});
+    expect(rows().findIndex(l => l.includes("Crop 10"))).toBe(y);
+  });
+
+  test("rich tables scroll beyond separators without returning to the first row (PIE-920)", async () => {
+    const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n" + Array.from({ length: 20 }, (_, i) => `| Crop ${i} | ${i} |`).join("\n"));
+    const { elementEdit } = await import("../src/surface/element-editor");
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    const view = elementEdit(e.d);
+    const draw = () => view.render(40, 8, (text, width) => e.s.snippetDoc(text, width)).map(visible).join("\n");
+    draw();
+    for (let i = 0; i < 20; i++) { view.scroll(1); draw(); }
+    expect(draw()).toContain("Crop 10");
+  });
+
   test("rich tables: clicking an escaped pipe keeps the column whole while typing", async () => {
     const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n| A\\|B | 2 |\n");
     const { elementEdit } = await import("../src/surface/element-editor");
     await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
     e.s.key({ kind: "down" }, e.h);
     const view = elementEdit(e.d);
-    const lines = view.render(70, 20, text => text.split("\n")).map(visible);
+    const lines = view.render(70, 20, (text, width) => e.s.snippetDoc(text, width)).map(visible);
     const y = lines.findIndex(line => line.includes("A\\|B"));
     expect(y).toBeGreaterThan(1);
     view.click(lines[y]!.indexOf("A\\|B") + 2, y, (action, args = {}) => {
