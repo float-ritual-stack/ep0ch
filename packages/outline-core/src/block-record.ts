@@ -1,3 +1,4 @@
+import { splitPropertyValue } from "./property-grammar";
 // A block as a record (PIE-534, for PIE-533): one shape for "everything the outline knows about this note", which the
 // service builds (`blocks.records`) and every consumer reads: `ep0ch find --json`, `ep0ch export`, and later
 // interpolation, `::graph-*`, extensions and publishing. This file is the shape and its one builder; the service passes
@@ -85,8 +86,8 @@ export function blockRecord(input: BlockRecordInput): BlockRecord {
   for (const p of input.properties) {
     if (p.scope !== "block") continue;
     const values = byKey.get(p.key);
-    if (values) values.push(p.value);
-    else { const v = [p.value]; byKey.set(p.key, v); properties.push({ key: p.key, values: v }); }
+    if (values) values.push(...splitPropertyValue(p.value));
+    else { const v = splitPropertyValue(p.value); byKey.set(p.key, v); properties.push({ key: p.key, values: v }); }
   }
   return {
     id: block.id,

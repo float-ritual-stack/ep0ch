@@ -36,7 +36,7 @@ export interface HeaderLine {
   end: number;
   /** How much of the header line, from its start, the prose keeps verbatim (hashtags among the chips follow it). */
   kept: number;
-  /** The header line without its chips (and without the ` -` before them); trailing hashtags. */
+  /** The header line without its trailing chips, hashtags and separators. */
   prose: string;
   /**
    * The ` -` separators of the run (each hyphen with the blanks before it), as offsets in the text: what a title takes
@@ -45,7 +45,7 @@ export interface HeaderLine {
   dashes: LiteralRange[];
   chips: HeaderChip[];
   tags: LiteralRange[];
-  /** The prose, then every line after the header line: the note without its chips. Its first line is always the prose. */
+  /** Export body: the prose with its hashtags retained, then every line after the header. */
   body: string;
 }
 
@@ -86,7 +86,7 @@ export function headerLine(text: string, literal: readonly LiteralRange[] = []):
     run.unshift(piece);
     end = piece.start;
   }
-  const before = source.slice(0, end).replace(PROSE_TAIL, "");
+  const before = run.length ? source.slice(0, end).replace(PROSE_TAIL, "") : source.trimEnd();
   if (source.slice(before.length, end).includes("-")) dashes.push({ start: offset + before.length, end: offset + source.slice(0, end).lastIndexOf("-") + 1 });
   dashes.sort((a, b) => a.start - b.start);
   const starts = new Set(run.map(t => t.start));
