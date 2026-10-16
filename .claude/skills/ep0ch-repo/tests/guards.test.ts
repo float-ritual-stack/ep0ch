@@ -63,8 +63,8 @@ describe('guardrails refuse with the reason and the command to run', () => {
 
   test('gh pr merge -d/--delete-branch: refused, naming the merge to run', async ($, on) => {
     const s = sessionIn(on)
-    for (const command of ['gh pr merge 512 --squash --delete-branch', 'gh pr merge 512 -sd', 'gh pr merge -d 512 --squash']) {
-      expect((await bash($, command)).deny).toContain('Run `gh pr merge 512 --squash`')
+    for (const command of ['gh pr merge 512 --merge --delete-branch', 'gh pr merge 512 -sd', 'gh pr merge -d 512 --squash']) {
+      expect((await bash($, command)).deny).toContain('Run `gh pr merge 512 --merge`')
     }
     expect(s.ran).toEqual([])
   })
@@ -86,35 +86,35 @@ describe('guardrails refuse with the reason and the command to run', () => {
 
   test('a merge into main whose PROTOCOL skips a number: refused with the number to use', async ($, on) => {
     const s = sessionIn(on, { main: 165, branch: 167 })
-    const { deny } = await bash($, 'gh pr merge 520 --squash')
+    const { deny } = await bash($, 'gh pr merge 520 --merge')
     expect(deny).toContain('This PR sets PROTOCOL to 167, and main is at 165')
     expect(deny).toContain('export const PROTOCOL = 166;')
-    expect(deny).toContain('`gh pr merge 520 --squash`')
+    expect(deny).toContain('`gh pr merge 520 --merge`')
     expect(s.ran).toEqual([])
   })
 
   test('a merge at main plus one runs', async ($, on) => {
     const s = sessionIn(on, { main: 165, branch: 166 })
-    expect((await bash($, 'gh pr merge 520 --squash')).deny).toBeUndefined()
-    expect(s.ran).toEqual(['gh pr merge 520 --squash'])
+    expect((await bash($, 'gh pr merge 520 --merge')).deny).toBeUndefined()
+    expect(s.ran).toEqual(['gh pr merge 520 --merge'])
   })
 
   test('a merge that leaves PROTOCOL as main has it runs', async ($, on) => {
     const s = sessionIn(on, { main: 165, branch: 165 })
-    expect((await bash($, 'gh pr merge --squash')).deny).toBeUndefined()
-    expect(s.ran).toEqual(['gh pr merge --squash'])
+    expect((await bash($, 'gh pr merge --merge')).deny).toBeUndefined()
+    expect(s.ran).toEqual(['gh pr merge --merge'])
   })
 
   test('a branch that is only behind a bump on main (it never touched PROTOCOL) merges', async ($, on) => {
     const s = sessionIn(on, { main: 166, branch: 165, left: 165 })
-    expect((await bash($, 'gh pr merge 522 --squash')).deny).toBeUndefined()
-    expect(s.ran).toEqual(['gh pr merge 522 --squash'])
+    expect((await bash($, 'gh pr merge 522 --merge')).deny).toBeUndefined()
+    expect(s.ran).toEqual(['gh pr merge 522 --merge'])
   })
 
   test('a slice into its wave branch takes its number later', async ($, on) => {
     const s = sessionIn(on, { main: 165, branch: 170, base: 'wave/margins' })
-    expect((await bash($, 'gh pr merge 521 --squash')).deny).toBeUndefined()
-    expect(s.ran).toEqual(['gh pr merge 521 --squash'])
+    expect((await bash($, 'gh pr merge 521 --merge')).deny).toBeUndefined()
+    expect(s.ran).toEqual(['gh pr merge 521 --merge'])
   })
 })
 
@@ -138,7 +138,7 @@ describe('what counts as the command', () => {
   })
 
   test('a merge whose body says -d is not a delete', () => {
-    expect(guardOf("gh pr merge 512 --squash --body '-d'", ctx)).toBeNull()
+    expect(guardOf("gh pr merge 512 --merge --body '-d'", ctx)).toBeNull()
   })
 
   test('a command inside bash -c, env or agent-env is still the command', () => {

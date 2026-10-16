@@ -199,7 +199,7 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   (`{ echo "<what to look for>"; git diff origin/main...HEAD; } | codex exec -c model='"gpt-6-astra"' --skip-git-repo-check -`;
   its sandbox can't read the repo on float-2). CodeRabbit and Greptile review PRs on their own: never tag them or ask
   for a re-review. After a merge, check for a bot review that landed late and follow up in a new PR.
-- **Merge with `gh pr merge <n> --squash`,** and check `gh pr view <n> --json state` says `MERGED`. Never
+- **Merge with `gh pr merge <n> --merge`** (a merge commit, not a squash: each commit and its `Claude-Session:` trailer stay in history, so it's clear which session shipped what; Evan, Oct 16; `git log --first-parent main` reads like the squashed history), and check `gh pr view <n> --json state` says `MERGED`. Never
   `-d`/`--delete-branch` (it deletes the local branch and its worktree, which can be another agent's), and never
   delete a merged branch by hand: GitHub deletes it and retargets stacked PRs. After merging, tell the deployer the
   merge sha.

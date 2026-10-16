@@ -14,7 +14,7 @@ instead (`hooks/guards.ts`):
 |---|---|
 | `pkill`, `killall` (any pattern) | check `pstree -p <pid>`, then `kill <pid>`; `scripts/agent-env <name> --clean` |
 | `git stash` (`list` and `show` still run) | a `wip:` commit on your branch |
-| `gh pr merge … -d` / `--delete-branch` | `gh pr merge <n> --squash` |
+| `gh pr merge … -d` / `--delete-branch` | `gh pr merge <n> --merge` |
 | `bun test --parallel` on float-2 | `scripts/agent-env <name> --test -- timeout 900 bun test <files>`; `scripts/box-test` |
 | `gh pr merge` into main when the PR sets `PROTOCOL` to anything but main's or main's plus one | the number to use, and the rebase |
 
