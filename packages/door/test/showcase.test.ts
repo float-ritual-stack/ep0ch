@@ -3642,10 +3642,11 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const r = [...stage.panes.values()].find(p => p.surface?.draft) as ReaderPane;
     const d = r.surface.draft!, tile = stage.nameOf([...stage.panes].find(([, p]) => p === r)![0]);
     const instruction = "@tidy wrap each item in a callout";
-    const source = `Orchard\n- apples\n\n- pears\n${instruction}\n${instruction}\n@tidy yo\n`;
+    const source = `Orchard\n- cherries\n@tidy earlier\nFruit to wrap:\n- apples\n\n  more apples\n\n- pears\n${instruction}\n${instruction}\n@tidy yo\n`;
     await stage.dispatch.press("draft.paste", { text: source }, tile);
     await until(() => d.text.includes("> [!note] Apples"), "the instructed rewrite in the live draft", 8000);
     await until(() => d.askStatus(instruction).includes("rewrote 2 items as callouts") && d.askStatus("@tidy yo").includes("answer command exited 2"), "every ask's outcome", 8000);
+    expect(d.text).toContain("- cherries\n@tidy earlier\nFruit to wrap:\n");
     expect(d.text).toContain(instruction + "\n" + instruction);
     expect((await board.get(d.blockId))!.text).toBe("");
     expect(d.flashes.some(s => s.label.includes("tidy"))).toBe(true);

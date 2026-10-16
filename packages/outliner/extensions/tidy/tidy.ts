@@ -10,6 +10,14 @@ interface Request {
 const request = (await Bun.stdin.json()) as Request;
 const ok = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 
+function listStart(lines: string[], from: number, to: number): number | null {
+  for (let at = from; at <= to; at++) {
+    if (/^\s*(?:`{3,}|~{3,})/.test(lines[at]!)) return null;
+    if (LIST_ITEM.test(lines[at]!)) return at;
+  }
+  return null;
+}
+
 async function respond() {
   const lines = request.input.note.text.split("\n");
   const markAt = lines.indexOf(request.input.mark);
@@ -22,15 +30,23 @@ async function respond() {
   if (all) start = 1;
   else while (start > 1 && lines[start - 1]!.trim() && !/^\s*(?:[-*+]\s+)?@/.test(lines[start - 1]!)) start--;
   start = Math.max(start, 1);
-  // Blank lines between list items don't make the last item a separate passage.
-  if (!all && LIST_ITEM.test(lines[start] ?? "")) {
-    while (start > 1) {
-      let previous = start - 1;
+  if (!all) start = listStart(lines, start, end) ?? start;
+  // Blank lines and continuation paragraphs belong to the list; an earlier ask is a boundary.
+  if (!all && (LIST_ITEM.test(lines[start] ?? "") || /^\s+\S/.test(lines[start] ?? ""))) {
+    let scan = start;
+    while (scan > 1 && !lines[scan - 1]!.trim()) {
+      let previous = scan - 1;
       while (previous > 1 && !lines[previous]!.trim()) previous--;
+      if (/^\s*(?:[-*+]\s+)?@/.test(lines[previous]!)) break;
       let from = previous;
       while (from > 1 && lines[from - 1]!.trim() && !/^\s*(?:[-*+]\s+)?@/.test(lines[from - 1]!)) from--;
-      if (!LIST_ITEM.test(lines[from] ?? "")) break;
-      start = from;
+      const item = listStart(lines, from, previous);
+      if (item !== null) {
+        start = item;
+        if (item > from) break;
+      }
+      else if (!/^\s+\S/.test(lines[from] ?? "")) break;
+      scan = from;
     }
   }
   const passage = lines.slice(start, end + 1);
