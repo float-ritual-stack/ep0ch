@@ -146,7 +146,11 @@ export interface DatabaseFacts { name: string; path: string }
 export interface SchemaCode { version: number | null; scripts: Record<number, string>; error?: string }
 
 /** An outline database's schema version (`PRAGMA user_version`, read-only); null with why when it couldn't be read. */
-export interface OutlineSchema { name: string; path: string; version: number | null; error?: string }
+export interface OutlineSchema {
+  name: string; path: string; version: number | null; error?: string;
+  /** The file has no bytes (and no WAL beside it): nothing was ever written, so it has no schema to migrate or hold an update back (PIE-938). */
+  empty?: true;
+}
 
 /** The schema the checkout opens now (`head`), origin/main's when the checkout is behind it (`upstream`), and each outline's. */
 export interface SchemaFacts { head: SchemaCode; upstream?: SchemaCode; outlines: OutlineSchema[] }

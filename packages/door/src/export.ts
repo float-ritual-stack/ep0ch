@@ -213,7 +213,7 @@ export async function exportCommand(argsIn: string[], io: Out = { out: s => proc
   if (unknown) { io.err(`ep0ch: export doesn't take ${unknown}\n${EXPORT_USAGE}`); return 2; }
   const sel = { ids, words: [] as string[], ...picked.selection };
   if (!sel.ids.length && !selects(sel)) { io.err(`ep0ch: export takes notes' ids or find's flags (--query, --view, --under)\n${EXPORT_USAGE}`); return 2; }
-  const board = await boardFor(args);
+  const board = await boardFor(args, argsIn);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     const chosen = await selectNotes(board, sel);

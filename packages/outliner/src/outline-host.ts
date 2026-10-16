@@ -499,7 +499,7 @@ export class OutlineHost {
   async attach(nameInput: unknown, create: boolean): Promise<HostedOutlineAttachment> {
     const name = requireName(nameInput);
     if (!lstatOrUndefined(this.layout.database(name))) {
-      if (!create) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}; create it with \`ep0ch init ${name}\``);
+      if (!create) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}. Nothing was created (a read never makes one). Which machines have it: \`ep0ch outline list --all\`; to make it here on purpose: \`ep0ch outline create ${name}\``);
       try {
         return { outline: await this.create(name), created: true };
       } catch (error) {
@@ -658,7 +658,7 @@ export class OutlineHost {
     const name = requireName(nameInput);
     const database = this.layout.database(name);
     const entry = lstatOrUndefined(database);
-    if (!entry) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}; create it with \`ep0ch init ${name}\``);
+    if (!entry) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}. Nothing was created (a read never makes one). Which machines have it: \`ep0ch outline list --all\`; to make it here on purpose: \`ep0ch outline create ${name}\``);
     if (!entry.isFile()) throw new Error(`${database} is not a file; an outline is a database file in ${this.outlinesFolder}, never a link`);
     const stateDirectory = this.layout.folder(name);
     const workspaceRoot = stateDirectory;

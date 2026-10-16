@@ -471,6 +471,10 @@ export async function schemaCode(root: string, commit?: string, env?: Env): Prom
 
 /** An outline database's schema version, read-only (a served file too: nothing is written, no lock is taken). */
 export function outlineSchema(d: DatabaseFacts): OutlineSchema {
+  // A 0-byte file (a name something claimed and never filled) is reported as empty, not read as "schema 0": it must never hold an install back (PIE-938).
+  try {
+    if (statSync(d.path).size === 0 && !(existsSync(`${d.path}-wal`) && statSync(`${d.path}-wal`).size > 0)) return { ...d, version: 0, empty: true };
+  } catch { /* unreadable: said below */ }
   try {
     const db = new Database(d.path, { readonly: true });
     try {
