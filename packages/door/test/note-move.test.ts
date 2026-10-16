@@ -14,6 +14,14 @@ import { outliner, Scratch, until as untilQuick } from "./scratch";
 
 const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, what, Math.max(ms, 15_000));
 
+test("the river column loads on its own (a static import cycle through the power bar broke the door's start)", async () => {
+  const p = Bun.spawn([process.execPath, "-e", 'await import("./src/river/column.ts")'], { cwd: join(import.meta.dir, ".."), env: { ...process.env, EP0CH_STATE: join(import.meta.dir, "..", ".nonexistent-state") }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  const timer = setTimeout(() => p.kill(), 4000);
+  const err = await new Response(p.stderr).text();
+  clearTimeout(timer);
+  expect(err).not.toContain("before initialization");
+});
+
 describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk, key: (k: Key) => void = () => {};
@@ -28,7 +36,8 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     /** Wait for an async check, polling (scratch's `until` takes a plain boolean). */
   const waitFor = async (ok: () => Promise<boolean>, what: string, ms = 15_000) => { const end = Date.now() + ms; while (!(await ok())) { if (Date.now() > end) throw new Error(`never: ${what}`); await Bun.sleep(50); } };
   const untilOrder = (parent: string | null, want: string) => waitFor(async () => (await order(parent)).join() === want, `${parent ?? "the top level"} in order ${want}`);
-  const alt = (kind: "alt-up" | "alt-down" | "alt-left" | "alt-right") => key({ kind } as Key);
+  const alt = (kind: "alt-up" | "alt-down") => key({ kind } as Key);
+  const letter = (c: string) => key({ kind: "char", ch: c });
   const mouse = (action: "down" | "drag" | "up", x: number, y: number, mods = 0) => key({ kind: "mouse", action, button: 0, x, y, mods });
 
   beforeAll(async () => {
@@ -55,21 +64,23 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
 
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
 
-  test("alt+↓ and alt+↑ reorder among siblings, alt+→ indents under the note above, alt+← outdents after the parent, ctrl+z puts back", async () => {
+  test("alt+↓ and alt+↑ reorder among siblings, I indents under the note above, O outdents after the parent, K and J are the Mac fallback for up and down, ctrl+z puts back", async () => {
     select(beans.id);
     alt("alt-down");
     await untilOrder(garden.id, "Peas,Beans,Squash");
     expect(await order(garden.id)).toEqual(["Peas", "Beans", "Squash"]);
     expect(tree().describe().selected?.id).toBe(beans.id);
-    alt("alt-up");
-    await until(() => rows().filter(r => r.depth === 1).map(r => r.text).join() === "Beans,Peas,Squash", "Beans back first");
+    letter("K");
+    await until(() => rows().filter(r => r.depth === 1).map(r => r.text).join() === "Beans,Peas,Squash", "Beans back first (K, the Mac fallback for alt+↑)");
+    alt("alt-down"); await untilOrder(garden.id, "Peas,Beans,Squash");
+    alt("alt-up"); await untilOrder(garden.id, "Beans,Peas,Squash");
     // In: last under the note above it, which opens to show it.
     select(peas.id);
-    alt("alt-right");
+    letter("I");
     await until(() => rows().some(r => r.text === "Peas" && r.depth === 2), "Peas under Beans");
     expect(await order(beans.id)).toEqual(["Peas"]);
     // Out: right after its parent.
-    alt("alt-left");
+    letter("O");
     await until(() => rows().some(r => r.text === "Peas" && r.depth === 1), "Peas out again");
     expect(await order(garden.id)).toEqual(["Beans", "Peas", "Squash"]);
     // ctrl+z: Peas back where the last move took it from (under Beans), then once more (its first move).
@@ -90,16 +101,16 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
 
   test("a drag onto a row moves the note under it; with alt held, beside it", async () => {
     D().render(D().ctx);
-    const origin = (id: string) => { const r = D().rectsNow().get(D().idNamed(treeName())); return { x: r.col + 1 + 4, y: r.row + 1 + row(id).n - 1 }; };
+    const origin = (id: string, x = 4) => { const r = D().rectsNow().get(D().idNamed(treeName())); return { x: r.col + 1 + x, y: r.row + 1 + row(id).n - 1 }; };
     select(squash.id);
     const from = origin(squash.id), to = origin(shed.id);
     mouse("down", from.x, from.y); mouse("drag", to.x, to.y); mouse("up", to.x, to.y);
     await waitFor(async () => (await board.get(squash.id))!.parentId === shed.id, "Squash under Shed");
-    // Alt held: beside it, below the row it's dropped on (it started above), which makes it a top-level note.
+    // Dropped on a row's mark (its left edge), no modifier: beside it, above it (it started below), a top-level note.
     await until(() => rows().some(r => r.id === squash.id), "its row");
     D().render(D().ctx);
-    const a = origin(squash.id), b = origin(garden.id);
-    mouse("down", a.x, a.y); mouse("drag", b.x, b.y, 8); mouse("up", b.x, b.y, 8);
+    const a = origin(squash.id), b = origin(garden.id, 0);
+    mouse("down", a.x, a.y); mouse("drag", b.x, b.y); mouse("up", b.x, b.y);
     await waitFor(async () => (await board.get(squash.id))!.parentId === null, "Squash at the top level");
     const top = (await order(null)).filter(t => ["Garden", "Squash", "Shed"].includes(t));
     expect(top).toEqual(["Squash", "Garden", "Shed"]);
@@ -109,6 +120,44 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     mouse("down", g.x, g.y); mouse("drag", c.x, c.y); mouse("up", c.x, c.y);
     await Bun.sleep(300);
     expect((await board.get(garden.id))!.parentId).toBe(null);
+  }, 60_000);
+
+  test("in a reader, alt+↓ and alt+↑ move the note shown among its siblings (the outline's keys), and Z asks where; esc cancels", async () => {
+    const readerId = [...D().panes.entries()].find(([, p]: any) => p.kind === "reader")![0];
+    const reader = D().panes.get(readerId) as any, readerName = D().nameOf(readerId);
+    await D().dispatch.press("tile.focus", {}, treeName());
+    await waitFor(async () => (await board.get(peas.id))!.parentId === garden.id, "Peas under Garden");
+    await until(() => rows().some(r => r.id === peas.id), "Peas' row");
+    tree().selectRow(row(peas.id).n - 1, desk);
+    await until(() => reader.msg?.id === peas.id, "the reader on Peas");
+    await D().dispatch.press("tile.focus", {}, readerName);
+    const before = (await order(garden.id)).join();
+    key({ kind: "alt-up" } as Key);
+    await waitFor(async () => (await order(garden.id)).join() !== before, "Peas moved by alt+↑ in the reader");
+    key({ kind: "alt-down" } as Key);
+    await waitFor(async () => (await order(garden.id)).join() === before, "Peas back by alt+↓");
+    // Z asks in the power bar (the note's parent first); esc puts the bar away and nothing moves.
+    key({ kind: "char", ch: "Z" });
+    const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
+    await until(() => asking()?.scope === "ask" && (asking()?.rows.length ?? 0) > 0, "the power bar asking where");
+    expect(asking()!.rows[0]!.label).toContain("Garden");
+    key({ kind: "esc" });
+    await until(() => asking()?.scope !== "ask", "the bar put away");
+    expect((await order(garden.id)).join()).toBe(before);
+    expect((await board.get(peas.id))!.parentId).toBe(garden.id);
+  }, 60_000);
+
+  test("a river column's selected card moves by column.move, as the outline's does (alt+↑ alt+↓ and Z are its keys)", async () => {
+    const opened = await app.act({ action: "tile.open", args: { kind: "river.column", source: `block:${garden.id}`, name: "col" }, as: "gardener" }) as { tile?: string };
+    const col = opened.tile ?? "col";
+    await waitFor(async () => !!D().pane(col)?.flat?.().length, "the column's cards", 20_000);
+    const before = (await order(garden.id)).join();
+    const first = (await board.children(garden.id))[0]!;
+    expect(await app.act({ action: "column.move", tile: col, args: { id: first.id, step: "down" }, as: "gardener" })).toMatchObject({ moved: first.id, parent: garden.id });
+    expect((await order(garden.id)).join()).not.toBe(before);
+    expect(await app.act({ action: "column.move", tile: col, args: { id: first.id, step: "up" }, as: "gardener" })).toMatchObject({ moved: first.id });
+    expect((await order(garden.id)).join()).toBe(before);
+    await expect(app.act({ action: "column.move", tile: col, args: { id: first.id }, as: "gardener" })).rejects.toThrow("say where");
   }, 60_000);
 
   test("note.move by act: under a note, beside one, at a revision; an agent is recorded as itself and a stale revision is refused", async () => {

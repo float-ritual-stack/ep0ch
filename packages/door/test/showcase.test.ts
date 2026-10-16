@@ -4936,7 +4936,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await until(() => /→ Kitchen sink › New notes from anywhere +\[move ▸\]/.test(screen()), "where it lands");
     expect(await stage().dispatch.press("note.move", {}, writing().surface.draft && stage().nameOf(stage().focus))).toMatchObject({ asking: "to" });
     const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
-    await until(() => asking()?.scope === "ask" && /^its parent: /.test(asking()!.rows[0]?.label ?? ""), "the power bar asking where", 5000);
+    await until(() => asking()?.scope === "ask" && asking()!.rows[0]?.label === "New notes from anywhere", "the power bar asking where", 5000);
     press({ kind: "esc" });
     await until(() => asking()?.scope !== "ask", "the bar put away");
     expect((await board.get(id))!.parentId).toBe(guide);
@@ -5133,7 +5133,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     press({ kind: "esc" });
   }, 30_000);
 
-  test("move a note (PIE-943): tree.move through act, alt+↓ alt+→ alt+← and ctrl+z by keys, the picker asked for by Z", async () => {
+  test("move a note (PIE-943): tree.move through act, alt+↓ I O and ctrl+z by keys, the picker asked for by Z", async () => {
     (app as any).lastInput = 0;
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     const n = SECTIONS.findIndex(s => s.key === "move-note") + 1;
@@ -5157,17 +5157,17 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     // A move under a system note is the guard's, as outline_move's: refused, said.
     const trash = (await board.roots()).find(r => r.props["system-view"] === "trash")!.id;
     await expect(app.act({ action: "tree.move", args: { id: id("Seed trays"), to: trash }, as: "test-agent" })).rejects.toThrow(/which the service fills itself/);
-    // The person, by keys: into the stage (the outline has them), onto Cold frame, alt+↓, alt+→ (in under the note above), alt+←, ctrl+z.
+    // The person, by keys: into the stage (the outline has them), onto Cold frame, alt+↓, I (in under the note above), O, ctrl+z.
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     tree().selectRow(rows().find(r => r.text === "Cold frame")!.n - 1, stage(), false);
     press({ kind: "alt-down" });
     await until(() => rows().map(r => r.text).join().includes("Seed trays,Potting bench,Cold frame"), "alt+↓");
     expect(await kids()).toEqual(["Seed trays", "Potting bench", "Cold frame"]);
-    press({ kind: "alt-right" });
+    press({ kind: "char", ch: "I" });
     await until(() => depthOf("Cold frame") > depthOf("Potting bench") && depthOf("Potting bench") >= 0, "alt+→: in under Potting bench");
     expect((await board.get(id("Cold frame")))!.parentId).toBe(id("Potting bench"));
-    press({ kind: "alt-left" });
+    press({ kind: "char", ch: "O" });
     await until(() => depthOf("Cold frame") === depthOf("Potting bench") && depthOf("Potting bench") >= 0, "alt+←: out again");
     expect(await kids()).toEqual(["Seed trays", "Potting bench", "Cold frame"]);
     press({ kind: "char", ch: "z", ctrl: true });
@@ -5183,7 +5183,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     press({ kind: "char", ch: "Z" });
     const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
     await until(() => asking()?.scope === "ask" && (asking()?.rows.length ?? 0) > 0, "the power bar asking where", 5000).catch(() => { throw new Error(JSON.stringify(asking())); });
-    expect(asking()!.rows[0]!.label).toBe("its parent: Kitchen sink");
+    expect(asking()!.rows[0]!.label).toBe("Kitchen sink");
     press({ kind: "esc" });
     await until(() => asking()?.scope !== "ask", "the bar put away");
     // An agent names it: the greenhouse.

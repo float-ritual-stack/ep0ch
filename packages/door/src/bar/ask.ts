@@ -27,6 +27,8 @@ export interface BarQuestion {
   suggest?: (typed: string) => Promise<readonly BarSuggestion[]> | readonly BarSuggestion[];
   /** What's typed is an answer too, as typed (a query, a duration). */
   free?: boolean;
+  /** `note`: this note's parents (nearest first) and the notes changed lately are offered before what's typed finds more (PIE-943: where a move goes). */
+  parentsOf?: string;
   /** How a note the search found is described (default "under this note", a quote's place). */
   found?: string;
   /** A text or number the action needs: without it, nothing typed offers "leave it empty" (a note's form, PIE-828). */
@@ -57,6 +59,18 @@ export async function askInBar<R>(ctx: AskCtx, title: string, questions: readonl
   registerBarSource(ASK_SOURCE);
   await ctx.dispatch.act({ action: "bar.open", args: { scope: ASK_SCOPE } }, actor);
   return { asking: open[0]!.name, action: title };
+}
+
+/** A note's parents (nearest first, three) and the notes changed lately (the `/` scope's own list), then the choices: where a note can go before anything is typed. */
+async function places(of: string, host: Parameters<NonNullable<BarSource["rows"]>>[1], head: string, choices: BarRow[]): Promise<BarRow[]> {
+  const chain = await host.ctx.board.ancestors(of).catch(() => []);
+  const parents: BarRow[] = [...chain].reverse().slice(0, 3).map((a, i) => ({ key: `answer:${a.id}`, label: noteLabel(a), detail: i === 0 ? "its parent" : "above it", group: `${head} · parents`, data: a.id }));
+  const seen = new Set(parents.map(p => p.data));
+  // Loaded when asked: sources.ts reaches the desk, which reaches the actions that ask (a static import is a cycle).
+  const { recentNotes } = await import("./sources");
+  const recent: BarRow[] = (await recentNotes(host as never).catch(() => [])).filter(r => r.key !== of && !seen.has(r.key)).slice(0, 8)
+    .map(r => ({ key: `answer:${r.key}`, label: r.label, detail: r.detail ?? "changed lately", group: `${head} · lately`, data: r.key }));
+  return [...parents, ...choices, ...recent];
 }
 
 const ASK_SOURCE: BarSource = {
@@ -91,6 +105,7 @@ const ASK_SOURCE: BarSource = {
     // One that isn't needed and has no default (a note's form, PIE-828) can be left out.
     if (q.required === false && q.value === undefined && !words) rows.push({ key: "answer:", label: "leave it empty", detail: "no answer", group: head, data: "" });
     // A note: any the outline's search finds by the words typed, nearer the note in front first. The rest answer at once.
+    if (q.type === "note" && q.parentsOf && typed.length < 2) return places(q.parentsOf, host, head, rows);
     if (q.type !== "note" || typed.length < 2) return rows;
     return host.ctx.board.search(typed, 20, { near: host.near() ?? undefined }).then(found => [
       ...rows, ...found.map(m => ({ key: `answer:${m.id}`, label: noteLabel(m), detail: q.found ?? "under this note", group: `${head} · notes`, data: m.id })),

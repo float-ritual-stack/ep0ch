@@ -25,6 +25,9 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import { lastTop, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
+import { intentOf, moveNote, moveQuestion, type MoveArgs } from "../note-move";
+import { askInBar } from "../bar/ask";
+import type { WriteBoard } from "../mcp-writes";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
@@ -564,6 +567,9 @@ export class RiverColumn extends ReaderPane {
         return true;
       }
       if (c === "s") { this.run(desk, "column.split"); return true; }
+      // The selected card moves (PIE-943): alt+↑ alt+↓ among its siblings (as in the outline tile), Z asks where.
+      if (k.kind === "alt-up" || k.kind === "alt-down") { this.run(desk, "column.move", { step: k.kind === "alt-up" ? "up" : "down" }); return true; }
+      if (c === "Z") { this.run(desk, "column.move"); return true; }
       if (c === "/") { this.mode = "filter"; this.input = filterInput(filterText(this.filter)); desk.redraw(); return true; }
       if (c === "#") { this.tagChoices = followable(this.flat()[this.sel]?.m ?? (this.source.kind === "block" ? this.rootOf() ?? undefined : undefined)); this.mode = "tags"; desk.redraw(); return true; }
       if (k.kind === "esc" && (this.linked() || current)) { this.surface.clearLink(); desk.redraw(); return true; }
@@ -913,6 +919,31 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
       const r = await desk.within("tile.open", { kind: "river.column", source: `block:${m.id}`, where: "down" }, actor, pane) as { tile: string };
       if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
       return { tile: r.tile, from: tile, id: m.id };
+    },
+  }),
+  "column.move": def({
+    summary: "move the selected card of a river column, or id=, as note.move does (to=, before=, after=, step=up|down|in|out, position=, revision=): the shared move, recorded as who asks; with none of them the person is asked in the power bar. The column reads its notes again; an agent's never moves your selection",
+    keys: "alt+up alt+down (up, down among its siblings), Z (move to…)",
+    touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
+    menu: { label: "move to…", group: "Column", key: "Z" },
+    args: {
+      id: { type: "string", optional: true, about: "the card to move (default: the selected one)" },
+      to: { type: "string", optional: true, about: "under this note: inbox, root, or an id, ((ref)), [[page]] or Work ID" },
+      before: { type: "string", optional: true, about: "a sibling to go just above" },
+      after: { type: "string", optional: true, about: "a sibling to go just below" },
+      position: { type: "number", optional: true, about: "with to=: its place among the children, from 1 (default first)" },
+      step: { type: "string", optional: true, about: "up, down, in or out" },
+      revision: { type: "number", optional: true, about: "the note's revision as you read it" },
+    },
+    async run({ id, ...where }, { pane, desk }, actor) {
+      const c = columnOf(pane), m = id !== undefined ? c.flat().find(r => r.m.id.startsWith(id))?.m : c.flat()[c.sel]?.m;
+      const target = m?.id ?? id;
+      if (!target) throw new ActionRefused("nothing is selected in this column to move");
+      const board = desk.ctx.board as WriteBoard, args: MoveArgs = where;
+      const go = async (a: MoveArgs) => { const done = await moveNote(board, target, intentOf(a), actor, { revision: a.revision }); desk.ctx.flash(done.said); return done; };
+      if ([where.to, where.before, where.after, where.step].some(x => x !== undefined)) return go(args);
+      if (actor.kind === "agent") throw new ActionRefused("say where: to=<inbox, root, or a note's id, ((ref)), [[page]], Work ID>, before=, after= or step=up|down|in|out");
+      return askInBar(desk.ctx as never, "Move the note", [moveQuestion(target)], {}, actor, answers => go({ ...args, to: answers.to! }));
     },
   }),
   "column.block": def({

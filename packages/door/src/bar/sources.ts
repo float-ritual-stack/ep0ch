@@ -116,7 +116,7 @@ const RECENT_NOTES = 30;
  * with no note to be near: every live note by when it was last edited, the person's edits and others') merged with what
  * others changed since the person looked (the `+` scope's store, so a change the feed holds is never missing), newest first.
  */
-async function recentNotes(host: BarHost): Promise<BarRow[]> {
+export async function recentNotes(host: BarHost): Promise<BarRow[]> {
   const found = new Map<string, { m: Msg; at: number; row: BarRow }>();
   for (const m of await host.ctx.board.search("", RECENT_NOTES)) found.set(m.id, { m, at: m.updatedAt, row: { ...noteRow(m), detail: `${authorName(m.author)} · ${ago(m.updatedAt)} ago` } });
   for (const r of host.ctx.whatChanged?.list().slice(0, RECENT_NOTES) ?? []) {
