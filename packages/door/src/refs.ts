@@ -105,6 +105,17 @@ export function referencesIn(text: string, src: Source | null | undefined): Map<
     c => changedSince(c.at, refs.ids))?.value ?? null;
 }
 
+type CommentSubject = { kind: "block"; blockId: string } | { kind: "resource"; resourceId: string };
+type CommentTarget = { representation: { subject: CommentSubject } };
+const commentSubjects = new WeakMap<object, Map<string, Cached<CommentSubject>>>();
+/** The service owns a comment's subject, including replies whose parent is another comment. */
+export function commentSubject(id: string, src: Source | null) {
+  return ask(commentSubjects, src, id, async board => {
+    const r = await board.request<{ originalTarget: CommentTarget; resolvedTarget: CommentTarget | null }>("annotations.get", { annotationId: id });
+    return (r.resolvedTarget ?? r.originalTarget).representation.subject;
+  }, c => anyChangeSince(c.at));
+}
+
 const scopeBy = new WeakMap<object, Map<string, Cached<TicketPrefixes>>>();
 /**
  * Which prefixes make a bare `LETTERS-digits` a Work ID link in this outline (#429): its configured prefix and the

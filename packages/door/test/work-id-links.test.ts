@@ -41,4 +41,55 @@ describe.skipIf(!outliner)("links in a note's body: a bare Work ID, ((id)) and [
     await desk.dispatch.act({ action: "element.open", tile: "reader", args: { n: els()[0].n } }, { kind: "user" });
     await until(() => r().msg?.id === latch.id, "⏎: the Work ID's item opened", 5000);
   }, 30_000);
+
+  test.each([80, 140])("a reply card at %i columns exposes its link to keys and opens it", async cols => {
+    const target = await board.createBlock(null, `Repair the hinge [work-id::SHED-${cols}]\nBring a screwdriver.`);
+    const note = await board.createBlock(null, "Workshop plan\nInspect the door.");
+    const thread = await board.comment(crypto.randomUUID(), note.id, note.revision!, "Check the hardware.", null);
+    await board.reply(crypto.randomUUID(), thread.id, `Try ((${target.id}|SHED-${cols})) next.`);
+    const desk = new Desk({ name: "cards", title: "cards", layout: { root: { t: "leaf", kind: "reader", name: "reader" }, focus: "reader" } });
+    app.push(desk); desk.setCurrent(note);
+    const reader = desk.pane("reader") as ReaderPane;
+    reader.surface.marginMode = "full";
+    const links = () => { reader.render(cols, 40, true, desk); return reader.surface.describeElements() as { n: number; kind: string; label: string }[]; };
+    await until(() => !!reader.surface.comments?.length, "comment loaded");
+    const link = links().find(e => e.kind === "link" && e.label.includes(`SHED-${cols}`));
+    expect(link).toBeDefined();
+    if (cols === 80) {
+      for (let i = 0; i < links().length; i++) {
+        reader.key({ kind: "char", ch: "]" }, desk);
+        if (reader.surface.describeElements().some(e => e.current && e.label.includes(`SHED-${cols}`))) break;
+      }
+      reader.key({ kind: "enter" }, desk);
+    } else {
+      const rows = reader.render(cols, 40, true, desk).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+      const y = rows.findIndex(l => l.includes(`SHED-${cols}`)), x = rows[y]!.indexOf(`SHED-${cols}`);
+      reader.surface.click(x + 1, y, reader.host(desk));
+    }
+    await until(() => reader.msg?.id === target.id, "reply link opened");
+    app.pop();
+  });
+
+  test("a standalone reply labels its title and links back to the note it comments on", async () => {
+    const target = await board.createBlock(null, "Paint the hinge [work-id::SHED-003]");
+    const note = await board.createBlock(null, "Workshop discussion\nChoose the colour.");
+    const thread = await board.comment(crypto.randomUUID(), note.id, note.revision!, "Which paint?", null);
+    const reply = await board.reply(crypto.randomUUID(), thread.id, `Try ((${target.id}|SHED-003)) next.\nUse blue.`);
+    const desk = new Desk({ name: "reply", title: "reply", layout: { root: { t: "leaf", kind: "reader", name: "reader" }, focus: "reader" } });
+    app.push(desk); desk.setCurrent((await board.get(reply.id))!);
+    const reader = desk.pane("reader") as ReaderPane;
+    const paint = () => reader.render(100, 40, true, desk).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
+    await until(() => !reader.msg?.partial, "reply read");
+    expect(paint()).toContain("Try SHED-003 next.");
+    expect(paint()).not.toContain(target.id);
+    await until(() => paint().includes("on Workshop discussion"), "comment subject link");
+    await until(() => { paint(); return (reader.surface.describeElements() as { label: string }[]).some(e => e.label.includes("SHED-003")); }, "reply outlinks");
+    const links = reader.surface.describeElements() as { n: number; kind: string; label: string }[];
+    const back = links.find(e => e.kind === "link" && e.label.includes("Workshop discussion"));
+    expect(back).toBeDefined();
+    await desk.dispatch.act({ action: "element.open", tile: "reader", args: { n: back!.n } }, { kind: "user" });
+    await until(() => reader.msg?.id === note.id, "back on the commented note");
+    app.pop();
+  });
+
 });
