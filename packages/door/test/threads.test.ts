@@ -225,6 +225,11 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(body).toBeGreaterThanOrEqual(passage);
     expect(drawn("Water them in")).toBe(true);        // under its passage, before the next line
     expect(drawn("The ones behind the shed?")).toBe(true);                // the reply
+    P().render(100, 50, true, b);
+    const replyControls = P().surface.describeElements().filter(e => e.kind === "control").map(e => e.label).join(" | ");
+    expect(replyControls).toContain("Edit the reply");
+    expect(replyControls).toContain("Quote the reply");
+    frame();
     for (const label of ["[Select]", "[Reply]", "[Edit]", "[Seen]"]) expect(drawn(label)).toBe(true);
     expect(P().surface.hint()).toContain("⏎ collapse its thread");
     key({ kind: "enter" });

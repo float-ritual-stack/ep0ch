@@ -3891,8 +3891,8 @@ export class NoteSurface {
   private commentSelection: { selection: Selection; text: string; from: number } | null = null;
 
   private keepCommentSelection() {
-    const selection = this.selection, rows = this.selRows();
-    const source = selection && this.sourceOf(selection);
+    const selection = this.selection, rows = this.selRows(true);
+    const source = selection && this.sourceOf(selection, true);
     if (selection && rows && source && !this.commentSelection)
       this.commentSelection = { selection, text: selection.text(rows), from: source.from };
   }
@@ -3904,8 +3904,9 @@ export class NoteSurface {
     // The same source occurrence survives both inserted cards and a side column rewrapping the words.
     for (let n = 1; ; n++) {
       let next: Selection;
-      try { next = this.selectBy({ text: saved.text, n }); } catch { return; }
-      if (this.sourceOf(next)?.from !== saved.from) continue;
+      try { next = this.selectBy({ text: saved.text, n, noteOnly: true }); } catch { return; }
+      if (this.sourceOf(next, true)?.from !== saved.from) continue;
+      if (saved.selection.anchor !== saved.selection.start) [next.anchor, next.head] = [next.head, next.anchor];
       next.keys = saved.selection.keys;
       this.selection = this.stamp(next);
       return;
@@ -5561,7 +5562,7 @@ export class NoteSurface {
   // ── selecting text (PIE-419) ───────────────────────────────────────────────
 
   /** The last render's rows, by content row: the header's (its rule isn't text), then the body's (margin left out). */
-  private selRows(): SelectRows | null {
+  private selRows(noteOnly = false): SelectRows | null {
     const d = this.drawn;
     if (!d) return null;
     const cache = new Map<number, string[]>();
@@ -5578,7 +5579,7 @@ export class NoteSurface {
       // The drawing inside the text (a quote's bar, a frame's edges, a bullet glyph, a fold arrow) is drawn, never copied (PIE-638).
       cuts: r => (r < d.top ? undefined : d.doc.trims.get(r - d.top)?.cuts.map(([a, b, rep]) => [a + d.bx, b + d.bx, rep] as const)),
       // A row that is only drawing (a frame's edge; the look's gap, divider and margin rows) is left out whole.
-      edge: r => (r >= d.top ? !!d.doc.trims.get(r - d.top)?.edge : r >= d.top - 1 - d.my && r < d.top - 1),
+      edge: r => (r >= d.top ? (noteOnly && d.doc.source[r - d.top] === -1) || !!d.doc.trims.get(r - d.top)?.edge : r >= d.top - 1 - d.my && r < d.top - 1),
       // A paragraph wrapped over rows is one line of text: its rows join with a space where the wrap took one, nothing where it cut a word.
       joins: r => (r >= d.top ? d.doc.wraps?.get(r - d.top + 1) : undefined),
     };
@@ -5901,8 +5902,8 @@ export class NoteSurface {
    * source (no link or formatting inside), else the whole source lines it covers. Offsets are into the
    * note's text, as the comment passage picker takes them. Null when only the header's details are selected.
    */
-  sourceOf(s: Selection): { text: string; exact: boolean; from: number; to: number; lines: [number, number] } | null {
-    const d = this.drawn, m = this.msg, rows = this.selRows();
+  sourceOf(s: Selection, noteOnly = false): { text: string; exact: boolean; from: number; to: number; lines: [number, number] } | null {
+    const d = this.drawn, m = this.msg, rows = this.selRows(noteOnly);
     if (!d || !m || !rows) return null;
     const lines: number[] = [];
     for (let r = s.start.row; r <= s.end.row; r++) {
@@ -5964,8 +5965,8 @@ export class NoteSurface {
    * the nth time it's drawn) or note lines `line` to `to` (1 is the subject). The whole drawn note, not
    * just the rows in view.
    */
-  selectBy({ text, line, to, n }: { text?: string; line?: number; to?: number; n?: number }): Selection {
-    const d = this.drawn, rows = this.selRows();
+  selectBy({ text, line, to, n, noteOnly = false }: { text?: string; line?: number; to?: number; n?: number; noteOnly?: boolean }): Selection {
+    const d = this.drawn, rows = this.selRows(noteOnly);
     if (!d || !rows || !this.msg) throw new ActionRefused("this reader doesn't show the note's text now (it's editing, commenting, reading the note, or the full property panel is open)");
     if ((text === undefined) === (line === undefined)) throw new ActionRefused("say what to select: text= (as the note reads) or line= (with to= for a range; 1 is the subject)");
     if (text !== undefined) {
@@ -5975,6 +5976,7 @@ export class NoteSurface {
       let flat = "";
       for (let r = 0; r < rows.count; r++) {
         starts.push(flat.length);
+        if (noteOnly && rows.edge?.(r)) continue;
         flat += rows.cells(r).slice(rows.margin?.(r) ?? 0).join("").trimEnd() + "\n";
       }
       const re = new RegExp(text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "g");
@@ -6479,14 +6481,14 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     // Each reply is a mark too: its own [Quote].
     // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
     const head = "└ " + printable(authorName(r.author)) + " · " + ago(r.at) + editedMark(r);
-    let tail = "", col = 2 + width(head);
+    let row = edge + "│ " + fg(C.cyan) + ellipsize(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
     for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
-      if (col + 1 + q.length > W - 1) break;
+      if (col + 1 + q.length > W) { lines.push(row); row = edge + "│ "; col = 2; }
       controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + q.length, label });
-      tail += " " + (cur === controlKey(c.id, k, r.id) ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
+      row += " " + (cur === controlKey(c.id, k, r.id) ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
       col += 1 + q.length;
     }
-    lines.push(edge + "│ " + fg(C.cyan) + head + RESET + tail);
+    lines.push(row);
     for (const l of body(r.body, Math.max(2, inner - 2), 4)) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
     quotedIn(r.quotedIn, "  ");
   }

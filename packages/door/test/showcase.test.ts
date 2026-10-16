@@ -1243,6 +1243,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await act("margin", { mode: "off" });
     expect(await stage().dispatch.press("select.copy", {}, "plan")).toMatchObject({ text: "Sow the basil" });
     await stage().dispatch.press("select.clear", {}, "plan");
+    await stage().dispatch.press("select", { text: "Move the leeks to the cold frame in the second week of March, and harden them off for ten days.\nSow the basil only once the nights stay above ten degrees." }, "plan");
+    const selectedSource = await stage().dispatch.press("select.copy", { source: true }, "plan");
+    await act("thread.toggle", { thread: passage.id, expand: true });
+    expect(await stage().dispatch.press("select.copy", { source: true }, "plan")).toEqual(selectedSource);
+    await stage().dispatch.press("select.clear", {}, "plan");
+    await act("thread.toggle", { thread: passage.id, expand: false });
     expect(screen()).not.toContain(whole.body);
     expect(screen()).not.toContain("[Reply]");
     expect(screen()).toContain("marks (M)");
