@@ -312,6 +312,11 @@ export async function serve(args: string[]): Promise<never> {
         case "upgrade": case "reload": {
           // `ep0ch session upgrade` at the person's shell: the same action an attached terminal can't run over the wire.
           if (client) { link.send({ t: "ask", message: `\`${ep0ch()}session upgrade\` does that, not an attached terminal` }); return; }
+          if (m.t === "upgrade" && m.whenIdle && app.person().busy) {
+            link.send({ t: "ask", message: `${app.person().why ?? "the person is typing"}; the session is left running. Finish typing, then rerun ep0ch install --apply` });
+            link.close();
+            return;
+          }
           void app.dispatch.act({ action: "session.upgrade", args: { clients: m.t === "reload" } }, USER).then(
             r => { link.send({ t: "ask", message: (r as { message: string }).message }); link.close(); },
             e => { link.send({ t: "ask", message: e instanceof Error ? e.message : String(e) }); link.close(); });

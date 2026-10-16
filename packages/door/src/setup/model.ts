@@ -180,6 +180,7 @@ export interface Facts {
   /** The link directories in preference order, whether each is on PATH and writable. */
   linkDirs: { dir: string; onPath: boolean; writable: boolean; existing?: "link" | "broken-link" | "file" }[];
   host: HostFacts;
+  installClients?: { file: string; names: string[]; changed: boolean };
   /**
    * This machine's own name (`<outlines>/.host/machine-name`): what `ep0ch://` URIs and EchoNet call it, so other
    * machines' ssh name for it and its own agree. `env`: EP0CH_MACHINE_NAME names it instead; `chosen`: the name

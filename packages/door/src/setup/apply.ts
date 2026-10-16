@@ -3,7 +3,7 @@ import { fixOutlineFiles, outlineFiles } from "./outline-files";
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Outlines are only
 // ever copied; no outline is created; no unit, Herdr config or plugin link is changed.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
@@ -18,10 +18,11 @@ import { programStatusEmitter, type StatusEmitter } from "@ep0ch/outliner/progra
 import { writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { ep0ch } from "../session/place";
+import { sshBin } from "../machine";
 import { copyName, type CopyUpdate, newsWords } from "@ep0ch/outliner/extension-update";
 
 type Env = Record<string, string | undefined>;
-export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]";
+export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client]";
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
@@ -173,6 +174,22 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
   const say = (s: string) => { record(s); show(`    ✓ ${s}`); };
   const child = task.child;
   switch (step.id) {
+    case "client-list": {
+      for (const w of step.writes!) { mkdirSync(dirname(w.path), { recursive: true }); writeFileSync(w.path, w.text); }
+      say(step.why);
+      return;
+    }
+    case "clients": {
+      for (const [i, name] of f.installClients!.names.entries()) {
+        const command = step.commands[i]!;
+        const r = await run([sshBin(env), "-o", "BatchMode=yes", "--", name, "ep0ch install --apply --as-client"], { env, timeoutMs: 900_000, onLine: child });
+        const line = r.code === 0 ? `✓ ${name}: installed; busy doors are left running until typing ends`
+          : `! ${name}: ${r.err || r.out || `exit ${r.code}`}\n      run by hand: ${command}`;
+        record(line); show(`    ${line}`);
+        if (r.out) { record(r.out); show(r.out); }
+      }
+      return;
+    }
     case "outline-files": {
       for (const line of fixOutlineFiles(f.outlineFiles ?? [], { retireBackups: true })) say(line);
       return;
@@ -221,7 +238,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       // The daemon starts its successor from its checkout, now on the new code.
       const { upgradeAll } = await import("../session/client");
       const { ep0ch } = await import("../session/place");
-      const rs = await upgradeAll();
+      const rs = await upgradeAll({ whenIdle: true });
       const handed = rs.filter(r => r.ok && r.handover);
       for (const r of rs) if (r.ok) { record(r.message); if (!r.handover) show(`    ✓ ${r.message}`); }
       if (handed.length) handoverLines(handed.map(r => r.handover!)).forEach(show);
@@ -229,7 +246,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       for (const r of failed) show(`    ✗ ${r.message}`);
       // One cause shared by every failure (a missing package after a pull, say) is said once, in the step's line.
       const causes = new Set(failed.map(r => / · ((?:error\b|.*Error\b|Cannot\b).*?)(?: · |$)/.exec(r.message)?.[1] ?? r.message));
-      if (failed.length) throw new StepFailed(`handing ${failed.length === 1 ? "a door session" : `${failed.length} door sessions`} over failed${causes.size === 1 ? `: ${[...causes][0]}` : " (each above)"}`, `the sessions run on as they were; \`${ep0ch()}session upgrade --all\` tries again, and \`${ep0ch()}session list\` says what runs`);
+      if (failed.length) throw new StepFailed(`handing ${failed.length === 1 ? "a door session" : `${failed.length} door sessions`} over failed${causes.size === 1 ? `: ${[...causes][0]}` : " (each above)"}`, `the sessions run on as they were; after typing ends, rerun ep0ch install --apply (or follow the session protocol update command above); \`${ep0ch()}session list\` says what runs`);
       return;
     }
     case "name": {
@@ -434,12 +451,21 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   // `--machine-name <name>` (or `=<name>`): this machine's own name, written by the name step.
   const at = args.findIndex(a => a === "--machine-name" || a.startsWith("--machine-name="));
   const machineName = at < 0 ? undefined : args[at]!.includes("=") ? args[at]!.slice("--machine-name=".length) : args[at + 1];
-  const rest = at < 0 ? args : args.filter((_, i) => i !== at && !(i === at + 1 && !args[at]!.includes("=")));
+  let rest = at < 0 ? args : args.filter((_, i) => i !== at && !(i === at + 1 && !args[at]!.includes("=")));
   if (at >= 0 && !isMachineName(machineName)) { io.err(`ep0ch: --machine-name takes a machine name, the ssh name other machines reach this one by (letters, digits, . _ -; up to 32); got ${JSON.stringify(machineName ?? "")}`); return 2; }
+  let clientChange: { name: string; add: boolean } | undefined;
+  for (const flag of ["--add-client", "--remove-client"]) {
+    const i = rest.findIndex(a => a === flag || a.startsWith(flag + "="));
+    if (i < 0) continue;
+    const name = rest[i]!.includes("=") ? rest[i]!.slice(flag.length + 1) : rest[i + 1];
+    if (clientChange || !isMachineName(name) || args[0] !== "install" || args.includes("--as-client")) { io.err(`ep0ch: ${flag} takes one ssh name; ${SETUP_USAGE}`); return 2; }
+    clientChange = { name, add: flag === "--add-client" };
+    rest = rest.filter((_, n) => n !== i && !(n === i + 1 && !rest[i]!.includes("=")));
+  }
   // `--dials-in`: this machine calls the others for EchoNet and is never called; `--no-dials-in` undoes it.
   const dials = rest.includes("--dials-in") ? true : rest.includes("--no-dials-in") ? false : undefined;
-  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--fix", "--move-scripts", "--backups", "--dials-in", "--no-dials-in"].includes(a));
-  if ((args.includes("--move-scripts") && !args.includes("--fix")) || (args[0] !== "doctor" && args.includes("--fix")) || unknown.length || (rest.includes("--dials-in") && rest.includes("--no-dials-in")) || (args[0] === "doctor" && (args.includes("--apply") || at >= 0 || dials !== undefined)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
+  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--fix", "--move-scripts", "--backups", "--dials-in", "--no-dials-in", "--as-client"].includes(a));
+  if ((args.includes("--move-scripts") && !args.includes("--fix")) || (args[0] !== "doctor" && args.includes("--fix")) || unknown.length || (rest.includes("--dials-in") && rest.includes("--no-dials-in")) || (args[0] === "doctor" && (args.includes("--apply") || args.includes("--as-client") || at >= 0 || dials !== undefined)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
   const home = resolve(env.HOME || homedir());
   if (!json) { const { out, err } = io; io = { ...io, out: s => out(tilde(s, home)), err: s => err(tilde(s, home)) }; }
   const progress = io.progress ?? new Progress({ mode: progressMode({ json, terminal: io.terminal, env }), out: io.out, terminal: io.terminal, env, tidy: s => tilde(s, home) });
@@ -455,14 +481,14 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     process.exit(130);
   };
   if (io.terminal) process.on("SIGINT", interrupted);
-  try { return await setup(rest, io, env, json, progress, status, machineName, dials); }
+  try { return await setup(rest, io, env, json, progress, status, machineName, dials, clientChange); }
   finally {
     progress.close();
     if (io.terminal) process.off("SIGINT", interrupted);
   }
 }
 
-async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string, dials?: boolean): Promise<number> {
+async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string, dials?: boolean, clientChange?: { name: string; add: boolean }): Promise<number> {
   // Checking the stack (git fetches among it) can take a while on a slow link: a phase, gone once it's done.
   const checking = progress.task({ mark: "·", title: "Checking the stack", transient: true });
   const facts = await gatherFacts({ env, repoRoot: io.repoRoot, platform: io.platform, cwd: io.cwd,
@@ -487,6 +513,16 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     if (chosen) facts.machineName.chosen = chosen;
   }
   if (facts.dialsIn && dials !== undefined) facts.dialsIn.chosen = dials;
+  if (!args.includes("--as-client")) {
+    const file = join(facts.host.folder, ".host", "clients");
+    const configured = existsSync(file) ? readFileSync(file, "utf8").split(/\r?\n/).map(s => s.trim()).filter(Boolean) : [];
+    const invalid = configured.find(name => !isMachineName(name));
+    if (invalid) { io.err(`ep0ch: ${file} has an invalid ssh name ${JSON.stringify(invalid)}; edit it to one ssh name per line`); return 2; }
+    const names = [...new Set(configured)];
+    if (clientChange?.add && !names.includes(clientChange.name)) names.push(clientChange.name);
+    if (clientChange && !clientChange.add) names.splice(0, names.length, ...names.filter(n => n !== clientChange.name));
+    facts.installClients = { file, names, changed: names.join("\n") !== configured.join("\n") };
+  }
   const options: PlanOptions = { now: io.now ?? new Date(), backupDir: backupDirOf(facts.home) };
   const plan = buildPlan(facts, options);
   if (!apply) {
@@ -539,12 +575,13 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     }
   }
   const waiting = results.filter(s => s.status === "manual");
+  const clientBlocked = args.includes("--as-client") && results.some(s => s.id === "repo" && (s.status === "manual" || s.unchecked));
   status?.report({ state: "done", msg: results.some(s => s.done) ? `installed${waiting.length ? `; ${waiting.length} step${waiting.length === 1 ? "" : "s"} left for you` : ""}` : "nothing to do" });
-  if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: true, steps: results, notes: plan.notes }, null, 2));
+  if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: !clientBlocked, steps: results, notes: plan.notes }, null, 2));
   else {
     if (plan.notes.length) { say(""); say("not done by install:"); plan.notes.forEach(n => say(`  · ${n}`)); }
     say("");
     say(results.some(s => s.done) ? `done${waiting.length ? `; ${waiting.length} step${waiting.length === 1 ? "" : "s"} left for you (! above)` : ""}` : `nothing to do${waiting.length ? `; ${waiting.length} step${waiting.length === 1 ? "" : "s"} left for you (! above)` : ""}`);
   }
-  return 0;
+  return clientBlocked ? 1 : 0;
 }

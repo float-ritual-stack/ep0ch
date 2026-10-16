@@ -1026,6 +1026,12 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const before = { daemon: daemonPid(), shell: await shellPid() };
     expect(before.shell).toBeGreaterThan(0);
 
+    const deferred = await request({ t: "upgrade", whenIdle: true });
+    expect(deferred).toMatchObject({ t: "ask", message: expect.stringContaining("the session is left running") });
+    expect(daemonPid()).toBe(before.daemon);
+    expect(a.closed).toBe(false);
+    expect(a.screen()).toContain("and kale");
+
     expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
     await until(() => a.closed, "the old daemon to let the terminal go", 5000);
     expect(a.got.find(m => m.t === "bye")).toMatchObject({ reason: "upgrade" });

@@ -105,6 +105,7 @@ ${MCP_USAGE}
                                    snapshot into a temp folder and runs integrity_check
 ${BACKUP_USAGE}
   ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in]
+                [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client]
                                    bring the stack up to date: a dry run by default (the plan). --apply backs
                                    up every ~/outlines/*.sqlite to ~/backups/ep0ch/<time>/ first, then updates the
                                    ep0ch checkout (fast-forward only, bun install when needed), links ep0ch on
@@ -115,6 +116,9 @@ ${BACKUP_USAGE}
                                    asked at a terminal, the short host name otherwise; --machine-name renames.
                                    --dials-in: this machine calls the others for EchoNet and is never called
                                    (its inbound ssh off or gated; ~/outlines/.host/dials-in); --no-dials-in undoes
+                                   .host/clients lists the ssh clients updated after the host, one per line.
+                                   --add-client and --remove-client manage it (--apply saves); --as-client
+                                   runs one client leg without updating further clients. Busy doors stay running.
   ep0ch try --ws <name> [--copy] [--hub <id>]
   ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
