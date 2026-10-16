@@ -1500,6 +1500,7 @@ export class NoteSurface {
     const firstView = this.position.view === null;
     this.positionRows.source = doc.source.map(line => noteLines[line] ?? -1);
     this.positionRows.origin = top;
+    this.positionRows.leading = this.hero?.full ?? 0;
     const whole = new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id));
     const gutterRow = (k: Mark) => whole.has(k.thread) ? (title?.row ?? 1) : top + k.row - this.scroll;
     this.elems = laid.elems.map(e => e.kind === "comment" && whole.has(e.thread!)
@@ -1560,13 +1561,13 @@ export class NoteSurface {
       } else if (comp.passage) bringIn([top + comp.passage[0], top + comp.passage[1]]);
     }
     this.revealComposer = false;
-    this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
+    if (this.position.view || this.scroll > this.maxScroll) this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
     room = roomAt(this.scroll);
     // What scrolling into the header image moved in is brought in once more, at the room it has now.
     if (full && current && this.lastReveal) bringIn([current.row, current.row + 1]);
-    this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
+    if (this.position.view || this.scroll > this.maxScroll) this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
     room = roomAt(this.scroll);
-    if (firstView) this.readingLine(this.position.view?.line ?? 0);
+    if (firstView) this.readingLine(this.positionRows.source.find(line => line >= 0) ?? 0);
     const heroRows = full ? Math.max(0, full - this.scroll) : 0;
     h -= heroRows;
     this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + (title.big ? 2 : title.rows)] : [0, 1] };
@@ -2419,6 +2420,7 @@ export class NoteSurface {
       reread: m => { if (this.msg?.id === m.id) this.msg = m; },
       redraw,
     });
+    this.anchorView();
     const row = fresh.text.slice(0, this.position.reading).split("\n").length - 1;
     this.position.cursor = { row, col: 0 };
     this.readingLine(row);
@@ -3780,6 +3782,8 @@ export class NoteSurface {
     return true;
   }
 
+  anchorView() { if (!this.position.view) this.positionRows.top = this.scroll; }
+
   readingLine(line: number) {
     this.position.reading = (this.msg?.text ?? "").split("\n").slice(0, line).reduce((n, l) => n + l.length + 1, 0);
   }
@@ -3817,7 +3821,7 @@ export class NoteSurface {
 
   private setElem(e: Element) {
     const d = this.drawn;
-    if (d) this.readingLine(d.lines[d.doc.source[e.row - d.top]!] ?? 0);
+    if (d) { this.anchorView(); this.readingLine(d.lines[d.doc.source[e.row - d.top]!] ?? 0); }
     this.cur = e.key;
     const l = e.link;
     this.link = l ? this.links.findIndex(x => sameLink(x, l)) : -1;
@@ -7020,6 +7024,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const { draft: d } = await surface.ensureDraft(host);
       const v = elementEdit(d);
       if (on ?? !v.on) v.open(actor); else v.on = false;
+      d.follow = false;
       host.redraw(); return { rich: v.on };
     },
   }),
@@ -8312,6 +8317,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ line }, { surface }) {
       const m = surface.requireNote();
       if (!Number.isInteger(line) || line < 1 || line > m.text.split("\n").length) throw new ActionRefused("line must name a source line in this note");
+      surface.anchorView();
       surface.readingLine(line - 1);
       return { line };
     },

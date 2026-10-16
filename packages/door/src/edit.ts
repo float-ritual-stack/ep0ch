@@ -907,6 +907,7 @@ export class Draft {
 
   /** Put the cursor at line `row`, column `col` (UTF-16, clamped); `extend` keeps or starts a selection. */
   place(row: number, col: number, extend = false) {
+    this.follow = true;
     this.anchoredRow = null;
     const r = Math.max(0, Math.min(this.lines.length - 1, row));
     if (extend) this.anchor ??= { row: this.row, col: this.col };

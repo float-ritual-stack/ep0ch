@@ -305,7 +305,6 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
     detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · M comments mode"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
-    "one-place": ["The long row of runner beans", "Bike shed"],
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
@@ -433,6 +432,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "rich-edit": ["Seed inventory", "Beans", "Packets"],
     asks: ["Keep writing while the answer arrives"],
     scripts: ["Seed report", "Press alt+S"],
+    "one-place": ["The long row of runner beans", "Bike shed"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -678,6 +678,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const before = d.text;
     // A file dropped on the terminal arrives as a paste of its path (quoted, as some terminals send it): typed in as
     // text, as every paste is; ctrl+v on it makes it the picture.
+    press({ kind: "end" });
     const dropped = `'${join(SHOWCASE_ASSETS, "seed-packet.webp")}'`;
     press({ kind: "paste", text: dropped });
     expect(d.lines[d.row].endsWith(dropped)).toBe(true);

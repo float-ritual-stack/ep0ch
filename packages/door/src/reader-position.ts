@@ -9,13 +9,16 @@ export class ReaderPosition {
 export class PositionRows {
   source: number[] = [];
   origin = 0;
+  /** A reader header image shrinks by one row for each row scrolled. */
+  leading = 0;
   constructor(public position: ReaderPosition) {}
   get top(): number {
     const v = this.position.view;
     if (!v) return 0;
     let at = this.source.findIndex(line => line >= v.line);
     if (at < 0) at = Math.max(0, this.source.length - 1);
-    return Math.max(0, at + this.origin - v.row);
+    const base = at + this.origin - v.row;
+    return Math.max(0, base >= this.leading ? base : Math.ceil((base + this.leading) / 2));
   }
   set top(top: number) {
     if (!this.source.length) { this.position.view = null; return; }
@@ -23,6 +26,6 @@ export class PositionRows {
     while (at < this.source.length - 1 && this.source[at]! < 0) at++;
     const line = this.source[at]!;
     while (at > 0 && this.source[at - 1] === line) at--;
-    this.position.view = { line, row: this.origin + at - top };
+    this.position.view = { line, row: this.origin + Math.max(0, this.leading - top) + at - top };
   }
 }

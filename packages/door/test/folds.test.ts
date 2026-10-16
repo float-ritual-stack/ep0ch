@@ -347,10 +347,11 @@ describe("review fixes (PR #13)", () => {
     expect(s.describe().folds!.selected).toBe("- a");
     s.scroll = 25;
     s.render(60, 20, h);
+    const reading = s.sourceLineAt(10);
     await s.act("fold", { text: "a" }, h, AGENT);
     await s.act("unfold", { all: true }, h, AGENT);
     s.render(60, 20, h);
-    expect(s.scroll).toBe(25);
+    expect(s.sourceLineAt(10)).toBe(reading);
     expect(s.describe().folds!.selected).toBe("- a");
     await s.act("fold", { all: true }, h, AGENT);
     expect(s.describe().folds!.selected).toBe("- a");

@@ -364,7 +364,11 @@ export class ElementEdit {
         spots.push({ ...box, y: base + box.y, field: f, ...(active ? { caret: d.col - f.start } : {}) });
         if (active && d.col - f.start >= box.offset && d.col - f.start <= box.offset + box.text.length) cursor = base + box.y;
       }
-      sourceRows.push(...rendered.map((_, y) => spots.find(s => s.y === base + y)?.field.line ?? e.start));
+      let line = e.start;
+      sourceRows.push(...rendered.map((_, y) => {
+        line = spots.find(s => s.y === base + y)?.field.line ?? line;
+        return line;
+      }));
       body.push(...rendered); at = e.end;
     }
     if (at < d.lines.length) prose(at, d.lines.length);

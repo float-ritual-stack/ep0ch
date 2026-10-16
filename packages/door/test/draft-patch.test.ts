@@ -376,6 +376,17 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(e.id))!.text).toContain('["Peas", 2]');
   });
 
+  test("rich tables scroll beyond separators without returning to the first row (PIE-920)", async () => {
+    const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n" + Array.from({ length: 20 }, (_, i) => `| Crop ${i} | ${i} |`).join("\n"));
+    const { elementEdit } = await import("../src/surface/element-editor");
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    const view = elementEdit(e.d);
+    const draw = () => view.render(40, 8, (text, width) => e.s.snippetDoc(text, width)).map(visible).join("\n");
+    draw();
+    for (let i = 0; i < 20; i++) { view.scroll(1); draw(); }
+    expect(draw()).toContain("Crop 10");
+  });
+
   test("rich tables: clicking an escaped pipe keeps the column whole while typing", async () => {
     const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n| A\\|B | 2 |\n");
     const { elementEdit } = await import("../src/surface/element-editor");
