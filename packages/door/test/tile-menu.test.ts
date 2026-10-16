@@ -120,11 +120,11 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     await until(() => !!D().pane("reader")?.msg, "the reader shows a note");
     render();
     const r = rect("reader");
-    press(r.col + 5, r.row + 6, 2);
+    press(r.col + 5, r.row + 3, 2);
     await until(() => menu()?.name === "tile menu", "a right-click opens the menu");
     expect(get().focus).toBe("reader");
     // Its box's top left corner is at the pointer.
-    expect(render().lines.map(visible)[r.row + 6]!.slice(r.col + 5)).toMatch(/^┌/);
+    expect(render().lines.map(visible)[r.row + 3]!.slice(r.col + 5)).toMatch(/^┌/);
     // ^W f is the float row's own key.
     key(ctrl("w")); key(char("f"));
     await until(() => get().floats.some(f => f.tile === "reader" || f.name === "reader") || D().floats.length > 0, "^W f in the menu floats the reader");

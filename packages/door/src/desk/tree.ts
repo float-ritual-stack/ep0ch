@@ -616,7 +616,7 @@ export class TreePane implements Pane {
       const target = this.rows[d.over!], dragged = this.rows.find(x => x.kind === "block" && x.m.id === d.id);
       if (target?.kind === "block" && dragged?.kind === "block") {
         const how = d.beside ? (d.over! < d.from ? "above" : "below") : "under";
-        lines[at] = fg(C.black) + "\x1b[43m" + pad(`${"  ".repeat(target.depth)}⇢ ${how} ${subject(target.m)}  ← ${subject(dragged.m).slice(0, 30)}`, w) + RESET;
+        lines[at] = fg(C.black) + "\x1b[43m" + pad(`${"  ".repeat(target.depth)}→ ${how} ${subject(target.m)}  ← ${subject(dragged.m).slice(0, 30)}`, w) + RESET;
       }
     }
     return { lines };
