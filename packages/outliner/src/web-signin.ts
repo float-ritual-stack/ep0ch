@@ -17,7 +17,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { WEB_SESSION_TTL_MS, type WebSession } from "@ep0ch/outline-core/protocol";
 import { allowedSubjects, ALLOWED_SUBJECTS_ENV, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
-import { escapeHtml, plainPage, type SignedIn } from "./publish";
+import { escapeHtml, plainPage, redactSharePath, type SignedIn } from "./publish";
 
 export const SESSION_COOKIE = "__Host-ep0ch_session";
 const PENDING_COOKIE = "__Host-ep0ch_signin";
@@ -94,6 +94,7 @@ export interface SignInGateOptions {
   request: <T>(input: Record<string, unknown> & { action: string }) => Promise<T>;
   /** The web client, answering a request the gate let through. */
   serve: (request: Request, signedIn: SignedIn) => Promise<Response>;
+  snapshot?: (request: Request) => Promise<Response>;
   /** The issuer's keys (a local set under test); else its JWKS, from discovery. */
   keys?: JWTVerifyGetKey;
   fetch?: typeof fetch;
@@ -174,6 +175,8 @@ export class SignInGate {
       if (path === "/signin" && reading) return this.signInPage(url.searchParams.get("next"));
       if (path === "/signin/start" && reading) return await this.start(origin, url.searchParams.get("next"));
       if (path === CALLBACK && reading) return await this.callback(origin, request, url);
+      const snapshotPath = path.startsWith(this.settings.home) ? path.slice(this.settings.home.replace(/\/+$/, "").length) : "";
+      if (/^(?:\/o\/[^/]+)?\/s\/[A-Za-z0-9_-]+\/snapshot\.sqlite$/.test(snapshotPath) && this.options.snapshot) return withGateHeaders(await this.options.snapshot(request));
       const token = cookiesOf(request).get(SESSION_COOKIE);
       const resolved = token ? (await this.options.request<{ found: { session: WebSession; renewed: boolean } | null }>({ action: "web.sessions.resolve", token })).found : null;
       // Taken off the list, a person's sessions open nothing from the next request (a restart reads the list again).
@@ -197,7 +200,7 @@ export class SignInGate {
       const sessionId = found.session.id;
       return withGateHeaders(await this.options.serve(request, { sessionId, stillSignedIn: () => this.stillSignedIn(sessionId) }), renewed);
     } catch (error) {
-      this.log(`web sign-in: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
+      this.log(redactSharePath(`web sign-in: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`));
       return withGateHeaders(plainPage("Not reachable", `<h1>The outline host could not be reached</h1>\n<p class="dim">Try again in a moment. On the server: <code>systemctl --user status outliner-host outliner-publish</code></p>\n`, 502));
     }
   }

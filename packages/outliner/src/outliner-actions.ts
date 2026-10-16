@@ -166,6 +166,10 @@ const ACTION_SPECS = [
     {id: `${surface}.location`, surface, modes: surface === "tree" ? ["browse"] : ["preview", "property", "annotation", "file"],
       label: "Location / ancestors", description: "Inspect and navigate the current document's location", defaultChords: [], helpPriority: 0, menuGroup: "Navigate" as const},
   ]),
+  ...(["tree", "detail"] as const).flatMap(surface => [
+    { id: `${surface}.snapshot`, surface, modes: surface === "tree" ? ["browse"] : ["preview", "annotation", "file", "property"], label: "Snapshot link", description: "Copy a one-time SQLite download link, valid for 15 minutes, including private notes", defaultChords: [], helpPriority: 0, menuGroup: "System" as const },
+    { id: `${surface}.database`, surface, modes: surface === "tree" ? ["browse"] : ["preview", "annotation", "file", "property"], label: "Database path (copy)", description: "Show and copy this outline's SQLite database path", defaultChords: [], helpPriority: 0, menuGroup: "System" as const },
+  ]),
   {id:'tree.workspace.inspect',surface:'tree',modes:['browse'],label:'Workspace and connection',description:'Inspect workspace, storage paths and connection without changing data',defaultChords:[],helpPriority:0,menuGroup:'System'},
   { id: "tree.close", surface: "tree", modes: ["*"], label: "close", description: "Close this Tree pane", defaultChords: ["Ctrl+Q"], helpPriority: 100, menuGroup: "System" },
   ...([

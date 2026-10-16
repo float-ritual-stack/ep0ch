@@ -491,6 +491,20 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return { alert: mark?.say ?? null };
     },
   }),
+  "outline.snapshot": def({
+    summary: "copy a one-time SQLite snapshot link for read-only analysis; expires in 15 minutes, revocable with share.revoke. Includes private notes. Append ?gz=1 for gzip",
+    keys: "> outline.snapshot in the power bar",
+    touches: "nothing", replay: "ask", says: out => `· snapshot link created · ${out.bytes} bytes · expires ${out.expiresAt}`,
+    args: { ttl: { type: "string", optional: true, about: "15m by default, up to 24h" } },
+    async run({ ttl }, { ctx }, actor) {
+      const snapshot = await ctx.board.request<import("@ep0ch/outline-core/protocol").OutlineSnapshot>("outline.snapshot", { ...(ttl ? { ttl } : {}), mutation: actor.kind === "user" ? { author: "user" } : { author: "agent", actorId: actor.id } }, 120_000);
+      if (actor.kind === "user") {
+        ctx.copy?.(snapshot.url!, "snapshot link");
+        ctx.flash(`Snapshot link copied · ${snapshot.bytes} bytes · expires ${snapshot.expiresAt}`, 15_000);
+      }
+      return snapshot;
+    },
+  }),
   "share.start": def({
     summary: "start a short-lived public link (a share session) to the outline, navigated as the tailnet's web client is: ref= is the page it opens on (an id, ((id)), a page name, [[page]] or PIE-123), only= narrows it to that note and what's under it; for ttl= (30m, 1h by default, at most 24h), taking comments unless comments=false. The link goes on the clipboard and the status bar; [publish::never] notes stay hidden. `ep0ch share start` from a shell. An agent's is attributed to it",
     keys: "> share.start in the power bar",

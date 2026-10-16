@@ -322,6 +322,37 @@ See the [script contract](../outliner/docs/extensions/README.md#script-blocks-an
 
 
 
+**SQLite snapshots (PIE-931):** `ep0ch outline snapshot <name> --out <file>` writes a consistent,
+integrity-checked SQLite copy on the same machine, without a publisher. `--link` prints a curl command;
+the power bar's `> outline.snapshot` and Tree/Detail's View → Snapshot link copy the link.
+Tree/Detail's View → Database path (copy) shows and copies the source path (Tree's Workspace and
+connection also lists it). No new key binding is assigned.
+
+MCP `outline_snapshot` takes `outline` (or the bound outline) and optional `ttl` (`15m` by default,
+`1m` through `24h`). Read access and higher permit it. Its result contains `url`, `expiresAt`, `bytes`,
+`sha256`, `schema`, `asOf`, `shareId` and `curl`. Remote MCP uses `EP0CH_WEB_URL` (for example
+`https://my.ep0ch.sh`); a token-gated snapshot route works there without browser sign-in. Local clients
+use the publisher's tailnet address. With only a public publisher, its public address serves the link.
+The database includes private notes. It is a full copy for analysis; use `sqlite3 -readonly` to open it.
+Bytes and SHA-256 describe the uncompressed SQLite file; append `?gz=1` to download gzip.
+
+The link uses the existing share token machinery, admits one GET, expires after its TTL and is revoked
+with `ep0ch share revoke <shareId>` or `/pub/shares`. A HEAD never consumes it. The host removes the
+copy after streaming ends, on revoke or at expiry, and keeps a `[machine::snapshot]` note naming who,
+which outline, when, and whether it was fetched, revoked or expired.
+
+The kitchen sink has a **snapshot** section with this local journey:
+
+```sh
+ep0ch outline snapshot showcase --out /tmp/showcase.sqlite
+sqlite3 -readonly /tmp/showcase.sqlite 'select count(*) from blocks;'
+```
+
+With a publisher serving the showcase scratch outline, run `ep0ch outline snapshot showcase --link`,
+execute its printed curl command, then run `sqlite3 -readonly showcase.snapshot.sqlite 'select count(*) from blocks;'`.
+A second curl of that link is refused. The showcase test drives `outline.snapshot`, fetches its link and
+queries the copy.
+
 Adding a shared part means adding its section (`SECTIONS` in `src/showcase/showcase.ts`) and the seed
 content it needs; the review checklist's "The map" item covers both.
 

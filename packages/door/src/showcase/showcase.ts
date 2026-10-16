@@ -966,6 +966,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "snapshot", need: "take a SQLite copy for analysis", part: "ShareSessions tokens, OutlineSnapshots copies, publisher downloads and the shell ActionSet", files: "outliner/src/outline-snapshots.ts, outliner/src/share-sessions.ts, src/screens.ts",
+    aside: "ctrl+k → > outline.snapshot copies a one-time link. The note shows the local CLI path and a SQLite query; no database bytes enter chat.",
+    stage(n, show) {
+      const reader = new ReaderPane();
+      return deskOf({ title: "showcase · SQLite snapshots", panes: [reader] }, show, [[reader, n.snapshot]]);
+    },
+  },
+  {
     key: "front-matter", need: "read and query the note's front matter", part: "outline-core header-line and property-grammar, the service property records and the reader's PropertyPanel", files: "outline-core/src/header-line.ts, outline-core/src/property-grammar.ts, src/surface/props-panel.ts",
     aside: "i or click the property count: block properties together, inline and line properties below, list values as chips · find connectTo=beans, connectto=frost, tag=neat or tag=epic · group=connectto puts the sowing note under beans and frost · the trailing #epic leaves the title; the source stays exactly as written",
     stage(n, show) {

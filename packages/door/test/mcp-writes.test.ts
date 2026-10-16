@@ -195,6 +195,49 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(listed.at(-1)).toMatchObject({ source: "mirror", queue: { waiting: 0, lastPull: null } });
   });
 
+  test("a read-access MCP snapshot downloads once as a queryable SQLite copy", async () => {
+    const { Publisher } = await import(`${outliner}/src/publish.ts`);
+    const { OutlinerClient } = await import(`${outliner}/src/client.ts`);
+    const { OutlinePublishers } = await import(`${outliner}/src/publish-outlines.ts`);
+    const { SignInGate } = await import(`${outliner}/src/web-signin.ts`);
+    const client = new OutlinerClient(here.sock, 30_000, "quiet-notes");
+    let gate: InstanceType<typeof SignInGate>;
+    const http = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => gate.handle(request) });
+    const origin = `http://127.0.0.1:${http.port}`;
+    const publisher = new Publisher({ client, basePath: "/pub", publicUrl: origin });
+    const web = new OutlinePublishers({ home: publisher, homeName: "quiet-notes", names: async () => ["quiet-notes"], open: () => { throw new Error("home publisher is already open"); } });
+    gate = new SignInGate({ settings: { origin, issuer: ISSUER, clientId: "fictional-web", allowedSubjects: [], home: "/pub/" }, request: (input: Record<string, unknown> & { action: string }) => client.request(input), serve: (request: Request) => publisher.handle(request), snapshot: (request: Request) => web.snapshot(request) });
+    await publisher.start();
+    const previousWebUrl = process.env.EP0CH_WEB_URL;
+    try {
+      process.env.EP0CH_WEB_URL = origin;
+      const result = await tool("outline_snapshot", { outline: "quiet-notes" });
+      expect(result.isError, result.text).toBe(false);
+      const snapshot = result.json;
+      expect(snapshot.url).toStartWith(origin + "/pub/o/quiet-notes/s/");
+      expect(Date.parse(snapshot.expiresAt) - Date.parse(snapshot.asOf)).toBeGreaterThan(14 * 60_000);
+      expect(snapshot.curl).toContain("curl --fail");
+      // Pasting the command beside the source must never overwrite a live outline database.
+      expect(snapshot.curl).toEndWith("--output 'quiet-notes.snapshot.sqlite'");
+      const target = join(dir, "snapshot.sqlite");
+      const curl = Bun.spawn(["curl", "--fail", "--silent", "--show-error", snapshot.url, "--output", target], { stdout: "pipe", stderr: "pipe" });
+      expect(await curl.exited, await new Response(curl.stderr).text()).toBe(0);
+      const bytes = readFileSync(target);
+      expect(bytes.length).toBe(snapshot.bytes);
+      expect(new Bun.CryptoHasher("sha256").update(bytes).digest("hex")).toBe(snapshot.sha256);
+      const query = Bun.spawn(["sqlite3", target, "select text from blocks where text like 'Still water%';"], { stdout: "pipe", stderr: "pipe" });
+      expect(await new Response(query.stdout).text()).toContain("Nothing stirs.");
+      expect(await query.exited).toBe(0);
+      const second = Bun.spawn(["curl", "--fail", "--silent", snapshot.url], { stdout: "ignore", stderr: "pipe" });
+      expect(await second.exited).toBe(22);
+      const notes = await boardOn(here, "quiet-notes", HERE).request<any>("blocks.query", { query: { where: "type=snapshot machine=snapshot", limit: 100 } });
+      expect(notes.blocks.some((b: any) => b.text.includes("fetched") && b.text.includes("mcp:chat.example.test"))).toBe(true);
+    } finally {
+      if (previousWebUrl === undefined) delete process.env.EP0CH_WEB_URL; else process.env.EP0CH_WEB_URL = previousWebUrl;
+      http.stop(true); await publisher.stop();
+    }
+  });
+
   test("share tools: a short-lived link started by the tool call alone, listed and ended; a read-only outline is refused", async () => {
     // No ref: the whole outline. A ref (a bare page name too) is only where the link opens; only narrows.
     const started = await tool("share_start", { outline: "pond-notes", ttl: "2m", ref: "Frog Count" });

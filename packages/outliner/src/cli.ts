@@ -322,6 +322,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       artifactCacheDirectory: resolve(values["artifact-cache"] ?? `${outlinesLayout().publish}/artifacts`),
       ...(publicUrl ? { publicUrl } : {}),
       ...(publishUrl ? { url: publishUrl } : {}),
+      ...(values.url ?? process.env.OUTLINER_PUBLISH_URL ? { tailnetUrl: publisherUrl((values.url ?? process.env.OUTLINER_PUBLISH_URL)!) } : {}),
       // Only a serving publisher with a public listener runs `cloudflare` shares' tunnels.
       ...(operation !== "list" && publicPort !== undefined ? { tunnels: true } : {}),
       ...(door ? { door } : {}),
@@ -371,6 +372,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
         basePath, webRoot: publisher.basePath,
         artifactCacheDirectory: resolve(values["artifact-cache"] ?? `${outlinesLayout().publish}/artifacts`),
         ...(publishUrl ? { url: `${publishUrl}/o/${name}` } : {}),
+        ...(values.url ?? process.env.OUTLINER_PUBLISH_URL ? { tailnetUrl: `${publisherUrl((values.url ?? process.env.OUTLINER_PUBLISH_URL)!)}/o/${name}` } : {}),
         log: line => console.error(line),
       }),
     });
@@ -386,6 +388,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       if (!settings.allowedSubjects.length) console.error("web sign-in: EP0CH_MCP_ALLOWED_SUBJECTS is empty: every sign-in is refused, and its subject logged to pin");
       const host = createOutlinerClient(resolveClientPaths());
       const gate = new SignInGate({
+        snapshot: request => web.snapshot(request),
         settings, request: input => host.request(input as Parameters<typeof host.request>[0]),
         serve: (request, signedIn) => web.handle(request, "tailnet", signedIn), log: line => console.error(line),
       });

@@ -1601,6 +1601,22 @@ function showReaderMenu(menu: ReaderMenu): void {
 async function readerAction(actionId: string): Promise<boolean> {
   const menu = readerMenuFromAction(actionId);
   if (menu) { showReaderMenu(menu); return true; }
+  if (actionId === "detail.snapshot" || actionId === "detail.database") {
+    let message: string;
+    try {
+      if (actionId === "detail.database") {
+        const service = await client.request<import("./types").OutlinerServiceStatus>({ action: "ping" });
+        process.stdout.write(osc52ClipboardWrite(service.location!.database));
+        message = `Database: ${service.location!.database} · copied`;
+      } else {
+        const snapshot = await client.request<import("@ep0ch/outline-core/protocol").OutlineSnapshot>({ action: "outline.snapshot", mutation: { author: "user" } }, 120_000);
+        process.stdout.write(osc52ClipboardWrite(snapshot.url!));
+        message = `Snapshot link copied · ${snapshot.bytes} bytes · expires ${snapshot.expiresAt}`;
+      }
+    } catch (error) { message = error instanceof Error ? error.message : String(error); }
+    await readingSurface.active.dispatch({ type: "status.flash", message }, viewport(readingSurface.active));
+    return true;
+  }
   if (actionId === "detail.chrome.toggle") {
     const value = uiConfig.chrome("detail") === "compact" ? "full" : "compact";
     let message = "";

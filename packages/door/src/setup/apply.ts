@@ -2,8 +2,7 @@ import { fixOutlineFiles, outlineFiles } from "./outline-files";
 // `ep0ch doctor` and `ep0ch install [--apply]` (PIE-450). The dry run (the default) prints the plan; --apply runs
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Deploy notes go
 // through the host; no outline is created; no unit, Herdr config or plugin link is changed.
-import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
@@ -27,31 +26,8 @@ export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [-
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
-/** Copies a database consistently (VACUUM INTO, from a read-only connection) and checks the copy. */
-export function backupDatabase(path: string, dest: string): { integrity: string } {
-  // An existing file is never touched: not overwritten, and not removed when this copy fails.
-  if (existsSync(dest)) throw new Error(`${dest} already exists; not overwritten`);
-  try {
-    const src = new Database(path, { readonly: true });
-    try {
-      // A reader of a WAL database rarely waits, but a service's checkpoint or recovery can hold it briefly.
-      src.run("PRAGMA busy_timeout = 5000");
-      src.run("VACUUM INTO ?", [dest]);
-    } finally { src.close(); }
-    chmodSync(dest, 0o600);
-    const copy = new Database(dest, { readonly: true });
-    try {
-      const rows = copy.query("PRAGMA integrity_check").all() as { integrity_check: string }[];
-      const verdict = rows.map(r => r.integrity_check).join("; ");
-      if (verdict !== "ok") throw new Error(`the copy of ${path} failed its integrity check: ${verdict}`);
-      return { integrity: verdict };
-    } finally { copy.close(); }
-  } catch (e) {
-    // Only this copy (and the journal files SQLite may have left beside it) is removed; never the source.
-    for (const f of [dest, `${dest}-journal`, `${dest}-wal`, `${dest}-shm`]) { try { rmSync(f, { force: true }); } catch { /* the report says what failed */ } }
-    throw e;
-  }
-}
+export { backupDatabase } from "@ep0ch/outliner/snapshot-database";
+import { backupDatabase } from "@ep0ch/outliner/snapshot-database";
 
 export function formatPlan(f: Facts, plan: Plan, apply: boolean): string {
   const lines = [`ep0ch install · ${f.platform} · ${apply ? "applying" : "dry run: nothing changes; ep0ch install --apply runs the → steps"}`, ""];

@@ -1,10 +1,14 @@
+import { gunzipSync } from "node:zlib";
+import { OutlinePublishers } from "../src/publish-outlines";
+import { SignInGate } from "../src/web-signin";
+import type { OutlineSnapshot } from "@ep0ch/outline-core/protocol";
 // Share sessions (share-sessions.ts): a short-lived public link to a note and its subtree, or to the whole outline,
 // served by the publisher's public listener below `/share/s/<token>/`. Inside it every page, link and folder stays
 // inside the link and the scope; `[publish::never]` notes stay hidden; with comments on, marginalia writes land as the
 // person's, marked as made through the share. An expired or revoked link answers 410; one nobody made, 404. The pages
 // say what the reader has selected (`reader.view`). One scratch service and publisher; the outline is made up.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
@@ -292,4 +296,59 @@ test("ttl words, and a token that is only near another opens nothing", () => {
   expect(other.journal.map((event) => event.kind)).toEqual(["page"]);
   expect(JSON.stringify(other)).not.toContain("words of one visitor");
   expect(presence.view("share:0123abcd").journal.map((event) => event.kind)).toEqual(["page", "selection", "page"]);
+});
+
+
+test("snapshot links on the web origin need no session, serve gzip once, and clean up on revoke and expiry", async () => {
+  const web = new OutlinePublishers({ home: publisher, homeName: "garden", names: async () => ["garden"], open: () => { throw new Error("home publisher already started"); } });
+  let gate: SignInGate;
+  const http = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => gate.handle(request) });
+  const origin = `http://127.0.0.1:${http.port}`;
+  gate = new SignInGate({ settings: { origin, issuer: "https://issuer.example.test", clientId: "fictional", allowedSubjects: [], home: "/pub/" }, request: input => client.request(input as any), serve: request => publisher.handle(request), snapshot: request => web.snapshot(request) });
+  const create = (ttl?: string) => client.request<OutlineSnapshot>({ action: "outline.snapshot", webUrl: origin, ...(ttl ? { ttl } : {}), mutation: { author: "agent", actorId: "garden-analyst" } });
+  const file = (snapshot: OutlineSnapshot) => join(server.stateDirectory, "snapshots", `${snapshot.shareId}.sqlite`);
+  try {
+    const snapshot = await create("24h");
+    expect(snapshot.url).toStartWith(`${origin}/pub/o/garden/s/`);
+    expect(existsSync(file(snapshot))).toBe(true);
+    expect((await client.request<{ shares: ShareSession[] }>({ action: "shares.list" })).shares.find(s => s.id === snapshot.shareId)?.url).toBe(snapshot.url);
+    expect((await fetch(snapshot.url!, { method: "HEAD" })).status).toBe(405);
+    expect((await fetch(`${origin}/pub/`)).status).toBe(401);
+    const page = snapshot.url!.replace("snapshot.sqlite", "p/" + hub.id);
+    expect((await fetch(page)).status).toBe(401);
+    const responses = await Promise.all([fetch(snapshot.url! + "?gz=1"), fetch(snapshot.url! + "?gz=1")]);
+    expect(responses.filter(response => response.status === 200).length).toBe(1);
+    const winner = responses.find(response => response.status === 200)!;
+    expect(winner.headers.get("content-type")).toBe("application/gzip");
+    const bytes = gunzipSync(Buffer.from(await winner.arrayBuffer()));
+    expect(new Bun.CryptoHasher("sha256").update(bytes).digest("hex")).toBe(snapshot.sha256);
+    expect(existsSync(file(snapshot))).toBe(false);
+    expect((await fetch(snapshot.url!)).status).toBe(404);
+    const interrupted = await create();
+    const interruptedToken = /\/s\/([^/]+)\//.exec(interrupted.url!)![1]!;
+    const download = await publisher.snapshotDownload(new Request(interrupted.url!), interruptedToken);
+    await download.body!.cancel();
+    expect(existsSync(file(interrupted))).toBe(false);
+    const home = await create();
+    const homeUrl = home.url!.replace("/o/garden", "");
+    const homeResponse = await fetch(homeUrl);
+    expect(homeResponse.status).toBe(200);
+    await homeResponse.arrayBuffer();
+    const revoked = await create();
+    await client.request({ action: "shares.revoke", shareId: revoked.shareId! });
+    expect(existsSync(file(revoked))).toBe(false);
+    expect((await fetch(revoked.url!)).status).toBe(404);
+    const expired = await create();
+    const kept = JSON.parse(store.readMetadata(SHARES_METADATA_KEY)!);
+    kept.sessions.find((session: ShareSession) => session.id === expired.shareId).expiresAt = new Date(Date.now() - 8 * 24 * 60 * 60_000).toISOString();
+    store.writeMetadata(SHARES_METADATA_KEY, JSON.stringify(kept));
+    const deadline = Date.now() + 3000;
+    while (existsSync(file(expired)) && Date.now() < deadline) await Bun.sleep(20);
+    expect(existsSync(file(expired))).toBe(false);
+    expect((await fetch(expired.url!)).status).toBe(404);
+    const records = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=snapshot machine=snapshot", limit: 100 } });
+    expect(records.blocks.some(block => block.text.includes("State: expired"))).toBe(true);
+    expect(records.blocks.some(block => block.text.includes("State: download interrupted"))).toBe(true);
+    await expect(create("25h")).rejects.toThrow("24h");
+  } finally { http.stop(true); }
 });

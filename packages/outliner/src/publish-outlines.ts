@@ -80,6 +80,17 @@ export class OutlinePublishers {
     return publisher.handle(new Request(url, request), audience, undefined, signedIn);
   }
 
+  /** Only a snapshot token grants this route; it never opens pages or the outline index. */
+  async snapshot(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    const below = path.startsWith(`${this.webRoot}/`) ? path.slice(this.webRoot.length) : "";
+    const match = /^(?:\/o\/([^/]+))?\/s\/([A-Za-z0-9_-]+)\/snapshot\.sqlite$/.exec(below);
+    const name = match?.[1] ?? this.options.homeName;
+    if (!match || !name || !isOutlineName(name) || !(await this.options.names()).includes(name)) return new Response("Not found", { status: 404 });
+    const publisher = name === this.options.homeName ? this.options.home : await this.publisher(name);
+    return publisher.snapshotDownload(request, match[2]!);
+  }
+
   private publisher(name: string): Promise<Publisher> {
     let pending = this.others.get(name);
     if (!pending) {
