@@ -22,10 +22,13 @@ beforeAll(async () => {
   dir = scratchDir("ep0ch-readnc-");
   for (const d of ["bin", "far-home", "state"]) mkdirSync(join(dir, d), { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, "bin/ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test/fake-ssh.ts")} "$@"\n`);
-  chmodSync(join(dir, "bin/ssh"), 0o755);
+  // The other machine's `ep0ch` (the forward asks it where its host is): this checkout's, never whatever the PATH has.
+  writeFileSync(join(dir, "bin/ep0ch"), `#!/bin/sh\nexec ${process.execPath} ${MAIN} "$@"\n`);
+  for (const f of ["ssh", "ep0ch"]) chmodSync(join(dir, "bin", f), 0o755);
   work = local.folder("worktree");  // like a builder's worktree: no .ep0ch above it
   // The forward to the other machine is up, as a person's is once they have opened it.
   const up = await ep0ch(["outline", "list", "--machine", "far-box"]);
+  expect(up.err).toBe("");
   expect(up.code).toBe(0);
 }, 60_000);
 
