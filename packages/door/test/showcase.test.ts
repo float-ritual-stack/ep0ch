@@ -704,6 +704,29 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   });
 
+  test("offscreen reading keeps selection controls visible and brackets start in the visible note", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "reading-line" }, as: "place-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "reading-line")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => reader.msg?.id === seeded.notes.overscroll.id && !reader.msg.partial, "the initial reader");
+    screen();
+    const note = await board.createBlock(null, `Bean journal\n[Early link](https://early.example.test)\n${"A row of beans.\n".repeat(45)}[Later link](https://later.example.test)\n${"Another row of beans.\n".repeat(45)}`);
+    await desk.dispatch.press("open", { id: note.id }, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "the journal");
+    screen();
+    await desk.dispatch.press("reading.place", { line: 2 }, "reader");
+    await desk.dispatch.press("select", { text: "Early link" }, "reader");
+    await desk.dispatch.press("scroll", { by: 40 }, "reader");
+    expect(screen()).toContain("[y copy]");
+    await desk.dispatch.press("select.clear", {}, "reader");
+    screen();
+    await desk.dispatch.press("element.select", { by: 1 }, "reader");
+    expect(reader.surface.describeElements().find(e => e.current)?.label).toBe("Later link");
+    await desk.dispatch.press("open", { id: seeded.notes.overscroll.id }, "reader");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
   test("one-place: act keeps the source line across view and edit and exposes the edit scroll bar", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "one-place" }, as: "place-check" });

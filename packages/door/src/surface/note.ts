@@ -1678,9 +1678,9 @@ export class NoteSurface {
       for (const t of under) painted = t.cols ? paintRange(painted, Math.max(0, t.cols[0] + bx), Math.min(W, t.cols[1] + bx), t.bg) : paintRange(painted, 0, W, t.bg);
       return this.paintSelection(marked(painted, row), row);
     });
-    if (reading && readingRuler() && !this.printed && room > 0 && (reading[1] <= this.scroll || reading[0] >= this.scroll + room)) {
+    if (reading && readingRuler() && !this.printed && !this.selection && room > 0 && (reading[1] <= this.scroll || reading[0] >= this.scroll + room)) {
       const above = reading[1] <= this.scroll;
-      // The separator has no body hit targets; the marker must never hide an active link or control.
+      // Selection controls own the separator while selecting; the marker must never hide an active control.
       const row = top - 1;
       lines[row] = dim(pad(`reading line ${above ? "↑" : "↓"} ${this.readingSourceLine() + 1}`, w));
     }
@@ -4015,10 +4015,12 @@ export class NoteSurface {
     if (!n) return false;
     // From the current element even when it's out of view (an agent's focus mark scrolled the reader):
     // only the person's own scrolling lets go of it.
+    const reading = this.readingRows();
+    const visible = reading && reading[1] > v.scroll && reading[0] < v.scroll + v.room ? reading : null;
     let i = es.findIndex(e => e.key === this.cur);
     if (i >= 0) i = (i + d + n) % n;
-    else if (d === 1) { const reading = this.readingRows(); const from = reading ? v.top + reading[0] : v.scroll ? v.top + v.scroll : 0; i = es.findIndex(e => e.row >= from); if (i < 0) i = 0; }
-    else { const reading = this.readingRows(); const bottom = reading ? v.top + reading[1] : v.top + v.scroll + v.room; i = es.findLastIndex(e => e.row < bottom); if (i < 0) i = n - 1; }
+    else if (d === 1) { const from = visible ? v.top + visible[0] : v.scroll ? v.top + v.scroll : 0; i = es.findIndex(e => e.row >= from); if (i < 0) i = 0; }
+    else { const bottom = visible ? v.top + visible[1] : v.top + v.scroll + v.room; i = es.findLastIndex(e => e.row < bottom); if (i < 0) i = n - 1; }
     this.setElem(es[i]!);
     this.reveal = true;
     return true;
