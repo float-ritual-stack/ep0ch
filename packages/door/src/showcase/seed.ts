@@ -509,7 +509,7 @@ export const CALLOUT_TYPE = [
 export const MOVING_NOTES = [
   SEED.moving,
   "",
-  "**Z** moves the note you're reading under another (the picker lists its parents and the notes you moved to lately first, then the Inbox; type to find any other). **alt+↑ alt+↓** put the note you read up or down among its siblings. In the outline on the left, **alt+↑ alt+↓** (or **K J**) do the same for the selected row, **I** moves it in under the note above and **O** out after its parent; **ctrl+z** puts the last move back. Drag a row onto another to move it under that row, or onto its ▸ mark to put it beside it.",
+  "**Z** moves the note you're reading under another (the picker lists its parents and the notes changed lately first, then the Inbox; type to find any other). **alt+↑ alt+↓** put the note you read up or down among its siblings. In the outline on the left, **alt+↑ alt+↓** (or **K J**) do the same for the selected row, **I** moves it in under the note above and **O** out after its parent; **ctrl+z** puts the last move back. Drag a row onto another to move it under that row, or onto its ▸ mark to put it beside it.",
 ].join("\n");
 
 /**

@@ -16,10 +16,13 @@ const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, w
 
 test("the river column loads on its own (a static import cycle through the power bar broke the door's start)", async () => {
   const p = Bun.spawn([process.execPath, "-e", 'await import("./src/river/column.ts")'], { cwd: join(import.meta.dir, ".."), env: { ...process.env, EP0CH_STATE: join(import.meta.dir, "..", ".nonexistent-state") }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const timer = setTimeout(() => p.kill(), 4000);
+  let killed = false;
+  const timer = setTimeout(() => { killed = true; p.kill(); }, 8000);
   const err = await new Response(p.stderr).text();
+  await p.exited;
   clearTimeout(timer);
   expect(err).not.toContain("before initialization");
+  expect(killed).toBe(false);
 });
 
 describe.skipIf(!outliner)("moving a note (PIE-943)", () => {

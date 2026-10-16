@@ -3665,7 +3665,7 @@ export class NoteSurface {
     if (c === "f" && this.msg && !this.msg.partial) { void this.runKey("fold.toggle", {}, host); return true; }
     if (c === "F" && this.msg && !this.msg.partial) { void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true; }
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
-    // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places moved to lately first.
+    // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places changed lately first.
     if (c === "Z" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", {}, host); return true; }
     // alt+↑ alt+↓: this note up or down among its siblings, as they do in the outline tile, the board's lanes and the Welcome list.
     if ((k.kind === "alt-up" || k.kind === "alt-down") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", { step: k.kind === "alt-up" ? "up" : "down" }, host); return true; }
@@ -8304,7 +8304,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "note.move": def({
-    summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes moved to lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
+    summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes changed lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
     keys: "Z (move to…), alt+up alt+down (up, down among its siblings) in a reader, the tile menu's rows, a click on the `→ …` row of a new note's edit",
     touches: "nothing", replay: "ask",
     menu: { label: "move to…", group: "note", key: "Z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
