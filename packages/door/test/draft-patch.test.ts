@@ -307,7 +307,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(elementEdit(e.d).elements()[1]!.fields[1]![0]!.value).toBe("Radish\nSpring");
     await NOTE_ACTIONS.run("rich.set", { value: "one two three four five six" }, { surface: e.s, host: e.h }, USER);
     const view = elementEdit(e.d);
-    const drawn = view.render(26, 30, text => text.split("\n")).map(visible);
+    const drawn = view.render(26, 30, (text, width) => e.s.snippetDoc(text, width)).map(visible);
     const y = drawn.findIndex(line => line.includes("six"));
     expect(y).toBeGreaterThan(1);
     view.click(drawn[y]!.indexOf("six"), y, (action, args = {}) => {
@@ -382,7 +382,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
     e.s.key({ kind: "down" }, e.h);
     const view = elementEdit(e.d);
-    const lines = view.render(70, 20, text => text.split("\n")).map(visible);
+    const lines = view.render(70, 20, (text, width) => e.s.snippetDoc(text, width)).map(visible);
     const y = lines.findIndex(line => line.includes("A\\|B"));
     expect(y).toBeGreaterThan(1);
     view.click(lines[y]!.indexOf("A\\|B") + 2, y, (action, args = {}) => {
