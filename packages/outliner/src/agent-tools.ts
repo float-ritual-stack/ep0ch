@@ -1194,6 +1194,12 @@ export async function trashBlock(client: AgentToolsClient, input: { ref: string;
   if (revision !== block.revision) {
     throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${revision}): outline_read it again, and trash it only if it's still the note you mean`);
   }
+  // Trashing a parent trashes what is under it: the service needs exactly one Inbox, Trash and Bookmarks note, wherever they are.
+  for (const view of ["inbox", "trash", "bookmarks"]) {
+    const inside = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { filters: [{ key: "system-view", value: view }], subtreeRootId: block.id, limit: 1 } });
+    const held = inside.blocks.find(found => found.id !== block.id);
+    if (held) throw new WorkToolRefusal(`${label(block)} holds ${systemNoteKind(held)} (${label(held)}), which the service keeps and finds by its properties, so trashing ${label(block)} would take it too: outline_move it out first`);
+  }
   const children = (await client.request<Block[]>({ action: "children", parentId: block.id })).length;
   try {
     await client.request<Block>({ action: "delete", blockId: block.id, expectedRevision: revision, mutation: mutationOf(actor) });

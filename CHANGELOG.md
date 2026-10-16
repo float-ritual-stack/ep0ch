@@ -23,7 +23,7 @@ needs its `::graph-table` lines wrapped in `---` once (edit the note, or delete 
 `outline_move` now moves a system note (Deploys, a snapshot record, the Inbox, Trash, Bookmarks, a guide) anywhere,
 attributed like any move: the service finds them by their properties, never their place. Refused still: a place under
 Trash, Bookmarks or a guide (the service fills them itself) and a note under itself. The refusal says what the note is
-and why. `outline_trash` of a system note is still refused, now saying what it is. No wire change.
+and why. `outline_trash` of a system note, or of a note that holds the Inbox, Trash or Bookmarks, is still refused, now saying what it is. No wire change.
 
 ### A read never creates an outline, and an empty outline file never holds an install back (PIE-938)
 

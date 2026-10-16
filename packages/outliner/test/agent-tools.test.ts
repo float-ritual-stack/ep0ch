@@ -421,6 +421,8 @@ test("a system note moves like any note, attributed, and its refusals name what 
   // Trash moves anywhere but into itself, and the service still finds it.
   const trash = JSON.parse((await cli(["list", "--filter", "system-view=trash", "--fields", "id"])).stdout).blocks[0].id;
   expect((await agent("move", { ref: trash, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
+  const holder = store.get(day.id)!;
+  expect((await agent("trash", { ref: day.id, revision: holder.revision })).stderr).toContain("holds Trash");
   expect((await agent("trash", { ref: trash, revision: store.get(trash)!.revision })).stderr).toContain("Trash, which the service keeps");
   expect((await agent("move", { ref: snapshot.id, parent: trash })).stderr).toContain("Trash, which the service fills itself");
 });
