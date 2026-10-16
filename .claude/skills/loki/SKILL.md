@@ -81,12 +81,9 @@ file: edit it like any rule. `EP0CH_FRESHNESS=off` stops the sweep for a session
 
 ## The build log
 
-One note per day in pie, `[type::build-log] [page::build-log-YYYY-MM-DD] [welcome::true]`, first in the Welcome
-view's hand order (`ep0ch view order`), under the Build logs note. Sections, in order: **Needs you** (checkboxes,
-at most about three, each with its reason and exact command), **In flight**, **Landed** (newest first, grouped by
-area; one line each: the time, what Evan will notice, then `(PIE-n, #PR)`). Every deploy and every agent report adds a
-line. A new day starts a new note; yesterday's loses `welcome`. Chat replies stay to a line or two plus the link
-(`https://float-2.tail2a183e.ts.net/pub/p/<page|PIE-n|id>`).
+The rules are pie's: How this workboard works (d5b3e557), sections 'Requests and patch notes' and 'Build logs and Welcome'.
+
+Use `ep0ch view order` to place the build log in Welcome's hand order.
 
 A session (and a compacted one) starts with the `workboardNow` context block from the Claude mod (PIE-843): the
 latest build log, the items in doing, review and validate, what waits on Evan and the open PRs. A cold start reads it
@@ -94,15 +91,10 @@ first, then opens the build log it links.
 
 ## Requests: tickets, patch notes, release notes
 
-- **Triage** a request copy: find prior art (`ep0ch find --ws pie <words>`), then ticket it (`work_create` with
-  `from: <copy uuid>`) or answer it. The copy then names its ticket (`[ticket::PIE-n]`) and the service keeps its
-  `[ticket-stage::…]` following the ticket; a copy answered by an existing ticket gets `work_link` (`ref: <copy>`,
-  `ticket: PIE-n`). The Requests board in pie reads those two properties.
-- **When the fix ships,** in the same step as the deploy, reply on the request's copy in pie with a whole-note
-  comment (`outline_comment`, `whole: true`, `properties: {kind: "patch-note"}`): what changed, the PR, deployed or not.
-  The toss carries it back to the original as netmail. The original's status chips are its outline's to set, not yours.
-- **Release notes:** each deploy gets one `[type::release-notes]` note in pie (the echo area `ep0ch.releases`;
-  gurgle subscribes). Sections: answers to requests, new ways to work, decided-not-built.
+- Find prior art with `ep0ch find --ws pie <words>`, then `work_create` with `from: <copy uuid>` or
+  `work_link` with `ref: <copy>, ticket: PIE-n` for an existing ticket.
+- On deploy, reply on the request copy with `outline_comment`, `whole: true`, `properties: {kind: "patch-note"}`.
+- Write the deploy's release note in pie following the guide.
 
 ## The workboard
 

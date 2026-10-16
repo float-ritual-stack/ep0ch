@@ -43,8 +43,8 @@ inverse says why in its result note.
 
 Outside agents use MCP `script_run` with a script block's `ref` or `uri`. They run as the MCP caller;
 the gateway's existing access setting and proposal handler apply to each write. Propose access produces
-proposals, full access applies writes, and read/none cannot start a run. Macros, key/rule/@name bindings,
-and automatic agent-written views remain later scripting slices.
+proposals, full access applies writes, and read/none cannot start a run. Automatic agent-written views
+remain a later scripting slice.
 
 ## Keys and secrets
 
