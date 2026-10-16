@@ -130,6 +130,11 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect(reader.surface.scroll).toBeGreaterThan(before);
     expect({ row: reader.surface.draft!.row, col: reader.surface.draft!.col }).toEqual(cursor);
     expect((await board.get(parent.id))!.text).toBe(parent.text);
+    await board.update(parent.id, parent.text + `\nSee ((${notes.plot.id})).`, parent.revision!);
+    reader.surface.reread(reader.host(app));
+    await until(() => reader.surface.msg!.revision !== parent.revision, "the live source changed");
+    expect(reader.surface.describe().links.some(l => l.block === notes.plot.id)).toBe(true);
+    expect(reader.surface.draft!.text).toBe(quoted + '"');
     await reader.dispatch.act({ action: "edit.save" }, { kind: "user" });
     expect((await board.children(parent.id))[0]!.text).toContain("> Keep the ripe pears.");
   });

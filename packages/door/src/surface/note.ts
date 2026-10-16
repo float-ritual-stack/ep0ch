@@ -1036,7 +1036,7 @@ export class NoteSurface {
     if (m.partial && !this.msg.partial) return;           // a list row never replaces the whole note
     if (!m.partial) this.unread = "";
     this.msg = m;
-    if (!this.draft) this.links = linksOf(m);
+    if (!this.draft || this.replyParent) this.links = linksOf(m);
   }
 
   /** Show a note (or nothing). Refused, returning false, while an edit or a comment holds the surface on its note. */
