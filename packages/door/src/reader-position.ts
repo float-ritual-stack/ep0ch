@@ -32,7 +32,7 @@ export class PositionRows {
     return Math.max(0, base >= this.leading ? base : Math.ceil((base + this.leading) / 2));
   }
   set top(top: number) {
-    if (!this.source.length) { this.position.view = null; this.waiting = Math.max(0, top); return; }
+    if (!this.source.length) { this.position.view = null; this.waiting = top > 0 ? top : null; return; }
     this.waiting = null;
     let at = Math.min(Math.max(0, top), this.source.length - 1);
     while (at < this.source.length - 1 && this.source[at]! < 0) at++;
