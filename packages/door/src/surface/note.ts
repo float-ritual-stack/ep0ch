@@ -44,7 +44,6 @@ import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSa
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
-import { sizedPlacement } from "../text-sizing";
 import { theme, type Rgb } from "../theme";
 import { ALIGNS, artifactPagePath, fileName, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
@@ -319,8 +318,8 @@ const TITLE_UNFOCUSED = 0.7;
 interface HeaderBlock {
   rows: string[]; summary: string; summaryRow: number;
   summaryLinks: { from: number; to: number; link: Link; key: string }[];
-  /** The title's row and style (null: a host's own header stands in for it); `big`: it takes the row under it too, drawn at double height. */
-  title: { row: number; rows: number; text: string; ink: string; big: boolean; col: number } | null;
+  /** The title's rows (null: a host's own header stands in for it). */
+  title: { row: number; rows: number } | null;
   /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
   crumbsRow?: number;
   /** The byline's [comment] (PIE-846): a click writes a comment on the whole note, as C with nothing selected does. */
@@ -1225,7 +1224,7 @@ export class NoteSurface {
    * header, the BBS message header, then the summary line): the rows every reading render starts with, and the row the
    * summary is on with its links. One builder: the reading render and a digest's host (stickyHeader) both draw it.
    */
-  private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null, sized = true): HeaderBlock {
+  private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null): HeaderBlock {
     const gx = this.printed || host?.externalGutter !== undefined ? 0 : this.gutterWidth();
     w = Math.max(1, w - gx);
     // The Work ID heads the title line (PIE-809), not this one.
@@ -1250,14 +1249,11 @@ export class NoteSurface {
       return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null };
     }
     // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
-    // bold line (brighter in the focused tile, a step down in the others), at double height where the terminal has
-    // Kitty's text sizing and the title fits that wide; then one dim line holding everything else, its links kept.
+    // bold line (brighter in the focused tile, a step down in the others), then one dim line holding everything else.
+    // Keep normal cell width: a terminal's sizing probe cannot prove its font will scale instead of spacing the letters.
     // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
     const named = workIdTitle(subject(m), m.props["work-id"]), focused = host?.focused !== false;
     const title = named.workId ? `${named.workId} · ${named.title}` : named.title;
-    // At double height only the title's own words are sized; its Work ID keeps the accent in cells before it.
-    const idCols = named.workId ? width(`${named.workId} · `) : 0;
-    const big = sized && !!host?.ctx.graphics && !!host.ctx.t?.sized && w >= 8 && idCols + width(named.title) * 2 <= w;
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
     // body; the note's top heading is drawn as its headings are.
     const ink = (focused ? fg(C.yellow) : fgRgb(theme().palette[C.yellow]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
@@ -1284,10 +1280,10 @@ export class NoteSurface {
     const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
     // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
     // here was the bug). The Work ID keeps the accent at the start of the first line.
-    const lines = big || width(title) <= w ? [title] : wrap(title, w);
+    const lines = width(title) <= w ? [title] : wrap(title, w);
     const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
     const wholeMarks: NonNullable<HeaderBlock["wholeMarks"]> = [];
-    if (!this.printed && !big) {
+    if (!this.printed) {
       let col = width(lines.at(-1) ?? "");
       for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
         if (col + 4 > w) break; // The gutter remains available when the title fills its row.
@@ -1299,13 +1295,13 @@ export class NoteSurface {
         titled[titled.length - 1] = pad(styled + fg(C.yellow) + " [+]".repeat(wholeMarks.length) + RESET, w);
       }
     }
-    const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
+    const first = (this.printed ? 1 : 2) + lines.length - 1;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
-    const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...(big ? [pad("", w)] : []), ...metas];
+    const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...metas];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
     const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
-    return { rows: rows.map(l => " ".repeat(gx) + l), wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: { row: this.printed ? 0 : 1, rows: lines.length, text: named.title, ink, big, col: idCols + gx }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
+    return { rows: rows.map(l => " ".repeat(gx) + l), wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: { row: this.printed ? 0 : 1, rows: lines.length }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
   }
 
   /**
@@ -1316,7 +1312,7 @@ export class NoteSurface {
    */
   stickyHeader(m: Msg, w: number, host: SurfaceHost, under: number): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; placements: Placement[] } {
     const src = this.use(host);
-    const { rows, summaryRow, summaryLinks, title } = this.headerBlock(m, w, host, src, false);
+    const { rows, summaryRow, summaryLinks, title } = this.headerBlock(m, w, host, src);
     const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
@@ -1571,7 +1567,7 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = full ? Math.max(0, full - this.scroll) : 0;
     h -= heroRows;
-    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + (title.big ? 2 : title.rows)] : [0, 1] };
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : [0, 1] };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     this.composerRows = comp?.passage ? [top + comp.passage[0] - this.scroll, top + Math.max(comp.passage[1], comp.after ?? 0) - this.scroll] : null;
@@ -1687,13 +1683,8 @@ export class NoteSurface {
     // goes under them.
     const headerRows = Math.min(lines.length, headerBlock.length);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
-    this.headerSurface(lines, headerRows, w, shade, title ? Array.from({ length: title.big ? 2 : title.rows }, (_, i) => title.row + i) : []);
+    this.headerSurface(lines, headerRows, w, shade, title ? Array.from({ length: title.rows }, (_, i) => title.row + i) : []);
     placements.unshift(...shade.placements);
-    // The title at double height (PIE-657), painted over its fallback bold row and the blank row under it, unless a
-    // selection is on them (its highlight is drawn in cells) or the backdrop's colours are under them.
-    if (title?.big && !shade.grid && title.row + 1 < Math.min(lines.length, h) && ![title.row, title.row + 1].some(r => this.selection?.span(r) || this.agentSelection?.sel.span(r))) {
-      placements.push(sizedPlacement("title", title.text, title.ink, title.col, title.row, width(title.text), 2));
-    }
     const gutter: { row: number; text: string }[] = [];
     const gutterRows = new Map<number, string>();
     for (const k of this.printed ? [] : marks) {

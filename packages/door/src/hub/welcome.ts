@@ -25,7 +25,7 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
-import { artLines, C, chip, ellipsize, fg, pad, paint, RESET, selected, width } from "../style";
+import { artLines, C, chip, ellipsize, fg, headOf, pad, paint, RESET, selected, width } from "../style";
 import { ch, isUp, isDown, type Key, type TermInfo } from "../term";
 import { bbsDate, wrap } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -463,7 +463,7 @@ export class WelcomeDetail extends ReaderPane {
     if (!s || !m) return s?.items && !s.items.length && !s.fallback ? "nothing to read yet" : "detail";
     const i = s.items?.findIndex(x => x.id === m.id) ?? -1;
     const tag = i >= 0 ? `welcome ${tabKey(i) ?? i + 1}` : s.fallback?.id === m.id ? `[[${welcomeFallback()}]] · no welcome notes yet` : "read here";
-    return `${tag} · ${subject(m)}`;
+    return tag;
   }
   /** The detail never follows another note here: no `p`. */
   override hint() { return this.surface.hint(""); }
@@ -496,7 +496,7 @@ export class WelcomePreview extends PreviewPane {
   override readonly kind: TileKindName = "welcome.preview";
   /** Where "⇱ read here" starts in the title row as last drawn (null: not drawn). */
   private readFrom: number | null = null;
-  override title() { return this.msg ? `preview · ${subject(this.msg)}` : "preview"; }
+  override title() { return "preview"; }
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
     this.readFrom = null;
     if (!this.msg) return {
@@ -507,7 +507,8 @@ export class WelcomePreview extends PreviewPane {
     const lw = width(READ_HERE);
     if (v.lines.length && !this.holdsKeys && w >= lw + 8) {
       this.readFrom = w - lw;
-      v.lines[0] = fg(C.white) + pad(subject(this.msg), w - lw) + chip(C.magenta) + READ_HERE + RESET;
+      // Keep the surface's breadcrumb: the next row already owns the note's title.
+      v.lines[0] = headOf(v.lines[0]!, w - lw) + chip(C.magenta) + READ_HERE + RESET;
     }
     return v;
   }

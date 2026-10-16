@@ -51,7 +51,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch outline host (this repository's packages/outliner, or EP0CH_OUTLINER).
-const scratch = scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+const scratch = scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch outline host: set EP0CH_OUTLINER to the outliner package`); process.exit(2); }
   return new Scratch();
@@ -73,6 +73,26 @@ const snap = async (name: string, wait = 600) => {
 const press = (k: Key) => keyFn(k);
 const ch = (c: string) => press({ kind: "char", ch: c });
 
+if (scenario === "titles") {
+  const note = await board.createBlock(null, "yo yo yo this is a test\n\nA made-up note to check the reader title.");
+  app.push(new MainMenu());
+  for (const [label, tile] of [
+    ["desk", { kind: "reader", mode: "follows" }],
+    ["preview", { kind: "preview", source: "tile:detail" }],
+    ["detail", { kind: "reader", mode: "held" }],
+    ["welcome-preview", { kind: "welcome.preview", source: "tile:detail" }],
+    ["welcome-detail", { kind: "welcome.detail", source: "tile:welcome" }],
+    ["river", { kind: "river.column", source: `block:${note.id}` }],
+  ] as const) {
+    const desk = new Desk({ name: "titles", title: "titles", layout: { focus: "reader", root: { t: "leaf", ...tile, name: "reader" } } } as any);
+    app.push(desk);
+    if (tile.kind !== "river.column") (desk as any).pane("reader").show(note, desk);
+    await snap(label, 800);
+    console.log(emu.text().slice(0, 5).join("\n"));
+    app.pop(); (desk as any).dispose();
+  }
+  app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
+}
 if (scenario === "doc") {
   // A fake note through the real reader: callouts, a wrapped table, code, and a screenshot.
   const { ReaderPane } = await import("../src/desk/panes");

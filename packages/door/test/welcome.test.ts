@@ -171,7 +171,8 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect(focus()).toBe("detail");
     const tabs = at("1 Start here");
     expect(lines()[tabs.y]).toMatch(/\[=.*1 Start here =.*2 House rules =.*3 Apple notes =+\]/);
-    expect(screen()).toContain("welcome 1 · Start here");
+    expect(screen()).toContain("welcome 1");
+    expect(plain(tileOf<WelcomeDetail>("detail").render(100, 30, true, top()).lines.join("\n"))).toContain("Start here");
   });
 
   test("digits and clicks on tabs pick a note; the list down the side does too", async () => {
@@ -201,10 +202,11 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.kettle.id, "the kettle in the preview");
     expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
     expect(focus()).toBe("detail");
-    await until(() => screen().includes("preview · The kettle"), "the preview's header");
+    await until(() => plain(tileOf<WelcomePreview>("preview").render(100, 30, false, top()).lines.join("\n")).includes("The kettle"), "the preview's header");
     press({ kind: "alt-enter" });
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.kettle.id, "alt+⏎: the kettle is read in the detail");
-    expect(screen()).toContain("read here · The kettle");
+    expect(screen()).toContain("read here");
+    expect(screen()).toContain("The kettle");
     press({ kind: "backspace" });
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "back: the start note again");
   });

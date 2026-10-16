@@ -3117,36 +3117,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         put(` ${this.numLabel(t)}${this.panes.get(t)?.headName?.() ?? this.nameOf(t)} `, on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
     } else if (this.noteOf(id)) {
-      // A reader showing a note (PIE-809): its border is the note's title, Work ID first in the accent, the place the eye
-      // lands; what the tile is (its number, its kind or name, its mode, its links, how far down) follows, dim, and gives
-      // way first where the border is short. The title leaves room for the kind and the mode chip (a click).
+      // NoteSurface owns the full title; the frame identifies the tile and keeps its mode controls reachable.
       const m = this.noteOf(id)!, named = workIdTitle(subject(m), m.props["work-id"]);
       if (this.numbered) put(`${this.numberOf(id)} `, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
       this.putStatus(id, put);
-      // Its kind's word as its title says it (detail, `preview · board`), after its own name when it has one.
-      // (A title that starts with the note's own, a river column's or a pinned page's, says what follows it, `pinned
-      // [[claude-now]]`, else the kind's word: `column`.)
+      if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
       const p = this.panes.get(id)!, name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
       const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
       const kindWord = kindOf(p)?.word ?? p.kind;
       const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
-      const kind = ` · ${this.plainName(id) || word === name ? word : `${name} · ${word}`}`;
-      // What must still follow it: its kind or name, its mode chip (a click), and the border's own glyphs.
-      // Room, after the border's own glyphs: the title first (at least a dozen cells), then the mode chip (a click; a long
-      // one has a short form, `pinned` for `pinned [[page]]`), then the kind's word, which is the first to give way.
-      const avail = max - xNow() - 10, full = (named.workId ? width(named.workId) + 3 : 0) + width(named.title);
+      const tileLabel = this.plainName(id) || word === name ? word : `${name} · ${word}`;
+      const label = p instanceof ReaderPane && !p.surface.titleShown(r.rows - 2)
+        ? [p.surface.state(), named.title].filter(Boolean).join(" · ") : tileLabel;
+      // The mode chip is a mouse control; a long tile label gives way before it does.
       const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
-      // The kind whole (`card · preview · board`), else its first word (`card`), else none.
-      const short = ` · ${kind.slice(3).split(" · ")[0]}`;
-      const said = full + chips + width(kind) <= avail ? kind : full + chips + width(short) <= avail ? short : "";
-      const withKind = said !== "";
-      const room = withKind ? full : Math.max(12, avail - chips);
-      if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
-      // Cut, it says so (PIE-815: `…`); the header inside has it whole, and the keys arriving say it in the status line.
-      const n = Math.max(4, room - (named.workId ? width(named.workId) + 3 : 0));
-      put(width(named.title) <= n ? named.title : headOf(named.title, n - 1).trimEnd() + "…", (focused ? fgRgb(theme().edge.focus) : fg(C.white)) + BOLD, id);
-      if (withKind) put(said, fg(C.dark), id);
+      const room = Math.max(0, max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 10 - chips);
+      put(width(label) <= room ? label : headOf(label, Math.max(0, room - 1)).trimEnd() + (room ? "…" : ""), fg(C.dark), id);
       return this.headerEnd(id, put, xNow, max, r.row);
     } else if (this.plainName(id)) {
       // A tile named only by its kind reads as its number, then its title.
@@ -3223,7 +3210,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Tiles are numbered in their headers (what 1-9 focus), unless the view keeps the digits for itself. */
   private get numbered() { return this.spec.digits !== false; }
   private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
-  /** The note a reader tile shows, when its border is that note's title (PIE-809): a block, not a file or a Resource. */
+  /** The note a reader tile shows, for its short border label: a block, not a file or a Resource. */
   private noteOf(id: number): Msg | null {
     const p = this.panes.get(id);
     // Not a list that only has a note selected (the river's Library, a #tag column): its border names the list.
