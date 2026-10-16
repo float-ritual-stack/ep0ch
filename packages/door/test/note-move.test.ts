@@ -151,12 +151,22 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     const opened = await app.act({ action: "tile.open", args: { kind: "river.column", source: `block:${garden.id}`, name: "col" }, as: "gardener" }) as { tile?: string };
     const col = opened.tile ?? "col";
     await waitFor(async () => !!D().pane(col)?.flat?.().length, "the column's cards", 20_000);
-    const before = (await order(garden.id)).join();
+    const start = (await order(garden.id)).join();
     const first = (await board.children(garden.id))[0]!;
+    // The person's: the selection follows the card, and undo puts it back.
+    const you = (args: Record<string, unknown>) => D().dispatch.press("column.move", args, col);
+    const selected = () => D().pane(col).flat()[D().pane(col).sel]?.m.id;
+    await D().pane(col).pick({ id: first.id }, desk);
+    await you({ step: "down" });
+    await waitFor(async () => (await order(garden.id)).join() !== start, "the person's move");
+    await waitFor(async () => selected() === first.id && D().pane(col).flat()[1]?.m.id === first.id, "the selection on the moved card");
+    await you({ undo: true });
+    await waitFor(async () => (await order(garden.id)).join() === start, "undo");
+    // An agent's, by id: attributed, and the column's selection is left alone.
     expect(await app.act({ action: "column.move", tile: col, args: { id: first.id, step: "down" }, as: "gardener" })).toMatchObject({ moved: first.id, parent: garden.id });
-    expect((await order(garden.id)).join()).not.toBe(before);
+    expect((await order(garden.id)).join()).not.toBe(start);
     expect(await app.act({ action: "column.move", tile: col, args: { id: first.id, step: "up" }, as: "gardener" })).toMatchObject({ moved: first.id });
-    expect((await order(garden.id)).join()).toBe(before);
+    expect((await order(garden.id)).join()).toBe(start);
     await expect(app.act({ action: "column.move", tile: col, args: { id: first.id }, as: "gardener" })).rejects.toThrow("say where");
   }, 60_000);
 
