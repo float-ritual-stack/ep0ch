@@ -174,7 +174,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
   const child = task.child;
   switch (step.id) {
     case "outline-files": {
-      for (const line of fixOutlineFiles(f.outlineFiles ?? [])) say(line);
+      for (const line of fixOutlineFiles(f.outlineFiles ?? [], { retireBackups: true })) say(line);
       return;
     }
     case "backup": {
@@ -472,7 +472,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   if (args[0] === "doctor") {
     let repaired: string[] = [];
     if (args.includes("--fix")) {
-      repaired = fixOutlineFiles(facts.outlineFiles ?? [], args.includes("--move-scripts"));
+      repaired = fixOutlineFiles(facts.outlineFiles ?? [], { moveScripts: args.includes("--move-scripts") });
       facts.outlineFiles = outlineFiles(io.cwd ?? process.cwd(), facts.host.folder);
     }
     const report = doctorReport(facts);

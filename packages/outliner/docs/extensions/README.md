@@ -19,9 +19,10 @@ Scripts default to read-only. A file declares writes with `// ep0ch-script effec
 The runtime still records their progress in a run note. Recorded action scripts declare write effects.
 
 Bindings now live in `.ep0ch/config.toml`; clients also read old `.ep0ch` files until repaired.
-`ep0ch doctor` checks bound ancestors and outline side folders for old bindings and `scripts/` folders.
+`ep0ch doctor` checks bound ancestors and outline side folders for old bindings, and only outline side
+folders for legacy `scripts/`. Project build/test scripts are left alone.
 `ep0ch doctor --fix` (also the binding step of `ep0ch install --apply`) moves the binding verbatim and
-keeps `.ep0ch.bak`. Review old scripts first, then explicitly choose `ep0ch doctor --fix --move-scripts`
+keeps `.ep0ch.bak` until the next install. Review old scripts first, then explicitly choose `ep0ch doctor --fix --move-scripts`
 to move them. It refuses to replace an existing `.ep0ch/scripts/`; move reviewed files individually there.
 Moving a file does not opt it in.
 The door lists scripts by name in the power bar; the name works in `/` too, followed by `slot=value`

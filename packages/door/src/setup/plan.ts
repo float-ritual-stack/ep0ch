@@ -575,5 +575,5 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
     schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${from}.sqlite`) }));
   }
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
+  return { steps: [backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
 }

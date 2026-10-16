@@ -1,3 +1,4 @@
+import { fixOutlineFiles, outlineFiles } from "../src/setup/outline-files";
 // `ep0ch doctor` and `ep0ch install` (PIE-450): the plan and the report from described machines (no real
 // stack is read), the platform, the host unit, the PATH link chooser, backup naming, and the read-only probes on
 // scratch files. Nothing here touches a real outline, Herdr, unit or checkout.
@@ -1279,7 +1280,11 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
 test("doctor repairs a scratch binding but moves legacy scripts only on explicit request", async () => {
   const home = mkdtempSync(join(scratch, "binding-"));
   const folder = join(home, "outlines", "garden");
+  mkdirSync(join(home, "scripts"));
+  writeFileSync(join(home, "scripts", "build.ts"), "build the project");
+  writeFileSync(join(home, ".ep0ch"), 'ws = "garden"\n');
   mkdirSync(join(folder, "scripts"), { recursive: true });
+  new Database(join(home, "outlines", "garden.sqlite")).close();
   const binding = '# Garden\nws = "garden"\nagent = "scout"\n';
   writeFileSync(join(folder, ".ep0ch"), binding);
   writeFileSync(join(folder, "scripts", "helper.ts"), "return 'seeds';");
@@ -1302,4 +1307,17 @@ test("doctor repairs a scratch binding but moves legacy scripts only on explicit
   await doctor("--fix", "--move-scripts");
   expect(readFileSync(join(folder, ".ep0ch", "scripts", "helper.ts"), "utf8")).toBe("return 'seeds';");
   expect(existsSync(join(folder, "scripts"))).toBe(false);
+  expect(readFileSync(join(home, "scripts", "build.ts"), "utf8")).toBe("build the project");
 }, 120_000);
+
+
+test("the binding backup survives its migration install and is retired by the next install", () => {
+  const home = mkdtempSync(join(scratch, "binding-backup-"));
+  writeFileSync(join(home, ".ep0ch"), 'ws = "garden"\n');
+  const inspect = () => outlineFiles(home, join(home, "outlines"));
+  fixOutlineFiles(inspect(), { retireBackups: true });
+  expect(readFileSync(join(home, ".ep0ch.bak"), "utf8")).toBe('ws = "garden"\n');
+  fixOutlineFiles(inspect(), { retireBackups: true });
+  expect(existsSync(join(home, ".ep0ch.bak"))).toBe(false);
+  expect(readFileSync(join(home, ".ep0ch/config.toml"), "utf8")).toBe('ws = "garden"\n');
+});
