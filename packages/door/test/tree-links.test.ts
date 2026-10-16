@@ -170,7 +170,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     n.log = await create(null, "Allotment log");
     n.soil = await create(n.log.id, "Soil test results [page::soil-test]\nA little low on nitrogen.");
     n.shed = await create(n.log.id, "Tool shed inventory\nTwo spades and a fork.");
-    n.plan = await create(n.log.id, `Weekend plan\nCheck [[soil-test]] and ((${n.shed.id}|the shed list)).\nCompost: [file::notes/compost.md] and [file::notes/gone.md]\nThe van is [jira::ACME-12].`);
+    n.plan = await create(n.log.id, `Weekend plan\n\nCheck [[soil-test]] and ((${n.shed.id}|the shed list)).\nCompost: [file::notes/compost.md] and [file::notes/gone.md]\nThe van is [jira::ACME-12].`);
     n.notes = await create(n.log.id, `Compost notes\nSee ((${n.plan.id})) for when.`);
     // A ticket page: saving it fetches the ticket into a block the Jira extension keeps (PIE-445).
     n.printer = await create(n.log.id, "Printer ticket [jira::ACME-14]\nOur own note: call the supplier.");

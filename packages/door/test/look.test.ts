@@ -550,7 +550,12 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       await b3.update(level.id, m.text + " (edited elsewhere)", m.revision!);
       await expect(act("tune.revert", { confirm: true })).rejects.toThrow(new RegExp(`note ${level.id.slice(0, 8)} changed since you started`));
       expect(await text(target)).toContain("[style.list.gap::");
-    } finally { d.close(); b3.close(); }
+    } finally {
+      d.close();
+      // This test's screen-wide look must not set the next test's baseline.
+      await b3.request("delete", { blockId: level.id, author: "agent" });
+      b3.close();
+    }
   }, 60_000);
 
   test("PIE-675: this tile: one links tile airy while another stays tight, saved in its tile spec and back with the layout; this list: one list airy while its sibling stays tight, saved on its heading", async () => {

@@ -210,25 +210,16 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     expect(log.entries.find((e: any) => e.block.id === b.id)?.actorId).toBe(ACTOR_ID);
   });
 
-  test("a save that turns a property into plain text says so", async () => {
-    // Found in a real terminal: typing after `[stage::queued]` on the subject line makes the service
-    // read it as text, and the card silently left its lane.
+  test("typing after a front-matter chip keeps the property and saves once", async () => {
     const b = await create("Card [stage::queued]\nbody");
     const { pane, d } = await openReader(b.id);
     type(pane, " (retry)", d);
     pane.key(ctrl("s"), d);
-    if (await board.previewProperties("probe [a::b]") !== null) {
-      // A service with properties.preview (PIE-401) lets the door warn before writing anything.
-      await until(() => pane.draft?.propertyWarned !== null, "the warning");
-      expect(pane.editing).toBe(true);
-      expect(pane.draft!.note).toBe("this save changes properties: -stage: queued · ctrl+s again saves");
-      expect((await current(b.id)).revision).toBe(b.revision);
-      pane.key(ctrl("s"), d);                                // same text again: go ahead
-    }
     await until(() => !pane.editing, "the save");
-    expect((await current(b.id)).properties).toEqual([]);
-    expect(flashes.at(-1)).toBe(`saved · revision ${b.revision + 1} · properties changed: -stage: queued`);
-    expect(pane.render(80, 20).lines.some(l => l.includes("properties changed: -stage: queued"))).toBe(true);
+    const saved = await current(b.id);
+    expect(saved.properties).toEqual([{ key: "stage", value: "queued" }]);
+    expect(saved.text).toBe("Card [stage::queued] (retry)\nbody");
+    expect(saved.revision).toBe(b.revision + 1);
   });
 
   test("a conflicting write is refused: the other writer's text stays, the draft stays and is copied out", async () => {

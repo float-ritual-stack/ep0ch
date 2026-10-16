@@ -384,7 +384,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
   test("a save that changes properties is shown to the agent first, like the second ctrl+s", async () => {
     const { reader } = await act("open", { id: cards.peas.id }, "new-detail") as any;
-    const text = (await current(cards.peas.id)).text.replace("[stage::queued]", "[stage::queued] soon");
+    const text = (await current(cards.peas.id)).text.replace("[stage::queued]", "stage queued");
     await act("edit.text", { text }, reader);
     const first: any = await act("edit.save", {}, reader);
     expect(first).toMatchObject({ saved: false, next: "edit.save again saves it" });

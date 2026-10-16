@@ -744,6 +744,7 @@ describe("OutlinerStore", () => {
     const store = makeStore();
     const block = store.create([
       "Examples `[status::inline-literal]`",
+      "",
       String.raw`Escaped \[status::escaped]`,
       "```text",
       "[status::fenced]",
@@ -771,7 +772,7 @@ describe("OutlinerStore", () => {
             key: "status",
             value: "body-inline",
             ordinal: 0,
-            line: 5,
+            line: 6,
             scope: "inline",
           }),
         ],
@@ -1540,6 +1541,7 @@ Second paragraph`;
     const path = join(directory, "outliner.sqlite");
     const block = originalStore.create([
       "Migration target",
+      "",
       "```ts",
       "[obsolete::literal]",
       "```",

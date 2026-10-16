@@ -22,23 +22,23 @@ test("` - ` between header chips: every chip is the block's, and the title leave
   // Chips only, separated: no "-" title; the title comes from the next line, as for a chips-only line.
   expect(scope("[type::list] - [area::kitchen]\nTea and oats")).toEqual(["type:block", "area:block"]);
   expect(firstLineWithoutPropertyTokens("[type::list] - [area::kitchen]\nTea and oats")?.trim()).toBe("Tea and oats");
-  // A hashtag among the chips keeps the run going, and stays in the title.
+  // A hashtag among the chips keeps the run going, and leaves the displayed title.
   expect(scope("Shed jobs [type::list] #bikes [area::shed]")).toEqual(["type:block", "tag:block", "area:block"]);
-  expect(firstLineWithoutPropertyTokens("Shed jobs [type::list] #bikes [area::shed]")?.replace(/\s+/g, " ").trim()).toBe("Shed jobs #bikes");
+  expect(firstLineWithoutPropertyTokens("Shed jobs [type::list] #bikes [area::shed]")?.replace(/\s+/g, " ").trim()).toBe("Shed jobs");
   // Spaces, as before.
   expect(scope("Seed order [type::errand] [area::garden]")).toEqual(["type:block", "area:block"]);
-  // Something after a chip makes it an aside, as before.
-  expect(scope("Ask [who::Sam] about it")).toEqual(["who:inline"]);
+  // Prose in the first paragraph does not end block scope.
+  expect(scope("Ask [who::Sam] about it")).toEqual(["who:block"]);
 });
 
 test("Detail's property table marks the header line's chips, and only those", () => {
   const text = "Seed order [type::errand] - [area::garden]\nAsk [who::Sam] first.\n[due::Friday]";
   const model = createPropertyInspectorModel("b1", text);
   expect(model.entries.map(e => [e.key, e.scope, e.header])).toEqual([
-    ["type", "block", true], ["area", "block", true], ["who", "inline", false], ["due", "inline", false],
+    ["type", "block", true], ["area", "block", true], ["who", "block", false], ["due", "block", false],
   ]);
   // Detail's reading of the note: the chips and the ` - ` between them leave line 1, the aside stays.
-  expect(propertyInspectorAuthoredText(text).split("\n").slice(0, 2)).toEqual(["Seed order", "Ask [who::Sam] first."]);
+  expect(propertyInspectorAuthoredText(text).split("\n").slice(0, 2)).toEqual(["Seed order", "Ask  first."]);
 });
 
 test("blocks.records: a block as one record, built by the service; missing and trashed ids said, not records", async () => {
@@ -69,8 +69,8 @@ test("blocks.records: a block as one record, built by the service; missing and t
   expect(r).toMatchObject({
     id: note.id, parent: plot.id, title: "Seed order for the plot", author: "agent", actor: "planner",
     header: [{ key: "type", value: "errand" }, { key: "ctx", value: "2026-03-09 @ 09:27:29 AM" }, { key: "tag", value: "seeds" }, { key: "tag", value: "spring" }],
-    properties: [{ key: "type", values: ["errand"] }, { key: "ctx", values: ["2026-03-09 @ 09:27:29 AM"] }, { key: "tag", values: ["seeds", "spring"] }],
-    fields: [{ key: "when", value: "before Friday", scope: "line", line: 2 }],
+    properties: [{ key: "type", values: ["errand"] }, { key: "ctx", values: ["2026-03-09 @ 09:27:29 AM"] }, { key: "tag", values: ["seeds", "spring"] }, { key: "when", values: ["before Friday"] }],
+    fields: [],
     children: [child.id],
     tasks: [{ status: "todo", text: "order the beans", line: 3, id: null }, { status: "done", text: "measure the bed", line: 4, id: null }],
     links: [{ kind: "block", target: plot.id, status: "ready", text: `((${plot.id}|the plot))` }],

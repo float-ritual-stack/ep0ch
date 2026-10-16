@@ -3,6 +3,7 @@
 // interpolation, `::graph-*`, extensions and publishing. This file is the shape and its one builder; the service passes
 // what it read (the block, its parsed properties, children, tasks, links, backlinks, resources) and nothing here reads
 // anything. `recordJson` writes it deterministically: sorted keys, one timestamp format (ISO 8601, UTC, milliseconds).
+import { splitPropertyValue } from "./property-grammar";
 import { bodyOffset, headerLine, type LiteralRange } from "./header-line";
 
 export type TaskStatus = import("./checklist-marks").ChecklistStatus;
@@ -85,8 +86,8 @@ export function blockRecord(input: BlockRecordInput): BlockRecord {
   for (const p of input.properties) {
     if (p.scope !== "block") continue;
     const values = byKey.get(p.key);
-    if (values) values.push(p.value);
-    else { const v = [p.value]; byKey.set(p.key, v); properties.push({ key: p.key, values: v }); }
+    if (values) values.push(...splitPropertyValue(p.value));
+    else { const v = splitPropertyValue(p.value); byKey.set(p.key, v); properties.push({ key: p.key, values: v }); }
   }
   return {
     id: block.id,

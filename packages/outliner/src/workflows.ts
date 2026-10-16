@@ -376,8 +376,8 @@ function promotionText(input: WorkflowPromotionInput): string {
   return [
     printable(input.title, "Workflow promotion title", 500),
     `[type::${input.kind}] [source-block::${input.annotationId}] [workflow-run::${input.runId}] [workflow-step::${input.stepId}] [approved-by::${input.approvedBy}]`,
-    input.body?.trim() ?? "",
-  ].filter(Boolean).join("\n\n");
+    ...(input.body?.trim() ? ["", input.body.trim()] : []),
+  ].join("\n");
 }
 
 function promotionToken(input: WorkflowPromotionInput, text: string): string {

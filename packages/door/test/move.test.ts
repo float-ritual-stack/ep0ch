@@ -83,7 +83,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await mk("three", "Card three [work-stage::queued]\nHas no track yet.");
     // Tokens the service doesn't count as this card's work-stage: an inline code span, a hashtag
     // (which is a property, so it shifts ordinals), prose-scoped tokens in the body, a fenced block.
-    await mk("four", "Card four `[x::y]` #tagged [work-stage::queued]\nSee [work-stage::prose-mention] in the body.\n```\n[work-stage::in-fence]\n```");
+    await mk("four", "Card four `[x::y]` #tagged [work-stage::queued]\n\nSee [work-stage::prose-mention] in the body.\n```\n[work-stage::in-fence]\n```");
     await mk("dup", "Card dup [work-stage::queued] [work-stage::doing]\nTwo stages.");
     await mk("stale", "Card stale [work-stage::queued]\nSomeone else edits this.");
     await mk("draft", "Card draft [work-stage::queued]\nOpen for editing.");
@@ -153,7 +153,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     await select("Queued", cards.four.id);
     pick("Done");
     await settled();
-    expect((await current(cards.four.id)).text).toBe("Card four `[x::y]` #tagged [work-stage::done]\nSee [work-stage::prose-mention] in the body.\n```\n[work-stage::in-fence]\n```");
+    expect((await current(cards.four.id)).text).toBe("Card four `[x::y]` #tagged [work-stage::done]\n\nSee [work-stage::prose-mention] in the body.\n```\n[work-stage::in-fence]\n```");
     expect(await props(cards.four.id)).toEqual(["tag=tagged", "work-stage=done"]);
     expect(selected()).toEqual({ lane: "Done", id: cards.four.id });
   });

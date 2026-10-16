@@ -5,7 +5,7 @@
 // The surface owns the panel and runs its actions; this file draws it and turns keys into intents.
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
-import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
+import { isWritablePropertyValue, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
 import { MISSING_MARK, pageOf, refView, referencesIn, shortId } from "../refs";
@@ -51,6 +51,7 @@ export function propertyRows(m: Msg, tokens: PropertyRecord[] | null, workIdPref
   const src = tokens
     ? tokens.map(t => ({ key: t.key, value: t.value, scope: t.scope, placement: t.placement, syntax: t.syntax, line: t.line, ordinal: t.ordinal }))
     : (m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value }))).map(p => ({ ...p, scope: "block" as const, ordinal: null }));
+  src.sort((a, b) => Number(a.scope !== "block") - Number(b.scope !== "block"));
   return src.map((p, i) => ({ n: i + 1, ...p, target: valueTarget(p.key, p.value, workIdPrefix) }));
 }
 
@@ -59,7 +60,9 @@ export function propertyRows(m: Msg, tokens: PropertyRecord[] | null, workIdPref
  * note's whole text, whose one references answer holds the value's target.
  */
 export function valueView(r: PropRow, src: Source | null, noteText?: string): string {
+  const items = splitPropertyValue(r.value);
   const v = printable(r.value);
+  if (items.length > 1 || items[0] !== r.value.trim()) return items.map(item => `[ ${printable(item)} ]`).join(" ");
   if (r.target && "block" in r.target) {
     const res = referencesIn(noteText ?? `((${r.target.block}))`, src)?.get(r.target.block);
     const view = refView(r.target.block, undefined, undefined, res);
@@ -137,10 +140,21 @@ export class PropertyPanel {
     const room = Math.max(1, h - 1 - (foot ? 1 : 0));
     if (!rows.length) out.push(fg(C.dark) + pad("  no properties", w) + RESET);
     this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
-    this.view.place(this.sel, rows.length, room);
+    const entries: ({ heading: string } | { row: PropRow })[] = [];
+    let previous = "";
+    for (const r of rows) {
+      const group = r.scope === "block" ? "Block properties" : "Inline and line properties";
+      if (group !== previous) entries.push({ heading: group });
+      entries.push({ row: r });
+      previous = group;
+    }
+    const selected = entries.findIndex(entry => "row" in entry && entry.row.n - 1 === this.sel);
+    this.view.place(Math.max(0, selected), entries.length, room);
     const keyW = Math.min(16, Math.max(3, ...rows.map(r => width(r.key))));
     this.at = [];
-    for (const r of rows.slice(this.view.top, this.view.top + room)) {
+    for (const entry of entries.slice(this.view.top, this.view.top + room)) {
+      if ("heading" in entry) { out.push(fg(C.dark) + pad(entry.heading, w) + RESET); continue; }
+      const r = entry.row;
       const i = r.n - 1, on = i === this.sel;
       const mark = info.summary.includes(r.key.toLowerCase()) ? fg(C.yellow) + "■" : " ";
       const scope = r.scope === "block" ? "" : `(${r.scope})`;

@@ -1,6 +1,6 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { isLinkValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
+import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
@@ -62,7 +62,7 @@ import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type Mac
 import { ReadMarks } from "./read-marks";
 import {
   firstLineWithoutPropertyTokens,
-  withHeaderDashes,
+  titlePropertyRanges,
   formatProperty,
   matchingPropertyRecords,
   matchesFilters,
@@ -338,8 +338,11 @@ function movedBetween(before: readonly string[], after: readonly string[], among
 /** A block's value for `key` within a query's property scope, from the loaded graph: what a property sort compares. */
 function scopedValue(graph: LoadedGraph, scope: PropertyQueryScope | undefined) {
   const wanted = scope ?? "block";
-  return (block: Block, key: string) => graph.propertyRecordsByBlock.get(block.id)
-    ?.find(record => record.key === key && (wanted === "all" || record.scope === wanted))?.value;
+  return (block: Block, key: string) => {
+    const value = graph.propertyRecordsByBlock.get(block.id)
+      ?.find(record => (record.key === key || key === "tag" && record.key === "tags") && (wanted === "all" || record.scope === wanted))?.value;
+    return value === undefined ? undefined : splitPropertyValue(value)[0];
+  };
 }
 
 interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
@@ -778,7 +781,7 @@ function treeLabel(text: string, resolved: ResolvedBlockReferences, metadata: Pi
   const markerLines = literalMarkerLineRanges(title);
   if (metadata.properties.length) {
     replaceRanges([
-      ...withHeaderDashes(title, parsePropertyRecords(title).filter(record => record.syntax !== "hashtag")),
+      ...titlePropertyRanges(title),
       ...markerLines,
     ].sort((left, right) => left.start - right.start), "");
     let lineStart = 0;
@@ -3911,7 +3914,7 @@ export class OutlinerStore {
     if (counted || questionKeys(query).length) {
       const scope = query.propertyScope ?? "block";
       const records = (block: Block) => (graph.propertyRecordsByBlock.get(block.id) ?? []).filter(record => scope === "all" || record.scope === scope);
-      const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key).map(record => record.value);
+      const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key || key === "tag" && record.key === "tags").flatMap(record => splitPropertyValue(record.value));
       if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
       if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key), query.facetValues, query.facetKeys);
       const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope))].filter(Boolean).join(" · ");
@@ -4363,29 +4366,20 @@ export class OutlinerStore {
     // Compute each matching ID set once. A correlated EXISTS can rescan the
     // entire scope/key range for every block when LOWER(value) prevents a lookup.
     for (const filter of query.filters ?? []) {
+      const keys = [filter.key, filter.key === "tag" ? "tags" : filter.key];
       if (filter.value === undefined) {
-        predicates.push(
-          `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ?${propertyScopePredicate})`,
-        );
-        parameters.push(filter.key);
-      } else if (isLinkValue(filter.value)) {
-        // A link filter also finds a list that holds it: `related=[[X]]` matches `[related::[[Y]], [[X]]]`. The text match
-        // only narrows; the shared item test (propertyValueHolds, as matchesFilters uses) decides, so a link inside another
-        // link's label or a comma in a label never counts.
+        predicates.push(`block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key IN (?, ?)${propertyScopePredicate})`);
+        parameters.push(...keys);
+        if (propertyScope !== "all") parameters.push(propertyScope);
+      } else {
+        // Ranked views use the same list matcher as ordinary questions; raw SQL equality would lose list members.
         const candidates = this.database
-          .query(`SELECT property.block_id, property.value FROM block_properties property WHERE property.key = ? AND INSTR(LOWER(property.value), LOWER(?)) > 0${propertyScopePredicate}`)
-          .all(...[filter.key, filter.value, ...(propertyScope !== "all" ? [propertyScope] : [])]) as Array<{ block_id: string; value: string }>;
+          .query(`SELECT property.block_id, property.value FROM block_properties property WHERE property.key IN (?, ?)${propertyScopePredicate}`)
+          .all(...keys, ...(propertyScope !== "all" ? [propertyScope] : [])) as Array<{ block_id: string; value: string }>;
         const ids = [...new Set(candidates.filter(row => propertyValueHolds(row.value, filter.value!)).map(row => row.block_id))];
         predicates.push("block.id IN (SELECT value FROM json_each(?))");
         parameters.push(JSON.stringify(ids));
-        continue;
-      } else {
-        predicates.push(
-          `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ? AND LOWER(property.value) = LOWER(?)${propertyScopePredicate})`,
-        );
-        parameters.push(filter.key, filter.value);
       }
-      if (propertyScope !== "all") parameters.push(propertyScope);
     }
     predicates.push("block.effective_deleted_root_id IS NULL");
     // Notes a tool stamped `[machine::…]` (PIE-867): left out, or alone.

@@ -506,7 +506,7 @@ test("a #tag on a page opens the notes carrying it: title, the tag's line and cr
   const asked = await (await get("/pub/search?q=%23north-star&format=json", {})).json() as { tag: string; hits: { id: string; title: string; line: string; crumbs: string }[] };
   expect(asked.tag).toBe("north-star");
   expect(asked.hits.map((hit) => hit.id).sort()).toEqual([north.id, compost.id].sort());
-  expect(asked.hits.find((hit) => hit.id === north.id)).toMatchObject({ title: "North bed plan #north-star", line: "Keep it for brassicas. #north-star/beds", crumbs: "Field notes" });
+  expect(asked.hits.find((hit) => hit.id === north.id)).toMatchObject({ title: "North bed plan", line: "Keep it for brassicas. #north-star/beds", crumbs: "Field notes" });
   expect(asked.hits.find((hit) => hit.id === compost.id)).toMatchObject({ line: "Turn the second bay. #north-star", crumbs: "Field notes › Seed swap" });
   expect((await page("/pub/search?q=%23no-such-tag")).match(/<p class="dim">[^<]*<\/p>/)?.[0]).toBe('<p class="dim">No note here is tagged #no-such-tag.</p>');
 

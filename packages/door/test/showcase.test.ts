@@ -299,6 +299,23 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; process.env.EP0CH_EDIT_ARM = "off"; });
 
+  test("front matter: the properties panel separates scopes and draws list chips", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "front-matter" }, as: "test-agent" });
+    await until(() => screen().includes("Early sowing notes"), "front matter reader");
+    press({ kind: "enter" });
+    ch("I");
+    await until(() => screen().includes("[ beans ]"), "list chips");
+    await until(() => screen().includes("Inline and line properties"), "property scopes");
+    const drawn = screen();
+    expect(drawn).toContain("[ frost ]");
+    expect(drawn).toContain("Block properties");
+    expect(drawn).toContain("Inline and line properties");
+    expect(drawn).not.toContain("A plan for the seed bed, #epic");
+    press({ kind: "esc" });
+    press({ kind: "esc" });
+  });
+
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
@@ -433,6 +450,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     asks: ["Keep writing while the answer arrives"],
     scripts: ["Seed report", "Press alt+S"],
     "one-place": ["The long row of runner beans", "Bike shed"],
+    "front-matter": ["Early sowing notes", "A plan for the seed bed"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {

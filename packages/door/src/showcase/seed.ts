@@ -53,6 +53,8 @@ export const SEED = {
   machineryPeople: "Written by people",
   machineryTools: "Written by tools",
   title: "A title you can find",
+  frontMatter: "## Early sowing notes",
+  frontMatterAgent: "A plan for the seed bed,",
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
   newNotes: "New notes from anywhere",
@@ -401,6 +403,22 @@ export const artifactsText = (dir = "artifacts") => [
   "",
   `artifact:: ${dir}/orbit-lamp.html`,
 ].join("\n");
+
+export const FRONT_MATTER = [
+  SEED.frontMatter,
+  "- [ctx::2026-10-15 @ 10:19:21 PM] - [project::garden] - [mode::evening]",
+  "- re:: whether to sow early",
+  "- connectTo:: ['beans', 'frost']",
+  "- relatedTo:: PLOT-1",
+  "- tags:: ['neat']",
+  "",
+  "The seedlings are sheltered with #spring and [inline::data] in the notebook.",
+  "",
+  "- key:: stuff",
+  "",
+  "anotherkey:: stuff",
+].join("\n");
+export const FRONT_MATTER_AGENT = `${SEED.frontMatterAgent} [ctx::2026-10-15 @ 10:23:44 PM] #epic\n\nLeave space for the bean poles.`;
 
 /**
  * The title section's note (PIE-657): the reader's header as it is now, with the old one written out to compare. Its
@@ -1397,6 +1415,8 @@ if (request.input.request === "describe the beds") {
   notes.images = await make(notes.root.id, imagesText());
   notes.hero = await make(notes.root.id, heroText());
   notes.artifacts = await make(notes.root.id, artifactsText(await placeArtifacts(board)));
+  notes.frontMatter = await make(notes.root.id, FRONT_MATTER);
+  notes.frontMatterAgent = await make(notes.root.id, FRONT_MATTER_AGENT);
   notes.title = await make(notes.root.id, titleText(notes.whiteboard.id));
   // The Markdown figures: the note first (its children need it), then its text once the figure block it transcludes is there.
   notes.markdownFigures = await make(notes.root.id, SEED.markdownFigures);

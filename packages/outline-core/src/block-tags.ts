@@ -4,10 +4,8 @@
 // of losing them with the properties. It sits on the property grammar and the media line, does no I/O, and is the one
 // definition the door, Detail and the web pages share; a change to what it matches bumps PROTOCOL.
 //
-// A metadata line is a line of the preamble: the run of lines right after the subject (blank lines and media lines
-// before it skipped) whose tokens the service calls block-scope metadata lines (`[key::value]` runs, hashtags among
-// them). A `#tag` line further down is body text and stays, so does a dashed one (`- #a - #b`): it is a body line that
-// also counts as the block's tags, and when it is the first line of the body a reader draws no second row for them.
+// Metadata-only lines within the first paragraph are hidden. Prose and lines after its first blank stay in place.
+import { frontMatterLines } from "./header-line";
 import { isMediaLine } from "./media-line";
 import { isPropertyTokenLine } from "./property-grammar";
 
@@ -23,17 +21,15 @@ export interface TagRecord {
 
 /**
  * The line numbers (0 = subject) a reader leaves out of the body because they hold block metadata only. `tokens`: the
- * service's records of the text; without them (null), the documented rule: the first run of `[key::value]`-only lines
- * after the subject.
+ * service's records of the text; while they load (null), only `[key::value]`-only lines in front matter are hidden.
  */
 export function metadataLines(text: string, tokens: readonly TagRecord[] | null): Set<number> {
   const out = new Set<number>();
   const meta = tokens ? new Set(tokens.filter(t => t.scope === "block" && t.placement === "metadata-line").map(t => t.line)) : null;
   const lines = text.split("\n");
-  // Blank lines, and the media lines a note may open with (its picture: content, PIE-598), come before the preamble.
-  let i = 1;
-  while (i < lines.length && (!lines[i]!.trim() || isMediaLine(lines[i]!))) i++;
-  for (; i < lines.length && (meta ? meta.has(i) : isPropertyTokenLine(lines[i]!) && !isMediaLine(lines[i]!)); i++) out.add(i);
+  for (const i of frontMatterLines(text)) {
+    if (i > 0 && (meta ? meta.has(i) : isPropertyTokenLine(lines[i]!) && !isMediaLine(lines[i]!))) out.add(i);
+  }
   return out;
 }
 

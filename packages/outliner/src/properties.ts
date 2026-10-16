@@ -1,7 +1,7 @@
 import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
 import { codeHides, literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "@ep0ch/outline-core/code-ranges";
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, isWritablePropertyValue, propertyTokenMatches, propertyValueHolds, type RawPropertyToken } from "@ep0ch/outline-core/property-grammar";
-import { headerLine } from "@ep0ch/outline-core/header-line";
+import { frontMatterLines, headerLine } from "@ep0ch/outline-core/header-line";
 import { isMediaLine } from "@ep0ch/outline-core/media-line";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
 import { blockReferenceEnvelopeRanges, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
@@ -14,10 +14,10 @@ import type {
   PropertyRecord,
 } from "./types";
 
-const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
+const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*(?:[-*+][ \t]+)?)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
 const DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
 
-export const PROPERTY_PARSER_VERSION = 10;
+export const PROPERTY_PARSER_VERSION = 11;
 
 interface PropertyMatch {
   match: RawPropertyToken;
@@ -69,7 +69,7 @@ function lineContainsOnlyProperties(
   if (candidates.length === 0) return false;
   let cursor = line.start;
   for (const candidate of candidates) {
-    if (containsNonWhitespace(text, cursor, candidate.start)) return false;
+    if (!/^[ \t]*(?:[-*+][ \t]+)?$/.test(text.slice(cursor, candidate.start))) return false;
     cursor = candidate.end;
   }
   return !containsNonWhitespace(text, cursor, line.contentEnd);
@@ -219,17 +219,13 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
     (left, right) => left.start - right.start,
   );
   const candidatesByLine = propertyCandidateLines(candidates);
-  const purePropertyLines = new Set<number>();
   // A media line (`[img::path] [size::40%]`, outline-core's media-line grammar) is content to draw, never block
   // metadata, wherever it is: right under the subject too (PIE-598).
   const mediaLine = (lineIndex: number) => isMediaLine(text.slice(lines[lineIndex]!.start, lines[lineIndex]!.contentEnd));
   for (const [lineIndex, lineCandidates] of candidatesByLine) {
     const media = mediaLine(lineIndex);
-    if (!media && lineContainsOnlyProperties(text, lines[lineIndex], lineCandidates)) {
-      purePropertyLines.add(lineIndex);
-    }
     const metadataLine = !media && lineContainsOnlyProperties(
-      text, lines[lineIndex]!, lineCandidates.filter(candidate => candidate.syntax !== "bare"),
+      text, lines[lineIndex]!, lineCandidates,
     );
     let trailing = true;
     let end = lines[lineIndex]!.contentEnd;
@@ -244,25 +240,7 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
     }
   }
 
-  const firstNonblankLine = lines.findIndex((line) =>
-    containsNonWhitespace(text, line.start, line.contentEnd)
-  );
-  let preambleStart = -1;
-  if (firstNonblankLine >= 0) {
-    if (purePropertyLines.has(firstNonblankLine)) {
-      preambleStart = firstNonblankLine;
-    } else {
-      // Blank lines, and the media lines a note may open with (its picture), come before its preamble.
-      let cursor = firstNonblankLine + 1;
-      while (
-        cursor < lines.length &&
-        (!containsNonWhitespace(text, lines[cursor].start, lines[cursor].contentEnd) || mediaLine(cursor))
-      ) {
-        cursor += 1;
-      }
-      if (purePropertyLines.has(cursor)) preambleStart = cursor;
-    }
-  }
+  const front = frontMatterLines(text);
 
   // The header line's chips (outline-core's one definition: the run of chips ending the first line, blanks or ` - `
   // between them) belong to the block, whatever separates them.
@@ -271,19 +249,12 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
     if (header.has(candidate.start) && candidate.placement === "inline") candidate.placement = "trailing-metadata";
   }
 
-  let preambleEnd = preambleStart;
-  while (preambleEnd >= 0 && purePropertyLines.has(preambleEnd + 1)) {
-    preambleEnd += 1;
-  }
-
   return candidates.map((candidate, ordinal) => {
     let scope: PropertyRecord["scope"];
     if (candidate.syntax === "hashtag") {
       scope = "block";
     } else if (
-      preambleStart >= 0 &&
-      candidate.line >= preambleStart &&
-      candidate.line <= preambleEnd
+      front.has(candidate.line) && !mediaLine(candidate.line)
     ) {
       scope = "block";
     } else if (candidate.syntax === "bracket" && header.has(candidate.start)) {
@@ -298,9 +269,7 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
 /**
  * A provider line such as `jira::`, `jira:: --comments` or floatty's
  * `- jira:: --comments`. It is recognized only for the keys a caller supplies
- * (provider keys), so general property parsing keeps its meaning: an empty
- * `status::` and a bulleted `- status:: done` remain prose, and
- * `parsePropertyRecords` output is unchanged for every input.
+ * (provider keys). Empty values remain provider directives rather than properties.
  */
 export interface PropertyDirectiveLine {
   key: string;
@@ -385,12 +354,17 @@ export function withHeaderDashes<T extends SourceRange>(text: string, ranges: re
   return dashes.length ? [...ranges, ...dashes].sort((left, right) => left.start - right.start) : [...ranges];
 }
 
+export function titlePropertyRanges(text: string): SourceRange[] {
+  const tags = new Set(headerLine(text, scanPropertyLiteralRanges(text)).tags.map(tag => tag.start));
+  return withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag" || tags.has(property.start)));
+}
+
 export function firstLineWithoutPropertyTokens(text: string): string | undefined {
   // A mark's title is its own words, not its generated heading (outline-core's annotation-marks.ts).
   const mark = markTitleLine(text);
   if (mark) return mark.text;
   // The header's chips go with the ` - ` between and before them: `Seed order - [a::1] - [b::2]` is "Seed order".
-  const tokens = withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag"));
+  const tokens = titlePropertyRanges(text);
   // Matched literal-region markers are hidden in Detail, so they are never the title.
   const markerStarts = literalMarkerLineStarts(text);
   let tokenIndex = 0;
@@ -535,7 +509,7 @@ export function matchingPropertyRecords(
   return scoped.filter((property) =>
     filters.some(
       (filter) =>
-        property.key === filter.key &&
+        (property.key === filter.key || filter.key === "tag" && property.key === "tags") &&
         (filter.value === undefined || valueMatches(property.value, filter.value)),
     )
   );
@@ -550,7 +524,7 @@ export function matchesFilters(
   return filters.every((filter) =>
     properties.some(
       (property) =>
-        property.key === filter.key &&
+        (property.key === filter.key || filter.key === "tag" && property.key === "tags") &&
         (propertyScope === "all" || ("scope" in property ? property.scope : "block") === propertyScope) &&
         (filter.value === undefined || valueMatches(property.value, filter.value)),
     )

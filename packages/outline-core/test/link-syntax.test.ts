@@ -75,7 +75,7 @@ test("referencedBlock unwraps an id or one reference as written (the scan's gram
 
 // PIE-874: links written inside property values, the one scan every client and the service read them by.
 test("links inside property values: references and page links anywhere in a value, an item that is exactly a ticket key, the address keys skipped", () => {
-  const text = "Walk [via::[[X-2]]] [ticket::PC-582] [related::((c0ffee00-1111-4222-8333-444444444444)), notes, PIE-12] [status::done] [page::Walk] [work-id::PIE-9]\nnext:: see [[Beds]]";
+  const text = "Walk [via::[[X-2]]] [ticket::PC-582] [related::[((c0ffee00-1111-4222-8333-444444444444)), notes, PIE-12]] [status::done] [page::Walk] [work-id::PIE-9]\nnext:: see [[Beds]]";
   const links = propertyValueLinks(text).map(l => [l.key, l.kind === "ticket" ? l.workId : l.kind, text.slice(l.reference.start, l.reference.end)]);
   expect(links).toEqual([
     ["via", "page", "[[X-2]]"],

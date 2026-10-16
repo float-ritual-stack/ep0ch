@@ -110,7 +110,7 @@ describe("planning a new note", () => {
     const ok = planCreateInView(queued, `Oil the hinges [priority::Medium] [arc::home] [track::doors] [track::metal] [room::hall] [depends-on::((${DEP}))]\nThe back door squeaks.`);
     expect(ok.kind === "create" && ok.item).toEqual({ title: "Oil the hinges [room::hall]", body: "The back door squeaks.", priority: "medium", workStage: "queued", project: "ep0ch-door", arc: "home", tracks: ["doors", "metal"], dependsOn: [DEP] });
     expect(ok.kind === "create" && ok.text).toBeUndefined();
-    expect(planCreateInView(queued, "Oil it [priority::low] [arc::a] [track::t]\nAfter [depends-on::((b-1))] lands.")).toEqual({ kind: "refused", reason: "[depends-on::((b-1))] on line 2 belongs to that line, not the item; put it on the title line" });
+    expect(planCreateInView(queued, "Oil it [priority::low] [arc::a] [track::t]\n\nAfter [depends-on::((b-1))] lands.")).toEqual({ kind: "refused", reason: "[depends-on::((b-1))] on line 3 belongs to that line, not the item; put it on the title line" });
     // A bare property line in the preamble is the item's too: it goes to the allocator, not into the body.
     expect(planCreateInView(queued, "Oil it [arc::a] [track::t]\npriority:: high\nThe back door.")).toMatchObject({ item: { title: "Oil it", body: "The back door.", priority: "high" } });
     expect(planCreateInView(queued, "Oil it [priority::low] [arc::a] [track::t] [depends-on::((b-1))]")).toEqual({ kind: "refused", reason: "depends-on must be a block id (a UUID), not ((b-1))" });

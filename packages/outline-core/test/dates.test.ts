@@ -51,7 +51,7 @@ describe("dates as people write them", () => {
 
   test("a value holds when any of its dates does, and says when it can't be read", () => {
     const soon = readBound("+3d", NOW);
-    expect(valueHolds("Oct 30, Oct 15", "<=", soon, NOW)).toBe(true);
+    expect(valueHolds("[Oct 30, Oct 15]", "<=", soon, NOW)).toBe(true);
     expect(valueHolds("Oct 30", "<=", soon, NOW)).toBe(false);
     expect(valueHolds("someday", "<=", soon, NOW)).toBeNull();
     expect(valueHolds("2026-10-10..2026-10-14", "=", readBound("today", NOW), NOW)).toBe(true);

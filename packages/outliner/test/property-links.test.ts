@@ -9,7 +9,7 @@ import { createPropertyInspectorModel } from "../src/property-inspector";
 import { OutlinerStore } from "../src/store";
 
 const ID = "0f3c8a21-5b7d-4e69-8a10-2c4d6e8f0a1b";
-const REAL = `Plan the plot [related::[[PC-967]], ((${ID}|daytime plan step 6))] [type::task]`;
+const REAL = `Plan the plot [related::[[[PC-967]], ((${ID}|daytime plan step 6))]] [type::task]`;
 
 const dirs: string[] = [];
 const stores: OutlinerStore[] = [];
@@ -29,7 +29,7 @@ test("the stored property rows hold the whole value", () => {
   const store = makeStore();
   const block = store.create(REAL);
   const related = store.get(block.id)!.properties.find(p => p.key === "related");
-  expect(related?.value).toBe(`[[PC-967]], ((${ID}|daytime plan step 6))`);
+  expect(related?.value).toBe(`[[[PC-967]], ((${ID}|daytime plan step 6))]`);
   expect(store.get(block.id)!.properties.find(p => p.key === "type")?.value).toBe("task");
 });
 
@@ -37,7 +37,7 @@ test("related=[[X]] finds the block through filters, the expression and matchQue
   const store = makeStore();
   const hit = store.create(REAL);
   const alone = store.create("Just one [related::[[PC-967]]]");
-  const other = store.create("Other [related::[[PC-9670]], [[PC-96]]]");
+  const other = store.create("Other [related::[[[PC-9670]], [[PC-96]]]]");
   const label = store.create(`Labelled [related::((${ID}|see [[PC-967]] and more))]`);
   const ids = (filters: { key: string; value?: string }[]) => store.queryBlocks({ filters, limit: 50 }).blocks.map(b => b.id).sort();
 
@@ -46,7 +46,7 @@ test("related=[[X]] finds the block through filters, the expression and matchQue
   expect(ids([{ key: "related", value: `((${ID}|daytime plan step 6))` }])).toEqual([hit.id]);
   expect(ids([{ key: "related", value: "[[PC-96]]" }])).toEqual([other.id]);
 
-  const commas = store.create(`Commas [related::[[Z]], ((${ID}|a, b)), [[Y]]]`);
+  const commas = store.create(`Commas [related::[[[Z]], ((${ID}|a, b)), [[Y]]]]`);
   expect(ids([{ key: "related", value: `((${ID}|a, b))` }])).toEqual([commas.id]);
   const embedded = store.create(`Embedded [related::((${ID}|x, [[Q]], y))]`);
   expect(ids([{ key: "related", value: "[[Q]]" }])).toEqual([]);
@@ -68,9 +68,9 @@ test("writing a link as a property value is allowed, a stray ] is still refused"
 });
 
 test("the header line, the inspector and the unbalanced tail", () => {
-  expect(headerLine(REAL).chips.map(c => [c.key, c.value])).toEqual([["related", `[[PC-967]], ((${ID}|daytime plan step 6))`], ["type", "task"]]);
+  expect(headerLine(REAL).chips.map(c => [c.key, c.value])).toEqual([["related", `[[[PC-967]], ((${ID}|daytime plan step 6))]`], ["type", "task"]]);
   const model = createPropertyInspectorModel("b1", REAL);
-  expect(model.entries.map(e => [e.key, e.value])).toEqual([["related", `[[PC-967]], ((${ID}|daytime plan step 6))`], ["type", "task"]]);
+  expect(model.entries.map(e => [e.key, e.value])).toEqual([["related", `[[[PC-967]], ((${ID}|daytime plan step 6))]`], ["type", "task"]]);
   const damaged = createPropertyInspectorModel("b2", "Title [note::oops [ here] [k::v]\nBody line [z::1]");
   expect(damaged.entries.map(e => e.key)).toEqual(["note", "k", "z"]);
 });
@@ -87,6 +87,6 @@ test("an outline indexed with the truncating parser is re-indexed when the host 
   first.close();
   const second = new OutlinerStore(path);
   stores.push(second);
-  expect(second.get(block.id)!.properties.find(p => p.key === "related")?.value).toBe(`[[PC-967]], ((${ID}|daytime plan step 6))`);
+  expect(second.get(block.id)!.properties.find(p => p.key === "related")?.value).toBe(`[[[PC-967]], ((${ID}|daytime plan step 6))]`);
   expect(second.queryBlocks({ filters: [{ key: "related", value: "[[PC-967]]" }], limit: 5 }).blocks.map(b => b.id)).toEqual([block.id]);
 });
