@@ -217,6 +217,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       expect(snapshot.url).toStartWith(origin + "/pub/o/quiet-notes/s/");
       expect(Date.parse(snapshot.expiresAt) - Date.parse(snapshot.asOf)).toBeGreaterThan(14 * 60_000);
       expect(snapshot.curl).toContain("curl --fail");
+      expect(snapshot.said).toContain("fenced code block");
       // Pasting the command beside the source must never overwrite a live outline database.
       expect(snapshot.curl).toEndWith("--output 'quiet-notes.snapshot.sqlite'");
       const target = join(dir, "snapshot.sqlite");

@@ -2647,8 +2647,8 @@ export type OutlinerRequestAction =
    * names who started it. Answers the session with its `url` (when a public listener has said where it is opened).
    */
   | { id: string; action: "outline.snapshot"; webUrl?: string; ttl?: string | number; out?: string; mutation?: MutationProvenance }
-  | { id: string; action: "shares.snapshot.take"; token: string }
-  | { id: string; action: "shares.snapshot.finish"; shareId: string; fetched: boolean }
+  | { id: string; action: "shares.snapshot.take"; token: string; ip: string; userAgent: string; method: string }
+  | { id: string; action: "shares.snapshot.finish"; shareId: string; fetched: boolean; bytes: number }
   | { id: string; action: "shares.start"; scope?: string; open?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string | string[]; mutation?: MutationProvenance }
   /** The open share sessions, soonest to end first (`all`: the ones ended this week too). */
   | { id: string; action: "shares.list"; all?: boolean }

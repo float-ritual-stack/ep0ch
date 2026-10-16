@@ -8,7 +8,7 @@
 import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
-import { MCP_ACCESS_LEVELS, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { localAdmin, outlineAdminDefinitions, outlineArchive, outlineNew, OUTLINE_ADMIN_EXAMPLES, type McpOutlineAdmin } from "./mcp-outlines";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
@@ -798,7 +798,7 @@ function toolsFor(outlines: McpOutlines) {
 
 const snapshotDefinition = (outline: Record<string, unknown>) => ({
   name: "outline_snapshot",
-  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. The file stays out of chat.",
+  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. The file stays out of chat. Show the curl command and URL only inside a fenced code block, never as a clickable link: chat clients may preview links and interrupt the download.",
   inputSchema: { type: "object", properties: { outline, ttl: { type: "string", description: "15m by default, 1m to 24h" } }, additionalProperties: false },
 });
 
@@ -847,11 +847,12 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
   if (target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: its web client and its shares are there.`);
   try {
     if (name === "outline_snapshot") {
-      return toolText(await board.request("outline.snapshot", {
+      const snapshot = await board.request<OutlineSnapshot>("outline.snapshot", {
         ...(args.ttl !== undefined ? { ttl: args.ttl } : {}),
         ...(caller?.sub !== STDIO_SUBJECT && process.env.EP0CH_WEB_URL ? { webUrl: process.env.EP0CH_WEB_URL.split(",")[0]!.trim() } : {}),
         mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" },
-      }, 120_000));
+      }, 120_000);
+      return toolText({ ...snapshot, said: "Show the curl command with its URL inside a fenced code block, never as a clickable link, to avoid chat link previews." });
     }
     if (name === "reader_view") {
       const seen = await readerView(board);

@@ -855,7 +855,7 @@ export class Publisher {
         request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
         // A tunnel's own way in: this share alone, on loopback, whatever Host a request names.
         ingress: (shareId) => {
-          const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 30, fetch: (request) => this.handle(request, "public", shareId) });
+          const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 30, fetch: (request, server) => this.handle(publisherRequest(request, server.requestIP(request)?.address), "public", shareId) });
           return { port: server.port!, stop: () => { void server.stop(true); } };
         },
         log: this.log,
@@ -1199,46 +1199,67 @@ export class Publisher {
    */
   /** The sign-in origin admits only this token-gated download without a browser session. */
   async snapshotDownload(request: Request, token: string): Promise<Response> {
-    const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
-    if (found.status !== "active" || !found.share.snapshot) return notFound();
-    return this.answerShare(request, token, "/snapshot.sqlite", "");
+    const taken = await this.client.request<{ path: string; shareId: string; bytes: number } | null>({
+      action: "shares.snapshot.take", token, method: request.method,
+      ip: request.headers.get("x-forwarded-for") ?? "unknown",
+      userAgent: request.headers.get("user-agent") ?? "",
+    });
+    if (!taken) return notFound();
+    const compressed = new URL(request.url).searchParams.get("gz") === "1";
+    const headers = {
+      "content-type": compressed ? "application/gzip" : "application/vnd.sqlite3",
+      "content-disposition": `attachment; filename="snapshot.sqlite${compressed ? ".gz" : ""}"`,
+      "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow",
+      ...(compressed ? {} : { "content-length": String(taken.bytes) }),
+    };
+    if (request.method === "HEAD") return new Response(null, { headers });
+    if (request.signal.aborted) {
+      await this.client.request({ action: "shares.snapshot.finish", shareId: taken.shareId, fetched: false, bytes: 0 });
+      return notFound();
+    }
+    const stream = Bun.file(taken.path).stream();
+    const reader = (compressed ? stream.pipeThrough(new CompressionStream("gzip")) : stream).getReader();
+    let ended = false;
+    let bytes = 0;
+    const finish = async (fetched: boolean) => {
+      if (ended) return;
+      ended = true;
+      await this.client.request({ action: "shares.snapshot.finish", shareId: taken.shareId, fetched, bytes });
+    };
+    const abort = () => { void reader.cancel().then(() => finish(false)).catch(error => this.log(`publish: snapshot abort: ${String(error)}`)); };
+    request.signal.addEventListener("abort", abort, { once: true });
+    // lib.dom omits Bun's direct-stream constructor overload.
+    const DirectStream = ReadableStream as unknown as new (source: Bun.DirectUnderlyingSource<Uint8Array>) => ReadableStream<Uint8Array>;
+    const body = new DirectStream({
+      type: "direct",
+      async pull(controller) {
+        try {
+          while (!ended) {
+            const next = await reader.read();
+            if (next.done) {
+              await controller.flush(true);
+              await finish(!request.signal.aborted);
+              controller.end();
+              break;
+            }
+            // Await the HTTP sink's backpressure, rather than declaring success when the file was read ahead.
+            await controller.write(next.value);
+            bytes += next.value.byteLength;
+          }
+        } catch (error) { await finish(false); controller.close(error instanceof Error ? error : new Error(String(error))); }
+        finally { request.signal.removeEventListener("abort", abort); }
+      },
+      async cancel() { try { await reader.cancel(); } finally { await finish(false); request.signal.removeEventListener("abort", abort); } },
+    });
+    return new Response(body, { headers });
   }
 
   private async answerShare(request: Request, token: string, rest: string, mount: string, tunnel?: string): Promise<Response> {
+    if (rest === "/snapshot.sqlite") return this.snapshotDownload(request, token);
     const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
     if (found.status === "unknown") return notFound();
     if (found.status === "ended") return shareGone(found.state);
-    if (found.share.snapshot) {
-      if (rest !== "/snapshot.sqlite") return notFound();
-      if (request.method !== "GET") return respond("Download with GET\n", "text/plain", 405, { allow: "GET" });
-      const taken = await this.client.request<{ path: string; shareId: string } | null>({ action: "shares.snapshot.take", token });
-      if (!taken) return shareGone("revoked");
-      const compressed = new URL(request.url).searchParams.get("gz") === "1";
-      const stream = Bun.file(taken.path).stream();
-      const reader = (compressed ? stream.pipeThrough(new CompressionStream("gzip")) : stream).getReader();
-      let ended = false;
-      const finish = async (fetched: boolean) => {
-        if (ended) return;
-        ended = true;
-        await this.client.request({ action: "shares.snapshot.finish", shareId: taken.shareId, fetched });
-      };
-      const body = new ReadableStream({
-        async pull(controller) {
-          try {
-            const next = await reader.read();
-            if (next.done) { await finish(true); controller.close(); }
-            else controller.enqueue(next.value);
-          } catch (error) { await finish(false); controller.error(error); }
-        },
-        async cancel() { try { await reader.cancel(); } finally { await finish(false); } },
-      });
-      return new Response(body, { headers: {
-        "content-type": compressed ? "application/gzip" : "application/vnd.sqlite3",
-        "content-disposition": `attachment; filename="snapshot.sqlite${compressed ? ".gz" : ""}"`,
-        "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow",
-        ...(compressed ? {} : { "content-length": String(found.share.snapshot.bytes) }),
-      } });
-    }
+    if (found.share.snapshot) return notFound();
     // A tunnel's share is answered on its own tunnel's ingress only (its email gate is in front of it), never on the
     // public listener; and a tunnel's ingress answers nothing but its share.
     if (found.share.via === "cloudflare" ? found.share.id !== tunnel : tunnel !== undefined) return notFound();
@@ -2945,5 +2966,12 @@ export function renderIndexHtml(index: PublishedIndex, basePath = "", publicHref
  */
 export function servePublisher(publisher: Publisher, port: number, audience: PublishAudience = "tailnet", hostname = "127.0.0.1"): ReturnType<typeof Bun.serve> {
   // A page's threads wait up to 20 s for a change (publish-page.ts): the idle limit leaves room for that.
-  return Bun.serve({ hostname, port, idleTimeout: 30, fetch: (request) => publisher.handle(request, audience) });
+  return Bun.serve({ hostname, port, idleTimeout: 30, fetch: (request, server) => publisher.handle(publisherRequest(request, server.requestIP(request)?.address), audience) });
+}
+
+/** Only the local reverse proxy supplies a visitor address; remote callers use their socket's peer. */
+export function publisherRequest(request: Request, peer: string | undefined): Request {
+  const proxy = peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1";
+  if (peer && (!proxy || !request.headers.has("x-forwarded-for"))) request.headers.set("x-forwarded-for", peer);
+  return request;
 }

@@ -1,3 +1,5 @@
+import { get as httpGet } from "node:http";
+import { randomBytes } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { OutlinePublishers } from "../src/publish-outlines";
 import { SignInGate } from "../src/web-signin";
@@ -13,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
 import { OutlinerClient } from "../src/client";
-import { Publisher } from "../src/publish";
+import { Publisher, publisherRequest } from "../src/publish";
 import { OutlinerServer } from "../src/server";
 import { ReaderPresence, ShareSessions, SHARES_METADATA_KEY, shareTtlMs } from "../src/share-sessions";
 import { OutlinerStore } from "../src/store";
@@ -302,7 +304,7 @@ test("ttl words, and a token that is only near another opens nothing", () => {
 test("snapshot links on the web origin need no session, serve gzip once, and clean up on revoke and expiry", async () => {
   const web = new OutlinePublishers({ home: publisher, homeName: "garden", names: async () => ["garden"], open: () => { throw new Error("home publisher already started"); } });
   let gate: SignInGate;
-  const http = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => gate.handle(request) });
+  const http = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request, server) => gate.handle(publisherRequest(request, server.requestIP(request)?.address)) });
   const origin = `http://127.0.0.1:${http.port}`;
   gate = new SignInGate({ settings: { origin, issuer: "https://issuer.example.test", clientId: "fictional", allowedSubjects: [], home: "/pub/" }, request: input => client.request(input as any), serve: request => publisher.handle(request), snapshot: request => web.snapshot(request) });
   const create = (ttl?: string) => client.request<OutlineSnapshot>({ action: "outline.snapshot", webUrl: origin, ...(ttl ? { ttl } : {}), mutation: { author: "agent", actorId: "garden-analyst" } });
@@ -312,7 +314,10 @@ test("snapshot links on the web origin need no session, serve gzip once, and cle
     expect(snapshot.url).toStartWith(`${origin}/pub/o/garden/s/`);
     expect(existsSync(file(snapshot))).toBe(true);
     expect((await client.request<{ shares: ShareSession[] }>({ action: "shares.list" })).shares.find(s => s.id === snapshot.shareId)?.url).toBe(snapshot.url);
-    expect((await fetch(snapshot.url!, { method: "HEAD" })).status).toBe(405);
+    const head = await fetch(snapshot.url!, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-length")).toBe(String(snapshot.bytes));
+    expect(await head.text()).toBe("");
     expect((await fetch(`${origin}/pub/`)).status).toBe(401);
     const page = snapshot.url!.replace("snapshot.sqlite", "p/" + hub.id);
     expect((await fetch(page)).status).toBe(401);
@@ -324,11 +329,45 @@ test("snapshot links on the web origin need no session, serve gzip once, and cle
     expect(new Bun.CryptoHasher("sha256").update(bytes).digest("hex")).toBe(snapshot.sha256);
     expect(existsSync(file(snapshot))).toBe(false);
     expect((await fetch(snapshot.url!)).status).toBe(404);
+    // The connection can disappear while the publisher awaits the host's reservation.
+    const disconnected = await create();
+    const disconnectedToken = new URL(disconnected.url!).pathname.split("/s/")[1]!.split("/")[0]!;
+    await publisher.snapshotDownload(new Request(disconnected.url!, { signal: AbortSignal.abort() }), disconnectedToken);
+    const reconnected = await fetch(disconnected.url!);
+    expect(reconnected.status).toBe(200);
+    await reconnected.arrayBuffer();
+    // Larger than socket buffers, so a headers-only preview cannot finish the transfer.
+    const ballast = store.create("Fictional observations\n" + randomBytes(8 * 1024 * 1024).toString("base64"), null, "user");
     const interrupted = await create();
-    const interruptedToken = /\/s\/([^/]+)\//.exec(interrupted.url!)![1]!;
-    const download = await publisher.snapshotDownload(new Request(interrupted.url!), interruptedToken);
-    await download.body!.cancel();
-    expect(existsSync(file(interrupted))).toBe(false);
+    await new Promise<void>((resolve, reject) => {
+      const preview = httpGet(interrupted.url!, { headers: { "user-agent": "Fictional preview" } }, response => {
+        response.destroy();
+        resolve();
+      });
+      preview.on("error", reject);
+    });
+    const record = () => store.readWorkspaceSnapshot().physical.blocks.find(block => block.text.includes(`SHA-256: ${interrupted.sha256}`))!;
+    const abortedDeadline = Date.now() + 3000;
+    while (!record().text.includes("aborted") && Date.now() < abortedDeadline) await Bun.sleep(10);
+    expect(existsSync(file(interrupted))).toBe(true);
+    const retry = await fetch(interrupted.url!);
+    expect(retry.status).toBe(200);
+    const retriedBytes = await retry.arrayBuffer();
+    expect(new Bun.CryptoHasher("sha256").update(retriedBytes).digest("hex")).toBe(interrupted.sha256);
+    expect((await fetch(interrupted.url!)).status).toBe(404);
+    expect(record().text).toContain("Fictional preview");
+    expect(record().text).toContain("aborted");
+    expect(record().text).toContain("complete");
+    expect(record().text).toContain("refused");
+    const attempts = record().text.split("\n").filter(line => line.startsWith("Attempt: ")).map(line => JSON.parse(line.slice(9)));
+    const aborted = attempts.find(attempt => attempt.outcome.startsWith("aborted"));
+    expect(aborted).toMatchObject({ ip: "127.0.0.1", userAgent: "Fictional preview", method: "GET" });
+    expect(Number.isFinite(Date.parse(aborted.at))).toBe(true);
+    expect(aborted.bytes).toBeLessThan(interrupted.bytes);
+    expect(attempts.find(attempt => attempt.outcome === "complete").bytes).toBe(interrupted.bytes);
+    expect(attempts.find(attempt => attempt.outcome === "refused").bytes).toBe(0);
+    expect(record().text).not.toContain(new URL(interrupted.url!).pathname.split("/s/")[1]!.split("/")[0]!);
+    store.delete(ballast.id);
     const home = await create();
     const homeUrl = home.url!.replace("/o/garden", "");
     const homeResponse = await fetch(homeUrl);
@@ -348,7 +387,7 @@ test("snapshot links on the web origin need no session, serve gzip once, and cle
     expect((await fetch(expired.url!)).status).toBe(404);
     const records = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=snapshot machine=snapshot", limit: 100 } });
     expect(records.blocks.some(block => block.text.includes("State: expired"))).toBe(true);
-    expect(records.blocks.some(block => block.text.includes("State: download interrupted"))).toBe(true);
+    expect(records.blocks.some(block => block.text.includes("aborted"))).toBe(true);
     await expect(create("25h")).rejects.toThrow("24h");
   } finally { http.stop(true); }
 });

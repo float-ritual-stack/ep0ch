@@ -8,7 +8,7 @@ import { ShareSessions, shareOnWire, shareTtlMs } from "./share-sessions";
 /** Copies and download lifetimes belong to the host; tokens and revocation belong to ShareSessions. */
 export class OutlineSnapshots {
   private timer?: ReturnType<typeof setInterval>;
-  private readonly downloading = new Set<string>();
+  private readonly downloading = new Map<string, { at: string; ip: string; userAgent: string; method: string }>();
   constructor(private readonly store: OutlinerStore, private readonly shares: ShareSessions, private readonly folder: string) {}
 
   start(): void {
@@ -41,27 +41,45 @@ export class OutlineSnapshots {
     } catch (error) { rmSync(temporary, { force: true }); throw error; }
   }
 
-  take(token: string): { path: string; shareId: string } | null {
+  take(token: string, attempt: { ip: string; userAgent: string; method: string }): { path: string; shareId: string; bytes: number } | null {
     this.sweep();
     const share = this.shares.resolve(token);
-    if (!share?.snapshot || share.state !== "active") return null;
-    // Consume before yielding to a second request; the copy stays until streaming finishes or its deadline.
-    this.downloading.add(share.id);
-    this.shares.revoke(share.id);
-    return { path: this.path(share.id), shareId: share.id };
+    if (!share?.snapshot) return null;
+    const details = { at: new Date().toISOString(), ip: attempt.ip, userAgent: attempt.userAgent, method: attempt.method };
+    // Headers are untrusted text; even a caller echoing the secret must not put it in the record.
+    details.ip = details.ip.replaceAll(token, "[redacted]");
+    details.userAgent = details.userAgent.replaceAll(token, "[redacted]");
+    details.method = details.method.replaceAll(token, "[redacted]");
+    if (share.state !== "active" || this.downloading.has(share.id) || !["GET", "HEAD"].includes(attempt.method)) {
+      this.log(share, { ...details, bytes: 0, outcome: "refused" });
+      return null;
+    }
+    if (attempt.method === "HEAD") this.log(share, { ...details, bytes: 0, outcome: "complete" });
+    else this.downloading.set(share.id, details);
+    return { path: this.path(share.id), shareId: share.id, bytes: share.snapshot.bytes };
   }
 
-  finish(id: string, fetched: boolean): void {
+  finish(id: string, fetched: boolean, bytes: number): void {
+    const attempt = this.downloading.get(id);
     this.downloading.delete(id);
     const share = this.shares.list(true).find(s => s.id === id);
-    if (share?.snapshot) this.remove(share, fetched ? "fetched" : "download interrupted");
+    if (!share?.snapshot || !attempt) return;
+    this.log(share, { ...attempt, bytes, outcome: fetched ? "complete" : `aborted at ${bytes} bytes` });
+    if (fetched) {
+      this.shares.revoke(id);
+      this.remove(share, "fetched");
+    }
+  }
+
+  private log(share: ShareSession, attempt: { at: string; ip: string; userAgent: string; method: string; bytes: number; outcome: string }): void {
+    const note = this.store.get(share.snapshot!.recordId);
+    if (note) this.store.update(note.id, `${note.text}\nAttempt: ${JSON.stringify(attempt)}`, note.revision, { author: "system" });
   }
 
   sweep(): void {
     for (const share of this.shares.list(true)) {
       if (!share.snapshot || share.snapshot.removed) continue;
       if (Date.parse(share.expiresAt) <= Date.now()) {
-        this.downloading.delete(share.id);
         this.remove(share, "expired");
       } else if (share.state !== "active" && !this.downloading.has(share.id)) this.remove(share, "revoked");
     }
@@ -70,7 +88,7 @@ export class OutlineSnapshots {
   private remove(share: ShareSession, state: string): void {
     rmSync(this.path(share.id), { force: true });
     const note = this.store.get(share.snapshot!.recordId);
-    if (note?.text.endsWith("State: waiting")) this.store.update(note.id, note.text.replace(/State: waiting$/, `State: ${state}\nEnded: ${new Date().toISOString()}`), note.revision, { author: "system" });
+    if (note?.text.includes("State: waiting")) this.store.update(note.id, note.text.replace(/State: waiting(?=\n|$)/, `State: ${state}\nEnded: ${new Date().toISOString()}`), note.revision, { author: "system" });
     this.shares.snapshotRemoved(share.id);
   }
 }
