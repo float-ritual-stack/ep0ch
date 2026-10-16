@@ -156,7 +156,7 @@ export function depsState(root: string): Deps {
     }
   }
   if (!wants.length) return { needed: false, why: "no dependencies" };
-  if (!existsSync(join(root, "node_modules"))) return { needed: true, why: "node_modules is missing" };
+  if (!existsSync(join(root, "node_modules"))) return { needed: true, why: "node_modules is missing", done: "installed every package" };
   let lock = "";
   try { lock = readFileSync(join(root, "bun.lock"), "utf8"); } catch { /* no lockfile: presence only */ }
   for (const { name, where } of wants) {
@@ -165,10 +165,10 @@ export function depsState(root: string): Deps {
     for (const dir of where ? [join(root, where), root] : [root]) {
       try { installed = JSON.parse(readFileSync(join(dir, "node_modules", name, "package.json"), "utf8")).version; break; } catch { /* next */ }
     }
-    if (installed === undefined) return { needed: true, why: `${name} isn't installed${at}` };
+    if (installed === undefined) return { needed: true, why: `${name} isn't installed${at}`, done: `installed ${name}${at}` };
     const esc = name.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
     const locked = new RegExp(`"${esc}": \\["${esc}@([^"]+)"`).exec(lock)?.[1];
-    if (locked && /^\d/.test(locked) && installed !== locked) return { needed: true, why: `${name} is ${installed}, bun.lock has ${locked}${at}` };
+    if (locked && /^\d/.test(locked) && installed !== locked) return { needed: true, why: `${name} is ${installed}, bun.lock has ${locked}${at}`, done: `updated ${name} ${installed} → ${locked}${at}` };
   }
   return { needed: false, why: `${wants.length} packages installed as bun.lock says` };
 }

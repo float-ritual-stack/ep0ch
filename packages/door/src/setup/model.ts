@@ -46,7 +46,8 @@ export interface Checkout {
 }
 
 /** Whether `bun install` is needed in a checkout, and why. */
-export interface Deps { needed: boolean; why: string }
+/** Whether bun install must run: `why` says what is missing (doctor, the plan); `done` says what the install did once it succeeds. */
+export interface Deps { needed: boolean; why: string; done?: string }
 
 export interface PluginFacts {
   id: string;

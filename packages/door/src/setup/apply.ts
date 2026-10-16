@@ -133,7 +133,8 @@ async function updateCheckout(root: string, name: string, say: (s: string) => vo
   const deps = depsState(root);
   if (deps.needed) {
     await must([process.execPath, "install", "--frozen-lockfile"], `the checkout is updated; install its packages by hand: (cd ${root} && bun install --frozen-lockfile)`, { cwd: root, env, onLine: child });
-    say(`bun install in ${root} (${deps.why})`);
+    // The step ran because something was missing; once it succeeds, say what it did, not what was wrong.
+    say(`bun install in ${root}: ${deps.done ?? deps.why}`);
   }
   return changed.split("\n").filter(Boolean);
 }
