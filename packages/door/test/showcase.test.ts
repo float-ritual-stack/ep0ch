@@ -3655,7 +3655,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const target = seeded.notes.scriptTarget.id;
     const proposed = mode === "proposal" || mode === "dismiss" ? await board.request<{proposalId: string}>("draft.patch", {
       blockId: target, revision: (await board.get(target))!.revision,
-      patches: [{observed: "Prepare", replacement: "Sort"}], propose: "always", mutation: {author: "agent", actorId: "seed-writer"},
+      patches: [{observed: "Prepare", replacement: "Sort"}], propose: "always", mutation: {author: "agent", actorId: `script:draft-labels-${mode}`},
     }) : null;
     if (mode === "dismiss") press({kind: "paste", text: `\n!((${proposed!.proposalId}))\n`});
     const source = await board.request<{ id: string }>("create", { author: "agent", provenance: { actorId: "seed-writer" }, text: [
@@ -3674,7 +3674,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const extension = extensionList()!.extensions.find(e => e.name === `draft-labels-${mode}`)!;
     const run = await app.act({ action: `ext.${extension.id}.run`, as: "test-agent" }) as { written: string[]; undo: string };
     press({ kind: "paste", text: " Still here." });
-    await untilAsync(async () => (await board.children(target)).some(n => n.text === "Extra envelopes"), "draft patched");
+    await untilAsync(async () => (await board.children(target)).some(n => n.text === "Extra envelopes"), "draft patched").catch(async error => { throw new Error(`${error.message}; run: ${(await board.get(run.written[0]!))?.text}`); });
     if (saveBeforeEnd) {
       press({ kind: "char", ch: "s", ctrl: true });
       await until(() => ![...stage.panes.values()].some((p: any) => p.editing), "draft saved and closed").catch(error => { throw new Error(`${error.message}; draft: ${draft.note}\n${screen()}`); });
