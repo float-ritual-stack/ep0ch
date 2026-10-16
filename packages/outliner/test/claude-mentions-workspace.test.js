@@ -63,7 +63,8 @@ async function completeTurnIn(cwdOf,optionsOf=()=>({}),sessionEnvOf=()=>({}),cla
  const runs=[];
  const toasts=[];
  const hooks=new Map();
- register((name,matcherOrCallback,callback)=>{hooks.set(name,callback??matcherOrCallback);},optionsOf(root));
+ // The engine's on() returns a hook handle (.catch adds an error hook); the stand-in returns one too.
+ register((name,matcherOrCallback,callback)=>{hooks.set(name,callback??matcherOrCallback);return {catch(){return this;}};},optionsOf(root));
  const sessionEnv=sessionEnvOf(root);
  const handler=hooks.get('turn.complete');
  const engine={
