@@ -3341,6 +3341,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "mouse", action: "up", button: 0, x: x + 1, y });
     await until(() => screen().includes("groups this tile lists"), "sources opens the group picker");
     press({ kind: "esc" });
+    press({ kind: "esc" });
   }, 30_000);
 
   test("the power bar section (PIE-656): the stage's tiles listed as their tree, the folded one a spine; ctrl+k then %pears and ⏎ opens it from its spine and gives it the keys; a pasted action line is the first row; an agent's bar.open answers and opens nothing", async () => {
