@@ -207,13 +207,13 @@ export async function exportCommand(argsIn: string[], io: Out = { out: s => proc
   if ((o.split || manifest) && (!out || out === "-")) { io.err(`ep0ch: ${o.split ? "--split" : "--manifest"} writes files into a folder: ${again(a => [...a.filter((x, i) => x !== "--out" && a[i - 1] !== "--out"), "--out", "./notes"])}`); return 2; }
   const picked = selectionOf(args.filter((a, i) => !valued.includes(a) && !valued.includes(args[i - 1] ?? "")));
   if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 2; }
-  const bare = ["--children", "--split", "--resolve-links", "--manifest", "--source"];
+  const bare = ["--children", "--split", "--resolve-links", "--manifest", "--source", "--here"];
   const ids = picked.rest.filter(a => !bare.includes(a));
   const unknown = ids.find(a => a.startsWith("--"));
   if (unknown) { io.err(`ep0ch: export doesn't take ${unknown}\n${EXPORT_USAGE}`); return 2; }
   const sel = { ids, words: [] as string[], ...picked.selection };
   if (!sel.ids.length && !selects(sel)) { io.err(`ep0ch: export takes notes' ids or find's flags (--query, --view, --under)\n${EXPORT_USAGE}`); return 2; }
-  const board = await boardFor(args);
+  const board = await boardFor(args, argsIn);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     const chosen = await selectNotes(board, sel);

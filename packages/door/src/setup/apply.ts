@@ -374,7 +374,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
  * step or unreadable, which stop the step before anything is changed. One already at `to` or newer is left alone.
  */
 export function outlinesToMigrate(m: Migration, folder: string): { outlines: Migration["outlines"]; blocked: OutlineSchema[] } {
-  const all = databases(folder).map(outlineSchema);
+  const all = databases(folder).map(outlineSchema).filter(o => !o.empty);
   const outlines = all.filter(o => o.version === m.from).map(o => ({ name: o.name, path: o.path,
     ...(m.outlines.find(p => p.path === o.path)?.copy ? { copy: m.outlines.find(p => p.path === o.path)!.copy } : m.copyDir ? { copy: join(m.copyDir, `${o.name}.schema-${m.from}.sqlite`) } : {}) }));
   return { outlines, blocked: all.filter(o => o.version === null || o.version < m.from) };

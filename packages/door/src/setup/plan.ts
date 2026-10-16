@@ -315,6 +315,13 @@ export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step 
 /** The schema the outlines must be at after this run: what the code the checkout ends on opens (origin/main's when it updates). */
 export const schemaTarget = (f: Facts, updates: boolean): SchemaCode | undefined => (updates ? f.schema?.upstream : f.schema?.head);
 
+/** The empty (0-byte) outline files, said with their paths; "" when there are none. They are left alone: nothing in them to migrate. */
+export function emptyOutlinesSaid(outlines: readonly { name: string; path: string; empty?: true }[]): string {
+  const empty = outlines.filter(o => o.empty);
+  if (!empty.length) return "";
+  return `; ${empty.map(o => `${o.name} is an empty file (0 bytes) at ${sh(o.path)}`).join(", ")}: left as it is, and it holds nothing back (a read of a name this machine lacks used to make one: PIE-938). If nobody meant it, delete it: ${empty.map(o => `rm ${sh(o.path)}`).join("; ")}`;
+}
+
 /**
  * The outlines' schema (PIE-617). When the code the checkout ends on opens a newer schema than an outline is at, the
  * outline is migrated by that code's script for the step (packages/outliner/scripts/migrations/NNNN-*.ts, NNNN-1 →
@@ -324,8 +331,10 @@ export const schemaTarget = (f: Facts, updates: boolean): SchemaCode | undefined
  * moved aside (manual here; buildPlan then holds the checkout back). Null when the schema wasn't looked at.
  */
 export function schemaStep(f: Facts, updates: boolean): Step | null {
-  const s = f.schema;
-  if (!s) return null;
+  if (!f.schema) return null;
+  // An empty (0-byte) file has no schema: it is said, with its path, and never holds anything back (PIE-938).
+  const s = { ...f.schema, outlines: f.schema.outlines.filter(o => !o.empty) };
+  const said = emptyOutlinesSaid(f.schema.outlines);
   const title = "Migrate the outlines to the new schema";
   const code = schemaTarget(f, updates);
   const at = updates ? short(f.repo.checkout.upstream) : "the checkout";
@@ -341,7 +350,7 @@ export function schemaStep(f: Facts, updates: boolean): Step | null {
   const unread = updates && s.head.version !== to ? s.outlines.filter(o => o.version === null) : [];
   const aside = ahead.length ? `; ${ahead.map(o => `${o.name} is schema ${o.version}, newer than this code opens`).join(", ")}` : "";
   if (!behind.length && !unread.length) {
-    return { id: "schema", title, status: "skip", why: `${!s.outlines.length ? "no outlines" : ahead.length ? `no outline is behind schema ${to}` : `every outline is at schema ${to}`}${aside}`, commands: [] };
+    return { id: "schema", title, status: "skip", why: `${!s.outlines.length ? "no outlines" : ahead.length ? `no outline is behind schema ${to}` : `every outline is at schema ${to}`}${aside}${said}`, commands: [] };
   }
   const script = code.scripts[to];
   const h = f.host, u = h.unit;
@@ -358,11 +367,11 @@ export function schemaStep(f: Facts, updates: boolean): Step | null {
   if (h.running && !u) problems.push(`the host at ${h.socket} runs outside a ${f.platform === "macos" ? "launchd agent" : "systemd user unit"}, so install can't stop it to migrate; stop that process, then rerun`);
   else if (h.running && u?.state?.active === false) problems.push(`another process answers at ${h.socket}, not ${u.kind} ${u.name}, so install can't stop it to migrate; stop that process, then rerun`);
   else if (stopsHost && unitChanges(f)) problems.push(`${u!.kind} ${u!.name} needs changing before install restarts it: ${unitChanges(f)}`);
-  if (problems.length) return { id: "schema", title, status: "manual", why: `${updates ? `the checkout isn't updated: ${at} opens schema ${to}, and ` : ""}${problems.join("; ")}${aside}`, commands: [] };
+  if (problems.length) return { id: "schema", title, status: "manual", why: `${updates ? `the checkout isn't updated: ${at} opens schema ${to}, and ` : ""}${problems.join("; ")}${aside}${said}`, commands: [] };
   const names = behind.map(o => o.name);
   const abs = join(f.repo.root, script!);
   return { id: "schema", title, status: "do",
-    why: `schema ${from} → ${to}: will migrate ${names.length} outline${names.length === 1 ? "" : "s"} (${names.join(", ")}) with ${basename(script!)}${stopsHost ? `; the host stops while they migrate (each in one transaction) and starts after` : ""}${aside}`,
+    why: `schema ${from} → ${to}: will migrate ${names.length} outline${names.length === 1 ? "" : "s"} (${names.join(", ")}) with ${basename(script!)}${stopsHost ? `; the host stops while they migrate (each in one transaction) and starts after` : ""}${aside}${said}`,
     commands: [...(stopsHost ? [stop] : []), ...behind.map(o => `bun ${sh(abs)} ${sh(o.path)}`)],
     migrate: { from, to, script: abs, outlines: behind.map(o => ({ name: o.name, path: o.path })), stopsHost, ...(updates && f.repo.checkout.head ? { before: f.repo.checkout.head } : {}) } };
 }

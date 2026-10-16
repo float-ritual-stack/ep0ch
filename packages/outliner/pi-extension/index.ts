@@ -1026,7 +1026,7 @@ async function ensureService(focus: boolean): Promise<void> {
     }
     throw new Error(paths.mode === "remote"
       ? `The outline host at ${paths.socket}${paths.machine ? ` (on ${paths.machine})` : " (EP0CH_SOCKET)"} is unavailable or has no outline "${paths.outline}". ${remoteHint(paths)}`
-      : `The outline "${paths.outline}" is not available on the outline host at ${paths.socket}; start the host (systemctl --user start outliner-host), or create it with \`ep0ch init ${paths.outline}\``);
+      : `The outline "${paths.outline}" is not available on the outline host at ${paths.socket}; start the host (systemctl --user start outliner-host), or see which machines have it (\`ep0ch outline list --all\`); to make it here on purpose: \`ep0ch outline create ${paths.outline}\``);
   }
   await waitForService();
 }

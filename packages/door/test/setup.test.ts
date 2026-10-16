@@ -1243,6 +1243,38 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     expect(outlinesToMigrate(m, folder).blocked).toEqual([{ name: "seed-bank", path: join(folder, "seed-bank.sqlite"), version: 1 }]);
   });
 
+  test("an empty (0-byte) outline file is reported with its path and never holds an update back (PIE-938)", () => {
+    // What a read of a name this machine lacked once left behind: pie.sqlite with no bytes, beside a real outline at the old schema.
+    const f = bumped({ "float-hub": 2 });
+    const empty = { name: "pie", path: `${HOME}/outlines/pie.sqlite`, version: 0, empty: true as const };
+    f.schema!.outlines.push(empty);
+    f.databases = [...f.databases, { name: "pie", path: empty.path }];
+    const plan = buildPlan(f, opts());
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:do", "plugin:do", "link:do", "schema:do", "host:do", "session:skip"]);
+    const schema = plan.steps.find(s => s.id === "schema")!;
+    expect(schema.migrate!.outlines.map(o => o.name)).toEqual(["float-hub"]);
+    expect(schema.why).toContain(`pie is an empty file (0 bytes) at ${empty.path}`);
+    expect(formatPlan(f, plan, false)).toContain(`pie is an empty file (0 bytes) at ${empty.path}`);
+    // Alone, it is still said (the step has nothing to migrate).
+    const alone = bumped({});
+    alone.schema!.outlines.push(empty);
+    expect(buildPlan(alone, opts()).steps.find(s => s.id === "schema")).toMatchObject({ status: "skip", why: expect.stringContaining(`pie is an empty file (0 bytes) at ${empty.path}`) });
+  });
+
+  test("on disk: a 0-byte file reads as empty, and apply neither migrates nor blocks on it (PIE-938)", () => {
+    const folder = join(scratch, "outlines with an empty one");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, "pie.sqlite"), "");
+    const db = new Database(join(folder, "allotment.sqlite"));
+    db.exec("CREATE TABLE seeds (x); PRAGMA user_version = 2");
+    db.close();
+    expect(outlineSchema({ name: "pie", path: join(folder, "pie.sqlite") })).toMatchObject({ empty: true });
+    const m = { from: 2, to: 3, script: "/s/0003-x.ts", stopsHost: true, outlines: [{ name: "allotment", path: join(folder, "allotment.sqlite") }] };
+    const found = outlinesToMigrate(m, folder);
+    expect(found.blocked).toEqual([]);
+    expect(found.outlines.map(o => o.name)).toEqual(["allotment"]);
+  });
+
   test("after a failed run, an outline that can't take the step keeps the stopped host stopped", () => {
     const f = bumped({ "float-hub": 3, "seed-bank": 1 }, { head: 3, f: current() });
     f.schema!.head = code(3);

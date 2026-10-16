@@ -245,7 +245,8 @@ export function whichOutline(o: { flag?: string; env?: string; machineFlag?: str
  * this machine a name someone wrote down (`--ws`, EP0CH_WS, a `.ep0ch`) is made, like `herdr --session <name>`; on
  * another `machine` never, unless `create` (`--create`) says so: a typo, or a name meant for this machine, would make
  * an empty outline there. `noCreate` (`--no-create`, what `ep0ch --remote` gives the door on that machine, where the
- * outline is local) applies the same rule from there. A host named outright (EP0CH_SOCKET, no machine) is this rule's
+ * outline is local) applies the same rule from there. It is asked only by clients that *open* an outline: a read
+ * (`show`, `find`, `export`) never makes one and says which machines have it (PIE-938). A host named outright (EP0CH_SOCKET, no machine) is this rule's
  * "this machine": the escape hatch is the caller's to aim.
  */
 export function mayCreate(o: { machine?: string; create?: boolean; noCreate?: boolean }): boolean {

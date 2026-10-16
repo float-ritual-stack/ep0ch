@@ -12,7 +12,7 @@ import { backupChecks } from "./backups";
 import { resticChecks } from "../backup/setup";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { ep0ch, sessionFlags } from "../session/place";
-import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, mcpBehind, mcpIsHere, mcpRestartCommand, linkStep, pluginStep, repoStep, schemaStep, sessionName, sessionVerdict, unitChanges } from "./plan";
+import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, mcpBehind, mcpIsHere, mcpRestartCommand, linkStep, pluginStep, repoStep, schemaStep, emptyOutlinesSaid, sessionName, sessionVerdict, unitChanges } from "./plan";
 
 /** unknown: it couldn't be checked (a fetch failed), so it isn't counted as current. */
 export type CheckStatus = "ok" | "behind" | "missing" | "info" | "unknown";
@@ -112,11 +112,13 @@ export function doctorChecks(f: Facts): Check[] {
   // Each outline's schema against what the checkout's code opens (PIE-617): one behind is refused by the host.
   if (f.schema && f.schema.head.version !== null) {
     const to = f.schema.head.version, s = schemaStep(f, false);
-    const behind = f.schema.outlines.filter(o => o.version !== null && o.version < to), ahead = f.schema.outlines.filter(o => o.version !== null && o.version > to);
-    const unread = f.schema.outlines.filter(o => o.version === null);
+    const empty = f.schema.outlines.filter(o => o.empty), all = f.schema.outlines.filter(o => !o.empty);
+    const behind = all.filter(o => o.version !== null && o.version < to), ahead = all.filter(o => o.version !== null && o.version > to);
+    const unread = all.filter(o => o.version === null);
+    if (empty.length) add("outlines", "empty files", "info", emptyOutlinesSaid(empty).replace(/^; /, ""));
     if (behind.length) add("outlines", "schema", "behind", `${behind.map(o => `${o.name} is schema ${o.version}`).join(", ")}; the checkout's code opens only schema ${to}, so the host refuses ${behind.length === 1 ? "it" : "them"}`,
       s?.status === "do" ? "ep0ch install --apply" : s?.why);
-    else if (f.schema.outlines.length) add("outlines", "schema", unread.length ? "unknown" : "ok", `${unread.length ? `couldn't read ${unread.map(o => `${o.name}'s (${o.error})`).join(", ")}; ` : ""}${f.schema.outlines.filter(o => o.version !== null).map(o => o.name).join(", ")} at schema ${to}, what the checkout's code opens`);
+    else if (all.length) add("outlines", "schema", unread.length ? "unknown" : "ok", `${unread.length ? `couldn't read ${unread.map(o => `${o.name}'s (${o.error})`).join(", ")}; ` : ""}${all.filter(o => o.version !== null).map(o => o.name).join(", ")} at schema ${to}, what the checkout's code opens`);
     if (ahead.length) add("outlines", "schema ahead", "behind", `${ahead.map(o => `${o.name} is schema ${o.version}`).join(", ")}, newer than the checkout's code opens (${to})`, repo.status === "do" ? "ep0ch install --apply (updates the checkout)" : undefined);
   }
   const change = unitChanges(f);

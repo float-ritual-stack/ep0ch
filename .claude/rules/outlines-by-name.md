@@ -44,7 +44,14 @@ it before changing it.
 A name nobody has yet is created when a client opens it on this machine (like `herdr --session`), never on another
 machine (PIE-545): there (`--machine`, `--remote`, a `.ep0ch`'s `machine`) it is refused with the exact commands, or
 the door's home base offers the choices (the one here, create it there, cancel). Only `--create`, `outline create`
-or the home base's "new outline on <machine>" makes one there. The rule is outline-core's `mayCreate`; `--here`
+or the home base's "new outline on <machine>" makes one there.
+
+A read never creates one (PIE-938): `show`, `find`, `export` and `revisions` (all through the door's `boardFor`,
+`src/notes-cli.ts`) ask the host first and, when it lacks the name, refuse with `readMissing` (`src/outlines.ts`):
+nothing made, the machines that have it (this machine's host, `.remote/` forwards and the machines opened before:
+`everyOutline`) with the command that reads it there (`--machine <ssh-name>`), else how to make it on purpose. A builder
+in a worktree with no `.ep0ch` reads `pie` from the wrong machine; the empty file that once made had held an install
+back. `ep0ch install` reports a 0-byte outline file with its path and leaves it out of the schema step. The rule is outline-core's `mayCreate`; `--here`
 names this machine over `EP0CH_MACHINE` and a `.ep0ch`'s machine.
 
 ## Sessions

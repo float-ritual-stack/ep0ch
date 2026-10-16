@@ -5,12 +5,12 @@
 // (`machines.json` in the state dir, for `ep0ch doctor`), and the remote door.
 //
 // EP0CH_SSH names the ssh to run (tests give a fake one); ssh is the default.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { type Forward, type ForwardState, forwardState } from "@ep0ch/outline-core/machine";
 import { forwardFor, forwardOptions } from "@ep0ch/outliner/machine-forward";
-import { isMachineName } from "@ep0ch/outline-core/outline-location";
+import { isMachineName, outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { hostLive, outlinesDir, resolveTarget } from "./discover";
 import { readState, writeState } from "./state";
 
@@ -97,6 +97,18 @@ export function sshConfigNames(env: Env = process.env): string[] {
 
 // ── every outline the person can open from here ──
 
+/** The machines with a shared forward (or a machine file) in this machine's `.remote/`, by name: `<machine>.sock` and `<machine>.json`. */
+export function forwardedMachines(env: Env = process.env): string[] {
+  try {
+    const names = new Set<string>();
+    for (const f of readdirSync(outlineLayout(outlinesDir(env)).remoteDir)) {
+      const m = /^(.+)\.(sock|json)$/.exec(f)?.[1];
+      if (m && isMachineName(m)) names.add(m);
+    }
+    return [...names].sort();
+  } catch { return []; }
+}
+
 /** An outline someone can open from here (`machine`: none is this machine), or a machine whose outlines can't be read now (no `name`, a `problem`). */
 export interface KnownOutline { name?: string; machine?: string; problem?: string }
 
@@ -109,7 +121,11 @@ export async function everyOutline(socket: string, env: Env = process.env): Prom
   const here = hostLive(socket, 3000).then((live): KnownOutline[] => live
     ? live.outlines.map(name => ({ name }))
     : [{ problem: `no outline host answers at ${socket}` }]);
-  const there = usedMachines(env.EP0CH_STATE).map(async ({ name: machine }): Promise<KnownOutline[]> => {
+  // The machines opened before, then any whose shared forward is in `.remote/` (another state dir's, a program's): the
+  // forward is the proof a machine is reachable from here, whoever started it.
+  const used = usedMachines(env.EP0CH_STATE).map(m => m.name);
+  const machines = [...used, ...forwardedMachines(env).filter(m => !used.includes(m))];
+  const there = machines.map(async (machine): Promise<KnownOutline[]> => {
     try {
       const s = await machineStatus(machine, env);
       if (s.outlines) return s.outlines.length ? s.outlines.map(name => ({ name, machine })) : [{ machine, problem: "no outlines yet" }];

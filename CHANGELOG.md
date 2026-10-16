@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A read never creates an outline, and an empty outline file never holds an install back (PIE-938)
+
+`ep0ch show --ws pie <id>` run in a folder with no `.ep0ch` on a machine that doesn't have `pie` (a builder's worktree
+on float-box, with the outlines on float-2) now says so instead of "create it with `ep0ch init pie`": nothing was made,
+which machines have it (the shared forwards in `.remote/` and the machines you have opened), and the command, as
+`ep0ch show --ws pie <id> --machine float-2`. The same for `find`, `export` and `revisions`. Opening a door, `outline
+create` and `init` still make a name this machine lacks. `ep0ch install` and `doctor` now report an empty (0-byte)
+outline file with its path and the `rm` that removes it, and leave it out of the schema step, so it never holds back an
+update. `ep0ch outline list --all` also lists the machines whose forwards are in `.remote/`. No protocol or schema
+change.
+
 ### Every comment has its target (PIE-933)
 
 A comment written as plain text (an EchoNet toss copying a thread before copies were kept as notes, an agent's plain

@@ -117,8 +117,9 @@ component hard-codes which properties can be filtered, grouped or sorted on.
 
 Which outline a client opens, first match wins: `--ws <name>`, then `EP0CH_WS`, then the nearest `.ep0ch` walking up
 from the folder. Nothing else names one, and nothing guesses: a folder that names none gets the home base. A name
-nobody has yet is created on this machine, never implicitly on another (only `--create`, `outline create` or the home
-base make one there). The details (machines, forwards, sessions) are in
+nobody has yet is created on this machine when a client *opens* it, never implicitly on another (only `--create`,
+`outline create` or the home base make one there); a *read* (`show`, `find`, `export`, `revisions`) never creates one,
+and says which machines have it and the command that reads it there. The details (machines, forwards, sessions) are in
 [outlines-by-name](.claude/rules/outlines-by-name.md).
 
 ## Schema and protocol: one version
