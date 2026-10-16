@@ -161,7 +161,7 @@ export class DraftSession {
       if (h && h.revision === s.draft.base) s.draft.adopt(h.steps);
     }
     if (init.position) {
-      if (s.draft.restored !== null) init.position.cursor = { row: s.draft.row, col: s.draft.col };
+      if (s.draft.restored !== null) Object.assign(init.position, s.draft.position);
       s.draft.usePosition(init.position);
     }
     if (target.blockId) {
@@ -379,14 +379,18 @@ export class DraftSession {
   private restore(): boolean {
     const d = this.draft, u = unsent(this.target.place);
     if (!u) return false;
-    if (u.text === d.text) { unshelve(this.target.place); return false; }
     if (u.base !== d.base) { d.note = `you started an edit ${onDay(dayOf(u.at))} and didn't save; the note has changed since · your edit is kept (open the note's kept-edit line to compare it) · its copy is at ${tidy(u.copy ?? "")}`; return false; }
     unshelve(this.target.place);
     d.lines = u.text.split("\n");
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
+    if (u.position) d.usePosition(u.position);
     d.restored = u.text;
     // Whoever wrote it then wrote it now: a save names them all (recordAs).
     for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w, "bringing back the unsent draft");
+    // Restoring words is not a new edit: undo continues with the steps the person actually made.
+    d.undos = (u.history?.undos ?? []).map(step => ({ ...step, open: false }));
+    d.redos = u.history?.redos ?? [];
+    d.patches = u.history?.patches ?? [];
     d.note = `brought back your ${this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit"} from ${dayOf(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
     return true;
   }
@@ -959,7 +963,7 @@ export function noteReplyTarget(parent: Msg, board: Pick<SocketBoard, "newNote">
  * A draft put aside: its text, the revision it was written on, when, its copy on disk and who wrote it. `from`: the text
  * it started from ("add them" and the comparison read the edit's own changes from there; absent on older ones, then the note's history stands in).
  */
-export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[]; from?: string }
+export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[]; from?: string; position?: ReaderPosition; history?: { undos: Step[]; redos: Step[]; patches: Draft["patches"] } }
 
 /** The outline's own (a draft's key is its blocks', threads' and views'): in its folder of the state dir, `outlineState()`. */
 const unsentDir = () => join(outlineState(), "drafts", "unsent");
@@ -975,7 +979,7 @@ const unsentPath = (key: string) => {
 
 /** Keep `d`'s text under `key` (its place: `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<view>`, `child:<id>`). */
 export function shelve(key: string, d: Draft, copy: string | null, at = Date.now()): Unsent {
-  return keepUnsent({ key, text: d.text, base: d.base, at, copy, writers: d.writers, from: d.started });
+  return keepUnsent({ key, text: d.text, base: d.base, at, copy, writers: d.writers, from: d.started, position: d.position, history: { undos: d.undos, redos: d.redos, patches: d.patches } });
 }
 
 /** Write a put-aside entry under its key (`shelve`, and stray characters brought back by ctrl+z). */

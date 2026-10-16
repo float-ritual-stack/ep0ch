@@ -185,7 +185,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       for (const [i, name] of f.installClients!.names.entries()) {
         const command = step.commands[i]!;
         const r = await run([sshBin(env), "-o", "BatchMode=yes", "--", name, "ep0ch install --apply --as-client"], { env, timeoutMs: 900_000, onLine: child });
-        const line = r.code === 0 ? `✓ ${name}: installed; busy doors are left running until typing ends`
+        const line = r.code === 0 ? `✓ ${name}: installed; sessions were handed over or their recovery commands were reported`
           : `! ${name}: ${r.err || r.out || `exit ${r.code}`}\n      run by hand: ${command}`;
         record(line); show(`    ${line}`);
         await clientOutcome?.(name, line);
@@ -240,16 +240,12 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     case "session": {
       // The daemon starts its successor from its checkout, now on the new code.
       const { upgradeAll } = await import("../session/client");
-      const { ep0ch } = await import("../session/place");
-      const rs = await upgradeAll({ whenIdle: true });
+      const rs = await upgradeAll({ handoff: true });
       const handed = rs.filter(r => r.ok && r.handover);
       for (const r of rs) if (r.ok) { record(r.message); if (!r.handover) show(`    ✓ ${r.message}`); }
       if (handed.length) handoverLines(handed.map(r => r.handover!)).forEach(show);
-      const failed = rs.filter(r => !r.ok);
-      for (const r of failed) show(`    ✗ ${r.message}`);
-      // One cause shared by every failure (a missing package after a pull, say) is said once, in the step's line.
-      const causes = new Set(failed.map(r => / · ((?:error\b|.*Error\b|Cannot\b).*?)(?: · |$)/.exec(r.message)?.[1] ?? r.message));
-      if (failed.length) throw new StepFailed(`handing ${failed.length === 1 ? "a door session" : `${failed.length} door sessions`} over failed${causes.size === 1 ? `: ${[...causes][0]}` : " (each above)"}`, `the sessions run on as they were; after typing ends, rerun ep0ch install --apply (or follow the session protocol update command above); \`${ep0ch()}session list\` says what runs`);
+      // A door left on its old code needs attention, but must not strand the extensions and skills after it.
+      for (const r of rs.filter(r => !r.ok)) { record(r.message); show(`    ✗ ${r.message}`); }
       return;
     }
     case "name": {

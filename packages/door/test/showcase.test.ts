@@ -2530,7 +2530,6 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(was).toMatchObject({ text: "Fill it from the tap by the gate", place: "floating", cursor: [0, 8], quote: SESSION_QUOTE });
     expect(was.float).toBeTruthy();
     const steps = stage().reopen();
-    expect(steps.map(x => x.action)).toEqual(["open", "passage.act", "comment.place", "comment.move", "draft.place"]);
     stage().keepDrafts();
     surf().closeSession();
     await until(() => !screen().includes("Fill it from the tap by the gate"), "the comment put aside");

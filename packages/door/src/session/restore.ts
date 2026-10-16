@@ -6,8 +6,8 @@
 // - **The checkpoint** (`session-state.json`), written whenever the screens change and again at a handoff: the screens
 //   open as the actions that open them (`screen.open`, and `screen.back` after one kept in the background), the edits
 //   open on the screen on top and in the drawer (`Screen.reopen`: its note, then `edit` in its tile, or the comment being
-//   written: the action that opened it, then `comment.place`, `comment.move`, `draft.place` and `draft.preview`, so it
-//   sits where it sat, PIE-847), the look's nudges not yet saved (the tune inspector's, as `look.nudge` steps, PIE-847), the size the session was drawn at.
+//   written: the action that opened it, then `comment.place`, `comment.move` and `draft.preview`, so it
+//   sits where it sat, PIE-847; the draft session keeps its cursor, view and history), the look's nudges not yet saved (the tune inspector's, as `look.nudge` steps, PIE-847), the size the session was drawn at.
 // - **A restore runs those actions through the App's dispatcher, as the actions declare** (`ActionDef.replay`): a step
 //   whose action is `replay: "safe"` runs again; one that isn't is never run by itself, and the restore says which.
 //   The edits and comments are the one exception, and only the person's own: opening one writes nothing, and its text

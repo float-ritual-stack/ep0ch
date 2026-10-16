@@ -564,7 +564,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   // Outlines that can't take the step: a stopped host (a migration that failed) stays stopped rather than serving some.
   if (schema?.status === "manual" && host.status === "do") host = { ...host, status: "manual", why: `held back: not every outline can be migrated to the schema the code opens, and started it would serve only some; see "${schema.title}"`, commands: [] };
   const clientLegs: Step[] = clients?.names.length ? [{ id: "clients", title: "Update this host's clients", status: host.status === "manual" || repo.status === "manual" ? "manual" : "do",
-    why: `after the host is current: ${clients.names.join(", ")}; sequentially; a busy door stays on its session until typing ends${host.status === "manual" || repo.status === "manual" ? "; held back until the host and checkout steps are resolved" : ""}`,
+    why: `after the host is current: ${clients.names.join(", ")}; sequentially; every session is handed over with its open drafts kept${host.status === "manual" || repo.status === "manual" ? "; held back until the host and checkout steps are resolved" : ""}`,
     commands: clients.names.map(name => `ssh -- ${name} 'ep0ch install --apply --as-client'`) }] : [];
   // The MCP gateway after the host it talks to.
   const mcp = f.mcp ? [mcpStep(f, updates)] : [];

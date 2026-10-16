@@ -5,8 +5,8 @@
 // one byte of type, four of length (big-endian), then the payload, UTF-8: raw text for `input` and `output`, JSON
 // for the rest.
 
-/** Bumped when a message changes shape: a client and a daemon of different protocols say so instead of guessing. 4: install requests an idle-only handover. 3: clients can name their host pane (`clientHost`). 2: sessions are per outline (SessionInfo.place and .dir; Hello.target gone). */
-export const PROTOCOL = 4;
+/** Bumped when a message changes shape: a client and a daemon of different protocols say so instead of guessing. 5: every upgrade hands over, including an open draft. 4: install requests an idle-only handover. 3: clients can name their host pane (`clientHost`). 2: sessions are per outline (SessionInfo.place and .dir; Hello.target gone). */
+export const PROTOCOL = 5;
 
 /** The largest frame either side takes: well above a screen of Kitty uploads, small enough to bound memory. */
 export const FRAME_LIMIT = 64 << 20;
@@ -67,7 +67,7 @@ export type ClientMsg =
   /** End the session (`session end`); `force`: even with programs running in its tiles. */
   | { t: "end"; force?: boolean }
   /** Hand the session to a new daemon on the code in the checkout (`session upgrade`). */
-  | { t: "upgrade"; whenIdle?: boolean }
+  | { t: "upgrade" }
   /** Every attached terminal starts again on the code in the checkout; the daemon goes on (`session upgrade --clients`). */
   | { t: "reload" };
 

@@ -1057,7 +1057,9 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   checkout. The programs in its terminal tiles and the drawer keep running: they never belonged to the daemon,
   but to the session's **terminal host**, and the new daemon adopts each by its tile, its output and scrollback
   replayed. The screens come back (one kept in the background too), and so do the edits open on the screen on top
-  (`e` or `⏎` in one carries on). Every attached
+  with their text, cursor, view and undo history. An open comment composer keeps its words and placement.
+  Install hands sessions over even while you type; a failed handover reports its exact `ep0ch session upgrade --ws <name>`
+  command and lets the remaining installation steps run. Every attached
   terminal attaches again by itself, in the same terminal and the same ssh login. On a session already on this code,
   or with `--clients`, only the terminals start again; `ep0ch session restart` hands over whatever code it runs.
 - **A daemon that dies** (a crash, `kill -9`) comes back the same way at the next `ep0ch`: the programs are still in

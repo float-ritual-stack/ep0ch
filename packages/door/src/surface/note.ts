@@ -932,7 +932,7 @@ export class NoteSurface {
   /**
    * What opens the person's edit or comment here again after a handover (src/session/restore.ts), as the actions that
    * open it: the edit; or the comment on its passage (a reply on its thread, an edit of a posted one), then where it
-   * sits, its size, its cursor and its preview (PIE-847). Its text is what the handover put aside for it.
+   * sits, its size and its preview (PIE-847). The draft session keeps its text, cursor, view and history.
    */
   reopenSteps(): Omit<Step, "tile">[] {
     if (this.replyParent) return [{ action: "note.reply", opens: "edit" }];
@@ -950,7 +950,6 @@ export class NoteSurface {
       open,
       { action: "comment.place", args: { place: cs.place } },
       ...(cs.place === "floating" && cs.float ? [{ action: "comment.move", args: { ...cs.float } }] : []),
-      { action: "draft.place", args: { line: d.row + 1, col: d.col + 1 } },
       ...(d.preview ? [{ action: "draft.preview", args: { on: true } }] : []),
     ];
   }
@@ -2884,7 +2883,7 @@ export class NoteSurface {
         return r;
       },
       unsaved: () => s.dirty,
-      keep: () => (s.dirty ? [s.keep()] : []),
+      keep: () => [s.keep()],
       hint: () => this.replyParent ? `ctrl+s saves · Esc ${d.dirty ? "twice discards" : "discards"} · PgUp/PgDn scroll message · select then \" quotes` : (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
       describe: () => ({ ...s.describe(), rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
@@ -2967,7 +2966,7 @@ export class NoteSurface {
         return r;
       },
       unsaved: () => cs.dirty,
-      keep: () => (cs.writing?.dirty ? [cs.writing.keep()] : []),
+      keep: () => (cs.writing ? [cs.writing.keep()] : []),
       hint: () => cs.hint(),
       state: () => (cs.mode === "compose" ? `writing${cs.dirty ? " · unsent" : ""}` : cs.mode === "select" ? "quoting" : "comments"),
       describe: () => cs.describe(),

@@ -1021,16 +1021,15 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "reader"; i++) await Bun.sleep(100);
     a.type("e");
     await until(() => a.screen().includes("ctrl+s"), "the edit open", 10_000);
+    a.type("\x05");
     a.type(" and kale");
     await until(() => a.screen().includes("and kale"), "the typed text", 10_000);
+    a.type("\x1b[D"); a.type("\x1b[D");
+    const draft = async () => ((await control({ cmd: "peek" })).screen.state.readers as any[]).find(p => p?.editing)?.editing;
+    for (let i = 0; i < 50 && (await draft())?.cursor.col !== "Seed swap list and ka".length + 1; i++) await Bun.sleep(100);
+    const cursor = (await draft()).cursor;
     const before = { daemon: daemonPid(), shell: await shellPid() };
     expect(before.shell).toBeGreaterThan(0);
-
-    const deferred = await request({ t: "upgrade", whenIdle: true });
-    expect(deferred).toMatchObject({ t: "ask", message: expect.stringContaining("the session is left running") });
-    expect(daemonPid()).toBe(before.daemon);
-    expect(a.closed).toBe(false);
-    expect(a.screen()).toContain("and kale");
 
     expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
     await until(() => a.closed, "the old daemon to let the terminal go", 5000);
@@ -1045,6 +1044,24 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     // The edit is open again on the same note, unsaved, its text brought back from where the handoff put it aside.
     expect(JSON.stringify(peek.screen.state)).toContain(`"place":"edit:${plot}"`);
     expect(JSON.stringify(peek.screen.state)).toContain(`"dirty":true`);
+    expect((await draft()).cursor).toEqual(cursor);
+    const board = new SocketBoard(hostSock);
+    await board.info();
+    const textIs = async (text: string) => {
+      for (let i = 0; i < 100; i++) {
+        if ((await board.readDraft(plot)).text === text) break;
+        await Bun.sleep(50);
+      }
+      expect((await board.readDraft(plot)).text).toBe(text);
+    };
+    try {
+      b.type("\x1a");
+      await textIs("Seed swap list and \nBeans, chard");
+      b.type("\x19");
+      await textIs("Seed swap list and kale\nBeans, chard");
+      b.type("\x1b[D"); b.type("\x1b[D"); b.type("X");
+      await textIs("Seed swap list and kaXle\nBeans, chard");
+    } finally { board.close(); }
     b.close();
   }, 60_000);
 
@@ -1113,6 +1130,15 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     await until(() => b.screen().includes("onions by the gate") && b.screen().includes("and a sign for the leeks"), "the comment's text", 10_000);
     const after = await commenting();
     expect(after).toMatchObject({ mode: "compose", place: "floating", dirty: true, float: before.float, cursor: before.cursor, whole: true });
+    const continued = "onions by the gate".slice(0, before.cursor.col - 1) + "X" + "onions by the gate".slice(before.cursor.col - 1);
+    b.type("X");
+    await until(() => b.screen().includes(continued), "the next key in the restored composer");
+    b.type("\x1a");
+    await until(() => !b.screen().includes(continued), "undoing the next comment key");
+    b.type("\x1a");
+    await until(() => !b.screen().includes("leeks"), "undoing comment typing from before handover");
+    b.type("\x19");
+    await until(() => b.screen().includes("leeks"), "redoing the comment typing");
     // Put aside (esc twice), so the tests after this one find the reader reading.
     b.type("\x1b"); b.type("\x1b");
     for (let i = 0; i < 50 && (await commenting()); i++) await Bun.sleep(100);
