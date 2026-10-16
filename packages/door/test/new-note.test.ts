@@ -147,14 +147,14 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     reader.render(app);
     const mode = () => reader.surface.replyLinks!;
     expect(mode().rowsAt[mode().selected]).toMatchObject({ thread: { here: true } });
-    mode().key({ kind: "enter" } as Key);
+    mode().key({ kind: "enter" } as Key, reader.host(app));
     await until(() => reader.surface.replyLinks === null, "⏎ on the note you're on closes the panel");
     expect(app.screens().at(-1)).toBe(reader);
     await reader.dispatch.act({ action: "note.thread" }, { kind: "user" });
     reader.render(app);
-    mode().key({ kind: "char", ch: "j" } as Key);
+    mode().key({ kind: "char", ch: "j" } as Key, reader.host(app));
     await until(() => mode().rowsAt[mode().selected]?.kind === "child" && (mode().rowsAt[mode().selected] as any).child.block.id === reply.id, "j moved to the reply");
-    mode().key({ kind: "enter" } as Key);
+    mode().key({ kind: "enter" } as Key, reader.host(app));
     await until(() => (app.screens().at(-1) as MessageReader).surface.msg?.id === reply.id && app.screens().at(-1) !== reader, "⏎ read the reply");
   });
 
