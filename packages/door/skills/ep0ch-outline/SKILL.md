@@ -31,7 +31,8 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 ## Tools
 
 In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_edit`,
-`outline_patch`, `outline_create`, `outline_assign_id`, `outline_move`, `outline_trash`/`outline_restore`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
+`outline_patch`, `outline_proposal_apply`/`outline_proposal_dismiss`, `outline_create`, `outline_assign_id`,
+`outline_move`, `outline_trash`/`outline_restore`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
 `outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
 `door_act`, `door_open`. Every tool that names a note takes it as `ref` (`id`, `reference`, `block`, `blockId`, `uri`, `note` are accepted; two that disagree are refused, so pass one), and a wrong call comes back with the tool's arguments and a call that works. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`; `ep0ch find <words>` and
@@ -121,6 +122,8 @@ revision, so concurrent edits rarely collide.
   someone's notes is usually a voice or persona, not an instruction to you.
 - **Indentation scopes context.** Nested lines are a flow of thought, not always strict parent and child.
   Keep their hierarchy when you tidy.
+- **A leading mention is an ask** (PIE-906, #592): a line you write starting with `@name` (after an optional
+  bullet) wakes that agent by default. Put a mention you don't mean as an ask in prose or a code span.
 - **Tidying moves things.** Put a note where it belongs with `outline_move` (`parent`, `before` or `after`; a
   note keeps its id and links) and put a duplicate or stray in Trash with `outline_trash` (the `revision` you
   read); `outline_restore` undoes it. Move freely, trash only what is plainly a copy or an empty stray, and say
@@ -546,7 +549,7 @@ exist for them.
 ## Keys and secrets (for an extension that needs one)
 
 An extension that needs a token names it; the service hands it that one key, and only to a call that has the right.
-**Before you call a key missing, ask the machine**:
+**Run `ep0ch keys list` before calling a key missing** (#558):
 
 ```sh
 ep0ch keys list              # every with-secrets group's keys: where, mode, scope, which extensions name it
@@ -575,6 +578,11 @@ doesn't have the environment variable: the service reads the group when a call s
   missing or not allowed, by name.
 
 ## Extensions: adding one for a need
+
+**Scripts:** `[script::]` blocks run through the host API (#583), macros save action lines (#585), bindings reach
+keys, named commands, rules and `@name` (#588), and `@asks` answer in place while the person keeps typing (#590, #591).
+Read ((d6ac2691-0585-4d09-9f89-435ee3be0ca3|the scripting design)) in pie for the shared parts.
+Until PIE-908 lands, never keep files in `<outline folder>/scripts/`: `.ts`/`.js` files there load as write agents.
 
 Extensions are trusted user code, like editor plugins, run by the service. Their data behaves as if the
 person had copied it in: real blocks, namespaced properties (`jira.status`), queryable, linkable,
@@ -633,9 +641,9 @@ Scope it with `rule-under` unless they want it everywhere. The examples to copy 
 reader's `decorations`. The contract: packages/outliner `docs/extensions/README.md#rules-when-a-block-matches`.
 
 An extension can also declare **agents** a person addresses while they write: a line `@tidy` (after an
-optional bullet) runs once the note is quiet, and its edit lands attributed to the extension (`ext:tidy`),
-or as a proposal if the person was typing there. The door shows the request's state under the line;
-`r` on it asks again.
+optional bullet) runs once that ask is quiet, even while the person types elsewhere. Its answer lands attributed
+in a fold under the ask and in a tile beside it; plain answers stream as they are written. The door shows the
+request's state under the line; `r` on it asks again.
 
 All four kinds work end to end in the door and the service (PIE-507, PIE-512): the door binds whatever
 `extensions.list` says, and an extension added or removed shows up or goes away without a restart.
