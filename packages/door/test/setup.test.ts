@@ -691,7 +691,7 @@ describe("read-only probes on scratch files", () => {
     mkdirSync(root, { recursive: true });
     writeFileSync(join(root, "package.json"), JSON.stringify({ dependencies: { "@garden/trowel": "1.2.0" } }));
     writeFileSync(join(root, "bun.lock"), `{\n  "packages": {\n    "@garden/trowel": ["@garden/trowel@1.2.0", "", {}, "sha512-x"],\n  }\n}\n`);
-    expect(depsState(root)).toEqual({ needed: true, why: "node_modules is missing" });
+    expect(depsState(root)).toEqual({ needed: true, why: "node_modules is missing", done: "installed every package" });
     mkdirSync(join(root, "node_modules/@garden"), { recursive: true });
     expect(depsState(root).why).toBe("@garden/trowel isn't installed");
     expect(depsState(root).done).toBe("installed @garden/trowel");
