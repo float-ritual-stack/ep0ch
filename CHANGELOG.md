@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Queries can look back in minutes
+
+- `updated >= -30m` (and `-40m`, any `-Nm`) now works in queries, views, `ep0ch find --query` and the MCP tools. Before, only `h`, `d` and `w` were understood, so "the last half hour" had to be written as `-1h`.
+- **Deployment:** PROTOCOL 192. `ep0ch install --apply` on float-2, float-box and the MacBook.
+
 ### Inline asks explain unknown agents and use the draft's context (PIE-914)
 
 - `@prior-art` without a reference searches the ask and its note, returning links or “Nothing like this yet.” Questions about when it triggered get a one-line explanation of what it does.

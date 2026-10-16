@@ -136,11 +136,11 @@ export function readDate(text: string, now = wallClock(Date.now())): When | null
   return last && last.to >= first.from ? { from: first.from, to: last.to } : null;
 }
 
-const RELATIVE = /^([+-])(\d{1,6})([hdw])$/;
+const RELATIVE = /^([+-])(\d{1,6})([mhdw])$/;
 
 /**
  * A query's date bound: `now`, `today`, `tomorrow`, `yesterday`, `-7d`/`+3d`/`+2w` (that calendar day, counted from
- * today), `-12h` (that moment, from now), or any date `readDate` reads. Null when it is none of them.
+ * today), `-12h` or `-30m` (that moment, from now), or any date `readDate` reads. Null when it is none of them.
  */
 export function readDateBound(text: string, now = wallClock(Date.now())): When | null {
   const word = text.trim().toLowerCase();
@@ -154,8 +154,8 @@ export function readDateBound(text: string, now = wallClock(Date.now())): When |
   if (relative) {
     const sign = relative[1] === "-" ? -1 : 1, n = Number(relative[2]);
     // Days and weeks are whole days, as today is: a due day three days out is `<= +3d` and never `> +3d` too.
-    if (relative[3] !== "h") return day(sign * n * (relative[3] === "w" ? 7 : 1));
-    const at = now + sign * n * 3_600_000;
+    if (relative[3] === "d" || relative[3] === "w") return day(sign * n * (relative[3] === "w" ? 7 : 1));
+    const at = now + sign * n * (relative[3] === "h" ? 3_600_000 : 60_000);
     return { from: at, to: at };
   }
   return readDate(text, now);

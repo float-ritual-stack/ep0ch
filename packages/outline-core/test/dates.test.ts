@@ -41,6 +41,7 @@ describe("dates as people write them", () => {
     expect(new Date(readDateBound("today", NOW)!.from).toISOString()).toBe("2026-10-13T00:00:00.000Z");
     expect(new Date(readDateBound("+3d", NOW)!.from).toISOString()).toBe("2026-10-16T00:00:00.000Z");
     expect(new Date(readDateBound("-12h", NOW)!.from).toISOString()).toBe("2026-10-13T05:00:00.000Z");
+    expect(new Date(readDateBound("-30m", NOW)!.from).toISOString()).toBe("2026-10-13T16:30:00.000Z");
     // A day is on one side of +3d only, whatever the hour.
     const third = readBound("+3d", NOW);
     expect([valueHolds("2026-10-16", "<=", third, NOW), valueHolds("2026-10-16", ">", third, NOW)]).toEqual([true, false]);

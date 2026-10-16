@@ -525,14 +525,14 @@ export function parseQueryTime(value: string): ParsedTime {
   if (normalized === "now") return { kind: "instant", at: now => now };
   if (normalized === "today") return { kind: "day", start: now => startOfUtcDay(now) };
   if (normalized === "yesterday") return { kind: "day", start: now => startOfUtcDay(now) - DAY_MS };
-  const relative = /^-(\d{1,6})([hdw])$/.exec(normalized);
+  const relative = /^-(\d{1,6})([mhdw])$/.exec(normalized);
   if (relative) {
-    const unit = relative[2] === "h" ? 3_600_000 : relative[2] === "d" ? DAY_MS : 7 * DAY_MS;
+    const unit = relative[2] === "m" ? 60_000 : relative[2] === "h" ? 3_600_000 : relative[2] === "d" ? DAY_MS : 7 * DAY_MS;
     const offset = Number(relative[1]) * unit;
     return { kind: "instant", at: now => now - offset };
   }
   throw new BlockQueryError(
-    `Invalid time value: ${value}; use YYYY-MM-DD, an ISO datetime, now, today, yesterday or -N followed by h, d or w`,
+    `Invalid time value: ${value}; use YYYY-MM-DD, an ISO datetime, now, today, yesterday or -N followed by m, h, d or w (-30m, -2h, -7d)`,
   );
 }
 
