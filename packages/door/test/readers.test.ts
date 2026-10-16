@@ -425,6 +425,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await fresh();
     key({ kind: "enter" });
     await whole(B().details[0]);
+    frame();
     key({ kind: "pgdn" });
     const lines = frame(), r = rect("detail0"), pv = rect("preview");
     expect(lines[r.row]).toMatch(/detail 1 · held · \d+%/);
