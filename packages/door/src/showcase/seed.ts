@@ -1500,7 +1500,7 @@ if (request.input.request === "describe the beds") {
   notes.gallery = await make(notes.root.id, galleryText());
   for (const card of galleryCards()) await make(notes.gallery.id, card);
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.
-  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia"]).length) {
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia", "intake"]).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.extensions.some(e => e.id === "marginalia" && e.state === "active")) await Bun.sleep(100);
   }

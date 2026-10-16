@@ -522,6 +522,11 @@ export class AgentRequests {
     this.deps.changed(blockId);
   }
 
+  private unanswered(name: string): string {
+    const names = [...this.registry.agentNames()].sort().map(name => `@${name}`).join(" ");
+    return `no agent answers @${name} · agents here: ${names || "none"}`;
+  }
+
   /**
    * A person typed in a draft a door holds (`drafts.touch`; `text` is the draft as the door has it). A request
    * line the draft has and the saved note never had runs once the draft has been quiet, as a save's would: the
@@ -532,7 +537,11 @@ export class AgentRequests {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return;
-    const lines = requestLines(text, this.registry.agentNames());
+    const names = this.registry.agentNames();
+    for (const line of requestLines(text, null)) {
+      if (!names.has(line.agent)) this.deps.changed(blockId, { line: line.text, state: "unanswered", warning: this.unanswered(line.agent) });
+    }
+    const lines = requestLines(text, names);
     const keys = new Set(lines.map((line) => line.requestKey));
     // A request waiting for quiet that the draft no longer has stops waiting.
     for (const [key, timer] of this.timers) {
@@ -554,6 +563,7 @@ export class AgentRequests {
         this.store.putAgentRequest(kept);
         continue;
       }
+      this.deps.changed(blockId, { line: line.text, state: "queued" });
       this.schedule(blockId, line.requestKey);
     }
   }
@@ -937,13 +947,20 @@ export class AgentRequests {
     const block = this.store.get(blockId);
     if (!block) return [];
     const rows = new Map(this.store.agentRequests(blockId).map((row) => [row.requestKey, row]));
-    const lines = this.lines(block);
+    const lines = requestLines(block.text, null);
     // A note a reader opens: what it holds now is the baseline a later save is compared with.
     if (this.store.agentRequestBaseline(blockId) === null) this.remember(blockId, this.shapes(block));
     return lines
       .filter((candidate) => line === undefined || candidate.line === line)
       .map((candidate) => {
-        const bound = this.registry.agent(candidate.agent)!;
+        const bound = this.registry.agent(candidate.agent);
+        if (!bound) return {
+          anchor: { kind: "directive" as const, line: candidate.line, start: candidate.start, end: candidate.end },
+          provider: "agents", label: "Agents", propertyKey: `@${candidate.agent}`, key: `@${candidate.agent}`,
+          kind: "agent" as const, options: { unknown: [] }, fields: [], status: "unavailable" as const,
+          reason: this.unanswered(candidate.agent),
+          agent: { name: candidate.agent, status: "unanswered", message: this.unanswered(candidate.agent) },
+        };
         const row = rows.get(candidate.requestKey);
         const scheduled = this.timers.has(this.key(blockId, candidate.requestKey));
         const base = {

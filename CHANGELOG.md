@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Inline asks explain unknown agents and use the draft's context (PIE-914)
+
+- `@prior-art` without a reference searches the ask and its note, returning links or “Nothing like this yet.” Questions about when it triggered get a one-line explanation of what it does.
+- Unknown line-start `@name` asks stay as typed, with an inline note naming the agents here. Quoted asks stay inert.
+- Draft titles follow the first line while typing. Answer badges shorten or wrap without clipping or inheriting the cursor highlight.
+- The asks showcase walks through these in a new unsaved note.
+- Deployment: PROTOCOL 191; run `ep0ch install --apply` on float-2 and the MacBook to restart the host and clients together.
+
 ### Scripts opt in and run read-only by default (PIE-908)
 
 Only header-opted-in files in the outline folder’s `.ep0ch/scripts/` load. `ep0ch ext ls` explains ignored

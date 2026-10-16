@@ -3529,6 +3529,40 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   }, 40_000);
 
+  test("asks in a new unsaved note show unknown agents, live titles and fitting badges (PIE-914)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "asks" }, as: "test-agent" });
+    screen();
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "asks")).top;
+    await (app as any).dispatch.press("note.new", { opens: "float" });
+    const writing = () => [...stage.panes.values()].find(p => p.surface?.draft) as ReaderPane;
+    await until(() => !!writing(), "the new draft");
+    const r = writing(), d = r.surface.draft!;
+    const tile = stage.nameOf([...stage.panes].find(([, p]) => p === r)![0]);
+    await stage.dispatch.press("draft.paste", { text: "yo yo yo this is a test\n\n@ask whats up\n\n@prior-art agent in the outline how do you do\n\n@prior-art when did this trigger ...\n" }, tile);
+    screen();
+    expect(screen()).toMatch(/[═─].*yo yo yo this is a test/);
+    expect(r.title()).toContain("yo yo yo this is a test");
+    expect(r.surface.render(80, 40, r.host(stage)).lines.map(plain).join("\n")).toContain("editing · yo yo yo this is a test");
+    await until(() => screen().includes("no agent answers @ask"), "the unknown ask explained");
+    expect(d.text).toContain("@ask whats up");
+    await until(() => d.answerFolds().length === 2 && d.text.includes("I find earlier related notes"), "both prior-art answers", 15000).catch(error => { throw new Error(`${error.message}\n${d.text}\n${JSON.stringify([...d.asks])}`); });
+    const narrow = d.render(48, 60).map(plain);
+    expect(narrow.join("\n")).toContain("beside ▸");
+    expect(narrow.every(line => Bun.stringWidth(line) <= 48)).toBe(true);
+    expect(narrow.join("\n")).toContain("agents here:");
+    await stage.dispatch.press("rich.toggle", {}, tile);
+    expect(r.surface.render(48, 60, r.host(stage)).lines.map(plain).join("\n")).toContain("no agent answers @ask");
+    await stage.dispatch.press("rich.toggle", {}, tile);
+    expect((await board.get(d.blockId))!.text).toBe("");
+    await stage.dispatch.press("edit.save", {}, tile);
+    expect((await board.get(d.blockId))!.text).toContain("@ask whats up");
+    const saved = await board.request<any>("resources.projection.read", { blockId: d.blockId });
+    expect(saved.projections.some((p: any) => p.reason?.includes("no agent answers @ask"))).toBe(true);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+  }, 30000);
+
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });

@@ -100,8 +100,8 @@ async function searchArchive(title: string): Promise<string[]> {
 }
 
 /** Everything found for a request, as the note's body: a list per place, then a line on likely duplicates. */
-async function findings(request: Block, ask: { model: boolean }): Promise<{ body: string; found: number }> {
-  const title = titleOf(request.text);
+async function findings(request: Block, ask: { model: boolean; words?: string }): Promise<{ body: string; found: number }> {
+  const title = ask.words ?? titleOf(request.text);
   if (!keywords(title).length) return { body: "Nothing to search for: the request's title has no words worth looking up.", found: 0 };
   const skip = new Set([request.id]);
   const sections: { where: string; lines: string[]; error?: string }[] = [];
@@ -123,7 +123,7 @@ async function findings(request: Block, ask: { model: boolean }): Promise<{ body
   const dupes = all.filter((h) => alike(title, h.title) >= 0.5);
   let verdict = dupes.length
     ? `Likely duplicate${dupes.length === 1 ? "" : "s"}: ${dupes.slice(0, 3).map((h) => h.link).join(", ")} (most of the same words in the title).`
-    : "No likely duplicates (judged by the titles' words alone).";
+    : all.length ? "No likely duplicates (judged by the titles' words alone)." : "Nothing like this yet.";
   // Only the agent (effects: spend) asks the model; the action run by hand never does.
   if (ask.model && config.answer?.length) verdict = await judged(request, list.join("\n")).catch((error: Error) => `${verdict} The answer command failed: ${error.message}`);
   return { body: [...list, verdict].join("\n").trim(), found: all.length };
@@ -175,11 +175,14 @@ if (request.operation === "act" && request.input.action === "prior-art") {
   const input = request.input;
   const note = input.note as { id: string; text: string };
   const ref = /\(\(([0-9a-f-]{36})/i.exec(String(input.request ?? ""))?.[1];
-  const target = ref ? await outline<Block>({ action: "get", blockId: ref }).catch(() => null) : null;
-  if (!target) {
-    ok({ reply: "Name the request to look into: @prior-art what came before ((id))?" });
+  const target = ref ? await outline<Block>({ action: "get", blockId: ref }).catch(() => null) : { ...note, revision: 0 };
+  const capability = "I find earlier related notes using this ask and the note's text.";
+  if (!target || (!ref && /^(?:when|why|how)\b.*\btrigger(?:ed)?\b/i.test(input.request.trim()))) {
+    ok({ reply: capability });
   } else {
-    const { body, found } = await findings(target, { model: true });
+    // An inline ask has no separate request block: search its words and the prose around it, not earlier answers.
+    const prose = note.text.split("\n").filter(line => !/^\s*(?:>|@)/.test(line)).join(" ");
+    const { body, found } = await findings(target, { model: true, ...(!ref ? { words: `${input.request} ${prose}` } : {}) });
     const looking = note.text.split("\n").find((line) => line.startsWith(LOOKING));
     // The "Looking in …" line is where it goes; gone (the person rewrote the note), the answer is a reply instead.
     ok(looking

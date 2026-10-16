@@ -14,7 +14,8 @@ import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
-import { bg, C, chip, fg, RESET } from "./style";
+import { bg, C, chip, fg, RESET, width } from "./style";
+import { wrap } from "./text";
 import { lastTop, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
@@ -950,9 +951,13 @@ export class Draft {
     this.onAskSelected?.(this.line, answer?.key);
   }
 
-  askStatus(line: string): string {
+  askStatus(line: string, room = Infinity): string {
     const ask = this.asks.get(line);
-    return ask ? ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}` : "";
+    if (!ask) return "";
+    if (ask.warning) return ` · ${ask.warning}`;
+    const short = ` · ${ask.state}${ask.beside ? " · beside ▸" : ""}`;
+    const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}`;
+    return width(full) <= room ? full : short;
   }
 
   answerFolds() {
@@ -988,7 +993,14 @@ export class Draft {
     this.lines.forEach((line, i) => {
       if (hidden.has(i)) return;
       const chars = [...line];
-      for (const r of wrapRows(chars, Math.max(4, w), hangOf(line, Math.max(4, w)))) out.push({ line: i, ...r });
+      const rows = wrapRows(chars, Math.max(4, w), hangOf(line, Math.max(4, w)));
+      for (const r of rows) out.push({ line: i, ...r });
+      const last = rows.at(-1)!;
+      const room = w - last.indent - width(chars.slice(last.start, last.end).join("")) - (i === this.row ? 1 : 0);
+      const status = this.askStatus(line, room);
+      if (status && width(status) > room) {
+        for (const text of wrap(status.trim(), Math.max(4, w))) out.push({ line: i, start: chars.length, end: chars.length, indent: 0, status: text });
+      }
     });
     return out;
   }
@@ -998,7 +1010,7 @@ export class Draft {
     const cp = [...this.line.slice(0, this.col)].length;
     let vi = rows.findIndex(r => r.line === this.row);
     if (vi < 0) return { vi: 0, x: 0 };
-    while (vi + 1 < rows.length && rows[vi + 1]!.line === this.row && rows[vi + 1]!.start <= cp) vi++;
+    while (vi + 1 < rows.length && rows[vi + 1]!.line === this.row && !rows[vi + 1]!.status && rows[vi + 1]!.start <= cp) vi++;
     const r = rows[vi]!;
     return { vi, x: r.indent + cp - r.start };
   }
@@ -1019,7 +1031,7 @@ export class Draft {
       this.col = Math.min(this.col, this.line.length);
       return;
     }
-    const rows = this.layout(this.shown.w), at = this.cursorIn(rows);
+    const rows = this.layout(this.shown.w).filter(r => !r.status), at = this.cursorIn(rows);
     this.goal ??= at.x;
     const p = this.posIn(rows, at.vi + d, this.goal);
     this.row = p.row; this.col = p.col;
@@ -1064,6 +1076,7 @@ export class Draft {
     });
     for (let vi = this.top; vi < Math.min(rows.length, this.top + h); vi++) {
       const r = rows[vi]!, chars = [...this.lines[r.line]!];
+      if (r.status) { out.push(fg(C.lmagenta) + r.status + RESET); continue; }
       const cells = chars.slice(r.start, r.end).map(c => (c === "\t" || c < " " ? " " : c));
       // Selected cells, in this row's own cells.
       let s0 = -1, s1 = -1;
@@ -1087,9 +1100,10 @@ export class Draft {
         line += c;
       });
       const progress = rows[vi + 1]?.line !== r.line ? this.askStatus(this.lines[r.line]!) : "";
-      if (progress) line += fg(C.lmagenta) + progress.slice(0, Math.max(0, w1 - r.indent - Bun.stringWidth(cells.join(""))));
+      const roomForStatus = Math.max(0, w1 - r.indent - width(cells.join("")));
+      if (progress) line += RESET + fg(C.lmagenta) + this.askStatus(this.lines[r.line]!, roomForStatus);
       const said = glow.find(g => g.last)?.label;
-      const room = w1 - r.indent - Bun.stringWidth(cells.join("")) - 2;
+      const room = w1 - r.indent - width(cells.join("")) - width(progress ? this.askStatus(this.lines[r.line]!, roomForStatus) : "") - 2;
       out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + ("@" + said).slice(0, room) + RESET : ""));
     }
     return out;
@@ -1097,7 +1111,7 @@ export class Draft {
 }
 
 /** One drawn row of a draft: line `line`, code points [start, end), drawn `indent` cells in. */
-export interface VRow { line: number; start: number; end: number; indent: number }
+export interface VRow { line: number; start: number; end: number; indent: number; status?: string }
 
 /** The keys that select with shift held (`Draft.key`). */
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);

@@ -129,3 +129,25 @@ console.log("notes/" + word + ".md");`);
   expect(priorArt(store, trellis.id)!.text).toContain("- couldn't search: the archive command exited 2: archive offline");
   expect(existsSync(join(root, "asked"))).toBe(false);
 });
+
+
+test("ref-less prior art searches the ask and its note, and quoted answers never ask again", async () => {
+  const { store, client, create } = await setup();
+  const earlier = await create("Greenhouse irrigation timer wiring");
+  const ask = await create("Greenhouse irrigation timer\n\n@prior-art find wiring\n");
+  await until("the inline answer", () => store.agentRequests(ask.id).some(row => row.status === "replied"));
+  const answered = store.get(ask.id)!;
+  expect(answered.text).toContain(`((${earlier.id}|Greenhouse irrigation timer wiring))`);
+  expect(answered.text).not.toContain("Name the request");
+  expect(store.agentRequests(ask.id)).toHaveLength(1);
+  const empty = await create("Zyzzyva quux\n\n@prior-art find zyzzyva quux\n");
+  await until("no related notes", () => store.agentRequests(empty.id).some(row => row.status === "replied"));
+  expect(store.get(empty.id)!.text.toLowerCase()).toContain("nothing like this yet");
+  const question = await create("An unrelated question\n\n@prior-art when did this trigger\n");
+  await until("the capability answer", () => store.agentRequests(question.id).some(row => row.status === "replied"));
+  expect(store.get(question.id)!.text).toContain("I find earlier related notes");
+  expect(store.get(question.id)!.text).not.toContain("Name the request");
+  const quoted = await create("> [!note]- @prior-art answered\n> @prior-art find wiring\n");
+  expect((await client.request<{ projections: unknown[] }>({ action: "resources.projection.read", blockId: quoted.id })).projections).toEqual([]);
+  expect(store.agentRequests(quoted.id)).toHaveLength(0);
+});

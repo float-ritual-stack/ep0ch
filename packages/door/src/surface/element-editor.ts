@@ -325,7 +325,7 @@ export class ElementEdit {
     let x = 0; this.controls = labels.map(([label, action, op]) => { const c = { from: x, to: x + label!.length, action: action as "rich.toggle" | "rich.change", op }; x += label!.length + 1; return c; });
     const body: string[] = [], spots: typeof this.spots = [];
     const hidden = d.hiddenAnswerLines();
-    const source = (start: number, end: number) => d.lines.slice(start, end).filter((_, i) => !hidden.has(start + i)).map(line => line + d.askStatus(line).slice(0, Math.max(0, w - width(line)))).join("\n");
+    const source = (start: number, end: number) => d.lines.slice(start, end).filter((_, i) => !hidden.has(start + i)).map(line => line + (width(d.askStatus(line, w - width(line))) <= w - width(line) ? d.askStatus(line, w - width(line)) : `\n${d.askStatus(line).trim()}`)).join("\n");
     let at = 0, cursor = 0;
     for (const e of this.elements()) {
       if (hidden.has(e.start)) continue;
