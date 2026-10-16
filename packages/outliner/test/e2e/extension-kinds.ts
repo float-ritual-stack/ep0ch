@@ -43,7 +43,7 @@ const result = await runHerdrScenario({
       action: "navigation.dispatch", sourceClientId: tree.clientId, destination: { clientId: detail.clientId, region: "detail" },
       intent: "open", target: { kind: "block", blockId: request.id },
     });
-    await s.waitVisible(s.panes.detail, "tidied 1 line above");
+    await s.waitVisible(s.panes.detail, "formatted 1 line");
     await s.waitVisible(s.panes.detail, "call the printer");
     assert.equal((await s.client.request<any>({ action: "get", blockId: request.id })).text, "Morning plan\n- call the printer\n@tidy");
     await s.checkpoint("agent-request-applied");

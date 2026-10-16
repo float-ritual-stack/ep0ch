@@ -624,13 +624,13 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const e = await editing("Bench list\n");
     e.type("the  vice   and the clamps");
     e.d.newline(false); e.s.render(50, 12, e.h);
-    e.type("@tidy tidy the line above");
+    e.type("@tidy");
     const saved = (await board.get(e.id))!.text;
     await until(() => e.d.text.includes("the vice and the clamps"), "@tidy's answer in the draft", 20_000);
     expect(e.d.writers.map(actorIdOf)).toContain("ext:tidy");
     expect((await board.get(e.id))!.text).toBe(saved);                    // nothing saved yet: it waits for the person
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, { kind: "user" });
-    expect((await board.get(e.id))!.text).toContain("the vice and the clamps\n@tidy tidy the line above");
+    expect((await board.get(e.id))!.text).toContain("the vice and the clamps\n@tidy");
   }, 40_000);
 
   async function gardener() {

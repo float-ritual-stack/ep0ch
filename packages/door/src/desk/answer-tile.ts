@@ -7,6 +7,7 @@ import { actionSet, def, ActionRefused } from "../surface/actions";
 import { refOfLink, type Link } from "../surface/note";
 import type { LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
+import { projectionsOf } from "../projection";
 
 /** The same draft viewed beside its editor; no copied answer buffer or save path. */
 export class AnswerTile implements Pane {
@@ -44,7 +45,10 @@ export class AnswerTile implements Pane {
     const text = reader.surface.draft?.text ?? reader.msg?.text ?? "";
     const lines = text.split("\n"), fold = this.answer(text);
     this.links = [];
-    const doc = reader.surface.snippetDoc(fold ? lines.slice(fold.line + 1, fold.end).map(l => stripQuotes(l, 1)).join("\n") : "Waiting for the answer…", w, reader.host(desk), this.links);
+    const draft = reader.surface.draft;
+    const projection = reader.msg && projectionsOf(reader.msg, reader.surface.src).find(p => p.kind === "agent" && p.anchor?.line === lines.indexOf(this.ask));
+    const status = draft?.askStatus(this.ask).replace(/^ · /, "") || projection?.summary || projection?.reason;
+    const doc = reader.surface.snippetDoc(fold ? lines.slice(fold.line + 1, fold.end).map(l => stripQuotes(l, 1)).join("\n") : status || "Waiting for the answer…", w, reader.host(desk), this.links);
     this.ranges = doc.links;
     this.total = doc.lines.length; this.room = h;
     this.top = Math.max(0, Math.min(this.top, this.total - h));

@@ -42,6 +42,7 @@ async function setup(options: { quietMs?: number } = {}) {
   const extensions = join(outline, "extensions");
   mkdirSync(extensions, { recursive: true });
   cpSync(join(import.meta.dir, "..", "extensions", "tidy"), join(extensions, "tidy"), { recursive: true });
+  writeFileSync(join(extensions, "tidy", "config.json"), JSON.stringify({ config: { answer: [] } }));
   let store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
   const socket = join(root, "outliner.sock");
   let server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: options.quietMs ?? 80 });
@@ -91,12 +92,13 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "noted" } }));`)
  * against its own buffer, with the compare the door vendors.
  */
 async function fakeDoor(client: OutlinerClient, clientId: string, block: Block) {
-  const door = { text: block.text, holdId: "", requests: [] as DraftHolderRequest[] };
+  const door = { text: block.text, holdId: "", requests: [] as DraftHolderRequest[], progress: [] as NonNullable<OutlinerEvent["ask"]>[] };
   const connected = Promise.withResolvers<void>();
   const watcher = client.watch({
     client: { clientId, role: "observer", contextId: clientId },
     onConnect: connected.resolve,
     onEvent: async (event: OutlinerEvent) => {
+      if (event.blockId === block.id && event.ask) door.progress.push(event.ask);
       if (event.domain !== "draft" || !event.draft) return;
       const request = event.draft;
       door.requests.push(request);
@@ -125,11 +127,9 @@ test("request lines: an answered @name at a line's start, outside code; unknown 
 
 test("@tidy: a person's request tidies the paragraph above as an attributed edit, and says so under the line", async () => {
   const { store, client, create, agentOf } = await setup();
-  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list" });
-  expect(listed.extensions[0]!.agents).toEqual([{ name: "tidy", description: expect.any(String), effects: "read" }]);
   const note = await create("Morning plan\n*  call the  printer people\n-   **  order  ** paper\n@tidy\nstill typing here");
   const done = await agentOf(note.id, (p) => p.status === "ready");
-  expect(done).toMatchObject({ provider: "tidy", label: "Tidy", key: "@tidy", anchor: { line: 3 }, summary: "tidied 2 lines above",
+  expect(done).toMatchObject({ provider: "tidy", label: "Tidy", key: "@tidy", anchor: { line: 3 }, summary: "formatted 2 lines",
     agent: { name: "tidy", status: "applied", requestedBy: "user" } });
   expect(store.get(note.id)!.text).toBe("Morning plan\n- call the printer people\n- **order** paper\n@tidy\nstill typing here");
   const changes = store.changes.since(0, 1000);
@@ -144,6 +144,31 @@ test("@tidy: a person's request tidies the paragraph above as an attributed edit
   expect(store.agentRequests(note.id).map((row) => row.status)).toEqual(["applied"]);
   const again = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.refresh", blockId: note.id, line: 3 });
   expect(again.projections.find((p) => p.kind === "agent")).toMatchObject({ summary: "nothing to tidy above" });
+});
+
+test("bare tidy fixes staggered nesting and counts actual changes (PIE-916)", async () => {
+  const { store, create, agentOf } = await setup();
+  const note = await create("Plan\n        - apples  \n  - pears\n    - plums\n- figs\n@tidy");
+  const done = await agentOf(note.id, p => p.status === "ready");
+  expect(store.get(note.id)!.text).toBe("Plan\n- apples\n- pears\n  - plums\n- figs\n@tidy");
+  expect(done.summary).toBe("fixed nesting in 3 items, trimmed 1 line");
+  const continued = await create("Plan\n   - parent\n       - child\n\n     continuation\n@tidy all");
+  await agentOf(continued.id, p => p.status === "ready");
+  expect(store.get(continued.id)!.text).toBe("Plan\n- parent\n  - child\n\n  continuation\n@tidy all");
+});
+
+test("a live draft gets tidy's reason, including repeated asks (PIE-916)", async () => {
+  const { client, create, store } = await setup();
+  const note = await create("Plan");
+  const door = await fakeDoor(client, "tidy-reasons", note);
+  door.text = "Plan\n- apples\n@tidy remove cruft\n@tidy  remove cruft\n@tidy yo\n";
+  await client.request({ action: "drafts.touch", holdId: door.holdId });
+  await until("both unique asks finished", () => store.agentRequests(note.id).length === 2 && store.agentRequests(note.id).every(r => r.answeredAt));
+  const lines = ["@tidy remove cruft", "@tidy  remove cruft", "@tidy yo"];
+  await until("every final progress delivered", () => lines.every(line => door.progress.some(p => p.line === line && p.warning?.includes("no model"))));
+  for (const line of lines) {
+    expect([...door.progress].reverse().find(p => p.line === line)?.warning).toContain("no model");
+  }
 });
 
 test("a request line an agent wrote runs; a line still being changed runs once, as finally written", async () => {

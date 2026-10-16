@@ -252,7 +252,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const drawn = omenList.filter(o => t.includes(`[ ] ${o}`));
     expect(drawn.length).toBeGreaterThanOrEqual(1);
     expect(t).toContain("[w ward] [keep] [r run again]");
-    expect(t).toMatch(/Tidy @tidy · applied · tidied 1 line above/);
+    expect(t).toMatch(/Tidy @tidy · applied · formatted 1 line/);
     expect(t).toContain("[r ask again]");
     // @tidy applied an attributed edit: the line above it is tidied, by ext:tidy.
     const after = (await board.get(note.id))!;

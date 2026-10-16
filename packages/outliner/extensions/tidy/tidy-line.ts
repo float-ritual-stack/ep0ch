@@ -8,6 +8,8 @@ function tidyGap(text: string): string {
   return text.replace(/\*\*\s+([^*\n]*?)\s+\*\*/g, "**$1**").replace(/ {2,}/g, " ");
 }
 
+export const LIST_ITEM = /^(\s*)(?:[-*+]|\d{1,9}[.)])\s+/;
+
 /** One line: bullets as `-`, one space after a list marker and a heading's `#`, no runs of spaces, no trailing space. */
 export function tidyLine(line: string): string {
   let out = line.replace(/\s+$/, "");
@@ -22,4 +24,37 @@ export function tidyLine(line: string): string {
     cursor = at + match[0].length;
   }
   return lead + body + tidyGap(out.slice(cursor));
+}
+
+/** Keep relative parent/child order, normalizing each increase to one two-space level. */
+export function tidyPassage(lines: string[]): { replacement: string; message: string } {
+  const indents: { indent: number; shift: number }[] = [];
+  let nested = 0, trimmed = 0, formatted = 0;
+  let fence = "";
+  const replacement = lines.map(line => {
+    const lead = /^\s*/.exec(line)![0].replaceAll("\t", "  ").length;
+    const item = LIST_ITEM.exec(line);
+    const parent = [...indents].reverse().find(item => item.indent < lead);
+    // A continuation belongs to its item even across a blank line or inside a fenced example.
+    if ((!item || fence) && parent && line.trim() && lead > parent.indent) {
+      line = " ".repeat(Math.max(0, lead + parent.shift)) + line.trimStart();
+    } else if (!item && line.trim() && lead === 0) indents.length = 0;
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) { if (!fence) fence = marker; else if (marker[0] === fence[0] && marker.length >= fence.length) fence = ""; return line; }
+    if (fence) return line;
+    let out = tidyLine(line);
+    if (/\s+$/.test(line)) trimmed++;
+    if (out !== line.trimEnd()) formatted++;
+    if (item) {
+      const indent = item[1]!.replaceAll("\t", "  ").length;
+      while (indents.length && indent < indents.at(-1)!.indent) indents.pop();
+      if (!indents.length || indent > indents.at(-1)!.indent) indents.push({ indent, shift: indents.length * 2 - indent });
+      const lead = "  ".repeat(indents.length - 1);
+      if (lead !== item[1]) { out = lead + out.slice(item[1]!.length); nested++; }
+    } else if (out && !/^\s/.test(out)) indents.length = 0;
+    return out;
+  }).join("\n");
+  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+  const changes = [nested ? `fixed nesting in ${count(nested, "item")}` : "", trimmed ? `trimmed ${count(trimmed, "line")}` : "", formatted ? `formatted ${count(formatted, "line")}` : ""].filter(Boolean);
+  return { replacement, message: changes.join(", ") || "nothing to tidy above" };
 }
