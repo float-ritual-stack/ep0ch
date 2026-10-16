@@ -29,6 +29,7 @@ import {
 } from './references'
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
+import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -303,6 +304,28 @@ export function register(on: On, options: PluginOptions): void {
     await refreshMentions($, option)
     return { text: choicesText(chosen, chosen.placement !== 'pane' || await paneIsPlaced($)) }
   })
+
+  // Messages between Claude sessions (hooks/peer-log.ts): each one this session sends or receives (the model's
+  // SendMessage, a mod's `$.session.send`, the /msg prompt command) is copied under the bound outline's [[peer-messages]]
+  // page, off the delivery so a slow or missing `ep0ch` never holds a message up.
+  on('session.send', async ($, e, next) => {
+    const sent = await next(e)
+    if (sent.isDelivered && e.agentId === undefined) {
+      const ms = await $.clock.now()
+      $.clock.after(0, () => void logPeerMessage($, option, 'to', e.to, ms, e.text))
+    }
+    return sent
+  }).catch(($, e, next) => next(e))
+
+  on('session.receive', async ($, e, next) => {
+    const got = await next(e)
+    if (got.consumed === undefined && e.agentId === undefined && (e.origin.kind === 'peer' || e.origin.kind === 'peer-send-message')) {
+      const { from, body } = unwrapPeer(got.text)
+      const ms = await $.clock.now()
+      $.clock.after(0, () => void logPeerMessage($, option, 'from', from, ms, body))
+    }
+    return got
+  }).catch(($, e, next) => next(e))
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -1148,6 +1171,34 @@ async function runDoorTool(
  * service that cannot answer leaves pages and block references linked, bare
  * IDs not.
  */
+/** The bound outline's [[peer-messages]] page, found (or made) once per outline folder. */
+let peerPage: { root: string; id: string } | undefined
+
+/** Copies one message between sessions under [[peer-messages]] in the bound outline; nothing when none is bound. */
+async function logPeerMessage($: EngineInterface, option: PluginOptions, direction: 'to' | 'from', peer: string, ms: number, body: string): Promise<void> {
+  try {
+    if (!references?.workspace) await loadReferences($, option)
+    const workspace = references?.workspace
+    if (!workspace) return
+    const run = (argv: readonly string[]) => $.process.run(argv, { cwd: workspace.root, env: envFor(workspace), timeoutMs: 20_000 })
+    const actor = await actorFor($, {})
+    if (peerPage?.root !== workspace.root) {
+      const found = await run(findPageArgv())
+      if (found.exitCode !== 0) return void $.ui.log(`peer messages: ep0ch find failed: ${failureReasonOf(found.stderr) || found.stderr.trim()}`)
+      const id = pageIdOf(found.stdout) ?? pageIdOf((await run(createPageArgv(actor))).stdout)
+      if (!id) return void $.ui.log('peer messages: no [[peer-messages]] page, and ep0ch new could not make one')
+      peerPage = { root: workspace.root, id }
+    }
+    const ran = await run(entryArgv(peerPage.id, entryOf(direction, peer, ms, body), actor))
+    if (ran.exitCode !== 0) {
+      peerPage = undefined
+      $.ui.log(`peer messages: ep0ch new failed: ${failureReasonOf(ran.stderr) || ran.stderr.trim()}`)
+    }
+  } catch (error) {
+    $.ui.log(`peer messages: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 function loadReferences($: EngineInterface, option: PluginOptions): Promise<void> {
   if (loadingReferences) return loadingReferences
   const workspace = (loadingWorkspace = readWorkspace($, option))

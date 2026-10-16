@@ -541,6 +541,19 @@ When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets
   a block id opens in a folder bound to no outline too. `show` (above) is the way to
   put a note beside Claude wherever it runs.
 
+## Messages between sessions
+
+`/msg <name> <text>` asks Claude to send a message to another Claude session for you, the name as `ListAgents` lists
+it (a session on this machine, or one on another machine over Remote Control). It is a prompt command
+(`commands/msg.md`): what you type becomes your request, so in auto mode the classifier judges the send against it,
+and no allow rule for `SendMessage` is needed. The message goes out prefixed `[sysop]`, so the other session knows you
+sent it through Claude; a message that starts with a `[tag]` of its own keeps it.
+
+Every message this session sends or receives (the model's SendMessage, a mod's `$.session.send`, `/msg`) is copied as
+a note under the bound outline's `[[peer-messages]]` page, made on the first message: `→ to loki-sr · 2026-10-16 14:02`
+or `← from loki-sr · …` over the text. A folder bound to no outline sends without a copy; a copy that fails says why
+in a dim transcript line and never holds the message up. Messages between this session's own subagents aren't copied.
+
 ## Use
 
 Function hooks are early access and need `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
