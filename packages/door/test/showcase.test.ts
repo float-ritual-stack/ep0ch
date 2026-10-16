@@ -3287,44 +3287,60 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "agents.go", args: { session: of("fern").id }, as: "test-agent" })).rejects.toThrow();
   }, 30_000);
 
-  test("the what-changed section (PIE-647): a scripted agent changes three notes, the status bar counts 3, a click opens the list in the drawer, a row opens its note, and the count clears", async () => {
+  test("the what-changed section (PIE-647): a scripted agent changes three notes and links a work item from a comment, a click opens the list in the drawer, a row opens its note, and the count clears", async () => {
     (app as any).lastInput = 0;
     app.whatChanged.markSeen();
     await app.act({ action: "section", args: { name: "changes" }, as: "test-agent" });
     await until(() => marks.changes!.every(m => screen().includes(m)), "the what-changed section");
     const stage = () => S().stages.get(S().sel).top;
     const bar = () => { (app as any).paint(); return plain(painted.at(-1) ?? ""); };
-    // The section's agent ran when it was first built (an earlier visit may have): a round more, after the person looked.
+    await until(() => app.whatChanged.list().some(r => r.kind === "commented" && r.who === "garden-agent"), "the section agent finished");
+    // A round more, after the person looked.
     app.whatChanged.markSeen();
     await gardenRound(board, seeded.notes);
-    await until(() => app.whatChanged.count() === 3, "three notes counted", 8000);
-    expect(bar()).toContain("+3 new");
+    await until(() => app.whatChanged.count() === 4, "three notes and a comment counted", 8000);
+    expect(bar()).toContain("+4 new");
     // The list on the stage: the three, who and what, titles read; an agent's read changes nothing of the person's.
     // (rows other tests' agents changed stay in the list, seen; the three logs are the unseen ones)
     const logs = () => stage().pane("changes").rows().filter((r: any) => !r.seen) as { blockId: string; title?: string }[];
-    await until(() => logs().length === 3 && logs().every(r => r.title), "the rows with titles");
+    await until(() => { screen(); return logs().length === 4 && logs().every(r => r.title); }, "the rows with titles");
     const listed = await app.act({ action: "changes.list", args: {}, as: "test-agent" }) as any;
-    expect(listed.changed.filter((r: any) => !r.seen).map((r: any) => [r.title, r.who, r.kind, r.seen]).sort()).toEqual([["Bean row log", "garden-agent", "edited", false], ["Compost bay log", "garden-agent", "edited", false], ["Shed door log", "garden-agent", "edited", false]]);
-    expect(app.whatChanged.count()).toBe(3);
-    // A click on +3 new opens the list in the drawer, and looking clears the count.
+    expect(listed.changed.filter((r: any) => !r.seen).map((r: any) => [r.title, r.who, r.kind, r.seen]).sort()).toEqual([["Bean row log", "garden-agent", "edited", false], ["Compost bay log", "garden-agent", "edited", false], ["See HOME-042 for the plan.", "garden-agent", "commented", false], ["Shed door log", "garden-agent", "edited", false]]);
+    expect(app.whatChanged.count()).toBe(4);
+    // Looking at the list clears the count.
     const at = (app as any).changedAt;
     expect(at).not.toBeNull();
     press({ kind: "mouse", action: "down", button: 0, x: at.from + 1, y: at.row });
+    press({ kind: "mouse", action: "up", button: 0, x: at.from + 1, y: at.row });
     await until(() => app.drawer.tabs().some(t => t.kind === "what-changed"), "the list in the drawer", 5000);
     expect(app.drawer.open).toBe(true);
     expect(app.whatChanged.count()).toBe(0);
     expect(bar()).not.toContain("new");
     press({ kind: "char", ch: "]", ctrl: true });
-    await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" }).catch(() => {});
-    // A row opens its note where opens land (the reader beside the list).
-    const first = logs()[0] ?? stage().pane("changes").rows()[0];
-    await stage().dispatch.press("changes.go", { id: first.blockId }, "changes");
-    await until(() => stage().pane("reader").msg?.id === first.blockId, "the note in the reader");
-    // d shows the change under the row.
-    await stage().dispatch.press("changes.diff", { id: first.blockId }, "changes");
-    const diffOf = () => stage().pane("changes").describe().find((r: any) => r.id === first.blockId).diff as string[] | null;
-    await until(() => (diffOf() ?? ["…"])[0] !== "…", "the diff read");
-    expect(diffOf()!.join("\n")).toMatch(/^[ +-] /m);
+    press({ kind: "alt", ch: "a" });
+    await until(() => !app.drawer.open, "drawer put away");
+    // The comment is readable by its label in the list, the reader and the power bar.
+    const comment = stage().pane("changes").rows().find((r: any) => r.title === "See HOME-042 for the plan.");
+    expect(comment).toBeDefined();
+    await stage().dispatch.press("changes.go", { id: comment.blockId }, "changes");
+    const reader = () => stage().pane("reader") as ReaderPane;
+    await until(() => reader().msg?.id === comment.blockId && screen().includes("on Bean row log"), "the comment and its subject");
+    expect(screen()).not.toContain(`((${seeded.notes.title.id}`);
+    const barRows = await app.act({ action: "bar.open", args: { scope: "recent", query: "HOME-042" }, as: "test-agent" }) as any;
+    expect(JSON.stringify(barRows)).toContain("See HOME-042 for the plan.");
+    const link = () => (reader().surface.describeElements() as any[]).find(e => e.label.includes("HOME-042"));
+    await until(() => { screen(); return !!link(); }, "the comment's outlink");
+    await stage().dispatch.press("element.open", { n: link().n }, "reader");
+    await until(() => reader().msg?.id === seeded.notes.title.id, "the linked work item");
+    // The border count is the same picker as v and backlinks.groups.
+    await stage().dispatch.press("backlinks", {}, "reader");
+    await until(() => screen().includes(" sources"), "the links count");
+    const lines = screen().split("\n"), y = lines.findIndex(l => /\d+ sources?/.test(l));
+    const x = lines[y]!.search(/\d+ sources?/);
+    press({ kind: "mouse", action: "down", button: 0, x: x + 1, y });
+    press({ kind: "mouse", action: "up", button: 0, x: x + 1, y });
+    await until(() => screen().includes("groups this tile lists"), "sources opens the group picker");
+    press({ kind: "esc" });
     press({ kind: "esc" });
   }, 30_000);
 

@@ -2,6 +2,7 @@
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { printable } from "./text";
+import { presentLinks, stripMarks } from "./refs";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { withoutHeaderDashes } from "@ep0ch/outline-core/header-line";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
@@ -105,7 +106,7 @@ export function bodyLinesOf(text: string): { text: string; literal: boolean }[] 
   return text.split("\n").flatMap((l, i) => (i < from || lit?.markers.has(i) ? [] : [{ text: l, literal: !!lit?.inside.has(i) }]));
 }
 /** A note's title as drawn: its first line, nothing in it a terminal acts on (an extension's write can store an escape). */
-export const subject = (m: Msg) => { const t = titleLine(m.text); return printable(t.text, " ").trim() || (t.line < 0 ? "(empty)" : "(untitled)"); };
+export const subject = (m: Msg) => { const t = titleLine(m.text); return printable(stripMarks(presentLinks(t.text, false, null)), " ").trim() || (t.line < 0 ? "(empty)" : "(untitled)"); };
 /** A title with its work id before it, unless the title already starts with it: "HUB-007 End-of-day update", as /notes rows read. */
 export const withWorkId = (workId: string | undefined, title: string) => (workId && !title.startsWith(workId) ? `${workId} ` : "") + title;
 /** A note as a list row reads it: its work id, then its title. */

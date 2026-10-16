@@ -173,8 +173,12 @@ export class BacklinksPane implements Pane {
       const c = this.children;
       return `${word} · ${subject(this.target).slice(0, 50)} · ${c.kind === "ready" ? `${c.value.length} repl${c.value.length === 1 ? "y" : "ies"}` : "…"}`;
     }
-    const n = this.data ? ` · ${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : " · …";
-    return `${word} · ${subject(this.target).slice(0, 50)}${n}`;
+    return `${word} · ${subject(this.target).slice(0, 50)}`;
+  }
+  headControls(_room: number, desk: DeskApi) {
+    if (!this.target || this.childrenOnly) return null;
+    return [{ text: this.data ? `${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : "… sources", sgr: fg(C.lcyan),
+      chip: true as const, press: () => this.run(desk, "backlinks.groups", { choose: true }) }];
   }
   hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.source} · alt+⏎ new detail · b ${this.follows ? "aim" : "re-aim"} at ${this.source}'s note · . fold · s K w h n view · v groups`; }
   spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
@@ -641,7 +645,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   }),
   "backlinks.groups": def({
     summary: "which groups a links tile lists (PIE-693): show=<groups> (outlinks, resources, backlinks, children, comma-separated, or all), toggle=<group> one on or off, choose=true opens the person's list of them (a click on a row switches one). Saved with the layout. A tile with children alone is the thread tile's replies. At least one group stays",
-    keys: "v, a click on the counters (→ ♦ ← ↓); in its list ⏎ or a click switches one",
+    keys: "v, a click on N sources or the counters (→ ♦ ← ↓); in its list ⏎ or a click switches one",
     touches: "tile", replay: "safe", way: "an agent changes the groups of a links tile the person isn't in", says: r => (r.groups ? `links tile lists ${(r.groups as string[]).join(", ")}` : null),
     menu: { label: "choose its groups", group: "Links", key: "v", args: { choose: true } },
     args: {

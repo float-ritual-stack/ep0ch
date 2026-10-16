@@ -32,7 +32,7 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
@@ -80,7 +80,7 @@ import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
-import { readReplies, linkRows, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
+import { isAnnotationBlock, readReplies, linkRows, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { RowPresses } from "../scroll";
 import { ListPicker } from "./picker";
@@ -337,7 +337,7 @@ interface Laid {
   m: Msg; key: string; doc: Doc; drawn: Link[]; picks: { at: number; lines: number; rows: number[] } | null;
   controls: Control[]; body: string[]; marks: Mark[]; lines: number[]; elems: Element[];
   /** The margin's side column (ADR 0004 contract 6): its width (0: cards fold under their passages), and its cards. */
-  margin: { cols: number; cards: { thread: string; at: number; rows: string[]; controls: Control[]; images: DocImage[] }[] };
+  margin: { cols: number; cards: { thread: string; at: number; rows: string[]; controls: Control[]; images: DocImage[]; links: LinkRange[] }[] };
   /** The annotations' and span rules' marks on the words, by content row: columns and background. Filled on first paint. */
   spans?: Map<number, { from: number; to: number; bg: string }[]>;
   /**
@@ -1848,12 +1848,25 @@ export class NoteSurface {
         },
       } : {};
     });
+    if (isAnnotationBlock(m)) {
+      const context = commentSubject(m.id, src);
+      const target = context?.value;
+      const on = target ? tagged(drawn, target.kind === "block" ? { block: target.blockId } : { resourceRef: `resource:${target.resourceId}` },
+        target.kind === "block" ? presentLinks(`((${target.blockId}))`, false, src) : "Resource") : context?.error ?? "reading comment subject…";
+      const intro = renderDoc(`on ${on}`, env);
+      const outlinks = renderDoc("::outlinks", { ...env, note: m.id, tag: (to, text) => tagged(drawn, to, text) });
+      const withContext = withRows(rendered, [
+        { at: 0, lines: [...intro.lines, ""], links: intro.links },
+        { at: rendered.lines.length, lines: ["", ...outlinks.lines], links: outlinks.links.map(l => ({ ...l, line: l.line + 1 })) },
+      ]).doc;
+      Object.assign(rendered, withContext);
+    }
     placePictures(rendered, drawn);
     // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body; an open status
     // choice (PIE-472) under its step.
     // The comment being written inline (PIE-770) is a box of rows under its passage, after an expanded thread's.
     const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(bw, 96), Math.max(8, h - top)) : null;
-    const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines, host);
+    const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines, host, drawn);
     const { doc, picks } = this.pickerRows(threads.doc, drawn, bw);
     const shift = (r: number) => r + (picks && r >= picks.at ? picks.lines : 0);
     const composer = writing ? {
@@ -1881,9 +1894,15 @@ export class NoteSurface {
     const cards = mcols ? placeCards(cardThreads.flatMap(c => {
       const k = marks.find(x => x.thread === c.id);
       if (!k) return [];
-      const card = this.threadCard(c, mcols - 2, host);
-      return [{ thread: c.id, row: k.row, rows: card.lines, controls: card.controls, images: card.images }];
+      const card = this.threadCard(c, mcols - 2, host, drawn);
+      return [{ thread: c.id, row: k.row, rows: card.lines, controls: card.controls, images: card.images, links: card.links }];
     })) : [];
+    for (const card of cards) {
+      const cardDoc: Doc = { lines: card.rows, links: card.links, images: [], media: [], heads: [], trims: new Map(), blocks: [], source: card.rows.map(() => -1) };
+      const offset = w - mcols + 2 - this.bx;
+      for (const e of this.elementsOf(cardDoc, drawn, [], [], [], [], top + card.at, []))
+        elems.push({ ...e, key: `margin:${card.thread}:${e.key}`, from: e.from + offset, to: e.to + offset });
+    }
     for (const card of cards) for (const c of card.controls) {
       if (elems.some(e => e.key === controlKey(c.thread, c.control, c.value))) continue;
       const row = top + card.at + c.row, from = w - mcols + 2 + c.from, to = w - mcols + 2 + c.to;
@@ -4136,12 +4155,12 @@ export class NoteSurface {
   }
 
   /** Each expanded thread's rows, spliced into the body under the last row of its passage, and its controls. */
-  private threadCard(c: Comment, width: number, host?: SurfaceHost) {
-    return threadPanel(c, width, this.cur, (t, w) => this.snippetDoc(t, w, host, [], true),
+  private threadCard(c: Comment, width: number, host?: SurfaceHost, drawn: Link[] = []) {
+    return threadPanel(c, width, this.cur, (t, w) => this.snippetDoc(t, w, host, drawn, true),
       this.marginMode === "trim" && !this.expanded.has(c.id));
   }
 
-  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
+  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost, drawn: Link[] = []): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
     // A narrow reader folds each annotation's card under its passage (ADR 0004 contract 6), unless the margin is off.
     // The passage of the comment being written (PIE-770): its rows, and its box under them (after its thread, if expanded).
     const span = this.session ? this.composerSpan(this.session, m) : null;
@@ -4163,7 +4182,7 @@ export class NoteSurface {
     const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
       const c = cs.find(x => x.id === k.thread);
       if (!c || !fold || this.printed || !this.threadShown(c.id)) return [];
-      return [{ at: k.rows[1], thread: c.id, ...this.threadCard(c, W, host) }];
+      return [{ at: k.rows[1], thread: c.id, ...this.threadCard(c, W, host, drawn) }];
     });
     if (!panels.length && !box.length) return { doc, controls: [], passage: at, composerAt: null };
     // A reply's box goes right under its own thread; a comment's after every thread on its passage.
@@ -5997,6 +6016,12 @@ export class NoteSurface {
       // Only a card's rows have the column's edge: the margin is quiet where it holds nothing.
       lines[i] = pad(lines[i]!, bodyW) + (card ? fg(C.dark) + "│" + RESET + " " + card.text : " ".repeat(cols));
     }
+    for (const card of laid.margin.cards) for (const l of card.links) {
+      const row = top + card.at + l.line, from = bodyW + 2 + l.from, to = bodyW + 2 + l.to;
+      const e = this.elems.find(e => e.row === row && e.from === from && e.link);
+      if (row - this.scroll >= top && row - this.scroll < top + room)
+        this.hits.push({ row: row - this.scroll, from, to, link: laid.drawn[l.n]!, elem: e?.key });
+    }
     for (const card of laid.margin.cards) for (const c of card.controls) {
       const row = top + card.at + c.row, from = bodyW + 2 + c.from, to = bodyW + 2 + c.to;
       const key = controlKey(c.thread, c.control, c.value);
@@ -6622,12 +6647,14 @@ const COMMENT_CHIP = "[comment]";
 /** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
 export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
 
-function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[] }, trim = false): { lines: string[]; controls: Control[]; images: DocImage[] } {
+function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[]; links?: LinkRange[] }, trim = false): { lines: string[]; controls: Control[]; images: DocImage[]; links: LinkRange[] } {
   // Its pictures (PIE-846), on the panel's own rows: `col` cells in from the panel's left.
   const images: DocImage[] = [];
-  const draw = drawDoc && ((text: string, w: number, col = 2): string[] => {
+  const links: LinkRange[] = [];
+  const draw = drawDoc && ((text: string, w: number, col = 2, interactive = true): string[] => {
     const r = drawDoc(text, w);
     if (Array.isArray(r)) return r;
+    if (interactive) for (const l of r.links ?? []) links.push({ ...l, line: lines.length + l.line, from: col + l.from, to: col + l.to });
     for (const im of r.images ?? []) images.push({ ...im, line: lines.length + im.line, col: col + im.col });
     return r.lines;
   });
@@ -6643,7 +6670,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   if (trim) {
     const summary = c.tldr ? `TL;DR ${c.tldr.body}` : c.replies.at(-1)?.body ?? c.body;
     lines.push(edge + "│ " + fg(C.grey) + ellipsize(body(summary, inner).join(" "), inner) + RESET);
-    return { lines, images: [], controls: [
+    return { lines, images: [], links: [], controls: [
       { thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" },
       { thread: c.id, control: "card", row: 0, from: 0, to: W - 3, label: "Open thread" },
       { thread: c.id, control: "card", row: 1, from: 0, to: W, label: "Open thread" },
@@ -6657,7 +6684,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   // Where a mark was quoted (marks.quote): a line each, opening the block that quotes it.
   const quotedIn = (ids: readonly string[] | undefined, indent: string) => {
     for (const id of ids ?? []) {
-      const said = `quoted in ${draw ? (draw(`((${id}))`, Math.max(4, inner - 12))[0] ?? "") : id.slice(0, 8)}`;
+      const said = `quoted in ${draw ? (draw(`((${id}))`, Math.max(4, inner - 12), 2, false)[0] ?? "") : id.slice(0, 8)}`;
       const shown = ellipsize(said, Math.max(4, inner - indent.length));
       const on = cur === controlKey(c.id, "quoted", id);
       controls.push({ thread: c.id, control: "quoted", value: id, row: lines.length, from: 2 + indent.length, to: 2 + indent.length + width(shown), label: "quoted in" });
@@ -6701,7 +6728,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     col += shown.length;
   });
   lines.push(row + RESET, edge + "└" + "─".repeat(Math.max(0, W - 1)) + RESET);
-  return { lines, controls, images };
+  return { lines, controls, images, links };
 }
 
 /**
@@ -6710,7 +6737,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
  * media rows and fold heads move down with the rows under them. `starts[i]`: where insert i landed.
  */
 /** `doc` with `inserts`' rows put in at their rows (a thread's panel, a comment's box); an insert's `images` (on its own rows) go with it. */
-function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[]; images?: readonly DocImage[] }[]): { doc: Doc; starts: number[] } {
+function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[]; images?: readonly DocImage[]; links?: readonly LinkRange[] }[]): { doc: Doc; starts: number[] } {
   const order = inserts.map((p, i) => ({ ...p, i })).sort((a, b) => a.at - b.at || a.i - b.i);
   const starts: number[] = [], lines: string[] = [], source: number[] = [], moved: number[] = [];
   let k = 0;
@@ -6722,7 +6749,7 @@ function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly stri
   return {
     doc: {
       lines, source,
-      links: doc.links.map(l => ({ ...l, line: mv(l.line) })),
+      links: [...doc.links.map(l => ({ ...l, line: mv(l.line) })), ...inserts.flatMap((p, i) => (p.links ?? []).map(l => ({ ...l, line: starts[i]! + l.line })))],
       images: [...doc.images.map(im => ({ ...im, line: mv(im.line) })), ...inserts.flatMap((p, i) => (p.images ?? []).map(im => ({ ...im, line: starts[i]! + im.line })))],
       media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
       heads: doc.heads.map(h => ({ ...h, row: mv(h.row) })),
