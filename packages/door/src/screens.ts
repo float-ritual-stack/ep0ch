@@ -1,3 +1,4 @@
+import { readReplies } from "./links";
 // Every screen of the board. Outline data arrives async; screens render "loading" until it lands.
 import { endsIn, listShares, revokeShares, startShare } from "./share-cli";
 import { ART_ACTIONS, type ArtOn } from "./art-actions";
@@ -1054,7 +1055,7 @@ export class MessageList extends BbsList {
   }
   threadRow(i: number, ctx: Ctx) {
     const m = this.items![i]!;
-    ctx.push(new MessageList(`thread: ${subject(m).slice(0, 30)}`, () => ctx.board.children(m.id), "", false));
+    ctx.push(new MessageList(`thread: ${subject(m).slice(0, 30)}`, async () => (await readReplies(ctx.board, m.id, true)).children.map(c => c.block), "", false));
   }
   listRows(): ListRow[] | null {
     return this.items?.map((m, i) => ({ n: i + 1, title: subject(m), id: m.id, author: m.author ?? null, updatedAt: m.updatedAt, ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) ?? null;
@@ -1113,6 +1114,7 @@ export class MessageReader implements Screen {
   /** The surface's host: this screen, its header, and where a followed link opens (the next reader on the stack). */
   host(ctx: Ctx): SurfaceHost {
     return {
+      conference: true,
       ctx,
       redraw: () => ctx.redraw(),
       navigate: (m, how) => {
@@ -1193,7 +1195,7 @@ export class MessageReader implements Screen {
   /** `T`: the message's replies, as a message list. */
   thread(ctx: Ctx) {
     const m = this.surface.msg ?? this.msg;
-    ctx.push(new MessageList(`thread: ${subject(m).slice(0, 30)}`, () => ctx.board.children(m.id), "", false));
+    ctx.push(new MessageList(`thread: ${subject(m).slice(0, 30)}`, async () => (await readReplies(ctx.board, m.id, true)).children.map(c => c.block), "", false));
   }
 
   render(ctx: Ctx): Frame {
@@ -1214,7 +1216,7 @@ export class MessageReader implements Screen {
   private hint(scroll: { top: number; room: number; total: number } | undefined, w: number): string {
     const s = this.surface;
     const more = overflows(scroll) ? ` · ${scrollPct(scroll)}` : "";
-    return pad(fg(C.dark) + "  " + s.hint("n next · p prev · t thread · ") + (s.holdsKeys ? "" : `${more} · q back`) + RESET, w);
+    return pad(fg(C.dark) + "  " + s.hint("n next · p prev · ") + (s.holdsKeys ? "" : `${more} · q back`) + RESET, w);
   }
 
   key(k: Key, ctx: Ctx) {

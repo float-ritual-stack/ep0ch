@@ -65,6 +65,18 @@ export async function readChildren(board: Pick<SocketBoard, "children" | "facets
   return kids.map(block => (facets[block.id] ? { block, facets: facets[block.id] } : { block }));
 }
 
+/** Conversation membership is a query: moved replies keep their link; conference children count too. */
+export async function readReplies(board: Pick<SocketBoard, "queryNotes" | "facets">, id: string, conference = false) {
+  const membership = conference ? `(parent:${id} OR replyto=${id})` : `replyto=${id}`;
+  const where = `${membership} NOT type=annotation NOT type=annotation-reply`;
+  const [all, unread] = await Promise.all([board.queryNotes(where, 1000), board.queryNotes(`(${where}) unread:me`, 1000)]);
+  const unseen = new Set(unread.notes.map(n => n.id));
+  const notes = [...new Map(all.notes.map(n => [n.id, n])).values()];
+  notes.sort((a, b) => Number(unseen.has(b.id)) - Number(unseen.has(a.id)) || b.createdAt - a.createdAt);
+  const { facets } = await board.facets(notes.map(n => n.id));
+  return { children: notes.map(block => ({ block, facets: facets[block.id] })), truncated: all.truncated || unread.truncated };
+}
+
 /** One row of a block's links: a group's header, a backlink kind's header, or a link. `key` is stable across reads. */
 export type LinkRow =
   | { kind: "group"; key: string; depth: number; group: LinkGroupName; open: boolean; count: number | null; note: string }

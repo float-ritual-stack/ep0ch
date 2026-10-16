@@ -50,7 +50,7 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
     newNote: [{ only: ["query"], action: "card.new" }],
     keys: [
       { key: "g", action: "board.hub" },
-      { key: "t", action: "tile.slide", tile: "tree" },
+      { key: "t", action: "tile.slide", tile: "tree", unless: ["reader", "preview", "river.column", "echo.reader"] },
       { key: "T", action: "tile.dock", tile: "tree" },
       { key: "S", action: "tile.dock", tile: "tree", args: { edge: "other" } },
       { key: "b", action: "backlinks", tile: "backlinks", unless: ["backlinks"] },

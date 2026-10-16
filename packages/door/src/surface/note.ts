@@ -40,7 +40,7 @@ import { changeOf, liveRowStep, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARK
 import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
-import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
+import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
@@ -80,7 +80,8 @@ import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
-import type { LinkBlockInfo } from "../links";
+import { readReplies, linkRows, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
+import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { RowPresses } from "../scroll";
 import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
@@ -206,6 +207,7 @@ export interface SurfaceHost {
    * This note's links (Outlinks, Resources, Backlinks) in the screen's links tile, as `b` asks: where the host has
    * one, or can open one beside the reader. Without it `b` says so and points at the inline `::links`.
    */
+  conference?: boolean;
   links?(actor: Actor): Promise<Record<string, unknown>>;
 }
 
@@ -559,7 +561,8 @@ export { leaveSaid, propertyChange, type LeaveResult };
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
-type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
+type ReplyLinksMode = ReaderMode<SurfaceHost> & { truncated: boolean; data: LinkData; selected: number; group: LinkGroupName; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[] };
+type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 /** Moving and sizing the floating composer by keys (ctrl+g, PIE-785): arrows or h j k l move it, shift with them sizes it. */
 type GripMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { describe(): { moving: true; float: FloatRect | null } };
@@ -803,6 +806,7 @@ export class NoteSurface {
    * What takes the reader's keys besides reading (src/surface/modes.ts): a step's status choice, the property
    * panel, the edit, the comment session, in their precedence. The fields below are views of it.
    */
+  private besideRect: { x: number; y: number; w: number; h: number } | null = null;
   private readonly modes = new ModeStack<SurfaceHost>();
   /**
    * An open edit of `msg`: a draft session with the block adapter (src/draft-session.ts). While it exists
@@ -810,6 +814,8 @@ export class NoteSurface {
    */
   get drafting(): DraftSession | null { return (this.modes.get("draft") as DraftMode | null)?.session ?? null; }
   /** The edit's text (the session's draft). */
+  get replyLinks(): ReplyLinksMode | null { return this.modes.get("replies") as ReplyLinksMode | null; }
+  get replyParent(): Msg | null { return (this.modes.get("draft") as DraftMode | null)?.reply ?? null; }
   get draft(): Draft | null { return this.drafting?.draft ?? null; }
   /** The draft session the reader holds: its edit's, else its comment's text (the draft rule asks it, PIE-514). */
   draftSession(): DraftSession | null { return this.drafting ?? this.session?.writing ?? null; }
@@ -915,7 +921,7 @@ export class NoteSurface {
    * The mode the person is in, as hosts track it (Entered): the edit, else the comment, else the panel. A status
    * choice opened over one of them isn't a session: it holds no note.
    */
-  private sessionMode() { return this.modes.get("draft") ?? this.modes.get("comment") ?? this.modes.get("panel"); }
+  private sessionMode() { return this.modes.get("draft") ?? this.modes.get("comment") ?? this.modes.get("panel") ?? this.modes.get("replies"); }
   /** What the person is in here, by name ("edit", "comment", "property panel"), or null while reading. */
   sessionWord(): string | null { return this.sessionMode()?.word ?? null; }
   /** Typed text that isn't saved or sent: an edit, a comment being written, a property value. */
@@ -929,6 +935,7 @@ export class NoteSurface {
    * sits, its size, its cursor and its preview (PIE-847). Its text is what the handover put aside for it.
    */
   reopenSteps(): Omit<Step, "tile">[] {
+    if (this.replyParent) return [{ action: "note.reply", opens: "edit" }];
     if (this.draft) return [{ action: "edit", opens: "edit" },
       ...(elementEdit(this.draft).on ? [{ action: "rich.toggle", args: { on: true } }] : []),
     ];
@@ -977,7 +984,7 @@ export class NoteSurface {
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
     const proposal = this.msg && isOpenProposal(this.msg) ? (proposalApplies(this.msg) ? "A apply anyway · X dismiss · " : "X dismiss · ") : "";
-    return `${extra}${proposal}${back}M comments mode · [ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
+    return `${extra}${proposal}${back}M comments mode · R reply · t thread · [ ] elements · ( ) f folds · i properties · z callouts · u up · C comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -1093,6 +1100,18 @@ export class NoteSurface {
    */
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
     this.boxRect = null;
+    this.besideRect = null;
+    if (this.replyLinks) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
+      const mode = this.replyLinks!;
+      mode.rect = { x: col, y: row, w: cols, h: rows };
+      const data = linkRows(mode.data, { shut: new Set(), kinds: new Set(), backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS, only: new Set([mode.group]) });
+      if (mode.truncated && mode.group === "children" && data[0]?.kind === "group") data[0].note = "first 1000 replies";
+      mode.rowsAt = data;
+      mode.selected = Math.min(mode.selected, Math.max(0, data.length - 1));
+      const top = Math.max(0, mode.selected - rows + 4);
+      return { lines: [pad("THREAD · T full list · b links · Esc close", cols), ...data.slice(top, top + rows - 1).map((r, i) => linkRowLine(r, { cols, selected: i + top === mode.selected, focused: true }))] };
+    });
+    if (this.replyParent && this.draft) return this.renderSplit(w, h, host, { d: this.draft, f: this.replyFrame(host) });
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
     const writing = this.composing(host);
     // In a tile of its own (PIE-846) the comment (or the thread list) is drawn there and the note whole here; the host is
@@ -1173,22 +1192,27 @@ export class NoteSurface {
    * A comment written split (PIE-770): the reader's own rect shared, the note on the left and the composer on the
    * right when the reader is wide (SPLIT_SIDE_MIN), else the note on top and the composer under it.
    */
-  private renderSplit(w: number, h: number, host: SurfaceHost | undefined, c: NonNullable<ReturnType<NoteSurface["composing"]>>): SurfaceView {
+  private renderSplit(w: number, h: number, host: SurfaceHost | undefined, c: { d: Draft; f: EditFrame }): SurfaceView {
+    return this.renderBeside(w, h, host, (cols, rows, row, col) => {
+      const box = composerBox(c.d, c.f, cols, rows, true);
+      placeBox(c.d, box, row - (this.drawn?.heroRows ?? 0), col);
+      return { lines: box.lines, placements: previewPictures(c.d, row, rows) };
+    });
+  }
+
+  private renderBeside(w: number, h: number, host: SurfaceHost | undefined, draw: (cols: number, rows: number, row: number, col: number) => SurfaceView): SurfaceView {
     if (w >= SPLIT_SIDE_MIN) {
       const cw = Math.max(40, Math.min(72, Math.floor(w * 0.4))), nw = w - cw - 1;
-      const v = this.renderReading(nw, h, host, null);
-      const box = composerBox(c.d, c.f, cw, h, true);
-      placeBox(c.d, box, -(this.drawn?.heroRows ?? 0), nw + 1);
-      const lines = Array.from({ length: h }, (_, i) => pad(v.lines[i] ?? "", nw) + RESET + " " + (box.lines[i] ?? ""));
-      return { ...v, lines, placements: [...(v.placements ?? []), ...previewPictures(c.d, 0, h)] };
+      this.besideRect = { x: nw + 1, y: 0, w: cw, h };
+      const v = this.renderReading(nw, h, host, null), side = draw(cw, h, 0, nw + 1);
+      return { ...v, lines: Array.from({ length: h }, (_, i) => pad(v.lines[i] ?? "", nw) + RESET + " " + (side.lines[i] ?? "")), placements: [...(v.placements ?? []), ...(side.placements ?? [])] };
     }
-    const ch = Math.max(8, Math.min(h - 4, Math.floor(h * 0.45))), nh = h - ch;
-    const v = this.renderReading(w, nh, host, null);
-    const box = composerBox(c.d, c.f, w, ch, true);
-    placeBox(c.d, box, nh - (this.drawn?.heroRows ?? 0), 0);
+    const ch = Math.max(1, Math.min(h - 1, Math.max(8, Math.floor(h * 0.45)))), nh = Math.max(0, h - ch);
+    this.besideRect = { x: 0, y: nh, w, h: ch };
+    const v = this.renderReading(w, nh, host, null), side = draw(w, ch, nh, 0);
     const top = v.lines.slice(0, nh);
     while (top.length < nh) top.push("");
-    return { ...v, lines: [...top, ...box.lines], placements: [...(v.placements ?? []).filter(p => p.row < nh), ...previewPictures(c.d, nh, h)] };
+    return { ...v, lines: [...top, ...side.lines], placements: [...(v.placements ?? []).filter(p => p.row < nh), ...(side.placements ?? [])] };
   }
 
   /**
@@ -2428,8 +2452,83 @@ export class NoteSurface {
     return s;
   }
 
+  closeReplyLinks() { this.modes.drop("replies"); }
+
+  async openReplyLinks(host: SurfaceHost, actor: Actor, refresh = false) {
+    if (actor.kind === "user" && this.editing) throw new ActionRefused("finish the draft before opening its thread");
+    const previous = this.replyLinks;
+    const m = this.requireNote();
+    const [replies, links, backlinks] = await Promise.all([readReplies(host.ctx.board, m.id, host.conference), host.ctx.board.authoredLinks(m.id), host.ctx.board.backlinks(m.id)]);
+    const out = { replies: replies.children.map(c => c.block.id), truncated: replies.truncated };
+    if (actor.kind === "agent" || movedOn(host, this, m.id)) return out;
+    const data: LinkData = { links: { kind: "ready", value: links }, backlinks: { kind: "ready", value: backlinks }, children: { kind: "ready", value: replies.children } };
+    if (refresh) { if (previous && this.replyLinks === previous) { previous.data = data; previous.truncated = replies.truncated; } host.redraw(); return out; }
+    const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.groups" | "note.thread.full", args = {}) => { void this.runKey(action, args, host); };
+    const mode: ReplyLinksMode = {
+      name: "replies", of: m, word: "replies", holdsKeys: true, editing: () => false, covers: () => false,
+      data, truncated: replies.truncated,
+      selected: 1, group: "children", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [],
+      key: k => {
+        const c = ch(k);
+        if (k.kind === "esc" || c === "t" || c === "q") run("note.thread.close");
+        else if (isDown(k)) run("note.thread.pick", { by: 1 });
+        else if (isUp(k)) run("note.thread.pick", { by: -1 });
+        else if (k.kind === "enter") run("note.thread.open");
+        else if (c === "b") run("note.thread.groups");
+        else if (c === "T") run("note.thread.full");
+        return true;
+      },
+      click: (x, y) => {
+        const r = mode.rect;
+        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
+        if (y === r.y) { run(x < r.x + 22 ? "note.thread.full" : x < r.x + 32 ? "note.thread.groups" : "note.thread.close"); return true; }
+        const n = y - r.y - 1 + Math.max(0, mode.selected - r.h + 4);
+        run("note.thread.open", { n: n + 1 }); return true;
+      },
+      wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("note.thread.pick", { by: dir }); return true; },
+      rows: () => null, leave: async () => { this.modes.drop("replies"); return { left: "nothing" }; },
+      hint: () => "j k select · ⏎ open · b other links · T full thread · Esc close", state: () => "replies",
+      describe: () => ({ replies: mode.data.children?.kind === "ready" ? mode.data.children.value.map(c => c.block.id) : [], truncated: mode.truncated, group: mode.group, rows: mode.rowsAt.map((r, i) => describeLinkRow(r, i + 1, i === mode.selected)) }),
+    };
+    this.modes.push(mode); host.redraw(); return out;
+  }
+
+  private replyFrame(host?: SurfaceHost): EditFrame {
+    return { title: `reply · ${subject(this.replyParent!)}`, status: [], pick: true, follow: true,
+      preview: (text, w, links) => this.snippetDoc(text, w, host, links),
+    };
+  }
+
+  async quoteSelection(host: SurfaceHost, actor: Actor, quote?: string): Promise<string> {
+    const m = this.requireNote(), passage = this.passageFor(actor, quote).note;
+    const line = m.text.slice(0, passage.start).split("\n").length - 1;
+    const { items } = await host.ctx.board.fragmentCandidates({ blockIds: [m.id], fragmentQuery: passage.quote, mode: "passage", limit: 100 });
+    const anchor = items.find(c => c.revision === m.revision && c.lineIndex === line && c.fragmentId)?.fragmentId;
+    // The excerpt is frozen even when its source changes or an anchor cannot yet be written.
+    return `> [!quote]\n${passage.quote.split("\n").map(l => `> ${l}`).join("\n")}\n> — ((${m.id}${anchor ? `^${anchor}` : ""}))\n\n`;
+  }
+
+  startReply(host: SurfaceHost, quote?: string): DraftSession {
+    if (this.editing) throw new ActionRefused("finish the open draft first · ctrl+s saves · Esc closes");
+    const parent = this.requireNote();
+    const target = noteReplyTarget(parent, host.ctx.board);
+    const s: DraftSession = DraftSession.open(target, { text: `re:: ${subject(parent)}\n\n`, by: host.actor ?? USER }, {
+      board: host.ctx.board, redraw: () => host.redraw(),
+      closed: how => { this.draftClosed(s, how, host); host.redraw(); },
+    });
+    if (s.draft.restored === null) s.draft.row = s.draft.lines.length - 1;
+    const mode = this.draftMode(s);
+    mode.reply = parent;
+    this.modes.push(mode);
+    if (quote) s.draft.pasteText(quote, host.actor ?? USER);
+    host.redraw();
+    return s;
+  }
+
   private draftKey(k: Key, host: SurfaceHost): boolean {
     const s = this.drafting!;
+    if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
+    if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
     if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
     s.key(k, {
@@ -2473,7 +2572,7 @@ export class NoteSurface {
    */
   private draftClosed(s: DraftSession, how: Ended, host?: SurfaceHost) {
     if (this.drafting !== s) return;
-    this.position.reading = s.draft.offsetOf(s.draft.row, 0);
+    if (!this.replyParent) this.position.reading = s.draft.offsetOf(s.draft.row, 0);
     this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
     if (this.agentDraft === s.draft) {
@@ -2561,10 +2660,11 @@ export class NoteSurface {
   async save(host: SurfaceHost, actor: Actor = host.actor ?? USER): Promise<Actor | null> {
     const s = this.drafting;
     if (!s || s.busy) return null;
-    if (!s.dirty) { s.close(); host.ctx.flash("nothing changed"); host.redraw(); return null; }
+    if (!s.dirty && !this.replyParent) { s.close(); host.ctx.flash("nothing changed"); host.redraw(); return null; }
+    const reply = !!this.replyParent;
     const r = await s.submit(actor);
     host.redraw();
-    return r.ok ? (r.result as Actor) : null;
+    return r.ok ? (reply ? recordAs(s.draft, actor) : r.result as Actor) : null;
   }
 
   /**
@@ -2644,6 +2744,7 @@ export class NoteSurface {
 
   /** Outline changed: a comment on this note may have been added, answered or resolved anywhere. */
   onEvent(host: SurfaceHost) {
+    if (this.replyLinks) void this.openReplyLinks(host, USER, true).catch(e => host.ctx.flash(String(e)));
     if (!this.msg) return;
     if (this.commentTimer) clearTimeout(this.commentTimer);
     this.commentTimer = setTimeout(() => void this.loadComments(host), 700);
@@ -2764,12 +2865,13 @@ export class NoteSurface {
     return {
       name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
       word: "edit",
-      changed: revision => { if (!d.saving && revision !== d.base) d.changedElsewhere = true; },
-      editing: () => true, covers: () => true,
+      changed: revision => { if (!this.replyParent && !d.saving && revision !== d.base) d.changedElsewhere = true; },
+      editing: () => true, covers: () => !this.replyParent,
       key: (k, host) => this.draftKey(k, host),
       click: (x, y, host) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }) : this.writeClick(d, x, y, host),
       press: (x, y, host, drag) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }, drag, true) : this.writePress(d, x, y, drag),
       wheel: (dir, host, at) => {
+        if (this.replyParent && (!at || !wheelTarget(d, at.x, at.y))) return false;
         if (elementEdit(d).on) { void this.runKey("rich.scroll", { by: wheelRows(dir) }, host); return true; }
         return this.writeWheel(d, dir, at);
       },
@@ -2782,7 +2884,7 @@ export class NoteSurface {
       },
       unsaved: () => s.dirty,
       keep: () => (s.dirty ? [s.keep()] : []),
-      hint: () => (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
+      hint: () => this.replyParent ? `ctrl+s saves · Esc ${d.dirty ? "twice discards" : "discards"} · PgUp/PgDn scroll message · select then \" quotes` : (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
       describe: () => ({ ...s.describe(), rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
     };
@@ -3424,6 +3526,7 @@ export class NoteSurface {
     // Back and forward (PIE-453): where the reader was before a follow, scrolled and with its [ ] position.
     const dir = historyKey(k);
     if (dir) { void this.runKey(dir < 0 ? "back" : "forward", {}, host); return true; }
+    if (ch(k) === "~") { void this.runKey("decor.raw", {}, host); return true; }
     const c = ch(k);
     // An extension's line that is the current element (PIE-512): a key its actions answer to runs that
     // action (`w` wards); the reader's own keys stay the reader's (READER_OWN_KEYS).
@@ -3433,6 +3536,7 @@ export class NoteSurface {
     // Selecting text (PIE-419): v starts the keyboard mode, y Y and cmd+c copy, esc lets go; the rest read on.
     if ((c === "v" || c === "y" || c === "Y" || isCopyKey(k) || this.selection) && this.msg && this.selectKey(k, host)) return true;
     // e ctrl+e C m i I start a session: the note's action for that key (SESSION_ACTIONS), as the desk and the river run it.
+    if (c === '"' && this.msg) { void this.runKey("note.quote", {}, host); return true; }
     const starts = this.msg ? sessionStart(k) : null;
     if (starts) {
       // e and ctrl+e arm the edit first (edit.arm): ⏎ or the key again opens it.
@@ -3482,7 +3586,7 @@ export class NoteSurface {
     if (c === "]" || c === "[") { void this.runKey("element.select", { by: c === "]" ? 1 : -1 }, host); return true; }
     if (c === "z") { void this.runKey("callouts", {}, host); return true; }
     // R: the note as written, without what the rules draw on it (PIE-600), and back.
-    if (c === "R" && this.msg && isOutlineNote(this.msg)) { void this.runKey("decor.raw", {}, host); return true; }
+    if (c === "R" && this.msg && isOutlineNote(this.msg)) { void this.runKey("note.reply", {}, host); return true; }
     // ,: a configurable note's settings card (PIE-786), as an app's settings are; elsewhere , isn't the reader's.
     if (c === "," && this.msg && !this.msg.partial && isOutlineNote(this.msg) && this.settingsSchemaOf(this.msg)) { void this.runKey("settings", {}, host); return true; }
     // ⏎ acts on the current element while the person can see it: a link follows (where is the host's call),
@@ -5656,7 +5760,9 @@ export class NoteSurface {
     const n = this.gesture.press(x, y);
     // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
     // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
-    if (this.editing) {
+    this.editPress = false;
+    const beside = this.besideRect;
+    if (this.editing && (!this.replyParent || !beside || (x >= beside.x && y >= beside.y))) {
       // The composer is drawn in the note (PIE-770), under its header image: its cells are the note's, as a click's are.
       y -= this.drawn?.heroRows ?? 0;
       // `keepCursor`: the press that brought the keys back to a draft left open here (PIE-812). It still presses (a
@@ -5681,7 +5787,7 @@ export class NoteSurface {
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
     const g = this.gesture.pressed;
-    if (this.editing) { this.gesture.drag(x, y); if (this.editPress && this.modes.press(x, y - (this.drawn?.heroRows ?? 0), host, true)) host.redraw(); return; }
+    if (this.editing && (!this.replyParent || this.editPress)) { this.gesture.drag(x, y); if (this.editPress && this.modes.press(x, y - (this.drawn?.heroRows ?? 0), host, true)) host.redraw(); return; }
     if (!g || !this.gesture.drag(x, y) || !this.drawn) return;
     if (!this.dragging) {
       // After a double or triple click, the drag extends from the word or row it selected.
@@ -5734,7 +5840,7 @@ export class NoteSurface {
     }
     // In a draft: the draft's own selection, copied the same way (draft.copy), when the mouse made it (a double or
     // triple click's word or line once it's selected).
-    const d = this.editing && r.copy ? this.writingDraft : null;
+    const d = this.editing && (!this.replyParent || this.editPress) && r.copy ? this.writingDraft : null;
     if (d) {
       void (this.draftSelecting ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
       return true;
@@ -6152,6 +6258,7 @@ export class NoteSurface {
   describe() {
     return {
       showing: this.msg ? { id: this.msg.id, title: subject(this.msg), revision: this.msg.revision } : null,
+      threadDrawer: this.replyLinks?.describe() ?? null,
       editing: (this.modes.get("draft") as DraftMode | null)?.describe(),
       commenting: (this.modes.get("comment") as CommentMode | null)?.describe(),
       comments: this.comments ? { open: this.comments.filter(c => c.open).length, total: this.comments.length, threads: this.comments.map(c => ({ id: c.id, open: c.open, author: c.author, quote: c.quote, replies: c.replies.length, expanded: this.threadShown(c.id), ...(c.quotedIn?.length ? { quotedIn: c.quotedIn } : {}) })) } : null,
@@ -6305,7 +6412,7 @@ export class NoteSurface {
     const s = this.drafting;
     if (!s) return { closed: false };
     if (s.dirty && !discard && !s.busy) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
-    return s.close(discard);
+    return this.replyParent && discard ? { closed: true, ...s.discard() } : s.close(discard);
   }
 
   async ensureSession(host: SurfaceHost, mode: "select" | "threads", by: Actor = USER): Promise<CommentSession> {
@@ -6763,19 +6870,21 @@ async function personComments(surface: NoteSurface, host: SurfaceHost, mode: "se
  * note: PIE-846), m threads, i / I properties; `select` is the passage picker (`passage.select`, an agent's or `act`'s)
  * and `note` a comment on the whole note (`comment.note`), as C resolves them.
  */
-export type SessionKind = "edit" | "external" | "comment" | "select" | "note" | "threads" | "props" | "props-full";
+export type SessionKind = "note-thread" | "note-reply" | "edit" | "external" | "comment" | "select" | "note" | "threads" | "props" | "props-full";
 /** The key that starts a session in a reader (e, ctrl+e, C, m, i, I; c collapses), or null: one table for every reader. */
 export function sessionStart(k: Key): SessionKind | null {
   if (k.kind !== "char") return null;
   if (k.ctrl) return k.ch === "e" ? "external" : null;
-  return k.ch === "e" ? "edit" : k.ch === "C" ? "comment" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
+  return k.ch === "t" ? "note-thread" : k.ch === "R" ? "note-reply" : k.ch === "e" ? "edit" : k.ch === "C" ? "comment" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
 }
 /** The person's e and ctrl+e arm the edit (edit.arm, src/arm.ts) where the others start at once; a click on a hint's e opens it. */
 export const armsEdit = (kind: SessionKind): boolean => (kind === "edit" || kind === "external") && !clickedKey();
 /** The key running now came from a click (a hint's key: asBoundKey "click"): the mouse's, so an edit opens at once. */
 const clickedKey = () => !!boundNow()?.split("; ").includes("click");
 /** The note action each of those keys runs (PIE-510): the key, a click and `act` all start it the same way. */
-export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.select" | "comment.note" | "threads" | "props"; args: Record<string, unknown> }> = {
+export const SESSION_ACTIONS: Record<SessionKind, { name: "note.thread" | "note.reply" | "edit" | "passage.select" | "comment.note" | "threads" | "props"; args: Record<string, unknown> }> = {
+  "note-thread": { name: "note.thread", args: {} },
+  "note-reply": { name: "note.reply", args: {} },
   edit: { name: "edit", args: {} },
   external: { name: "edit", args: { external: true } },
   comment: { name: "passage.select", args: {} },
@@ -7294,6 +7403,75 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!l) throw new ActionRefused(ref !== undefined ? `${ref} isn't a link: give ((id)), [[page]], a URL or #tag` : "no link at the cursor: put it on a [[page]], ((reference)) or [text](url)");
       const m = await surface.followFromDraft(l, host);
       return m && "id" in m ? { opened: m.id, title: subject(m) } : m && "outside" in m ? { opened: null, ...m } : { opened: null };
+    },
+  }),
+  "note.thread": def({
+    summary: "open the message's replies in place, including moved replyTo notes; conference children count as replies",
+    keys: "t", touches: "nothing", replay: "safe", menu: { label: "read this thread", group: "note", key: "t" }, args: {},
+    run: (_, { surface, host }, actor) => surface.openReplyLinks(host, actor),
+  }),
+  "note.thread.close": def({
+    summary: "close the replies drawer", keys: "Esc, q, t in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
+    run(_, { surface, host }) { surface.closeReplyLinks(); host.redraw(); return { closed: true }; },
+  }),
+  "note.thread.pick": def({
+    summary: "move through the replies", keys: "j k in the replies", touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", about: "rows to move" } },
+    run({ by }, { surface, host }) { const m = surface.replyLinks; if (m) m.selected = Math.max(0, Math.min(m.rowsAt.length - 1, m.selected + by)); host.redraw(); return { selected: m?.selected }; },
+  }),
+  "note.thread.groups": def({
+    summary: "cycle replies, outlinks and backlinks", keys: "b in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
+    run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.group = m.group === "children" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "children"; m.selected = 1; } host.redraw(); return { group: m?.group }; },
+  }),
+  "note.thread.open": def({
+    summary: "read the selected reply", keys: "enter, click in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
+    async run({ n }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1], target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.followFromDraft(target, host); return { opened: note && "id" in note ? note.id : null }; },
+  }),
+  "note.thread.full": def({
+    summary: "open the full THREAD message list", keys: "T or the replies header", touches: "screen", replay: "safe", person: "the person's screen", args: {},
+    async run(_, { surface, host }) {
+      const m = surface.requireNote(), { MessageList } = await import("../screens");
+      surface.closeReplyLinks();
+      host.ctx.push(new MessageList(`thread: ${subject(m)}`, async () => (await readReplies(host.ctx.board, m.id, host.conference)).children.map(c => c.block), "", false));
+      return { opened: "thread" };
+    },
+  }),
+  "note.quote": def({
+    summary: "insert a frozen selection with its source block (and existing anchor) into the reply, opening one if needed",
+    keys: '\"', touches: "draft", draft: "type", replay: "ask",
+    menu: { label: "quote into a reply", group: "note", key: '\"' },
+    args: { quote: { type: "string", optional: true, about: "exact source words; otherwise your selection" } },
+    async run({ quote }, { surface, host }, actor): Promise<unknown> {
+      const parent = surface.requireNote();
+      const text = await surface.quoteSelection(host, actor, quote);
+      if (movedOn(host, surface, parent.id)) throw new ActionRefused("the reader moved while the quote was read");
+      if (actor.kind === "agent") return NOTE_ACTIONS.run("note.reply", { text }, { surface, host }, actor);
+      const s = surface.replyParent ? surface.drafting! : surface.startReply(host);
+      s.draft.pasteText(text, actor);
+      host.redraw();
+      return { quoted: surface.requireNote().id };
+    },
+  }),
+  "note.reply": def({
+    summary: "write a reply beside this message; Save creates a child with replyTo and the message's thread, Esc closes without posting",
+    keys: "R", touches: "nothing", replay: "ask",
+    menu: { label: "reply to this note", group: "note", key: "R" },
+    args: { text: { type: "string", optional: true, about: "reply text; an agent supplies this and creates the note without opening an editor" } },
+    async run({ text }, { surface, host }, actor) {
+      const parent = surface.requireNote();
+      if (actor.kind === "agent") {
+        if (text === undefined) throw new ActionRefused("supply text= for an agent's reply");
+        const s = DraftSession.open(noteReplyTarget(parent, host.ctx.board), { text, by: actor });
+        const result = await s.submit(actor);
+        s.dispose();
+        if (!result.ok) throw new ActionRefused(result.why);
+        surface.noteAgent(actor, "replied to this note");
+        return result.result;
+      }
+      const quote = surface.selection ? await surface.quoteSelection(host, actor) : undefined;
+      if (movedOn(host, surface, parent.id)) return { replying: null };
+      const s = surface.startReply(host, quote);
+      if (text !== undefined) s.replace(text, actor);
+      return { replying: parent.id };
     },
   }),
   "edit.text": def({
@@ -8283,8 +8461,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "decor.raw": def({
-    summary: "the note as written, without what the outline's rules draw on it (PIE-600: a heading's band, a meeting's card, a shouted line), or (on=false, or R again) with it. The reader's own state: the note is never written",
-    keys: "R",
+    summary: "the note as written, without what the outline's rules draw on it (PIE-600: a heading's band, a meeting's card, a shouted line), or (on=false, or ~ again) with it. The reader's own state: the note is never written",
+    keys: "~",
     touches: "tile", replay: "safe", way: "peek's decorations say what is drawn; open the note in a reader of your own to see it raw",
     args: { on: { type: "boolean", optional: true, about: "true: raw; false: decorated; absent: the other one" } },
     run({ on }, { surface, host }) {
