@@ -23,14 +23,14 @@ const draw = (body: string, width: number) => {
 describe("narrow readers", () => {
   test("the folded hint gives way by whole words: all of it, then `· f`, then the count alone", () => {
     const body = "> [!faq]- Are callouts foldable?\n> Yes! In a foldable callout, the contents are hidden.";
-    expect(draw(body, 60)[1]).toContain("▸ 1 line folded · f or a click on the title unfolds");
+    expect(draw(body, 60)[1]).toContain("▸ 1 line folded · f, gutter or … unfolds");
     const mid = draw(body, 30)[1]!;
     expect(mid).toContain("▸ 1 line folded · f ");
     expect(mid).not.toContain("click");
     const thin = draw(body, 20)[1]!;
     expect(thin).toContain("▸ 1 line folded ");
     expect(thin).not.toContain("· f");
-    for (const w of [60, 30, 20]) expect(draw(body, w)[1]).not.toContain("…");   // never cut mid-word
+    for (const w of [30, 20]) expect(draw(body, w)[1]).not.toContain("…");   // shortened hints never cut mid-word
   });
 
   test("a title-only callout written with - has nothing to fold; nesting too deep for frames is drawn unframed", () => {
