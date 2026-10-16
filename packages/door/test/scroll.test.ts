@@ -69,6 +69,15 @@ describe("a scroll before the first paint (PIE-929)", () => {
     surface.show({ ...note(400), id: "99999999-2222-4333-8444-555555555555" }, host);
     expect(surface.render(80, 29, host).scroll?.top).toBe(0);
   });
+
+  test("a place restored before the first paint wins over the waiting scroll", () => {
+    const surface = new NoteSurface();
+    const host: SurfaceHost = { ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cols: 80, rows: 30, cellW: 9, cellH: 16, kitty: false }, graphics: false } as any, redraw() {}, navigate() {} };
+    surface.show(note(400), host);
+    surface.position.view = { line: 40, row: 3 };
+    const top = surface.render(80, 29, host).scroll?.top;
+    expect(top).toBeGreaterThan(30);
+  });
 });
 
 describe("the scroll model", () => {

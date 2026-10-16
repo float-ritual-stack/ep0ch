@@ -21,7 +21,7 @@ export class PositionRows {
     if (this.waiting === null || !this.source.length) return;
     const top = this.waiting;
     this.waiting = null;
-    this.top = top;
+    if (!this.position.view) this.top = top;         // a place restored meanwhile (back, an edit closing) is newer than a row count
   }
   get top(): number {
     const v = this.position.view;
