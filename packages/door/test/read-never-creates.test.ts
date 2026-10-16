@@ -35,10 +35,10 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function ep0ch(args: string[]) {
+async function ep0ch(args: string[], extra: Record<string, string> = {}) {
   const env = {
     ...local.env, PATH: process.env.PATH!, EP0CH_CONTROL: join(dir, "no-door.sock"), EP0CH_STATE: join(dir, "state"),
-    EP0CH_SSH: join(dir, "bin/ssh"), FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin"),
+    EP0CH_SSH: join(dir, "bin/ssh"), FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin"), ...extra,
   };
   const p = Bun.spawn(["bun", MAIN, ...args], { cwd: work, env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
@@ -67,6 +67,30 @@ describe("a read of a name this machine doesn't have", () => {
     expect(r.err).toContain("no machine I know of has an outline nowhere");
     expect(r.err).toContain("ep0ch outline create nowhere");
     expect(r.err).toContain("ep0ch outline list --all");
+  }, 60_000);
+
+  test("the other way: a read aimed at a machine that lacks it, when this machine has it, offers --here (which reads accept)", async () => {
+    await local.create("seedbed");
+    const r = await ep0ch(["find", "--ws", "seedbed", "--machine", "far-box", "--lines"]);
+    expect(r.code).not.toBe(0);
+    expect(r.err).toContain("this machine has it:");
+    expect(r.err).toContain("ep0ch find --ws seedbed --lines --here");
+    expect((await ep0ch(["find", "--ws", "seedbed", "--lines", "--here"])).code).toBe(0);
+  }, 60_000);
+
+  test("under EP0CH_SOCKET the remote command unsets it (a socket and a machine can't both name the host)", async () => {
+    const r = await ep0ch(["show", "--ws", "garden", "abc12345"], { EP0CH_SOCKET: local.sock });
+    expect(r.err).toContain("env -u EP0CH_SOCKET ep0ch show --ws garden abc12345 --machine far-box");
+  }, 60_000);
+
+  test("with no host answering here, a forward still says where the outline is", async () => {
+    await local.stop();
+    try {
+      const r = await ep0ch(["show", "--ws", "garden", "abc12345"]);
+      expect(r.code).not.toBe(0);
+      expect(r.err).toContain("far-box has it:");
+      expect(r.err).toContain("ep0ch show --ws garden abc12345 --machine far-box");
+    } finally { await local.start(); }
   }, 60_000);
 
   test("and the same read with --machine reads it there", async () => {

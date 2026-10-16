@@ -338,7 +338,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   // --tree takes the root's id as its value when one follows.
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
   const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? args[treeAt + 1]! : undefined;
-  const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids"]);
+  const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here"]);
   // --recent and --tree keep their own order: a refusal names what it was given and the same find without them (a
   // --tree root becomes --under, which lists a subtree in outline order).
   const given = [...(recent && tree ? ["--recent"] : []), ...(words.length ? ["words"] : []), ...SELECT_FLAGS.filter(f => args.includes(f))];
@@ -457,7 +457,7 @@ export async function revisionsCommand(argsIn: string[], io: Out = { out: consol
   const args = argsIn.slice(1);
   for (const f of ["--ws", "--machine"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
   const json = args.includes("--json"), restore = args.includes("--restore");
-  const words = without(args, ["--ws", "--machine"], ["--json", "--restore"]);
+  const words = without(args, ["--ws", "--machine"], ["--json", "--restore", "--here"]);
   const [id, n, ...more] = words;
   const usage = "ep0ch revisions <id> [<n> [--restore]] [--json]";
   if (!id || id.startsWith("--") || more.length || (n !== undefined && !/^\d+$/.test(n))) { io.err(`ep0ch: ${usage}`); return 2; }
@@ -500,7 +500,7 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
   const rowsArg = flag(args, "--rows") as string | undefined;
   const rows = rowsArg === undefined ? Infinity : Number(rowsArg);
   if (rowsArg !== undefined && (!Number.isInteger(rows) || rows < 1)) { io.err("ep0ch: --rows takes a number of rows, 1 or more"); return 2; }
-  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells", "--source"]);
+  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells", "--source", "--here"]);
   if (!ids.length || ids.some(id => id.startsWith("--"))) { io.err(`ep0ch: show takes notes' ids (${ids.find(id => id.startsWith("--")) ?? "none given"})\n${NOTES_USAGE}`); return 2; }
   const wArg = flag(args, "--width") as string | undefined;
   const width = wArg !== undefined ? Number(wArg) : io.columns || 80;

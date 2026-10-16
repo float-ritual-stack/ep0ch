@@ -283,10 +283,11 @@ export function doorMissing(o: { outline: string; machine?: string; localHas?: b
 }
 
 /**
- * `command` (an `ep0ch` argv, as typed) run on `machine`: its `--machine`/`--here` replaced, else `--machine` added.
- * Quoted as a shell would need it.
+ * `command` (an `ep0ch` argv, as typed) run on `machine`, or on this machine with `machine` undefined: its `--machine`
+ * dropped and `--machine <machine>` added, quoted as a shell needs it. Under EP0CH_SOCKET (which refuses a machine
+ * beside it) the variable is unset for the command.
  */
-export function commandOn(command: readonly string[], machine: string): string {
+export function commandOn(command: readonly string[], machine: string | undefined, env: Record<string, string | undefined> = process.env): string {
   const out: string[] = [];
   for (let i = 0; i < command.length; i++) {
     const a = command[i]!;
@@ -294,32 +295,37 @@ export function commandOn(command: readonly string[], machine: string): string {
     if (a === "--machine") { i++; continue; }
     out.push(a);
   }
-  return ["ep0ch", ...out, "--machine", machine].map(shellWord).join(" ");
+  const argv = ["ep0ch", ...out, ...(machine ? ["--machine", machine] : ["--here"])].map(shellWord).join(" ");
+  return env.EP0CH_SOCKET?.trim() ? `env -u EP0CH_SOCKET ${argv}` : argv;
 }
 
 /**
  * What a read says when the host it reached has no outline `outline` (PIE-938): that nothing was made (a read never
  * creates one; only opening a door, `outline create` and `init` do), which machines have it (this machine's host, the
- * shared forwards in `.remote/` and the machines opened before: `everyOutline`), and the command that reads it there.
- * Null when the host has it, or doesn't answer (that is said as "no carrier"). `command` is the `ep0ch` argv as typed.
+ * shared forwards in `.remote/` and the machines opened before: `everyOutline`) and the command that reads it there.
+ * `command` is the `ep0ch` argv as typed. Null when the host has it, or when it doesn't answer and no other machine is
+ * known to have the outline (that is said as "no carrier").
  */
 export async function readMissing(o: { outline: string; path: string; machine?: string; command?: readonly string[] }): Promise<string | null> {
   const has = await outlinesAt(o.path);
-  if (!has || has.includes(o.outline)) return null;
+  if (has?.includes(o.outline)) return null;
   const there = o.machine ?? `this machine (${hostname()})`;
   const every = await everyOutline(hostSocketOf());
   const holders = [...new Set(every.filter(k => k.name === o.outline && k.machine && k.machine !== o.machine).map(k => k.machine!))];
-  const local = o.machine && every.some(k => k.name === o.outline && !k.machine);
+  const local = !!o.machine && every.some(k => k.name === o.outline && !k.machine);
+  if (!has && !holders.length && !local) return null;
+  const again = (m: string | undefined) => o.command ? commandOn(o.command, m) : `ep0ch <the same command> ${m ? `--machine ${m}` : "--here"}`;
   const rows: [string, string][] = [
-    ...holders.map(m => [`${m} has it:`, o.command ? commandOn(o.command, m) : `ep0ch <the same command> --machine ${m}`] as [string, string]),
-    ...(local ? [["this machine has it:", `ep0ch ${(o.command ?? []).filter(a => a !== "--machine" && a !== o.machine).concat("--here").join(" ") || "<the same command> --here"}`] as [string, string]] : []),
+    ...holders.map(m => [`${m} has it:`, again(m)] as [string, string]),
+    ...(local ? [["this machine has it:", again(undefined)] as [string, string]] : []),
   ];
   const w = Math.max(0, ...rows.map(r => r[0].length)) + 2;
   return [
-    `${there} has no outline ${o.outline}. Nothing was created (a read never makes one).`,
+    has ? `${there} has no outline ${o.outline}. Nothing was created (a read never makes one).`
+      : `no outline host answers at ${o.path}, and ${o.outline} is on another machine. Nothing was created.`,
     ...rows.map(([k, v]) => `  ${k.padEnd(w)}${v}`),
     ...(rows.length ? [] : [`  no machine I know of has an outline ${o.outline}; see what exists: ep0ch outline list --all`]),
-    `  to make it on purpose: ep0ch outline create ${o.outline}${o.machine ? ` --machine ${o.machine}` : ""}`,
+    ...(has ? [`  to make it on purpose: ep0ch outline create ${o.outline}${o.machine ? ` --machine ${o.machine}` : ""}`] : []),
   ].join("\n");
 }
 
