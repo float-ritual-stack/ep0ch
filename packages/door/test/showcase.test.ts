@@ -3887,6 +3887,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       expect(draft.text).toContain("Still typing.");
       expect((await board.get(target.id))!.text).toContain("Prepare the labels.");
     } finally {
+      await stage.dispatch.press("edit.close", {discard: true}, "notes");
       for (let i = 0; i < 5 && S().focus === "stage"; i++) press({kind: "esc"});
     }
   }, 30_000);
