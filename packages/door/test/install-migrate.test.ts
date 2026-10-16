@@ -290,17 +290,29 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     }
     expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("");
 
-    // A daemon on a previous session protocol cannot promise to honour the idle-only request.
+    // A protocol update still hands an old daemon over; no idle-only request can strand it.
     const protocol = join(repo, "packages/door/src/session/protocol.ts");
     writeFileSync(protocol, readFileSync(protocol, "utf8").replace(/export const PROTOCOL = (\d+);/, (_, n) => `export const PROTOCOL = ${Number(n) + 1};`));
     git("add", "packages/door/src/session/protocol.ts"); git("commit", "-qm", "the next session protocol"); git("push", "-q", "origin", "main");
-    const oldPid = list[0]!.pid;
-    const deferred = await ep0ch("install", "--apply", "--json");
-    expect(deferred.code).toBe(1);
-    expect(JSON.parse(deferred.out).steps.find((s: { id: string }) => s.id === "session").error).toContain("cannot enforce an idle-only handover");
-    expect(JSON.parse((await ep0ch("session", "list", "--json")).out)[0].pid).toBe(oldPid);
-    expect((await ep0ch("session", "upgrade", "--all")).code).toBe(0);
+    const oldPid = JSON.parse((await ep0ch("session", "list", "--json")).out)[0].pid;
+    expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
     expect(JSON.parse((await ep0ch("session", "list", "--json")).out)[0].pid).not.toBe(oldPid);
+
+    // A successor that cannot start must not prevent the steps after handover from running.
+    const daemon = join(repo, "packages/door/src/session/daemon.ts"), working = readFileSync(daemon, "utf8");
+    writeFileSync(daemon, working.replace('export async function serve(args: string[]): Promise<never> {', 'export async function serve(args: string[]): Promise<never> {\nthrow new Error("the scratch successor cannot start");'));
+    git("add", "packages/door/src/session/daemon.ts"); git("commit", "-qm", "a successor that cannot start"); git("push", "-q", "origin", "main");
+    const incomplete = await ep0ch("install", "--apply", "--json");
+    expect(incomplete.code).toBe(0);
+    const continued = JSON.parse(incomplete.out).steps;
+    expect(continued.find((s: { id: string }) => s.id === "session").done.join("\n")).toContain("session upgrade --ws allotment");
+    expect(continued.find((s: { id: string }) => s.id === "session").done.join("\n")).toContain("the scratch successor cannot start");
+    expect(continued.find((s: { id: string }) => s.id === "skills")).toBeDefined();
+    expect(continued.some((s: { error?: string }) => s.error)).toBe(false);
+    writeFileSync(daemon, working);
+    git("add", "packages/door/src/session/daemon.ts"); git("commit", "-qm", "the successor can start again"); git("push", "-q", "origin", "main");
+    expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
+    expect(sh([bun, join(root, "start-session.ts")], home)).toContain('"ok":true');
 
     delete env.EP0CH_AGENT;
     delete env.CLAUDE_CODE_SESSION_ID;
