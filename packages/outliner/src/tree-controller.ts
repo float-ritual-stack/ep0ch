@@ -221,7 +221,7 @@ export interface TreeControllerEffects {
   readonly navigation: TreeNavigation;
   readonly clientId: string;
   readonly browsingContextId: string;
-  request<T>(input: RequestInput): Promise<T>;
+  request<T>(input: RequestInput, timeoutMs?: number): Promise<T>;
   createDetailPane(blockId: string, direction?: "right" | "down", targetPaneId?: string): Promise<void>;
   createDetailDestination?(blockId: string, placement: DetailDestinationPlacement): Promise<OutlinerViewAddress>;
   openKeyInspector?(): void;
@@ -2408,6 +2408,21 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       effects.invalidate(); return;
     }
 
+
+    if (actionId === "tree.snapshot" || actionId === "tree.database") {
+      if (mode === "action-menu") mode = actionMenuReturnMode;
+      try {
+        if (actionId === "tree.database") {
+          const service = await effects.request<OutlinerServiceStatus>({ action: "ping" });
+          const path = service.location!.database;
+          effects.copyText?.(path); status = `Database: ${path} · copied`;
+        } else {
+          const snapshot = await effects.request<import("@ep0ch/outline-core/protocol").OutlineSnapshot>({ action: "outline.snapshot", mutation: { author: "user" } }, 120_000);
+          effects.copyText?.(snapshot.url!); status = `Snapshot link copied · ${snapshot.bytes} bytes · expires ${snapshot.expiresAt}`;
+        }
+      } catch (error) { status = errorMessage(error); }
+      effects.invalidate(); return;
+    }
 
     if(actionId==='tree.workspace.inspect'){
       const generation=++navigationGeneration;

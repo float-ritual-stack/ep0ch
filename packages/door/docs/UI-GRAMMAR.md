@@ -107,6 +107,8 @@ three layout models and four searches (§4).
 | keep the page still between reading and editing | `NoteSurface.position` is one source position: reading offset, source line at a screen row, and edit cursor. `PositionRows` projects `Doc.source` or Draft's wrap map into scroll rows; raw and rich edit use that same position through `DraftSession`. A held edit keeps its viewport on focus; a second click places the cursor. `PaneView.scroll` carries the editor's scroll bar too. | `src/reader-position.ts`, `src/surface/note.ts`, `src/edit.ts`, `src/draft-session.ts`; the `one-place` showcase |
 | read a note’s front matter | `frontMatterLines` in outline-core bounds the title and first paragraph at the first blank line; the service’s property records supply scope, the shared list grammar supplies values, and `PropertyPanel` groups block properties separately from inline and line properties. Showcase: `front-matter`. | `outline-core/src/header-line.ts`, `outline-core/src/property-grammar.ts`, `src/surface/props-panel.ts` |
 
+| take a consistent SQLite copy for analysis | **ShareSessions** owns the one-time token, expiry and revocation; **OutlineSnapshots** owns the checked copy and machinery record; the publisher streams it; the shell ActionSet exposes `outline.snapshot` in the power bar, Tree/Detail their System actions | outliner `src/outline-snapshots.ts`, `src/share-sessions.ts`, `src/publish.ts`; door `src/screens.ts` | the `snapshot` showcase section |
+
 - **Don't copy the parallel versions:** the `colourBody` bodies left in the desk's search preview and
   the river's cards (F1), the river's pane code (F2), the extra searches (F6).
 - **Don't re-derive meaning the service owns** (view membership, property parsing, query evaluation,

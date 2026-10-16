@@ -9,6 +9,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./snapshot-database": "./src/snapshot-database.ts",
     "./outline-binding": "./src/outline-binding.ts",
     "./agent-tools": "./src/agent-tools.ts",
     "./mcp-write": "./src/mcp-write.ts",

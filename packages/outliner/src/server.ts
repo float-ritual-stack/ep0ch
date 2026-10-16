@@ -1,3 +1,4 @@
+import { OutlineSnapshots } from "./outline-snapshots";
 import { DEFAULT_MACHINERY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { scriptSources } from "./script-sources";
 import { ScriptRuns } from "./script-runs";
@@ -26,7 +27,7 @@ import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { hostname as systemHostname } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   ATTENTION_MAX_SUPPORTING_MARKS,
   attentionClientState,
@@ -294,7 +295,7 @@ function normalizePublisherAddress(address: unknown): PublisherAddress {
   if (!address || typeof address !== "object") throw new Error("A client's publish address is an object: { url?, publicUrl? }");
   const out: PublisherAddress = {};
   if ((address as Record<string, unknown>).tunnels === true) out.tunnels = true;
-  for (const key of ["url", "publicUrl"] as const) {
+  for (const key of ["url", "publicUrl", "tailnetUrl"] as const) {
     const value = (address as Record<string, unknown>)[key];
     if (value === undefined) continue;
     if (typeof value !== "string") throw new Error(`A client's publish.${key} must be a full http(s) URL`);
@@ -358,6 +359,7 @@ export class OutlinerServer {
   private readonly shares = new ShareSessions({ read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
   /** What each reader of the web client has in front of them (presence, in memory). */
   private readonly readers = new ReaderPresence();
+  private readonly snapshots: OutlineSnapshots;
   /** `shares.start` calls waiting for their tunnel's report (`shares.tunnel`), by share id. */
   private readonly tunnelWaits = new Map<string, () => void>();
   private extensionRuntime!: ResourceExtensionRuntime;
@@ -430,6 +432,7 @@ export class OutlinerServer {
   ) {
     this.fixtureProviders = options.resourceProviders ?? [];
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
+    this.snapshots = new OutlineSnapshots(store, this.shares, join(this.stateDirectory, "snapshots"));
     this.readOnly = options.readOnly === true;
     this.outlinesFolder = options.outlinesFolder;
     this.watches = new QueryWatches({
@@ -710,6 +713,7 @@ export class OutlinerServer {
     if (this.readOnly) return;
     // The host opens each outline here, not through start(): requests a restart cut off, and `@name` lines
     // from before agent requests, are seen to the same way, once per outline.
+    this.snapshots.start();
     this.agentRequests.start();
     this.extensionSync.start();
     this.extensionRules.start();
@@ -731,6 +735,7 @@ export class OutlinerServer {
       unlinkSync(this.socketPath);
     }
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
+    this.snapshots.start();
     this.agentRequests.start();
     const server = createServer((socket) => this.accept(socket));
     this.server = server;
@@ -766,6 +771,7 @@ export class OutlinerServer {
     await this.scriptRuns.stop();
     this.extensionRules.stop();
     this.extensionSchedules.stop();
+    this.snapshots.stop();
     this.agentRequests.stop();
     const server = this.server;
     if (!server && !this.hosted) return;
@@ -2040,7 +2046,7 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error), sequence: this.store.sequence };
       }
     }
-    if (request.action.startsWith("shares.") || request.action.startsWith("reader.")) {
+    if (request.action === "outline.snapshot" || request.action.startsWith("shares.") || request.action.startsWith("reader.")) {
       try {
         return { id: request.id, ok: true, result: await this.shareRequest(request), sequence: this.store.sequence };
       } catch (error) {
@@ -2532,6 +2538,9 @@ export class OutlinerServer {
         case "echonet.take":
         case "notes.address":
         case "notes.render":
+        case "outline.snapshot":
+        case "shares.snapshot.take":
+        case "shares.snapshot.finish":
         case "shares.start":
         case "shares.list":
         case "shares.revoke":
@@ -3787,6 +3796,16 @@ export class OutlinerServer {
   private async shareRequest(request: OutlinerRequest): Promise<unknown> {
     const publicUrl = this.publisherAddress().publicUrl;
     switch (request.action) {
+      case "outline.snapshot": {
+        const address = this.publisherAddress();
+        const root = address.url ? new URL(address.url).pathname.replace(/\/o\/[^/]+\/?$/, "").replace(/\/+$/, "") : "/pub";
+        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(this.outline?.name ?? basename(this.store.database.filename, ".sqlite"))}` : address.tailnetUrl ?? address.url ?? (address.publicUrl ? new URL(address.publicUrl).origin : undefined);
+        const result = await this.snapshots.create(request, origin);
+        this.sharesChanged();
+        return result;
+      }
+      case "shares.snapshot.take": return this.snapshots.take(request.token);
+      case "shares.snapshot.finish": this.snapshots.finish(request.shareId, request.fetched); return { ok: true };
       case "shares.start": {
         if (request.comments !== undefined && typeof request.comments !== "boolean") throw new Error("comments is true or false");
         const ttlMs = shareTtlMs(request.ttl);
@@ -3897,6 +3916,7 @@ export class OutlinerServer {
 
   /** Tells the publishers that shares started or ended (no ids or tokens): each reads `shares.list` and starts or stops its tunnels. */
   private sharesChanged(): void {
+    this.snapshots.sweep();
     this.broadcast({ id: crypto.randomUUID(), domain: "shares", action: "shares.changed", sequence: this.store.sequence });
   }
 

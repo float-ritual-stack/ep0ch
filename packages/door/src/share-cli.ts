@@ -74,7 +74,7 @@ export function endsIn(iso: string, now = Date.now()): string {
 }
 
 /** What a share shows, in words. */
-export const shareWhat = (share: ShareSession) => (share.scope.kind === "outline" ? "the whole outline" : `only “${share.scope.title}” ((${share.scope.blockId})) and what's under it`) +
+export const shareWhat = (share: ShareSession) => share.snapshot ? "SQLite snapshot (one download)" : (share.scope.kind === "outline" ? "the whole outline" : `only “${share.scope.title}” ((${share.scope.blockId})) and what's under it`) +
   (share.opens ? `, opening on “${share.opens.title}”` : "");
 
 /** One share as a line: its id, link, what, when it ends, comments. */

@@ -21,6 +21,7 @@ import type { HomeArgs, HomeChoice } from "./home";
 export type OutlineCommand = { machine?: string } & (
   | { op: "list"; json: boolean; all?: boolean; lines?: boolean; archived?: boolean }
   | { op: "attach"; name: string; json: boolean; create?: boolean; noCreate?: string | true }
+  | { op: "snapshot"; name: string; out?: string; ttl?: string; json: boolean }
   | { op: "create"; name: string; json: boolean }
   | { op: "import"; path: string; name: string; json: boolean }
   | { op: "stop"; name: string; json: boolean }
@@ -29,7 +30,7 @@ export type OutlineCommand = { machine?: string } & (
   | { op: "init"; name?: string; json: boolean; create?: boolean; noCreate?: string | true }
   | { op: "status"; json: boolean });
 
-export const OUTLINE_USAGE = "ep0ch outline list [--all] [--archived] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name> | stop <name> | archive <name> | unarchive <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>] [--create]";
+export const OUTLINE_USAGE = "ep0ch outline list [--all] [--archived] [--lines] | snapshot <name> [--link | --out <file>] [--ttl 15m] | attach <name> [--create] | create <name> | import <database.sqlite> <name> | stop <name> | archive <name> | unarchive <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>] [--create]";
 
 /** `args` after `outline` (or `["status", …]`, `["init", …]`): the command, or why it isn't one. */
 export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd()): OutlineCommand | { error: string } {
@@ -42,6 +43,23 @@ export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd())
 }
 
 function parseCommand(args: readonly string[], cwd: string): OutlineCommand | { error: string } {
+  if (args[0] === "snapshot") {
+    const rest = [...args.slice(1)];
+    const option = (flag: string) => {
+      const at = rest.indexOf(flag);
+      if (at < 0) return undefined;
+      const value = rest[at + 1];
+      if (!value || value.startsWith("--")) throw new Error(`${flag} needs a value`);
+      rest.splice(at, 2); return value;
+    };
+    try {
+      const out = option("--out"), ttl = option("--ttl");
+      if (out && rest.includes("--link")) return { error: "Choose --link or --out <file>" };
+      const names = rest.filter(a => a !== "--link" && a !== "--json");
+      if (names.length !== 1 || !OUTLINE_NAME.test(names[0]!)) return { error: OUTLINE_USAGE };
+      return { op: "snapshot", name: names[0]!, json: rest.includes("--json"), ...(out ? { out: resolve(cwd, out) } : {}), ...(ttl ? { ttl } : {}) };
+    } catch (error) { return { error: (error as Error).message }; }
+  }
   const json = args.includes("--json"), yes = args.includes("--yes"), create = args.includes("--create") ? { create: true } : {};
   const no = noCreateOf(args), noCreate = no === undefined ? {} : { noCreate: no };
   const words = args.filter(a => !a.startsWith("--"));
@@ -155,6 +173,12 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
   const print = (value: unknown, text: string) => out(cmd.json ? JSON.stringify(value, null, 2) : text);
   try {
     switch (cmd.op) {
+      case "snapshot": {
+        if (cmd.out && machine) throw new Error("--out writes on the same machine; run ep0ch outline snapshot " + cmd.name + " --out <file> there, or use --link here and curl it");
+        const result = await hostRequest<import("@ep0ch/outline-core/protocol").OutlineSnapshot>(path, "outline.snapshot", { outline: cmd.name, ...(cmd.out ? { out: cmd.out } : {}), ...(cmd.ttl ? { ttl: cmd.ttl } : {}), mutation: { author: "user" } }, 120_000);
+        print(result, result.curl ?? `saved ${result.bytes} bytes to ${result.path} · sha256 ${result.sha256}`);
+        return 0;
+      }
       case "status": {
         const list = await hostRequest<{ defaultOutline?: string; outlines: HostedOutline[] }>(path, "outlines.list");
         const open = list.outlines.filter(o => o.open).map(o => o.name);

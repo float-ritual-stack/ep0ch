@@ -54,6 +54,7 @@ export const SEED = {
   machineryTools: "Written by tools",
   title: "A title you can find",
   replies: "Replies at the orchard",
+  snapshot: "A SQLite copy for analysis",
   frontMatter: "## Early sowing notes",
   frontMatterAgent: "A plan for the seed bed,",
   markdownFigures: "Figures, written in Markdown",
@@ -1417,6 +1418,7 @@ if (request.input.request === "describe the beds") {
   notes.hero = await make(notes.root.id, heroText());
   notes.artifacts = await make(notes.root.id, artifactsText(await placeArtifacts(board)));
   notes.replies = await make(notes.root.id, `${SEED.replies} [thread::orchard]\n\nR writes beside this message. Save keeps the reply; Esc closes it. Select words and press R to quote.\n\n${Array.from({ length: 35 }, (_, i) => `Orchard row ${i + 1}: leave the small apples for the birds.`).join("\n")}`);
+  notes.snapshot = await make(notes.root.id, `${SEED.snapshot}\n\nUse the power bar (ctrl+k), > outline.snapshot, to copy a one-time snapshot link. The link expires in 15 minutes; ep0ch share revoke ends it sooner. It includes private notes.\n\nFrom a shell on this machine:\n\n\`\`\`sh\nep0ch outline snapshot showcase --out /tmp/showcase.sqlite\nsqlite3 -readonly /tmp/showcase.sqlite 'select count(*) from blocks;'\n\`\`\`\n\nWith a publisher running: ep0ch outline snapshot showcase --link prints a curl command. Fetch it, then run the same query. A second fetch is refused. Add ?gz=1 for gzip.\n`);
   notes.frontMatter = await make(notes.root.id, FRONT_MATTER);
   notes.frontMatterAgent = await make(notes.root.id, FRONT_MATTER_AGENT);
   notes.title = await make(notes.root.id, titleText(notes.whiteboard.id));

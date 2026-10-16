@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the checklist box grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms, the date reader), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 197;
+export const PROTOCOL = 198;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -339,7 +339,21 @@ export interface McpAccessStatus {
  * anyone who has it until it expires or is revoked (`shares.start`, `ep0ch share`, the MCP's share tools). The
  * publisher's public listener serves it at `url`; inside it every page stays below that URL and inside its scope.
  */
+export interface OutlineSnapshot {
+  url?: string;
+  expiresAt?: string;
+  bytes: number;
+  sha256: string;
+  schema: number;
+  asOf: string;
+  curl?: string;
+  shareId?: string;
+  path?: string;
+}
+
 export interface ShareSession {
+  /** A single-use database download, never a browsable page share. */
+  snapshot?: Omit<OutlineSnapshot, "url" | "curl" | "path" | "shareId" | "expiresAt"> & { recordId: string; base: string; removed?: boolean };
   /** A short id to name it by (`ep0ch share revoke <id>`): not the secret, which is only in `url`. */
   id: string;
   /**

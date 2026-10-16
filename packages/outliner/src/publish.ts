@@ -137,6 +137,7 @@ export interface PublishedIndex {
 export type PublishClient = Pick<OutlinerClient, "request"> & Partial<Pick<OutlinerClient, "requireCompatibleService" | "watch">>;
 
 export interface PublisherOptions {
+  tailnetUrl?: string;
   client: PublishClient;
   /** Extra allowed attachment roots; the outline's workspace root is always one. */
   roots?: readonly string[];
@@ -900,7 +901,7 @@ export class Publisher {
   address(): PublisherAddress {
     const url = this.options.url?.trim().replace(/\/+$/, "");
     const publicUrl = this.publicBase.origin ? `${this.publicBase.origin}${this.publicBase.basePath}` : undefined;
-    return { ...(url ? { url } : {}), ...(publicUrl ? { publicUrl } : {}), ...(this.options.tunnels ? { tunnels: true } : {}) };
+    return { ...(this.options.tailnetUrl ? { tailnetUrl: this.options.tailnetUrl } : {}), ...(url ? { url } : {}), ...(publicUrl ? { publicUrl } : {}), ...(this.options.tunnels ? { tunnels: true } : {}) };
   }
 
   /**
@@ -1103,7 +1104,7 @@ export class Publisher {
     }
     // A share link (share-sessions.ts): on the public listener, below `/s/<token>`, checked against the service on
     // every request, so an expiry or a revoke holds from the next one.
-    const shared = audience === "public" ? SHARE_PATH.exec(path) : null;
+    const shared = audience === "public" || path.endsWith("/snapshot.sqlite") ? SHARE_PATH.exec(path) : null;
     if (shared) {
       try {
         return await this.answerShare(request, shared[1]!, shared[2] ?? "/", mount);
@@ -1196,10 +1197,48 @@ export class Publisher {
    * when it ended). Inside, it is the tailnet's web client cut to the session's scope: every note in it a page and a
    * folder, its links and embeds only to notes inside, and marginalia when the session takes comments.
    */
+  /** The sign-in origin admits only this token-gated download without a browser session. */
+  async snapshotDownload(request: Request, token: string): Promise<Response> {
+    const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
+    if (found.status !== "active" || !found.share.snapshot) return notFound();
+    return this.answerShare(request, token, "/snapshot.sqlite", "");
+  }
+
   private async answerShare(request: Request, token: string, rest: string, mount: string, tunnel?: string): Promise<Response> {
     const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
     if (found.status === "unknown") return notFound();
     if (found.status === "ended") return shareGone(found.state);
+    if (found.share.snapshot) {
+      if (rest !== "/snapshot.sqlite") return notFound();
+      if (request.method !== "GET") return respond("Download with GET\n", "text/plain", 405, { allow: "GET" });
+      const taken = await this.client.request<{ path: string; shareId: string } | null>({ action: "shares.snapshot.take", token });
+      if (!taken) return shareGone("revoked");
+      const compressed = new URL(request.url).searchParams.get("gz") === "1";
+      const stream = Bun.file(taken.path).stream();
+      const reader = (compressed ? stream.pipeThrough(new CompressionStream("gzip")) : stream).getReader();
+      let ended = false;
+      const finish = async (fetched: boolean) => {
+        if (ended) return;
+        ended = true;
+        await this.client.request({ action: "shares.snapshot.finish", shareId: taken.shareId, fetched });
+      };
+      const body = new ReadableStream({
+        async pull(controller) {
+          try {
+            const next = await reader.read();
+            if (next.done) { await finish(true); controller.close(); }
+            else controller.enqueue(next.value);
+          } catch (error) { await finish(false); controller.error(error); }
+        },
+        async cancel() { try { await reader.cancel(); } finally { await finish(false); } },
+      });
+      return new Response(body, { headers: {
+        "content-type": compressed ? "application/gzip" : "application/vnd.sqlite3",
+        "content-disposition": `attachment; filename="snapshot.sqlite${compressed ? ".gz" : ""}"`,
+        "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow",
+        ...(compressed ? {} : { "content-length": String(found.share.snapshot.bytes) }),
+      } });
+    }
     // A tunnel's share is answered on its own tunnel's ingress only (its email gate is in front of it), never on the
     // public listener; and a tunnel's ingress answers nothing but its share.
     if (found.share.via === "cloudflare" ? found.share.id !== tunnel : tunnel !== undefined) return notFound();
@@ -1381,7 +1420,7 @@ export class Publisher {
       return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
     };
     const note = (blockId: string, title: string) => `<a href="${escapeHtml(`${base}/p/${blockId}`)}">${escapeHtml(noteTitle(title) || blockId)}</a>`;
-    const what = (share: ShareSession) => (share.scope.kind === "outline" ? "the whole outline" : `only ${note(share.scope.blockId, share.scope.title)} and what's under it`) +
+    const what = (share: ShareSession) => share.snapshot ? "SQLite snapshot (one download)" : (share.scope.kind === "outline" ? "the whole outline" : `only ${note(share.scope.blockId, share.scope.title)} and what's under it`) +
       (share.opens ? `, opening on ${note(share.opens.blockId, share.opens.title)}` : "");
     const how = (share: ShareSession) => share.via === "cloudflare" ? ` · Cloudflare tunnel${share.allowMail?.length ? ` for ${share.allowMail.join(", ")}` : ", public"}` : "";
     const rows = shares.map((share) => `<tr><td>${what(share)}<div class="dim">${escapeHtml(share.id)} · by ${escapeHtml(share.by)}${escapeHtml(how(share))}</div></td>` +

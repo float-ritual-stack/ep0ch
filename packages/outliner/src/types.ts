@@ -1252,6 +1252,8 @@ export interface NoteAddress {
 
 /** Where a running publisher is opened, as it tells the service when it connects (`notes.address` builds links from it). */
 export interface PublisherAddress {
+  /** The local clients' download address when web pages advertise a separate sign-in origin. */
+  tailnetUrl?: string;
   /** The tailnet listener's full URL with its base path (`https://host.ts.net/pub`), when the publisher was told it. */
   url?: string;
   /** The public listener's full URL (`https://share.example/share`), when its origin is known. */
@@ -2644,6 +2646,9 @@ export type OutlinerRequestAction =
    * to `24h`, or seconds. `comments` (default true) lets the link's reader highlight, comment, ask and reply. `mutation`
    * names who started it. Answers the session with its `url` (when a public listener has said where it is opened).
    */
+  | { id: string; action: "outline.snapshot"; webUrl?: string; ttl?: string | number; out?: string; mutation?: MutationProvenance }
+  | { id: string; action: "shares.snapshot.take"; token: string }
+  | { id: string; action: "shares.snapshot.finish"; shareId: string; fetched: boolean }
   | { id: string; action: "shares.start"; scope?: string; open?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string | string[]; mutation?: MutationProvenance }
   /** The open share sessions, soonest to end first (`all`: the ones ended this week too). */
   | { id: string; action: "shares.list"; all?: boolean }

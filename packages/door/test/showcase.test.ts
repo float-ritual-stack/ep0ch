@@ -299,6 +299,27 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; process.env.EP0CH_EDIT_ARM = "off"; });
 
+  test("the snapshot exhibit downloads the showcase through its power-bar action and queries SQLite", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "snapshot" }, as: "test-agent" });
+    await until(() => screen().includes("A SQLite copy for analysis"), "snapshot exhibit");
+    const { Publisher } = await import(`${outliner}/src/publish.ts`);
+    const { OutlinerClient } = await import(`${outliner}/src/client.ts`);
+    let publisher: InstanceType<typeof Publisher>;
+    const http = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => publisher.handle(request, "public") });
+    publisher = new Publisher({ client: new OutlinerClient(scratch.sock), publicUrl: `http://127.0.0.1:${http.port}` });
+    await publisher.start();
+    try {
+      const snapshot = await app.act({ action: "outline.snapshot", as: "test-agent" }) as { url: string };
+      const file = join(scratch.root, "showcase-copy.sqlite");
+      const curl = Bun.spawn(["curl", "--fail", "--silent", snapshot.url, "--output", file], { stdout: "pipe", stderr: "pipe" });
+      expect(await curl.exited).toBe(0);
+      const sqlite = Bun.spawn(["sqlite3", "-readonly", file, "select text from blocks where text like 'A SQLite copy for analysis%';"], { stdout: "pipe", stderr: "pipe" });
+      expect(await new Response(sqlite.stdout).text()).toContain("one-time snapshot link");
+      expect(await sqlite.exited).toBe(0);
+    } finally { http.stop(true); await publisher.stop(); }
+  });
+
   test("front matter: the properties panel separates scopes and draws list chips", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "front-matter" }, as: "test-agent" });
@@ -452,6 +473,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     "one-place": ["The long row of runner beans", "Bike shed"],
     "reading-line": ["The long row of runner beans", "Allotment notebook"],
     replies: ["Replies at the orchard", "Orchard row 1"],
+    snapshot: ["A SQLite copy for analysis", "outline.snapshot"],
     "front-matter": ["Early sowing notes", "A plan for the seed bed"],
   };
 

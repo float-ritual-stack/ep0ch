@@ -200,6 +200,23 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
   beforeAll(async () => { await host.start(); await host.create("bob"); await host.create("fred"); }, 30_000);
   afterAll(() => host.dispose());
 
+  test("outline snapshot --out writes a queryable copy without a publisher and never overwrites it", async () => {
+    const board = new SocketBoard(host.sock, 5000, "bob");
+    try {
+      await board.request("create", { text: "Kettle inventory\nTwo blue kettles.", author: "user" });
+      const target = join(host.root, "kettles.sqlite");
+      const saved = await run(host.root, "outline", "snapshot", "bob", "--out", target, "--json");
+      expect(saved.code, saved.err).toBe(0);
+      expect(JSON.parse(saved.out)).toMatchObject({ path: target, schema: 5 });
+      const query = Bun.spawn(["sqlite3", "-readonly", target, "select text from blocks where text like 'Kettle inventory%';"], { stdout: "pipe", stderr: "pipe" });
+      expect(await new Response(query.stdout).text()).toContain("Two blue kettles.");
+      expect(await query.exited).toBe(0);
+      const again = await run(host.root, "outline", "snapshot", "bob", "--out", target);
+      expect(again.code).toBe(1);
+      expect(again.err).toContain("already exists");
+    } finally { board.close(); }
+  });
+
   test("a board on bob reads only bob, and its subscription sees only bob's changes", async () => {
     const bob = new SocketBoard(host.sock, 5000, "bob"), fred = new SocketBoard(host.sock, 5000, "fred");
     try {

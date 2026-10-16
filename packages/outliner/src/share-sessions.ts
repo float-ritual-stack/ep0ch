@@ -30,6 +30,7 @@ export type ShareResolution =
   | { status: "unknown" };
 
 export interface ShareStartInput {
+  snapshot?: ShareSession["snapshot"];
   scope: ShareSession["scope"];
   ttlMs: number;
   comments: boolean;
@@ -105,7 +106,7 @@ export class ShareSessions {
   private current(): StoredShare[] {
     const now = this.now();
     return this.load().map((session) => session.state === "active" && Date.parse(session.expiresAt) <= now ? { ...session, state: "expired" as const } : session)
-      .filter((session) => session.state === "active" || now - Date.parse(session.revokedAt ?? session.expiresAt) < ENDED_KEPT_MS);
+      .filter((session) => session.state === "active" || (session.snapshot && !session.snapshot.removed) || now - Date.parse(session.revokedAt ?? session.expiresAt) < ENDED_KEPT_MS);
   }
 
   private save(sessions: readonly StoredShare[]): void {
@@ -122,6 +123,7 @@ export class ShareSessions {
     let id: string;
     do id = randomBytes(4).toString("hex"); while (ids.has(id));
     const session: StoredShare = {
+      ...(input.snapshot ? { snapshot: input.snapshot } : {}),
       id, token: randomBytes(32).toString("base64url"), scope: input.scope, comments: input.comments,
       createdAt: new Date(now).toISOString(), expiresAt: new Date(now + input.ttlMs).toISOString(), state: "active", by: input.by,
       via: input.via ?? "edge",
@@ -165,6 +167,10 @@ export class ShareSessions {
     return sessions[at];
   }
 
+  snapshotRemoved(id: string): void {
+    this.save(this.current().map(session => session.id === id && session.snapshot ? { ...session, snapshot: { ...session.snapshot, removed: true } } : session));
+  }
+
   /** Ends every active session now; answers the ones it ended. */
   revokeAll(): StoredShare[] {
     const at = new Date(this.now()).toISOString();
@@ -200,8 +206,8 @@ export function shareOnWire(session: StoredShare, publicUrl: string | undefined)
   const { token, ...rest } = session;
   // Sessions kept before there were two ways are the edge's.
   const via = rest.via ?? "edge";
-  const origin = via === "cloudflare" ? (rest.tunnel?.state === "up" && rest.tunnel.host ? `https://${rest.tunnel.host}` : undefined) : publicUrl ? new URL(publicUrl).origin : undefined;
-  return { ...rest, via, ...(origin ? { url: `${shareUrl(origin, token)}${rest.opens ? `p/${rest.opens.blockId}` : ""}` } : {}) };
+  const origin = rest.snapshot?.base ?? (via === "cloudflare" ? (rest.tunnel?.state === "up" && rest.tunnel.host ? `https://${rest.tunnel.host}` : undefined) : publicUrl ? new URL(publicUrl).origin : undefined);
+  return { ...rest, via, ...(origin ? { url: `${shareUrl(origin, token)}${rest.snapshot ? "snapshot.sqlite" : rest.opens ? `p/${rest.opens.blockId}` : ""}` } : {}) };
 }
 
 /** A share's link: `/s/<token>/` at the root of its host (`https://pie.ep0ch.sh/s/<token>/`); no proxy route is added per share. */

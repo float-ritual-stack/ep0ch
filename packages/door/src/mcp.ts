@@ -796,6 +796,12 @@ function toolsFor(outlines: McpOutlines) {
   ];
 }
 
+const snapshotDefinition = (outline: Record<string, unknown>) => ({
+  name: "outline_snapshot",
+  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. The file stays out of chat.",
+  inputSchema: { type: "object", properties: { outline, ttl: { type: "string", description: "15m by default, 1m to 24h" } }, additionalProperties: false },
+});
+
 /** The share tools: offered with the write tools (a link opens notes to anyone who has it), to an outline that takes writes. */
 const SHARE_TOOLS = ["share_start", "share_list", "share_revoke"] as const;
 type ShareTool = typeof SHARE_TOOLS[number];
@@ -829,7 +835,7 @@ const shareToolDefinitions = (outline: Record<string, unknown>) => [
 ];
 
 /** reader_view and the share tools: the outline named (or the default), its access checked (reads, or writes for a share). */
-async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view", args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
+async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" | "outline_snapshot", args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
   const which = namedOutline(args.outline);
   if (which && "error" in which) return toolError(which.error);
   if (!which && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
@@ -840,6 +846,13 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view",
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   if (target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: its web client and its shares are there.`);
   try {
+    if (name === "outline_snapshot") {
+      return toolText(await board.request("outline.snapshot", {
+        ...(args.ttl !== undefined ? { ttl: args.ttl } : {}),
+        ...(caller?.sub !== STDIO_SUBJECT && process.env.EP0CH_WEB_URL ? { webUrl: process.env.EP0CH_WEB_URL.split(",")[0]!.trim() } : {}),
+        mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" },
+      }, 120_000));
+    }
     if (name === "reader_view") {
       const seen = await readerView(board);
       return toolText({ ...seen, said: readerLine(seen.view) });
@@ -869,7 +882,7 @@ const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => cal
 
 /** The tools a caller is offered: the reads, the writes and shares where the outline takes writes, and the outline admin. */
 const toolList = (outlines: McpOutlines, writes: boolean, caller: McpCaller | undefined) =>
-  [...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
+  [snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
 
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
@@ -962,6 +975,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
   if (params.name === "outline_components") return componentsTool(outlines, args);
+  if (params.name === "outline_snapshot") return shareTool(outlines, "outline_snapshot", args, caller);
   if (params.name === "reader_view") return shareTool(outlines, "reader_view", args, caller);
   if (isShareTool(params.name) && caller) return shareTool(outlines, params.name, args, caller);
   if (isWriteTool(params.name) && caller) return writeTool(outlines, params.name, args, caller);
