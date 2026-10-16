@@ -29,19 +29,26 @@ export function tidyPassage(lines: string[]): { replacement: string; message: st
   const indents: number[] = [];
   let nested = 0, trimmed = 0, formatted = 0;
   let fence = "";
+  let parent: { indent: number; shift: number } | null = null;
   const replacement = lines.map(line => {
+    const lead = /^\s*/.exec(line)![0].replaceAll("\t", "  ").length;
+    const item = /^(\s*)(?:[-*+]|\d{1,9}[.)])\s+/.exec(line);
+    // A continuation belongs to its item even across a blank line or inside a fenced example.
+    if ((!item || fence) && parent && line.trim() && lead > parent.indent) {
+      line = " ".repeat(Math.max(0, lead + parent.shift)) + line.trimStart();
+    } else if (!item && line.trim() && lead === 0) parent = null;
     const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
     if (marker) { if (!fence) fence = marker; else if (marker[0] === fence[0] && marker.length >= fence.length) fence = ""; return line; }
     if (fence) return line;
     let out = tidyLine(line);
     if (/\s+$/.test(line)) trimmed++;
     if (out !== line.trimEnd()) formatted++;
-    const item = /^(\s*)(?:[-*+]|\d{1,9}[.)])\s+/.exec(out);
     if (item) {
       const indent = item[1]!.replaceAll("\t", "  ").length;
       while (indents.length && indent < indents.at(-1)!) indents.pop();
       if (!indents.length || indent > indents.at(-1)!) indents.push(indent);
       const lead = "  ".repeat(indents.length - 1);
+      parent = { indent, shift: lead.length - indent };
       if (lead !== item[1]) { out = lead + out.slice(item[1]!.length); nested++; }
     } else if (out && !/^\s/.test(out)) indents.length = 0;
     return out;

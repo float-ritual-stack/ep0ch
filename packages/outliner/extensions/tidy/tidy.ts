@@ -30,7 +30,7 @@ async function respond() {
     ({ replacement, message } = tidyPassage(passage));
   } else {
     // The same stdin/stdout command contract as marginalia's config.answer; Haiku is pie's cheap text model.
-    const command = request.config?.answer ?? ["claude", "-p", "--model", "haiku", "--tools", "", "--bare"];
+    const command = request.config?.answer ?? ["claude", "-p", "--model", "haiku", "--tools", ""];
     if (!command.length) return { message: "no model: set tidy/config.json config.answer to a prompt-on-stdin command" };
     const prompt = [
       'Rewrite the Blockdown passage following the instruction. Return ONLY JSON: {"replacement":"the full rewritten passage","message":"short, specific account of what changed, e.g. rewrote 4 items as callouts"}.',

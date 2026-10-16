@@ -15,7 +15,7 @@ Morning plan
 - In the door, `@` at the start of a line offers the agents the outline's extensions serve, `@tidy` among them,
   with what each does: choosing one writes `@tidy ` and you go on typing (PIE-592).
 - Bare `@tidy` and `@tidy all` run the deterministic formatter (all never includes the title). Its count names actual changes: `fixed nesting in 3 items, trimmed 1 line`, or `nothing to tidy above`.
-- `@tidy <instruction>` rewrites the paragraph or list above, skipping adjacent ask lines. For example, `@tidy remove the cruft and wrap each item in a callout` returns one patch, not a chat answer. It uses `claude -p --model haiku --tools "" --bare`, pie’s cheap text model, with a 10-second extension deadline.
+- `@tidy <instruction>` rewrites the paragraph or list above, skipping adjacent ask lines. For example, `@tidy remove the cruft and wrap each item in a callout` returns one patch, not a chat answer. It uses `claude -p --model haiku --tools ""`, pie’s cheap text model, with a 10-second extension deadline.
 - Like marginalia, `config.answer` in `config.json` names a command: prompt on stdin, answer on stdout. Tidy expects JSON `{ "replacement": "the full rewritten passage", "message": "rewrote 4 items as callouts" }`. An empty command list disables the model and says so. Command failures, invalid JSON and deadline failures show on the ask line; the answer tile shows the same result even when there is no answer fold.
 - Repeated asks share a run and its outcome; each spelling of the line receives the result.
 - The edit is an ordinary attributed edit (`author: agent`, `ext:tidy`, `ext.tidy.agent.tidy` in

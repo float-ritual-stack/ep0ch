@@ -152,6 +152,9 @@ test("bare tidy fixes staggered nesting and counts actual changes (PIE-916)", as
   const done = await agentOf(note.id, p => p.status === "ready");
   expect(store.get(note.id)!.text).toBe("Plan\n- apples\n- pears\n  - plums\n- figs\n@tidy");
   expect(done.summary).toBe("fixed nesting in 3 items, trimmed 1 line");
+  const continued = await create("Plan\n   - parent\n\n       continuation\n@tidy all");
+  await agentOf(continued.id, p => p.status === "ready");
+  expect(store.get(continued.id)!.text).toBe("Plan\n- parent\n\n    continuation\n@tidy all");
 });
 
 test("a live draft gets tidy's reason, including repeated asks (PIE-916)", async () => {
@@ -161,8 +164,9 @@ test("a live draft gets tidy's reason, including repeated asks (PIE-916)", async
   door.text = "Plan\n- apples\n@tidy remove cruft\n@tidy  remove cruft\n@tidy yo\n";
   await client.request({ action: "drafts.touch", holdId: door.holdId });
   await until("both unique asks finished", () => store.agentRequests(note.id).length === 2 && store.agentRequests(note.id).every(r => r.answeredAt));
-  await until("final progress delivered", () => door.progress.some(p => p.state === "nothing"));
-  for (const line of ["@tidy remove cruft", "@tidy  remove cruft", "@tidy yo"]) {
+  const lines = ["@tidy remove cruft", "@tidy  remove cruft", "@tidy yo"];
+  await until("every final progress delivered", () => lines.every(line => door.progress.some(p => p.line === line && p.warning?.includes("no model"))));
+  for (const line of lines) {
     expect([...door.progress].reverse().find(p => p.line === line)?.warning).toContain("no model");
   }
 });
