@@ -93,6 +93,83 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
+  test("the replies drawer keeps moved replies, deduplicates children, and leaves content outside conferences", async () => {
+    const parent = (await board.newNote("Cider plans", undefined)).note;
+    const child = (await board.newNote("Bring apples", parent.id)).note;
+    const linked = (await board.newNote(`Moved answer [replyTo::${parent.id}]`, parent.id)).note;
+    await board.move(linked.id, notes.plot.id);
+    const both = (await board.newNote(`Answer here [replyTo::${parent.id}]`, parent.id)).note;
+    const app = new App(term(() => {}) as any, board, Date.now(), () => {});
+    const reader = new MessageReader([parent], 0);
+    app.push(reader); reader.render(app);
+    const out = await reader.dispatch.act({ action: "note.thread" }, { kind: "user" }) as { replies: string[] };
+    expect(new Set(out.replies)).toEqual(new Set([child.id, linked.id, both.id]));
+    expect(out.replies.filter(id => id === both.id)).toHaveLength(1);
+    expect(reader.surface.msg!.id).toBe(parent.id);
+    const outside = await reader.surface.act("note.thread", {}, { ...reader.host(app), conference: false }, { kind: "agent", id: "orchard-helper" }) as { replies: string[] };
+    expect(new Set(outside.replies)).toEqual(new Set([linked.id, both.id]));
+  });
+
+  test("quoting freezes the excerpt with its anchor while source scrolling leaves the reply cursor alone", async () => {
+    const parent = (await board.newNote("Pear harvest\n\nKeep the ripe pears. ^pears\n\n" + "Leave the windfalls.\n".repeat(80), undefined)).note;
+    let key: (k: Key) => void = () => {};
+    const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
+    const reader = new MessageReader([parent], 0);
+    app.push(reader); reader.render(app);
+    await reader.dispatch.act({ action: "select", args: { text: "Keep the ripe pears." } }, { kind: "user" });
+    await reader.dispatch.act({ action: "note.quote" }, { kind: "user" });
+    const quoted = reader.surface.draft!.text;
+    key(char('"'));
+    expect(reader.surface.draft!.text).toBe(quoted + '"');
+    expect(reader.surface.draft!.text).toContain("> Keep the ripe pears.");
+    expect(reader.surface.draft!.text).toContain(`((${parent.id}^pears))`);
+    reader.render(app);
+    const cursor = { row: reader.surface.draft!.row, col: reader.surface.draft!.col };
+    const before = reader.surface.scroll;
+    key({ kind: "pgdn" }); reader.render(app);
+    expect(reader.surface.scroll).toBeGreaterThan(before);
+    expect({ row: reader.surface.draft!.row, col: reader.surface.draft!.col }).toEqual(cursor);
+    expect((await board.get(parent.id))!.text).toBe(parent.text);
+    await board.update(parent.id, parent.text + `\nSee ((${notes.plot.id})).`, parent.revision!);
+    reader.surface.reread(reader.host(app));
+    await until(() => reader.surface.msg!.revision !== parent.revision, "the live source changed");
+    expect(reader.surface.describe().links.some(l => l.block === notes.plot.id)).toBe(true);
+    expect(reader.surface.draft!.text).toBe(quoted + '"');
+    await reader.dispatch.act({ action: "edit.save" }, { kind: "user" });
+    expect((await board.children(parent.id))[0]!.text).toContain("> Keep the ripe pears.");
+  });
+
+  test("R writes a temporary reply beside the message, saves its relationship and discards on Esc", async () => {
+    const parent = (await board.newNote("Orchard report [thread::orchard]\n\n" + "The pears are ready.\n".repeat(60), undefined)).note;
+    let key: (k: Key) => void = () => {};
+    const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
+    const reader = new MessageReader([parent], 0);
+    app.push(reader);
+    reader.render(app);
+    key(char("R"));
+    await until(() => !!reader.surface.draft, "reply draft", 1500);
+    expect(reader.surface.draft!.text).toBe("re:: Orchard report\n\n");
+    expect(await board.children(parent.id)).toEqual([]);
+    expect(reader.render(app).lines.join("\n")).toContain("The pears are ready.");
+    key({ kind: "paste", text: "Pick them tomorrow." });
+    key(ctrl("s"));
+    await until(() => !reader.surface.draft, "reply saved");
+    const replies = await board.children(parent.id);
+    expect(replies[0]!.text).toContain("Pick them tomorrow.");
+    expect(replies[0]!.props.replyto).toBe(parent.id);
+    expect(replies[0]!.props.thread).toBe("orchard");
+    expect(replies[0]!.props.re).toBe("Orchard report");
+    expect(reader.surface.msg!.id).toBe(parent.id);
+    key(char("R"));
+    await until(() => !!reader.surface.draft, "second reply");
+    key({ kind: "paste", text: "Discard this." });
+    key({ kind: "esc" });
+    expect(reader.surface.draft).not.toBeNull();
+    key({ kind: "esc" });
+    await until(() => !reader.surface.draft, "reply discarded");
+    expect((await board.children(parent.id)).map(m => m.id)).toEqual(replies.map(m => m.id));
+  }, 15_000);
+
   test("+ on the main menu: a note at the top of the Inbox, opened to be written; ⏎ titles a lone [page::x], ctrl+s saves it", async () => {
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});

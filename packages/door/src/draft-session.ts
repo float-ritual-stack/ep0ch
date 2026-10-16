@@ -941,6 +941,17 @@ export function cardTarget(o:
   };
 }
 
+/** A note reply is created only on Save: abandoning the editor leaves no empty child. */
+export function noteReplyTarget(parent: Msg, board: Pick<SocketBoard, "newNote">): DraftTarget {
+  const target = cardTarget({ kind: "child", parent, async create(text, by) {
+    const lines = text.split("\n");
+    lines.splice(1, 0, `[replyTo::${parent.id}]${parent.props.thread ? ` [thread::${parent.props.thread}]` : ""}`);
+    const { note } = await board.newNote(lines.join("\n"), parent.id, by, true);
+    return note;
+  } });
+  return { ...target, place: `note-reply:${parent.id}`, back: "R brings the reply back", what: `the reply to “${subject(parent)}”` };
+}
+
 // ── unsent drafts on disk ─────────────────────────────────────────────────────
 
 /** A draft put aside (esc twice, a screen closed, the door quit): by its place, with a copy on disk. */

@@ -509,6 +509,7 @@ export class EchoReader extends ReaderPane {
     if (!a || !net) return base;
     const h: SurfaceHost = {
       ...base,
+      conference: true,
       ctx: net.ctxOf(a, desk),
       // A link followed in a message is read here, on the message's own outline (alt+← comes back); ] [ go on through the list.
       navigate: (m: Msg, how?: OpenHow) => { if (how?.by?.kind === "agent" && this.holdsKeys) { desk.ctx.flash(`not opened while you're in ${this.surface.sessionWord() ?? "a session"} here: ${subject(m).slice(0, 50)}`); return; } this.surface.show(m, h); desk.redraw(); },

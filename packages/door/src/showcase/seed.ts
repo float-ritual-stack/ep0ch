@@ -53,6 +53,7 @@ export const SEED = {
   machineryPeople: "Written by people",
   machineryTools: "Written by tools",
   title: "A title you can find",
+  replies: "Replies at the orchard",
   frontMatter: "## Early sowing notes",
   frontMatterAgent: "A plan for the seed bed,",
   markdownFigures: "Figures, written in Markdown",
@@ -1415,6 +1416,7 @@ if (request.input.request === "describe the beds") {
   notes.images = await make(notes.root.id, imagesText());
   notes.hero = await make(notes.root.id, heroText());
   notes.artifacts = await make(notes.root.id, artifactsText(await placeArtifacts(board)));
+  notes.replies = await make(notes.root.id, `${SEED.replies} [thread::orchard]\n\nR writes beside this message. Save keeps the reply; Esc closes it. Select words and press R to quote.\n\n${Array.from({ length: 35 }, (_, i) => `Orchard row ${i + 1}: leave the small apples for the birds.`).join("\n")}`);
   notes.frontMatter = await make(notes.root.id, FRONT_MATTER);
   notes.frontMatterAgent = await make(notes.root.id, FRONT_MATTER_AGENT);
   notes.title = await make(notes.root.id, titleText(notes.whiteboard.id));

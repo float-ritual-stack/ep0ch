@@ -450,6 +450,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     asks: ["Keep writing while the answer arrives"],
     scripts: ["Seed report", "Press alt+S"],
     "one-place": ["The long row of runner beans", "Bike shed"],
+    replies: ["Replies at the orchard", "Orchard row 1"],
     "front-matter": ["Early sowing notes", "A plan for the seed bed"],
   };
 
@@ -564,6 +565,26 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("stage");
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
+  });
+
+  test("replies: act creates an attributed reply while the person's source stays put", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "replies" }, as: "reply-check" });
+    await until(() => screen().includes("Replies at the orchard"), "reply demo");
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "replies")).top as Desk;
+    const rd = desk.pane("reader") as ReaderPane;
+    const out = await desk.dispatch.act({ action: "note.reply", tile: "reader", args: { text: "re:: Replies at the orchard\n\nLeave the windfalls." } }, { kind: "agent", id: "orchard-helper" }) as { id: string };
+    const saved = await board.get(out.id);
+    expect(saved!.parentId).toBe(seeded.notes.replies.id);
+    expect(saved!.props.replyto).toBe(seeded.notes.replies.id);
+    expect(saved!.props.thread).toBe("orchard");
+    expect(rd.surface.draft).toBeNull();
+    expect(rd.surface.msg!.id).toBe(seeded.notes.replies.id);
+    await desk.dispatch.press("note.reply", {}, "reader");
+    await desk.dispatch.press("edit.text", { text: "re:: Replies at the orchard\n\nBring baskets." }, "reader");
+    expect(screen()).toContain("Orchard row 1");
+    await desk.dispatch.press("edit.save", {}, "reader");
+    expect((await board.children(seeded.notes.replies.id)).some(m => m.text.includes("Bring baskets."))).toBe(true);
   });
 
   test("one-place: act keeps the source line across view and edit and exposes the edit scroll bar", async () => {
@@ -4136,11 +4157,11 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     ch("f");
     await until(() => screen().includes("Water rota for August"), "unfolded", 5000);
     // R: the note as written, and back; nothing written.
-    ch("R");
+    ch("~");
     await until(() => screen().includes("Close the cold frame tonight!!!") && screen().includes("## Agenda"), "the note as written", 5000);
     expect(reader().decorations).toMatchObject({ raw: true, drawn: expect.any(Array) });
     expect(screen()).not.toContain("CLOSE THE COLD FRAME TONIGHT");
-    ch("R");
+    ch("~");
     await until(() => screen().includes("CLOSE THE COLD FRAME TONIGHT"), "decorated again", 5000);
     expect(await text()).toBe(before);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });

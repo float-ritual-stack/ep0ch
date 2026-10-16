@@ -950,6 +950,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "replies", need: "reply while the message stays visible, quote its words and follow the conversation", part: "NoteSurface's reader mode and shared split, the new-note editor and DraftSession child target, and the links model", files: "src/surface/note.ts, src/draft-session.ts, src/links.ts",
+    aside: 'R replies · wheel over the message or PgUp/PgDn scrolls it while the draft keeps its place · ctrl+s saves · Esc twice discards typed text · select and R quotes · t opens replies, b shows links, T the full list · ~ toggles raw decoration',
+    stage(n, show) {
+      const a = new ReaderPane();
+      return deskOf({ title: "showcase · replies", panes: [a], names: ["reader"], layout: ([x]) => leaf(x!) }, show, [[a, n.replies]]);
+    },
+  },
+  {
     key: "front-matter", need: "read and query the note's front matter", part: "outline-core header-line and property-grammar, the service property records and the reader's PropertyPanel", files: "outline-core/src/header-line.ts, outline-core/src/property-grammar.ts, src/surface/props-panel.ts",
     aside: "i or click the property count: block properties together, inline and line properties below, list values as chips · find connectTo=beans, connectto=frost, tag=neat or tag=epic · group=connectto puts the sowing note under beans and frost · the trailing #epic leaves the title; the source stays exactly as written",
     stage(n, show) {

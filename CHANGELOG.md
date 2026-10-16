@@ -15,6 +15,15 @@ are its record. The outliner's entries from then are kept below, under
 - Under `scripts/agent-env`, a `.ep0ch`'s `machine` and an inherited `EP0CH_MACHINE` are ignored, with a line on stderr saying so; only `--machine <ssh-name>` reaches another machine. Running `ep0ch outline create` from the repo under agent-env used to create the outline on float-2's live host.
 - **Deployment:** PROTOCOL 195. `ep0ch install --apply` on float-2, float-box and the MacBook.
 
+### Reply while keeping the message in sight (PIE-707)
+
+`R` opens a temporary reply beside or below the message, using the existing draft editor.
+Save posts it; Esc discards it (twice after typing). The message scrolls independently.
+Select text and reply, or press `"`, to include a frozen quote with its source.
+`t` opens replies in place, including replies moved elsewhere; `b` switches link groups and `T`
+opens the full thread list. Raw decoration moves to `~`; comments are unchanged.
+The `replies` showcase exercises the shared actions. No schema or protocol change.
+
 ### Queries can look back in minutes
 
 - `updated >= -30m` (and `-40m`, any `-Nm`) now works in queries, views, `ep0ch find --query` and the MCP tools. Before, only `h`, `d` and `w` were understood, so "the last half hour" had to be written as `-1h`.
