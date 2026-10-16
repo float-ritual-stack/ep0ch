@@ -118,9 +118,9 @@ describe("a reader's folds, without a service", () => {
     const s = new NoteSurface(), h = host();
     s.show(note(TEXT), h);
     expect(body(s, h)).toContain("dig the north bed");
-    expect(s.hint()).toContain("( ) f folds");
+    expect(s.hint()).toContain("( ) sections");
     s.key(char(")"), h);
-    expect(s.hint()).toStartWith("fold 1/6 ## Beds · ⏎ f fold");
+    expect(s.describe().folds?.selected).toBe("## Beds");
     s.key(char("f"), h);
     expect(body(s, h)).toContain("▸ ## Beds · 7 lines folded");
     expect(body(s, h)).not.toContain("dig the north bed");
@@ -166,7 +166,7 @@ describe("a reader's folds, without a service", () => {
     // Everything fits now: the view is at the top, with the folded heading in it.
     expect(after.top).toBe(0);
     expect(after.total).toBeLessThanOrEqual(after.room);
-    expect(s.render(60, 20, h).lines.map(l => plain(l).trimEnd())).toContain(" ▸ ## Top · 60 lines folded");   // the ruler pads its row
+    expect(s.render(60, 20, h).lines.map(l => plain(l).trimEnd())).toContain("▸ ▸ ## Top · 60 lines folded …");   // the ruler pads its row
   });
 
   test("folds survive a refresh and an edit elsewhere, drop when their heading is reworded, and reset on another note", () => {
@@ -207,11 +207,11 @@ describe("a reader's folds, without a service", () => {
     const lines = s.render(60, 40, h).lines.map(plain);
     const water = lines.findIndex(l => l.includes("## Water"));
     expect(s.sourceLineAt(water)).toBe(13);                // the note's line (0 is the subject)
-    expect(s.click(20, water, h)).toBe(true);
+    expect(s.click(0, water, h)).toBe(true);
     expect(s.describe().folds!.folded).toEqual(["## Water"]);
     const dig = s.render(60, 40, h).lines.map(plain).findIndex(l => l.includes("dig the north bed"));
     expect(s.click(40, dig, h)).toBe(false);              // the item's text isn't its disclosure
-    expect(s.click(2, dig, h)).toBe(true);
+    expect(s.click(0, dig, h)).toBe(true);
     expect(s.describe().folds!.folded).toEqual(["- [ ] dig the north bed", "## Water"]);
     const after = s.render(60, 40, h).lines.map(plain);
     expect(s.sourceLineAt(after.findIndex(l => l.includes("buy canes")))).toBe(8);
@@ -233,7 +233,7 @@ describe("a reader's folds, without a service", () => {
     expect(s.describe().folds!.selected).toBe("> Frost");
     // The nested callout is a fold point of its own: a click on its title folds it, its text is never touched.
     const lines = s.render(60, 40, h).lines.map(plain), slugs = lines.findIndex(l => l.includes("Slugs"));
-    expect(s.click(30, slugs, h)).toBe(true);
+    expect(s.click(0, slugs, h)).toBe(true);
     expect(body(s, h)).not.toContain("After rain.");
     expect(s.describe().folds!.folded).toEqual([">> Slugs"]);
     expect(s.msg!.text).toContain("> [!tip]- Frost");
@@ -328,6 +328,7 @@ describe("review fixes (PR #13)", () => {
     expect(s.key({ kind: "esc" }, h)).toBe(false);           // the next esc is the host's
     // Selected but scrolled out of view (say by an agent): ⏎ isn't a fold.
     s.scroll = 0;
+    s.readingLine(0);
     s.render(60, 20, h);
     s.key(char(")"), h);
     expect(s.describe().folds!.selected).toBe("## Top");
@@ -372,7 +373,7 @@ describe("review fixes (PR #13)", () => {
     await Bun.sleep(0);
     expect(went).toEqual([target.id]);
     expect(s.describe().folds!.folded).toEqual([]);
-    expect(s.click(1, row, h)).toBe(true);                   // the disclosure
+    expect(s.click(0, row, h)).toBe(true);                   // the disclosure
     expect(s.describe().folds!.folded.length).toBe(1);
     expect(went).toEqual([target.id]);
   });
@@ -385,7 +386,7 @@ describe("review fixes (PR #13)", () => {
     expect(s.click(60, water, h)).toBe(false);
     expect(s.click(-1, water, h)).toBe(false);
     expect(s.describe().folds!.folded).toEqual([]);
-    expect(s.click(59, water, h)).toBe(true);
+    expect(s.click(0, water, h)).toBe(true);
   });
 });
 
@@ -439,8 +440,8 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     // A click on ## Water (inside the frame, below the header) folds it too.
     const rows = frame();
     const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows && l.includes("## Water"));
-    key({ kind: "mouse", action: "down", button: 0, x: r.col + 4, y });
-    key({ kind: "mouse", action: "up", button: 0, x: r.col + 4, y });
+    key({ kind: "mouse", action: "down", button: 0, x: r.col + 1, y });
+    key({ kind: "mouse", action: "up", button: 0, x: r.col + 1, y });
     expect(d.surface.describe().folds.folded).toEqual(["## Beds", "## Water"]);
     // Someone edits the note elsewhere: the reader refreshes, and the folds stay.
     const cur = (await board.get(card.id))!;
@@ -501,7 +502,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     expect(d.surface.describe().folds.folded).toEqual([]);
     // The heading, off its link: folds, delivered once.
     calls = 0;
-    click(r.col + 4, water);
+    click(r.col + 1, water);
     expect(calls).toBe(1);
     expect(d.surface.describe().folds.folded).toEqual(["## Water"]);
     // The link in a heading: opens it, doesn't fold.
@@ -531,7 +532,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
       click(r().col + r().cols - 1, y);
       expect(reader()[1].surface.describe().folds.folded).toEqual([]);
       // On the heading as drawn (the reader's measure centres its text in a wide tile, PIE-673).
-      click(plain(lines()[y]!).indexOf("## Beds") + 1, y);
+      click(r().col + 1, y);
       expect(reader()[1].surface.describe().folds.folded).toEqual(["## Beds"]);
     } finally { app.pop(); }
   });

@@ -593,11 +593,9 @@ export class EchoReader extends ReaderPane {
   override key(k: Key, desk: DeskApi): boolean {
     const c = ch(k);
     if (this.message && !this.holdsKeys && !desk.holdsKeys?.()) {
-      if (c === "]" || c === "[") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.step", { by: c === "]" ? 1 : -1 }); return true; }
+      if (c === "}" || c === "{") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.step", { by: c === "}" ? 1 : -1 }); return true; }
       if (c === "r") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.reply", {}); return true; }
       if (c === "q") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.quote", {}); return true; }
-      // The surface's [ ] (the next and previous element) are { } here.
-      if (c === "{" || c === "}") { void this.surface.runKey("element.select", { by: c === "}" ? 1 : -1 }, this.host(desk)); return true; }
     }
     return super.key(k, desk);
   }
@@ -706,7 +704,7 @@ export const ECHO_MESSAGE_ACTIONS = actionSet<KindHost>()("echo", {
 
 export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
   "echo.step": def({
-    summary: "read the next (by=1) or previous (by=-1) message of the area the reader was opened on, marked read as it's shown", keys: "] [",
+    summary: "read the next (by=1) or previous (by=-1) message of the area the reader was opened on, marked read as it's shown", keys: "} {",
     touches: "screen", replay: "safe", says: r => `read message ${r.n} of ${r.of}: ${r.subject.slice(0, 40)}`,
     args: { by: { type: "number", about: "1 the next, -1 the previous" } },
     run({ by }, { pane, desk }, actor) {
@@ -825,7 +823,7 @@ export function echonetSpec(): ScreenSpec {
     hint: {
       "echo.areas": "|15j k|08 area · |15⏎|08 messages · |15r|08 reload · |15Tab|08 tiles · |15q|08 back",
       "echo.messages": "|15j k|08 message · |15⏎|08 read · |15Tab|08 tiles · |15q|08 areas",
-      "echo.reader": "|15] [|08 next prev · |15r|08 reply · |15q|08 quote · |15{ }|08 elements · |15esc|08 areas",
+      "echo.reader": "|15} {|08 next prev · |15r|08 reply · |15q|08 quote · |15[ ]|08 elements · |15esc|08 areas",
       "*": "|15Tab|08 tiles · |15q|08 areas",
     },
     layout: {

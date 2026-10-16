@@ -950,6 +950,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "reading-line", need: "keep a reading line and move by blocks, sections or actions", part: "NoteSurface's ReaderPosition and Doc.source; the ruler and fixed comment gutter", files: "src/surface/note.ts, src/surface/selection.ts",
+    aside: "Click a paragraph: the whole wrapped block lights. ↑↓ / j k read every bullet; ( ) jump sections; [ ] stop on actions. Wheel or PgUp/PgDn leave the reading line behind: its edge marker names the source line. Click a gutter chevron to fold, the trailing … to unfold. Click the other tile: the ruler stays dimmer. reader.ruler on=false turns it off. The notebook has links, nested items and a callout to try the three moves together.",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · reading line", panes: [a, b], names: ["reader", "structure"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.overscroll], [b, n.notebook]]);
+    },
+  },
+  {
     key: "replies", need: "reply while the message stays visible, quote its words and follow the conversation", part: "NoteSurface's reader mode and shared split, the new-note editor and DraftSession child target, and the links model", files: "src/surface/note.ts, src/draft-session.ts, src/links.ts",
     aside: 'R replies · wheel over the message or PgUp/PgDn scrolls it while the draft keeps its place · ctrl+s saves · Esc twice discards typed text · select and R quotes · t opens replies, b shows links, T the full list · ~ toggles raw decoration',
     stage(n, show) {

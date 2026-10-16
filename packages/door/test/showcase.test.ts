@@ -587,6 +587,61 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((await board.children(seeded.notes.replies.id)).some(m => m.text.includes("Bring baskets."))).toBe(true);
   });
 
+  test("reading line stays on its bullet while scrolling and steps without skipping bullets", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "reading-line" }, as: "place-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "reading-line")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => reader.msg?.id === seeded.notes.overscroll.id, "the long note");
+    screen();
+    const source = reader.msg!.text.split("\n");
+    const line = source.findIndex(l => l.startsWith("- Cane 1:"));
+    await desk.dispatch.press("reading.place", { line: line + 1 }, "reader");
+    const position = reader.surface.position.reading;
+    await desk.dispatch.press("scroll", { by: 30 }, "reader");
+    expect(reader.surface.position.reading).toBe(position);
+    expect(screen()).toContain(`reading line ↑ ${line + 1}`);
+    await desk.dispatch.press("scroll", { to: "top" }, "reader");
+    screen();
+    await desk.dispatch.press("reading.place", { line: line + 1 }, "reader");
+    for (let i = 2; i <= 5; i++) {
+      await desk.dispatch.press("reading.step", { by: 1 }, "reader");
+      screen();
+      expect(reader.msg!.text.slice(reader.surface.position.reading)).toStartWith(`- Cane ${i}:`);
+    }
+    const structure = desk.pane("structure") as ReaderPane;
+    await until(() => structure.msg?.id === seeded.notes.notebook.id, "the notebook");
+    screen();
+    const callout = structure.surface.describeElements().find(e => e.kind === "callout")!;
+    await desk.dispatch.press("element.select", { n: callout.n }, "structure");
+    screen();
+    const at = structure.surface.position.reading;
+    await desk.dispatch.press("fold.select", { by: 1 }, "structure");
+    screen();
+    expect(structure.surface.position.reading).toBeGreaterThan(at);
+    await desk.dispatch.press("element.select", { n: callout.n }, "structure");
+    await desk.dispatch.press("element.select", { by: 1 }, "structure");
+    expect(structure.surface.describeElements().find(e => e.current)?.label).not.toBe(callout.label);
+    await desk.dispatch.press("scroll", { to: "top" }, "structure");
+    let rows = sc.render(app).lines.map(plain);
+    const [, rect] = desk.hits.find(([id]) => desk.panes.get(id) === structure)!;
+    const x = S().stageRect.col + rect.col + 1;
+    let y = rows.findIndex(l => l.includes("Gate code"));
+    const click = (x: number, y: number) => {
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+    };
+    click(x, y);
+    expect(structure.surface.describe().folds?.folded).toContain("> Gate code");
+    rows = sc.render(app).lines.map(plain);
+    y = rows.findIndex(l => l.includes("Gate code"));
+    const end = rows[y]!.indexOf("…", x);
+    expect(end).toBeGreaterThan(x);
+    click(end, y);
+    expect(structure.surface.describe().folds?.folded).not.toContain("> Gate code");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
   test("one-place: act keeps the source line across view and edit and exposes the edit scroll bar", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "one-place" }, as: "place-check" });
@@ -2413,7 +2468,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(p.total).toBeGreaterThan(p.rows);
     const top = p.top;
     pane().wheel(-1, stage(), { x: r.col + 4, y: p.row + 2 });
-    expect(d()!.previewScroll!.top).toBeLessThan(top);
+    sc.render(app);
+    expect(d()!.frame!.preview!.top).toBeLessThan(top);
     pane().key({ kind: "char", ch: "?" }, stage());
     sc.render(app);
     expect(d()!.previewScroll).toBeNull();
@@ -3445,7 +3501,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The person, by keys: into the stage, [ ] to the first callout's icon, ⏎ opens the type choice, j ⏎ picks the next type.
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
-    ch("]"); ch("]");
+    ch("]");
     press({ kind: "enter" });
     await until(() => screen().includes("note · now") && screen().includes("make it start folded (-)"), "the type choice, every choice drawn", 5000);
     expect(screen()).toContain("note · now");
@@ -3465,7 +3521,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // By mouse: a click on the nested warning's title folds it.
     await until(() => screen().includes("body body"), "the nested warning drawn");
     // In the left reader (the right one shows the type's declaration).
-    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => /╭─ ▾ ⚠ warning/.test(l)), x = rows[y]!.search(/╭─ ▾ ⚠ warning/) + 8;
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => /╭─ ▾ ⚠ warning/.test(l)), x = rows[y]!.indexOf("▾", S().stageRect.col);
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => !screen().includes("body body"), "the nested callout folded by a click");
     expect(await text()).toContain("> > [!warning] warning");                // folding never writes

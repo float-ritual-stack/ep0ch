@@ -1,3 +1,4 @@
+import { PositionRows } from "../reader-position";
 // The one edit control: a Draft (src/edit.ts) drawn in the same frame, with the same keys and the same
 // status line, wherever text is written — a note's whole text, a comment, a reply. Ctrl+E hands any of
 // them to $VISUAL/$EDITOR and back through the same path.
@@ -29,7 +30,7 @@ export interface EditFrame {
    * the same body renderer every reader uses). With it the frame offers the preview (ctrl+p, or its control).
    * `pending`: something in it (an embed) is still being read, so it is drawn again on the redraw its answer brings.
    */
-  preview?: (text: string, w: number, links: LinkTarget[]) => string[] | { lines: string[]; links: LinkRange[]; pending?: boolean; placements?: Placement[] };
+  preview?: (text: string, w: number, links: LinkTarget[]) => string[] | { lines: string[]; links: LinkRange[]; pending?: boolean; placements?: Placement[]; source?: number[] };
   /**
    * The host follows a link: ctrl+l on the one the cursor is on, a click on one in the preview (PIE-592). Without it
    * the preview's links are only drawn.
@@ -118,7 +119,7 @@ export function wheelTarget(d: Draft, x: number, y: number): "text" | "preview" 
 /** Empty rows, so the preview under the text stays put while the text is short. */
 const pad0 = (n: number) => Array.from({ length: Math.max(0, n) }, () => "");
 
-const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[]; ranges: LinkRange[]; links: LinkTarget[]; pending: boolean; placements: Placement[] }>();
+const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[]; ranges: LinkRange[]; links: LinkTarget[]; pending: boolean; placements: Placement[]; source: number[] }>();
 
 /**
  * The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. Its links are kept on
@@ -131,17 +132,19 @@ function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: num
   let shown = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 && !hit.pending ? hit : null;
   if (!shown) {
     const links: LinkTarget[] = [], r = render(text, pw, links), doc = Array.isArray(r) ? { lines: r, links: [] } : r;
-    shown = { text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !Array.isArray(r) && !!r.pending, placements: Array.isArray(r) ? [] : r.placements ?? [] };
+    shown = { source: Array.isArray(r) ? [] : r.source ?? [], text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !Array.isArray(r) && !!r.pending, placements: Array.isArray(r) ? [] : r.placements ?? [] };
     previewCache.set(d, shown);
   }
   const room = Math.max(0, h - 1), body = shown.body, last = Math.max(0, body.length - room);
   // Where the wheel put it (PIE-846), while the text is as it was then; else the part around the cursor's line.
-  const scrolled = d.previewScroll?.text === text ? d.previewScroll.top : null;
+  const scrolled = d.previewScroll?.text === text ? d.previewScroll : null;
   if (scrolled === null) d.previewScroll = null;
-  const at = scrolled !== null ? Math.min(scrolled, last) : d.lines.length > 1 ? Math.round((d.row / (d.lines.length - 1)) * last) : 0;
+  const projected = new PositionRows({ ...d.position, view: { line: d.row + (scrolled?.lineDelta ?? 0), row: scrolled?.row ?? 0 } });
+  projected.source = shown.source;
+  const at = Math.min(last, projected.top);
   // Its pictures (PIE-846) on the rows of the part shown, one column in as its text is.
   const placements = shown.placements.flatMap(p => { const q = inWindow(p, at, room, row + 1); return q ? [{ ...q, col: q.col + 1 }] : []; });
-  if (d.frame) d.frame.preview = { row, rows: h, top: at, total: body.length, placements };
+  if (d.frame) d.frame.preview = { row, rows: h, top: at, total: body.length, source: shown.source, placements };
   if (d.frame) d.frame.links = shown.ranges.flatMap(r => {
     const target = shown.links[r.n];
     return target && r.line >= at && r.line < at + room ? [{ row: row + 1 + r.line - at, from: 1 + r.from, to: 1 + r.to, target }] : [];

@@ -2929,3 +2929,10 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 ### Keeping your place (PIE-920)
 
 Reading and editing share a source position. Opening an edit keeps the first visible source line at the same screen row and starts the cursor on the reading line. Returning to reading keeps that view too. A held edit can be scrolled while another tile has the keys: the first click gives it focus, the next places the cursor, and typing or cursor movement brings the view back to the cursor. Its scroll bar remains visible. Try `act section name=one-place` in the showcase.
+
+Reading line (PIE-594): `--showcase`, section `reading-line`, demonstrates a click placing the calm
+block highlight, ↑↓ / j k moving through every block, ( ) stepping sections and [ ] stepping actions.
+The wheel and PgUp/PgDn keep the line where it was; an edge marker names it when it is out of view.
+The gutter chevron folds, and a folded line's trailing … opens it. `reader.ruler on=false` turns the
+highlight off (on by default). EchoNet's { } step messages; [ ] now has the same meaning in every
+reader. The board's former { } resize shortcuts use ^W < > or border dragging instead.
