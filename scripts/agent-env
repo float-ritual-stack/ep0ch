@@ -85,6 +85,11 @@ if [ "$mode" = print ]; then
 fi
 [ $# -ge 1 ] || usage
 
+# test-door-env.sh clears every inherited EP0CH_*, an EP0CH_MACHINE included; say so, as a folder's machine line is said.
+if [ -n "${EP0CH_MACHINE:-}" ]; then
+  echo "agent-env: ignoring machine $EP0CH_MACHINE from EP0CH_MACHINE: a scratch environment never reaches a real machine; to reach it on purpose, add --machine $EP0CH_MACHINE to the command." >&2
+fi
+
 # Everything run here is the first thing the kernel kills when the machine runs out of memory, never the outline host:
 # oom_score_adj 1000, inherited by all it starts. Raising it needs no privilege (a user unit can't lower the host's,
 # and a scope takes no OOMScoreAdjust); a system without /proc goes on without it.

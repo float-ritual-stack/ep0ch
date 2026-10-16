@@ -58,7 +58,7 @@ describe("agent-env and a folder's machine", () => {
   test("EP0CH_MACHINE in the caller's environment is set aside the same way", async () => {
     const r = await underAgentEnv(["outline", "list"], { EP0CH_MACHINE: "box-a" });
     expect(log()).toEqual([]);
-    expect(r.err).not.toContain("box-a:");
+    expect(r.err).toContain("agent-env: ignoring machine box-a from EP0CH_MACHINE");
   }, 60_000);
 
   test("--machine still reaches the machine on purpose", async () => {
