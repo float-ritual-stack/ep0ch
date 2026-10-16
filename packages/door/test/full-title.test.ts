@@ -24,6 +24,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     await board.info();
     await board.request("work-ids.configure", { prefix: "PLOT" });
     note = await board.createBlock(null, `${QUESTION} [work-id::PLOT-007]\nAsk Morag; she has the hall key.`);
+    await board.comment(crypto.randomUUID(), note.id, note.revision, "Check the hall booking.", null);
   }, 30_000);
   afterAll(async () => { app?.quit(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
@@ -57,6 +58,12 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     const src = s.sourceOf(new Selection({ row: second, col: 0 }, { row: second, col: 3 }));
     expect(src).not.toBeNull();
     expect(src.lines).toEqual([0, 0]);
+    await r().surface.loadComments(r().host(desk));
+    const titleBefore = r().render(300, 40, true, desk).lines[1]!;
+    await D().dispatch.press("margin", { mode: "off" }, "reader");
+    const titleAfter = r().render(300, 40, true, desk).lines[1]!;
+    expect(plain(titleAfter)).toContain("[+]");
+    expect(titleAfter).toStartWith(titleBefore.slice(0, titleBefore.indexOf(" · ")));
     D().dispose(); app.quit();
   }, 30_000);
 });

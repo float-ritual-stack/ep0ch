@@ -2803,6 +2803,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private frameNo = 0;
   /** The tiles this frame lays out again though a resize is going on; null: every tile, as always. */
   private reflows: Set<number> | null = null;
+  private readerGutter(pane: Pane | undefined, cols: number): number {
+    return pane instanceof ReaderPane ? Math.min(pane.surface.gutterWidth(), 3 * Math.floor(Math.max(0, cols - 8) / 3)) : 0;
+  }
   /**
    * While a resize goes on, the tiles whose size changed are laid out again as the frame has time for: the one
    * waiting longest first, each counted at what it took last time, up to REFLOW_MS (at least one a frame). The rest
@@ -2816,7 +2819,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const stale = placed.flatMap(([id, r0]) => {
       const r = this.boxOf(id, r0), last = this.views.get(id);
       const p = this.panes.get(id), look = p && this.looks.get(p);
-      const c = contentRect({ col: 0, row: 0, cols: r.cols - 2, rows: r.rows - 2 }, look, !!p?.measured, p?.beside?.() ?? 0);
+      const gutter = this.readerGutter(p, r.cols - 2);
+      const c = contentRect({ col: gutter, row: 0, cols: r.cols - 2 - gutter, rows: r.rows - 2 }, look, !!p?.measured, p?.beside?.() ?? 0);
       return last && (last.cols !== c.cols || last.rows !== c.rows) ? [{ id, last }] : [];
     }).sort((a, b) => a.last.frame - b.last.frame);
     this.reflows = new Set();
@@ -2934,7 +2938,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     canvas.clear(r, dock || float ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
     const reader = pane instanceof ReaderPane ? pane : null;
-    const gutter = reader ? Math.min(reader.surface.gutterWidth(), 3 * Math.floor(Math.max(0, framed.cols - 8) / 3)) : 0;
+    const gutter = this.readerGutter(pane, framed.cols);
     if (reader) reader.gutterCols = gutter;
     const inner = contentRect({ ...framed, col: framed.col + gutter, cols: framed.cols - gutter }, look, !!pane.measured, pane.beside?.() ?? 0);
     if (gutter) this.gutters.set(id, { col: framed.col, row: inner.row, cols: gutter, rows: inner.rows });

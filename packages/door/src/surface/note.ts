@@ -1283,9 +1283,12 @@ export class NoteSurface {
       let col = width(lines.at(-1) ?? "");
       for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
         if (col + 4 > w) break; // The gutter remains available when the title fills its row.
-        titled[titled.length - 1] = ink + (lines.at(-1) ?? "") + fg(C.yellow) + " [+]".repeat(wholeMarks.length + 1) + RESET;
         wholeMarks.push({ thread: c.id, row: lines.length, from: col + 1, to: col + 4 });
         col += 4;
+      }
+      if (wholeMarks.length) {
+        const styled = titled[titled.length - 1]!.replace(/ *\x1b\[0m$/, "");
+        titled[titled.length - 1] = pad(styled + fg(C.yellow) + " [+]".repeat(wholeMarks.length) + RESET, w);
       }
     }
     const first = (this.printed ? 1 : big ? 3 : 2) + lines.length - 1;
