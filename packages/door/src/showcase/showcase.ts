@@ -941,6 +941,14 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · scripts", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.scriptTarget], [b, n.scripts]]);
     },
   },
+  {
+    key: "one-place", need: "keep your place when reading, editing and returning to a held edit", part: "NoteSurface and Draft share source positions through Doc.source; DraftSession keeps the edit in the ReaderMode stack; PaneView.scroll draws its bar", files: "src/reader-position.ts, src/surface/note.ts, src/edit.ts, src/draft-session.ts",
+    aside: "Scroll halfway, then e and Enter: the same line stays put. Click the shed, wheel the held edit, click back once to focus, again to place the cursor. Wheel away and type to return to the cursor. The scroll bar stays visible in both edits. Esc returns to reading at the same source line.",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · one place", panes: [a, b], names: ["reader", "short"], layout: ([x, y]) => row(0.62, x!, y!) }, show, [[a, n.overscroll], [b, n.shed]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */

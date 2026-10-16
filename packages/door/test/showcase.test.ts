@@ -305,6 +305,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
     detail: ["Allotment notebook · detail", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · M comments mode"],
     // A long note to scroll past the end of (PIE-622), a short one beside it.
+    "one-place": ["The long row of runner beans", "Bike shed"],
     scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
@@ -545,6 +546,28 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("stage");
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
+  });
+
+  test("one-place: act keeps the source line across view and edit and exposes the edit scroll bar", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "one-place" }, as: "place-check" });
+    screen();
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "one-place")).top as Desk;
+    await until(() => (desk.pane("reader") as ReaderPane).msg?.id === seeded.notes.overscroll.id, "the long note");
+    screen();
+    await desk.dispatch.press("scroll", { by: 20 }, "reader");
+    const rows = () => sc.render(app).lines.map(plain);
+    const before = rows(), y = before.findIndex(l => /Cane \d+:/.test(l));
+    const label = before[y]!.match(/Cane \d+:/)![0];
+    await desk.dispatch.press("edit", {}, "reader");
+    expect(rows().findIndex(l => l.includes(label))).toBe(y);
+    const rd = desk.pane("reader") as ReaderPane;
+    expect(rd.surface.draft!.scrollFigure.total).toBeGreaterThan(rd.surface.draft!.scrollFigure.room);
+    await desk.dispatch.press("draft.scroll", { by: 8 }, "reader");
+    const edited = rows(), ey = edited.findIndex(l => /Cane \d+:/.test(l));
+    const next = edited[ey]!.match(/Cane \d+:/)![0];
+    await desk.dispatch.press("edit.close", {}, "reader");
+    expect(rows().findIndex(l => l.includes(next))).toBe(ey);
   });
 
   test("editing works in a section, by keys: e, type, a click away and back keeps it (PIE-812), ctrl+s writes to the showcase outline", async () => {

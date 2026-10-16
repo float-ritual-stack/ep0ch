@@ -1,3 +1,4 @@
+import { ReaderPosition, PositionRows } from "../reader-position";
 import { elementEdit, type ElementOperation } from "./element-editor";
 // The note surface: one note, shown, edited and commented on the same way wherever it is hosted — the
 // board's preview, details and floats, the desk's reader, and (next) a river column. It owns the note's
@@ -223,7 +224,7 @@ export interface ReaderHistory {
  * Where a reader was (PIE-453), so back comes back to it as it was: the note, how far down, the `[ ]`
  * position (the current element and link), and the reading state kept per note (folds, expanded threads).
  */
-interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
+interface Place { msg: Msg; position: ReaderPosition; cur: string | null; link: number; folded: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
 /** What the person (or an agent) chose for one live figure in a reader: its tab, its density. Never the note's text. */
 type FigureChoice = { tab?: string; density?: Density };
 /** How many places back (and forward) a reader keeps. */
@@ -233,22 +234,25 @@ const HISTORY = 50;
  * A reader's place and history as a layout file keeps them (PIE-643). `v` is this shape's version: a file of another
  * version (an older daemon's, a newer one's) is read as having no history, never half-read.
  */
-export const NAV_VERSION = 1;
-export interface SavedPlace { id: string; title: string; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
+export const NAV_VERSION = 2;
+export interface SavedPlace { id: string; title: string; position: ReaderPosition; cur: string | null; link: number; folded: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
 export interface SavedNav { v: typeof NAV_VERSION; here?: SavedPlace; backs: SavedPlace[]; aheads: SavedPlace[] }
 
-const savedPlace = (p: Place): SavedPlace => ({ id: p.msg.id, title: subject(p.msg), scroll: p.scroll, cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
+const savedPlace = (p: Place): SavedPlace => ({ id: p.msg.id, title: subject(p.msg), position: structuredClone(p.position), cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
 /** A saved place as a stub the reader reads whole when it goes there (a list row's shape: `partial`). */
 const placeOf = (s: SavedPlace): Place => ({
   msg: { id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, props: {}, partial: true },
-  scroll: s.scroll, cur: s.cur, link: s.link, folded: s.folded, expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
+  position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
 function readPlace(x: any): SavedPlace | null {
   if (!x || typeof x.id !== "string" || !x.id || typeof x.title !== "string") return null;
   const int = (n: unknown, d: number) => (typeof n === "number" && Number.isFinite(n) ? Math.max(d < 0 ? -1 : 0, Math.floor(n)) : d);
   const figures = (Array.isArray(x.figures) ? x.figures : []).filter((f: unknown): f is [string, FigureChoice] => Array.isArray(f) && typeof f[0] === "string" && !!f[1] && typeof f[1] === "object");
-  return { id: x.id, title: x.title, scroll: int(x.scroll, 0), cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures };
+  const p = x.position;
+  if (!p || !p.cursor || (p.view !== null && (!p.view || !Number.isFinite(p.view.line) || !Number.isFinite(p.view.row)))) return null;
+  const position: ReaderPosition = { reading: int(p.reading, 0), cursor: { row: int(p.cursor.row, 0), col: int(p.cursor.col, 0) }, view: p.view === null ? null : { line: int(p.view.line, 0), row: Math.floor(p.view.row) } };
+  return { id: x.id, title: x.title, position, cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures };
 }
 /** The note a saved history was taken on, if it is one this version reads. */
 export const navNote = (raw: unknown): string | null => readNav(raw)?.here?.id ?? null;
@@ -586,7 +590,10 @@ const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tld
 
 export class NoteSurface {
   msg: Msg | null = null;
-  scroll = 0;
+  readonly position = new ReaderPosition();
+  private positionRows = new PositionRows(this.position);
+  get scroll() { return this.positionRows.top; }
+  set scroll(value: number) { this.positionRows.top = value; }
   /** The furthest the note scrolls, from its last render (keys and the wheel stop there). */
   private maxScroll = Infinity;
   /** Where End stops first, from its last render: the last line on the bottom edge (PIE-622). */
@@ -744,7 +751,7 @@ export class NoteSurface {
   /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
   private get foldSel(): string | null { return this.cur?.startsWith("fold:") ? this.cur.slice(5) : null; }
   private set foldSel(key: string | null) {
-    if (key !== null) { this.cur = `fold:${key}`; this.link = -1; }
+    if (key !== null) { const e = this.elems.find(e => e.key === `fold:${key}`); if (e) this.setElem(e); else this.cur = `fold:${key}`; this.link = -1; }
     else if (this.foldSel !== null) this.cur = null;
   }
   private foldsOf: string | null = null;
@@ -787,7 +794,7 @@ export class NoteSurface {
   /** Where the person asked to go while their comment is unsent (PIE-785): it waits on their answer in the power bar. */
   private leaving: LeaveAsk | null = null;
   /** The cursor and selection of a draft the keys came back to by a press (PIE-812), put back after that press and its release. */
-  private keptCursor: { d: Draft; row: number; col: number; anchor: Draft["anchor"] } | null = null;
+  private keptCursor: { d: Draft; row: number; col: number; anchor: Draft["anchor"]; follow: boolean } | null = null;
   /** A double or triple click's word or line being selected in a draft (two draft.place): its release copies it after. */
   private draftSelecting: Promise<void> | null = null;
   /** The last press in a draft was a shift+click (it extended the selection). */
@@ -1033,6 +1040,7 @@ export class NoteSurface {
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
+    if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.source = []; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -1433,7 +1441,7 @@ export class NoteSurface {
     // An edit or a comment session draws in place of the note (a reply that landed has let its session go).
     this.use(host);
     const covered = this.modes.rows(w, h, host);
-    if (covered) return { lines: covered };
+    if (covered) return { lines: covered, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -1489,6 +1497,9 @@ export class NoteSurface {
     const top = head.length;
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
     const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
+    const firstView = this.position.view === null;
+    this.positionRows.source = doc.source.map(line => noteLines[line] ?? -1);
+    this.positionRows.origin = top;
     const whole = new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id));
     const gutterRow = (k: Mark) => whole.has(k.thread) ? (title?.row ?? 1) : top + k.row - this.scroll;
     this.elems = laid.elems.map(e => e.kind === "comment" && whole.has(e.thread!)
@@ -1555,6 +1566,7 @@ export class NoteSurface {
     if (full && current && this.lastReveal) bringIn([current.row, current.row + 1]);
     this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
     room = roomAt(this.scroll);
+    if (firstView) this.readingLine(this.position.view?.line ?? 0);
     const heroRows = full ? Math.max(0, full - this.scroll) : 0;
     h -= heroRows;
     this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + (title.big ? 2 : title.rows)] : [0, 1] };
@@ -1969,7 +1981,7 @@ export class NoteSurface {
    */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
-  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[] } {
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
     const m = this.msg, src = this.src;
     // `pictures`: its img:: lines drawn as the reader draws them (PIE-846), where the terminal can; else each says what it is.
     const graphics = pictures && !!host?.ctx.graphics;
@@ -1984,7 +1996,7 @@ export class NoteSurface {
     } : undefined;
     const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
     // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
-    return { lines: doc.lines, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [], images: graphics ? doc.images : [] };
+    return { lines: doc.lines, source: doc.source, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [], images: graphics ? doc.images : [] };
   }
 
   /** Text written about the note on one line, as a margin card says it: references by their titles (PIE-770). */
@@ -2350,7 +2362,7 @@ export class NoteSurface {
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false): string[] {
     const by = writtenBy(d, "save");
-    if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippet(t, width), by ?? undefined);
+    if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
@@ -2407,7 +2419,10 @@ export class NoteSurface {
       reread: m => { if (this.msg?.id === m.id) this.msg = m; },
       redraw,
     });
-    const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER }, {
+    const row = fresh.text.slice(0, this.position.reading).split("\n").length - 1;
+    this.position.cursor = { row, col: 0 };
+    this.readingLine(row);
+    const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER, position: this.position }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
       answered: (ask, by) => { void this.run("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e))); },
@@ -2464,6 +2479,7 @@ export class NoteSurface {
    */
   private draftClosed(s: DraftSession, how: Ended, host?: SurfaceHost) {
     if (this.drafting !== s) return;
+    this.position.reading = s.draft.offsetOf(s.draft.row, 0);
     this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
     if (this.agentDraft === s.draft) {
@@ -3587,7 +3603,7 @@ export class NoteSurface {
   }
 
   /** The note scrolled `by` rows within its length (the wheel, j k, PgUp PgDn): the current element is let go, nothing else moves. */
-  scrollBy(by: number, letGo = true) { if (letGo) this.letGo(); this.endWant = null; this.scroll = scrolled(this.scroll, by, this.maxScroll); }
+  scrollBy(by: number, letGo = true) { if (letGo) this.letGo(); this.endWant = null; this.scroll = scrolled(this.scroll, by, this.maxScroll); this.readingLine(this.position.view?.line ?? 0); }
 
   /** End, G and to=end (PIE-622): the last line to the bottom edge first; from there, past the end as far as it goes. */
   scrollEnd(letGo = true) {
@@ -3595,6 +3611,7 @@ export class NoteSurface {
     // Which stop, decided now; where it is, at the next render (a header row coming or going changes the room).
     this.endWant = this.scroll < this.endScroll ? "edge" : "last";
     this.scroll = this.endWant === "edge" ? this.endScroll : this.maxScroll;
+    this.readingLine(this.position.view?.line ?? 0);
   }
 
 
@@ -3763,6 +3780,10 @@ export class NoteSurface {
     return true;
   }
 
+  readingLine(line: number) {
+    this.position.reading = (this.msg?.text ?? "").split("\n").slice(0, line).reduce((n, l) => n + l.length + 1, 0);
+  }
+
   sourceLineAt(y: number): number | null {
     const d = this.drawn;
     if (!d) return null;
@@ -3795,6 +3816,8 @@ export class NoteSurface {
   letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; }
 
   private setElem(e: Element) {
+    const d = this.drawn;
+    if (d) this.readingLine(d.lines[d.doc.source[e.row - d.top]!] ?? 0);
     this.cur = e.key;
     const l = e.link;
     this.link = l ? this.links.findIndex(x => sameLink(x, l)) : -1;
@@ -4578,6 +4601,7 @@ export class NoteSurface {
     // The note's rows are under its header image (PIE-532).
     y -= this.drawn?.heroRows ?? 0;
     // An open mode first (in its precedence): the edit's or comment's own click, a status choice's row, a panel row.
+    if (!this.editing) { const line = this.sourceLineAt(y + (this.drawn?.heroRows ?? 0)); if (line !== null) void this.runKey("reading.place", { line: line + 1 }, host); }
     const taken = this.modes.click(x, y, host);
     if (taken !== undefined) return taken;
     // The header image: a click on it makes it the `[ ]` position, as a click on any image does.
@@ -5467,7 +5491,7 @@ export class NoteSurface {
   /** Where the reader is now, as back would come back to it. */
   private place(): Place | null {
     const m = this.msg;
-    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], foldedThreads: [...this.foldedThreads], seen: [...this.foldSeen], figures: [...this.figureUI] } : null;
+    return m ? { msg: m, position: structuredClone(this.position), cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], foldedThreads: [...this.foldedThreads], seen: [...this.foldSeen], figures: [...this.figureUI] } : null;
   }
 
   /**
@@ -5517,7 +5541,7 @@ export class NoteSurface {
     if (!this.show(fresh ?? to.msg, host)) return "the reader is holding an edit or a comment";
     stack.pop();
     if (here) (dir < 0 ? this.aheads : this.backs).push(here);
-    this.scroll = to.scroll; this.cur = to.cur; this.link = to.link;
+    Object.assign(this.position, structuredClone(to.position)); this.cur = to.cur; this.link = to.link;
     this.folded = new Set(to.folded); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
@@ -5548,7 +5572,7 @@ export class NoteSurface {
     this.backs = nav.backs.map(placeOf); this.aheads = nav.aheads.map(placeOf);
     const here = nav.here;
     if (here && this.msg?.id === here.id) {
-      this.scroll = here.scroll; this.cur = here.cur; this.link = here.link;
+      Object.assign(this.position, structuredClone(here.position)); this.cur = here.cur; this.link = here.link;
       this.folded = new Set(here.folded); this.expanded = new Set(here.expanded); this.foldedThreads = new Set(here.foldedThreads); this.foldSeen = new Set(here.seen); this.figureUI = new Map(here.figures);
       this.reveal = here.cur !== null;
     }
@@ -5638,7 +5662,7 @@ export class NoteSurface {
       // `keepCursor`: the press that brought the keys back to a draft left open here (PIE-812). It still presses (a
       // frame control runs on its release), but the cursor and selection stay where the person left them.
       const d0 = keepCursor ? this.writingDraft : null;
-      this.keptCursor = d0 ? { d: d0, row: d0.row, col: d0.col, anchor: d0.anchor } : null;
+      this.keptCursor = d0 ? { d: d0, row: d0.row, col: d0.col, anchor: d0.anchor, follow: d0.follow } : null;
       this.editPress = this.modes.press(x, y, host, shift);
       this.restoreCursor(false);
       this.shiftPress = shift && this.editPress;
@@ -5680,8 +5704,8 @@ export class NoteSurface {
   /** Put back the cursor a press that brought the keys back kept (PIE-812); `done` at its release, which ends it. */
   private restoreCursor(done: boolean) {
     const k = this.keptCursor;
-    if (k) { k.d.row = k.row; k.d.col = k.col; k.d.anchor = k.anchor; }
-    if (done) this.keptCursor = null;
+    if (k) { k.d.row = k.row; k.d.col = k.col; k.d.anchor = k.anchor; k.d.follow = k.follow; }
+    if (done) { if (k) this.gesture.forget(); this.keptCursor = null; }
   }
 
   release(x: number, y: number, host: SurfaceHost): boolean {
@@ -8279,6 +8303,17 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (m.partial || !surface.stepFold(by < 0 ? -1 : 1)) throw new ActionRefused("this note has no headings, nested lists or callouts to fold");
       host.redraw();
       return surface.describe().folds ?? null;
+    },
+  }),
+  "reading.place": def({
+    summary: "put the reading position on a source line; the next edit starts there without scrolling the page",
+    touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "click note text",
+    args: { line: { type: "number", about: "source line, from 1" } },
+    run({ line }, { surface }) {
+      const m = surface.requireNote();
+      if (!Number.isInteger(line) || line < 1 || line > m.text.split("\n").length) throw new ActionRefused("line must name a source line in this note");
+      surface.readingLine(line - 1);
+      return { line };
     },
   }),
   "scroll": def({

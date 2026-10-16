@@ -1,3 +1,4 @@
+import { NAV_VERSION } from "../src/surface/note";
 // PIE-453: back and forward in readers. A follow (⏎ or a click on a link, `u`, a link action, or an open
 // into the reader, an agent's too) leaves the reader's place behind: its note, how far down, and its `[ ]`
 // position. Back (alt+←, backspace, the mouse's back button, a click on the `← back` row) restores it, so
@@ -182,7 +183,7 @@ describe("a reader's history, without a service", () => {
     s.key({ kind: "enter" }, h);
     await until(() => s.msg?.id === id(6), "the rake");
     const saved = JSON.parse(JSON.stringify(s.saveNav()));                  // through the JSON a layout file is
-    expect(saved.v).toBe(1);
+    expect(saved.v).toBe(NAV_VERSION);
 
     const t = new NoteSurface(), th = host(t);
     t.show(notes[5] as any, th);
@@ -200,8 +201,8 @@ describe("a reader's history, without a service", () => {
     // Another version's, or garbage: read as having none, never half-read.
     const u = new NoteSurface(), uh = host(u);
     u.show(notes[5] as any, uh);
-    for (const bad of [{ ...saved, v: 2 }, { ...saved, v: undefined }, null, "x"]) expect(u.restoreNav(bad)).toBe(false);
-    expect(u.restoreNav({ v: 1, backs: "no" })).toBe(true);                // this version's, with nothing in it
+    for (const bad of [{ ...saved, v: NAV_VERSION + 1 }, { ...saved, v: undefined }, null, "x"]) expect(u.restoreNav(bad)).toBe(false);
+    expect(u.restoreNav({ v: NAV_VERSION, backs: "no" })).toBe(true);                // this version's, with nothing in it
     expect(u.describe().history).toEqual({ back: [], forward: [] });
     const v = new NoteSurface();
     expect(v.restoreNav({ ...saved, v: 0 })).toBe(false);

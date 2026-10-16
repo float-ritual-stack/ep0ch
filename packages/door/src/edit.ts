@@ -1,3 +1,4 @@
+import { ReaderPosition, PositionRows } from "./reader-position";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
@@ -60,8 +61,18 @@ export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "clos
 
 export class Draft {
   lines: string[];
-  row = 0;
-  col = 0;
+  position = new ReaderPosition();
+  private positionRows = new PositionRows(this.position);
+  get row() { return this.position.cursor.row; }
+  set row(value: number) { this.position.cursor.row = value; }
+  get col() { return this.position.cursor.col; }
+  set col(value: number) { this.position.cursor.col = value; }
+  usePosition(position: ReaderPosition) {
+    this.position = position;
+    this.positionRows.position = position;
+    this.follow = false;
+  }
+  get scrollFigure() { return { top: this.top, room: this.shown.h, total: this.shown.rows.length }; }
   /** The screen row of the cursor in the last render (the completion popup opens under it). */
   cursorRow = 0;
   readonly asks = new Map<string, import("@ep0ch/outline-core/protocol").AskProgress>();
@@ -829,6 +840,7 @@ export class Draft {
     this.anchor = anchor === null ? null : this.placeOf(anchor);
     if (keep && w) {
       const p = this.placeOf(map(keep.offset)), rows = this.layout(w);
+      this.positionRows.source = rows.map(r => r.line);
       this.top = Math.max(0, this.viOf(rows, p.row, p.col) - keep.screen);
       this.anchoredRow = keep.screen;
     }
@@ -917,7 +929,8 @@ export class Draft {
 
   // ── the view: soft-wrapped rows, the wheel, the mouse ──────────────────────
 
-  private top = 0;
+  private get top() { return this.positionRows.top; }
+  private set top(value: number) { this.positionRows.top = value; }
   /** The view follows the cursor; false after the wheel scrolled it, until the next key. */
   follow = true;
   /** The column up and down keep to (cells from the row's left), while they repeat. */
@@ -1053,6 +1066,8 @@ export class Draft {
   render(w: number, h: number): string[] {
     const w1 = Math.max(4, w);
     const rows = this.layout(w1);
+    this.positionRows.source = rows.map(r => r.line);
+    this.positionRows.origin = this.frame?.row ?? 0;
     this.shown = { w: w1, h: Math.max(1, h), rows };
     const at = this.cursorIn(rows), sel = this.selection();
     // Following the cursor, the view keeps a few rows around it (scrolloff, PIE-622): on the last line too, where

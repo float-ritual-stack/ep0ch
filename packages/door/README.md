@@ -2899,3 +2899,7 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
   padded. Text typed into a draft since it was last put aside lives only in the daemon's memory: a daemon killed
   with `-9` loses it (a handoff puts it aside first). The terminal host's own code can't be upgraded under its
   programs: a change to its protocol ends them, and their tiles start them again.
+
+### Keeping your place (PIE-920)
+
+Reading and editing share a source position. Opening an edit keeps the first visible source line at the same screen row and starts the cursor on the reading line. Returning to reading keeps that view too. A held edit can be scrolled while another tile has the keys: the first click gives it focus, the next places the cursor, and typing or cursor movement brings the view back to the cursor. Its scroll bar remains visible. Try `act section name=one-place` in the showcase.

@@ -174,6 +174,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     pane.show(await board.get(id), d);
     pane.key(char("e"), d);
     await until(() => pane.editing, "the draft to open");
+    pane.key({ kind: "end" }, d);
     return { pane, d };
   };
 
@@ -287,6 +288,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     key(char("e"));
     await until(() => reader().editing, "the draft");
     const draft = reader().draft!;
+    key({ kind: "end" });
     for (const c of " typed") key(char(c));
     for (const k of [char("q"), char("1")]) key(k);                     // menu and focus keys type
     expect(draft.text).toBe("Guarded [stage::queued] typedq1\nbody");
@@ -325,6 +327,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     reader().key(char("e"), d);
     await until(() => reader().editing, "the draft");
     const draft = reader().draft!;
+    reader().key({ kind: "end" }, d);
     for (const c of " typed") reader().key(char(c), d);
     app.push(new MainMenu());                                           // the desk is no longer on top
     const kept = app.terminate();
