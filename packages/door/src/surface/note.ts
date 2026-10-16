@@ -1499,6 +1499,9 @@ export class NoteSurface {
     const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
     const firstView = this.position.view === null;
     this.positionRows.source = doc.source.map(line => noteLines[line] ?? -1);
+    // A growing header must not cover an anchor that was visible; wrapped lines already above it stay there.
+    const view = this.position.view;
+    if (view && view.row >= this.positionRows.origin && view.row < top) view.row = top;
     this.positionRows.origin = top;
     this.positionRows.leading = this.hero?.full ?? 0;
     const whole = new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id));
