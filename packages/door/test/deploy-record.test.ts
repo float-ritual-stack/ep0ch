@@ -26,8 +26,10 @@ describe.skipIf(!outliner)("the Deploys note", () => {
   test("shows the deploys at 60, 100 and 140 columns", async () => {
     const root = await board.createBlock(null, DEPLOYS_NOTE, { kind: "user" });
     await board.createBlock(root.id, "Deploy 2026-10-16T07:00:00.000Z on the-box [type::deploy] [machine::install]\n\nWhen: x", { kind: "user" });
+    // The figure alone, in a plain note: the deploys under the virtual branch would show whatever the figure does.
+    const copy = await board.createBlock(null, "Copy\n\n" + DEPLOYS_NOTE.slice(DEPLOYS_NOTE.indexOf("::graph-table")), { kind: "user" });
     for (const w of [60, 100, 140]) {
-      const text = (await drawNote(board, root.id, w))!.map(strip).join("\n");
+      const text = (await drawNote(board, copy.id, w))!.map(strip).join("\n");
       expect(text).not.toContain("couldn't draw");
       expect(text).toContain("Deploy 2026-10-16");
     }
