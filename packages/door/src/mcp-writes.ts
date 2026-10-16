@@ -264,8 +264,8 @@ export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{
 
 /**
  * An agent's move of note `ref`: under `place.parent` (a ref, or `root`) at `position` (default first), or `before` or
- * `after` a sibling. The outliner's own `moveBlock`, the one outline_move runs, with its rules (no system note moved, the
- * guard is that tool's: a system note moves like any note, nothing goes under Trash, Bookmarks or a guide), attributed; with `revision`, only the note as it was read.
+ * `after` a sibling. The outliner's own `moveBlock`, the one outline_move runs, with its rules (a system note moves like any
+ * note, nothing goes under Trash, Bookmarks or a guide), attributed; with `revision`, only the note as it was read.
  */
 export async function moveAsAgent(board: WriteBoard, ref: string, place: { parent?: string; before?: string; after?: string; position?: number; revision?: number }, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>> {
   const beside = place.before !== undefined || place.after !== undefined;
