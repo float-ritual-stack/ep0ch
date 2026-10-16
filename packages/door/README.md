@@ -1922,7 +1922,7 @@ in the lanes comments in the preview.
   box you're writing; its `comment.place` on yours is refused.
 - **Why the source text:** the service anchors a comment on an exact quote of the stored text. The
   rendered view restyles and drops text (properties, markup, checklist ids), so a quote picked there
-  could fail to match. Lines that already carry comments have a `▐` in the gutter.
+  could fail to match. Lines with comments have a `[–]` or `[+]` in the gutter.
 - **Sending** is `annotations.batch` with a `block-comment` operation: the note's revision, the exact
   quote and its offset. The service refuses it if the note changed since you picked the passage, or the
   quote isn't where the offset says. Nothing is written then; the comment stays open, and `Ctrl+R` finds
@@ -1943,12 +1943,15 @@ in the lanes comments in the preview.
 
 ### Threads inline (PIE-420)
 
-A comment mark in a reader's margin (`▐`, yellow while open, dim once resolved) expands its thread under
-the passage it quotes, by `⏎` on it (it's one of the `[ ]` elements) or a click. The thread shows who
-and when, open or resolved, the comment and its replies, and four controls: **Select**, **Reply**,
-**Resolve** (**Reopen** once resolved) and **Quote**. The quoted lines are highlighted while it's open. `⏎` or a click
-on the mark again collapses it. Open threads stay open as the note refreshes; another note starts with
-none open.
+Each thread has a `[–]` on its card header and a gutter control at the reader's fixed left edge.
+Click either to fold it to `[+]`, leaving no inline stub; click `[+]` to open it. Whole-note threads
+also leave a mark after the title. The gutter stays outside padding, margin and centred measure.
+Cards share one renderer: beside the passage when wide, below it when narrow.
+
+`M` cycles shown (trim), full and marks. Marks hides every card, including threads opened individually;
+returning to shown or full restores them. Opening one `[+]` while in marks shows just that thread.
+The byline names the mode and `(M)`; clicking the count cycles it. `m` still opens the thread list.
+Agents can use `margin` and `thread.toggle` for the person, attributed on screen, without moving focus or selection.
 
 - **The controls** are elements too: `[ ]` steps to them and `⏎` uses one, or click it. No new keys.
 - **Select** selects the quoted words as the reader's text selection (their whole lines when the words
@@ -2689,7 +2692,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `passage.select`, `comment.write`, `comment.send`, `comment.close`, `comment.reload` | `quote` (exact words), `near`; `body` (an agent's: only a comment it opened, never yours; `invitation`, `base`: an invited agent's reply); reload finds the quote again, or goes back to picking | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc`, `Ctrl+R` |
 | `comment` | `quote`, `body` (select, write and send in one) | |
 | `threads`, `reply`, `resolve` | `thread` (id or 6+ chars), `body`; `open=true` reopens | `m`, `r`, `x`; the Reply and Resolve controls |
-| `thread.toggle` | `thread`, `expand=true\|false` (default toggles). The person's only | `Enter` or a click on a comment mark |
+| `margin` | `mode=trim\|full\|off`; omitted cycles the comments mode | `M` or a click on the byline count |
+| `thread.toggle` | `thread`, `expand=true\|false` (default toggles). Agents may change this reading state | `Enter` on a mark, or click `[–]` / `[+]` in the gutter or card header |
 | `link.select`, `link.follow`, `up` | `n` (from 1); `fresh=true` (follow) opens it in a new reader. An agent's is refused in the reader that has your keys (and its `link.follow n=` never moves your `[ ]` position); a web link or a figure an agent follows is never opened in your browser or viewer: it gets the address back | `[ ]`, `Enter`, `alt+Enter` or a click, `u` (`U` in the message reader) |
 | `elements`, `element.select`, `element.open` | `n` (from `elements`), or `by=1\|-1` (select: the next or previous), `n=0` lets go; `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `esc` lets go, `Enter`, `alt+Enter`, a click |
 | `scroll` | `by=` rows, or `to=top\|end`: the reader's own scroll. `to=end` puts the last line on the bottom edge; again, it goes on past the end (`reader.overscroll`, to the middle by default, PIE-622). It answers the viewport, with `atEnd` and `past` (the blank rows scrolled under the last line). An agent's is refused on the reader that has your keys: it uses `view.scrollTo` | `j k ↑↓ PgUp PgDn space Home End G`, the wheel |

@@ -268,6 +268,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   or an extension wrote wakes by default. Loop guards (repeat, hops, budget, cap) hold it; an `[invoke-deny::]`
   note leaves it unsent with a reason outside the held queue. `[invoke-from::]` / `[invoke-to::]` notes narrow limits.
   Put mentions you don't mean as asks in prose or code spans (see `ep0ch-outline`).
+- **Comments while reading:** `margin tile=<reader> mode=off` hides all cards to gutter marks; `mode=trim|full` restores them. `thread.toggle tile=<reader> thread=<id> expand=true|false` opens or folds one, including in marks mode. These actions are allowed on the person's reader, attributed and said on screen; focus, selection and keys stay theirs.
 - **Reading a note to its end:** `scroll to=end` goes to the last line, then past it; `view.get` says `atEnd` and
   `past`. `reader.overscroll rows=none|half|<n>` is the person's setting.
 - **The door moves under you:** a session handover or restart doesn't strand a Claude in a tile. `EP0CH_PLACE`

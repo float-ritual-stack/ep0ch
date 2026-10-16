@@ -25,7 +25,7 @@ import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
-export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
+export interface PaneView { gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
 
 export interface DeskApi {
   ctx: Ctx;
@@ -417,6 +417,7 @@ export class ReaderPane implements Pane {
   host(desk: DeskApi): SurfaceHost {
     const pane = this;
     const h: SurfaceHost = {
+      externalGutter: true,
       ctx: desk.ctx,
       // Whether the person's keys are here: an agent's fragment link is revealed only in a reader they aren't in.
       get focused() { return desk.hasFocus ? desk.hasFocus(pane) : undefined; },

@@ -1113,7 +1113,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const plan = RECENT_FILES()[0]!;
     const before = readFileSync(plan.file, "utf8");
     // The seeded thread is read for the Resource and placed in its text (the note has a header before the file's own text).
-    await until(() => screen().includes("1 open comment"), "the seeded thread counted", 8000);
+    await until(() => /1(?: comments?)? · shown \(M\)/.test(screen()), "the seeded thread counted", 8000);
     const threads = await app.act({ action: "threads", tile, as: "test-agent" }) as any;
     expect(threads.threads).toHaveLength(1);
     // An agent comments on a passage of the rendered Markdown: the quote is the source's own (`**Bed 2:**` keeps its asterisks).
@@ -1221,13 +1221,49 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
+  test("comment folds leave only their gutter controls (PIE-910)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as Desk; };
+    const threads = await board.comments(seeded.notes.marginalia.id);
+    const whole = threads.find(c => c.body === "Keep this plan beside the seed trays.")!;
+    const passage = threads.find(c => c.body === "Why ten days, not a week?")!;
+    await until(() => screen().includes("question · "), "the comments loaded", 8000);
+    const act = (action: string, args: Record<string, unknown>) => stage().dispatch.act({ action, args, tile: "plan" }, { kind: "agent", id: "test-agent" });
+    for (const thread of [passage, whole]) {
+      await act("thread.toggle", { thread: thread.id, expand: true });
+      expect(screen()).toContain(thread.body);
+      await act("thread.toggle", { thread: thread.id, expand: false });
+      expect(screen()).not.toContain(thread === passage ? "Try the lid half open" : thread.body);
+      expect(screen()).toContain("[+]");
+    }
+    await act("thread.toggle", { thread: whole.id, expand: true });
+    expect(screen()).toContain(whole.body);
+    await act("margin", { mode: "off" });
+    expect(screen()).not.toContain(whole.body);
+    expect(screen()).not.toContain("[Reply]");
+    expect(screen()).toContain("marks (M)");
+    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("[+]Greenhouse plan"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const x = lines[y]!.indexOf("[+]");
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => screen().includes(whole.body), "only the clicked whole-note card opens");
+    expect(screen()).not.toContain(passage.body);
+    expect(screen()).not.toContain("Try the lid half open");
+    await act("margin", { mode: "trim" });
+    expect(screen()).toContain(whole.body);
+    for (const thread of [passage, whole]) await act("thread.toggle", { thread: thread.id, expand: true });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   // PIE-873: marks only is found where the comments are counted, and kept: a click on the byline's count cycles the margin
   // (as M), off reads "marks only (M)" there, and the mode goes with the tile's spec and to a reader opened from it.
   test("marks only (PIE-873): a click on the comment count cycles the margin to marks only, said there; kept in the tile's spec and taken by a reader opened from it", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as any; };
-    await until(() => screen().includes("question · ") && / open comments? \(m\)/.test(screen()), "the plan with its cards and count", 8000);
+    await until(() => screen().includes("question · ") && / comments? · shown \(M\)/.test(screen()), "the plan with its cards and count", 8000);
     const planId = [...stage().panes.keys()].find((id: number) => stage().nameOf(id) === "plan") as number;
     const plan = () => stage().panes.get(planId) as ReaderPane;
     expect(plan().surface.marginMode).toBe("trim");
@@ -1237,10 +1273,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       const x = ls[y]!.search(re) + 3;
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     };
-    click(/■ \d+ open comments? \(m\)/);
+    click(/■ \d+( comments?)? · (shown|full) \(M\)/);
     await until(() => plan().surface.marginMode === "full", "cards whole");
-    click(/■ \d+ open comments? \(m\)/);
-    await until(() => /■ \d+( comments?)? · marks only \(M\)/.test(screen()), "the count says marks only");
+    click(/■ \d+( comments?)? · (shown|full) \(M\)/);
+    await until(() => /■ \d+( comments?)? · marks \(M\)/.test(screen()), "the count says marks only");
     expect(plan().surface.marginMode).toBe("off");
     expect(screen()).not.toContain("question · ");
     // Kept with the tile: its spec (what a layout, a handover and a restart save) says so, and a tile made from it reads the same.
@@ -1254,7 +1290,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect((stage().panes.get(opened) as ReaderPane).surface.marginMode).toBe("off");
     await stage().dispatch.press("tile.close", {}, stage().nameOf(opened));
     // As it was, for the tests after.
-    click(/■ \d+( comments?)? · marks only \(M\)/);
+    click(/■ \d+( comments?)? · marks \(M\)/);
     await until(() => plan().surface.marginMode === "trim", "a row each again");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
@@ -2067,7 +2103,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The box is under its line, in the note: the line is still drawn above it, the next line below it.
     at = find("two new sheets of felt");
     let r = rows();
-    const title = r.findIndex((l, i) => i > at.y && l.includes("» comment · ctrl+s saves · esc cancels"));
+    const title = r.findIndex((l, i) => i > at.y && l.includes("» comment · ctrl+s saves") && l.includes("[inline ▸]"));
     expect(title - at.y, r.join("\n")).toBeLessThanOrEqual(3);
     expect(r.findIndex((l, i) => i > title && l.includes("The rain barrel overflows"))).toBeGreaterThan(title);
     // An agent never takes the person's composer.
@@ -2117,7 +2153,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => { const a = find("two new sheets of felt"); return a.y > 0 && rows().slice(a.y + 1, a.y + 12).some(l => l.includes("Buy a second water butt")); }, "the thread under its passage, the embed drawn", 8000);
     at = find("two new sheets of felt");
     r = rows().slice(at.y + 1, at.y + 12);
-    expect(r[0]).toContain("┌─ ■ user");
+    expect(r[0]).toContain("┌─ comment · ■ user");
     expect(r.join("\n")).toContain("Felt is very cheap at the depot, see Greenhouse meeting");
     expect(r.join("\n")).not.toContain(`((${meeting}`);
     // Again, in other places: floating by the setting, then split by ctrl+o, then a popup by a click on its chip.

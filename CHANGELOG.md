@@ -18,6 +18,13 @@ are its record. The outliner's entries from then are kept below, under
 - The asks showcase walks through these in a new unsaved note.
 - Deployment: PROTOCOL 191; run `ep0ch install --apply` on float-2 and the MacBook to restart the host and clients together.
 
+### Every comment can fold to its mark (PIE-910)
+
+Click `[–]` on any comment card, including a whole-note thread, to leave only its `[+]` mark.
+The gutter stays at the reader's left edge outside padding, margin and measure. `M` cycles shown,
+full and marks, named beside the comment count; marks hides all cards and restores their expansion
+when you return. Agents can change this reading state with `margin` and `thread.toggle`.
+
 ### Scripts opt in and run read-only by default (PIE-908)
 
 Only header-opted-in files in the outline folder’s `.ep0ch/scripts/` load. `ep0ch ext ls` explains ignored
