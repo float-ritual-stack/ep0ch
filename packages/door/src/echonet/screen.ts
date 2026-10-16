@@ -14,7 +14,7 @@ import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
-import { RowView, wheelRows, type RowPress } from "../scroll";
+import { pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { authorName, hostRequest, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selected, width } from "../style";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -293,7 +293,7 @@ export class EchoAreas implements Pane {
     if (k.action !== "down" || y < 1) return true;
     const i = this.top + y - 1;
     if (i >= n) return true;
-    const g = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
+    const g = this.view.press(i, pressOn(k, press, i === this.at));
     if (g !== "focus" || i !== this.at) this.run(desk, "echo.area", { n: i + 1, ...(g === "open" || g === "fresh" ? { open: true } : {}) });
     return true;
   }
@@ -458,7 +458,7 @@ export class EchoMessages implements Pane {
     if (k.action !== "down" || y < 1) return true;
     const i = this.top + y - 1;
     if (i >= n) return true;
-    const g = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
+    const g = this.view.press(i, pressOn(k, press, i === this.at));
     if (g !== "focus" || i !== this.at) this.run(desk, { n: i + 1, ...(g === "open" || g === "fresh" ? { read: true } : {}) });
     return true;
   }

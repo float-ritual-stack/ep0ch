@@ -20,7 +20,7 @@ import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
 import { summarySegments, viewSummaryKeys } from "../props";
-import { clamp, RowView, wheelRows, type RowPress } from "../scroll";
+import { clamp, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { hasUnsent } from "../draft-session";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
@@ -266,7 +266,7 @@ export class QueryPane implements Pane {
     if (k.action !== "down") return true;
     const i = this.rowAt(y);
     if (i < 0) return true;
-    const g = this.cursor.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
+    const g = this.cursor.press(i, pressOn(k, press, i === this.sel));
     this.run(desk, "query.pick", { n: i + 1, ...(g === "open" ? { open: true } : g === "fresh" ? { fresh: true } : {}) });
     return true;
   }

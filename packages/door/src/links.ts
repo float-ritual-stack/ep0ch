@@ -77,6 +77,86 @@ export async function readReplies(board: Pick<SocketBoard, "queryNotes" | "facet
   return { children: notes.map(block => ({ block, facets: facets[block.id] })), truncated: all.truncated || unread.truncated };
 }
 
+/** The posts of a thread around one note (PIE-944): the chain from its root down to it, and what hangs off each. */
+export interface ThreadData {
+  /** Root first, the note last. */
+  chain: ChildLink[];
+  /** The posts at each chain level, oldest first, the chain's own among them (`[0]` is the root alone). */
+  levels: ChildLink[][];
+  /** The note's replies, oldest first. */
+  replies: ChildLink[];
+  truncated: boolean;
+}
+
+/** How far up a thread is followed, so a loop in the data ends. */
+export const THREAD_DEPTH = 12;
+/** The note a post answers (its `replyTo`, which R stamps wherever the reply is kept); a post that answers none is a thread's root. */
+export const replyToOf = (m: Msg): string | null => m.props.replyto ?? m.props.replyTo ?? null;
+
+/**
+ * The thread `note` is in, as the service answers it: each post's parent is the note its `replyTo` names, and the posts at a level are the replies the
+ * service lists for that parent (`readReplies`, the one membership query), so moved replies are in it.
+ */
+export async function readThread(board: Pick<SocketBoard, "get" | "ancestors" | "queryNotes" | "facets">, note: Msg, conference = false): Promise<ThreadData> {
+  // The service reads the note's ancestors in one request; a reply kept under the note it answers (what R makes) finds
+  // its parents there, and one moved away is asked for singly.
+  const under = new Map((replyToOf(note) ? await board.ancestors(note.id).catch(() => [] as Msg[]) : []).map(m => [m.id, m]));
+  const chain: Msg[] = [note];
+  let cut = false;
+  for (let at = note; ;) {
+    const up = replyToOf(at);
+    if (chain.length >= THREAD_DEPTH) { cut = !!up; break; }
+    const parent = up ? under.get(up) ?? await board.get(up) : null;
+    if (!parent || parent.deleted || chain.some(c => c.id === parent.id)) break;
+    chain.unshift(parent); at = parent;
+  }
+  const [replies, ...levels] = await Promise.all([readReplies(board, note.id, conference), ...chain.slice(1).map((_, i) => readReplies(board, chain[i]!.id, conference))]);
+  const oldest = (xs: ChildLink[]) => [...xs].sort((a, b) => a.block.createdAt - b.block.createdAt);
+  return {
+    chain: chain.map(block => ({ block })),
+    levels: [[{ block: chain[0]! }], ...levels.map((l, i) => oldest(l.children.some(c => c.block.id === chain[i + 1]!.id) ? l.children : [...l.children, { block: chain[i + 1]! }]))],
+    replies: oldest(replies.children),
+    truncated: cut || replies.truncated || levels.some(l => l.truncated),
+  };
+}
+
+/** Posts a level shows around the chain's own before the rest fold, and how many replies show before the fold. */
+const AROUND = 2, REPLIES_SHOWN = 8, CHAIN_TAIL = 3;
+/**
+ * The thread as rows, phpBB's way (PIE-944): the root, the chain of parents, the posts beside each, the note marked,
+ * its replies under it. A level with many posts, a long chain and a long run of replies fold around the note with a
+ * count; `open` holds the folds the person opened.
+ */
+export function threadRows(t: ThreadData, open: ReadonlySet<string> = new Set()): LinkRow[] {
+  const out: LinkRow[] = [], last = t.chain.length - 1, here = t.chain[last]!.block.id;
+  const post = (c: ChildLink, depth: number, mark: boolean): LinkRow => ({ kind: "child", key: `thread${SEP}${c.block.id}`, depth, child: c, thread: { here: mark } });
+  const fold = (id: string, depth: number, count: number, what: string) => { if (!open.has(id)) out.push({ kind: "fold", key: `fold${SEP}${id}`, depth, count, what }); };
+  // A long chain keeps its root and its nearest parents; the ones between fold into one row.
+  const skipFrom = last > CHAIN_TAIL + 1 ? 1 : last + 1, skipTo = last - CHAIN_TAIL;
+  const chainFold = `chain${SEP}${t.chain[0]!.block.id}`;
+  const level = (i: number) => {
+    if (i === skipFrom && !open.has(chainFold)) { fold(chainFold, i, skipTo - skipFrom, "parents"); return level(skipTo); }
+    const at = t.chain[i]!.block.id, posts = t.levels[i] ?? [], mine = Math.max(0, posts.findIndex(c => c.block.id === at));
+    const folds = posts.length > 2 * AROUND + 3 && !open.has(`level${SEP}${at}`);
+    const from = folds ? Math.max(0, mine - AROUND) : 0, to = folds ? Math.min(posts.length, mine + AROUND + 1) : posts.length;
+    if (from > 0) fold(`level${SEP}${at}`, i, from, "earlier");
+    for (const c of posts.slice(from, to)) {
+      out.push(post(c, i, c.block.id === here && i === last));
+      // Under the chain's own post: the next level of the thread, then (at the end) the note's replies.
+      if (c.block.id === at && i < last) level(i + 1);
+    }
+    if (to < posts.length) fold(`level${SEP}${at}`, i, posts.length - to, "later");
+  };
+  level(0);
+  const replies = open.has(`replies${SEP}${here}`) ? t.replies : t.replies.slice(0, REPLIES_SHOWN);
+  // The replies belong right under the note, before the posts that follow it at its level.
+  const at = out.findIndex(r => r.kind === "child" && r.thread?.here);
+  const rows: LinkRow[] = replies.map(c => post(c, last + 1, false));
+  if (replies.length < t.replies.length) fold(`replies${SEP}${here}`, last + 1, t.replies.length - replies.length, "replies"), rows.push(out.pop()!);
+  out.splice(at < 0 ? out.length : at + 1, 0, ...rows);
+  return out;
+}
+
 /** One row of a block's links: a group's header, a backlink kind's header, or a link. `key` is stable across reads. */
 export type LinkRow =
   | { kind: "group"; key: string; depth: number; group: LinkGroupName; open: boolean; count: number | null; note: string }
@@ -84,7 +164,9 @@ export type LinkRow =
   | { kind: "outlink"; key: string; depth: number; link: AuthoredOutlink }
   | { kind: "resource"; key: string; depth: number; link: AuthoredResourceLink }
   | { kind: "backlink"; key: string; depth: number; source: BacklinkSource }
-  | { kind: "child"; key: string; depth: number; child: ChildLink }
+  | { kind: "child"; key: string; depth: number; child: ChildLink; thread?: { here: boolean } }
+  /** A run of a thread the panel folded: `count` posts, opened by ⏎ or a second click. */
+  | { kind: "fold"; key: string; depth: number; count: number; what: string }
   | { kind: "match"; key: string; depth: number; child: ChildLink };
 
 /** How the rows are shown: the person's folds and filters, kept by the list that draws them. */
@@ -309,8 +391,11 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
       const where = line ? `“${line.snippet}”${line.anchor && !line.snippet.includes(`^${line.anchor}`) ? ` ^${line.anchor}` : ""}` : "";
       return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source, where) };
     }
+    case "fold": return { mark: "┄", text: `${r.count} more ${r.what}`, context: "⏎ shows them" };
     case "child": case "match": {
       const b = r.child.block, f = r.child.facets;
+      // A post in the thread tree (PIE-944): the note being read is marked, each post says who wrote it and how long ago.
+      if (r.kind === "child" && r.thread) return { mark: r.thread.here ? "►" : "·", text: subject(b), context: [r.thread.here ? "you are here" : "", authorName(b.author, ""), ago(b.createdAt)].filter(Boolean).join(" · ") };
       return { mark: nest === null ? (r.kind === "child" ? "↓" : "∙") : nest ? "▾" : "▸", text: subject(b), context: [f?.stage ? f.stage.value : "", authorName(b.author, ""), ago(b.updatedAt)].filter(Boolean).join(" · ") };
     }
   }
@@ -331,7 +416,7 @@ export function linkRowLine(r: LinkRow, o: { cols: number; selected?: boolean; f
   const tail = context ? (r.kind === "backlink" ? " — " : r.kind === "kind" ? " " : " · ") + context : "";
   const shown = o.tag ? o.tag(text) : text;
   if (o.selected) return lit(o.focused ?? true, "idleRow") + pad(head + shown + tail, o.cols) + RESET;
-  const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
+  const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "fold" ? C.dark : r.kind === "child" && r.thread?.here ? C.lcyan : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
   // A group's stage values in their family's colour (PIE-819), when the whole of them fits as drawn.
   const inks = r.kind === "kind" && tail === " " + words.context ? familyInks(r.group, words.context) : null;
   return pad(`${fg(C.lcyan)}${head}${fg(colour)}${shown}${fg(C.dark)}${inks ? " " + inks : tail}`, o.cols) + RESET;
@@ -392,6 +477,7 @@ export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open
     if (line) markReveal(m, { at: line.at, label: line.label }, actor);
     return { note: m };
   }
+  if (r.kind === "fold") throw new ActionRefused("that row folds posts away: ⏎ on it shows them");
   if (r.kind === "child" || r.kind === "match") {
     const m = await board.get(r.child.block.id);
     if (!m) throw new ActionRefused(r.kind === "child" ? "that note isn't under this one any more" : "that note isn't in the outline any more");
