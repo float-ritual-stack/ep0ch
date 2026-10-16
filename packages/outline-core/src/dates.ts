@@ -141,6 +141,12 @@ const RELATIVE = /^([+-])(\d{1,6})([mhdw])$/;
 /**
  * A query's date bound: `now`, `today`, `tomorrow`, `yesterday`, `-7d`/`+3d`/`+2w` (that calendar day, counted from
  * today), `-12h` or `-30m` (that moment, from now), or any date `readDate` reads. Null when it is none of them.
+ *
+ * The one relative-date rule (PIE-922), the same in a view's `updated >= -7d`, a figure, `ep0ch find` and a question's
+ * `due >= -7d`: **`d` and `w` are calendar days** (`-7d` is the whole of the day seven days ago, so `updated >= -7d`
+ * holds anything from that day's midnight on, and `updated > -7d` nothing from it), **`m` and `h` are instants**
+ * (`-40m` is exactly forty minutes ago). The service's `created`/`updated` clauses (block-query.ts) call this; they
+ * keep no reader of their own.
  */
 export function readDateBound(text: string, now = wallClock(Date.now())): When | null {
   const word = text.trim().toLowerCase();

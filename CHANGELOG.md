@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One relative-date rule: `-7d` means the same in a view, a figure, a find and a question (PIE-922)
+
+- `created`/`updated` clauses no longer keep their own reader of `-N<unit>`: they use outline-core's `readDateBound`, as property comparisons (`due >= -7d`) already did. `d` and `w` are calendar days, `m` and `h` instants. **Visible change:** `updated >= -7d` used to cut at exactly 7 x 24 hours ago (at 3 pm, from 3 pm a week back) and now includes all of the day 7 days ago from its midnight; `-Nw` the same; `> -7d` and `<= -7d` flip at that day's end. `today`, `yesterday` and `now` go through the same reader (the host's clock day). Minutes and hours are unchanged.
+- Saved views checked: none of pie's 71 `[type::virtual-branch]` notes uses `-Nd` or `-Nw` in its `[query::…]`, so no view shifts there; a view that does gets up to a day more at its old edge.
+- **Deployment:** PROTOCOL bumped (see the PR). `ep0ch install --apply` on float-2, float-box and the MacBook.
+
 ### A command run under agent-env never reaches the machine a folder names (PIE-912)
 
 - Under `scripts/agent-env`, a `.ep0ch`'s `machine` and an inherited `EP0CH_MACHINE` are ignored, with a line on stderr saying so; only `--machine <ssh-name>` reaches another machine. Running `ep0ch outline create` from the repo under agent-env used to create the outline on float-2's live host.

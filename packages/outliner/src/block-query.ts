@@ -4,7 +4,7 @@ import { ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom
 import { QUESTION_DEFAULT_LIMIT, QUESTION_MAX_LIMIT } from "@ep0ch/outline-core/protocol";
 import { ROADMAP_WORK_STAGES } from "./types";
 import { isPropertyKey, isWritablePropertyValue, splitPropertyValue, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
-import { readBound, readDate, readDateBound, readNumber, valueHolds, wallClock } from "@ep0ch/outline-core/dates";
+import { fromWallClock, readBound, readDate, readDateBound, readNumber, valueHolds, wallClock } from "@ep0ch/outline-core/dates";
 import type {
   Block,
   BlockProperty,
@@ -495,9 +495,6 @@ function utcDay(year: number, month: number, day: number): number | null {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? start : null;
 }
 
-function startOfUtcDay(now: number): number {
-  return Math.floor(now / DAY_MS) * DAY_MS;
-}
 
 /** Parse a range value; relative values resolve against the evaluation time. */
 export function parseQueryTime(value: string): ParsedTime {
@@ -522,14 +519,13 @@ export function parseQueryTime(value: string): ParsedTime {
     if (!Number.isFinite(at)) throw new BlockQueryError(`Invalid datetime: ${value}`);
     return { kind: "instant", at: () => at };
   }
-  if (normalized === "now") return { kind: "instant", at: now => now };
-  if (normalized === "today") return { kind: "day", start: now => startOfUtcDay(now) };
-  if (normalized === "yesterday") return { kind: "day", start: now => startOfUtcDay(now) - DAY_MS };
-  const relative = /^-(\d{1,6})([mhdw])$/.exec(normalized);
-  if (relative) {
-    const unit = relative[2] === "m" ? 60_000 : relative[2] === "h" ? 3_600_000 : relative[2] === "d" ? DAY_MS : 7 * DAY_MS;
-    const offset = Number(relative[1]) * unit;
-    return { kind: "instant", at: now => now - offset };
+  // Everything else is outline-core's one reader of a relative bound (PIE-922): `-7d` is that calendar day, `-2h` an instant.
+  if (readDateBound(normalized, 0) !== null) {
+    const bound = (now: number) => readDateBound(normalized, wallClock(now))!;
+    const instant = bound(0).from === bound(0).to;
+    return instant
+      ? { kind: "instant", at: now => fromWallClock(bound(now).from) }
+      : { kind: "day", start: now => fromWallClock(bound(now).from) };
   }
   throw new BlockQueryError(
     `Invalid time value: ${value}; use YYYY-MM-DD, an ISO datetime, now, today, yesterday or -N followed by m, h, d or w (-30m, -2h, -7d)`,

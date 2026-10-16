@@ -124,8 +124,11 @@ describe("query grammar", () => {
     expect(check("updated < 2026-09-20", "2026-09-19T23:59:59.999Z")).toBe(true);
     expect(check("updated <= 2026-09-20", "2026-09-20T23:59:59.999Z")).toBe(true);
     expect(check("updated <= 2026-09-20", "2026-09-21T00:00:00.000Z")).toBe(false);
-    expect(check("updated >= -7d", "2026-09-20T15:00:00.000Z")).toBe(true);
-    expect(check("updated >= -7d", "2026-09-20T14:59:59.999Z")).toBe(false);
+    // `-7d` is that calendar day, as in outline-core's readDateBound (PIE-922): all of the day 7 days ago is in.
+    expect(check("updated >= -7d", "2026-09-20T00:30:00.000Z")).toBe(true);
+    expect(check("updated >= -7d", "2026-09-19T23:59:59.999Z")).toBe(false);
+    expect(check("updated > -7d", "2026-09-20T23:59:59.999Z")).toBe(false);
+    expect(check("updated <= -7d", "2026-09-20T23:59:59.999Z")).toBe(true);
     // Minutes, for a check-in that looks back half an hour (Evan, Oct 16).
     expect(check("updated >= -40m", "2026-09-27T14:20:00.000Z")).toBe(true);
     expect(check("updated >= -40m", "2026-09-27T14:19:59.999Z")).toBe(false);
@@ -133,6 +136,10 @@ describe("query grammar", () => {
     expect(check("updated < yesterday", "2026-09-26T00:00:00.000Z")).toBe(false);
     expect(check("updated > 2026-09-27T14:00", "2026-09-27T14:30:00.000Z")).toBe(true);
     expect(check("updated < -2w", "2026-09-12T00:00:00.000Z")).toBe(true);
+    expect(check("updated < -2w", "2026-09-13T00:00:00.000Z")).toBe(false);
+    // Hours are an instant from now, like minutes.
+    expect(check("updated >= -2h", "2026-09-27T13:00:00.000Z")).toBe(true);
+    expect(check("updated >= -2h", "2026-09-27T12:59:59.999Z")).toBe(false);
   });
 
   test("normalization parses where text, validates a structured predicate and ANDs both with filters", () => {
