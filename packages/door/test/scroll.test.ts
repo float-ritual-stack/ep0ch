@@ -57,6 +57,29 @@ function door(m = note(400)) {
 /** Each frame's step from the one before (the first from 0). */
 const steps = (tops: number[]) => tops.map((v, i) => v - (i ? tops[i - 1]! : 0));
 
+describe("a scroll before the first paint (PIE-929)", () => {
+  test("PgDn and the wheel on a note that isn't drawn yet still scroll it, once it is", () => {
+    const surface = new NoteSurface();
+    const host: SurfaceHost = { ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cols: 80, rows: 30, cellW: 9, cellH: 16, kitty: false }, graphics: false } as any, redraw() {}, navigate() {} };
+    surface.show(note(400), host);
+    surface.scrollBy(15);                              // a key lands between the note arriving and the first 16 ms paint
+    expect(surface.render(80, 29, host).scroll?.top).toBe(15);
+    surface.show(note(400), host);                     // another note starts at its top again
+    surface.scrollBy(7);
+    surface.show({ ...note(400), id: "99999999-2222-4333-8444-555555555555" }, host);
+    expect(surface.render(80, 29, host).scroll?.top).toBe(0);
+  });
+
+  test("a place restored before the first paint wins over the waiting scroll", () => {
+    const surface = new NoteSurface();
+    const host: SurfaceHost = { ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cols: 80, rows: 30, cellW: 9, cellH: 16, kitty: false }, graphics: false } as any, redraw() {}, navigate() {} };
+    surface.show(note(400), host);
+    surface.position.view = { line: 40, row: 3 };
+    const top = surface.render(80, 29, host).scroll?.top;
+    expect(top).toBeGreaterThan(30);
+  });
+});
+
 describe("the scroll model", () => {
   test("a position moves by rows within its content, and nothing else", () => {
     expect(scrolled(5, 3, 100)).toBe(8);
