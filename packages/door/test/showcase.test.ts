@@ -3875,7 +3875,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       const draft = reader.surface.draft!;
       press({kind: "enter"});
       await stage.dispatch.press("draft.place", {line: draft.lines.length}, "notes");
-      press({kind: "paste", text: "\n\nStill typing."});
+      await stage.dispatch.press("draft.paste", {text: "\n\nStill typing."}, "notes");
       // The first lease must expire unless the script-created heartbeat remains usable after completion.
       await Bun.sleep(DRAFT_LEASE_MS + 1000);
       const patched = await board.request("draft.patch", {
