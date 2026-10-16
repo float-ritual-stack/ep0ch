@@ -6480,7 +6480,8 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   for (const r of c.replies.filter(x => !x.tldr)) {
     // Each reply is a mark too: its own [Quote].
     // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
-    const head = "└ " + printable(authorName(r.author)) + " · " + ago(r.at) + editedMark(r);
+    const stamp = " · " + ago(r.at) + editedMark(r);
+    const head = "└ " + ellipsize(printable(authorName(r.author)), Math.max(1, inner - 2 - width(stamp))) + stamp;
     let row = edge + "│ " + fg(C.cyan) + ellipsize(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
     for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
       if (col + 1 + q.length > W) { lines.push(row); row = edge + "│ "; col = 2; }
