@@ -336,10 +336,16 @@ use the publisher's tailnet address. With only a public publisher, its public ad
 The database includes private notes. It is a full copy for analysis; use `sqlite3 -readonly` to open it.
 Bytes and SHA-256 describe the uncompressed SQLite file; append `?gz=1` to download gzip.
 
-The link uses the existing share token machinery, admits one GET, expires after its TTL and is revoked
+The link uses the existing share token machinery, admits one completed download, expires after its TTL and is revoked
 with `ep0ch share revoke <shareId>` or `/pub/shares`. A HEAD never consumes it. The host removes the
-copy after streaming ends, on revoke or at expiry, and keeps a `[machine::snapshot]` note naming who,
-which outline, when, and whether it was fetched, revoked or expired.
+copy after a completed download, on revoke or at expiry. An interrupted download releases the link for
+a retry within its TTL. The `[machine::snapshot]` note records each attempt’s time, IP, user agent,
+method, bytes sent to the HTTP sink and outcome (complete, aborted or refused), without the token.
+MCP asks agents to show the curl command and URL inside a code block to avoid chat link previews.
+
+The MCP gateway uses handwritten JSON-RPC over stateless, POST-only HTTP, without an MCP SDK or
+server notification stream. It cannot send `notifications/tools/list_changed`; clients must refresh
+their tool list after a deploy.
 
 The kitchen sink has a **snapshot** section with this local journey:
 

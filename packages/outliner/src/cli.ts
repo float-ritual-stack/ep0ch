@@ -297,7 +297,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       : values.url ?? process.env.OUTLINER_PUBLISH_URL;
     const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, signinUrl ? (values["signin-url"] ? "--signin-url" : "EP0CH_WEB_URL") : values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");
-    const { Publisher, servePublisher, renderIndexText } = await import("./publish");
+    const { Publisher, servePublisher, renderIndexText, publisherRequest } = await import("./publish");
     // The door in the browser (publish-door.ts): `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves it on the tailnet
     // listener and the signed-in one, each page a terminal attached to this outline's door session: the outline this
     // publisher serves at its base path (--ws, else the one the host answered for), never a guess from the folder.
@@ -376,7 +376,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
         log: line => console.error(line),
       }),
     });
-    const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 30, fetch: request => web.handle(request) });
+    const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 30, fetch: (request, server) => web.handle(publisherRequest(request, server.requestIP(request)?.address)) });
     // One publisher, one index; the public listener is the same publisher seen by the public audience.
     const publicServer = publicPort === undefined ? undefined : servePublisher(publisher, publicPort, "public", publicBind);
     // The signed-in web client (web-signin.ts): the same web client, behind a sign-in, for a public origin's proxy.
@@ -392,7 +392,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
         settings, request: input => host.request(input as Parameters<typeof host.request>[0]),
         serve: (request, signedIn) => web.handle(request, "tailnet", signedIn), log: line => console.error(line),
       });
-      signinServer = Bun.serve({ hostname: "127.0.0.1", port: signinPort, idleTimeout: 30, fetch: request => gate.handle(request) });
+      signinServer = Bun.serve({ hostname: "127.0.0.1", port: signinPort, idleTimeout: 30, fetch: (request, server) => gate.handle(publisherRequest(request, server.requestIP(request)?.address)) });
     }
     console.log(JSON.stringify({
       status: "publishing", url: `http://127.0.0.1:${server.port}${publisher.basePath}/`,

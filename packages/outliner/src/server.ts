@@ -3804,8 +3804,8 @@ export class OutlinerServer {
         this.sharesChanged();
         return result;
       }
-      case "shares.snapshot.take": return this.snapshots.take(request.token);
-      case "shares.snapshot.finish": this.snapshots.finish(request.shareId, request.fetched); return { ok: true };
+      case "shares.snapshot.take": return this.snapshots.take(request.token, request);
+      case "shares.snapshot.finish": this.snapshots.finish(request.shareId, request.fetched, request.bytes); return { ok: true };
       case "shares.start": {
         if (request.comments !== undefined && typeof request.comments !== "boolean") throw new Error("comments is true or false");
         const ttlMs = shareTtlMs(request.ttl);
