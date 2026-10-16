@@ -484,7 +484,7 @@ function trailingUnbalancedParens(text: string): number {
   return count;
 }
 
-type ParsedTime = { kind: "instant"; at: (now: number) => number } | { kind: "day"; start: (now: number) => number };
+type ParsedTime = { kind: "instant"; at: (now: number) => number } | { kind: "day"; start: (now: number) => number; end: (now: number) => number };
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_DATETIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-](\d{2}):(\d{2}))?$/;
@@ -503,7 +503,7 @@ export function parseQueryTime(value: string): ParsedTime {
   if (date) {
     const start = utcDay(Number(date[1]), Number(date[2]), Number(date[3]));
     if (start === null) throw new BlockQueryError(`Invalid date: ${value}`);
-    return { kind: "day", start: () => start };
+    return { kind: "day", start: () => start, end: () => start + DAY_MS };
   }
   const datetime = ISO_DATETIME.exec(value.trim());
   if (datetime) {
@@ -523,9 +523,10 @@ export function parseQueryTime(value: string): ParsedTime {
   if (readDateBound(normalized, 0) !== null) {
     const bound = (now: number) => readDateBound(normalized, wallClock(now))!;
     const instant = bound(0).from === bound(0).to;
+    // An instant is elapsed time from now (a `-2h` is two hours across a clock change); a day runs from its own midnight to the next one.
     return instant
-      ? { kind: "instant", at: now => fromWallClock(bound(now).from) }
-      : { kind: "day", start: now => fromWallClock(bound(now).from) };
+      ? { kind: "instant", at: now => now + bound(now).from - wallClock(now) }
+      : { kind: "day", start: now => fromWallClock(bound(now).from), end: now => fromWallClock(bound(now).to + 1) };
   }
   throw new BlockQueryError(
     `Invalid time value: ${value}; use YYYY-MM-DD, an ISO datetime, now, today, yesterday or -N followed by m, h, d or w (-30m, -2h, -7d)`,
@@ -907,8 +908,7 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
           : at => at >= bound;
       } else {
         // A day is an interval: > D starts after that day, <= D includes all of it.
-        const start = time.start(now);
-        const end = start + DAY_MS;
+        const start = time.start(now), end = time.end(now);
         test = expression.op === "<" ? at => at < start
           : expression.op === "<=" ? at => at < end
           : expression.op === ">" ? at => at >= end

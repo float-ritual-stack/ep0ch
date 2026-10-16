@@ -142,6 +142,23 @@ describe("query grammar", () => {
     expect(check("updated >= -2h", "2026-09-27T12:59:59.999Z")).toBe(false);
   });
 
+  test("a relative bound keeps its meaning across a clock change", () => {
+    const zone = process.env.TZ;
+    process.env.TZ = "America/Toronto";
+    try {
+      const run = (query: string, nowIso: string, at: string) =>
+        compileQueryExpression(parseQueryExpression(query), Date.parse(nowIso))({ createdAt: at, updatedAt: at }, []);
+      // Two hours is two hours of elapsed time, though the clock jumped an hour in between (Mar 8, 2026, 2 am).
+      expect(run("updated >= -2h", "2026-03-08T07:30:00Z", "2026-03-08T05:30:00Z")).toBe(true);
+      expect(run("updated >= -2h", "2026-03-08T07:30:00Z", "2026-03-08T05:29:59Z")).toBe(false);
+      // A 23-hour day ends at its own midnight, and a 25-hour day at its own.
+      expect(run("updated <= today", "2026-03-08T16:00:00Z", "2026-03-09T04:30:00Z")).toBe(false);
+      expect(run("updated <= today", "2026-11-01T17:00:00Z", "2026-11-02T04:30:00Z")).toBe(true);
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+    }
+  });
+
   test("normalization parses where text, validates a structured predicate and ANDs both with filters", () => {
     expect(normalizeBlockSearchQuery({ where: "a OR b", predicate: { kind: "not", operand: p("C") }, filters: [{ key: "d" }], limit: 5 })).toEqual({
       filters: [{ key: "d" }],
