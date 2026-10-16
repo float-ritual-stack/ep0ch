@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Deploys note's table draws (PIE-941)
+
+The Deploys note `ep0ch install` writes failed to draw its table ("String.prototype.repeat argument must be greater
+than or equal to 0") because its figure's lines weren't between `---` lines, so the table had no query and no columns.
+A new install writes them between `---`. A table figure with nothing to draw now says to put `query:`, `columns:` and
+`rows:` between `---` lines, and no figure takes a negative width into a repeat. A Deploys note an earlier install made
+needs its `::graph-table` lines wrapped in `---` once (edit the note, or delete it and run `ep0ch install --apply`).
+
 ### A read never creates an outline, and an empty outline file never holds an install back (PIE-938)
 
 `ep0ch show --ws pie <id>` run in a folder with no `.ep0ch` on a machine that doesn't have `pie` (a builder's worktree

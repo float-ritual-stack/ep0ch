@@ -8,6 +8,16 @@ import type { Facts } from "./model";
 interface Note { id: string; revision: number; text: string }
 type Env = Record<string, string | undefined>;
 
+/**
+ * The Deploys note install creates: a figure's props sit between `---` lines (without them the lines are its
+ * Markdown rows and the table has no query, PIE-941).
+ */
+export const DEPLOYS_NOTE = [
+  "Deploys [system-view::deploys] [machine::install] [type::virtual-branch] [query::type=deploy machine=install] [sort::created] [direction::desc]", "",
+  "Install runs, newest first. Copy this figure into the build log for the latest five:", "",
+  "::graph-table", "---", "query: type=deploy machine=install", "sort: created", "direction: desc", "limit: 5", "columns: [title, created]", "---", "::",
+].join("\n");
+
 /** Install writes through its own host, even when the invoking folder names a different machine. */
 export async function startDeployRecord(f: Facts, env: Env, folder: string, when: Date, creating: () => void) {
   const host = await hostRequest<{ defaultOutline?: string }>(f.host.socket, "outlines.list");
@@ -23,8 +33,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   // Once a create is sent, a lost answer must never lead to another create for this run.
   creating();
   let parent = roots.blocks[0];
-  if (!parent) parent = await request<Note>("create", { parentId: null, author, provenance,
-    text: "Deploys [system-view::deploys] [machine::install] [type::virtual-branch] [query::type=deploy machine=install] [sort::created] [direction::desc]\n\nInstall runs, newest first. Copy this figure into the build log for the latest five:\n\n::graph-table\nquery: type=deploy machine=install\nsort: created\ndirection: desc\nlimit: 5\ncolumns: [title, created]\n::" });
+  if (!parent) parent = await request<Note>("create", { parentId: null, author, provenance, text: DEPLOYS_NOTE });
   const machine = f.machineName?.chosen || configuredMachineName(env, f.host.folder) || hostMachineName();
   const heading = `Deploy ${when.toISOString()} on ${machine} [type::deploy] [machine::install]`;
   const identity = [`When: ${when.toISOString()}`, `Machine: ${machine}`, `Who: ${actor || "person"}`, ...(sessionId ? [`Session: ${sessionId}`] : []), `From: ${f.repo.checkout.head ?? "unknown"}`];

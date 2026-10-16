@@ -25,6 +25,9 @@ export function connectFigures(board: SocketBoard, redraw: () => void): void {
   setLinksSource(board, redraw);
 }
 
+/** A run of `s`, `n` times: none for a count below 0 or not a number, so a width that came out negative draws nothing (PIE-941). */
+const rep = (s: string, n: number) => s.repeat(Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
+
 /**
  * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. `control`: drawn after the footer when it fits (a
  * live figure's density, tagged so a click changes it), measured by what it draws.
@@ -37,15 +40,15 @@ export function frame(title: string, body: string[], W: number, footer = "", con
   const label = t ? ` [ ${t} ] ` : "";
   const lw = vwidth(label);
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
-  const top = fg(DIM) + "+" + "·".repeat(left) + fg(ACCENT) + label + fg(DIM) + "·".repeat(right) + "+" + RESET;
+  const top = fg(DIM) + "+" + rep("·", left) + fg(ACCENT) + label + fg(DIM) + rep("·", right) + "+" + RESET;
   const side = (s: string) => fg(DIM) + "┊ " + RESET + pad(s, inner) + fg(DIM) + " ┊" + RESET;
   const shown = footer ? headOf(footer, Math.max(0, w - 8)) : "";
   const fits = !!control && vwidth(shown) + vwidth(control) + (shown ? 3 : 0) + 8 <= w;
   const tail = fits ? (shown ? fg(DIM) + " · " : "") + fg(ACCENT) + control : "";
   const foot = shown || tail ? ` ${shown}${tail} ` : "";
   const fl = vwidth(foot);
-  const bottom = fg(DIM) + "+" + "·".repeat(Math.max(0, w - 4 - fl)) + fg(ACCENT) + foot + fg(DIM) + "··+" + RESET;
-  return [top, side(""), ...body.map(side), side(""), foot ? bottom : fg(DIM) + "+" + "·".repeat(w - 2) + "+" + RESET];
+  const bottom = fg(DIM) + "+" + rep("·", Math.max(0, w - 4 - fl)) + fg(ACCENT) + foot + fg(DIM) + "··+" + RESET;
+  return [top, side(""), ...body.map(side), side(""), foot ? bottom : fg(DIM) + "+" + rep("·", w - 2) + "+" + RESET];
 }
 
 const num = (v: unknown) => (typeof v === "number" ? v : Number(String(v).replace(/[^\d.-]/g, "")) || 0);
@@ -53,7 +56,7 @@ const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") :
 
 function bar(frac: number, n: number, on: number = ACCENT): string {
   const k = Math.max(0, Math.min(n, Math.round(frac * n)));
-  return fg(on) + "█".repeat(k) + fg(DIM) + "-".repeat(n - k) + RESET;
+  return fg(on) + rep("█", k) + fg(DIM) + rep("-", n - k) + RESET;
 }
 
 // rowLinks splits what `link` returns around a placeholder: a RowLink only wraps its text in tags, never records it.
@@ -119,7 +122,7 @@ export function titleLines(text: string, w: number, lines: number): string[] {
   const out: string[] = [];
   let rest = text;
   for (let i = 0; i < lines && rest; i++) {
-    const room = i ? Math.max(1, w - indent) : w, lead = i ? " ".repeat(indent) : "";
+    const room = i ? Math.max(1, w - indent) : w, lead = i ? rep(" ", indent) : "";
     if (i === lines - 1 || vwidth(rest) <= room) { out.push(lead + ellipsize(rest, room)); break; }
     const row = wrap(rest, room)[0] ?? "";
     out.push(lead + row);
@@ -162,7 +165,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const inline = !!note && !narrow && vwidth(lines.at(-1)!) + 4 + vwidth(note) <= tw;
       const body = rowLinks(link, e.block, lines).map((l, k) => l + (inline && k === lines.length - 1 ? `${fg(DIM)}  — ${note}` : "") + RESET);
       const under = e.note && !inline ? inlineRows(String(e.note), tw, DIM, ui?.rows) : [];
-      const spine = (last ? " " : fg(DIM) + "│" + RESET) + " ".repeat(ind - 1);
+      const spine = (last ? " " : fg(DIM) + "│" + RESET) + rep(" ", ind - 1);
       const date = fg(next ? DIM : INK) + pad(ellipsize(String(e.date ?? ""), dw), dw);
       return [
         pad(`${dot}  ${date}  ${body[0]}`, w),
@@ -216,10 +219,10 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return items.flatMap((it, i) => {
       const v = num(it.value), first = i === 0, last = i === items.length - 1;
       let row: string;
-      if (first || last) { row = fg(last ? ACCENT : HI) + "█".repeat(cells(v)) + fg(DIM) + "-".repeat(bw - cells(v)); run = v; }
-      else { const end = cells(run), start = cells(run + v); row = fg(DIM) + "-".repeat(Math.min(start, end)) + fg(v < 0 ? C.lblue : ACCENT) + "█".repeat(Math.abs(end - start)) + fg(DIM) + "-".repeat(bw - Math.max(start, end)); run += v; }
+      if (first || last) { row = fg(last ? ACCENT : HI) + rep("█", cells(v)) + fg(DIM) + rep("-", bw - cells(v)); run = v; }
+      else { const end = cells(run), start = cells(run + v); row = fg(DIM) + rep("-", Math.min(start, end)) + fg(v < 0 ? C.lblue : ACCENT) + rep("█", Math.abs(end - start)) + fg(DIM) + rep("-", bw - Math.max(start, end)); run += v; }
       const out = `${fg(HI)}${String(it.label).padEnd(lw)}  ${row}${fg(last ? ACCENT : v < 0 ? C.lblue : INK)}  ${String(v).padStart(4)}${RESET}`;
-      return last ? [fg(DIM) + "·".repeat(lw + bw + 8) + RESET, out] : [out];
+      return last ? [fg(DIM) + rep("·", lw + bw + 8) + RESET, out] : [out];
     });
   },
 
@@ -248,13 +251,13 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const out: string[] = [];
     for (const it of items) {
       const v = Math.max(0, num(it.value)), over = v > limit, k = Math.max(0, Math.min(bw, Math.round((Math.min(v, limit) / limit) * bw)));
-      const fill = fg(over ? C.lred : it.accent ? ACCENT : HI) + "█".repeat(k) + fg(DIM) + "-".repeat(bw - k) + fg(over ? C.lred : DIM) + "┃" + RESET;
+      const fill = fg(over ? C.lred : it.accent ? ACCENT : HI) + rep("█", k) + fg(DIM) + rep("-", bw - k) + fg(over ? C.lred : DIM) + "┃" + RESET;
       const label = lw ? fg(it.accent ? ACCENT : HI) + pad(ellipsize(String(it.label ?? ""), lw), lw) + "  " : "";
       // Narrow: `90/150` and the unit beneath, so the bar keeps its room.
       const said = tier(w) === "narrow" ? `${fmt(v)}/${fmt(limit)}` : `${fmt(v).padStart(vw)}${fg(DIM)} / ${fmt(limit)}${unit}`;
       out.push(`${label}${fill}  ${fg(over ? C.lred : INK)}${said}${RESET}`);
       const room = Math.abs(limit - v);
-      out.push(" ".repeat(lw ? lw + 2 : 0) + (over ? fg(C.lred) + `${fmt(room)}${unit} over` : fg(DIM) + `${fmt(room)}${unit} left`) + RESET);
+      out.push(rep(" ", lw ? lw + 2 : 0) + (over ? fg(C.lred) + `${fmt(room)}${unit} over` : fg(DIM) + `${fmt(room)}${unit} left`) + RESET);
     }
     if (p.caption) out.push(fg(DIM) + p.caption + RESET);
     return out;
@@ -266,11 +269,11 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const rows = items.map(it => {
       const s = Math.round(num(it.start) * bw), e = Math.max(s + 1, Math.round(num(it.end) * bw)), c = s + Math.round((e - s) * num(it.complete ?? 0));
       const active = num(it.complete) > 0 && num(it.complete) < 1;
-      return `${fg(active ? ACCENT : HI)}${String(it.label).padEnd(lw)}  ${fg(DIM)}${"-".repeat(s)}${fg(active ? ACCENT : HI)}${"█".repeat(c - s)}${fg(active ? C.blue : DIM)}${"░".repeat(e - c)}${fg(DIM)}${"-".repeat(bw - e)}${RESET}`;
+      return `${fg(active ? ACCENT : HI)}${String(it.label).padEnd(lw)}  ${fg(DIM)}${rep("-", s)}${fg(active ? ACCENT : HI)}${rep("█", c - s)}${fg(active ? C.blue : DIM)}${rep("░", e - c)}${fg(DIM)}${rep("-", bw - e)}${RESET}`;
     });
     const ticks: string[] = p.ticks ?? [];
-    const axis = " ".repeat(lw + 2) + ticks.map((t, i) => t.padEnd(i === ticks.length - 1 ? 0 : Math.floor(bw / Math.max(1, ticks.length - 1)))).join("");
-    const marker = p.progress !== undefined ? [" ".repeat(lw + 2 + Math.round(num(p.progress) * bw)) + fg(ACCENT) + "▾" + RESET] : [];
+    const axis = rep(" ", lw + 2) + ticks.map((t, i) => t.padEnd(i === ticks.length - 1 ? 0 : Math.floor(bw / Math.max(1, ticks.length - 1)))).join("");
+    const marker = p.progress !== undefined ? [rep(" ", lw + 2 + Math.round(num(p.progress) * bw)) + fg(ACCENT) + "▾" + RESET] : [];
     return [...marker, ...rows, fg(DIM) + axis + RESET];
   },
 
@@ -300,12 +303,14 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     }
     const all = [head, ...rows, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));
+    // Nothing to draw: a figure whose props never reached it (written without its `---` lines) says where they go.
+    if (!n) return [fg(DIM) + "no columns or rows · put query:, columns: and rows: between --- lines" + RESET];
     let cw = Array.from({ length: n }, (_, k) => Math.max(...all.map(r => vwidth(r[k] ?? ""))));
     const room = w - (n - 1) * 3;
-    while (cw.reduce((a, b) => a + b, 0) > room) { const k = cw.indexOf(Math.max(...cw)); cw[k]!--; }
-    const cell = (s: string, k: number) => { const t = ellipsize(s, cw[k]!), gap = " ".repeat(Math.max(0, cw[k]! - vwidth(t))); return align[k] === "right" ? gap + t : t + gap; };
+    while (cw.reduce((a, b) => a + b, 0) > room && Math.max(...cw) > 1) { const k = cw.indexOf(Math.max(...cw)); cw[k]!--; }
+    const cell = (s: string, k: number) => { const t = ellipsize(s, cw[k]!), gap = rep(" ", Math.max(0, cw[k]! - vwidth(t))); return align[k] === "right" ? gap + t : t + gap; };
     const line = (r: string[], style: string) => r.map((c, k) => style + cell(c, k)).join(fg(DIM) + " ┊ ") + RESET;
-    const rule = fg(DIM) + "·".repeat(Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
+    const rule = fg(DIM) + rep("·", Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
     // The density (the reader's choice, else the YAML's): the title column wraps over that many lines, hanging past
     // a work id; the other columns stay on the row's first line. A row's lines are one link, to its note.
     const density = ui?.density ?? (isDensity(p.density) ? p.density : "compact"), most = TITLE_LINES[density];
@@ -344,7 +349,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       if (at) { text += fg(DIM) + " · "; under += "   "; at += 3; }
       const drawn = (on ? fg(ACCENT) + BOLD : fg(INK)) + label + (on ? UNBOLD : "") + RESET;
       text += ui?.tag ? ui.tag({ figure: ui.key, tab: t.value }, drawn) : drawn;
-      under += on ? fg(ACCENT) + "▀".repeat(lw) + RESET : " ".repeat(lw);
+      under += on ? fg(ACCENT) + rep("▀", lw) + RESET : rep(" ", lw);
       at += lw;
     }
     bars.push({ text, under });
@@ -413,12 +418,12 @@ export function figureAscii(kind: string, source: string | FigureSource, W = 60)
   const w = vwidth(drawn[0]!), bottom = drawn.at(-1)!;
   const label = drawn[0]!.includes(" [ ") ? null : ` [ ${kind.toUpperCase()} ] `;
   const left = label ? Math.max(1, Math.floor((w - 2 - label.length) / 2)) : 0;
-  const top = label ? "+" + "-".repeat(left) + label + "-".repeat(Math.max(1, w - 2 - left - label.length)) + "+"
-    : drawn[0]!.replace(/^\+·+/, m => "+" + "-".repeat(m.length - 1)).replace(/·+\+$/, m => "-".repeat(m.length - 1) + "+");
+  const top = label ? "+" + rep("-", left) + label + rep("-", Math.max(1, w - 2 - left - label.length)) + "+"
+    : drawn[0]!.replace(/^\+·+/, m => "+" + rep("-", m.length - 1)).replace(/·+\+$/, m => rep("-", m.length - 1) + "+");
   const body = drawn.slice(1, -1).map(l => "|" + l.slice(1, -1) + "|");
   const status = bottom.replace(/^\+[·]*|[·]*\+$/g, "").trim();
-  if (status) body.splice(body.length - 1, 0, "| " + " ".repeat(Math.max(0, w - 4 - vwidth(status))) + status + " |");
-  return [top, ...body, "+" + "-".repeat(Math.max(0, w - 2)) + "+"];
+  if (status) body.splice(body.length - 1, 0, "| " + rep(" ", Math.max(0, w - 4 - vwidth(status))) + status + " |");
+  return [top, ...body, "+" + rep("-", Math.max(0, w - 2)) + "+"];
 }
 
 /** A table's or tabs figure's density as a control on its footer, where a reader can change it (a click, ⏎ on it, =). */
