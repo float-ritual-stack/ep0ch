@@ -775,7 +775,7 @@ linked anchors. What a write becomes is the outline's access:
 `outline_move` (under a parent, or before or after a sibling) and `outline_trash` (against the revision read) are applied at
 `full`, and at `propose` a comment on the note naming the change, for its owner to make; `outline_restore` (a note back
 from Trash) applies at `full` only, like `outline_assign_id`. Each runs the same agent operation as the mod's tool of
-that name, so the same refusals teach: a system note, a place inside the note itself, a stale revision.
+that name, so the same refusals teach: a place under Trash, Bookmarks or a guide, a place inside the note itself, a stale revision.
 
 Every write is an agent's: its actor `mcp:<client>` (a URL client id by its host: claude.ai's is `mcp:claude.ai`), its
 session the token's subject. The outline's activity records both, the gateway's log has a line for each write, and a door

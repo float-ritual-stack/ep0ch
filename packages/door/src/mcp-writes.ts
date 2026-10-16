@@ -264,7 +264,7 @@ export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{
 
 /**
  * An agent's move of note `ref` under `parent` (inbox resolved by the caller to its id), first: the outliner's own
- * `moveBlock`, the one outline_move runs, with its rules (no system note moved, none but the Inbox a parent), attributed.
+ * `moveBlock`, the one outline_move runs, with its rules (a system note moves like any note; nothing goes under Trash, Bookmarks or a guide), attributed.
  */
 export async function moveAsAgent(board: WriteBoard, ref: string, parent: string, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>> {
   return (await loadAgentTools()).moveBlock(clientOf(board), { ref, parent, position: 0 }, actor);
