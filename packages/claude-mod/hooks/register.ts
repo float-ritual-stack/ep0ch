@@ -310,7 +310,9 @@ export function register(on: On, options: PluginOptions): void {
   // page, off the delivery so a slow or missing `ep0ch` never holds a message up.
   on('session.send', async ($, e, next) => {
     const sent = await next(e)
-    if (sent.isDelivered && e.agentId === undefined) {
+    // Only messages between sessions (loki, kitty, cowboy…), never to this session's own subagents or teammates
+    // (Evan, Oct 16): a send to one of them is addressed by the id or teammate id `$.agent.list()` lists.
+    if (sent.isDelivered && e.agentId === undefined && !(await toOwnAgent($, e.to))) {
       const ms = await $.clock.now()
       $.clock.after(0, () => void logPeerMessage($, option, 'to', e.to, ms, e.text))
     }
@@ -1171,6 +1173,12 @@ async function runDoorTool(
  * service that cannot answer leaves pages and block references linked, bare
  * IDs not.
  */
+/** Whether a send goes to this session's own subagent or teammate rather than another session. */
+async function toOwnAgent($: EngineInterface, to: string): Promise<boolean> {
+  const agents = await $.agent.list().catch(() => [])
+  return agents.some(a => a.id === to || a.teammateId === to)
+}
+
 /** The bound outline's [[peer-messages]] page, found (or made) once per outline folder. */
 let peerPage: { root: string; id: string } | undefined
 
