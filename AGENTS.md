@@ -96,7 +96,7 @@ component being valid: the raw text is saved first, then references are resolved
 inline as a warning (with a did-you-mean), never a refusal of the whole save. A refused action keeps the text in front
 of the person with why and what to do. Every place a person types shares one editor (mouse select, delete, undo,
 paste, edit after save), and capture is tested as a person works, not with parser units.
-In the outline itself the twin rule is 'write first, compact later' (pie's How this workboard works).
+In the outline itself the twin rule is 'write first, compact later' (pie's [[house-rules]] note, e19f9fe0).
 
 ## Properties are open
 
