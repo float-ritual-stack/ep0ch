@@ -137,6 +137,27 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect(reader.surface.replyLinks).toBeNull();
   });
 
+  test("the thread panel by keys (PIE-944): j k move, ⏎ reads the selected post, ⏎ on the note you're on closes the panel", async () => {
+    const parent = (await board.newNote("Gate repairs", undefined)).note;
+    const reply = (await board.newNote(`Oil the hinge [replyTo::${parent.id}]`, parent.id)).note;
+    const app = new App(term(() => {}) as any, board, Date.now(), () => {});
+    const reader = new MessageReader([parent], 0);
+    app.push(reader); reader.render(app);
+    await reader.dispatch.act({ action: "note.thread" }, { kind: "user" });
+    reader.render(app);
+    const mode = () => reader.surface.replyLinks!;
+    expect(mode().rowsAt[mode().selected]).toMatchObject({ thread: { here: true } });
+    mode().key({ kind: "enter" } as Key);
+    await until(() => reader.surface.replyLinks === null, "⏎ on the note you're on closes the panel");
+    expect(app.screens().at(-1)).toBe(reader);
+    await reader.dispatch.act({ action: "note.thread" }, { kind: "user" });
+    reader.render(app);
+    mode().key({ kind: "char", ch: "j" } as Key);
+    await until(() => mode().rowsAt[mode().selected]?.kind === "child" && (mode().rowsAt[mode().selected] as any).child.block.id === reply.id, "j moved to the reply");
+    mode().key({ kind: "enter" } as Key);
+    await until(() => (app.screens().at(-1) as MessageReader).surface.msg?.id === reply.id && app.screens().at(-1) !== reader, "⏎ read the reply");
+  });
+
   test("quoting freezes the excerpt with its anchor while source scrolling leaves the reply cursor alone", async () => {
     const parent = (await board.newNote("Pear harvest\n\nKeep the ripe pears. ^pears\n\n" + "Leave the windfalls.\n".repeat(80), undefined)).note;
     let key: (k: Key) => void = () => {};

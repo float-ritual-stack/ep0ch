@@ -17,7 +17,7 @@ reading (marked ►), the posts beside each and the note's replies, each with it
 many posts, a long chain and a long run of replies fold around the note with a count; ⏎ (or a second click) on the
 fold shows them. `T` is still the full list and `b` the outlinks and backlinks. A click on a row of the panel now only
 selects it (the click that gave the reader the keys too); a second click on the selected row, a double click or ⏎
-opens it. The kitchen sink's `thread` section shows it.
+opens it, in the links tile, the query tile, what-changed, EchoNet's lists, the river's cards and a note's `::links` rows too (a click on the row that's already selected opens it, however slowly the second click comes; the click that gives a tile the keys only selects). The kitchen sink's `thread` section shows the panel.
 
 ### The Deploys note's table draws (PIE-941)
 

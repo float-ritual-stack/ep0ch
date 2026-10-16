@@ -1970,11 +1970,17 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(reader().showing.id).toBe(seeded.notes.threadHere.id);
     // ⏎ (or a second click) on the fold shows the posts it hid.
     const fold = rows().findIndex(r => r.text === "2 more earlier") + 1;
-    expect(await (stage() as any).dispatch.press("note.thread.open", { n: fold }, "reader")).toMatchObject({ unfolded: 2 });
+    await expect((stage() as any).dispatch.press("note.thread.open", { n: fold }, "reader")).rejects.toThrow(/note\.thread\.unfold/);
+    expect(await (stage() as any).dispatch.press("note.thread.unfold", { n: fold }, "reader")).toMatchObject({ unfolded: 2 });
     expect(rows().map(r => r.text)).toContain("Ana: I have a tray going spare");
-    // Opening a post reads it.
+    // b walks the thread, the replies (the old children list), the outlinks and the backlinks, and back.
+    const groups = [] as string[];
+    for (let i = 0; i < 4; i++) groups.push(((await (stage() as any).dispatch.press("note.thread.groups", {}, "reader")) as { group: string }).group);
+    expect(groups).toEqual(["children", "outlinks", "backlinks", "thread"]);
+    // ⏎ reads the selected post, as the key does (Eli, picked above and still the one the panel was left on).
     const eli = rows().find(r => r.text === "Eli: not this year, sorry")!.n;
-    await (stage() as any).dispatch.press("note.thread.open", { n: eli }, "reader");
+    await (stage() as any).dispatch.press("note.thread.pick", { n: eli }, "reader");
+    await (stage() as any).dispatch.press("note.thread.open", {}, "reader");
     await until(() => reader()?.showing?.title === "Eli: not this year, sorry", "Eli's post read", 8000);
   }, 30_000);
 

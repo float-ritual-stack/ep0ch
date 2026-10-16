@@ -33,7 +33,7 @@ import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
 import { C, ellipsize, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
-import { RowView, type RowPress } from "../scroll";
+import { pressOn, RowView, type RowPress } from "../scroll";
 import { LineInput } from "../surface/line";
 import { centred, ListPicker, pickRow } from "../surface/picker";
 
@@ -519,7 +519,7 @@ export class BacklinksPane implements Pane {
     const slot = this.slots[this.view.top + y - this.head];
     const i = slot && "item" in slot ? slot.item : -1, row = this.rows()[i];
     if (y < this.head || !row) return true;
-    const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
+    const gesture = this.view.press(i, pressOn(k, press, i === this.sel));
     const header = row.kind === "group" || row.kind === "kind";
     if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.run(desk, "backlinks.open", { n: i + 1 }); return true; }
     if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.open", { n: i + 1, where: gesture === "fresh" && !header ? "new" : "home" });

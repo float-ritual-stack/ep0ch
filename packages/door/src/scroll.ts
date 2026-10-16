@@ -129,6 +129,13 @@ export interface RowPress {
   selected?: boolean;
 }
 
+/**
+ * A press as a list hands it to `press`: the pointer's modifiers and what the desk said (`press`, which carries
+ * `focusing`), and whether row `row` is already the selected one (PIE-944): a click on the selected row opens, so a
+ * second click opens however slowly it comes, as ⏎ would. Every list whose rows open on ⏎ passes it.
+ */
+export const pressOn = (k: { mods?: number; button?: number }, press: RowPress | undefined, selected: boolean): RowPress => ({ ...(press ?? { mods: k.mods ?? 0, button: k.button }), selected });
+
 /** The presses on a list's rows, so a second one on the same row soon after is a double click. */
 export class RowPresses {
   private last: { row: number; at: number } | null = null;

@@ -697,6 +697,7 @@ export class TreePane implements Pane {
     const i = this.view.top + y, row = this.rows[i];
     if (!row) return true;
     if (row.kind === "block" && k.button === 0) this.drag = { id: row.m.id, from: i, over: null, beside: false, moved: false };
+    // The press that starts a drag (PIE-943) never opens on a slow second click: the tree keeps the double click.
     const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
     if (i !== this.sel) this.run(desk, "tree.pick", { n: i + 1 });
     const onMark = x <= row.depth * 2 + 1;

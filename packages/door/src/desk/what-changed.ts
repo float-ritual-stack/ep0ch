@@ -14,7 +14,7 @@ import { subject } from "../board";
 import { C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago } from "../text";
-import { RowView } from "../scroll";
+import { pressOn, RowView } from "../scroll";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { diffRows } from "../unsent";
 import { readState, writeState } from "../state";
@@ -322,7 +322,7 @@ export class WhatChangedPane implements Pane {
     if (k.action !== "down") return true;
     const n = this.rowAt(y);
     if (n < 0) return true;
-    const gesture = this.view.press(n, press ?? { mods: k.mods ?? 0, button: k.button });
+    const gesture = this.view.press(n, pressOn(k, press, n === this.at));
     if (gesture === "open") this.run(desk, "changes.go", { n: n + 1 });
     else if (gesture === "fresh") this.run(desk, "changes.go", { n: n + 1, fresh: true });
     else if (n !== this.at) this.run(desk, "changes.pick", { n: n + 1 });

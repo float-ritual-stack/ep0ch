@@ -676,7 +676,7 @@ export class RiverColumn extends ReaderPane {
     const link = row?.links?.find(l => x >= l.from && x < l.to);
     // A card escalates as every list's row does (RowPresses): a click selects it, a double click or an alt-, ctrl- or
     // middle-click opens it in the next column (⏎); the click that gave the column the keys only selects.
-    const g = row && row.card >= 0 && !link ? this.presses.press(row.card, { mods: k.mods ?? 0, button: k.button, focusing: press?.focusing ?? this.justFocused }) : "select";
+    const g = row && row.card >= 0 && !link ? this.presses.press(row.card, { mods: k.mods ?? 0, button: k.button, focusing: press?.focusing ?? this.justFocused, selected: row.card === this.sel }) : "select";
     const same = g === "open" || g === "fresh";
     if (!(row && row.card >= 0 && !link)) this.presses.forget();                 // a press elsewhere: the next on a card starts afresh
     if (row && row.card >= 0 && !link) this.run(desk, "column.select", { n: row.card + 1, scroll: false });

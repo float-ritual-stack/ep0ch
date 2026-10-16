@@ -91,19 +91,22 @@ export interface ThreadData {
 /** How far up a thread is followed, so a loop in the data ends. */
 export const THREAD_DEPTH = 12;
 /** The note a post answers (its `replyTo`, which R stamps wherever the reply is kept); a post that answers none is a thread's root. */
-const answered = (m: Msg): string | null => m.props.replyto ?? m.props.replyTo ?? null;
+export const replyToOf = (m: Msg): string | null => m.props.replyto ?? m.props.replyTo ?? null;
 
 /**
  * The thread `note` is in, as the service answers it: each post's parent is the note its `replyTo` names, and the posts at a level are the replies the
  * service lists for that parent (`readReplies`, the one membership query), so moved replies are in it.
  */
-export async function readThread(board: Pick<SocketBoard, "get" | "queryNotes" | "facets">, note: Msg, conference = false): Promise<ThreadData> {
+export async function readThread(board: Pick<SocketBoard, "get" | "ancestors" | "queryNotes" | "facets">, note: Msg, conference = false): Promise<ThreadData> {
+  // The service reads the note's ancestors in one request; a reply kept under the note it answers (what R makes) finds
+  // its parents there, and one moved away is asked for singly.
+  const under = new Map((replyToOf(note) ? await board.ancestors(note.id).catch(() => [] as Msg[]) : []).map(m => [m.id, m]));
   const chain: Msg[] = [note];
   let cut = false;
   for (let at = note; ;) {
-    if (chain.length >= THREAD_DEPTH) { cut = !!answered(at); break; }
-    const up = answered(at);
-    const parent = up ? await board.get(up) : null;
+    const up = replyToOf(at);
+    if (chain.length >= THREAD_DEPTH) { cut = !!up; break; }
+    const parent = up ? under.get(up) ?? await board.get(up) : null;
     if (!parent || parent.deleted || chain.some(c => c.id === parent.id)) break;
     chain.unshift(parent); at = parent;
   }

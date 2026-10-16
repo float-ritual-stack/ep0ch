@@ -2510,7 +2510,10 @@ export class NoteSurface {
     if (actor.kind === "agent" || movedOn(host, this, m.id)) return out;
     const data: LinkData = { links: { kind: "ready", value: links }, backlinks: { kind: "ready", value: backlinks }, children: { kind: "ready", value: replies.children } };
     if (refresh) { if (previous && this.replyLinks === previous) { previous.data = data; previous.thread = thread; previous.truncated = replies.truncated || thread.truncated; } host.redraw(); return out; }
-    const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.groups" | "note.thread.full", args: Record<string, unknown> = {}) => { void this.runKey(action, args, host); };
+    const row = (n?: number) => mode.rowsAt[n === undefined ? mode.selected : n - 1];
+    // ⏎ and a second click: a fold row shows its posts, any other row is read.
+    const go = (n?: number) => run(row(n)?.kind === "fold" ? "note.thread.unfold" : "note.thread.open", n === undefined ? {} : { n });
+    const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.unfold" | "note.thread.groups" | "note.thread.full", args: Record<string, unknown> = {}) => { void this.runKey(action, args, host); };
     const mode: ReplyLinksMode = {
       name: "replies", of: m, word: "replies", holdsKeys: true, editing: () => false, covers: () => false,
       data, thread, unfolded: new Set(), presses: new RowPresses(), picked: false, top: 0, truncated: replies.truncated || thread.truncated,
@@ -2520,7 +2523,7 @@ export class NoteSurface {
         if (k.kind === "esc" || c === "t" || c === "q") run("note.thread.close");
         else if (isDown(k)) run("note.thread.pick", { by: 1 });
         else if (isUp(k)) run("note.thread.pick", { by: -1 });
-        else if (k.kind === "enter") run("note.thread.open");
+        else if (k.kind === "enter") go();
         else if (c === "b") run("note.thread.groups");
         else if (c === "T") run("note.thread.full");
         return true;
@@ -2535,7 +2538,7 @@ export class NoteSurface {
         // One rule for every list's rows (RowPresses): a click selects (the one that gave the reader the keys only does that),
         // a second on the selected row, a double click or ⏎ opens, an alt- or ctrl-click is the same open here.
         const g = mode.presses.press(i, { focusing: !!host.focusing, selected: mode.picked && i === mode.selected });
-        if (g === "open" || g === "fresh") run("note.thread.open", { n: i + 1 }); else run("note.thread.pick", { n: i + 1 });
+        if (g === "open" || g === "fresh") go(i + 1); else run("note.thread.pick", { n: i + 1 });
         return true;
       },
       wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("note.thread.pick", { by: dir }); return true; },
@@ -4850,7 +4853,7 @@ export class NoteSurface {
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     const lbk = h.link.linksBlock;
     if (e && lbk?.row) {
-      const i = this.elems.indexOf(e), g = this.linkPresses.press(i, { focusing: !!host.focusing });
+      const i = this.elems.indexOf(e), g = this.linkPresses.press(i, { focusing: !!host.focusing, selected: e.key === this.cur });
       void this.runKey(g === "open" || (g === "select" && host.freshClick) ? "element.open" : "element.select", { n: i + 1 }, host);
       host.redraw();
       return true;
@@ -7511,22 +7514,32 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.thread.pick": def({
     summary: "move through the thread, or select one row (n)", keys: "j k up down, wheel, a click in the thread", touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", optional: true, about: "rows to move" }, n: { type: "number", optional: true, about: "row number to select (starts at one): a click" } },
-    run({ by, n }, { surface, host }) {
+    run({ by, n }, { surface, host }, actor) {
       const m = surface.replyLinks;
-      if (m) { m.selected = Math.max(0, Math.min(m.rowsAt.length - 1, n !== undefined ? n - 1 : m.selected + (by ?? 0))); m.picked = true; }
+      // Only the person's own pick arms the second click (an agent's never takes their first selection).
+      if (m) { m.selected = Math.max(0, Math.min(m.rowsAt.length - 1, n !== undefined ? n - 1 : m.selected + (by ?? 0))); m.picked = actor.kind === "user"; }
       host.redraw(); return { selected: m?.selected };
     },
   }),
   "note.thread.groups": def({
-    summary: "cycle the thread, outlinks and backlinks", keys: "b in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
-    run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.top = 0; m.group = m.group === "thread" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "thread"; m.selected = m.group === "thread" ? Math.max(0, threadRows(m.thread, m.unfolded).findIndex(r => r.kind === "child" && r.thread?.here)) : 1; m.picked = false; } host.redraw(); return { group: m?.group }; },
+    summary: "cycle the thread, the replies, outlinks and backlinks", keys: "b in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
+    run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.top = 0; m.group = m.group === "thread" ? "children" : m.group === "children" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "thread"; m.selected = m.group === "thread" ? Math.max(0, threadRows(m.thread, m.unfolded).findIndex(r => r.kind === "child" && r.thread?.here)) : 1; m.picked = false; } host.redraw(); return { group: m?.group }; },
   }),
   "note.thread.open": def({
     summary: "read the selected post of the thread (a fold row opens its posts, the note you are on closes the panel)", keys: "enter, a second click on the selected row or a double click in the thread", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
     async run({ n }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
-      if (m && row?.kind === "fold") { m.unfolded.add(row.key.slice(`fold${SEP}`.length)); m.selected = m.rowsAt.indexOf(row); m.picked = false; m.presses.forget(); host.redraw(); return { unfolded: row.count }; }
+      if (row?.kind === "fold") throw new ActionRefused("that row is a fold, not a post: note.thread.unfold shows what it hides");
       if (m && row?.kind === "child" && row.thread?.here) { surface.closeReplyLinks(); host.redraw(); return { opened: null }; }
       const target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.followFromDraft(target, host); return { opened: note && "id" in note ? note.id : null }; },
+  }),
+  "note.thread.unfold": def({
+    summary: "show the posts a fold row of the thread hides", keys: "enter, a second click or a double click on a fold row", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
+    run({ n }, { surface, host }) {
+      const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
+      if (!m || row?.kind !== "fold") throw new ActionRefused("that row isn't a fold");
+      m.unfolded.add(row.key.slice(`fold${SEP}`.length)); m.selected = m.rowsAt.indexOf(row); m.picked = false; m.presses.forget(); host.redraw();
+      return { unfolded: row.count };
+    },
   }),
   "note.thread.full": def({
     summary: "open the full THREAD message list", keys: "T or the replies header", touches: "screen", replay: "safe", person: "the person's screen", args: {},
