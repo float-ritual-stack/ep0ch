@@ -395,10 +395,36 @@ test("move puts a note under a parent or beside a sibling, attributed; it refuse
   expect(stale.stderr).toContain("changed since you read it");
 
   const inbox = JSON.parse((await cli(["list", "--filter", "system-view=inbox", "--fields", "id"])).stdout).blocks[0].id;
-  expect((await agent("move", { ref: inbox, parent: day.id })).stderr).toContain("system note");
   expect((await agent("move", { ref: kid.id, parent: inbox })).json).toMatchObject({ outcome: "applied", parentId: inbox });
   const trashView = JSON.parse((await cli(["list", "--filter", "system-view=trash", "--fields", "id"])).stdout).blocks[0].id;
-  expect((await agent("move", { ref: kid.id, parent: trashView })).stderr).toContain("system note");
+  const intoTrash = await agent("move", { ref: kid.id, parent: trashView });
+  expect(intoTrash.stderr).toContain("Trash, which the service fills itself");
+  expect((await agent("move", { ref: trashView, parent: trashView })).exitCode).toBe(1);
+});
+
+test("a system note moves like any note, attributed, and its refusals name what it is", async () => {
+  const { store, agent, cli } = await setup();
+  const day = store.create("Tuesday [page::Tuesday]");
+  const deploys = store.create("Deploys [system-view::deploys] [machine::install]");
+  const run = store.create("Deploy one [type::deploy]", deploys.id);
+  const snapshot = store.create("Snapshot of garden [type::snapshot]", null, "system");
+
+  expect((await agent("move", { ref: snapshot.id, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
+  expect((await agent("move", { ref: deploys.id, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
+  expect(store.get(deploys.id)).toMatchObject({ parentId: day.id });
+  // Its runs still go under it.
+  expect((await agent("move", { ref: store.create("Deploy two").id, parent: deploys.id })).json.outcome).toBe("applied");
+  expect(store.get(run.id)!.parentId).toBe(deploys.id);
+  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--kinds", "move", "--limit", "10"])).stdout);
+  expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId])).toContainEqual(["move", snapshot.id, "garden-agent"]);
+
+  // Trash moves anywhere but into itself, and the service still finds it.
+  const trash = JSON.parse((await cli(["list", "--filter", "system-view=trash", "--fields", "id"])).stdout).blocks[0].id;
+  expect((await agent("move", { ref: trash, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
+  const holder = store.get(day.id)!;
+  expect((await agent("trash", { ref: day.id, revision: holder.revision })).stderr).toContain("holds Trash");
+  expect((await agent("trash", { ref: trash, revision: store.get(trash)!.revision })).stderr).toContain("Trash, which the service keeps");
+  expect((await agent("move", { ref: snapshot.id, parent: trash })).stderr).toContain("Trash, which the service fills itself");
 });
 
 test("trash puts a note away against the revision read, restore brings it back; a stale revision, a system note and a note inside a trashed one are refused", async () => {
@@ -427,7 +453,7 @@ test("trash puts a note away against the revision read, restore brings it back; 
   expect((await agent("restore", { ref: keep.id })).stderr).toContain("isn't in Trash");
 
   const inbox = JSON.parse((await cli(["list", "--filter", "system-view=inbox", "--fields", "id,revision"])).stdout).blocks[0];
-  expect((await agent("trash", { ref: inbox.id, revision: store.get(inbox.id)!.revision })).stderr).toContain("system note");
+  expect((await agent("trash", { ref: inbox.id, revision: store.get(inbox.id)!.revision })).stderr).toContain("the Inbox, which the service keeps");
 });
 
 test("writes without an actor are refused; reads need none", async () => {

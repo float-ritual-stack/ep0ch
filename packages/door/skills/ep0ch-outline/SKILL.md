@@ -130,7 +130,7 @@ revision, so concurrent edits rarely collide.
 - **Tidying moves things.** Put a note where it belongs with `outline_move` (`parent`, `before` or `after`; a
   note keeps its id and links) and put a duplicate or stray in Trash with `outline_trash` (the `revision` you
   read); `outline_restore` undoes it. Move freely, trash only what is plainly a copy or an empty stray, and say
-  what you moved where. A system note (Inbox, Trash, Bookmarks) stays; at propose access both arrive as comments.
+  what you moved where. A system note (Inbox, Trash, Bookmarks, the Deploys record, a snapshot record) moves like any note, but nothing goes under Trash, Bookmarks or a guide; at propose access both arrive as comments.
 - **Soft links resolve by context.** A ticket key, a date or `PR#12` under `[project::garden-club]` means that
   project's. Don't wrap every key in `[[…]]`; when a token is ambiguous, ask instead of guessing.
 - **Reuse their keys and values.** A new key is a decision; an existing one is a convention.

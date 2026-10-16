@@ -33,7 +33,7 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
-import { isSystemNote } from "./note-placement";
+import { isSystemNote, systemNoteKind } from "./note-placement";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
 import { parseWorkId } from "./work-ids";
@@ -1089,6 +1089,8 @@ export async function assignWorkId(
 // ─── Move, trash and restore ────────────────────────────────────────────────
 
 const isInbox = (block: Block): boolean => block.properties.some(p => p.key === "system-view" && p.value.toLowerCase() === "inbox");
+/** A system note that holds real children: the Inbox, and install's Deploys record (its runs are its children). */
+const takesChildren = (block: Block): boolean => isInbox(block) || block.properties.some(p => p.key === "system-view" && p.value.toLowerCase() === "deploys");
 const short = (title: string): string => title.slice(0, 50).replace(/[|()]/g, " ").trim();
 const label = (block: Block): string => `((${block.id}|${short(blockDisplayTitle(block))}))`;
 
@@ -1121,8 +1123,9 @@ export type MoveResult =
 /**
  * Moves a note to a new place: under `parent` (a ref, or `root`) at `position` (0 first, default last), or `before` or
  * `after` a sibling note. With `revision`, only the note as it was read. The service's `move`, attributed to the agent.
- * Refused, saying what to give instead: a system note (the Inbox, Trash, Bookmarks), a place under one (the Inbox
- * excepted), a place inside the note itself, a note in Trash, a ref that doesn't resolve (with the nearest notes).
+ * A system note moves like any note (the service finds the Inbox, Trash, Bookmarks and the Deploys record by their
+ * properties, never their place). Refused, saying what to give instead: a place under a view or guide the service
+ * keeps (Trash, Bookmarks, a guide; the Inbox and the Deploys record take children), a place inside the note itself, a note in Trash, a ref that doesn't resolve (with the nearest notes).
  */
 export async function moveBlock(
   client: AgentToolsClient,
@@ -1130,7 +1133,6 @@ export async function moveBlock(
   actor: AgentActor,
 ): Promise<MoveResult> {
   const block = await writableBlock(client, input.ref);
-  if (isSystemNote(block)) throw new WorkToolRefusal(`${label(block)} is a system note the outline keeps (the Inbox, Trash, Bookmarks, a guide): it stays where it is`);
   if (input.revision !== undefined && input.revision !== block.revision) {
     throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${input.revision}): outline_read it again, and move it only if it's still the note you mean`);
   }
@@ -1143,7 +1145,7 @@ export async function moveBlock(
     if (typeof input.parent === "string" && input.parent.trim() === "root") parentId = null;
     else {
       const parent = await namedBlock(client, input.parent, "the parent");
-      if (isSystemNote(parent) && !isInbox(parent)) throw new WorkToolRefusal(`${label(parent)} is a system note: put the note under a note of the outline's, or under the Inbox, or root`);
+      if (isSystemNote(parent) && !takesChildren(parent)) throw new WorkToolRefusal(`${label(parent)} is ${systemNoteKind(parent)}, which the service fills itself, so a note put under it would not show where it belongs: put the note under a note of the outline's, or under the Inbox, or root`);
       parentId = parent.id;
     }
   } else {
@@ -1152,7 +1154,7 @@ export async function moveBlock(
     parentId = beside.parentId;
     if (parentId) {
       const parent = await client.request<Block>({ action: "get", blockId: parentId });
-      if (isSystemNote(parent) && !isInbox(parent)) throw new WorkToolRefusal(`${label(beside)} is under a system note (${label(parent)}): put the note under a note of the outline's, or root`);
+      if (isSystemNote(parent) && !takesChildren(parent)) throw new WorkToolRefusal(`${label(beside)} is under ${systemNoteKind(parent)} (${label(parent)}), which the service fills itself: put the note under a note of the outline's, or root`);
     }
   }
   const siblings = (await client.request<Block[]>({ action: "children", parentId })).filter(sibling => sibling.id !== block.id);
@@ -1188,9 +1190,15 @@ export async function trashBlock(client: AgentToolsClient, input: { ref: string;
   const revision = requireRevision(input.revision);
   const { block } = await resolveReference(client, input.ref);
   if (block.effectiveDeletedRootId) return { outcome: "unchanged", id: block.id, ref: `((${block.id}))`, said: `${label(block)} is already in Trash` };
-  if (isSystemNote(block)) throw new WorkToolRefusal(`${label(block)} is a system note the outline keeps (the Inbox, Trash, Bookmarks, a guide): it can't be trashed`);
+  if (isSystemNote(block)) throw new WorkToolRefusal(`${label(block)} is ${systemNoteKind(block)}, which the service keeps and finds by its properties: it can't be trashed (move it instead)`);
   if (revision !== block.revision) {
     throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${revision}): outline_read it again, and trash it only if it's still the note you mean`);
+  }
+  // Trashing a parent trashes what is under it: the service needs exactly one Inbox, Trash and Bookmarks note, wherever they are.
+  for (const view of ["inbox", "trash", "bookmarks"]) {
+    const inside = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { filters: [{ key: "system-view", value: view }], subtreeRootId: block.id, limit: 1 } });
+    const held = inside.blocks.find(found => found.id !== block.id);
+    if (held) throw new WorkToolRefusal(`${label(block)} holds ${systemNoteKind(held)} (${label(held)}), which the service keeps and finds by its properties, so trashing ${label(block)} would take it too: outline_move it out first`);
   }
   const children = (await client.request<Block[]>({ action: "children", parentId: block.id })).length;
   try {

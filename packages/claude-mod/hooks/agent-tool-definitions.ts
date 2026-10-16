@@ -426,8 +426,8 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "Move {note} (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among " +
       "its children (0 is first; default last), or just `before` or `after` a sibling note. Give exactly one of parent, " +
       "before, after. With `revision` (what outline_read returned) it is refused if the note changed since. Attributed to " +
-      "you; the note keeps its id, text and links. Refused, with what to give instead: a system note (the Inbox, Trash, " +
-      "Bookmarks), a place under one (the Inbox excepted), a place inside the note itself, a note in Trash, a ref that " +
+      "you; the note keeps its id, text and links. Refused, with what to give instead: a place under Trash, " +
+      "Bookmarks or a guide (the service fills them itself; the Inbox and the Deploys record take children), a place inside the note itself, a note in Trash, a ref that " +
       "doesn't resolve (with the nearest notes). A move to where it already is answers unchanged.",
     properties: {
       ref: REF,
@@ -456,7 +456,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     description:
       "Put {note} in Trash, with what is under it, against the `revision` outline_read returned: a note that " +
       "changed since is refused and stays. Attributed to you. outline_restore brings it back. Use it for a duplicate " +
-      "or a stray, never to hide a note someone may want; a system note (the Inbox, Trash, Bookmarks) is refused. " +
+      "or a stray, never to hide a note someone may want; a system note (the Inbox, Trash, Bookmarks) or a note holding one is refused. " +
       "A note already in Trash answers unchanged.",
     properties: { ref: REF, revision: EXPECTED },
     required: ["ref", "revision"],
