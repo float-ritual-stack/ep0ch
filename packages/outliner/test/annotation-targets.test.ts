@@ -56,10 +56,13 @@ describe("a comment can't exist without its target", () => {
     expect(store.database.query("SELECT COUNT(*) AS n FROM annotation_targets").get()).toEqual({ n: 1 });
   });
 
-  test("a top-level comment is refused with what to do, and nothing is left behind", () => {
+  test("text that can't be a comment on a note is saved as written, and says why it isn't", () => {
     const { store } = makeStore();
-    expect(() => store.create(comment())).toThrow("sits under the note it is on");
-    expect(store.database.query("SELECT COUNT(*) AS n FROM blocks WHERE text LIKE 'Comment on%'").get()).toEqual({ n: 0 });
+    const note = store.create("Garden plan");
+    const top = store.create(comment());
+    const odd = store.create(comment().replace("annotation-status::open", "annotation-status::archived"), note.id);
+    expect(store.annotations.untargeted().map((entry) => [entry.id, entry.why.includes("top of the outline") || entry.why.includes("archived")]))
+      .toEqual([[top.id, true], [odd.id, true]]);
   });
 });
 

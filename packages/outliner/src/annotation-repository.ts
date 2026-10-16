@@ -1338,7 +1338,7 @@ export class AnnotationRepository {
    * A comment whose block was written some other way (a note's text with `[type::annotation]` in it, from an
    * extension, an import, an agent's plain write) gets its target here, in the same transaction as that write: it is a
    * comment on the note it sits under, as a comment made through the service would be (PIE-933). The one place a mark
-   * gets a target, so a comment can't exist without one. Does nothing for a block that has one or isn't a comment
+   * gets a target, so a comment made by any write has one. Does nothing for a block that has one or isn't a comment
    * (a reply needs no target of its own: its root has it). A comment whose own properties don't read (an unknown
    * `annotation-status`) is saved as written, as any text is, and not adopted: it would break its note's margin
    * (`untargeted` says why). Returns whether the block has a target.
@@ -1347,11 +1347,11 @@ export class AnnotationRepository {
     const block = this.blocks.get(blockId);
     if (!block || getProperty(block.properties, "type") !== ANNOTATION_TYPE) return true;
     if (this.database.query("SELECT 1 AS found FROM annotation_targets WHERE annotation_block_id = ?").get(blockId)) return true;
+    // Saved as written when it can't be a comment on a note (no note it sits under, or properties that don't read):
+    // what a person writes always lands (AGENTS.md), and `untargeted` says why it isn't a comment yet.
     const note = block.parentId === null ? null : this.blocks.get(block.parentId);
-    if (!note || note.effectiveDeletedRootId || note.deletedAt) {
-      throw new Error(`${blockId} has [type::annotation], so it is a comment, and a comment sits under the note it is on: put it under that note, or take the type out of its text. Comments are made with outline_comment (annotations.create), which writes the comment and its target together.`);
-    }
-    try { parseAnnotationBlockContent(block); } catch { return false; }
+    if (!note || note.effectiveDeletedRootId || note.deletedAt) return false;
+    try { if (parseAnnotationBlockContent(block).parentAnnotationId) return true; } catch { return false; }
     const target = blockCommentTarget(note);
     this.insertTarget(block.id, target, block.createdAt);
     this.recordCapture(block, { target });
@@ -1372,7 +1372,9 @@ export class AnnotationRepository {
     `).all(ANNOTATION_TYPE) as Array<{ id: string }>;
     return rows.map(({ id }) => {
       const block = this.blocks.get(id)!;
-      let why = missingTargetMessage(id);
+      let why = block.parentId === null
+        ? `${id} is marked as a comment but sits at the top of the outline, and a comment sits under the note it is on: move it under that note, or take the type out of its text.`
+        : missingTargetMessage(id);
       try { parseAnnotationBlockContent(block); } catch (error) {
         why = `${id} is marked as a comment but its properties don't read (${error instanceof Error ? error.message : String(error)}), so it has no target: fix the property in its text and save it, and it becomes a comment on the note it sits under.`;
       }

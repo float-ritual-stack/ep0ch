@@ -15,8 +15,8 @@ are its record. The outliner's entries from then are kept below, under
 A comment written as plain text (an EchoNet toss copying a thread before copies were kept as notes, an agent's plain
 write) used to land with `[type::annotation]` and no target: no margin showed it, and opening, answering or
 resolving it threw "Annotation target not found". Now any write that leaves a block a comment gives it its target
-in the same transaction (a comment on the note it sits under), so a comment can't exist without one; a comment with
-no note to sit under is refused, saying so. One whose properties don't read (an unknown `annotation-status`) is
+in the same transaction (a comment on the note it sits under), so a comment made by any write has one. Text that can't be a comment
+on a note (at the top of the outline, or with properties that don't read, like an unknown `annotation-status`) is
 saved as written and listed by `outline_threads` as `untargeted`, with why, per note and in the inbox; opening one
 now says why instead of "not found". Pie's four existing ones: with the outline host stopped and a backup taken,
 `bun packages/outliner/scripts/repairs/2026-10-16-annotation-targets.ts ~/outlines/pie.sqlite` (delete the script
