@@ -23,7 +23,7 @@ export interface SourcesDeps {
   clock?: () => number;
 }
 
-const MAX_ROWS = 200;
+const MAX_ROWS = 2000;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** A Markdown table's header and rows, when `text` is (or holds) one. */
@@ -53,7 +53,7 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
   const clock = deps.clock ?? Date.now;
   if (!request || typeof request.blockId !== "string" || !request.blockId.trim()) throw new Error("site.sources needs blockId: the note whose generated regions are asked, for example { blockId: \"PIE-12\" }");
   const host = store.resolveBlockRef(request.blockId);
-  const text = request.draft?.text ?? host.text;
+  const text = host.text;
   const lines = text.split("\n");
   const readAt = new Date(clock()).toISOString();
   const out: SourceEntry[] = [];
@@ -83,31 +83,31 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
     const base = { key: c.kind === "output" ? `#${c.region?.anchor ?? c.line}` : String(c.line), kind: c.kind, name: c.name, line: c.line, endLine: c.endLine } as const;
     try {
       if (c.kind === "use") {
-        const a = templateUse(store, { block: host.id, line: c.line, ...(request.draft ? { draft: request.draft } : {}) }, clock);
+        const a = templateUse(store, { block: host.id, line: c.line }, clock);
         out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: true },
           transform: a.template ? { kind: "template", label: a.template.title, block: a.template.id, text: a.template.text } : { kind: "none", label: "no template" },
-          result: a.template ? resultOf(a.template.text) : { rows: 0, text: "" }, ...(a.problems[0] ? { problem: a.problems[0].message } : {}) });
+          result: a.template ? resultOf(answerSite(store, { blockId: a.template.id, chain: a.chain, props: a.props, interpolate: { text: a.template.text, fences: "template" } }, clock).interpolated?.text ?? a.template.text) : { rows: 0, text: "" }, ...(a.problems[0] ? { problem: a.problems[0].message } : {}) });
       } else if (c.kind === "figure" && c.figure) {
         const block = componentBlocks(lines).find(b => b.start === c.line);
         const src = figureSource(lines.slice(c.line + 1, block?.end ?? c.endLine), host.id, false, block?.attrs);
         const read = figureProps(c.figure.kind, src);
         if ("error" in read) throw new Error(read.error);
         const props = read.props;
-        const answer = answerSite(store, { blockId: host.id, ...(request.draft ? { draft: request.draft } : {}), produce: { kind: "figure", figure: c.figure.kind, props } }, clock);
+        const answer = answerSite(store, { blockId: host.id, produce: { kind: "figure", figure: c.figure.kind, props } }, clock);
         const produced = answer.produced as Extract<SiteProduced, { kind: "figure" }> | undefined;
         const question = typeof props.query === "string" ? props.query : typeof props.view === "string" ? `view ${props.view}` : "";
         out.push({ ...base, readAt, live: true, query: { params: [...yamlParams(c.figure.yaml), ...c.params], text: question || c.text, editable: false },
           transform: { kind: "figure", label: `${c.name} figure`, text: c.figure.yaml || lines.slice(c.line, c.endLine + 1).join("\n") },
           result: produced ? blocksResult(produced.blocks) : { rows: 0, text: "" }, ...(produced?.error ? { problem: produced.error } : {}) });
       } else if (c.kind === "fields") {
-        const answer = answerSite(store, { blockId: host.id, ...(request.draft ? { draft: request.draft } : {}), produce: { kind: "fields", key: c.of ?? "", ...(c.params.find(p => p.key === "of") ? { of: c.params.find(p => p.key === "of")!.value } : {}) } }, clock);
+        const answer = answerSite(store, { blockId: host.id, produce: { kind: "fields", key: c.of ?? "", ...(c.params.find(p => p.key === "of") ? { of: c.params.find(p => p.key === "of")!.value } : {}) } }, clock);
         const produced = answer.produced as Extract<SiteProduced, { kind: "fields" }> | undefined;
         const table = (produced?.rows ?? []).slice(0, MAX_ROWS).map(r => [r.value, String(r.line + 1)]);
         out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: false },
           transform: { kind: "none", label: "reads the key as written" }, result: { rows: produced?.rows.length ?? 0, columns: ["value", "line"], table, text: table.map(r => r.join("\t")).join("\n") },
           ...(produced?.problem ? { problem: produced.problem.message } : {}) });
       } else if (c.kind === "if") {
-        const answer = answerSite(store, { blockId: host.id, ...(request.draft ? { draft: request.draft } : {}), produce: { kind: "if", where: c.of ?? "" } }, clock);
+        const answer = answerSite(store, { blockId: host.id, produce: { kind: "if", where: c.of ?? "" } }, clock);
         const produced = answer.produced as Extract<SiteProduced, { kind: "if" }> | undefined;
         out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: false },
           transform: { kind: "none", label: "a query over this note" }, result: { rows: 1, text: produced ? (produced.holds ? "holds: its body is drawn" : "does not hold: its body is not drawn") : "" },

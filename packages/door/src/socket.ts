@@ -797,10 +797,10 @@ export class SocketBoard implements Board {
 
   /**
    * Every generated region of a note with what it read, when, what shaped it and what it answered (`site.sources`, PIE-956 S6b):
-   * the Sources inspector's one answer, the one a published page's panel draws too. `draft`: the unsaved text.
+   * the Sources inspector's one answer, the one a published page's panel draws too. Reads the saved note.
    */
-  siteSources(blockId: string, draft?: string): Promise<SourcesAnswer> {
-    return this.request<SourcesAnswer>("site.sources", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}) });
+  siteSources(blockId: string): Promise<SourcesAnswer> {
+    return this.request<SourcesAnswer>("site.sources", { blockId });
   }
 
   /** Every property token in `text`, as the service parses it (PIE-401). */

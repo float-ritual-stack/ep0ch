@@ -63,7 +63,7 @@ async function setup() {
 test("a note's generated regions are listed with their query, transform, result and when each read", async () => {
   const { create, client, output } = await setup();
   const script = create(`Beds table [script::beds-table] [mode::render]\n\`\`\`js\nreturn view.table({ columns: ["Owner", "Week"], rows: [[(await resolve("this.owner")).values[0], props.week[0]]] });\n\`\`\``);
-  const template = create("Meeting template\nWho: {{props.who}}");
+  const template = create("Meeting template [type::template] [form-field::who text]\nWho: {{props.who}}");
   create("A task [crop::beans]");
   const region = outputRegionText({ label: "rota", producer: script.id, anchor: "out-rota-1", body: "- Mon: sam" });
   const text = ["Plot [owner::sam]", "", "Sowing [crop::peas]", "", "beds-table:: week=42", "::= (await resolve('this.owner')).values[0]", `::use{of=((${template.id})) who=Kit}`,
@@ -81,6 +81,7 @@ test("a note's generated regions are listed with their query, transform, result 
   expect(Date.parse(by("handler").readAt!)).toBeGreaterThan(0);
   expect(by("use").query.params).toEqual([{ key: "who", value: "Kit" }]);
   expect(by("use").transform).toMatchObject({ kind: "template", block: template.id });
+  expect(by("use").result.text).toContain("Who: Kit");          // the result is what it drew, with the call's props in
   expect(by("fields").result.table?.[0]?.[0]).toBe("peas");
   expect(by("if").result.text).toContain("holds");
   expect(by("figure").query.params).toEqual(expect.arrayContaining([{ key: "query", value: "crop=beans" }]));

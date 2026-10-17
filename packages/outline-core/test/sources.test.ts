@@ -24,3 +24,13 @@ test("slot words are rewritten in place: a changed value, an added one, a quoted
   expect(withSlotProps("not a handler", { a: "b" })).toBeNull();
   expect(withSlotProps("x:: a=1", { a: "two\nlines" })).toBeNull();
 });
+
+test("editing one slot leaves quoted words and spacing alone, and only the first of a repeated name", () => {
+  expect(withSlotProps('x:: title="two  spaces" week=1', { week: "2" })).toBe('x:: title="two  spaces" week=2');
+  expect(withSlotProps("x:: tag=a tag=b", { tag: "c" })).toBe("x:: tag=c tag=b");
+});
+
+test("code inside a component's body is still code", () => {
+  const text = 'Note\n::if{where="x=y"}\n```\n::use{of=[[fake]]}\n```\n::';
+  expect(sourceCalls(text).map(c => c.kind)).toEqual(["if"]);
+});

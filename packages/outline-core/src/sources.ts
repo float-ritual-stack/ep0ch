@@ -2,7 +2,8 @@
 // answered: the one answer the door's Sources inspector and a published page's side panel both draw, so they agree. A page
 // shows none of it by default (generated output reads as the note's own content); this is what "where this comes from"
 // opens. Pure: no I/O. The service fills it (outliner `site-sources.ts`, the `site.sources` request).
-import { componentAttrs, componentBlocks, noteCodeFences } from "./component-block";
+import { codeBlocks } from "./code-fence";
+import { componentAttrs, componentBlocks } from "./component-block";
 import { graphKind } from "./figure-props";
 import { siteBlockAt } from "./site-blocks";
 import { findOutputRegions } from "./output-region";
@@ -38,7 +39,7 @@ export interface SourceEntry {
 }
 
 /** `site.sources`' question. */
-export interface SourcesRequest { blockId: string; draft?: { text: string } }
+export interface SourcesRequest { blockId: string }
 
 /** `site.sources`' answer. */
 export interface SourcesAnswer {
@@ -71,7 +72,8 @@ export function sourceCalls(text: string): SourceCall[] {
   const lines = text.split("\n");
   const out: SourceCall[] = [];
   const fenced = new Set<number>();
-  for (const f of noteCodeFences(lines)) for (let j = f.start; j <= f.end; j++) fenced.add(j);
+  // By the fence grammar over every line: code inside a component's body is still code.
+  for (const f of codeBlocks(lines).fences) for (let j = f.start; j <= f.end; j++) fenced.add(j);
   const blocks = new Map(componentBlocks(lines).map(c => [c.start, c]));
   const regions = findOutputRegions(text);
   const inRegion = new Set(regions.flatMap(r => Array.from({ length: r.endLine - r.startLine + 1 }, (_, i) => r.startLine + i)));
@@ -127,23 +129,22 @@ function slotWords(line: string): { head: string; words: SourceParam[] } | null 
 }
 
 /**
- * A handler line with `props` written onto its slots: a slot already there takes the new value, a new one is added at the
- * end. A value with a space or a quote is written in quotes. Null when the line isn't a handler line, or a value can't be
- * written on one line (it holds a line break); the words that aren't `name=value` (free text after the colons) are kept.
+ * A handler line with `props` written onto its slots: the first slot of a name already there takes the new value (the rest of the
+ * line, quoted words and spacing included, is left as written), a new one is added at the end. A value with a space or a quote is
+ * written in quotes. Null when the line isn't a handler line, or a value can't be written on one line (it holds a line break).
  */
 export function withSlotProps(line: string, props: Record<string, string>): string | null {
   const read = slotWords(line);
   if (!read || Object.values(props).some(v => v.includes("\n"))) return null;
   const say = (k: string, v: string) => (/^\S+$/.test(v) && !v.includes('"') ? `${k}=${v}` : `${k}="${v.replace(/(["\\])/g, "\\$1")}"`);
-  let rest = line.slice(read.head.length);
+  const rest = line.slice(read.head.length);
   const done = new Set<string>();
-  rest = rest.replace(/([A-Za-z_][\w-]*)=(?:"(?:[^"\\]|\\.)*"|\S*)/g, (whole, key: string) => {
-    if (!(key in props)) return whole;
-    if (done.has(key)) return "";
+  const rewritten = rest.replace(/([A-Za-z_][\w-]*)=(?:"(?:[^"\\]|\\.)*"|\S*)/g, (whole, key: string) => {
+    if (!(key in props) || done.has(key)) return whole;
     done.add(key);
     return say(key, props[key]!);
-  }).replace(/\s{2,}/g, " ").trimEnd();
+  });
   const added = Object.entries(props).filter(([k]) => !done.has(k)).map(([k, v]) => say(k, v));
-  const tail = [rest, ...added].filter(Boolean).join(" ");
+  const tail = [rewritten.trimEnd(), ...added].filter(Boolean).join(" ");
   return `${read.head.trimEnd()}${tail ? " " : ""}${tail}`.trimEnd();
 }

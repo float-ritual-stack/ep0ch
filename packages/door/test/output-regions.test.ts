@@ -142,7 +142,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
     const AGENT = { kind: "agent" as const, id: "sources-agent" };
     const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
     const SOURCES_NOTE = async () => {
-      const template = (await board.createBlock(null, "Meeting template\nWho: {{props.who}}")).id;
+      const template = (await board.createBlock(null, "Meeting template [type::template] [form-field::who text]\nWho: {{props.who}}")).id;
       const r = await reader(`Omens\nhoroscope:: virgo\n\nfancy-horror:: virgo\n\n::use{of=((${template})) who=Kit}`, /Virgo, \d{4}/);
       return { ...r, template };
     };
@@ -195,6 +195,24 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       expect(at.at).toBe(3);
       await expect(NOTE_ACTIONS.run("sources.at", { line: 1 }, { surface: s, host }, AGENT)).rejects.toThrow(/no generated region holds line 1/);
       expect(note.id).toBeTruthy();
+    }, 60_000);
+
+    test("an agent writes a parameter by naming the source, never needing the person's inspector", async () => {
+      const { s, note, text } = await SOURCES_NOTE();
+      const r = await NOTE_ACTIONS.run("sources.set", { source: "3", param: "who", value: "Zed" }, { surface: s, host }, AGENT) as { recordedAs: unknown };
+      expect(r.recordedAs).toBeTruthy();
+      expect((await board.get(note.id))!.text).toContain("who=Zed");
+      expect(text()).not.toContain("Sources ·");
+    }, 60_000);
+
+    test("the inspector closes when the reader moves to another note, so a parameter never lands on the wrong one", async () => {
+      const { s, text } = await SOURCES_NOTE();
+      s.key(char("S"), host);
+      await until(() => text().includes("Sources ·"), "open", 15_000);
+      const other = await board.createBlock(null, "Another note");
+      s.show((await board.get(other.id))!, host);
+      expect(s.render(120, 80, host).lines.map(plain).join("\n")).not.toContain("Sources ·");
+      expect(s.sourcesMode).toBeNull();
     }, 60_000);
 
     test("select words in a generated region and the passage toolbar offers Where from; a then w opens that source", async () => {
