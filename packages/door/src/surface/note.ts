@@ -88,7 +88,7 @@ import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { AGENT_BG, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, ZEBRA_BG, type Pos, type SelectRows } from "./selection";
+import { AGENT_BG, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, ZEBRA_BG, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -381,6 +381,8 @@ function withBeside(hooks: Partial<DocEnv>, beside: Map<number, ((width: number)
   return { ...hooks, after: (line, width) => [...(after?.(line, width) ?? []), ...(beside.get(line) ?? []).flatMap(draw => draw(width))] };
 }
 
+/** The elements that are one row inside a container (a figure's row, a step): the reader item-focuses them (PIE-969). */
+const ITEM_KINDS = new Set<ElementKind>(["row", "task"]);
 export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure" | "block";
 /**
  * The controls of a comment thread expanded inline (PIE-420): Select, Reply, Seen (or Bring back), Keep (or Unkeep), TL;DR;
@@ -394,6 +396,8 @@ export type ThreadControl = "select" | "reply" | "edit" | "seen" | "keep" | "tld
  */
 interface Element {
   key: string; kind: ElementKind; row: number; from: number; to: number; ruler: [number, number]; label: string;
+  /** A row or step: the rows [from, to) of that one item (its own lines, never its figure's), which item focus bands (PIE-969). */
+  item?: [number, number];
   link?: Link; value?: string; fold?: string; thread?: string; control?: ThreadControl;
   /** A checklist step's box (PIE-472): the step as it was read where it's drawn. */
   task?: StepRef;
@@ -1655,6 +1659,8 @@ export class NoteSurface {
     // thread's passage is highlighted while it's open (the ruler, where both are, wins).
     const reading = this.readingRows();
     const readingBand: [number, number] | null = reading && readingRuler() && !this.printed ? [top + reading[0], top + reading[1]] : null;
+    // The element the cursor is on, when it is one row of something (a figure's row, a step): its rows are item-focused.
+    const itemRows: [number, number] | null = current?.item && !this.printed ? current.item : null;
     const rulers = [markRows].filter((r): r is [number, number] => !!r);
     const ruled = (row: number) => rulers.some(([a, b]) => row >= a && row < b);
     const quoted = marks.filter(k => this.expanded.has(k.thread)).map(k => [top + k.rows[0], top + k.rows[1]] as const);
@@ -1677,6 +1683,12 @@ export class NoteSurface {
     const lines = [...head, ...body.slice(this.scroll, this.scroll + room)].slice(0, Math.max(1, h)).map((l, i) => {
       const row = i < top ? i : i + this.scroll;
       const W = i < top ? w : bodyW;
+      // Item focus (PIE-969): the row the cursor is on inside a figure or list, over the container's ruler tint.
+      if (itemRows && row >= itemRows[0] && row < itemRows[1]) {
+        const band = paintRange(pad(l, W), 0, W, host?.focused === false ? ITEM_IDLE_BG : ITEM_BG);
+        const bar = bx > 0 && row >= top ? putCell(band, bx - 1, "▌", fgRgb(theme().item.bar)) : null;
+        return this.paintSelection(marked(bar ?? band, row), row);
+      }
       const tint = ruled(row) ? RULER_BG : readingBand && row >= readingBand[0] && row < readingBand[1] ? (host?.focused === false ? RULER_IDLE_BG : RULER_BG) : inQuote(row) ? THREAD_BG : null;
       if (tint) return this.paintSelection(marked(paintRange(pad(l, W), 0, W, tint), row), row);
       const under = row >= top ? tints.filter(t => row - top >= t.rows[0] && row - top < t.rows[1]) : [];
@@ -4364,7 +4376,7 @@ export class NoteSurface {
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}`
         // A view's picture (PIE-827) is named by its file, as a note's image is.
         : l.media && !l.role ? fileName(l.media) : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
-      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
+      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(ITEM_KINDS.has(kind) ? { item: [top + r.line, top + rs.at(-1)!.line + 1] as [number, number] } : {}), ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
     for (const x of doc.media) {
       const image = imageRef?.(x.line) ?? undefined;
@@ -6617,7 +6629,7 @@ function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: 
     const now = (c.id === ref.step.status ? " · now" : "");
     const text = pad(` ${c.label}${now}`, Math.max(1, inner - 3)) + ` ${c.key} `;
     rows.push(lines.length);
-    lines.push(edge + "│" + (i === sel ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + pad(text, inner) + RESET);
+    lines.push(edge + "│" + (i === sel ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + pad(text, inner) + RESET);
   });
   if (note) lines.push(edge + "│" + fg(busy ? C.dark : C.lred) + pad(` ${printable(note)}`, inner) + RESET);
   const foot = ` ⏎ choose · esc cancel${ref.via ? ` · in ${ref.via}` : ""} `;
@@ -6639,7 +6651,7 @@ function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[];
   const items = P.list.items, rows: number[] = [];
   items.forEach((c, i) => {
     const t = c.id.startsWith("type:") ? types.resolve(c.id.slice(5)) : null;
-    const on = i === P.list.sel, base = on ? SELECT_BG + fg(C.white) : fg(C.lcyan);
+    const on = i === P.list.sel, base = on ? ITEM_BG + fg(C.white) : fg(C.lcyan);
     const icon = t ? (on ? "" : fg(TONE[t.tone])) + t.icon + base + " " : "  ";
     // "now" next to the name, before the aliases a narrow reader cuts.
     const mark = t?.name === now ? " · now" : "";
@@ -6712,7 +6724,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
       const shown = ellipsize(said, Math.max(4, inner - indent.length));
       const on = cur === controlKey(c.id, "quoted", id);
       controls.push({ thread: c.id, control: "quoted", value: id, row: lines.length, from: 2 + indent.length, to: 2 + indent.length + width(shown), label: "quoted in" });
-      lines.push(edge + "│ " + indent + (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET);
+      lines.push(edge + "│ " + indent + (on ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET);
     }
   };
   quotedIn(c.quotedIn, "");
@@ -6726,7 +6738,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
       if (col + 1 + q.length > W) { lines.push(row); row = edge + "│ "; col = 2; }
       controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + q.length, label });
-      row += " " + (cur === controlKey(c.id, k, r.id) ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
+      row += " " + (cur === controlKey(c.id, k, r.id) ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
       col += 1 + q.length;
     }
     lines.push(row);
@@ -6747,7 +6759,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     const shown = `[${label}]`, on = cur === controlKey(c.id, k, value);
     if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
     if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
-    row += (on ? SELECT_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET;
+    row += (on ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET;
     controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label, ...(value ? { value } : {}) });
     col += shown.length;
   });

@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Two focus levels: which figure has the keys, which row the cursor is on (PIE-969)
+
+A figure, table or list with the cursor keeps its amber tint (the container has the keys). The row the cursor is on
+inside it is now a blue band with a bar at its left edge, so the bullet changing colour is no longer the only sign.
+Every selectable list draws its cursor row in the same band: the outline, the links and query tiles, the river, the
+board's cards, the thread and step panels. The band is a theme value (`item` in `src/theme.ts`) in calm, night and
+classic, dark (no bright fill), and every text colour reads on it at 4.5:1 or better (checked from the theme's own
+values). `ep0ch --showcase` has a "focus" section.
+
 ### Yolo: hand the door to your agents
 
 `agents.yolo` in the power bar (ctrl+k) hands the door to your agents until you take it back. In yolo no guard of
