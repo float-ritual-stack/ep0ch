@@ -162,7 +162,7 @@ export interface DraftAt { board?: object | null; blockId?: string | null; sessi
 type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
-export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
+export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate" | "host"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
   /** The tile it runs in (by name, and how a refusal says it). */
   tile?: { name: string; label?: string } | null;
   /** The action's name and what the tile it acts on lets an agent do (PIE-639): checked before anything else of the tile. */
@@ -205,8 +205,9 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       if (where.away) return `${where.away}; not moved`;
       // Typing in the drawer (the host layer) is never in the way of a screen change: the drawer stays over every
       // screen, so the person's text and keys stay where they are (Evan, Oct 17: "typing in the chat door shouldn't be
-      // a hard block on being able to move other parts of the screen").
-      if (where.keys === "host") return null;
+      // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself
+      // (`host`, putting it away) still waits for them.
+      if (where.keys === "host" && !def.host) return null;
       if (where.busy) return `${where.why ?? "the person is typing"}; not moved`;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
