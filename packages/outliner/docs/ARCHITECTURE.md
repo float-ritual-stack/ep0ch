@@ -663,6 +663,7 @@ Do not leave older editors running across this upgrade.
 
 - health: `ping`
 - canonical reads: `get`, `blocks.read` (batch by ids with field projection and per-id missing/trashed reports), `children`, `blocks.context`, `workspace.snapshot`
+- the Site read (PIE-533): `site.answer { blockId, draft?, chain?, props?, line?, paths? }` answers a note's `{{ }}` placeholders and the paths asked through outline-core's one resolver (`resolve-path.ts`), with `values` or a `problem`, each `route`, the `links` among them and `deps`; watched by its deps (`src/site-answer.ts`, `src/query-watches.ts`)
 - compact Tree reads: `tree.index`
 - bounded search: `blocks.query` (optional `fields` projection), `tree.query`, `tree.focus`
 - saved-view evaluation: `views.read`

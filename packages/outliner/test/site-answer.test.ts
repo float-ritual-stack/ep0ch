@@ -202,6 +202,9 @@ describe("a question's value operand (mirror example 14)", () => {
     expect(found("project={{this.project}}")).toEqual(["Page", "Matching"]);
     expect(found("other={{this.other}}")).toEqual(["Page", "Quoted"]);
     expect(found("project={{this.project}} AND type=task")).toEqual(["Matching"]);
+    // The bracket form is the same clause, with spaces inside the braces; quoted, it is text.
+    expect(found("[project::{{ this.project }}] AND type=task")).toEqual(["Matching"]);
+    expect(found('project="{{this.project}}"')).toEqual([]);
   });
 });
 

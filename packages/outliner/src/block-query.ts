@@ -309,7 +309,7 @@ function foldClauseTokens(tokens: FilterToken[]): FilterToken[] {
     const token$ = PROPERTY_TOKEN.exec(token.text);
     if (token$) {
       const value = token$[3]!;
-      const quoted = /\s/.test(value) && !value.startsWith('"') ? `"${value.replace(/[\\"]/g, "\\$&")}"` : value;
+      const quoted = /\s/.test(value) && !value.startsWith('"') && !/^\{\{.*\}\}$/s.test(value) ? `"${value.replace(/[\\"]/g, "\\$&")}"` : value;
       token = { ...token, text: `${token$[1]}${token$[2]}=${quoted}${token$[4]}` };
     }
     const previous = out[out.length - 1];
