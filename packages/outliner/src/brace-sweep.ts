@@ -137,10 +137,15 @@ export function planSweep(database: string): SweepReport {
     for (const row of rows) {
       const swept = sweepText(row.text);
       const peer = /^(?:← from|→ to) (.+?) · \d{4}-\d{2}-\d{2} \d{2}:\d{2}(?: |$)/.exec(row.text.split("\n")[0]!);
-      if (peer && (peerPages.has(row.parent_id!) || parsePropertyRecords(row.text).some(p => p.scope === "block" && p.key === "echo"))) {
+      // A copy: under [[peer-messages]], or an EchoNet copy (it carries both [echo::] and the [from::] it came from);
+      // an original posting with [echo::] alone isn't one.
+      const own = parsePropertyRecords(row.text).filter(p => p.scope === "block");
+      const echoCopy = own.some(p => p.key === "echo") && own.some(p => p.key === "from");
+      if (peer && (peerPages.has(row.parent_id!) || echoCopy)) {
         const properties = parsePropertyRecords(swept.text).filter(p => p.scope === "block");
-        const additions = [{ key: "type", value: "peer-message" }, { key: "peer", value: peer[1]! }]
-          .filter(p => !properties.some(existing => existing.key === p.key && existing.value === p.value));
+        // By key, not value: a [peer::] already there (trimmed or not) is kept, so a second sweep finds nothing to add.
+        const additions = [{ key: "type", value: "peer-message" }, { key: "peer", value: peer[1]!.trim() }]
+          .filter(p => p.key === "type" ? !properties.some(e => e.key === "type" && e.value.trim() === "peer-message") : !properties.some(e => e.key === "peer"));
         if (additions.length) {
           const before = swept.text;
           swept.text = patchPropertyText(before, additions.map(p => ({ op: "append" as const, ...p })));

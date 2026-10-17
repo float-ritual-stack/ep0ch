@@ -102,6 +102,8 @@ test("install stamps old peer mail once, preserving its date and body", async ()
   const mail = store.create("← from gardener · 2026-01-01 12:00\n\nBring seeds.", page.id);
   const ordinary = store.create("A reminder", page.id);
   const echoed = store.create("→ to gardener · 2026-01-01 12:00 [echo::garden-mail] [from::garden@host/original]\n\nBring pots.");
+  const original = store.create("→ to gardener · 2026-01-01 12:00 [echo::garden-mail]\n\nAn original posting, not a copy.");
+  const spaced = store.create("← from gardener · 2026-01-01 12:00 [peer:: gardener ]\n\nAlready named.", page.id);
   store.close();
   await applySweep(database);
   const after = new OutlinerStore(database);
@@ -112,6 +114,8 @@ test("install stamps old peer mail once, preserving its date and body", async ()
     expect(after.require(echoed.id).properties).toEqual(expect.arrayContaining([{ key: "type", value: "peer-message" }, { key: "peer", value: "gardener" }]));
     expect(stamped.text.split("\n\n")[1]).toBe("Bring seeds.");
     expect(after.require(ordinary.id).text).toBe(ordinary.text);
+    expect(after.require(original.id).text).toBe(original.text);
+    expect(after.require(spaced.id).properties.filter(p => p.key === "peer")).toHaveLength(1);
   } finally { after.close(); }
   expect(planSweep(database).notes).toEqual([]);
 });
