@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# The float-box half of scripts/box-test (PIE-998): it runs on the server, as the leader of its own session, and owns
+# a run from its first check to the last. box-test copies it into the run dir and starts it; nothing else calls it.
+#
+#   one run per worktree   a lock keyed by the worktree (BOX_WT) refuses a second run while one is going there, naming
+#                          its pid, commit and age and the command that stops it; BOX_REPLACE=1 stops the old run first.
+#   a cap on runs          BOX_SLOTS (default 2) flock slots; a run past the cap waits and says so.
+#   nothing outlives it    the run is a process group of its own, killed whole on every way out (exit, INT, TERM, HUP,
+#                          the ssh that started it dying, the timeout), then anything still tied to the run dir
+#                          (its environment, command line or working folder) is killed too and a survivor is reported.
+#   a sweep first          processes whose parent is init and whose run dir is gone are killed, and counted.
+#
+# Environment (all set by box-test): BOX_DIR the run dir, BOX_WT the worktree's key, BOX_WT_LABEL its path for messages,
+# BOX_SHA, BOX_REPLACE, BOX_SLOTS, BOX_MAX (seconds), BOX_KEEP, BOX_HOST (for the commands it prints), BOX_LOCKS (the
+# folder of locks; default /tmp/ep0ch-boxlocks-<user>). Exit codes: the run's, 3 refused (another run in this worktree),
+# 97 a process of the run survived, 143 stopped.
+set -uo pipefail
+
+dir=${BOX_DIR:?} key=${BOX_WT:?} sha=${BOX_SHA:-unknown} label=${BOX_WT_LABEL:-$key}
+replace=${BOX_REPLACE:-0} slots=${BOX_SLOTS:-2} max=${BOX_MAX:-7200} keep=${BOX_KEEP:-0} host=${BOX_HOST:-float-box}
+locks=${BOX_LOCKS:-/tmp/ep0ch-boxlocks-$(id -un)}
+case $slots$max in *[!0-9]*|"") echo "box-test: EP0CH_BOX_SLOTS and EP0CH_BOX_MAX are whole numbers" >&2; exit 2;; esac
+[ "$slots" -ge 1 ] || { echo "box-test: EP0CH_BOX_SLOTS is at least 1" >&2; exit 2; }
+umask 077
+mkdir -p -m 700 "$locks" || { echo "box-test: couldn't make $locks on $host" >&2; exit 1; }
+
+say() { printf 'box-test[%s]: %s\n' "$host" "$*" >&2; }
+now() { date +%s; }
+age() { local s=$(( $(now) - $1 )); if [ $s -ge 120 ]; then echo "$((s / 60)) min"; else echo "${s} s"; fi; }
+dir_re='(/tmp/ep0ch-box-[A-Za-z0-9_.-]+-[A-Za-z0-9]{8})([^A-Za-z0-9]|$)'
+
+# The run dir a process is tied to: its environment (BOX_TEST_RUN_DIR), command line or working folder; empty if none.
+# Bash builtins only for the first two, so the scan makes no processes of its own.
+run_dir_of() {
+  local p=/proc/$1 kv all=
+  [ -O "$p" ] || return 0
+  while IFS= read -r -d '' kv; do
+    case $kv in BOX_TEST_RUN_DIR=*) echo "${kv#BOX_TEST_RUN_DIR=}"; return 0;; esac
+  done 2>/dev/null < "$p/environ"
+  while IFS= read -r -d '' kv; do all+="$kv "; done 2>/dev/null < "$p/cmdline"
+  [[ $all =~ $dir_re ]] && { echo "${BASH_REMATCH[1]}"; return 0; }
+  all=$(readlink "$p/cwd" 2>/dev/null) || return 0
+  [[ $all =~ $dir_re ]] && echo "${BASH_REMATCH[1]}"
+  return 0
+}
+# A process's parent pid (the stat line's name may hold spaces and parentheses).
+ppid_of() { local line; { read -r line < "/proc/$1/stat"; } 2>/dev/null || return 1; line=${line##*) }; set -- $line; echo "$2"; }
+orphan() { local pp; pp=$(ppid_of "$1") || return 1; [ "$pp" = 1 ] && return 0; [ -r "/proc/$pp/comm" ] && [ "$(cat "/proc/$pp/comm")" = systemd ]; }
+
+# ── sweep: orphans of runs that no longer exist, and run dirs nothing is using ──
+sweep() {
+  local p pid d killed=0 dirs=" " victims=() stale=0 old
+  for p in /proc/[0-9]*; do
+    pid=${p#/proc/}
+    [ "$pid" = $$ ] && continue
+    d=$(run_dir_of "$pid"); [ -n "$d" ] || continue
+    dirs+="$d "
+    if [ ! -d "$d" ] && orphan "$pid"; then victims+=("$pid"); fi
+  done
+  if [ ${#victims[@]} -gt 0 ]; then
+    kill -TERM "${victims[@]}" 2>/dev/null; sleep 1; kill -KILL "${victims[@]}" 2>/dev/null
+    killed=${#victims[@]}
+  fi
+  # A run dir nobody uses and nothing has touched for longer than a run may last is a client that died before it began.
+  for d in /tmp/ep0ch-box-"$(id -un)"-????????; do
+    [ -d "$d" ] && [ "$d" != "$dir" ] || continue
+    case $dirs in *" $d "*) continue;; esac
+    old=$(( $(now) - $(stat -c %Y "$d") ))
+    if [ "$old" -gt $((max + 1800)) ]; then rm -rf -- "$d" && stale=$((stale + 1)); fi
+  done
+  say "sweep: killed $killed orphan process(es) of finished runs, removed $stale stale run dir(s)"
+}
+
+# ── the lock for this worktree ──
+wtlock=$locks/wt-$key.lock wtinfo=$locks/wt-$key.info
+exec {wtfd}>"$wtlock"
+if ! flock -n "$wtfd"; then
+  read -r opid opgid osha ostart ostate < "$wtinfo" 2>/dev/null || { opid=? opgid=? osha=? ostart=$(now); ostate=?; }
+  if [ "$replace" = 1 ] && [[ $opgid =~ ^[0-9]+$ ]]; then
+    say "--replace: stopping the run from $label (pid $opid, ${osha:0:12}, $ostate for $(age "$ostart"))"
+    kill -TERM -- "-$opgid" 2>/dev/null
+    # Its guard reaps itself and drops the lock; past a minute it is killed outright.
+    flock -w 60 "$wtfd" || { kill -KILL -- "-$opgid" 2>/dev/null; flock -w 20 "$wtfd" || { say "couldn't stop the old run (kill -KILL -- -$opgid on $host)"; exit 3; }; }
+  else
+    say "REFUSED: this worktree ($label) already has a run: pid $opid, commit ${osha:0:12}, $ostate for $(age "$ostart")."
+    say "Stop it and start this one: scripts/box-test --replace …   (or only stop it: ssh $host kill -TERM -- -$opgid)"
+    say "Waiting for it instead: let it finish; its output is wherever it was started."
+    exit 3
+  fi
+fi
+echo "$$ $$ $sha $(now) waiting" > "$wtinfo"
+echo "$$" > "$dir/pid"
+
+# ── what we start we stop: the run's group, then anything tied to the run dir ──
+runpid=0 code=0 watcher=0 reaped=0
+export BOX_TEST_RUN_DIR=$dir
+survivors() {
+  local p pid d out=()
+  for p in /proc/[0-9]*; do
+    pid=${p#/proc/}
+    [ "$pid" = $$ ] && continue
+    [ "$(ppid_of "$pid" 2>/dev/null)" = $$ ] && continue
+    d=$(run_dir_of "$pid"); [ "$d" = "$dir" ] && out+=("$pid")
+  done
+  echo "${out[@]:-}"
+}
+reap() {
+  [ $reaped = 1 ] && return; reaped=1
+  trap '' INT TERM HUP PIPE
+  [ $watcher != 0 ] && kill "$watcher" 2>/dev/null
+  if [ $runpid != 0 ]; then
+    kill -TERM -- "-$runpid" 2>/dev/null
+    local i; for i in 1 2 3 4 5 6 7 8 9 10; do kill -0 -- "-$runpid" 2>/dev/null || break; sleep 0.5; done
+    kill -KILL -- "-$runpid" 2>/dev/null
+  fi
+  local left; left=$(survivors)
+  if [ -n "${left// /}" ]; then
+    kill -TERM $left 2>/dev/null; sleep 1; kill -KILL $left 2>/dev/null; sleep 0.5
+    left=$(survivors)
+    if [ -n "${left// /}" ]; then
+      say "LEAK: process(es) of this run survived their kill: $left"
+      for pid in $left; do say "  $pid $(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null | cut -c1-160)"; done
+      [ $code = 0 ] && code=97
+    fi
+  fi
+  if [ "$keep" = 1 ]; then say "kept $host:$dir · remove it: ssh $host rm -rf $dir"; else rm -rf -- "$dir"; fi
+  rm -f "$wtinfo" "$mine_info" 2>/dev/null
+}
+mine_info=
+on_exit() { local c=$?; [ $code = 0 ] && code=$c; reap; exit $code; }
+trap on_exit EXIT
+trap 'code=143; exit 143' INT TERM HUP PIPE
+
+# The ssh that started us dying ends the run: sshd's process for the connection (our nearest sshd ancestor) exits
+# with it. Without one (a test's stand-in for ssh) nothing watches.
+gp=$PPID
+while [ "$gp" -gt 1 ] && [ "$(cat "/proc/$gp/comm" 2>/dev/null)" != sshd ]; do gp=$(ppid_of "$gp") || { gp=0; break; }; done
+if [ "$gp" -gt 1 ]; then
+  ( while kill -0 "$gp" 2>/dev/null; do sleep 5; done; kill -TERM $$ 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+  watcher=$!
+fi
+
+sweep
+
+# ── a slot: at most BOX_SLOTS runs at once on this machine ──
+got=0 told=0 last=0
+while :; do
+  for i in $(seq 1 "$slots"); do
+    exec {sfd}>"$locks/slot-$i.lock"
+    if flock -n "$sfd"; then got=$i; break 2; fi
+    exec {sfd}>&-
+  done
+  t=$(now)
+  if [ $((t - last)) -ge 30 ] || [ $told = 0 ]; then
+    ahead=0 oldest=$t
+    for i in $(seq 1 "$slots"); do
+      if read -r _ s _ < "$locks/slot-$i.info" 2>/dev/null; then ahead=$((ahead + 1)); [ "$s" -lt "$oldest" ] && oldest=$s; fi
+    done
+    say "waiting for a slot: $ahead run(s) ahead, oldest $(age "$oldest") (EP0CH_BOX_SLOTS=$slots)"
+    told=1 last=$t
+  fi
+  sleep 3
+done
+mine_info=$locks/slot-$got.info
+echo "$$ $(now) $sha $label" > "$mine_info"
+echo "$$ $$ $sha $(now) running" > "$wtinfo"
+[ $told = 1 ] && say "got slot $got/$slots"
+
+# ── the run: a session of its own, under the timeout, with the lock fds closed so a survivor never holds a slot ──
+setsid timeout -k 30 "$max" bash "$dir/run.sh" </dev/null {wtfd}>&- {sfd}>&- &
+runpid=$!
+wait "$runpid"; c=$?
+[ $c = 124 ] && say "the run passed EP0CH_BOX_MAX ($max s) and was stopped"
+code=$c
+runpid=$runpid
+exit "$code"

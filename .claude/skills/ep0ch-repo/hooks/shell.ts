@@ -48,6 +48,8 @@ function closingParen(line: string, from: number): number {
 export type ShellOptions = {
   /** Look through wrappers (`timeout`, `env`, `sudo`, `xargs`, `bash -c '…'`) to the command they run. Default true. */
   unwrap?: boolean
+  /** Stop at `scripts/agent-env <name> … --` and return the command with it, rather than looking through it. */
+  keepAgentEnv?: boolean
 }
 
 /**
@@ -97,7 +99,7 @@ export function simpleCommands(command: string, options: ShellOptions = {}): str
     }
     endCommand()
   }
-  return options.unwrap === false ? commands.map(dropKeywords).filter(w => w.length) : commands.flatMap(unwrap)
+  return options.unwrap === false ? commands.map(dropKeywords).filter(w => w.length) : commands.flatMap(words => unwrap(words, options))
 }
 
 /** Shell keywords that come before a command (`if`, `then`, `do`, `!` …): not the command. */
@@ -127,7 +129,7 @@ const WRAPPERS: Record<string, (words: string[]) => number> = {
 }
 
 /** One simple command with what wraps it taken off; `sh -c '…'` is read as the commands in its string. */
-function unwrap(words: string[]): string[][] {
+function unwrap(words: string[], options: ShellOptions = {}): string[][] {
   let rest = dropKeywords(words)
   for (;;) {
     while (rest.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(rest[0]!)) rest = rest.slice(1)
@@ -138,14 +140,14 @@ function unwrap(words: string[]): string[][] {
     // scripts/agent-env <name> [--test] [--parallel …] -- <command>
     if (name === 'agent-env') {
       const at = rest.indexOf('--')
-      if (at < 0) return [rest]
+      if (at < 0 || options.keepAgentEnv) return [rest]
       rest = rest.slice(at + 1)
       continue
     }
     // sh -c '…', bash -lc '…'
     if (['sh', 'bash', 'zsh', 'dash'].includes(name)) {
       const at = rest.findIndex((w, i) => i > 0 && /^-[A-Za-z]*c[A-Za-z]*$/.test(w))
-      if (at > 0 && rest[at + 1] !== undefined) return simpleCommands(rest[at + 1]!)
+      if (at > 0 && rest[at + 1] !== undefined) return simpleCommands(rest[at + 1]!, options)
     }
     return [rest]
   }

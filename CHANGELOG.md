@@ -99,6 +99,15 @@ output region: a folded `> [!output]-` callout it owns, hashed in the text so ow
 `replace` only ever touches an unedited region of its own. A missing anchor is one proposal at the caller with a
 did-you-mean, never the end of the note; a region you edited is yours and the new output waits as a proposal. The
 note's record (fields, tasks) leaves regions out. `ExtensionCalls.materialize` is now `refreshOutput`.
+
+### box-test enforces its own limits (PIE-998)
+
+`scripts/box-test` on float-box now refuses a second run from the same worktree (it names the running one and how to stop it;
+`--replace` stops it and takes over), lets at most `EP0CH_BOX_SLOTS` (default 2) runs go at once (the rest wait and say so), kills
+each run's whole process group on every way out and fails loudly (exit 97) if anything tied to the run survives, and sweeps
+orphans of finished runs first. The Claude mod and a new Codex hook (`.codex/`) refuse a whole-suite `bun test` typed directly on
+float-box or float-2, naming `scripts/box-test`; Codex asks you to trust the hook once (`/hooks`). Nothing to run.
+
 ### Published pages: every relation is cut, in one place (PIE-978, follow-up)
 
 The cut now sits in the store the producers ask, so a figure, an `::if`, a `| filter`, a view lane and a `::links` query are

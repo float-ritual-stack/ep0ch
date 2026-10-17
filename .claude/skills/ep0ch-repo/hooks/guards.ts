@@ -8,6 +8,8 @@ import { baseName, simpleCommands } from './shell'
 
 /** The machine where whole suites never run (AGENTS.md "Tests on a shared machine"). */
 export const SHARED_MACHINE = 'float-2'
+/** The test machine: whole suites run there through scripts/box-test, which caps and cleans them (PIE-998). */
+export const BOX_MACHINE = 'float-box'
 
 export type GuardContext = { hostname: string }
 
@@ -58,6 +60,42 @@ export function repoNamed(args: readonly string[]): string | null {
   return null
 }
 
+/** `bun test`'s options that take the next word as a value (it is not a file). */
+const TEST_VALUED = new Set(['-t', '--test-name-pattern', '--timeout', '--rerun-each', '--preload', '--bail', '--coverage-reporter', '--coverage-dir', '--reporter', '--reporter-outfile', '--max-concurrency', '--shard', '--only-failures', '-r'])
+
+/** Whether these words run a whole suite: `bun test` naming no test file, or a package's `bun run test…` script. */
+export function runsWholeSuite(words: readonly string[]): boolean {
+  if (baseName(words[0] ?? '') !== 'bun') return false
+  if (words[1] === 'run' || words[1] === 'x') {
+    const script = words.slice(2).find(w => !w.startsWith('-'))
+    return script === 'test' || (script?.startsWith('test:') ?? false)
+  }
+  if (words[1] !== 'test') return false
+  for (let i = 2; i < words.length; i++) {
+    const w = words[i]!
+    if (TEST_VALUED.has(w)) { i++; continue }
+    if (w.startsWith('-')) continue
+    // A named file (or a name that selects one) is a focused run; a folder, or nothing, is the suite.
+    if (/\.(?:[cm]?[jt]sx?)$/.test(w) || /\.test\b|\.spec\b/.test(w)) return false
+  }
+  return true
+}
+
+/**
+ * Why a whole-suite `bun test` straight on float-box or float-2 is refused, or null. A run under `scripts/agent-env`
+ * (the focused, capped way) and `scripts/box-test` itself are not `bun` commands to this rule, so they pass.
+ * Pure: the Claude mod asks it per call, and the Codex hook (`.codex/hooks/box-test-only.ts`) asks it too.
+ */
+export function wholeSuiteRefusal(command: string, ctx: GuardContext): string | null {
+  if (ctx.hostname !== SHARED_MACHINE && ctx.hostname !== BOX_MACHINE) return null
+  for (const words of simpleCommands(command, { keepAgentEnv: true })) {
+    if (!runsWholeSuite(words)) continue
+    return `A whole-suite \`${words.join(' ')}\` is refused on ${ctx.hostname}: suites run only through scripts/box-test, which takes at most 2 runs at once, one per worktree, and kills everything a run started (a hand-started suite froze float-box at load 22 and left hundreds of orphans: PIE-998). ` +
+      'Run `scripts/box-test <package>` (`scripts/box-test all --each` for a series) from your worktree; for a few test files, `scripts/agent-env <your name> --test -- timeout 900 bun test <files>`.'
+  }
+  return null
+}
+
 /** Why one simple command is refused here, or null. */
 function refusalOf(words: readonly string[], ctx: GuardContext): string | null {
   const name = baseName(words[0] ?? '')
@@ -96,7 +134,7 @@ export function guardOf(command: string, ctx: GuardContext): string | null {
     const why = refusalOf(words, ctx)
     if (why) return why
   }
-  return null
+  return wholeSuiteRefusal(command, ctx)
 }
 
 export type Merge = { pr: string | null; repo: string | null }

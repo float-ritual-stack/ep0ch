@@ -78,10 +78,42 @@ describe('guardrails refuse with the reason and the command to run', () => {
     expect(s.ran).toEqual([])
   })
 
-  test('on another machine bun test --parallel runs', async ($, on) => {
-    const s = sessionIn(on, { hostname: 'float-box' })
+  test('on a machine that is neither float-2 nor float-box bun test --parallel runs', async ($, on) => {
+    const s = sessionIn(on, { hostname: 'laptop' })
     expect((await bash($, 'bun test --parallel')).deny).toBeUndefined()
     expect(s.ran).toEqual(['bun test --parallel'])
+  })
+
+  test('a whole-suite bun test on float-box is refused, naming scripts/box-test; focused runs and box-test itself go through', async ($, on) => {
+    const s = sessionIn(on, { hostname: 'float-box' })
+    for (const command of ['bun test', 'cd packages/door && bun test --timeout 60000', 'bun run test', 'cd packages/door && bun run test:each', 'bun test test/']) {
+      const { deny } = await bash($, command)
+      expect(deny).toContain('is refused on float-box')
+      expect(deny).toContain('scripts/box-test <package>')
+    }
+    expect(s.ran).toEqual([])
+    const allowed = [
+      'bun test packages/door/test/box-test-limits.test.ts',
+      'bun test -t "one name" test/a.test.ts',
+      'scripts/agent-env loki --test -- timeout 900 bun test packages/door/test/a.test.ts',
+      'scripts/agent-env loki --test -- bun test',
+      'scripts/box-test all --each',
+      'git log --oneline',
+    ]
+    for (const command of allowed) expect((await bash($, command)).deny).toBeUndefined()
+    expect(s.ran).toEqual(allowed)
+  })
+
+  test('a whole-suite bun run test on float-2 is refused too', async ($, on) => {
+    const s = sessionIn(on, { hostname: 'float-2' })
+    expect((await bash($, 'cd packages/outliner && bun run test')).deny).toContain('is refused on float-2')
+    expect(s.ran).toEqual([])
+  })
+
+  test('on another machine a whole-suite bun test runs', async ($, on) => {
+    const s = sessionIn(on, { hostname: 'laptop' })
+    expect((await bash($, 'bun test')).deny).toBeUndefined()
+    expect(s.ran).toEqual(['bun test'])
   })
 
   test('a merge into main whose PROTOCOL skips a number: refused with the number to use', async ($, on) => {
