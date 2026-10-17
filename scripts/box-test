@@ -3,7 +3,7 @@
 # or a boxd box. Either way one commit is checked out, the suites run, their output streams here, and what was made
 # is removed whatever happens. The exit code is the suites'.
 #
-#   scripts/box-test [--on float-box|boxd] [--ref <rev>] [--each] [--keep] [package …]   default: --ref HEAD, the door
+#   scripts/box-test [--on float-box|boxd] [--ref <rev>] [--each] [--keep] [--replace] [package …]   default: --ref HEAD, the door
 #   scripts/box-test --refresh-golden                               rebuild the golden boxd box from origin/main
 #
 #   --on      where to run (or EP0CH_BOX_TARGET). Default: float-box when `ssh float-box true` answers in 5 s, else boxd.
@@ -11,12 +11,19 @@
 #             its own TMPDIR; nothing else on float-box is read or touched. The run is niced (10), at most
 #             TEST_EACH_JOBS (default 8) files at once, under a `timeout` of EP0CH_BOX_MAX, and the dir is removed on
 #             exit, Ctrl-C and TERM (a run whose ssh dies is killed by the timeout, and its dir with it).
+#             The limits are enforced here, for every agent and tool (PIE-998; scripts/box-test-guard runs on the box):
+#               ∙ one run per worktree: a second is refused, naming the running one (pid, commit, age) and the command
+#                 that stops it; --replace stops the old run first, by its process group.
+#               ∙ at most EP0CH_BOX_SLOTS (default 2) runs at once on float-box; one past the cap waits, and says so.
+#               ∙ each run is a process group of its own, killed whole on every way out; anything still tied to the run dir
+#                 is killed too, and a survivor fails the run loudly (exit 97). Orphans of finished runs are swept first.
 #
 #   package   door, outliner, outline-core, claude-mod or all: `bun run check` (tsc, its tests included) then
 #             `bun run test` in each (claude-mod's needs a
 #             logged-in claude, which boxd injects). The door's files run in parallel (`--parallel`): one per vCPU
 #             on boxd, TEST_EACH_JOBS on float-box.
 #   --each    the door's files each alone too (test:each), one per vCPU at once on boxd, TEST_EACH_JOBS on float-box.
+#   --replace stop this worktree's running run (float-box) and start this one instead of being refused.
 #   --keep    leave the fork (boxd) or the run dir (float-box) afterwards, and say how to reach and remove it.
 #
 # The exit code is the first failing suite's (124: a timeout), else 0.
@@ -34,7 +41,7 @@ vcpu=${EP0CH_BOX_VCPU:-4}
 max=${EP0CH_BOX_MAX:-7200}
 origin_url=${EP0CH_BOX_REPO:-https://github.com/float-ritual-stack/ep0ch.git}
 log_dir=${XDG_STATE_HOME:-$HOME/.local/state}/ep0ch
-ref=HEAD each=0 keep=0 refresh=0 pkgs=() target=${EP0CH_BOX_TARGET:-}
+ref=HEAD each=0 keep=0 replace=0 refresh=0 pkgs=() target=${EP0CH_BOX_TARGET:-}
 box_host=${EP0CH_BOX_HOST:-float-box}
 while [ $# -gt 0 ]; do
   case $1 in
@@ -42,8 +49,9 @@ while [ $# -gt 0 ]; do
     --on) [ $# -ge 2 ] || { echo "box-test: --on takes float-box or boxd" >&2; exit 2; }; target=$2; shift 2;;
     --each) each=1; shift;;
     --keep) keep=1; shift;;
+    --replace) replace=1; shift;;
     --refresh-golden) refresh=1; target=boxd; shift;;
-    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     all) pkgs+=(outline-core outliner door claude-mod); shift;;
     door|outliner|outline-core|claude-mod) pkgs+=("$1"); shift;;
     *) echo "box-test: what is \"$1\"? (packages: door outliner outline-core claude-mod all)" >&2; exit 2;;
@@ -66,30 +74,34 @@ status() { [ $ps_on = 1 ] && EP0CH_PROGRAM_STATUS=1 bun "$repo/packages/outliner
 [ "$ref" = HEAD ] && [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ] && say "uncommitted changes aren't tested: $sha is"
 # ── float-box: a private run dir on the server, a clone of the commit in it, removed whatever happens ──
 if [ $target = float-box ]; then
+  ssh_bin=${EP0CH_BOX_SSH:-ssh}
   ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
   url_q=$(printf '%q' "$origin_url")
-  rssh() { ssh "${ssh_opts[@]}" "$box_host" "$@"; }
+  rssh() { "$ssh_bin" "${ssh_opts[@]}" "$box_host" "$@"; }
   start=$(date +%s)
   # mktemp -d makes it mode 700; the name carries the user and a random id. Nothing else on the machine is named below.
   dir=$(rssh 'umask 077; mktemp -d "/tmp/ep0ch-box-$(id -un)-XXXXXXXX"' </dev/null 2>/dev/null) \
     && { [[ $dir =~ ^/tmp/ep0ch-box-[A-Za-z0-9_.-]+-[A-Za-z0-9]{8}$ ]] || dir=; }
   [ -n "$dir" ] || { echo "box-test: couldn't make a run dir on $box_host (ssh $box_host true); try --on boxd" >&2; exit 1; }
   rpid=0
-  # Stop the run's process group (the remote script is its own session leader) and remove the dir. Only $dir and
-  # the group whose pid the run wrote into it.
+  # The remote guard (scripts/box-test-guard) stops the run's group and removes the dir itself, on any way out. This
+  # is for when it can't: the client leaving early. Ask the guard to stop (its group, by the pid it wrote into the run
+  # dir), give it time to reap, then kill and remove. Only $dir and the group whose pid the run wrote into it.
   cleanup_float() {
     local code=$?
     trap '' INT TERM HUP
     [ -n "$work" ] && rm -rf "$work"
     [ -n "$tmpref" ] && git -C "$repo" update-ref -d "$tmpref" 2>/dev/null
     [ $rpid != 0 ] && kill "$rpid" 2>/dev/null
-    if [ $keep = 1 ]; then say "kept $box_host:$dir/ep0ch · remove it: ssh $box_host rm -rf $dir"
+    [ $keep = 1 ] && [ $guarded = 1 ] && exit $code
+    if [ $keep = 1 ]; then say "kept $box_host:$dir/ep0ch (--keep: it stays until you remove it on $box_host)"
     else
-      rssh "d=$dir; case \$d in /tmp/ep0ch-box-*) ;; *) exit 1;; esac; p=\$(cat \$d/pid 2>/dev/null); case \$p in \"\"|*[!0-9]*|0|1) p=;; esac; if [ -n \"\$p\" ]; then kill -TERM -- -\$p 2>/dev/null; sleep 1; kill -KILL -- -\$p 2>/dev/null; fi; rm -rf -- \$d" </dev/null >/dev/null 2>&1 \
-        && say "removed $box_host:$dir" || say "couldn't remove $box_host:$dir: ssh $box_host rm -rf $dir"
+      rssh "d=$dir; case \$d in /tmp/ep0ch-box-*) ;; *) exit 1;; esac; p=\$(cat \$d/pid 2>/dev/null); case \$p in \"\"|*[!0-9]*|0|1) p=;; esac; r=\$(cat \$d/runpid 2>/dev/null); case \$r in \"\"|*[!0-9]*|0|1) r=;; esac; if [ -n \"\$p\" ]; then kill -TERM -- -\$p 2>/dev/null; for i in \$(seq 1 40); do kill -0 -- -\$p 2>/dev/null || break; sleep 1; done; kill -KILL -- -\$p 2>/dev/null; [ -n \"\$r\" ] && kill -KILL -- -\$r 2>/dev/null; fi; rm -rf -- \$d" </dev/null >/dev/null 2>&1 \
+        && say "removed $box_host:$dir" || say "couldn't remove $box_host:$dir"
     fi
     exit $code
   }
+  guarded=0
   work= tmpref=
   trap cleanup_float EXIT
   trap 'status idle "interrupted"; exit 130' INT TERM HUP
@@ -117,7 +129,7 @@ if [ $target = float-box ]; then
   # tests need float-box's logged-in claude.
   home_line="mkdir -p $dir/home; export HOME=$dir/home; "
   for p in "${pkgs[@]}"; do [ "$p" = claude-mod ] && home_line=""; done
-  run="ps -o pgid= -p \$\$ | tr -d ' ' > $dir/pid; ${home_line}for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done"
+  run="${home_line}for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done"
   run+="; cd $dir/ep0ch && git checkout -q --detach $sha && nice -n 10 bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
   for p in "${pkgs[@]}"; do
     # The door's files run $jobs at once (bun test --parallel, each file in a worker of its own, as test:each would):
@@ -131,14 +143,26 @@ if [ $target = float-box ]; then
   run+="; exit \$code"
   printf '%s\n' "$run" | rssh "cat > $dir/run.sh" || { echo "box-test: couldn't write the run script on $box_host" >&2; exit 1; }
 
+  # The guard goes to the box with the run script and is the run's whole life there (locks, slot, process group, reap).
+  # In the foreground over ssh, so output streams as it comes. A worktree's key is its path on this machine.
+  wt_label=$repo
+  wt_key=$(printf '%s' "$(hostname -s 2>/dev/null):$repo" | { sha1sum 2>/dev/null || shasum 2>/dev/null; } | cut -c1-12)
+  [[ $wt_key =~ ^[0-9a-f]{12}$ ]] || { echo "box-test: couldn't make a key for this worktree (needs sha1sum or shasum)" >&2; exit 1; }
+  slots=${EP0CH_BOX_SLOTS:-2}
+  case $slots in ""|*[!0-9]*|0) echo 'box-test: EP0CH_BOX_SLOTS is a whole number, at least 1' >&2; exit 2;; esac
+  cat "$repo/scripts/box-test-guard" | rssh "cat > $dir/guard.sh" || { echo "box-test: couldn't write the guard on $box_host" >&2; exit 1; }
+  envs="BOX_TEST_RUN_DIR=$dir BOX_DIR=$dir BOX_WT=$wt_key BOX_WT_LABEL=$(printf '%q' "$wt_label") BOX_SHA=$sha BOX_REPLACE=$replace BOX_SLOTS=$slots BOX_MAX=$max BOX_KEEP=$keep BOX_HOST=$(printf '%q' "$box_host")"
+  [ -n "${EP0CH_BOX_LOCKS:-}" ] && envs+=" BOX_LOCKS=$(printf '%q' "$EP0CH_BOX_LOCKS")"
   status working "testing ${pkgs[*]} at ${sha:0:12} on $box_host"
-  # In the foreground over ssh, so output streams as it comes. The remote shell outlives a dead ssh: its timeout ends
-  # an orphaned run (this script killed with -9) and it then removes the dir itself.
-  rm_after="rm -rf -- $dir 2>/dev/null"; [ $keep = 1 ] && rm_after=:
-  rssh "setsid -w bash -c 'timeout -k 30 $max bash $dir/run.sh; c=\$?; $rm_after; exit \$c'" </dev/null &
+  # BOX_TEST_RUN_DIR is in the guard's own starting environment (a later export doesn't show in /proc/<pid>/environ), so a
+  # process of this run is found by it even inside another run's environment.
+  guarded=1
+  rssh "env $envs setsid -w bash $dir/guard.sh" </dev/null &
   rpid=$!
   wait $rpid; code=$?; rpid=0
-  [ $code = 255 ] && say "ssh to $box_host dropped; the run is killed by its timeout at most $max s from its start"
+  [ $code = 255 ] && say "ssh to $box_host dropped; the guard there stops the run and removes its dir"
+  [ $code = 3 ] && guarded=0
+  [ $code = 97 ] && say "a process of the run survived its kill: the run is failed (see the LEAK lines above)"
 
   secs=$(( $(date +%s) - start ))
   mkdir -p "$log_dir"

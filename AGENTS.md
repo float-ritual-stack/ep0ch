@@ -177,7 +177,11 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   `scripts/agent-env <name> --test -- timeout 900 bun test <files>` (two slots, capped, cleaned up, first for the OOM
   killer). Never `--parallel` on float-2 (several agents testing at once froze it). Run in the foreground, or poll
   your own background run until it exits (its notification may never reach you). **Judge a run by its exit code,**
-  never by grepping coloured output.
+  never by grepping coloured output. **`box-test` enforces its own limits on float-box** (PIE-998), for every tool: one
+  run per worktree (a second is refused with the running pid and the command that stops it; `--replace` stops the old
+  one), at most `EP0CH_BOX_SLOTS` (default 2) runs at once (the rest wait, and say so), every run killed whole on every
+  exit, and orphans of finished runs swept first. A whole-suite `bun test` typed directly on float-box or float-2 is
+  refused by the Claude mod (`.claude/skills/ep0ch-repo`) and the Codex hook (`.codex/`), naming `scripts/box-test`.
 - **Never kill what you didn't start.** No `pkill` or `pkill -f <pattern>`, no `kill` of a pid or process group you
   didn't launch. Stop your own by its pid (or `scripts/agent-env <name> --clean`), after checking `pstree`.
 - **Scratch files are yours alone.** A session's tmp folder is shared: write PR bodies and scratch files in a private

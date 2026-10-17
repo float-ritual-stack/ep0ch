@@ -16,6 +16,7 @@ instead (`hooks/guards.ts`):
 | `git stash` (`list` and `show` still run) | a `wip:` commit on your branch |
 | `gh pr merge … -d` / `--delete-branch` | `gh pr merge <n> --merge` |
 | `bun test --parallel` on float-2 | `scripts/agent-env <name> --test -- timeout 900 bun test <files>`; `scripts/box-test` |
+| a whole-suite `bun test` / `bun run test…` (no test file named) on float-box or float-2, outside `scripts/agent-env` | `scripts/box-test <package>`; a few files: `scripts/agent-env <name> --test -- timeout 900 bun test <files>` |
 | `gh pr merge` into main when the PR sets `PROTOCOL` to anything but main's or main's plus one | the number to use, and the rebase |
 
 - The command is read the way a shell splits it (`hooks/shell.ts`): `;`, `&&` and pipes split it, wrappers such as

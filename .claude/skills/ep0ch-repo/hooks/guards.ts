@@ -4,12 +4,13 @@
  * the builder's "Never git stash"). Pure: register.ts asks this, and the PROTOCOL lookup, per call.
  */
 
+import { type GuardContext, SHARED_MACHINE, bunTest, wholeSuiteRefusal } from './whole-suite'
 import { baseName, simpleCommands } from './shell'
 
-/** The machine where whole suites never run (AGENTS.md "Tests on a shared machine"). */
-export const SHARED_MACHINE = 'float-2'
+export { wholeSuiteRefusal }
 
-export type GuardContext = { hostname: string }
+
+export type { GuardContext }
 
 const MERGE = 'gh pr merge <n> --merge'
 
@@ -81,8 +82,8 @@ function refusalOf(words: readonly string[], ctx: GuardContext): string | null {
       `and GitHub already deletes the remote branch. Run \`${pr ? MERGE.replace('<n>', pr) : MERGE}\`.`
   }
   if (name === 'bun' && ctx.hostname === SHARED_MACHINE) {
-    const test = words[1] === 'test' || (words[1] === 'run' && words[2] === 'test')
-    if (test && words.some(w => w === '--parallel' || w.startsWith('--parallel='))) {
+    const test = bunTest(words)
+    if (test && test.args.some(w => w === '--parallel' || w.startsWith('--parallel='))) {
       return `bun test --parallel is refused on ${SHARED_MACHINE}: several agents testing at once froze it (4 cores). ` +
         'Run a focused test as `scripts/agent-env <your name> --test -- timeout 900 bun test <files>`, and a whole suite on float-box: `scripts/box-test <package>` (`scripts/box-test all --each` for a series).'
     }
@@ -96,7 +97,7 @@ export function guardOf(command: string, ctx: GuardContext): string | null {
     const why = refusalOf(words, ctx)
     if (why) return why
   }
-  return null
+  return wholeSuiteRefusal(command, ctx)
 }
 
 export type Merge = { pr: string | null; repo: string | null }
