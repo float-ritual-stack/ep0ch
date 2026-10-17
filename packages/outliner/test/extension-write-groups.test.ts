@@ -236,7 +236,7 @@ test("a form's fields come from the note it runs on: two notes, one action, two 
   // A chip that can't be read is saved as written; the action refuses with what it may have meant.
   const typo = await note("Sprint check\n[form-field::blocked choise yes|no]");
   expect(store.get(typo.id)!.text).toContain("[form-field::blocked choise yes|no]");
-  await expect(act("form", typo.id)).rejects.toThrow(/choise isn't a field type \(text, number, choice, property\); did you mean choice\?/);
+  await expect(act("form", typo.id)).rejects.toThrow(/choise isn't a field type \(text, number, choice, property, note, tag\); did you mean choice\?/);
   // A field may not take a declared argument's name.
   await expect(act("form", (await note("Clash [form-field::order text]")).id)).rejects.toThrow(/field order has the name of an argument the action declares/);
 });
