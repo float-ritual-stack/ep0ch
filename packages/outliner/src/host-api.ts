@@ -14,6 +14,7 @@
 import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, toolArgsSpec, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
 import { findBlocks, runAgentOperation, resolveRef, type AgentActor, type AgentToolsClient, type FindInput } from "./agent-tools";
+import { parseSearchExpression, queryReach } from "./block-query";
 import { applyWrite, type McpWriteTool } from "./mcp-write";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import type { AnnotationRecord, AnnotationThread } from "./types";
@@ -69,14 +70,37 @@ export interface HostApi {
   resolve(path: string): Promise<unknown>;
 }
 
-/** The notes a read tool's answer came from: a note read, the rows a query found. */
-function readIds(tool: string, result: unknown, onRead: (ids: readonly string[]) => void): void {
-  const found = result as { id?: unknown; blocks?: { id?: unknown }[]; children?: unknown[] } | null;
-  if (!found || typeof found !== "object") return;
-  const ids: string[] = [];
-  if (tool === "outline_read" && typeof found.id === "string") ids.push(found.id);
-  if (tool === "outline_find" && Array.isArray(found.blocks)) for (const row of found.blocks) if (typeof row.id === "string") ids.push(row.id);
-  if (ids.length) onRead(ids);
+const NOTE_ID = /^(?:\(\()?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\)\))?$/i;
+/** Where a record names the place a note sits, not a note it holds. */
+const PLACES = new Set(["parent", "parentId", "ancestors", "path", "breadcrumbs"]);
+const MAX_NOTE_IDS = 500;
+/** A read that could not be listed (too many notes, nested too deep): never a note a page shows, so the output says nothing. */
+export const UNTRACKED_READ = "*";
+/** Which version of this tracking an output's reads were recorded with; an output from another is drawn again and shown to no one meanwhile. */
+export const READS_TRACKING = 2;
+
+const noteIdsOf = (value: unknown): string[] => [...noteIds(value)];
+const queryReadsChildren = (query: string): boolean => { try { return queryReach(parseSearchExpression(query).where).children; } catch { return false; } };
+
+/**
+ * Every note a tool's answer mentions: its rows, children, links and backlinks, each an id (or `((id))`) somewhere in the
+ * answer. A render script's output depends on all of them, and a reader who may not see one must not be shown the output.
+ * An answer too large to list says so (`UNTRACKED_READ`) rather than leave some out.
+ */
+export function noteIds(result: unknown, out = new Set<string>(), depth = 0): Set<string> {
+  if (depth > 64 || out.size >= MAX_NOTE_IDS) { out.add(UNTRACKED_READ); return out; }
+  if (typeof result === "string") { const found = NOTE_ID.exec(result.trim()); if (found) out.add(found[1]!.toLowerCase()); }
+  else if (Array.isArray(result)) for (const item of result) noteIds(item, out, depth + 1);
+  else if (result && typeof result === "object") for (const [key, value] of Object.entries(result)) if (!PLACES.has(key)) noteIds(value, out, depth + 1);
+  return out;
+}
+
+/** The rows of a `child:` query read their children's words: those children, as one more read. */
+async function childReads(client: AgentToolsClient, query: string, result: unknown): Promise<string[]> {
+  const rows = (result as { blocks?: { id?: unknown }[] } | null)?.blocks;
+  if (!Array.isArray(rows) || !rows.length || !queryReadsChildren(query)) return [];
+  const ids = rows.flatMap(row => typeof row.id === "string" ? [row.id] : []);
+  return ids.length ? noteIdsOf((await client.request<{ records: object[] }>({ action: "blocks.records", ids: ids.slice(0, 200) })).records) : [];
 }
 
 /** One tool as a function: its arguments checked as every surface checks them, then its agent operation. */
@@ -115,7 +139,11 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
         result = await findBlocks(client, { ...command.input, this: options.thisId } as FindInput);
       } else result = await runAgentOperation(client, command.operation, command.input, actor);
       said("done", { result });
-      if (options.onRead) readIds(definition.name, result, options.onRead);
+      if (options.onRead) {
+        const ids = noteIds(result);
+        if (definition.name === "outline_find") for (const id of await childReads(client, String(checked.args.query ?? ""), result)) ids.add(id);
+        if (ids.size) options.onRead([...ids]);
+      }
       return result;
     } catch (e) {
       said("refused", { error: e instanceof Error ? e.message : String(e) });
@@ -162,7 +190,9 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     // outline_read's answer is the record's properties and fields already; the rest of the record (header, tasks, links…) joins it.
     if (typeof read?.id !== "string") return read;
     const { records } = await client.request<{ records: object[] }>({ action: "blocks.records", ids: [read.id] });
-    return { ...(records[0] ?? {}), ...read };
+    const whole = { ...(records[0] ?? {}), ...read };
+    if (options.onRead) options.onRead(noteIdsOf(whole));
+    return whole;
   };
   const resolve = (path: string) => options.resolve
     ? options.resolve(path)

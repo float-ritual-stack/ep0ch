@@ -24,7 +24,7 @@ export async function readPageValues(host: LiveHost, blocks: readonly { id: stri
       const hidden = new Set<string>();
       let answer: SiteAnswer | undefined;
       for (let round = 0; round < MAX_ROUNDS; round++) {
-        answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: block.id, ...(hidden.size ? { hidden: [...hidden] } : {}) });
+        answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: block.id, hidden: [...hidden] });
         const touched = new Set<string>(answer.deps);
         for (const v of answer.values) {
           if (v.from) touched.add(v.from);

@@ -28,6 +28,7 @@ import { checkPassage, isMiss, missMessage, type Passage } from "@ep0ch/outline-
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import { resourceCommentSource } from "./resource-comments";
+import { READS_TRACKING, UNTRACKED_READ } from "./host-api";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { createHash } from "node:crypto";
 
@@ -209,6 +210,18 @@ const MAX_CONTEXT_TEXT = 16_000;
 const MAX_CHILD_TEXT = 2_000;
 const MAX_CHILDREN = 50;
 const MAX_MARKDOWN = 64 * 1024;
+/** The notes a render script read to draw its output: what it read by id and the rows of its queries (stored with the output). */
+function scriptReads(request: unknown): string[] | undefined {
+  const stored = request as { reads?: { id?: unknown }[]; queries?: { ids?: unknown }[]; tracked?: unknown } | null;
+  if (!stored || !Array.isArray(stored.reads)) return undefined;
+  // Reads recorded before the tracking listed every note a script's answers mention say nothing of what it read.
+  if (stored.tracked !== READS_TRACKING) return [UNTRACKED_READ];
+  const ids = new Set<string>();
+  for (const read of stored.reads) if (typeof read?.id === "string") ids.add(read.id);
+  for (const query of stored.queries ?? []) for (const id of Array.isArray(query?.ids) ? query.ids : []) if (typeof id === "string") ids.add(id);
+  return [...ids];
+}
+
 /** A call's record of a block: from the first `max` characters of its text, which is what the call's inputs hash covers, so what an extension reads (properties, fields, title) changes only when that hash does. */
 const recordWithin = (block: Block, max: number, children: readonly string[] = []): BlockRecord => textRecord(block.text.length > max ? { ...block, text: block.text.slice(0, max) } : block, children);
 /**
@@ -703,8 +716,9 @@ export class ExtensionCalls {
    * (`reads`), or a query it ran now finds other rows (`queries`: a new match, one that stopped matching).
    */
   private scriptChanged(row: ExtensionOutputRow, block: Block, extension: LoadedExtension): boolean {
-    const request = row.request as { reads?: unknown; queries?: unknown; stamp?: unknown } | null;
+    const request = row.request as { reads?: unknown; queries?: unknown; stamp?: unknown; tracked?: unknown } | null;
     if (!extension.script || !request || !Array.isArray(request.reads)) return false;
+    if (request.tracked !== READS_TRACKING) return true;
     if (request.stamp !== extension.stamp) return true;
     if (request.reads.some((read: { id?: unknown; revision?: unknown }) => typeof read?.id === "string" && this.revisionOf(read.id) !== (read.revision ?? null))) return true;
     const queries = (Array.isArray(request.queries) ? request.queries : []) as { query?: unknown; limit?: unknown; ids?: unknown }[];
@@ -760,7 +774,7 @@ export class ExtensionCalls {
         throw new Error(`${extension.name} returned something the service can't show: ${error instanceof ComponentError || error instanceof Error ? error.message : String(error)}`);
       }
       // A script's output is what its code read: the notes (and their revisions), the queries (and their rows), the code itself.
-      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp } : base.request;
+      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp, tracked: READS_TRACKING } : base.request;
       if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result });
       // A note it read changes the line's output: its change comes back here (`inputChanged`).
       for (const read of reads ?? []) this.watching(read.id, block.id);
@@ -936,6 +950,7 @@ export class ExtensionCalls {
       markdown: inertBlockdown(markdown),
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
+      ...(scriptReads(row.request) ? { reads: scriptReads(row.request) } : {}),
       ...(call.kind === "component" ? { component: { data: result.data, view: result.view } } : {}),
       ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),

@@ -85,7 +85,7 @@ export class ScriptRuns {
       globals, thisId: here.id,
       resolve: async path => {
         const answer = answerSite(this.store, { blockId: here.id, paths: [path], ...(input.line !== undefined ? { line: input.line } : {}), ...(own ? { self: own.id } : {}), ...(caller ? { caller } : {}), props: input.props });
-        onRead?.(answer.deps);
+        onRead?.([...answer.deps, ...(answer.paths![0]!.links ?? []).map(link => link.id)]);
         const read = answer.paths![0]!;
         return { path: read.path, ...(read.values ? { values: read.values } : {}), ...(read.problem ? { problem: read.problem } : {}), ...(read.links ? { links: read.links } : {}), ...(read.lines ? { lines: read.lines } : {}), route: read.route };
       },
@@ -102,6 +102,8 @@ export class ScriptRuns {
     const queries: ScriptRendered["queries"] = [];
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
     const props = slotProps(input.argument);
+    // The script's own note is read by `self` and the code it holds, whether or not it asks for either.
+    if (source.blockId) onRead([source.blockId]);
     const site = this.bind(source, { blockId: input.blockId, line: input.line, props }, onRead);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(input.deadlineMs / 1000)}s)`)), input.deadlineMs);

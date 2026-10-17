@@ -4,6 +4,7 @@
 // meaning: views are read with `views.read` (its order, limit and sort), queries with `blocks.query`, links with
 // `blocks.authored-links` and `references.backlinks`; nothing here evaluates a view or a query. A row the page may
 // not show (locked, outside a share, not public on a public page) is left out, never named.
+import { parseSearchExpression, queryReach } from "./block-query";
 import { linkingLineId } from "./publish-anchors";
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
 import { siteBlockAt, type SiteBlock } from "@ep0ch/outline-core/site-blocks";
@@ -197,7 +198,7 @@ async function produced(host: Pick<LiveHost, "request"> & Partial<Pick<LiveHost,
   // answer was computed from any, so a `{{ }}` operand never reads through one.
   const hidden = new Set<string>();
   for (let round = 0; round < 4; round++) {
-    const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce, ...(props ? { props } : {}), ...(hidden.size ? { hidden: [...hidden] } : {}) });
+    const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce, ...(props ? { props } : {}), hidden: [...hidden] });
     if (!answer.produced) throw new Error("the service answered no figure");
     const touched = answer.deps.filter(id => id !== note);
     const shown = host.shown && touched.length ? await host.shown(touched) : new Set(touched);
@@ -255,6 +256,21 @@ async function itemsOf(host: LiveHost, blocks: readonly { id: string; properties
   }));
 }
 
+/**
+ * The rows of a question that reads their children's words (`child:status=approved`), less the ones with a child this
+ * page may not show: whether such a row is listed would tell what that child holds. More rows than are checked are all left out.
+ */
+async function withoutHiddenChildren<T extends { id: string }>(host: LiveHost, rows: readonly T[], expression: string | undefined): Promise<T[]> {
+  let reads = false;
+  try { reads = !!expression && queryReach(parseSearchExpression(expression).where).children; } catch { /* a question that can't be read lists nothing */ }
+  if (!reads || !rows.length) return [...rows];
+  const checked = rows.slice(0, 200);
+  const { records } = await host.request<{ records: { id: string; children: string[] }[] }>({ action: "blocks.records", ids: checked.map(row => row.id) });
+  const children = new Map(records.map(record => [record.id, record.children]));
+  const shown = await host.shown([...new Set(records.flatMap(record => record.children))]);
+  return checked.filter(row => (children.get(row.id) ?? []).every(id => shown.has(id)));
+}
+
 // ── `::links` and its kin ──────────────────────────────────────────────────────────────────────────────
 
 const GROUP_NAMES: Record<LinkGroupName, string> = { outlinks: "Outlinks", resources: "Resources", backlinks: "Backlinks", children: "Children", matches: "Matches" };
@@ -267,15 +283,16 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
   // Another note's links only when this page shows that note.
   if (spec.of && !(await host.shown([spec.of])).has(spec.of)) return figureFrame("links", title, `<p class="dim">a note not shown here</p>`);
   const has = (g: LinkGroupName) => groups.includes(g);
-  const [authored, backlinks, children, matches] = await Promise.all([
+  const [authored, backlinks, children, found] = await Promise.all([
     has("outlinks") || has("resources") ? host.request<AuthoredLinksSnapshot>({ action: "blocks.authored-links", ownerBlockId: of }) : null,
     has("backlinks") ? host.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: of, limit: 200 } }) : null,
     has("children") ? host.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: CHILDREN, this: of, limit: 1000 }, fields: ["title"] }) : null,
     spec.query ? host.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: spec.query, this: note, limit: 200 }, fields: ["title"] }).catch((e: Error) => e) : null,
   ]);
-  if (matches instanceof Error) {
-    return figureFrame("links", title, `<p class="dim">query: <code>${spec.query!.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)}</code></p>`, "live · query not read", matches.message);
+  if (found instanceof Error) {
+    return figureFrame("links", title, `<p class="dim">query: <code>${spec.query!.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)}</code></p>`, "live · query not read", found.message);
   }
+  const matches = found && spec.query ? { ...found, blocks: await withoutHiddenChildren(host, found.blocks, spec.query) } : found;
   // Every note a row stands for, asked once whether this page shows it.
   const ids: string[] = [];
   if (authored?.kind === "ready") {
@@ -342,7 +359,7 @@ export async function readViewLane(host: LiveHost, view: { id: string; propertie
   try { read = await host.request<SavedViewReadResult>({ action: "views.read", viewId: view.id }); }
   catch (error) { return { ...base, problem: `couldn't read the view: ${(error as Error).message}` }; }
   if (read.status !== "ready") return { ...base, problem: `view ${read.status}${read.errors.length ? `: ${read.errors.join("; ")}` : ""}` };
-  const blocks = read.blocks as VisibleBlock[];
+  const blocks = await withoutHiddenChildren(host, read.blocks as VisibleBlock[], query);
   const shown = await host.shown(blocks.map(block => block.id));
   const visible = blocks.filter(block => shown.has(block.id));
   const titles = await host.titles(visible.map(block => block.id));

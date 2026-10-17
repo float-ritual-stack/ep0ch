@@ -2000,7 +2000,11 @@ unsaved text, `chain` reads a note as drawn inside another (a `::use` in a host,
 name (`[created::…]`); `this.$created` is the field. A value is a link when it is a `((id))`, a
 `[[page]]`, a Work ID, or an id (8 or more hex characters) that names exactly one note; any
 other value stays text, silently. Watched with `watch`, it is evaluated again only when a change
-touched one of its `deps`. `outliner agent site` and the Claude mod's `outline_site` run it. To place a block into a saved view, ask
+touched one of its `deps`. A reader who may not see every note (the publisher) sends `hidden` (even `[]`): the answer then lists
+as `deps` every note that decided it (the children a `child:` clause reads, the notes an id prefix could start), the reader asks again
+naming the ones it doesn't show, and a value, `::if` or figure row that depended on one says nothing (`hidden`); a `self` or `chain` note in
+the list is refused. A render script's output carries the notes it read (`reads`, every id its answers mention), and a page
+draws *hidden here* in its place when it shows none of them (PIE-978). `outliner agent site` and the Claude mod's `outline_site` run it. To place a block into a saved view, ask
 `views.planWrite` for the property patch each view
 needs, or why no patch can satisfy its query; `query.matches` says which of given
 blocks a query holds for. See [ARCHITECTURE](docs/ARCHITECTURE.md#saved-view-write-plans-viewsplanwrite).

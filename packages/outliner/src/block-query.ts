@@ -989,6 +989,29 @@ export type ValueBinder = (path: string) => string[];
 const NO_MATCH: QueryExpression = { kind: "or", operands: [] };
 
 /**
+ * What a query expression asks about: the property keys it names, whether any clause is about other notes (`links:`,
+ * `under:`, `child:`…), which makes its answer depend on notes the subject doesn't name, and whether one reads the
+ * properties of the subject's children (`child:status=approved`): those notes' words decide who matches.
+ */
+export function queryReach(expression: QueryExpression | undefined): { open: boolean; children: boolean; asked: string[] } {
+  let open = false, children = false;
+  const asked: string[] = [];
+  const walk = (e: QueryExpression | undefined): void => {
+    if (!e) return;
+    switch (e.kind) {
+      case "property": if (e.relation) { open = true; children = true; } else asked.push(e.key); return;
+      case "compare": asked.push(e.key); return;
+      case "not": walk(e.operand); return;
+      case "and": case "or": e.operands.forEach(walk); return;
+      case "time": case "tag": case "title": case "text": return;
+      default: open = true;
+    }
+  };
+  walk(expression);
+  return { open, children, asked };
+}
+
+/**
  * `expression` with every `this` target bound to block `thisId` (`links:this` → `links:((id))`) and every value operand
  * (`project={{this.project}}`) bound to the values `values` reads for its path: one clause per value (any of them), none
  * matching nothing. A value is an operand, never query text. With no `thisId`, a `this` is refused with what to pass.

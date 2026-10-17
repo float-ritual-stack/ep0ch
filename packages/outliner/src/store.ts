@@ -52,6 +52,7 @@ import {
   BlockQueryError,
   compileQueryExpression,
   bindThis,
+  queryReach,
   normalizeBlockSearchQuery,
   type ValueBinder,
   type QueryRelations,
@@ -4134,20 +4135,8 @@ export class OutlinerStore {
       const where = parsed.where && bindThis(parsed.where, thisId, this.valueBinder(thisId));
       const present = [...new Set(rows.flatMap(row => row.properties.map(p => p.key)))];
       // A clause about other notes (links:, under:, child:…) makes the answer depend on notes the rows don't name.
-      let open = false;
-      const asked: string[] = parsed.filters.map(f => f.key);
-      const walk = (e: QueryExpression | undefined): void => {
-        if (!e) return;
-        switch (e.kind) {
-          case "property": if (e.relation) open = true; else asked.push(e.key); return;
-          case "compare": asked.push(e.key); return;
-          case "not": walk(e.operand); return;
-          case "and": case "or": e.operands.forEach(walk); return;
-          case "time": case "tag": case "title": case "text": return;
-          default: open = true;
-        }
-      };
-      walk(where);
+      const { open, asked: keys } = queryReach(where);
+      const asked: string[] = [...parsed.filters.map(f => f.key), ...keys];
       if (rows.length) {
         for (const key of asked) {
           if (key === "tag" || key === "deleted" || key === "revision" || present.includes(key)) continue;
