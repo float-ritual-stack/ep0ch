@@ -242,7 +242,8 @@ describe("what Evan's real notes taught (made-up notes of the same shapes)", () 
   test("now has a clock, a calendar and date arithmetic; each answer says whose clock", () => {
     const { store } = scratch();
     const note = store.create("Daily");
-    const clock = () => Date.UTC(2026, 9, 16, 12, 0);
+    // Local noon: the host's own time zone is the clock's (the route says so).
+    const clock = () => new Date(2026, 9, 16, 12, 0).getTime();
     const at = (path: string) => answerSite(store, { blockId: note.id, paths: [path] }, clock).paths![0]!;
     expect(at("now.date").values).toEqual(["2026-10-16"]);
     expect(at("now.date-1d").values).toEqual(["2026-10-15"]);
