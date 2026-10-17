@@ -42,6 +42,9 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   ([Layout](packages/door/docs/UI-GRAMMAR.md#layout-block-tile-container-screen)); "pane" means Herdr's or tmux's box.
   A brief handed to another agent carries this vocabulary and the shared parts it must use, and its review asks
   whether it really used them.
+- **No MVP to validate the idea.** Every idea here has been prototyped, often many times (about 400 Vercel projects
+  alone, from mid-2025): read pie's [[prototypes-before-ep0ch]] (`ep0ch show --ws pie 0be35f1c-2b63-4d40-8b0f-c60c1655a423`)
+  for prior art. Design the end state and build it in slices of that architecture; never propose the smallest proof first.
 - **Extend a shared part rather than write a parallel one** (a second *implementation* of a reader, pane model,
   search, editor or presence view; a second place to read notes is fine). If none fits, say in the PR why not.
 - **A user-visible feature gets a kitchen-sink demo** (`ep0ch --showcase`) in the same PR, which is also its

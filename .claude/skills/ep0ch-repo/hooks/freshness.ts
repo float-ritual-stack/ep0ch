@@ -81,7 +81,7 @@ export function reportOf(answer: string): string {
  */
 export const SWEEP_TOOLS: readonly string[] = [
   'Read', 'Grep', 'Glob', 'Bash', 'ToolSearch',
-  ...['outline_read', 'outline_find', 'outline_changes'].map(t => `mcp__pi-outliner__${t}`),
+  ...['outline_read', 'outline_find', 'outline_changes'].map(t => `mcp__ep0ch__${t}`),
 ]
 
 /** The sweep agent's system prompt; the spawn's prompt is the brief. */

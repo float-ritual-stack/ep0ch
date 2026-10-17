@@ -42,7 +42,7 @@ function sessionIn(on: On, c: Case) {
   on('session.compact', ($, e) => ({ messages: e.messages }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: FOLDER }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('prompt.context', ($, e) => ({ blocks: e.blocks }))
   on('ui.status', () => ({ value: undefined }))

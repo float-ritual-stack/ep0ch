@@ -63,7 +63,7 @@ else a new Tree and Detail beside Claude. The Outliner finds or opens it (its ow
 `ensure-detail`, run with `--no-focus`), so there is one Detail finder. It never takes
 focus. References in code and existing links are left alone.
 
-Claude can put a note there too, with the `mcp__pi-outliner__show` tool (a Work
+Claude can put a note there too, with the `mcp__ep0ch__show` tool (a Work
 ID, `[[page]]`, `((uuid))` or `pi-outliner://` URI).
 
 ### Where a note opens
@@ -435,7 +435,7 @@ code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the do
 ### Tool rows in the transcript
 
 The mod draws its own tool calls in the transcript as one compact row each, in place of Claude Code's
-`pi-outliner - outline_edit (MCP)(ref: "PIE-569", … append: "\n## …")` and its JSON answer, so a write reads as
+`ep0ch - outline_edit (MCP)(ref: "PIE-569", … append: "\n## …")` and its JSON answer, so a write reads as
 what it did and can be checked where it happened (`hooks/tool-rows.ts` is the pure half: what an input and an
 answer say, and the tree).
 

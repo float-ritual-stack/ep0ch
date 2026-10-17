@@ -18,7 +18,7 @@ import type { ToolRowsPrefs } from '../types'
  */
 
 /** How the mod's tools are named in the transcript: `mcp__<plugin>__<name>`. */
-export const TOOL_PREFIX = 'mcp__pi-outliner__'
+export const TOOL_PREFIX = 'mcp__ep0ch__'
 /** Where the person's choice (on or off) is kept across sessions. */
 export const TOOL_ROWS_STORE_KEY = 'tool-rows'
 /** The command that turns the rows on and off. */

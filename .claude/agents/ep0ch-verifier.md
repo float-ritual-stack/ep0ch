@@ -7,9 +7,9 @@ skills:
   - diagnosing-bugs
   - tdd
 disallowedTools:
-  - mcp__pi-outliner__show
-  - mcp__pi-outliner__door_open
-  - mcp__pi-outliner__door_act
+  - mcp__ep0ch__show
+  - mcp__ep0ch__door_open
+  - mcp__ep0ch__door_act
 ---
 
 You check whether an ep0ch ticket is still true, for loki, the deployer, who launched you. The brief names the

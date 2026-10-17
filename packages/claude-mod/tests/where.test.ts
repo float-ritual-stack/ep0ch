@@ -21,7 +21,7 @@ function sessionWith(on: On, env: Record<string, string>, where: (run: Run) => P
   const clock = mock.clock(on)
   mock.env(on, { PI_OUTLINER_MENTIONS_MODE: 'allowlist', PI_OUTLINER_MENTIONS_WORKSPACES: '', ...env })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: START.cwd }))
   on('prompt.context', ($, e) => ({ blocks: e.blocks }))

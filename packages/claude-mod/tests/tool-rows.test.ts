@@ -24,7 +24,7 @@ const THREAD = '7a1e0c2d-2222-4333-8444-555566667777'
 const NEW = '9b8a7c6d-3333-4444-8555-666677778888'
 
 const done = (tool: string, input: unknown, output?: unknown): ToolCallView =>
-  ({ tool: `mcp__pi-outliner__${tool}`, input, isRunning: false, isErrored: false, isInterrupted: false, output: output === undefined ? undefined : JSON.stringify(output) })
+  ({ tool: `mcp__ep0ch__${tool}`, input, isRunning: false, isErrored: false, isInterrupted: false, output: output === undefined ? undefined : JSON.stringify(output) })
 
 /** A row as one line of words: the glyph, lead, target and change, as the tree lays them out. */
 const words = (row: ToolRow | null) =>
@@ -69,7 +69,7 @@ describe('the formatter: one row per tool', () => {
     // A retry of the same patch returns the open proposal (PIE-725): said as that, not as a new one.
     const again = { outcome: 'proposed', reason: 'the text changed under it', proposalId: THREAD, beside: NOTE, deduped: true }
     expect(toolRowOf(done('outline_patch', input, again))!.warning).toBe('already proposed: your same patch is still open beside the note')
-    expect(toolResultLineOf('mcp__pi-outliner__outline_patch', JSON.stringify(again), false)).toBe('already proposed (deduped)')
+    expect(toolResultLineOf('mcp__ep0ch__outline_patch', JSON.stringify(again), false)).toBe('already proposed (deduped)')
   })
 
   test('outline_assign_id: the id given, or already there', () => {
@@ -241,13 +241,13 @@ describe('the formatter: states and shapes', () => {
   })
 
   test('the result line: one line for a write, nothing for a read, the engine for an error', () => {
-    expect(toolResultLineOf('mcp__pi-outliner__outline_edit', JSON.stringify({ revision: 2, previousRevision: 1 }), false)).toBe('✓ rev 2')
-    expect(toolResultLineOf('mcp__pi-outliner__outline_patch', JSON.stringify({ outcome: 'applied', edits: [] }), false)).toBe('✓ applied')
-    expect(toolResultLineOf('mcp__pi-outliner__outline_comment', JSON.stringify({ thread: THREAD, lifecycle: 'open' }), false)).toBe('✓ thread open')
-    expect(toolResultLineOf('mcp__pi-outliner__outline_reply', JSON.stringify({ thread: THREAD, reply: NOTE }), false)).toBe('✓ replied')
-    expect(toolResultLineOf('mcp__pi-outliner__outline_read', JSON.stringify({ revision: 2 }), false)).toBe('')
-    expect(toolResultLineOf('mcp__pi-outliner__outline_edit', 'refused', true)).toBeNull()
-    expect(toolResultLineOf('mcp__pi-outliner__outline_edit', 'not json', false)).toBeNull()
+    expect(toolResultLineOf('mcp__ep0ch__outline_edit', JSON.stringify({ revision: 2, previousRevision: 1 }), false)).toBe('✓ rev 2')
+    expect(toolResultLineOf('mcp__ep0ch__outline_patch', JSON.stringify({ outcome: 'applied', edits: [] }), false)).toBe('✓ applied')
+    expect(toolResultLineOf('mcp__ep0ch__outline_comment', JSON.stringify({ thread: THREAD, lifecycle: 'open' }), false)).toBe('✓ thread open')
+    expect(toolResultLineOf('mcp__ep0ch__outline_reply', JSON.stringify({ thread: THREAD, reply: NOTE }), false)).toBe('✓ replied')
+    expect(toolResultLineOf('mcp__ep0ch__outline_read', JSON.stringify({ revision: 2 }), false)).toBe('')
+    expect(toolResultLineOf('mcp__ep0ch__outline_edit', 'refused', true)).toBeNull()
+    expect(toolResultLineOf('mcp__ep0ch__outline_edit', 'not json', false)).toBeNull()
     expect(toolResultLineOf('Bash', '{}', false)).toBeNull()
   })
 
@@ -280,7 +280,7 @@ function sessionIn(on: On, stored: Record<string, unknown> = {}) {
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: WORKSPACE }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
   on('ui.toast', ($, e) => {
     toasts.push(e.text)
     return { value: undefined }
@@ -311,7 +311,7 @@ const EDIT = { ref: 'PIE-569', expectedRevision: 1, append: '\n## Inside or outs
 
 function mountRow($: any, surface: 'terminal' | 'desktop', props: Partial<ToolCallView> & { tool: string; input: unknown }, id = 'toolu_1') {
   return $.ui.mount({
-    plugin: 'pi-outliner', surface, component: 'ToolUse', requestId: id,
+    plugin: 'ep0ch', surface, component: 'ToolUse', requestId: id,
     props: { tool_use_id: id, isRunning: false, isErrored: false, isInterrupted: false, ...props },
   })
 }
@@ -322,7 +322,7 @@ describe('the rows in the transcript', () => {
       const s = sessionIn(on)
       await $.session.start({ ...START, surface })
       await s.clock.settle()
-      const drawn = await mountRow($, surface, { tool: 'mcp__pi-outliner__outline_edit', input: EDIT, output: JSON.stringify({ id: NOTE, revision: 2, previousRevision: 1, diff: '' }) })
+      const drawn = await mountRow($, surface, { tool: 'mcp__ep0ch__outline_edit', input: EDIT, output: JSON.stringify({ id: NOTE, revision: 2, previousRevision: 1, diff: '' }) })
       expect(await drawn.find({ key: 'engine' })).toBeUndefined()
       expect((await drawn.find({ key: 'tool-row-open-toolu_1' }))?.text).toBe('PIE-569')
       expect(await drawn.find({ type: 'Text', text: /appended "Inside or outside" · rev 1→2/ })).toBeDefined()
@@ -340,7 +340,7 @@ describe('the rows in the transcript', () => {
     const s = sessionIn(on)
     await $.session.start(START)
     await s.clock.settle()
-    const drawn = await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_edit', input: EDIT, output: JSON.stringify({ revision: 2, previousRevision: 1 }) })
+    const drawn = await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_edit', input: EDIT, output: JSON.stringify({ revision: 2, previousRevision: 1 }) })
     s.runs.length = 0
     await drawn.press({ key: 'tool-row-open-toolu_1' })
     await s.clock.settle()
@@ -353,10 +353,10 @@ describe('the rows in the transcript', () => {
     const s = sessionIn(on)
     await $.session.start(START)
     await s.clock.settle()
-    const drawn = await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_comment', input: { ref: NOTE, whole: true, body: 'Which variety?' } })
+    const drawn = await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_comment', input: { ref: NOTE, whole: true, body: 'Which variety?' } })
     await s.clock.settle()
     expect((await drawn.find({ key: 'tool-row-open-toolu_1' }))?.text).toBe('Seed swap plan')
-    await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_read', input: { ref: NOTE } }, 'toolu_2')
+    await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_read', input: { ref: NOTE } }, 'toolu_2')
     await s.clock.settle()
     expect(s.runs.filter(run => run.argv.includes('agent') && run.argv.includes('resolve'))).toHaveLength(1)
   })
@@ -365,12 +365,12 @@ describe('the rows in the transcript', () => {
     const s = sessionIn(on)
     await $.session.start(START)
     await s.clock.settle()
-    const drawn = await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__work_stage', input: { item: 'PIE-561', stage: 'done' }, isErrored: true, output: 'Done needs proof: use work_complete' })
+    const drawn = await mountRow($, 'terminal', { tool: 'mcp__ep0ch__work_stage', input: { item: 'PIE-561', stage: 'done' }, isErrored: true, output: 'Done needs proof: use work_complete' })
     const error = await drawn.find({ type: 'Text', text: /✗ Done needs proof/ })
     expect(error).toBeDefined()
     expect(JSON.stringify(error)).toContain('red')
-    const resultRow = await $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
-      props: { tool_use_id: 'toolu_1', tool: 'mcp__pi-outliner__work_stage', output: 'Done needs proof: use work_complete', isErrored: true } })
+    const resultRow = await $.ui.mount({ plugin: 'ep0ch', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
+      props: { tool_use_id: 'toolu_1', tool: 'mcp__ep0ch__work_stage', output: 'Done needs proof: use work_complete', isErrored: true } })
     expect(await resultRow.find({ key: 'engine-result' })).toBeDefined()
   })
 
@@ -378,13 +378,13 @@ describe('the rows in the transcript', () => {
     const s = sessionIn(on)
     await $.session.start(START)
     await s.clock.settle()
-    await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_edit', input: EDIT })
-    await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_read', input: { ref: 'PIE-12' } }, 'toolu_2')
-    const write = await $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
-      props: { tool_use_id: 'toolu_1', tool: 'mcp__pi-outliner__outline_edit', output: JSON.stringify({ revision: 2, previousRevision: 1 }), isErrored: false } })
+    await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_edit', input: EDIT })
+    await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_read', input: { ref: 'PIE-12' } }, 'toolu_2')
+    const write = await $.ui.mount({ plugin: 'ep0ch', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
+      props: { tool_use_id: 'toolu_1', tool: 'mcp__ep0ch__outline_edit', output: JSON.stringify({ revision: 2, previousRevision: 1 }), isErrored: false } })
     expect((await write.find({ type: 'Text', text: /✓ rev 2/ }))).toBeDefined()
-    const read = await $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_2',
-      props: { tool_use_id: 'toolu_2', tool: 'mcp__pi-outliner__outline_read', output: JSON.stringify({ revision: 2 }), isErrored: false } })
+    const read = await $.ui.mount({ plugin: 'ep0ch', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_2',
+      props: { tool_use_id: 'toolu_2', tool: 'mcp__ep0ch__outline_read', output: JSON.stringify({ revision: 2 }), isErrored: false } })
     expect(await read.find({ key: 'engine-result' })).toBeUndefined()
     expect(await read.find({ type: 'Text' })).toBeUndefined()
   })
@@ -393,13 +393,13 @@ describe('the rows in the transcript', () => {
     const s = sessionIn(on)
     await $.session.start(START)
     await s.clock.settle()
-    const malformed = await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_edit', input: { ref: 42 } })
+    const malformed = await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_edit', input: { ref: 42 } })
     expect(await malformed.find({ key: 'engine' })).toBeDefined()
-    const other = await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__door_peek', input: {} }, 'toolu_3')
+    const other = await mountRow($, 'terminal', { tool: 'mcp__ep0ch__door_peek', input: {} }, 'toolu_3')
     expect(await other.find({ key: 'engine' })).toBeDefined()
     // The engine drew the call's row, so its result is the engine's too.
-    const result = await $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
-      props: { tool_use_id: 'toolu_1', tool: 'mcp__pi-outliner__outline_edit', output: JSON.stringify({ revision: 2 }), isErrored: false } })
+    const result = await $.ui.mount({ plugin: 'ep0ch', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
+      props: { tool_use_id: 'toolu_1', tool: 'mcp__ep0ch__outline_edit', output: JSON.stringify({ revision: 2 }), isErrored: false } })
     expect(await result.find({ key: 'engine-result' })).toBeDefined()
   })
 
@@ -411,7 +411,7 @@ describe('the rows in the transcript', () => {
     const said = await $.command.run({ command: 'tool-rows', args: 'off' } as any)
     expect(said.text).toContain('off')
     expect(stored['tool-rows']).toEqual({ enabled: false })
-    const drawn = await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_edit', input: EDIT })
+    const drawn = await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_edit', input: EDIT })
     expect(await drawn.find({ key: 'engine' })).toBeDefined()
     await $.command.run({ command: 'tool-rows', args: 'on' } as any)
     expect(await drawn.find({ key: 'engine' })).toBeUndefined()

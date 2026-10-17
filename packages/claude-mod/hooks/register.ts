@@ -134,7 +134,7 @@ import {
 
 type AbovePromptRender = RenderInput<'AbovePrompt'>
 /** The binding card's state: written here, in this file, as the engine lists what a module reads and writes. */
-const BINDING_STATE = { plugin: 'pi-outliner', key: 'binding' } as const
+const BINDING_STATE = { plugin: 'ep0ch', key: 'binding' } as const
 /** One run of `ep0ch where --json`: its summary (null: it didn't answer) and the facts the binding card reads. */
 type WhereRun = { summary: string | null; facts: WhereFacts | null; why?: string }
 
@@ -266,7 +266,7 @@ export function register(on: On, options: PluginOptions): void {
   // `m` (to the pane, or back to the band) in the press's own hook: an open made with this `$` answers the person's
   // press, so the engine places the pane at any width. One made from the drawing's closure is the plugin's own, and
   // waits below 144 columns: the pane never showed and the band was gone.
-  on('ui.press', { plugin: 'pi-outliner', element: 'mentions-move' }, async ($, e) => {
+  on('ui.press', { plugin: 'ep0ch', element: 'mentions-move' }, async ($, e) => {
     const placement = e.component === 'Pane' ? 'band' : 'pane'
     await chooseMentions($, x => ({ ...x, placement }), option, true)
     return { element: e.element }
@@ -287,7 +287,7 @@ export function register(on: On, options: PluginOptions): void {
   // A press that opens a note here (a mention, a reference in a reply, a tool row's note) seats the mentions pane from the press itself: an open made with the press's `$`
   // answers the person, so the engine places it at any width (openNote's open that follows finds it up). In a door
   // or Herdr nothing is seated: the note opens there.
-  on('ui.press', { plugin: 'pi-outliner' }, async ($, e, next) => {
+  on('ui.press', { plugin: 'ep0ch' }, async ($, e, next) => {
     const opensNote = /^mention-\d+$/.test(e.element) || e.element.startsWith('tool-row-open-') ||
       (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href) !== null)
     // The cached variables read without waiting, so the press reaches its closure before anything queued after it.
@@ -436,7 +436,7 @@ export function register(on: On, options: PluginOptions): void {
   })
 
   for (const tool of WORK_TOOLS) {
-    on('tool.call', { tool: `mcp__pi-outliner__${tool.name}` }, async ($, e) => {
+    on('tool.call', { tool: `mcp__ep0ch__${tool.name}` }, async ($, e) => {
       const checked = checkedInput(tool, e as Record<string, unknown>)
       if (typeof checked === 'string') return { deny: checked }
       const command = tool.command(checked.input)
@@ -453,7 +453,7 @@ export function register(on: On, options: PluginOptions): void {
   }
 
   for (const tool of OUTLINE_TOOLS) {
-    on('tool.call', { tool: `mcp__pi-outliner__${tool.name}` }, async ($, e) => {
+    on('tool.call', { tool: `mcp__ep0ch__${tool.name}` }, async ($, e) => {
       const checked = checkedInput(tool, e as Record<string, unknown>)
       if (typeof checked === 'string') return { deny: checked }
       const input = checked.input
@@ -473,7 +473,7 @@ export function register(on: On, options: PluginOptions): void {
   }
 
   // The library's brief, from the session's outline: `ep0ch` is the door's CLI, run in the bound folder.
-  on('tool.call', { tool: `mcp__pi-outliner__${COMPONENTS_TOOL.name}` }, async ($, e) => {
+  on('tool.call', { tool: `mcp__ep0ch__${COMPONENTS_TOOL.name}` }, async ($, e) => {
     const checked = checkedInput(COMPONENTS_TOOL, e as Record<string, unknown>)
     if (typeof checked === 'string') return { deny: checked }
     const command = componentsArgv(checked.input)
@@ -488,7 +488,7 @@ export function register(on: On, options: PluginOptions): void {
   })
 
   // Binds the session's outline by name; works with nothing bound, which is when it is needed.
-  on('tool.call', { tool: `mcp__pi-outliner__${BIND_TOOL.name}` }, async ($, e) => {
+  on('tool.call', { tool: `mcp__ep0ch__${BIND_TOOL.name}` }, async ($, e) => {
     const checked = checkedInput(BIND_TOOL, e as Record<string, unknown>)
     if (typeof checked === 'string') return { deny: checked }
     try {
@@ -499,7 +499,7 @@ export function register(on: On, options: PluginOptions): void {
   })
 
   for (const tool of DOOR_TOOLS) {
-    on('tool.call', { tool: `mcp__pi-outliner__${tool.name}` }, async ($, e) => {
+    on('tool.call', { tool: `mcp__ep0ch__${tool.name}` }, async ($, e) => {
       const reached = await doorReachFor($)
       if (!reached.control) return { deny: `No door is reachable from here: ${reached.text}` }
       const control = reached.control
@@ -513,7 +513,7 @@ export function register(on: On, options: PluginOptions): void {
     })
   }
 
-  on('tool.call', { tool: 'mcp__pi-outliner__show' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__ep0ch__show' }, async ($, e) => {
     // A plugin tool's arguments arrive flat on the event, beside `tool`.
     const checked = checkedInput(SHOW_TOOL, e as Record<string, unknown>)
     if (typeof checked === 'string') return { deny: checked }
@@ -1465,7 +1465,7 @@ function lastJsonOf(stdout: string): any {
 }
 
 /** The Detail beside Claude in Herdr, as find-detail (which opens nothing) or the last open found it: what the heading's "opens in" says. */
-const DETAIL_BESIDE = { plugin: 'pi-outliner', key: 'detailBeside' } as const
+const DETAIL_BESIDE = { plugin: 'ep0ch', key: 'detailBeside' } as const
 
 /**
  * Asks the Outliner's `find-detail` whether a press would reuse a Detail beside
@@ -1488,8 +1488,8 @@ async function refreshDetailBeside($: EngineInterface, workspace: Workspace): Pr
 
 // Session state through `$.state` itself, not the state library: the module has no runtime import of 'claude-code'
 // (the outliner's tests load it under plain Bun).
-const MENTIONS_PREFS = { plugin: 'pi-outliner', key: 'mentionsPrefs' } as const
-const MENTIONS_LIST = { plugin: 'pi-outliner', key: 'mentions' } as const
+const MENTIONS_PREFS = { plugin: 'ep0ch', key: 'mentionsPrefs' } as const
+const MENTIONS_LIST = { plugin: 'ep0ch', key: 'mentions' } as const
 
 /** The choices in force (the defaults before the session's start read the kept ones). Read while drawing, it redraws the site on a change. */
 async function mentionsPrefsOf($: EngineInterface): Promise<MentionsPrefs> {
@@ -1500,7 +1500,7 @@ async function mentionsPrefsOf($: EngineInterface): Promise<MentionsPrefs> {
 async function mentionsListOf($: EngineInterface): Promise<MentionsList> {
   return (await $.state.get(MENTIONS_LIST)).value ?? { rows: [], loaded: false }
 }
-const BLOCK_VIEWS = { plugin: 'pi-outliner', key: 'blockViews' } as const
+const BLOCK_VIEWS = { plugin: 'ep0ch', key: 'blockViews' } as const
 /** The mentions' start in flight or done, so the session's start and a reloaded module's first draw start it once. */
 let mentionsStarting: Promise<void> | undefined
 /** BlockView drawings being loaded, so a redraw before one lands doesn't start it again. */
@@ -1744,11 +1744,11 @@ async function openUri($: EngineInterface, workspace: Workspace, uri: string, su
 }
 
 /** `/tool-rows`: the mod's tool rows on or off (kept in `$.store` too); unset reads as on. */
-const TOOL_ROWS_PREFS = { plugin: 'pi-outliner', key: 'toolRows' } as const
+const TOOL_ROWS_PREFS = { plugin: 'ep0ch', key: 'toolRows' } as const
 /** Which tool rows are folded open, by tool_use_id. */
-const TOOL_ROW_OPEN = { plugin: 'pi-outliner', key: 'toolRowOpen' } as const
+const TOOL_ROW_OPEN = { plugin: 'ep0ch', key: 'toolRowOpen' } as const
 /** Block titles a tool row names, by block id: looked up once a session, off the draw. */
-const TOOL_TITLES = { plugin: 'pi-outliner', key: 'toolTitles' } as const
+const TOOL_TITLES = { plugin: 'ep0ch', key: 'toolTitles' } as const
 const askedTitles = new Set<string>()
 /** The tool calls whose row the mod drew (not the engine's): only their result rows are shortened. */
 const drawnToolRows = new Set<string>()
@@ -1918,8 +1918,8 @@ async function openToolTarget($: EngineInterface, ref: string, surface: RenderSu
   await openUri($, workspace, uri, surface)
 }
 
-const DETAIL = { plugin: 'pi-outliner', key: 'detail' } as const
-const DETAIL_SOURCES = { plugin: 'pi-outliner', key: 'detailSources' } as const
+const DETAIL = { plugin: 'ep0ch', key: 'detail' } as const
+const DETAIL_SOURCES = { plugin: 'ep0ch', key: 'detailSources' } as const
 
 type RouteEnv = { EP0CH_CONTROL: string | undefined; HERDR_PANE_ID: string | undefined; HERDR_WORKSPACE_ID: string | undefined }
 /** The variables openNote routes by, read once a module load: a press hook then decides without waiting. */

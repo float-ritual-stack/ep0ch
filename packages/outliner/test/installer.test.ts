@@ -182,6 +182,34 @@ test("Claude mod installer replaces other copies of the mod and keeps unrelated 
   }
 });
 
+test("Claude mod installer moves the mod's old name (pi-outliner) to ep0ch, leaving one name", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "claude-mod-installer-"));
+  try {
+    await writeFile(join(directory, "settings.json"), JSON.stringify({
+      permissions: { allow: ["mcp__pi-outliner__outline_read", "mcp__ep0ch__outline_read", "Bash(ls)"], deny: ["mcp__pi-outliner__outline_trash"] },
+      enabledPlugins: { "pi-outliner@inline": true, "other@inline": true },
+      pluginConfigs: { "pi-outliner@inline": { options: { mode: "folder" } }, "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"] } },
+    }));
+    await writeFile(join(directory, "settings.local.json"), JSON.stringify({ permissions: { allow: ["mcp__pi-outliner__work_stage"] } }));
+    await mkdir(join(directory, "plugins"), { recursive: true });
+    await writeFile(join(directory, "plugins/installed_plugins.json"), JSON.stringify({ version: 2, plugins: { "pi-outliner@market": [{ scope: "user" }] } }));
+
+    expect((await runClaudeModInstaller(directory)).exitCode).toBe(0);
+    const settings = JSON.parse(await readFile(join(directory, "settings.json"), "utf8"));
+    expect(settings.permissions).toEqual({ allow: ["mcp__ep0ch__outline_read", "Bash(ls)"], deny: ["mcp__ep0ch__outline_trash"] });
+    expect(settings.enabledPlugins).toEqual({ "ep0ch@inline": true, "other@inline": true });
+    expect(settings.pluginConfigs).toEqual({ "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"] } });
+    expect(JSON.parse(await readFile(join(directory, "settings.local.json"), "utf8")).permissions.allow).toEqual(["mcp__ep0ch__work_stage"]);
+    expect(JSON.parse(await readFile(join(directory, "plugins/installed_plugins.json"), "utf8")).plugins).toEqual({ "ep0ch@market": [{ scope: "user" }] });
+
+    const again = await runClaudeModInstaller(directory);
+    expect(again.stdout).toContain("already installed");
+    expect(again.stdout).not.toContain("Renamed");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Claude mod installer opts folders out, keeps strict mode on request, and refuses relative folders", async () => {
   const directory = await mkdtemp(join(tmpdir(), "claude-mod-installer-"));
   const configDir = join(directory, "claude");

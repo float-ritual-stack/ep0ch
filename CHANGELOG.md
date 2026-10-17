@@ -245,6 +245,16 @@ did-you-mean for a missing key) and the `Site` and `PropsSpec` types it reads. T
 longer says `[blocks::PIE-12, PIE-14]` is two links: a plain value's commas are one value, and a list is written in
 brackets (#604).
 
+### The Claude mod is called ep0ch (PIE-971)
+
+The mod's plugin name is now `ep0ch` (it was `pi-outliner`): its tools read `mcp__ep0ch__outline_read` and the rest,
+its message command is `/ep0ch:msg`, and a tool row reads `ep0ch - outline_edit`. `ep0ch install --apply` moves the
+old name in `~/.claude/settings.json`, `settings.local.json` and `plugins/installed_plugins.json` (permission rules
+such as `mcp__pi-outliner__*`, `enabledPlugins` and `pluginConfigs` keys such as `pi-outliner@inline`), leaving one
+name. A running Claude session keeps the old tool names until you restart it (`/reload-plugins` is not enough:
+permissions and tool names are read at start). The mod's saved choices (the Mentions pane's preferences, the session
+binding) were stored under the old name and start fresh. The Herdr plugin id `float.pi-outliner` is unchanged.
+
 ### Two focus levels: which figure has the keys, which row the cursor is on (PIE-969)
 
 A figure, table or list with the cursor keeps its amber tint (the container has the keys). The row the cursor is on

@@ -62,7 +62,7 @@ function sessionIn(on: On, answer: (run: Run) => ProcessRunResult | undefined, e
   on('session.cwd', () => ({ value: cwd }))
   on('tool.register', ($, e) => {
     registered.push(e.name)
-    return { value: { tool: `mcp__pi-outliner__${e.name}` } }
+    return { value: { tool: `mcp__ep0ch__${e.name}` } }
   })
   on('process.run', ($, e) => {
     // This machine's name, which a write's principal carries (claude-code@garden-host).
@@ -134,7 +134,7 @@ describe('outline tools', () => {
     for (const call of CALLS) expect(session.registered).toContain(call.tool)
 
     for (const call of CALLS) {
-      const answered = await $.tool.call({ tool: `mcp__pi-outliner__${call.tool}`, ...call.input })
+      const answered = await $.tool.call({ tool: `mcp__ep0ch__${call.tool}`, ...call.input })
       expect(answered).toMatchObject({ result: ANSWERS[call.operation] })
       const run = session.agentRuns().at(-1)!
       expect(run.argv).toEqual([...CLI, 'agent', call.operation, '--stdin', '--actor', 'claude-code@garden-host', '--session', 'session-1'])
@@ -148,14 +148,14 @@ describe('outline tools', () => {
     const session = sessionIn(on, () => undefined)
     await session.begin(() => $.session.start(START))
     const patches = [{ observed: 'see [[Seed Swap]]', replacement: 'see the swap' }]
-    await $.tool.call({ tool: 'mcp__pi-outliner__outline_patch', ref: NOTE, revision: 3, patches })
+    await $.tool.call({ tool: 'mcp__ep0ch__outline_patch', ref: NOTE, revision: 3, patches })
     expect(JSON.parse(session.agentRuns().at(-1)!.init!.stdin!)).toEqual({ policy: 'edit', ref: NOTE, revision: 3, patches })
-    await $.tool.call({ tool: 'mcp__pi-outliner__outline_patch', ref: NOTE, revision: 3, patches, policy: 'prose' })
+    await $.tool.call({ tool: 'mcp__ep0ch__outline_patch', ref: NOTE, revision: 3, patches, policy: 'prose' })
     expect(JSON.parse(session.agentRuns().at(-1)!.init!.stdin!)).toMatchObject({ policy: 'prose' })
-    await $.tool.call({ tool: 'mcp__pi-outliner__outline_patch', ref: NOTE, revision: 3, patches, allowStructural: true })
+    await $.tool.call({ tool: 'mcp__ep0ch__outline_patch', ref: NOTE, revision: 3, patches, allowStructural: true })
     expect(JSON.parse(session.agentRuns().at(-1)!.init!.stdin!)).toMatchObject({ policy: 'edit', allowStructural: true })
     const runs = session.agentRuns().length
-    const odd = await $.tool.call({ tool: 'mcp__pi-outliner__outline_patch', ref: NOTE, revision: 3, patches, policy: 'tidy' })
+    const odd = await $.tool.call({ tool: 'mcp__ep0ch__outline_patch', ref: NOTE, revision: 3, patches, policy: 'tidy' })
     expect(odd.deny).toContain('must be one of edit, prose')
     expect(session.agentRuns().length).toBe(runs)
   })
@@ -163,7 +163,7 @@ describe('outline tools', () => {
   test('a read comes back with the full text, not the title', async ($, on) => {
     const session = sessionIn(on, () => undefined)
     await session.begin(() => $.session.start(START))
-    const read = await $.tool.call({ tool: 'mcp__pi-outliner__outline_read', ref: `((${NOTE}))` })
+    const read = await $.tool.call({ tool: 'mcp__ep0ch__outline_read', ref: `((${NOTE}))` })
     const note = JSON.parse(String((read as { result: unknown }).result))
     expect(note.text).toBe(LONG_TEXT)
     expect(note).toMatchObject({ revision: 3, complete: true })
@@ -175,29 +175,29 @@ describe('outline tools', () => {
       : undefined)
     await session.begin(() => $.session.start(START))
     for (const text of ['', '   ', null]) {
-      const blank = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: NOTE, expectedRevision: 3, text })
+      const blank = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, text })
       expect(blank.deny).toBeDefined()
     }
-    const noRevision = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: NOTE, text: 'Seed swap' })
+    const noRevision = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, text: 'Seed swap' })
     expect(noRevision.deny).toContain('Missing required `expectedRevision`')
-    const two = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: NOTE, expectedRevision: 3, text: 'x', append: 'y' })
+    const two = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, text: 'x', append: 'y' })
     expect(two.deny).toContain('exactly one')
     expect(session.agentRuns()).toEqual([])
 
-    const stale = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: NOTE, expectedRevision: 3, text: 'Seed swap plan, revised' })
+    const stale = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, text: 'Seed swap plan, revised' })
     expect(stale.deny).toContain('changed since you read it')
   })
 
   test('a comment is the agent\'s: the session\'s actor, or the one the caller names', async ($, on) => {
     const session = sessionIn(on, () => undefined, { EP0CH_AGENT: 'loki' })
     await session.begin(() => $.session.start(START))
-    await $.tool.call({ tool: 'mcp__pi-outliner__outline_comment', ref: NOTE, whole: true, body: 'Due this week.' })
+    await $.tool.call({ tool: 'mcp__ep0ch__outline_comment', ref: NOTE, whole: true, body: 'Due this week.' })
     expect(session.agentRuns().at(-1)!.argv.slice(3)).toEqual(['agent', 'comment', '--stdin', '--actor', 'loki/claude-code@garden-host', '--session', 'session-1'])
-    await $.tool.call({ tool: 'mcp__pi-outliner__outline_comment', ref: NOTE, whole: true, body: 'Due this week.', actor: 'garden-agent' })
+    await $.tool.call({ tool: 'mcp__ep0ch__outline_comment', ref: NOTE, whole: true, body: 'Due this week.', actor: 'garden-agent' })
     expect(session.agentRuns().at(-1)!.argv).toContain('garden-agent/claude-code@garden-host')
     // The actor never travels in the JSON: attribution is the CLI flag's.
     expect(JSON.parse(session.agentRuns().at(-1)!.init!.stdin!)).toEqual({ ref: NOTE, whole: true, body: 'Due this week.' })
-    const neither = await $.tool.call({ tool: 'mcp__pi-outliner__outline_comment', ref: NOTE, body: 'Hm.' })
+    const neither = await $.tool.call({ tool: 'mcp__ep0ch__outline_comment', ref: NOTE, body: 'Hm.' })
     expect(neither.deny).toContain('quote')
   })
 
@@ -205,9 +205,9 @@ describe('outline tools', () => {
     const session = sessionIn(on, run => run.argv.includes('work') ? result(0, '{"workId":"PIE-008"}\n') : undefined,
       { OUTLINER_ACTOR: 'cowboy', EP0CH_AGENT: 'loki' })
     await session.begin(() => $.session.start(START))
-    await $.tool.call({ tool: 'mcp__pi-outliner__outline_create', parent: 'root', text: 'Plant garlic' })
+    await $.tool.call({ tool: 'mcp__ep0ch__outline_create', parent: 'root', text: 'Plant garlic' })
     expect(session.agentRuns().at(-1)!.argv).toContain('cowboy/claude-code@garden-host')
-    await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+    await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' })
     const work = session.runs.find(run => run.argv.includes('work'))!
     expect(work.argv.slice(-9)).toEqual(['--author', 'agent', '--actor', 'cowboy/claude-code@garden-host', '--session', 'session-1', '--', 'PIE-8', 'doing'])
   })
@@ -215,7 +215,7 @@ describe('outline tools', () => {
   test('in a folder bound to no outline, outline tools change nothing', async ($, on) => {
     const session = sessionIn(on, () => undefined, {}, '/elsewhere')
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
-    const denied = await $.tool.call({ tool: 'mcp__pi-outliner__outline_read', ref: NOTE })
+    const denied = await $.tool.call({ tool: 'mcp__ep0ch__outline_read', ref: NOTE })
     expect(denied.deny).toContain('not bound to an Outliner outline')
     expect(session.agentRuns()).toEqual([])
   })
@@ -229,24 +229,24 @@ describe('outline_components', () => {
       : undefined)
     await session.begin(() => $.session.start(START))
     expect(session.registered).toContain('outline_components')
-    const all = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components' })
+    const all = await $.tool.call({ tool: 'mcp__ep0ch__outline_components' })
     expect((all as { result: unknown }).result).toBe(BRIEF.trim())
-    const named = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components', components: ['callout'] })
+    const named = await $.tool.call({ tool: 'mcp__ep0ch__outline_components', components: ['callout'] })
     expect((named as { result: unknown }).result).toBe(BRIEF.trim())
     const ran = session.runs.filter(run => run.argv[1] === 'library')
     expect(ran.map(run => run.argv)).toEqual([['ep0ch', 'library', '--brief'], ['ep0ch', 'library', '--brief', 'callout']])
     expect(ran[0]!.init!.cwd).toBe(WORKSPACE)
     expect(ran[0]!.init!.env).toMatchObject({ EP0CH_WS: 'garden' })
-    const bad = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components', components: ['nope'] })
+    const bad = await $.tool.call({ tool: 'mcp__ep0ch__outline_components', components: ['nope'] })
     expect(bad.deny).toContain('no component nope')
-    const shape = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components', components: ['--json'] })
+    const shape = await $.tool.call({ tool: 'mcp__ep0ch__outline_components', components: ['--json'] })
     expect(shape.deny).toContain('components is a list')
   })
 
   test('in a folder bound to no outline it runs nothing', async ($, on) => {
     const session = sessionIn(on, () => undefined, {}, '/elsewhere')
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
-    const denied = await $.tool.call({ tool: 'mcp__pi-outliner__outline_components' })
+    const denied = await $.tool.call({ tool: 'mcp__ep0ch__outline_components' })
     expect(denied.deny).toContain('not bound to an Outliner outline')
     expect(session.runs.filter(run => run.argv[1] === 'library')).toEqual([])
   })
@@ -258,7 +258,7 @@ describe('door tools', () => {
     await session.begin(() => $.session.start(START))
     for (const name of ['door_where', 'door_peek', 'door_act', 'door_open']) expect(session.registered).not.toContain(name)
     for (const name of ['door_where', 'door_peek', 'door_act', 'door_open']) {
-      const denied = await $.tool.call({ tool: `mcp__pi-outliner__${name}`, action: 'layout.get', id: NOTE })
+      const denied = await $.tool.call({ tool: `mcp__ep0ch__${name}`, action: 'layout.get', id: NOTE })
       expect(denied.deny).toContain('No door is reachable from here')
     }
     expect(session.runs.filter(run => run.argv[0] === 'ep0ch').every(run => run.argv[1] === 'where')).toBe(true)
@@ -274,25 +274,25 @@ describe('door tools', () => {
     await session.begin(() => $.session.start(START))
     for (const name of ['door_where', 'door_peek', 'door_act', 'door_open']) expect(session.registered).toContain(name)
 
-    const where = await $.tool.call({ tool: 'mcp__pi-outliner__door_where' })
+    const where = await $.tool.call({ tool: 'mcp__ep0ch__door_where' })
     expect(JSON.parse(String((where as { result: unknown }).result))).toMatchObject({ summary: 'door:4242/desk/t1:claude' })
 
-    const peek = await $.tool.call({ tool: 'mcp__pi-outliner__door_peek' })
+    const peek = await $.tool.call({ tool: 'mcp__ep0ch__door_peek' })
     expect(JSON.parse(String((peek as { result: unknown }).result))).toEqual({ screen: { screen: 'desk', focus: 'middle' }, text: 'DESK  middle: Seed swap plan' })
 
-    await $.tool.call({ tool: 'mcp__pi-outliner__door_act', action: 'block.mark', args: { reason: 'needs your call', line: 3 }, tile: 'middle' })
+    await $.tool.call({ tool: 'mcp__ep0ch__door_act', action: 'block.mark', args: { reason: 'needs your call', line: 3 }, tile: 'middle' })
     const act = session.runs.findLast(run => run.argv[1] === 'act')!
     expect(act.argv).toEqual(['ep0ch', 'act', 'block.mark', 'reason=needs your call', 'line=3', 'tile=middle', '--as', 'loki/claude-code@garden-host'])
     expect(act.init?.env).toEqual({ EP0CH_CONTROL: CONTROL })
 
     // ep0ch reads a value starting with @ as a file: it goes through stdin instead.
-    await $.tool.call({ tool: 'mcp__pi-outliner__door_act', action: 'view.scrollTo', args: { text: '@request tidy' }, actor: 'garden-agent' })
+    await $.tool.call({ tool: 'mcp__ep0ch__door_act', action: 'view.scrollTo', args: { text: '@request tidy' }, actor: 'garden-agent' })
     const at = session.runs.findLast(run => run.argv[1] === 'act')!
     expect(at.argv).toEqual(['ep0ch', 'act', 'view.scrollTo', 'text=@-', '--as', 'garden-agent/claude-code@garden-host'])
     expect(at.init?.stdin).toBe('@request tidy')
 
     // door_open is the same open as a click or `show`: the CLI's door-open from this tile, as the agent.
-    const opened = await $.tool.call({ tool: 'mcp__pi-outliner__door_open', id: `((${NOTE}))` })
+    const opened = await $.tool.call({ tool: 'mcp__ep0ch__door_open', id: `((${NOTE}))` })
     expect(opened).toMatchObject({ result: "Showing Seed swap plan in the door's middle reader." })
     const open = session.runs.find(run => run.argv.includes('door-open'))!
     expect(open.argv.slice(3)).toEqual(['door-open', NOTE, '--control', CONTROL, '--actor', 'loki/claude-code@garden-host', '--from', 'claude'])
@@ -303,12 +303,12 @@ describe('door tools', () => {
       ? result(1, '', 'an agent never moves the person\'s focus while they type; set a mark instead\n')
       : undefined, DOOR)
     await session.begin(() => $.session.start(START))
-    const refused = await $.tool.call({ tool: 'mcp__pi-outliner__door_act', action: 'screen.open', args: { name: 'board' } })
+    const refused = await $.tool.call({ tool: 'mcp__ep0ch__door_act', action: 'screen.open', args: { name: 'board' } })
     expect(refused.deny).toContain("never moves the person's focus")
-    const bad = await $.tool.call({ tool: 'mcp__pi-outliner__door_act', action: 'layout.get', args: { as: 'someone' } })
+    const bad = await $.tool.call({ tool: 'mcp__ep0ch__door_act', action: 'layout.get', args: { as: 'someone' } })
     expect(bad.deny).toContain('not an argument name')
 
-    await $.tool.call({ tool: 'mcp__pi-outliner__door_open', id: '[[Seed Swap]]' })
+    await $.tool.call({ tool: 'mcp__ep0ch__door_open', id: '[[Seed Swap]]' })
     expect(session.runs.find(run => run.argv.includes('resolve'))?.argv.slice(3)).toEqual(['resolve', 'pi-outliner://page/Seed%20Swap'])
     const open = session.runs.find(run => run.argv.includes('door-open'))!
     expect(open.argv.slice(3, 5)).toEqual(['door-open', NOTE])
@@ -320,7 +320,7 @@ describe('door tools', () => {
       ? result(1, '', "error: middle holds an edit; an agent never takes it\nBun v1.3.14 (Linux x64)\n")
       : resolveAnswer(run), { ...DOOR, HERDR_PANE_ID: 'w:p9', HERDR_WORKSPACE_ID: 'w' })
     await session.begin(() => $.session.start(START))
-    const refused = await $.tool.call({ tool: 'mcp__pi-outliner__door_open', id: NOTE })
+    const refused = await $.tool.call({ tool: 'mcp__ep0ch__door_open', id: NOTE })
     expect(refused.deny).toBe(`Could not show ${NOTE}: middle holds an edit; an agent never takes it`)
     expect(session.runs.some(run => run.argv[0] === 'herdr' && run.argv[1] !== 'plugin')).toBe(false)
   })
@@ -396,16 +396,16 @@ describe('tool arguments', () => {
     const session = sessionIn(on, () => undefined)
     await session.begin(() => $.session.start(START))
     const edit = { expectedRevision: 3, append: 'x' }
-    const conflict = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: NOTE, id: THREAD, ...edit })
+    const conflict = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, id: THREAD, ...edit })
     expect(conflict.deny).toContain('Ambiguous')
-    const stage = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', ref: 'PIE-1', item: 'PIE-2', stage: 'doing' })
+    const stage = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', ref: 'PIE-1', item: 'PIE-2', stage: 'doing' })
     expect(stage.deny).toContain('Ambiguous')
-    const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', ref: 'PIE-1', reference: 'PIE-2' })
+    const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', ref: 'PIE-1', reference: 'PIE-2' })
     expect(shown.deny).toContain('Ambiguous')
-    const opened = await $.tool.call({ tool: 'mcp__pi-outliner__show', refrence: 'PIE-1' })
+    const opened = await $.tool.call({ tool: 'mcp__ep0ch__show', refrence: 'PIE-1' })
     expect(opened.deny).toContain('did you mean `ref`?')
     expect(session.runs).toEqual([])
-    const same = await $.tool.call({ tool: 'mcp__pi-outliner__outline_edit', ref: `((${NOTE}))`, id: NOTE, ...edit })
+    const same = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: `((${NOTE}))`, id: NOTE, ...edit })
     expect(same).toMatchObject({ result: ANSWERS.edit })
     expect(session.agentRuns().length).toBe(1)
   })
