@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "readwise",
-  "version": 1,
+  "version": 2,
   "name": "Readwise",
   "description": "Send a note to Readwise Reader, and pull your Readwise and Reader highlights back: onto the note they came from, at the passage, or onto a readwise board.",
   "run": ["bun", "readwise.ts"],

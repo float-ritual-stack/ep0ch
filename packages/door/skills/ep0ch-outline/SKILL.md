@@ -585,7 +585,7 @@ doesn't have the environment variable: the service reads the group when a call s
 - A script is a block with `[script::name]` and a closed `js`, `ts` or `actions` fence, loaded by the extension registry.
 - `tools.*` calls the shared agent tools, such as `tools.outline_comment({ref, whole: true, body})`.
 - `q(query)` calls `outline_find` with the views' query grammar.
-- `read(ref)` calls `outline_read`.
+- `read(ref)` calls `outline_read`: `properties` is `[{ key, values }]` (each key once, a repeat or a `[a, b]` list as several values) and `fields` the line and inline ones.
 - `act(name, args)` calls the door's existing action dispatcher and needs a connected door; use the power bar or a live draft, since saved asks and rules have no door.
 - Run by name in the power bar or `/`, with `slot=value` arguments for slots in an `actions` fence.
 - `[keys::alt+S]` binds a script key; clashes are reported and typing keeps its keys.
