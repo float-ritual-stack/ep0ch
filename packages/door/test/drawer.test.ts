@@ -232,8 +232,8 @@ describe("the drawer", () => {
       d.A.lastInput = 0;
       await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the drawer/);
       await expect(d.app.act({ action: "host.size", args: { share: 0.6 }, as: "claude-7" })).rejects.toThrow(/typing in claude in the drawer/);
-      // Nor move their screen.
-      await expect(d.app.act({ action: "screen.open", args: { name: "S" }, as: "claude-7" })).rejects.toThrow(/typing in the drawer/);
+      // Their screen can still change under the drawer (dispatch.test.ts: typing in the drawer doesn't hold back a screen
+      // change); putting the drawer itself away waits, above.
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 

@@ -61,6 +61,11 @@ export interface ActionDef<A, H> {
   while?: "focused" | "typing";
   /** `touches: "draft"`: what it does to a draft (DraftUse); default `write`. */
   draft?: DraftUse;
+  /**
+   * `touches: "screen"`: it changes the drawer itself (the host layer), so the person typing in the drawer is in its way.
+   * Without it, typing in the drawer never holds back a screen change: the drawer stays over every screen.
+   */
+  host?: true;
   /** Whether a restarted door may run it again by itself (Replay). */
   replay: Replay;
   /**

@@ -281,6 +281,15 @@ describe("the dispatcher, on a fake screen", () => {
     expect(ran.at(-1)).toMatchObject({ tile: "middle", actor: "user" });
   });
 
+  test("typing in the drawer doesn't hold back an agent's screen change: the drawer stays over every screen", async () => {
+    const drawer = fakeScreen({ keys: "host", typingIn: "drawer.agent", busy: true, why: "the person is typing in the drawer", idle: 0 });
+    await drawer.d.act({ action: "go.screen" }, AGENT);
+    expect(drawer.ran.at(-1)).toMatchObject({ actor: "agent" });
+    // Typing on the screen itself still holds a screen change back.
+    const onScreen = fakeScreen({ keys: "screen", typingIn: "middle", busy: true, why: "the person is typing in middle", idle: 0 });
+    await expect(onScreen.d.act({ action: "go.screen" }, AGENT)).rejects.toThrow("the person is typing in middle; not moved");
+  });
+
   test("expected= is checked against the layout's revision before anything runs", async () => {
     const { d, ran, bump } = fakeScreen();
     await d.act({ action: "go.shape", args: { expected: 7 } }, USER);

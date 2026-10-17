@@ -661,7 +661,7 @@ export class AgentDrawer {
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     return {
       actor, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
-      person: { focus: this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen" }, actor, this.host.person(), {}) } : {}) },
+      person: { focus: this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen", host: true }, actor, this.host.person(), {}) } : {}) },
     };
   }
   /** One operation on the host layer, for `actor`: its new state and where the keys are now, or the refusal thrown. */
@@ -1445,7 +1445,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "host.toggle": def({
     summary: "pull the drawer (the host layer's drawer; its own program the first tab) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",
     keys: "alt+a, a click on the ▲ claude chip in the status bar; Esc (or ctrl+] then Esc) puts it away",
-    touches: "screen", replay: "safe",
+    touches: "screen", host: true, replay: "safe",
     says: out => ({ text: `· ${out.open ? "pulled up" : "put away"} the drawer`, ms: 6000 }),
     args: { open: { type: "boolean", optional: true, about: "true pulls it up, false puts it away; left out, it toggles" } },
     run({ open }, { drawer }, actor) {
