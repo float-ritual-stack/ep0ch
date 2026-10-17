@@ -188,6 +188,9 @@ function backlinkSource(
 }
 
 /** Every reference in one source block, in order, with the block it points at (undefined: nothing in this outline). */
+/** Machinery (a script's run note, a toss, a receipt) is what a tool wrote for its own bookkeeping: its links are no backlinks. */
+const isMachinerySource = (source: Block) => source.properties.some((property) => property.key === MACHINE_KEY && property.value.trim() !== "");
+
 function sourceOccurrences(
   source: Block,
   addressTargets: ReadonlyMap<string, string>,
@@ -195,8 +198,6 @@ function sourceOccurrences(
   ticketPrefixes: TicketPrefixes = workIdPrefix,
 ): (BacklinkRelationOccurrence & { target: string | undefined })[] {
   const propertyRecords = parsePropertyRecords(source.text);
-  // Machinery (a script's run note, a toss, a receipt) is what a tool wrote for its own bookkeeping, not a link anyone chose.
-  if (propertyRecords.some((record) => record.scope === "block" && record.key === MACHINE_KEY && record.value.trim() !== "")) return [];
   return [
     ...outlinerReferenceOccurrences(source.text, ticketPrefixes, propertyRecords),
     ...propertyReferenceOccurrences(source.text, propertyRecords),
@@ -215,7 +216,7 @@ export function backlinkSourceIds(
 ): Map<string, string[]> {
   const out = new Map<string, string[]>([...targets].map((id) => [id, []]));
   for (const source of input.orderedBlocks) {
-    if (source.effectiveDeletedRootId) continue;
+    if (source.effectiveDeletedRootId || isMachinerySource(source)) continue;
     const linked = new Set(sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes).map((o) => o.target));
     for (const target of linked) if (target && targets.has(target)) out.get(target)!.push(source.id);
   }
@@ -248,6 +249,7 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
   const matches: BacklinkSource[] = [];
   for (const source of input.orderedBlocks) {
     if (source.effectiveDeletedRootId && !query.includeDeleted) continue;
+    if (isMachinerySource(source)) continue;
     const occurrences = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes)
       .filter((occurrence) => occurrence.target === input.target.id);
     if (occurrences.length === 0) continue;

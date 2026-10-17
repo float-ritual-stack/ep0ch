@@ -7,7 +7,7 @@ import type { ExtensionWrites } from "./extension-writes";
 import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { PRIMITIVE_TYPES, renderComponent, validateComponent } from "./component-primitives";
-import { readBlockRecords } from "./block-records";
+import { textRecord } from "./block-records";
 import { answerSite } from "./site-answer";
 import { scriptFence } from "./script-sources";
 import { MAX_DEADLINE_MS } from "./extension-manifest";
@@ -71,9 +71,10 @@ export class ScriptRuns {
    * service's one resolver (`answerSite`), so a path means what it means in `{{ }}`.
    */
   private bind(source: ScriptSource, input: { blockId?: string; line?: number; trigger?: boolean; props: Record<string, string[]> }, onRead?: (ids: readonly string[]) => void): SiteBinding {
+    // The note's own text as a record (properties, fields, header, tasks); `read()` is the full record, links and backlinks too.
     const record = (id: string | undefined) => {
       const block = id ? this.store.get(id) : null;
-      return block && !block.effectiveDeletedRootId ? readBlockRecords(this.store, [block.id]).records[0] : undefined;
+      return block && !block.effectiveDeletedRootId ? textRecord(block) : undefined;
     };
     const here = record(input.blockId);
     const own = record(source.blockId);
@@ -156,7 +157,7 @@ export class ScriptRuns {
       } catch (error) { finish(); throw error; }
     };
     this.captures.set(undo, { actor, run: captured });
-    const log = captured(() => this.store.create(lines.join("\n"), source.blockId ?? request.blockId ?? null, actor.author,
+    const log = captured(() => this.store.create(lines.join("\n"), source.blockId ?? null, actor.author,
       actor.author === "agent" ? { actorId: actor.actorId ?? "agent", sessionId: undo, taskId: actor.taskId } : undefined));
     const update = () => captured(() => {
       const now = this.store.require(log.id);

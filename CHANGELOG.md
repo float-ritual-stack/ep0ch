@@ -26,8 +26,10 @@ What changes for a script: it knows which note asked, takes slots, draws in plac
   line is a one-line render-mode script. The kitchen sink has a "Scripts in place" section.
 - **Running.** A script that writes into its own note keeps running (only an edit of its code ends a run). `wait(ms)` is
   bounded by the script's deadline (`[deadline::2m]`, five minutes at most). `script.stop run=<id>` (`scripts.stop`)
-  ends one run. A run note is machinery (`[machine::script]`) and counts for no backlink; any note stamped
-  `[machine::…]` now counts for none.
+  ends one run. A run note is machinery (`[machine::script]`): lists, queries and what-changed leave it out by default, and
+  it counts for no backlink. The backlink relation now leaves out every note stamped `[machine::…]` as a source
+  (deliveries, tosses, receipts too); `links:` and `linkedfrom:` are unchanged. An action run now stops at five
+  minutes unless the script says `[deadline::…]` (it was unbounded).
 - Wire: `site.answer` takes `self` and `caller`; new service action `scripts.stop`. No `PROTOCOL` bump of its own.
 
 ### The Site: one read for what a note says about itself (PIE-951, third slice of PIE-533)

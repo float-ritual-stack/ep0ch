@@ -497,6 +497,12 @@ export class ExtensionCalls {
     return hash.digest("hex").slice(0, 32);
   }
 
+  private watchQueries(reader: string): void {
+    this.queryReaders.delete(reader);
+    this.queryReaders.add(reader);
+    if (this.queryReaders.size > MAX_WATCHED) this.queryReaders.delete(this.queryReaders.values().next().value!);
+  }
+
   /** `reader`'s lines read block `id`: a change to it runs those lines again if what they read is different. */
   private watching(id: string, reader: string): void {
     const readers = this.named.get(id) ?? new Set<string>();
@@ -702,7 +708,7 @@ export class ExtensionCalls {
     if (request.stamp !== extension.stamp) return true;
     if (request.reads.some((read: { id?: unknown; revision?: unknown }) => typeof read?.id === "string" && this.revisionOf(read.id) !== (read.revision ?? null))) return true;
     const queries = (Array.isArray(request.queries) ? request.queries : []) as { query?: unknown; limit?: unknown; ids?: unknown }[];
-    if (queries.length) this.queryReaders.add(block.id);
+    if (queries.length) this.watchQueries(block.id);
     return queries.some(q => {
       if (typeof q.query !== "string" || !Array.isArray(q.ids)) return false;
       try {
@@ -758,7 +764,7 @@ export class ExtensionCalls {
       if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result });
       // A note it read changes the line's output: its change comes back here (`inputChanged`).
       for (const read of reads ?? []) this.watching(read.id, block.id);
-      if (queries?.length) this.queryReaders.add(block.id);
+      if (queries?.length) this.watchQueries(block.id);
       this.state.delete(key);
       // A note it read changed while it ran: what it drew is already out of date.
       if (reads?.some(read => this.revisionOf(read.id) !== read.revision)) void this.materialize(block.id, "open").catch(() => {});
@@ -1028,7 +1034,8 @@ export class ExtensionCalls {
     if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
     const action = this.registry.action(extension.id, request.action);
     if (!action) throw new Error(`${extension.name} has no action ${request.action}`);
-    if (extension.script) return this.options.script!(extension, request);
+    // A script runs; its built-in `keep` (a render line's output kept as blocks) is the host's, not a run.
+    if (extension.script && !action.builtIn) return this.options.script!(extension, request);
     if (action.on === "passage") return this.actOnPassage(extension, action, request);
     if (request.passage) throw new Error(`${action.name} acts on ${action.on ?? "a block"}, not a passage`);
     const block = request.blockId ? this.store.get(request.blockId) : null;

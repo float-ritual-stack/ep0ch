@@ -228,3 +228,16 @@ test("stop refuses a run's next call, and a script run on its own note has that 
   expect(own.text.split("\n").pop()).toBe("Own");
   expect(looper.id).toBeTruthy();
 });
+
+test("keep on a render line writes its output as a note and starts no run", async () => {
+  const { store, client, create, output } = await setup();
+  const script = create("Kept words [script::kept-words] [mode::render]\n```js\nreturn 'sow the peas';\n```");
+  const note = create("Plan\nkept-words::");
+  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await until("drawn", () => output(note.id)[0]);
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  const extension = listed.extensions.find(e => e.name === "kept-words")!;
+  await client.request({ action: "extensions.act", extension: extension.id, extensionAction: "keep", blockId: note.id, line: 1 });
+  expect(store.children(note.id).map(c => c.text).join("\n")).toContain("sow the peas");
+  expect(store.children(script.id)).toHaveLength(0);
+});
