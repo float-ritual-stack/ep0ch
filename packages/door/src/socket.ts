@@ -135,7 +135,7 @@ export interface Change {
   sequence: number; changeId: number; action: string;
   kind: "create" | "edit" | "move" | "delete" | "restore" | "purge" | "annotate" | "draft" | "reorder" | "other";
   blockId?: string; parentId?: string | null; previousParentId?: string | null;
-  revision?: number; deleted?: boolean; actor?: { author?: string; actorId?: string };
+  revision?: number; deleted?: boolean; actor?: { author?: string; actorId?: string; taskId?: string };
   /** Who asked for it when that isn't its writer: an extension's action (`actor` `ext:<id>`) run for the person or an agent. */
   requestedBy?: { author?: string; actorId?: string };
   /** An edit that moved only `[key::value]` tokens: the words are as they were. */

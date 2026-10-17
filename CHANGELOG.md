@@ -285,7 +285,7 @@ can be applied or dismissed, an `@name` line that waits for a person's `r` is re
 dropped-structure guard lets the edit through. The service holds yolo for the door that set it: close, restart or lose
 the door and it's off. A second door on the outline shows the red **YOLO** too, and `ep0ch where` and
 `ep0ch mcp access` say it. Still true in yolo: every write is attributed to the agent, revisions are checked and undo
-works. ADR 0005 says why this is the person's choice and not an outline setting. Protocol bump.
+works, and a write made in yolo says so in its record (`taskId` `via:yolo`, in `activity.recent`). ADR 0005 says why this is the person's choice and not an outline setting. Protocol bump.
 
 ### Yolo: hand the door to your agents
 

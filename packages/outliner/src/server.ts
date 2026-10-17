@@ -52,6 +52,7 @@ import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
 import { Yolo } from "./yolo";
+import { yoloTask } from "@ep0ch/outline-core/attribution";
 import { BUILT_IN_EXTENSIONS, ExtensionRegistry, extensionRoots } from "./extension-registry";
 import { ExtensionPages } from "./extension-pages";
 import { addExtension, removeExtension } from "./extension-install";
@@ -1868,6 +1869,7 @@ export class OutlinerServer {
     subscribedClient?: OutlinerClientRegistration,
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
+    request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (request.action === "scripts.stop") {
       try {
@@ -4114,6 +4116,18 @@ export class OutlinerServer {
       if (this.yolo.set(request.clientId)) this.announceYolo();
     } else if (this.yolo.clear()) this.announceYolo();
     return { yolo: this.yolo.on };
+  }
+
+  /**
+   * While yolo is on, an agent's request says so in its own record: `via:yolo` on the mutation's (or a new block's)
+   * task id (outline-core attribution.ts). Author and actor id stay the agent's.
+   */
+  private viaYolo<T extends OutlinerRequest>(request: T): T {
+    if (!this.yolo.on) return request;
+    const r = request as unknown as { mutation?: { author?: string; taskId?: string }; author?: string; provenance?: { taskId?: string } };
+    const mutation = r.mutation && typeof r.mutation === "object" && r.mutation.author === "agent" ? { mutation: { ...r.mutation, taskId: yoloTask(r.mutation.taskId) } } : {};
+    const provenance = r.author === "agent" && r.provenance && typeof r.provenance === "object" ? { provenance: { ...r.provenance, taskId: yoloTask(r.provenance.taskId) } } : {};
+    return Object.keys(mutation).length || Object.keys(provenance).length ? { ...request, ...mutation, ...provenance } : request;
   }
 
   private announceYolo(): void {

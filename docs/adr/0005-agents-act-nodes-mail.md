@@ -37,7 +37,8 @@ land in pie unless pie let every MCP agent write directly. The gateway's netmail
   either. It lives in the service's memory, held by the connection that set it, so a door that ends or restarts takes it
   with it. Only a person's door turns it on (an agent's request is refused); any door can turn it off. What it never
   lifts is how a change is *recorded*: the write is still `author: agent` with its actor id, revisions still check,
-  undo still works. Yolo is the person's choice, made in a door they are sitting at; it is not a knob an outline
+  undo still works. A write made while yolo is on says so in its own record: `taskId` carries `via:yolo` (after any task
+  it had), so activity reads show the agent acted with the person's permission. Nobody's identity is faked. Yolo is the person's choice, made in a door they are sitting at; it is not a knob an outline
   keeps.
 - **A node never writes another outline's blocks.** It hands over a packet (copies for the subscriptions that name it,
   netmail, seen-by marks) and picks up its own. The receiving outline's tosser imports the packet, writing as itself,

@@ -32,7 +32,11 @@ async function service() {
     await connected.promise;
     return { clientId, heard, leave: () => watcher.stop() };
   };
-  return { store, client, door };
+  /** What agents did to a block, from the activity record (author, actor id, task id). */
+  const activity = async (blockId: string) => (await client.request<{ entries: Array<{ block: { id: string }; actorId?: string; taskId?: string }> }>({
+    action: "activity.recent", since: "2000-01-01T00:00:00.000Z", author: "agent", limit: 100, kinds: ["text", "properties", "move", "delete", "restore"],
+  })).entries.filter(entry => entry.block.id === blockId);
+  return { store, client, door, activity };
 }
 
 const spanOf = (text: string, observed: string, replacement: string): DraftPatchSpan => {
@@ -56,7 +60,7 @@ describe("yolo in the service", () => {
   });
 
   test("an agent dismisses another agent's proposal while it is on, and is refused once it is off or the door is gone", async () => {
-    const { store, client, door } = await service();
+    const { store, client, door, activity } = await service();
     const dismiss = (proposalId: string) => client.request({ action: "draft.proposal.dismiss", proposalId, mutation: OTHER });
     const propose = async (text: string) => {
       const note = store.create(`Plan\n${text}\n@tidy go`);
@@ -70,9 +74,8 @@ describe("yolo in the service", () => {
     const mine = await door("door-a");
     await client.request({ action: "agents.yolo", clientId: mine.clientId, on: true });
     expect(await dismiss(first)).toMatchObject({ outcome: "dismissed" });
-    // Still attributed to the agent who did it.
-    const feed = await client.request<{ changes: Array<{ blockId?: string; actor?: { author: string; actorId?: string } }> }>({ action: "changes.since", sequence: 0 });
-    expect(feed.changes.filter(change => change.blockId === first).at(-1)?.actor).toMatchObject({ author: "agent", actorId: "other-agent" });
+    // Still the agent's, and the record says whose permission it used.
+    expect(await activity(first)).toEqual(expect.arrayContaining([expect.objectContaining({ actorId: "other-agent", taskId: "via:yolo" })]));
 
     // The person takes it back: refused again.
     const second = await propose("beans    there");
@@ -109,7 +112,7 @@ describe("yolo in the service", () => {
   });
 
   test("an agent applies a proposal that only the person may apply (a prose edit that drops structure), still as the agent", async () => {
-    const { store, client, door } = await service();
+    const { store, client, door, activity } = await service();
     const note = store.create("Beds [season::spring]\nThe fence bed holds the beans.");
     const proposed = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, "Beds [season::spring]", "Beds")], policy: "prose", mutation: TIDY });
     if (proposed.outcome !== "proposed") throw new Error("expected a proposal");
@@ -119,12 +122,11 @@ describe("yolo in the service", () => {
     await client.request({ action: "agents.yolo", clientId: mine.clientId, on: true });
     expect(await apply()).toMatchObject({ outcome: "applied" });
     expect(store.require(note.id).text).toBe("Beds\nThe fence bed holds the beans.");
-    const feed = await client.request<{ changes: Array<{ blockId?: string; kind: string; actor?: { author: string; actorId?: string } }> }>({ action: "changes.since", sequence: 0 });
-    expect(feed.changes.filter(change => change.blockId === note.id && change.kind === "edit").at(-1)?.actor).toMatchObject({ author: "agent", actorId: "other-agent" });
+    expect(await activity(note.id)).toEqual(expect.arrayContaining([expect.objectContaining({ actorId: "other-agent", taskId: "via:yolo" })]));
   });
 
   test("the guard on dropped structure lets an agent's patch through, still written as the agent's", async () => {
-    const { store, client, door } = await service();
+    const { store, client, door, activity } = await service();
     const page = store.create("Beds [page::beds]\nThe fence bed holds the beans. ^fence");
     store.create(`Plan\nsee ((${page.id}^fence))`);
     const patches = [spanOf(page.text, "beans. ^fence", "beans.")];
@@ -133,7 +135,6 @@ describe("yolo in the service", () => {
     await client.request({ action: "agents.yolo", clientId: mine.clientId, on: true });
     await client.request({ action: "draft.patch", blockId: page.id, revision: page.revision, patches, mutation: TIDY });
     expect(store.require(page.id).text).toBe("Beds [page::beds]\nThe fence bed holds the beans.");
-    const feed = await client.request<{ changes: Array<{ blockId?: string; kind: string; actor?: { author: string; actorId?: string } }> }>({ action: "changes.since", sequence: 0 });
-    expect(feed.changes.filter(change => change.blockId === page.id && change.kind === "edit").at(-1)?.actor).toMatchObject({ author: "agent", actorId: "tidy" });
+    expect(await activity(page.id)).toEqual(expect.arrayContaining([expect.objectContaining({ actorId: "tidy", taskId: "via:yolo" })]));
   });
 });

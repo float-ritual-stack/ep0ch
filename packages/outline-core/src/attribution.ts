@@ -24,6 +24,15 @@
 // older write, a person's, a CLI's) has no call.
 // Pure: no I/O.
 
+// A write the service let through because the person's door had yolo on (PIE-973) keeps its actor and its `author:
+// agent`, and its `taskId` says so: `via:yolo`, after any task it already had (`trigger:script:x+via:yolo`). It is a
+// record of whose permission the agent used, never a second identity.
+export const VIA_YOLO = "via:yolo";
+/** A task id with the yolo mark added once. */
+export const yoloTask = (taskId: string | undefined | null): string => !taskId ? VIA_YOLO : isViaYolo(taskId) ? taskId : `${taskId}+${VIA_YOLO}`;
+/** Whether a task id carries the yolo mark. */
+export const isViaYolo = (taskId: string | undefined | null): boolean => taskId === VIA_YOLO || !!taskId?.endsWith(`+${VIA_YOLO}`);
+
 const NAME = "[A-Za-z0-9][A-Za-z0-9._-]";
 export const PERSONA_PATTERN = new RegExp(`^${NAME}{0,63}$`);
 export const PRINCIPAL_PATTERN = new RegExp(`^${NAME}{0,63}(@${NAME}{0,31})?$`);

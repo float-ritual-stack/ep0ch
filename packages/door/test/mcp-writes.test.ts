@@ -519,6 +519,17 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       expect((await editsBy(here, "pond-notes", ids.frogs!)).length).toBeGreaterThan(0);
     } finally { await door.setAgentsYolo(false); }
     expect((await patchTo("Ten")).json.outcome).toBe("proposed");
+    // The mod's and MCP's outline_proposal_dismiss: refused at propose, and for another agent's proposal; both lift while yolo is on.
+    const pond = boardOn(here, "pond-notes", HERE);
+    const note = await pond.request<any>("create", { parentId: null, text: "Reeds\nTall and green.", author: "user" });
+    const theirs = await pond.request<any>("draft.patch", { blockId: note.id, revision: note.revision, patches: [{ observed: "Tall", replacement: "Short" }], propose: "always", mutation: { author: "agent", actorId: "other-agent" } });
+    const dismissUri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: theirs.proposalId });
+    const refusedDismiss = await tool("outline_proposal_dismiss", { uri: dismissUri });
+    expect(refusedDismiss.isError).toBe(true);
+    expect(refusedDismiss.text).toContain("needs full access");
+    await door.setAgentsYolo(true);
+    try { expect((await tool("outline_proposal_dismiss", { uri: dismissUri })).json.outcome).toBe("applied"); }
+    finally { await door.setAgentsYolo(false); }
     await boardOn(here, "pond-notes", HERE).request("update", { blockId: ids.frogs!, text: "Frog count [page::Frog Count]\nTwelve at dusk by the reeds.", expectedRevision: (await textOf(here, "pond-notes", HERE, ids.frogs!)).revision, mutation: { author: "user" } });
   });
 
