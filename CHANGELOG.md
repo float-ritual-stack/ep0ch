@@ -296,7 +296,7 @@ binding) were stored under the old name and start fresh. The Herdr plugin id `fl
 A figure, table or list with the cursor keeps its amber tint (the container has the keys). The row the cursor is on
 inside it is now a blue band with a bar at its left edge, so the bullet changing colour is no longer the only sign.
 Every selectable list draws its cursor row in the same band: the outline, the links and query tiles, the river, the
-board's cards, the thread and step panels. The band is a theme value (`item` in `src/theme.ts`) in calm, night and
+board's cards, the thread and step panels. The band is a theme value (`focus` in `src/theme.ts`) in calm, night and
 classic, dark (no bright fill), and every text colour reads on it at 4.5:1 or better (checked from the theme's own
 values). `ep0ch --showcase` has a "focus" section.
 

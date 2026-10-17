@@ -56,10 +56,10 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       const other = rows[rows.indexOf(cursor) - 1]!;
       expect(cursor, name).toBeDefined();
       // Item focus: the row's band and its bar; the figure's other rows wear the container's tint only.
-      expect(cursor).toContain(rgb(t.item.bg));
-      expect(cursor).toContain(`38;2;${t.item.bar.join(";")}m▌`);
-      expect(other).not.toContain(rgb(t.item.bg));
-      expect(other).toContain(rgb(t.tint.ruler));
+      expect(cursor).toContain(rgb(t.focus.item.bg));
+      expect(cursor).toContain(`38;2;${t.focus.item.bar.join(";")}m▌`);
+      expect(other).not.toContain(rgb(t.focus.item.bg));
+      expect(other).toContain(rgb(t.focus.container));
       for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     }
     (app as any).lastInput = 0;
