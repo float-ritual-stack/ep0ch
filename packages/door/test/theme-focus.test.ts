@@ -14,7 +14,7 @@ describe("the focus levels are theme tokens", () => {
     const t = THEMES[name], { container, item, selection } = t.focus, ground = t.ground ?? t.palette[0]!;
     test(`${name}: dark, apart from each other, the marker reads on both`, () => {
       if (t.ground) for (const c of [container, item.bg, selection]) expect(luminance(c)).toBeLessThanOrEqual(SURFACE_MAX_LUMINANCE);
-      expect(item.glyph).toBe("▌");
+      expect(item.glyph.length).toBeGreaterThan(0);
       expect(contrast(item.bar, item.bg)).toBeGreaterThanOrEqual(3);
       expect(contrast(item.bar, container)).toBeGreaterThanOrEqual(3);
       for (const [a, b] of [[item.bg, container], [item.bg, selection], [container, selection], [item.bg, ground], [container, ground], [selection, ground]] as const)

@@ -43,7 +43,7 @@ export interface Theme {
     idleRow: Rgb;
   };
   /**
-   * The three levels of "this one" (PIE-969), apart from each other and from the ground, each under every text colour at
+   * The three levels of "this one" (PIE-969), apart from each other and from the ground, each, in themes with a ground of their own (calm, night), under every text colour at
    * 4.5:1 (test/theme-focus.test.ts):
    * - `container`: the tint under the figure, table or block the cursor is in (PIE-441's reading ruler; the tile's frame
    *   is `edge.focus`).
