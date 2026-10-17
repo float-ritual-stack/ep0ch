@@ -173,6 +173,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   draft?: () => string | null;
   /** The agent says it was invited into the draft (`invitation=`, for an action that takes one): the draft rule checks it. */
   invited?: boolean;
+  /** The action asked for, by name: a press's invitation lifts a hold on navigation for layout and tile actions only, never for leaving the section. */
+  action?: string;
 }): string | null {
   if (actor.kind !== "agent") return null;
   // Yolo: the person handed the door to their agents, so none of the rules below (theirs) holds an agent back.
@@ -212,7 +214,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself
       // (`host`, putting it away) still waits for them.
       if (where.keys === "host" && !def.host) return null;
-      if (where.busy) return `${where.why ?? "the person is typing"}; not moved`;
+      // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
+      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && INVITES.covers(actor.invitation, "screen", actor.run))) return `${where.why ?? "the person is typing"}; not moved`;
       // The person's press invited this run (src/surface/invite.ts): it may move their tiles though they pressed a moment ago,
       // but never while they are typing (above): the invitation lifts "at the keys", nothing else.
       if (INVITES.covers(actor.invitation, "screen", actor.run)) return null;
@@ -459,7 +462,7 @@ export class Dispatcher {
     const invitation = reg.set.argsOf(name)?.invitation && typeof args.invitation === "string" ? args.invitation : undefined;
     // A tile the action acts on (its kind's, or one named) limits an agent; the screen's own action, given none, only reads the focus.
     const agents = at.tile?.agents && (reg.takes === "tile" || at.name !== undefined) ? at.tile.agents : undefined;
-    return actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, ...(agents ? { gate: { action: name, agents } } : {}), invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
+    return actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, action: name, ...(agents ? { gate: { action: name, agents } } : {}), invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
   }
 
   /**

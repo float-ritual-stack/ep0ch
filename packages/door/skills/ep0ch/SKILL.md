@@ -201,13 +201,13 @@ yourself (path 1): `/exit`, then `claude --continue`.
 
 - **Layout history and transactions** (PIE-957). Every change to a screen's shape is one entry in a history kept for every
   actor; `layout.undo` takes the newest back (yours only, if you are an agent: it says who changed the layout since and
-  refuses to undo over them). Any action takes the dispatcher's own `txn=<id>` (and `motion=<style>`, with a `txn`): its
+  refuses to undo over them). Any action takes the dispatcher's own `txn=<id>` (and `motion=<style>`, alone a hint for that one action): its
   layout changes join one entry that stays open until `layout.txn.end txn=<id>` (or a minute idle); `layout.undo
   txn=<id>` takes the whole transaction back. A script's run is one already. A person's press of a button (`::button`,
   `[label](act: …)`, a view's `button`) runs an action line as them: `element.open n=<its element>` presses it as you, in
   another reader than the one they have; a layout change you make glides (`motion=fantasia` on an action in a transaction asks for
   the wandering path; `settle` or none is the plain ease) unless the person's `motion.set` is calm or off, which caps your hint;
-  `peek` and `layout.get` always read the settled layout; a script `act()` with no door refused names the doors (`door=<client>` picks one).
+  `peek` and `layout.get` always read the settled layout; `layout.stop` (the person's Esc while a script run is rearranging the screen) stops the run and puts its layout changes back; a script `act()` with no door refused names the doors (`door=<client>` picks one).
 - **The drawer** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
   share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `tile.drawer tile=<t>`
   moves a tile into it whole (its program keeps running), `tile.drawer on=false tile=<t> to=<tile> where=<side>` back

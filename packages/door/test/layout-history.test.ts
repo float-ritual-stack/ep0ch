@@ -62,6 +62,17 @@ describe("a press's invitation (PIE-957)", () => {
     INVITES.spendRun("run-1");
     expect(actorRule(def, invited(id, "run-1"), where({}), {})).toContain("at the keys");
   });
+
+  test("a hold on navigation (the showcase's sections) is lifted for layout and tile actions only: an invited run can't leave the section", () => {
+    const id = INVITES.mint("you");
+    INVITES.bind(id, "run-9");
+    const held = where({ busy: true, navHold: true, why: "the person is in section 3; sections change from the index" });
+    expect(actorRule({ touches: "screen" }, invited(id, "run-9"), held, { action: "layout.load" })).toBeNull();
+    expect(actorRule({ touches: "screen" }, invited(id, "run-9"), held, { action: "tile.focus" })).toBeNull();
+    expect(actorRule({ touches: "screen" }, invited(id, "run-9"), held, { action: "section" })).toContain("sections change");
+    // A real hold (typing, the power bar) is not a hold on navigation: the invitation lifts nothing there.
+    expect(actorRule({ touches: "screen" }, invited(id, "run-9"), where({ busy: true, why: "the person is typing" }), { action: "layout.load" })).toContain("typing");
+  });
 });
 
 describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments, on the desk", () => {
@@ -119,7 +130,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
   test("txn=<id> and motion=<style> are open to every action; motion needs a txn; a bad id is refused with the shape", async () => {
     await act("tile.focus", { txn: "t-open" }, names()[0]);
     await act("tile.focus", { txn: "t-open", motion: "fantasia" }, names()[0]);
-    await expect(act("tile.focus", { motion: "fantasia" }, names()[0])).rejects.toThrow("motion= is part of a transaction");
+    await act("tile.focus", { motion: "fantasia" }, names()[0]);   // alone it is a hint for that one action
     await expect(act("tile.focus", { txn: "bad id!" }, names()[0])).rejects.toThrow("txn= is an id");
   });
 
@@ -240,6 +251,22 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     expect(D().history.entriesOf("run-e")).toHaveLength(1);
     D().endTxn("run-e", "stopped", { kind: "agent", id: AS });
     expect(names().sort()).toEqual(before.sort());
+  });
+
+  test("an early end never rebuilds the layout under what the person is typing", async () => {
+    const before = names();
+    const [x] = before.filter(n => n !== D().layoutGet().focus) as [string];
+    await act("tile.close", { txn: "run-g" }, x);
+    const holds = D().holdsKeys;
+    D().holdsKeys = () => true;
+    try {
+      const r = D().endTxn("run-g", "stopped", { kind: "agent", id: AS }) as { putBack: boolean; left?: string };
+      expect(r.putBack).toBe(false);
+      expect(r.left).toContain("you are typing");
+      expect(names()).not.toContain(x);
+    } finally { D().holdsKeys = holds; }
+    await person("layout.undo");
+    expect(names()).toContain(x);
   });
 
   test("an early end puts back what it can: a change the person made since stops it, and the screen says what is left", async () => {

@@ -595,11 +595,19 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.undo": def({
     summary: "take back the newest change to this screen's layout, from the one history every actor's changes go in (a move, a close, a float, a load; a script's run is one entry, a transaction): the screen is rebuilt as it was before it, tiles kept by name, the lock and the tile you type in holding. Yours takes back the newest; an agent's takes back its own newest only, and both are refused with who changed the layout since (\"undo that first\"). txn=<id> takes back that transaction",
     keys: "ctrl+z when a reader has nothing of its own to undo and the layout changed after the last trash; the tile menu's row",
-    touches: "screen", replay: "ask", confirms: true,
+    touches: "shape", replay: "ask", confirms: true,
     says: (r: { what: string; steps: number }) => `put the layout back · ${r.steps > 1 ? `${r.steps} steps` : r.what}`,
     menu: { label: "undo the last layout change", group: SCREEN, key: "ctrl+z", now: ({ d }: On) => (d.history.size ? null : { hide: true }) },
     args: {},
     run: (_a, { d }: On, actor: Actor) => d.undoLayout(actor, TXN.getStore()?.txn),
+  }),
+  "layout.stop": def({
+    summary: "stop the script run that is rearranging this screen (a dance in flight): scripts.stop on it, and the layout it changed is put back, as far as nobody changed it since. The person's Esc does this while a run is moving the screen, and only then (a draft, an overlay, a ^W command or a drag keep their Esc)",
+    keys: "esc while a script run is rearranging the screen",
+    touches: "shape", replay: "ask", says: (r: { stopped: string[] }) => (r.stopped.length ? "stopped the dance" : "nothing to stop"),
+    menu: { label: "stop the script rearranging this screen", group: SCREEN, key: "esc", now: ({ d }: On) => (d.runningScripts().length ? null : { hide: true }) },
+    args: {},
+    run: (_a, { d }: On, actor: Actor) => d.stopRuns(actor),
   }),
   "layout.txn.end": def({
     summary: "close the layout transaction txn=<id> (txn= opens one on the first action that carries it, for any actor; a script's run is its own, closed when it ends): it stays as the settled state and says once how many changes it made, with ctrl+z to put them back. layout.undo txn=<id> takes it back whole",

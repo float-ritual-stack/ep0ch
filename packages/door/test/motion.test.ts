@@ -173,6 +173,29 @@ describe.skipIf(!outliner)("the desk draws a layout change as motion, and the se
     D().history.close("m-calm");
   });
 
+  test("putting floats back (an undo) draws every tile in each frame: none vanishes between the floats and the layout", async () => {
+    mode("full");
+    D().settle();
+    frame();
+    const focus = D().layoutGet().focus;
+    const ours = names().filter(n => n !== focus).slice(0, 3);
+    for (const n of ours) await act("tile.float", { on: true, txn: "m-back", motion: "fantasia" }, n);
+    now += 5000; desk.tick(); frame();                         // landed as floats
+    const withFloats = names().length;
+    await act("layout.undo", { txn: "m-back" });
+    expect(D().moving).toBe(true);
+    // Every frame between the floats and the layout is a screen of tiles, not a sparse one: its ink never drops far from the
+    // settled screen's (a tile vanishing for a frame would be a flash).
+    const ink = (lines: string) => [...lines.replace(/\x1b\[[\d;]*m/g, "")].filter(c => c !== " " && c !== "\n").length;
+    const frames: number[] = [];
+    for (const dt of [0, 40, 120, 300, 700, 1200]) { now += dt; frames.push(ink(frame())); }
+    D().settle();
+    const settledInk = ink(frame());
+    for (const f of frames) expect(f).toBeGreaterThan(settledInk * 0.6);
+    expect(names().length).toBe(withFloats);
+    D().history.close("m-back");
+  });
+
   test("a transition draws only frames and names while it moves: no styles that blink, invert or fade", async () => {
     mode("full");
     D().settle();

@@ -24,6 +24,7 @@ import { lastTrashed } from "../note-trash";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
+import { INVITES } from "../surface/invite";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
@@ -164,7 +165,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * change recorded and not yet laid out (the next paint knows where the tiles are now); `transition` is one running. They
    * are paint only: the layout, `peek`, `viewState` and a snapshot read the settled state, and the first key or click settles it.
    */
-  private pendingMotion: { from: Map<number, Rect>; plan: MotionPlan } | null = null;
+  private pendingMotion: { from: Map<number, Rect>; plan: MotionPlan; floated: Set<number> } | null = null;
   private transition: Transition | null = null;
   /** The clock motion runs on (a test injects its own). */
   clock: () => number = () => Date.now();
@@ -578,7 +579,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
       actor, area: this.area, tile: id => this.facts(id, actor),
-      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, {}), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
+      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}), ...(actor.kind === "agent" && INVITES.covers(actor.invitation, "screen", actor.run) ? { invited: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
   }
@@ -624,9 +625,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private recordChange(before: LayoutSpec, by: Actor, what: string) {
     if (this.replaying) return;
     const scope = TXN.getStore(), now = Date.now();
-    if (scope) this.history.join(scope.txn, by, before, now, scope.motion);
+    if (scope?.txn) this.history.join(scope.txn, by, before, now, scope.motion);
+    if (scope?.txn && by.kind === "agent" && by.id.startsWith("script:") && !this.announced.has(scope.txn)) { this.announced.add(scope.txn); this.ctx?.flash(`${by.id.slice(7)} is rearranging the screen · esc stops it`, 8000); }
     this.history.record(before, by, what, now, scope?.txn);
-    this.startMotion(scope?.motion ?? (scope ? this.history.openTxn(scope.txn)?.motion : undefined), what);
+    this.startMotion(scope?.motion ?? (scope?.txn ? this.history.openTxn(scope.txn)?.motion : undefined), what);
   }
 
   /**
@@ -643,8 +645,35 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const now = this.clock();
     const from = this.transition ? this.transition.rectsNow(now, this.area) : new Map(this.hits);
     if (!from.size) return;
+    const floated = new Set<number>([...this.floats.map(f => f.id), ...(this.transition?.floated ?? [])]);
     this.transition = null;
-    this.pendingMotion = { from, plan };
+    this.pendingMotion = { from, plan, floated };
+  }
+
+  /** The script runs whose layout changes are open on this screen (a dance in flight): their run ids. */
+  runningScripts(): string[] {
+    return this.history.openIds().filter(id => { const by = this.history.openTxn(id)?.by; return by?.kind === "agent" && by.id.startsWith("script:"); });
+  }
+  /** A script run is rearranging this screen: the status bar offers to stop it. */
+  dancing(): boolean { return this.runningScripts().length > 0; }
+  /** The runs already announced ("esc stops it"), once each. */
+  private announced = new Set<string>();
+
+  /**
+   * `layout.stop` (Esc while a script run is rearranging the screen): stop the run (`scripts.stop`); the service says it ended
+   * and the transaction's end rule puts the layout back, as far as nothing else changed. One obvious key, for whoever's screen
+   * is moving.
+   */
+  async stopRuns(actor: Actor): Promise<{ stopped: string[] }> {
+    const runs = this.runningScripts();
+    if (!runs.length) throw new ActionRefused("no script run is rearranging this screen");
+    const results = await Promise.all(runs.map(run => this.ctx.board.stopScript(run, actor).then(r => (r.stopped ? run : null), () => null)));
+    const stopped = results.filter((r): r is string => !!r);
+    // A run that has already ended (or was started elsewhere) isn't there to stop: the transaction is closed here as stopped.
+    for (const run of runs) if (!stopped.includes(run)) { try { this.endTxn(run, "stopped", actor); stopped.push(run); } catch { /* gone */ } }
+    asActor(this.ctx, actor).flash(stopped.length ? "stopped the dance; the layout is put back" : "nothing to stop");
+    this.redraw();
+    return { stopped };
   }
 
   /** Whether a change is drawing its way (a test and the status line ask). */
@@ -686,6 +715,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private undoEntries(entries: LayoutEntry[], actor: Actor): { done: LayoutEntry[]; blocked?: string } {
     const done: LayoutEntry[] = [];
     for (const entry of entries) {
+      // Rebuilding clears what the person is in the middle of (an edit, a terminal): never under their typing.
+      if (this.holdsKeys()) return { done, blocked: "you are typing; ctrl+z (layout.undo) puts it back when you are done" };
       const later = this.history.after(entry).find(e => e.party !== entry.party && e.owner !== entry.owner);
       if (later) return { done, blocked: `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` };
       this.replaying = true;
@@ -2930,7 +2961,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
     // Motion (PIE-958): a change just made begins from where the tiles were; the tiles that move are drawn in flight, on top.
     if (this.pendingMotion) {
-      const t = new Transition(this.pendingMotion.from, new Map(this.hits), this.clock(), this.pendingMotion.plan);
+      const t = new Transition(this.pendingMotion.from, new Map(this.hits), this.clock(), this.pendingMotion.plan, this.pendingMotion.floated);
       this.pendingMotion = null;
       if (t.moves) this.transition = t;
     }
@@ -2969,7 +3000,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // In flight, a tile is drawn as it is, at the rectangle it is in (its contents move with it: nothing goes dark and comes
     // back, so nothing pulses), on top of the rest; its pictures are taken away until it lands, so nothing bright slides over
     // text (src/motion.ts). They land where the layout puts them.
-    for (const [id, r] of ghosts) {
+    // (A tile that was floating, or is, stays above the ones that were not: the floats were over the layout and still are.)
+    const above = (id: number) => (flying?.floated.has(id) || this.isFloat(id) ? 1 : 0);
+    for (const [id, r] of [...ghosts].sort((a, b) => above(a[0]) - above(b[0]))) {
       placements = uncover(placements, r);
       this.drawTile(canvas, id, r, false, this.isFloat(id));
     }
@@ -3701,6 +3734,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   key(k: Key, ctx: Ctx): void {
     // A key or a click first settles a transition in flight, so it lands where the tile is (PIE-958).
     if (this.moving) { this.settle(); this.render(ctx); }
+    // Esc while a script run is rearranging the screen stops it (layout.stop): one obvious key. Only then; a prefix, a draft, an overlay or a drag keep their Esc.
+    if (k.kind === "esc" && this.runningScripts().length && !this.prefix && !this.holdsKeys() && !this.dragging && !this.floatDrag && ![...this.overlays.all()].length) return void this.run("layout.stop");
     // The band (the spec's): a press on it is its kind's. Only presses: a release or drag over it is the desk's, so a
     // border or tile drag still ends.
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }

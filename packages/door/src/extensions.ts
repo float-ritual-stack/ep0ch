@@ -15,6 +15,7 @@
 //
 // The service announces a change (an `extensions` event): the list is read again and bound again, so an
 // extension added or removed while the door runs shows up or goes away without a restart.
+import { TXN } from "./surface/txn";
 import { INVITES } from "./surface/invite";
 import { useResourceProviders, type ResourceProviderEntry } from "./resource-providers";
 import { hostname } from "node:os";
@@ -408,7 +409,9 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
       if (!block && !bar && !outline) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
-      const given = { ...withArgs(w), ...givenArgs(a, rest) };
+      // A `motion=` on a script's press (a button's `motion=fantasia`) is the script's to read: props.motion, and it passes it on to its own acts.
+      const hint = TXN.getStore()?.motion;
+      const given = { ...withArgs(w), ...givenArgs(a, rest), ...(e.script && hint ? { motion: hint } : {}) };
       return askingFirst(on.ctx, e, a, block, given, actor, args =>
         runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
           ...(typeof invitation === "string" && invitation ? { invitation } : {}),

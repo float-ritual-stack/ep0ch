@@ -76,7 +76,8 @@ const same = (a: Rect, b: Rect) => a.col === b.col && a.row === b.row && a.cols 
 
 /** One layout change in flight: the tiles' rectangles before and after, when it began and how long it runs. */
 export class Transition {
-  constructor(readonly from: ReadonlyMap<number, Rect>, readonly to: ReadonlyMap<number, Rect>, readonly start: number, readonly plan: MotionPlan) {}
+  /** `floated`: the tiles that were floating when it began: they stay above the ones that were not, on the way. */
+  constructor(readonly from: ReadonlyMap<number, Rect>, readonly to: ReadonlyMap<number, Rect>, readonly start: number, readonly plan: MotionPlan, readonly floated: ReadonlySet<number> = new Set()) {}
   /** 0 at the start, 1 once it has run its time. */
   progress(now: number): number { return Math.max(0, Math.min(1, (now - this.start) / this.plan.ms)); }
   done(now: number): boolean { return now - this.start >= this.plan.ms; }

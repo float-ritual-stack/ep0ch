@@ -319,6 +319,8 @@ export interface Screen {
   scriptUndone?(run: string): void;
   /** The service was lost and found again: transactions waiting on a run's end end early. */
   scriptsLost?(): void;
+  /** A script run is rearranging this screen (a dance): the status bar offers a click that stops it (layout.stop, as Esc does). */
+  dancing?(): boolean;
   /** Snap any motion to the settled screen (a peek or a snapshot reads that, never frames in flight); true when something was moving. */
   settle?(): boolean;
   /** Every key is the screen's, ctrl+c included, and a paste goes to it whole: the person is typing in a terminal tile (PIE-417). */
@@ -1074,10 +1076,13 @@ export class App implements Ctx {
     const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
     const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
-    if (this.bar && !w.busy) return { ...w, busy: true, why: "the person has the power bar open (ctrl+k)" };
+    // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)
+    const free = !w.busy || !!w.navHold;
+    if (this.bar && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: "the person has the power bar open (ctrl+k)" }; }
     // An armed edit holds the next key: the person is mid-gesture.
     const a = this.armedNow?.a;
-    return a && !w.busy ? { ...w, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` } : w;
+    if (a && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` }; }
+    return w;
   }
 
   /**
@@ -1177,6 +1182,12 @@ export class App implements Ctx {
     if (this.bar) {
       if (!this.bar.ended()) this.bar.key(k, this);
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
+      return;
+    }
+    // A click on the status bar's stop-the-dance chip stops the script run rearranging the screen (layout.stop), as Esc does.
+    const dance = this.danceAt;
+    if (dance && k.kind === "mouse" && k.y === dance.row && k.x >= dance.from && k.x < dance.to) {
+      if (k.action === "down") void this.dispatch.press("layout.stop");
       return;
     }
     // A click on the status bar's YOLO takes agents out of yolo (agents.yolo on=false).
@@ -1413,6 +1424,7 @@ export class App implements Ctx {
   /** Where the status bar's video mode and theme are, for a click (video.cycle, theme.cycle). */
   private videoAt: { from: number; to: number; row: number } | null = null;
   private macroAt: { from: number; to: number; row: number } | null = null;
+  private danceAt: { from: number; to: number; row: number } | null = null;
   private themeAt: { from: number; to: number; row: number } | null = null;
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
@@ -1439,7 +1451,9 @@ export class App implements Ctx {
     const waitPart = waiting.plain ? `${waiting.styled} ${fg(C.lcyan)}│ ` : "";
     // Yolo is loud: agents act with no person guard while it shows.
     const yoloPart = this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD} ${fg(C.lcyan)}│ ` : "";
-    const right = `${yoloPart}${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
+    // A script run is rearranging the screen: one visible control to stop it, as Esc does (layout.stop).
+    const dancePart = s.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD} ${fg(C.lcyan)}│ ` : "";
+    const right = `${dancePart}${yoloPart}${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
     const from = cols - width(right);
     const backupFrom = cols - width(backupPart + newPart + extPart + tail);
     this.backupAt = backup && backupFrom >= 0 ? { from: backupFrom, to: backupFrom + width(backup.text), row: this.term.info.rows - 1 } : null;
@@ -1447,10 +1461,13 @@ export class App implements Ctx {
     this.extAt = ext && extFrom >= 0 ? { from: extFrom, to: extFrom + width(ext), row: this.term.info.rows - 1 } : null;
     const tailFrom = cols - width(tail), row = this.term.info.rows - 1;
     // statusLine keeps " │ " ahead of the right part, so it starts at 3 at the least.
-    this.yoloAt = yoloPart ? { from: Math.max(3, from), to: Math.max(3, from) + 4, row } : null;
+    const danceFrom = Math.max(3, from);
+    this.danceAt = dancePart ? { from: danceFrom, to: danceFrom + width("■ stop the dance"), row } : null;
+    const afterDance = from + width(dancePart);
+    this.yoloAt = yoloPart ? { from: Math.max(3, afterDance), to: Math.max(3, afterDance) + 4, row } : null;
     this.videoAt = tailFrom >= 0 ? { from: tailFrom, to: tailFrom + width(this.video), row } : null;
     this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
-    const chipFrom = from + width(yoloPart);
+    const chipFrom = from + width(dancePart + yoloPart);
     this.drawer.chipAt = chip && from >= 0 ? { from: chipFrom, to: chipFrom + width(this.drawer.chipText()), row: this.term.info.rows - 1 } : null;
     const waitFrom = cols - width(waitPart + (this.offline ? "offline │ " : "") + backupPart + newPart + extPart + tail);
     const changedFrom = cols - width(newPart + extPart + tail);
