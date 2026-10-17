@@ -136,7 +136,7 @@ command = "float.pi-outliner.obsolete"
 async function runClaudeModInstaller(configDir: string, ...args: string[]) {
   // A scratch outlines and config root: the installer asks which listed folders name an outline (.ep0ch).
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/install-claude-mod.ts"), ...args], {
-    env: { ...process.env, CLAUDE_CONFIG_DIR: configDir, EP0CH_OUTLINES: join(configDir, "outlines"), XDG_CONFIG_HOME: join(configDir, "xdg") },
+    env: { ...process.env, HOME: join(configDir, "home"), CLAUDE_CONFIG_DIR: configDir, EP0CH_OUTLINES: join(configDir, "outlines"), XDG_CONFIG_HOME: join(configDir, "xdg") },
     stdout: "pipe", stderr: "pipe",
   });
   const [exitCode, stdout, stderr] = await Promise.all([
@@ -186,25 +186,51 @@ test("Claude mod installer moves the mod's old name (pi-outliner) to ep0ch, leav
   const directory = await mkdtemp(join(tmpdir(), "claude-mod-installer-"));
   try {
     await writeFile(join(directory, "settings.json"), JSON.stringify({
-      permissions: { allow: ["mcp__pi-outliner__outline_read", "mcp__ep0ch__outline_read", "Bash(ls)"], deny: ["mcp__pi-outliner__outline_trash"] },
+      permissions: { allow: ["mcp__pi-outliner", "mcp__pi-outliner__outline_read", "mcp__ep0ch__outline_read", "Bash(ls)", "Bash(echo mcp__pi-outliner__x)"], deny: ["mcp__pi-outliner__outline_trash"] },
       enabledPlugins: { "pi-outliner@inline": true, "other@inline": true },
-      pluginConfigs: { "pi-outliner@inline": { options: { mode: "folder" } }, "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"] } },
+      pluginConfigs: { "pi-outliner@inline": { options: { mode: "folder" } }, "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"], allow: ["mcp__pi-outliner__kept"] } },
     }));
     await writeFile(join(directory, "settings.local.json"), JSON.stringify({ permissions: { allow: ["mcp__pi-outliner__work_stage"] } }));
+    const project = join(directory, "home/projects/ep0ch/.claude");
+    await mkdir(project, { recursive: true });
+    await writeFile(join(project, "settings.local.json"), JSON.stringify({ permissions: { allow: ["mcp__pi-outliner__outline_find"] }, hooks: { PreToolUse: [{ matcher: "Read|^mcp__pi-outliner__.*$" }] }, note: "mcp__pi-outliner__ stays in prose" }));
     await mkdir(join(directory, "plugins"), { recursive: true });
     await writeFile(join(directory, "plugins/installed_plugins.json"), JSON.stringify({ version: 2, plugins: { "pi-outliner@market": [{ scope: "user" }] } }));
 
-    expect((await runClaudeModInstaller(directory)).exitCode).toBe(0);
+    const first = await runClaudeModInstaller(directory, "--project", join(directory, "home/projects/ep0ch"));
+    expect(first.exitCode).toBe(0);
     const settings = JSON.parse(await readFile(join(directory, "settings.json"), "utf8"));
-    expect(settings.permissions).toEqual({ allow: ["mcp__ep0ch__outline_read", "Bash(ls)"], deny: ["mcp__ep0ch__outline_trash"] });
+    expect(settings.permissions).toEqual({ allow: ["mcp__ep0ch", "mcp__ep0ch__outline_read", "Bash(ls)", "Bash(echo mcp__pi-outliner__x)"], deny: ["mcp__ep0ch__outline_trash"] });
     expect(settings.enabledPlugins).toEqual({ "ep0ch@inline": true, "other@inline": true });
-    expect(settings.pluginConfigs).toEqual({ "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"] } });
+    expect(settings.pluginConfigs).toEqual({ "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"], allow: ["mcp__pi-outliner__kept"] } });
     expect(JSON.parse(await readFile(join(directory, "settings.local.json"), "utf8")).permissions.allow).toEqual(["mcp__ep0ch__work_stage"]);
     expect(JSON.parse(await readFile(join(directory, "plugins/installed_plugins.json"), "utf8")).plugins).toEqual({ "ep0ch@market": [{ scope: "user" }] });
+
+    expect(JSON.parse(await readFile(join(project, "settings.local.json"), "utf8"))).toEqual({ permissions: { allow: ["mcp__ep0ch__outline_find"] }, hooks: { PreToolUse: [{ matcher: "Read|^mcp__ep0ch__.*$" }] }, note: "mcp__pi-outliner__ stays in prose" });
+    expect(first.stdout.match(/Renamed the mod/g)).toHaveLength(4);
 
     const again = await runClaudeModInstaller(directory);
     expect(again.stdout).toContain("already installed");
     expect(again.stdout).not.toContain("Renamed");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Claude mod installer refuses the whole rename when one config file is malformed, changing nothing", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "claude-mod-installer-"));
+  try {
+    const project = join(directory, "home/float-hub/.claude");
+    await mkdir(project, { recursive: true });
+    const settings = JSON.stringify({ permissions: { allow: ["mcp__pi-outliner__outline_read"] } });
+    await writeFile(join(directory, "settings.json"), settings);
+    await writeFile(join(project, "settings.local.json"), "{ not json");
+    const refused = await runClaudeModInstaller(directory);
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stderr).toContain(join(project, "settings.local.json"));
+    expect(refused.stderr).toContain("run: bun ");
+    expect(await readFile(join(directory, "settings.json"), "utf8")).toBe(settings);
+    expect((await readdir(directory)).filter(name => name.includes("before-claude-mod"))).toEqual([]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
