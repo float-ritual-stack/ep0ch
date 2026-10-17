@@ -1,6 +1,6 @@
 import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
 import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
-import { HASHTAG_VALUE_PATTERN, PROPERTY_KEY_PATTERN, isWritablePropertyValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
+import { HASHTAG_VALUE_PATTERN, PROPERTY_KEY_PATTERN, isHexColour, isWritablePropertyValue, propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
 import { PROPERTY_PARSER_VERSION, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type {
   BlockProperty,
@@ -79,7 +79,7 @@ export function patchPropertyText(text: string, operations: PropertyPatchOperati
       const validated = validateProperty(key, value);
       const hashtagValue = validated.value.match(HASHTAG_VALUE_PATTERN)?.[0];
       if (token.syntax === "hashtag") {
-        if (validated.key === "tag" && hashtagValue === validated.value && /\p{L}/u.test(validated.value)) {
+        if (validated.key === "tag" && hashtagValue === validated.value && /\p{L}/u.test(validated.value) && !isHexColour(validated.value)) {
           replacement = `#${validated.value}`;
         } else {
           // Explicit properties in body prose are inline-scoped. Move a value

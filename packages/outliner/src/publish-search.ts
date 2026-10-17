@@ -12,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import { pageAddressReferences, pageAddressText } from "@ep0ch/outline-core/link-syntax";
 import { searchTextTerms } from "@ep0ch/outline-core/search-match";
-import { HASHTAG_VALUE_PATTERN } from "@ep0ch/outline-core/property-grammar";
+import { HASHTAG_VALUE_PATTERN, isHexColour } from "@ep0ch/outline-core/property-grammar";
 import { tagMatches } from "@ep0ch/outline-core/query-atoms";
 import { completionTargetAtCursor, hashtagAtCursor, pageAddressCompletion, pageCompletionLookupQuery } from "./completion";
 import { stripFragmentAnchors } from "./fragments";
@@ -286,7 +286,7 @@ async function completeLine(host: SearchHost, lines: readonly string[], row: num
   const tag = tags ? hashtagAtCursor(line, column, lines, row) : null;
   if (!tag) return NOTHING;
   const found = await host.request<PropertyCatalogItem[]>({ action: "properties.catalog", key: "tag", prefix: tag.query, limit: COMPLETION_LIMIT, propertyScope: "all" });
-  const items = found.map((item) => ({ label: `#${item.value}`, detail: `${item.count} ${item.count === 1 ? "note" : "notes"}`, insertion: `#${item.value}` }));
+  const items = found.map((item) => ({ label: `#${item.value}`, detail: `${item.count} ${item.count === 1 ? "note" : "notes"}`, insertion: isHexColour(item.value) ? `[tag::${item.value}]` : `#${item.value}` }));
   // A new tag is fine too: nothing to choose is said, never refused.
   return { kind: "tag", start: tag.start, end: tag.end, items, ...(items.length ? {} : { message: `no tag starts #${tag.query} yet` }) };
 }
