@@ -804,7 +804,7 @@ A write to an outline whose home is another machine answers `queued` with a `que
   it: `pending.body` is the body with each queued patch laid over it, every replacement between `⟦pending <id>⟧` and
   `⟦/pending⟧` (a removal says `removes “…”`), `pending.spans` says which spans were found, and queued properties, new
   blocks and comments are listed. `record.body` stays the mirror's own text. Another caller's waiting writes are never
-  shown. Once the home machine has applied them and the mirror follows, `pending` goes.
+  shown. Once the home machine has applied them and the mirror follows, `pending` goes. Type ⟦ and ⟧ with Unicode input (U+27E6, U+27E7); search with `rg '⟦pending'`.
 - **`outline_query`** runs the views' grammar (`type=outbox-item outbox=next`, `type=ticket NOT work-stage=done`; the
   grammar of `[query::…]` and `ep0ch find --query`) or a saved view by its block id (`view`), read-only, gated by the
   outline's access like the other reads, on a live outline or a mirror. The outline evaluates it (`blocks.query`,
