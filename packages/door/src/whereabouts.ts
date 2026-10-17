@@ -16,6 +16,8 @@ export interface ScreenKeys {
   busy: boolean;
   /** What holds them, in words for a refusal ("in an edit on middle", "typing a filter"). */
   why?: string;
+  /** `busy` is a hold on navigation, not typing (the showcase keeps agents from moving its sections): a run the person's press invited may still move tiles. */
+  navHold?: true;
 }
 
 /** Where the person is, everywhere: the screen's answer with the host layer, the shell and the clock added. */
@@ -63,7 +65,7 @@ export function whereabouts(o: {
     : o.suspended ? `the person is in the door's ${o.suspended} (the door waits under it)` : null;
   if (o.inHost) return { focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in the drawer${o.hostTile && o.hostTile !== HOST_AGENT ? ` (${o.hostTile.replace(/^drawer:/, "")})` : ""}`, keys: "host", screen: o.screen, idle: o.idle, away };
   const why = k.busy ? (k.why ?? `the person is typing on the ${o.screen ?? "screen"}`) : undefined;
-  return { focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", screen: o.screen, idle: o.idle, away };
+  return { focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(k.busy && k.navHold && !o.suspended ? { navHold: true as const } : {}), ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", screen: o.screen, idle: o.idle, away };
 }
 
 /**
@@ -73,7 +75,7 @@ export function whereabouts(o: {
 export function within(outer: Whereabouts, focused: boolean, inner: ScreenKeys | null): Whereabouts {
   if (!focused || outer.keys === "host") return { ...outer, focus: null, typingIn: outer.keys === "host" ? outer.typingIn : null };
   const k = inner ?? { focus: null, typingIn: null, busy: false };
-  return { ...outer, focus: k.focus, typingIn: k.typingIn, busy: outer.busy || k.busy, ...(k.busy && k.why ? { why: k.why } : {}) };
+  return { ...outer, focus: k.focus, typingIn: k.typingIn, busy: outer.busy || k.busy, ...(k.busy && k.why ? { why: k.why } : {}), ...(k.busy && k.navHold && !outer.busy ? { navHold: true as const } : {}) };
 }
 
 /** A screen's own answer (Screen.keys), or for a screen without tiles whether it holds the person's keys at all. */

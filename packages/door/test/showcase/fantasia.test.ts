@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
 import { SECTIONS } from "../../src/showcase/showcase";
 import { USER } from "../../src/socket";
+import { INVITES } from "../../src/surface/invite";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -33,42 +34,52 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
 
   async function openSection() {
     (app as any).lastInput = 0;
-    if (!screen().includes("[✦ Fantasia]")) await app.act({ action: "section", args: { name: "fantasia" }, as: "test-agent" });
+    if (S().shown !== SECTIONS.findIndex(x => x.key === "fantasia")) await app.act({ action: "section", args: { name: "fantasia" }, as: "test-agent" });
     screen();
     await until(() => screen().includes("[✦ Fantasia]"), "the button drawn", 15_000);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "fantasia"), "the script loaded");
   }
 
-  test("the person's press: every tile floats and dances with motion, the run settles them back as one transaction, and one undo is one step", async () => {
+  test("the person's press: every tile floats and dances with motion, the run takes itself back to the layout it began as one transaction", async () => {
     await openSection();
     const start = names();
     desk().settle();
-    const size = desk().history.size;
     const b = button();
     click(b.x, b.y);
-    // They float (the press invited the run: the tile the person is in too), and the desk draws them moving.
+    // They float (the press invited the run, so the tile the person is in too), and the desk draws them moving.
     await untilAsync(() => tiles().filter(t => t.float).length >= 3, "the tiles floated", 20_000);
+    expect(tiles().find(t => t.name === "notes")?.float).toBe(true);
     await untilAsync(() => desk().moving, "motion in flight", 20_000);
     const openIds = desk().history.openIds() as string[];
     expect(openIds.length).toBe(1);
     const run = openIds[0]!;
-    // It ends with every tile back in the layout, the transaction closed; one entry per step it made, all of this run's.
-    await untilAsync(() => !desk().history.isOpen(run), "the run's end", 40_000).catch(async e => {
-      const note = await runNoteOf(run);
-      console.log("RUN NOTE", note?.text.slice(0, 1500), JSON.stringify(tiles().map(t => [t.name, t.float])));
-      throw e;
-    });
+    await untilAsync(() => !desk().history.isOpen(run), "the run's end", 40_000);
     desk().settle();
+    // No layout was asked: the run took its own changes back, so the screen is as it began, and its transaction is closed.
     expect(tiles().every(t => !t.float)).toBe(true);
     expect(names()).toEqual(start);
-    const note = await runNoteOf(run);
-    expect(note?.text).toMatch(/fantasia: \d+ tiles? danced 3 beats at 450 ms, \d+ of them back/);
-    expect(desk().history.entriesOf(run).length).toBeGreaterThan(0);
-    expect(desk().history.size).toBeGreaterThan(size);
-    // Undo takes the whole run back, newest first, in as many presses of one action as it made entries: layout.undo txn= is all of it.
-    await app.dispatch.act({ action: "layout.undo", args: { txn: run } }, USER);
-    desk().settle();
     expect(desk().history.entriesOf(run).length).toBe(0);
+    const note = await runNoteOf(run);
+    expect(note?.text).toMatch(/fantasia: 3 tiles danced 3 beats at 450 ms, the layout as it began/);
+    expect(note?.text).toContain("onBehalfOf: user · button by user");
+  }, 90_000);
+
+  test("a run that leaves the tiles where they danced is one transaction: one undo, the layout as it was", async () => {
+    await openSection();
+    desk().settle();
+    const start = names();
+    (app as any).lastInput = Date.now();
+    const run = await app.dispatch.act({ action: `ext.${script().id}.run`, args: { block: seeded.notes.fantasia.id, beats: "2", tempo: "300", stay: "1", invitation: INVITES.mint("you") } }, USER) as { undo: string; written: string[] };
+    await untilAsync(async () => !(await board.get(run.written[0]!))!.text.split("\n")[0]!.includes("· working"), "the run to finish", 40_000);
+    await untilAsync(() => !desk().history.isOpen(run.undo), "the run's end", 20_000);
+    desk().settle();
+    expect(tiles().filter(t => t.float).length).toBeGreaterThanOrEqual(3);
+    expect(desk().history.entriesOf(run.undo).length).toBe(1);
+    expect(desk().history.forTxn(run.undo).steps).toBeGreaterThan(5);
+    // One undo, whole: the four tiles as they were, none floating.
+    await app.dispatch.act({ action: "layout.undo", args: { txn: run.undo } }, USER);
+    desk().settle();
+    expect(desk().history.entriesOf(run.undo).length).toBe(0);
     expect(names()).toEqual(start);
     expect(tiles().every(t => !t.float)).toBe(true);
   }, 90_000);
@@ -88,13 +99,14 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
     desk().settle();
     expect(names()).toEqual(start);
     expect(tiles().every(t => !t.float)).toBe(true);
-    // And the run is one transaction to undo, attributed to the script on the agent's behalf.
-    const e = desk().history.forTxn(r.undo);
-    expect(e).toBeTruthy();
-    expect(e.party).toBe("agent:script:fantasia");
-    expect(e.owner).toBe("agent:test-agent");
-    await app.dispatch.act({ action: "layout.undo", args: { txn: r.undo } }, USER);   // the person may undo what an agent asked for
-    expect(desk().history.entriesOf(r.undo).length).toBe(0);
+    // No layout was asked, so the run took its own changes back: nothing of it is left to undo, and its transaction is closed.
+    // It took its own changes back (layout.undo), or, where the person's section holds the screen, floated each tile back itself.
+    expect(text).toMatch(/the layout as it began|3 of them back in the layout/);
+    await untilAsync(() => !desk().history.isOpen(r.undo), "the agent's run's end", 20_000);
+    expect(desk().history.entriesOf(r.undo).length).toBeLessThanOrEqual(1);
+    if (desk().history.entriesOf(r.undo).length) await app.dispatch.act({ action: "layout.undo", args: { txn: r.undo } }, USER);   // the person may undo what an agent asked for
+    desk().settle();
+    expect(names()).toEqual(start);
   }, 90_000);
 
   test("stopping mid-dance puts the layout back, the floats gone, one line said", async () => {

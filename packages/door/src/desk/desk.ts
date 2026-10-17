@@ -24,6 +24,7 @@ import { lastTrashed } from "../note-trash";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
+import { INVITES } from "../surface/invite";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
@@ -578,7 +579,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
       actor, area: this.area, tile: id => this.facts(id, actor),
-      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, {}), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
+      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, {}), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}), ...(actor.kind === "agent" && INVITES.covers(actor.invitation, "screen", actor.run) ? { invited: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
   }

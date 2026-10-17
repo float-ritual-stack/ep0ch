@@ -595,7 +595,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.undo": def({
     summary: "take back the newest change to this screen's layout, from the one history every actor's changes go in (a move, a close, a float, a load; a script's run is one entry, a transaction): the screen is rebuilt as it was before it, tiles kept by name, the lock and the tile you type in holding. Yours takes back the newest; an agent's takes back its own newest only, and both are refused with who changed the layout since (\"undo that first\"). txn=<id> takes back that transaction",
     keys: "ctrl+z when a reader has nothing of its own to undo and the layout changed after the last trash; the tile menu's row",
-    touches: "screen", replay: "ask", confirms: true,
+    touches: "shape", replay: "ask", confirms: true,
     says: (r: { what: string; steps: number }) => `put the layout back · ${r.steps > 1 ? `${r.steps} steps` : r.what}`,
     menu: { label: "undo the last layout change", group: SCREEN, key: "ctrl+z", now: ({ d }: On) => (d.history.size ? null : { hide: true }) },
     args: {},

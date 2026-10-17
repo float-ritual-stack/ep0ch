@@ -212,7 +212,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself
       // (`host`, putting it away) still waits for them.
       if (where.keys === "host" && !def.host) return null;
-      if (where.busy) return `${where.why ?? "the person is typing"}; not moved`;
+      // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
+      if (where.busy && !(where.navHold && INVITES.covers(actor.invitation, "screen", actor.run))) return `${where.why ?? "the person is typing"}; not moved`;
       // The person's press invited this run (src/surface/invite.ts): it may move their tiles though they pressed a moment ago,
       // but never while they are typing (above): the invitation lifts "at the keys", nothing else.
       if (INVITES.covers(actor.invitation, "screen", actor.run)) return null;

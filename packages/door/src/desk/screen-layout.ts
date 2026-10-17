@@ -142,6 +142,8 @@ export interface Person<I = number> {
   held?: string | null;
   /** Agents are in yolo (Whereabouts.yolo): an agent acts here as the person would. */
   yolo?: boolean;
+  /** The actor's run was invited by the person's press (src/surface/invite.ts): it may float the tile they are in, never the one they type in. */
+  invited?: boolean;
 }
 
 /** What an operation is applied with: who acts, where the person is, what each tile is, the screen's room. */
@@ -646,7 +648,8 @@ class Step<I> {
       case "float":
         // Popping a tile out or putting it back moves the tile the person has: an agent doesn't, typing or not (as it
         // doesn't close or fold it).
-        if (this.agent && op.tile === this.d.focus) refuse(`${this.name(op.tile)} has the person's keys; an agent doesn't float it`);
+        if (this.agent && op.tile === this.ctx.person.typingIn) refuse(`${this.name(op.tile)} is where the person is typing; an agent doesn't float it`);
+        if (this.agent && !this.ctx.person.invited && op.tile === this.d.focus) refuse(`${this.name(op.tile)} has the person's keys; an agent doesn't float it`);
         return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
@@ -1133,7 +1136,7 @@ class Step<I> {
     // would), then its dock wraps it, both in this one transaction (refused whole, it stays the float it was).
     // on=true puts it back pinned outright.
     if (this.isFloat(id)) {
-      if (this.agent && id === this.d.focus) refuse(`${this.name(id)} has the person's keys; an agent doesn't move it`);
+      if (this.agent && !this.ctx.person.invited && id === this.d.focus) refuse(`${this.name(id)} has the person's keys; an agent doesn't move it`);
       if (container !== undefined) refuse(`${this.name(id)} is a float: no container holds it · tile.dock without container= puts it in a dock of its own`);
       this.land(id);
       if (on === true) { this.d.answer = { pinned: true, floated: false }; return; }

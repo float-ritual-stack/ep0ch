@@ -1029,7 +1029,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "fantasia", need: "press one button and watch the screen dance, then settle: the whole self-reference wave in one click", part: "a `::button` (outline-core button-call.ts) runs the fantasia script as you with a one-run invitation; the script's `act()` calls are one layout transaction (txn=<run id>, motion=fantasia) that the desk draws as movement, closes when scripts.ended says the run did, puts back if it stops early, and layout.undo / ext.undo take back in one step", files: "src/surface/note.ts (runPress), src/surface/invite.ts, src/surface/txn.ts, src/desk/layout-history.ts, src/motion.ts, outliner/src/script-runs.ts",
-    aside: "click ✦ Fantasia (or ⏎ on it): the tiles float, wander and settle back; your press invited the run, so it may move the tile you are in too · act ext.<id>.run block=<this note> beats=3 as an agent runs the same script attributed to it: no invitation, so the tile you are in stays · script.stop run=<id> (or esc on the run) stops it between beats and puts the layout back · ctrl+z (layout.undo) or ext.undo takes the whole run back in one step · motion.set mode=calm or off caps the dance · a locked screen refuses, a tile you type in is never moved",
+    aside: "click ✦ Fantasia (or ⏎ on it): the tiles float, wander and settle back; your press invited the run, so it may move the tile you are in too · act ext.<id>.run block=<this note> beats=3 as an agent runs the same script attributed to it: no invitation, so the tile you are in stays · script.stop run=<id> (or esc on the run) stops it between beats and puts the layout back · ctrl+z (layout.undo) or ext.undo takes the whole run back in one step (stay=1 leaves them floating where they danced: one undo is the 2x2 again) · motion.set mode=calm or off caps the dance · a locked screen refuses, a tile you type in is never moved",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane(), d2 = new ReaderPane();
       return deskOf({ title: "showcase · fantasia", panes: [a, b, c, d2], names: ["notes", "source", "extra", "more"], layout: ([w, x, y, z]) => pair("col", 0.5, row(0.5, w!, x!), row(0.5, y!, z!)) }, show, [[a, n.fantasia], [b, n.scripts], [c, n.shed], [d2, n.heap]]);
@@ -1343,7 +1343,8 @@ export class Showcase implements Screen {
    */
   keys() {
     const f = this.focus === "stage" ? this.stages.get(this.sel) : undefined;
-    return f ? { ...screenKeys(f.top), busy: true, why: `the person is in section ${this.sel + 1} (${SECTIONS[this.sel]!.key}); sections change from the index` } : { focus: null, typingIn: null, busy: false };
+    const inner = f ? screenKeys(f.top) : null;
+    return f ? { ...inner!, busy: true, ...(inner!.busy ? {} : { navHold: true as const }), why: `the person is in section ${this.sel + 1} (${SECTIONS[this.sel]!.key}); sections change from the index` } : { focus: null, typingIn: null, busy: false };
   }
 
   /** The section on screen, and where the person's keys are: the index or its stage. */
