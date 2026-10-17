@@ -1,7 +1,7 @@
 // `site.sources` (PIE-956, S6b): every generated region of a note with what it read, when, what shaped it and what it
 // answered, from the one set of readers the page itself is drawn from: the extension registry's handler lines
 // (`extensions.outputs`), `template.use`, the figure/fields/if producers (`site.answer`'s `produce`) and the output
-// regions' text grammar. The door's Sources inspector and a published page's side panel draw this answer, so they agree.
+// regions' text grammar. The door's Sources inspector draws this answer (a published page's panel is a follow-up, PIE-996), so a second client agrees with it.
 // A page shows none of it by default; "where this comes from" asks. Reads only.
 import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";

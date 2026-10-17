@@ -1,5 +1,5 @@
 // Sources (PIE-956, S6b): every generated region a note holds, named, with what it read and when, what shaped it and what it
-// answered: the one answer the door's Sources inspector and a published page's side panel both draw, so they agree. A page
+// answered: the one answer the door's Sources inspector draws (a published page's read-only panel is a follow-up: PIE-996), so a second client agrees with it. A page
 // shows none of it by default (generated output reads as the note's own content); this is what "where this comes from"
 // opens. Pure: no I/O. The service fills it (outliner `site-sources.ts`, the `site.sources` request).
 import { codeBlocks } from "./code-fence";

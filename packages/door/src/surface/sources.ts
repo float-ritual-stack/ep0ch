@@ -3,7 +3,7 @@
 // folds, as the claude.ai artifact's data panel does: Query (its parameters, each editable and written back to the note's
 // line), Transform (the script, template or figure YAML that shaped it, with a jump to its note) and Result (the raw rows,
 // copyable, then Outline, Read and the Query). Drawn from the service's one answer (`site.sources`, outline-core sources.ts),
-// the one a published page's panel draws too. State and drawing only: the reader's mode (src/surface/note.ts) keeps it.
+// the one a published page's panel will draw too (a follow-up, PIE-996). State and drawing only: the reader's mode (src/surface/note.ts) keeps it.
 import type { SourceEntry, SourcesAnswer } from "@ep0ch/outline-core/sources";
 import { relativeAge } from "../projection";
 import { BOLD, C, ellipsize, fg, pad, RESET, UNBOLD, width } from "../style";
