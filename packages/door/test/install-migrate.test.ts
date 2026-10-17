@@ -51,6 +51,7 @@ const ep0ch = async (...args: string[]) => {
   return { out, err, code };
 };
 const version = (name: string) => { const db = new Database(join(outlines, `${name}.sqlite`), { readonly: true }); try { return (db.query("PRAGMA user_version").get() as { user_version: number }).user_version; } finally { db.close(); } };
+const ruleNote = () => { const db = new Database(join(outlines, "allotment.sqlite"), { readonly: true }); try { return (db.query("SELECT text FROM blocks WHERE text LIKE 'Bay badges%'").get() as { text: string }).text; } finally { db.close(); } };
 const fakeSystemctl = (...args: string[]) => sh([join(bin, "systemctl"), "--user", ...args]);
 
 /** A step N → N+1 the way a real one-off is written: refuses a served file, one transaction, and refuses what it can't take. */
@@ -139,6 +140,13 @@ esac
   const compost = new Database(join(outlines, "compost.sqlite"));
   compost.exec("CREATE TABLE compost_heap (layer TEXT)");
   compost.close();
+  // A rule note in the old brace form, for the sweep step (PIE-533): the new grammar reads `append`, not `below`.
+  writeFileSync(join(root, "seed-rule.ts"), `import { OutlinerStore } from "${repo}/packages/outliner/src/store";
+const store = new OutlinerStore("${outlines}/allotment.sqlite");
+store.create("Bay badges [rule-name::bay-badges] [rule-match::type=bay-job] [rule-decorate::badge] [rule-place::below]", null, "user");
+store.close();
+`);
+  sh([bun, join(root, "seed-rule.ts")], repo);
   fakeSystemctl("start", "outliner-host.service");
   for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't come back"); await Bun.sleep(100); }
 
@@ -235,6 +243,9 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(r2.steps.find(s => s.id === "repo")!.status).toBe("skip");
     // The host started by hand is stopped through its unit first.
     expect(r2.steps.find(s => s.id === "schema")!.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", `compost: schema ${N} → ${M}`]);
+    // The sweep: the host was already down for the migration, so it stops nothing more; the old form is in the new grammar.
+    expect(r2.steps.find(s => s.id === "sweep")!.done![0]).toMatch(/^allotment: rewrote 1 note \(1 rule-place\)/);
+    expect(ruleNote()).toContain("[rule-place::append]");
     expect(r2.steps.find(s => s.id === "host")!.done!.join(" ")).toContain("started the outline host (systemd outliner-host.service");
     expect(r2.steps.find(s => s.id === "session")!.status).toBe("do");
     expect([version("allotment"), version("compost")]).toEqual([M, M]);
@@ -244,7 +255,10 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(repaired.blocks).toHaveLength(1);
     expect(repaired.blocks[0].text).toContain("✓ workstation");
     env.EP0CH_WS = "allotment";
-    expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
+    // A second install has nothing to rewrite, and leaves the host serving.
+    const again = await ep0ch("install", "--apply", "--json");
+    expect(again.code).toBe(0);
+    expect(JSON.parse(again.out).steps.find((s: { id: string }) => s.id === "sweep").done).toEqual(["nothing to rewrite"]);
     const records = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" } } });
     expect(records.blocks).toHaveLength(2);
     const record = records.blocks[0];

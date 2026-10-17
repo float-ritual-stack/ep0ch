@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Install rewrites the old brace forms (PIE-533, landing)
+
+`ep0ch install --apply` runs the brace sweep on every outline, after the schema step and before the host starts: rule
+labels and places, `actions` slots and a runbook's `{{env}}` (now `{{self.env}}`). It looks first and writes nothing when
+no note needs it; only then does it stop the host (the sweep refuses a served file), and it says what it changed per
+outline. Each outline is one transaction and one attributed change (`brace-sweep`), so every previous text is in its
+revisions, and a second install changes nothing. `ep0ch install` (without `--apply`) lists the step.
+
 ### Templates: `::use`, `template.stamp`, and the runbook on the shared grammar (PIE-954, S4 of PIE-533)
 
 What you can now do: write a template once and use it two ways. Draw it live where a page says
