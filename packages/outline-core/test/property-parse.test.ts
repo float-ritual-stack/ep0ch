@@ -194,3 +194,15 @@ test("strips only indexed spans while preserving literals and line structure", (
   );
 });
 
+
+test("an output region's chips and the words in it are its producer's, never the note's properties (PIE-956)", () => {
+  const text = [
+    "Weekly [owner::sam]",
+    "> [!output]- weekly [output-of::((aaaaaaaa-1111-4222-8333-444444444444))] [output-hash::3f9a1c] ^out-weekly-7c2e",
+    "> | day | done |",
+    "> status:: done [mood::fine]",
+    "",
+    "Afterwards [crop::beans]",
+  ].join("\n");
+  expect(parsePropertyRecords(text).map(p => p.key).sort()).toEqual(["crop", "owner"]);
+});

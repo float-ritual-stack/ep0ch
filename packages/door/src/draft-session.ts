@@ -95,6 +95,8 @@ export const leaveSaid = (r: unknown): string | null => (r && typeof r === "obje
 // ── the session ───────────────────────────────────────────────────────────────
 
 /**
+ * (The other "invitation" is the screen grant a button press mints for a script run: src/surface/invite.ts. They share the
+ * dispatcher's `invitation=` argument and nothing else.)
  * The person's invitation to one agent (an `@name` line in their own draft, PIE-516's seam for `@yo`): it
  * grants that agent one reply for one range, the draft's text above the line, and nothing else. The request
  * carries the range as it was (`snapshot`) and its hash (`base`); the reply names the hash it was written on.

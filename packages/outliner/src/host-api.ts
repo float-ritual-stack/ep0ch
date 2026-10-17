@@ -46,6 +46,8 @@ export interface HostApiOptions {
   thisId?: string;
   /** What `resolve(path)` answers: the Site's path reader (`site.answer`), for this run's Site. */
   resolve?(path: string): Promise<unknown>;
+  /** `place(content, options)` writes output into the run's note at an address (src/place.ts); only a run that writes has one. */
+  place?(content: string, options: PlaceOptions): Promise<unknown>;
   /** Ids of the notes this run read (a read, a resolve, a query's rows): what a render-mode script's output depends on. */
   onRead?(ids: readonly string[]): void;
   /** The run saw more than could be listed (`Reads.untracked`): what it drew depends on notes it can't name. */
@@ -56,7 +58,12 @@ export interface HostApiOptions {
   onStep?(step: HostStep): void;
 }
 
+/** What a script's `place()` takes: where, how, and what the region is called. See src/place.ts. */
+export interface PlaceOptions { at?: string; mode?: string; label?: string; interpolate?: boolean }
+
 export interface HostApi {
+  /** Writes `content` into this run's note as an output region at `at: "^anchor"` (default: after the line that ran it); `mode` is append (default), prepend, replace or upsert. */
+  place(content: string, options?: PlaceOptions): Promise<unknown>;
   act(name: string, args?: Record<string, unknown>): Promise<unknown>;
   /** Every tool, by its name (`outline_read`, `outline_patch`, `view_order`…). */
   readonly tool: Readonly<Record<string, HostTool>>;
@@ -214,8 +221,15 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     : Promise.reject(new WorkToolRefusal("resolve answers for a note: run this script from a note, or pass at= (this run has no note)"));
   const act = (name: string, args: Record<string, unknown> = {}) => options.effects === "read"
     ? Promise.reject(new WorkToolRefusal("This script is read-only; declare effects=write to dispatch door actions"))
+    : options.mcpAccess && options.mcpAccess !== "full"
+    ? Promise.reject(new WorkToolRefusal(`MCP access is ${options.mcpAccess}: a run may not dispatch door actions (act); ep0ch mcp access full lets it`))
     : options.act
     ? options.act(name, args)
     : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));
-  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act, resolve });
+  const place = (content: string, opts: PlaceOptions = {}) => options.effects === "read"
+    ? Promise.reject(new WorkToolRefusal("This script is read-only; declare effects=write to place output (a render-mode script draws its result in place instead)"))
+    : options.place
+    ? options.place(String(content), opts ?? {})
+    : Promise.reject(new WorkToolRefusal("place writes into this run's note: run this script from a note (this run has none)"));
+  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act, resolve, place });
 }

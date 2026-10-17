@@ -76,7 +76,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. A render line keeps repeats (`tag=a tag=b` is two values); every action run path gives one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:49` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:38` |
-| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:210` |
+| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:246` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -92,10 +92,10 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 
 | Function | Returns | Source |
 |---|---|---|
-| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:198` |
-| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:203` |
-| `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:212` |
-| `act(name, args?)` | Dispatches a door action in the connected door (**only when the run started from a door**: `ep0ch ext act` and MCP answer "act needs a connected door") (`await act("tile.open", { kind: "query", query: "#beans" })`) and answers what it did. Needs `effects=write` and a door (run from the power bar or a live draft); a saved ask or rule has none. | `packages/outliner/src/host-api.ts:215` |
+| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:205` |
+| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:210` |
+| `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:219` |
+| `act(name, args?)` | Dispatches a door action in the connected door (**only when the run started from a door**: `ep0ch ext act` and MCP answer "act needs a connected door") (`await act("tile.open", { kind: "query", query: "#beans" })`) and answers what it did. Needs `effects=write` and a door (run from the power bar or a live draft); a saved ask or rule has none. | `packages/outliner/src/host-api.ts:222` |
 | `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:58` |
 
 There is no `stop()` inside a script. Ending a run is the service's `scripts.stop` (see [Lifecycle](#lifecycle)).
@@ -139,7 +139,7 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 
 | Entry | Source |
 |---|---|
-| `hostApi` | `packages/outliner/src/host-api.ts:175` |
+| `hostApi` | `packages/outliner/src/host-api.ts:182` |
 | `AGENT_TOOL_DEFINITIONS` | `packages/outline-core/src/agent-tool-definitions.ts:79` |
 | `AGENT_TOOL_SURFACES` | `packages/outline-core/src/agent-tool-definitions.ts:560` |
 
@@ -153,44 +153,55 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong` | `packages/outliner/src/component-primitives.ts:173` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:177` |
-| `view.badge` | `label`, `tone` | `packages/outliner/src/component-primitives.ts:180` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:183` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:190` |
-| `view.table` | `columns`, `rows`, `links` | `packages/outliner/src/component-primitives.ts:197` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:217` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:228` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `children` | `packages/outliner/src/component-primitives.ts:234` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:250` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:253` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:256` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:261` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:277` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:284` |
+| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:205` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:210` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:213` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:220` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:227` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:234` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:260` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:271` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:277` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:295` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:298` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:301` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:306` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:322` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:329` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:217` |
 
 <!-- generated:view:end -->
 
 What the fields mean:
 
-- `text`: `text`, `tone?`, `strong?`. `blockdown`: `text`, drawn by each client's note reader (headings, lists, links).
-- `badge`: `label`, `tone?`. `stat`: `label`, `value` (text or number), `unit?`, `tone?`. `bar`: `label`, `value`, `max` (> 0).
+- `text`: `text`, `tone?`, `strong?`, `act?`. `blockdown`: `text`, drawn by each client's note reader (headings, lists, links).
+- `badge`: `label`, `tone?`, `act?`. `button`: `label`, `act`, `tone?`. `stat`: `label`, `value` (text or number), `unit?`, `tone?`. `bar`: `label`, `value`, `max` (> 0).
 - `table`: `columns` (1 to 12 names), `rows` (up to 200, each as long as `columns`, cells text or numbers; `""` is a valid empty cell, a number is shown as written), `links?` (one per row:
-  a block id, a `file:`/`web:`/`resource:` ref, or `null`; Enter or a click opens it).
+  a block id, a `file:`/`web:`/`resource:` ref, or `null`; Enter or a click opens it), `acts?` (an action line per row or `null`, pressed in place of its link).
 - `checklist`: `items: [{ label, done }]`. `sparkline`: `values` (1 to 200 numbers), `label?`.
-- `card`: `title`, `subtitle?`, `badge?: { label, tone? }`, `link?`, `children?`. `box`: `title?`, `children`. `stack`: `children`
+- `card`: `title`, `subtitle?`, `badge?: { label, tone? }`, `link?`, `act?`, `children?`. `box`: `title?`, `children`. `stack`: `children`
   one under another. `row`: `children` side by side, stacked when narrower than `minWidth` (4 to 200, default 12 characters).
 - `band`: a heading in glyph tracks (`text`, `level` 1 to 3, `style`, `pattern`, `align`, `row`, `tone`). `track`: one row of
   glyph track, a divider. `image`: `src` (a path or `file:` ref), `alt?`, `size?` (`24`, `50%`, `full`), `fit?`, `height?`, `caption?`.
 - Limits: nested 8 deep, 400 nodes, 100 children per container, text up to 2,000 characters (`blockdown` 16,000).
   A field a primitive doesn't know is refused with the field's name.
 
+#### Pressing a view
+
+`act` is an **action line** (`ttt-play cell=5`, `layout.load name=review`: a script's name and its slots, or a door action).
+In the door a click, or Enter on the element, runs it as the person through the door's one dispatcher, on the note the view
+is drawn in (`this`); `act` runs the same line. The click is the consent, so there is no confirm, and what it does is
+attributed and undoable (`ext.undo`, `layout.undo`). A script run that a press starts may move the person's tiles (the
+press invites it); an agent's run of the same script may not move the tile the person is in. Any other client draws the
+primitive's label without the line. In a note the same press is `::button{label="Review" act="layout.load name=review"}`,
+`::button{label="Play" of=ttt-play cell=5}` or `[review](act: layout.load name=review)`. An agent presses one with `button.press label="Play"` (the door's action, through the same dispatcher; `n=` from `elements`).
+
 | Entry | Source |
 |---|---|
-| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:161` |
+| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:193` |
 | `PRIMITIVE_TYPES` | `packages/outliner/src/component-primitives.ts:27` |
 | `PRIMITIVE_FIELDS` | `packages/outliner/src/component-primitives.ts:28` |
-| `MAX_NODES` | `packages/outliner/src/component-primitives.ts:106` |
+| `MAX_NODES` | `packages/outliner/src/component-primitives.ts:121` |
 
 ## What a script returns
 
@@ -198,10 +209,10 @@ The returned value becomes text, the same way in a run note and a drawn line:
 
 | Returned | Shown as | Source |
 |---|---|---|
-| `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:21` |
+| `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:31` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:25` |
-| `undefined` | nothing (a run note ends at the output lines) | `packages/outliner/src/script-runs.ts:212` |
-| `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:28` |
+| `undefined` | nothing (a run note ends at the output lines) | `packages/outliner/src/script-runs.ts:247` |
+| `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:35` |
 
 ## Record shapes
 
@@ -227,14 +238,14 @@ examples lean on:
 | `BlockRecord` | `packages/outline-core/src/block-record.ts:14` |
 | `textRecord` | `packages/outliner/src/block-records.ts:35` |
 | `ScriptSiteGlobals` | `packages/outliner/src/script-runtime.ts:11` |
-| `bind` | `packages/outliner/src/script-runs.ts:75` |
+| `bind` | `packages/outliner/src/script-runs.ts:83` |
 
 ## Modes
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
-| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:130` |
-| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:102` |
+| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:143` |
+| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:110` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:150` |
 
 **Render mode in detail.**
@@ -257,8 +268,8 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `slotProps` | `packages/outliner/src/script-runs.ts:32` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:786` |
+| `slotProps` | `packages/outliner/src/script-runs.ts:38` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:795` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:417` |
 
 ## Effects, access and attribution
@@ -281,13 +292,13 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:133` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:144` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:961` |
-| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1883` |
-| `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:128` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4102` |
-| `viaYolo` | `packages/outliner/src/server.ts:4125` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:224` |
+| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1893` |
+| `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:135` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4131` |
+| `viaYolo` | `packages/outliner/src/server.ts:4154` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:262` |
 
 ## Lifecycle
 
@@ -305,12 +316,12 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:130` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:139` |
-| `stopRun` | `packages/outliner/src/script-runs.ts:123` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:189` |
-| `scripts.stop` | `packages/outliner/src/server.ts:1874` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2455` |
+| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:141` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:153` |
+| `stopRun` | `packages/outliner/src/script-runs.ts:134` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:203` |
+| `scripts.stop` | `packages/outliner/src/server.ts:1884` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2459` |
 
 ## Traps
 
@@ -419,8 +430,8 @@ The state is one property, `[board::.........]` (nine cells, `.` empty), so it i
 query it, a person can edit it, undo takes a move back. A render script draws the board and says whose turn it is or
 who won; an action script plays a cell.
 
-Press a cell by running `ttt-play cell=5` from the power bar while the board is in front of you. (Clicking a cell
-becomes possible once buttons land with PIE-957.)
+Press a cell by running `ttt-play cell=5` from the power bar while the board is in front of you. (A view can also carry
+the press itself: `view.badge({ label: "5", act: "ttt-play cell=5" })` is a square a click plays, see Pressing a view.)
 
 ````note ex3-draw
 Tic-tac-toe board [script::ttt-draw] [mode::render]
@@ -532,7 +543,66 @@ Beans [qty::5] [price::2]
 | Total |  |  | 22 |
 ````
 
-A sixth, Fantasia, joins this list when it lands (the wave's S9).
+#### Fantasia: a button, a transaction, motion, undo (needs a door)
+
+`::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia stay=1}` in a note (`stay=1` leaves the tiles where they danced, so `layout.undo` has something to take back; without it the script undoes itself at the end), and this script as `[script::fantasia] [effects::write]`.
+It is the acceptance test of the self-reference wave: one click runs the whole chain. It needs several tiles the person isn't holding to show anything, and unlike examples 1 to 5 it needs a connected door (it moves tiles), so it is not pasted by the scripts-docs test; the showcase's *fantasia* section runs it live.
+
+```js
+const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));
+const tempo = Math.max(150, Math.min(3000, Number(props.tempo && props.tempo[0]) || 500));
+const style = (props.motion && props.motion[0]) || 'fantasia';
+const home = (props.layout && props.layout[0]) || '';
+const stay = !!(props.stay && props.stay[0]);
+const before = await act('layout.get');
+if (before.locked) return 'fantasia: the screen is locked; alt+k unlocks it, then run again';
+const dancers = (before.tiles || []).filter(t => t.shown && t.kind !== 'drawer.own').map(t => ({ id: t.id, name: t.name }));
+const notes = [], floated = [];
+for (const d of dancers) {
+  try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r && r.now && r.now !== d.name ? r.now : d.id, name: d.name }); }
+  catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }
+}
+if (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');
+const drift = [[7, -2], [-5, 3], [6, 2], [-8, -3], [4, 4], [-4, -4], [9, 1], [-6, 2]];
+for (let beat = 0; beat < beats; beat++) {
+  for (let i = 0; i < floated.length; i++) {
+    const [dx, dy] = drift[(beat + i * 3) % drift.length];
+    try { await act('float.place', { tile: floated[i].id, dx: i % 2 ? -dx : dx, dy, motion: style }); }
+    catch (e) { notes.push('beat ' + (beat + 1) + ', ' + floated[i].name + ': ' + (e && e.message || e)); }
+  }
+  await wait(tempo);
+}
+let settled = '';
+if (stay) settled = 'and left where they danced (layout.undo puts them back)';
+if (!settled && home) {
+  try { await act('layout.load', { name: home, motion: 'settle' }); settled = 'into the screen ' + home; }
+  catch (e) { notes.push('layout.load ' + home + ': ' + (e && e.message || e)); }
+}
+if (!settled) {
+  // No layout asked: the run's own changes are taken back, so the screen is as it began.
+  try { await act('layout.undo'); settled = 'the layout as it began'; } catch (e) { notes.push('layout.undo: ' + (e && e.message || e)); }
+}
+if (!settled) settled = 'left where they danced (layout.undo, or ctrl+z, puts them back)';
+return 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\nnotes: ' + notes.join('; ') : '');
+```
+
+What happens, step by step:
+
+1. **The note.** The door reads `::button{…}` (outline-core `button-call.ts`) and draws a chip; `of=` names a script and every other word is a slot, so the press is the action line `fantasia beats="3" tempo="450" motion="fantasia"`.
+2. **The press.** A click, or ⏎ on the chip, runs the line through the door's one dispatcher as you. The script is resolved to its `ext.<id>.run`; `motion=` on a press becomes the script's `props.motion`. Because you pressed, the door mints a one-run invitation (shape, screen): the run may move the tile you are in; it never reaches a draft's text.
+3. **The run.** The service starts the run (`requestedBy` you, the button's author recorded on its note). Every `act()` goes back to your door as `script:fantasia` on your behalf, carrying the run's id as `txn=` and the invitation, so the run's layout changes are **one transaction**.
+4. **The dance.** `layout.get` lists the tiles; each shown tile but the drawer's is floated (`tile.float on=true`, so a tile already floating isn't toggled back) and nudged (`float.place`) a few beats with `motion: "fantasia"`. The desk draws each change as movement (`motion.set` caps it: calm is a short plain glide, off snaps). A refusal (a locked screen, the tile somebody types in) is caught per tile and said at the end; a locked screen refuses up front.
+5. **The settle.** `layout=<screen>` loads that screen. With none, the run takes its own changes back (`layout.undo`, which inside a run is the run's transaction), so the screen is as it began; where that is refused (an uninvited run on a screen the person holds) it leaves the tiles where they danced and says so, and `layout.undo` puts them back. `stay=1` does the same by choice, a scene to undo.
+6. **The close.** The run note ends with `fantasia: 3 tiles danced 3 beats at 450 ms, the layout as it began`, and the status bar says once how many layout changes the run made and that ctrl+z puts them back.
+
+Paths:
+
+- **An agent's run** (`act ext.<id>.run block=<the note> beats=3`) is the same script on the same path, attributed to the agent (`onBehalfOf` it, `layout.undo` by it works on its own run), but with no press there is no invitation: the tile the person's keys are on is refused and left docked, and said in the run note.
+- **Stop**: **Esc** (or a click on "■ stop the dance" in the status bar) while the screen is dancing (the status bar says so when it starts), or `layout.stop` / `script.stop run=<id>`: the run ends, the service says `scripts.ended`, the door's end rule puts the layout back (as far as nobody changed it since) and says so. Floats never stay strewn.
+- **Undo** (`layout.undo`, ctrl+z, or `ext.undo` for the run's writes and layout together; a run with `stay=1` or `layout=` leaves something to undo): the whole run is taken back, newest step first; it is refused over a change somebody else made since ("undo that first").
+- **By hand**, with no script: `door_act tile.float tile=… on=true txn=g1 motion=fantasia` per tile, `door_act layout.load name=… txn=g1`, then `door_act layout.txn.end txn=g1`. `txn=` and `motion=` are the dispatcher's own arguments, open to every actor.
+
+Try it: `ep0ch --showcase`, `act section name=fantasia`.
 
 ## Source map
 

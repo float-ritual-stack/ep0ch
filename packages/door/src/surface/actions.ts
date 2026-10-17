@@ -1,3 +1,4 @@
+import { INVITES } from "./invite";
 import { ActionRefused, actRequestOf, type ActRequest } from "@ep0ch/outline-core/action-line";
 export { ActionRefused, actRequestOf, lineWords, type ActRequest } from "@ep0ch/outline-core/action-line";
 // Named actions: everything a person does to a note (edit, save, quote a passage, comment, reply,
@@ -454,7 +455,7 @@ export function coerceActionArgs(action: string, spec: Record<string, ArgSpec>, 
  * "an agent (claude-7)": how the door names an agent on screen. A persona comes first and its principal after it
  * (`an agent (kitty · claude-code@box-a)`, ADR 0003), never the raw `kitty/claude-code@box-a`.
  */
-export const agentLabel = (actor: Actor) => (actor.kind === "agent" ? `an agent (${agentWords(actor.id)})` : "you");
+export const agentLabel = (actor: Actor) => (actor.kind === "agent" ? `an agent (${agentWords(actor.id)})${INVITES.byOf(actor.invitation) ? " on your press" : ""}` : "you");
 
 /** An agent's id in words: `kitty · claude-code@box-a` for a persona on its principal, else its name (`actorName`). */
 export function agentWords(id: string): string {

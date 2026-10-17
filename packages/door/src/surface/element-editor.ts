@@ -329,16 +329,24 @@ export class ElementEdit {
     const hidden = d.hiddenAnswerLines();
     const sourceRows: number[] = [];
     const prose = (start: number, end: number) => {
-      const lines: number[] = [], text: string[] = [];
+      let lines: number[] = [], text: string[] = [];
+      const flush = () => {
+        if (!text.length) return;
+        const doc = draw(text.join("\n"), w);
+        body.push(...doc.lines);
+        sourceRows.push(...doc.source.map(i => lines[i] ?? -1));
+        lines = []; text = [];
+      };
       for (let i = start; i < end; i++) {
         if (hidden.has(i)) continue;
         const line = d.lines[i]!, status = d.askStatus(line, w - width(line));
         text.push(line + (status && width(status) <= w - width(line) ? status : "")); lines.push(i);
         if (status && width(status) > w - width(line)) { text.push(status.trim()); lines.push(i); }
+        // What the line last drew (PIE-981), read-only under it, as the raw edit keeps it.
+        const kept = d.kept?.(i, w) ?? [];
+        if (kept.length) { flush(); body.push(...kept); sourceRows.push(...kept.map(() => i)); }
       }
-      const doc = draw(text.join("\n"), w);
-      body.push(...doc.lines);
-      sourceRows.push(...doc.source.map(i => lines[i] ?? -1));
+      flush();
     };
     let at = 0, cursor = 0;
     for (const e of this.elements()) {

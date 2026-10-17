@@ -11,6 +11,7 @@
 // echonet); this file keeps the order they are written in. A new section's content is a new file there.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { titleLine, type Msg } from "../board";
 import { USER, type Actor, type SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
@@ -73,6 +74,9 @@ export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: M
   const retry = await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
   return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.proposalId ?? "", ...(retry.deduped ? { deduped: true } : {}) } } };
 }
+
+/** The Fantasia script's code (PIE-959). */
+export const FANTASIA = "const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));\nconst tempo = Math.max(150, Math.min(3000, Number(props.tempo && props.tempo[0]) || 500));\nconst style = (props.motion && props.motion[0]) || 'fantasia';\nconst home = (props.layout && props.layout[0]) || '';\nconst stay = !!(props.stay && props.stay[0]);\nconst before = await act('layout.get');\nif (before.locked) return 'fantasia: the screen is locked; alt+k unlocks it, then run again';\nconst dancers = (before.tiles || []).filter(t => t.shown && t.kind !== 'drawer.own').map(t => ({ id: t.id, name: t.name }));\nconst notes = [], floated = [];\nfor (const d of dancers) {\n  try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r && r.now && r.now !== d.name ? r.now : d.id, name: d.name }); }\n  catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }\n}\nif (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');\nconst drift = [[7, -2], [-5, 3], [6, 2], [-8, -3], [4, 4], [-4, -4], [9, 1], [-6, 2]];\nfor (let beat = 0; beat < beats; beat++) {\n  for (let i = 0; i < floated.length; i++) {\n    const [dx, dy] = drift[(beat + i * 3) % drift.length];\n    try { await act('float.place', { tile: floated[i].id, dx: i % 2 ? -dx : dx, dy, motion: style }); }\n    catch (e) { notes.push('beat ' + (beat + 1) + ', ' + floated[i].name + ': ' + (e && e.message || e)); }\n  }\n  await wait(tempo);\n}\nlet settled = '';\nif (stay) settled = 'and left where they danced (layout.undo puts them back)';\nif (!settled && home) {\n  try { await act('layout.load', { name: home, motion: 'settle' }); settled = 'into the screen ' + home; }\n  catch (e) { notes.push('layout.load ' + home + ': ' + (e && e.message || e)); }\n}\nif (!settled) {\n  // No layout asked: the run's own changes are taken back, so the screen is as it began.\n  try { await act('layout.undo'); settled = 'the layout as it began'; } catch (e) { notes.push('layout.undo: ' + (e && e.message || e)); }\n}\nif (!settled) settled = 'left where they danced (layout.undo, or ctrl+z, puts them back)';\nreturn 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\\nnotes: ' + notes.join('; ') : '');";
 
 export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string; outliner?: string; rulesFrom?: string } = {}): Promise<Seeded> {
   if (await findShowcase(board)) throw new Error("this outline already has a showcase; reset it (scripts/try-it.sh --showcase --reset) rather than seeding twice");
@@ -157,6 +161,42 @@ if (request.input.request === "describe the beds") {
     "beds-table:: week=42",
     "A ::= line is the same in one line, with this, props, q, read and resolve:",
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
+  ].join("\n"));
+  // A view that can be pressed (PIE-981): a render script draws the board, each free square a press that runs the move script.
+  await make(notes.scripts.id, "Noughts board [script::ttt-board] [mode::render]\n```js\nconst b = (await resolve('this.board')).values[0] ?? '.........';\nconst square = i => b[i] === '.' ? view.badge({ label: String(i + 1), act: `ttt-move at=${i + 1}` }) : view.badge({ label: b[i], tone: b[i] === 'x' ? 'accent' : 'warn' });\nreturn view.stack({ children: [0, 3, 6].map(r => view.row({ minWidth: 4, children: [square(r), square(r + 1), square(r + 2)] })) });\n```");
+  await make(notes.scripts.id, "Noughts move [script::ttt-move] [effects::write]\n```js\nconst at = Number(props.at[0]);\nconst b = [...(await resolve('this.board')).values[0]];\nif (!(at >= 1 && at <= 9) || b[at - 1] !== '.') return `square ${props.at[0]} is not free`;\nb[at - 1] = 'x';\nconst reply = b.indexOf('.');\nif (reply >= 0) b[reply] = 'o';\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: b.join(''), revision: this.revision });\nreturn `x on ${at}`;\n```");
+  await make(notes.scripts.id, "Noughts reset [script::ttt-reset] [effects::write]\n```js\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: '.........', revision: this.revision });\nreturn 'new game';\n```");
+  notes.press = await make(notes.root.id, [
+    `${SEED.press} [board::.........]`,
+    "The board is drawn by a render script, which writes nothing. Each free square is a press (a button in the view): a click, or ⏎ on it, runs the move script as you. Your click is the consent: it runs at once, and ctrl+z or ext.undo takes it back. The script answers with an o.",
+    "ttt-board::",
+    '::button{label="New game" of=ttt-reset}',
+    "In prose it is a link: [start over](act: ttt-reset).",
+  ].join("\n"));
+  // Generated regions in prose (PIE-956): the render script's table, a ::= sentence and a written output region, each read like the page.
+  notes.outputRegions = await make(notes.root.id, [
+    `${SEED.outputRegions} [owner::Sam] [crop::beans]`,
+    "Sam's sowing plan for week 42 is a script's table, drawn as if it were written here:",
+    "beds-table:: week=42",
+    "Below it, one sentence is generated too:",
+    "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
+    "Neither shows who ran it, when, or a button: the one dim mark in the margin beside each is all that says so. Put the cursor on it (the [ ] keys), or click it, to see when it ran and to run it again. A script that writes leaves its output in the note, as a region you can edit:",
+    outputRegionText({ label: "last week's rota", producer: notes.scripts.id, anchor: "out-rota-7c2e", body: "- Mon: Sam waters the beans\n- Wed: Robin thins the carrots\n- Fri: Sam picks the first peas" }),
+    "Change a word inside it and it is yours: the script's next run waits as a proposal beside it.",
+  ].join("\n"));
+  // Motion (PIE-958): a button runs a script whose layout changes glide; its tiles float, wander and settle, then land where the layout is.
+  await make(notes.scripts.id, "Shuffle tiles [script::shuffle-tiles] [effects::write]\n```js\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: true, motion: 'fantasia' });\nawait wait(1400);\nawait act('float.place', { tile: 'source', dx: 10, dy: 3, motion: 'fantasia' });\nawait act('float.place', { tile: 'extra', dx: -8, dy: 2, motion: 'fantasia' });\nawait wait(1400);\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: false, motion: 'fantasia' });\nreturn 'settled';\n```");
+  notes.motion = await make(notes.root.id, [
+    `${SEED.motion}`,
+    "Press the button: its script floats the two tiles beside this one, moves them, and settles them back. Each change glides from where the tile was to where it is (a script asks for motion=fantasia; the setting caps it: motion.set mode=calm or off). Nothing flashes or changes brightness, and any key or click snaps it. ctrl+z puts the whole run's layout back.",
+    '::button{label="✦ Shuffle the tiles" of=shuffle-tiles}',
+  ].join("\n"));
+  // Fantasia (PIE-959): the acceptance script. A press floats every tile it may, dances them with motion=fantasia and settles them.
+  await make(notes.scripts.id, "Fantasia [script::fantasia] [effects::write]\n```js\n"+FANTASIA+"\n```");
+  notes.fantasia = await make(notes.root.id, [
+    SEED.fantasia,
+    "Press the button: a script floats the tiles, dances them a few beats with motion=fantasia and settles them back into the layout. Your press invites it, so it may move the tile you are in too; an agent's run (act ext.<id>.run) leaves that one where it is. Nothing you type is touched. esc stops it between beats and the layout is put back; ctrl+z (layout.undo) takes the whole run back in one step.",
+    '::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia}',
   ].join("\n"));
   // The worked examples of the scripts reference (PIE-982), pasted as notes. Read from the page at seed time on purpose: the page is the one source of the example text, and its test runs these same notes, so a copy in the seed could only drift from both.
   notes.scriptExamples = await make(notes.root.id, `${SEED.scriptExamples}\nThe worked examples of the scripts reference (packages/outliner/docs/scripts.md), pasted as notes beneath this one. ${SEED.exampleOrder} draws a table of its children with a computed column; ${SEED.exampleGame} is tic-tac-toe, played with ttt-play cell=5 from the power bar; Bed 4 reads its properties into a sentence; a rule stamps a checklist under every #shipit note.`);

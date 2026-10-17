@@ -84,3 +84,14 @@ export function actionScript(source: string, props: Record<string, string | read
     return [`try { await act(${JSON.stringify(req.action)}, ${JSON.stringify(args)}); } catch (e) { throw new Error(${JSON.stringify(`Line ${index + 1} (${req.action}): `)} + e.message); }`];
   }).join("\n");
 }
+
+/**
+ * The slot words of a handler line's arguments (`week=42 tag="a b"`) in the order written, a repeated name as another pair; a word
+ * that is not `name=value` is left out. The one reader of that grammar: a script's `props`, the Sources inspector's parameters and
+ * the rewrite of a slot all go through it.
+ */
+export function slotPairs(words: string | null | undefined): { key: string; value: string }[] {
+  const out: { key: string; value: string }[] = [];
+  for (const m of (words ?? "").matchAll(/([A-Za-z_][\w-]*)=(?:"((?:[^"\\]|\\.)*)"|(\S*))/g)) out.push({ key: m[1]!, value: m[2] !== undefined ? m[2].replace(/\\(.)/g, "$1") : m[3]! });
+  return out;
+}

@@ -1,0 +1,127 @@
+// `site.sources` (PIE-956, S6b): every generated region of a note with what it read, when, what shaped it and what it
+// answered, from the one set of readers the page itself is drawn from: the extension registry's handler lines
+// (`extensions.outputs`), `template.use`, the figure/fields/if producers (`site.answer`'s `produce`) and the output
+// regions' text grammar. The door's Sources inspector draws this answer (a published page's panel is a follow-up, PIE-996), so a second client agrees with it.
+// A page shows none of it by default; "where this comes from" asks. Reads only.
+import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import type { SiteProduced } from "@ep0ch/outline-core/site";
+import { sourceCalls, yamlParams, type SourceEntry, type SourcesAnswer, type SourcesRequest } from "@ep0ch/outline-core/sources";
+import { answerSite } from "./site-answer";
+import { slotProps } from "./script-runs";
+import type { ResourceProjection } from "./resource-projection";
+import { templateUse, type TemplateUseStore } from "./template-use";
+
+/** What the extension registry says of the code behind a handler: its script's note and text, else the extension's id. */
+export interface TransformOf { kind: "script" | "extension"; label: string; block?: string; text?: string }
+
+export interface SourcesDeps {
+  store: TemplateUseStore;
+  /** The note's handler lines (`extensions.outputs`), in any order. */
+  projections: readonly ResourceProjection[];
+  transformOf(extension: string, handler: string): TransformOf;
+  clock?: () => number;
+}
+
+const MAX_ROWS = 2000;
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** A Markdown table's header and rows, when `text` is (or holds) one. */
+export function markdownTable(text: string): { columns: string[]; table: string[][] } | null {
+  const lines = text.split("\n");
+  const at = lines.findIndex((l, i) => /^\s*\|.*\|\s*$/.test(l) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] ?? ""));
+  if (at < 0) return null;
+  const cells = (l: string) => l.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  const table: string[][] = [];
+  for (let i = at + 2; i < lines.length && /^\s*\|/.test(lines[i]!); i++) table.push(cells(lines[i]!));
+  return { columns: cells(lines[at]!), table };
+}
+
+const resultOf = (text: string): SourceEntry["result"] => {
+  const t = markdownTable(text);
+  return t ? { rows: t.table.length, columns: t.columns, table: t.table.slice(0, MAX_ROWS), text } : { rows: text.trim() ? text.trim().split("\n").length : 0, text };
+};
+
+/** A produced list of notes as a table: id and title. */
+function blocksResult(blocks: readonly unknown[]): SourceEntry["result"] {
+  const table = (blocks as { id?: string; title?: string; text?: string }[]).slice(0, MAX_ROWS).map(b => [String(b.id ?? ""), String(b.title ?? (b.text ?? "").split("\n")[0] ?? "")]);
+  return { rows: blocks.length, columns: ["id", "title"], table, text: table.map(r => r.join("\t")).join("\n") };
+}
+
+export function readSources(deps: SourcesDeps, request: SourcesRequest): SourcesAnswer {
+  const { store } = deps;
+  const clock = deps.clock ?? Date.now;
+  if (!request || typeof request.blockId !== "string" || !request.blockId.trim()) throw new Error("site.sources needs blockId: the note whose generated regions are asked, for example { blockId: \"PIE-12\" }");
+  const host = store.resolveBlockRef(request.blockId);
+  const text = host.text;
+  const lines = text.split("\n");
+  const readAt = new Date(clock()).toISOString();
+  const out: SourceEntry[] = [];
+
+  // Handler lines and `::=` lines: the extension registry's, with when each ran.
+  for (const p of deps.projections) {
+    if (!p.extension || (p.kind !== "output" && p.kind !== "component")) continue;
+    const line = p.anchor.line;
+    const written = lines[line] ?? "";
+    const expr = /^\s*::=/.test(written);
+    const argument = expr ? written.replace(/^\s*::=\s*/, "") : (/^[^:]*::\s*(.*)$/.exec(written)?.[1] ?? "");
+    const params = expr ? [] : Object.entries(slotProps(argument)).flatMap(([key, values]) => values.map(value => ({ key, value })));
+    const t = deps.transformOf(p.extension.id, p.extension.handler);
+    const markdown = p.output?.markdown ?? "";
+    out.push({
+      key: String(line), kind: expr ? "expr" : "handler", name: expr ? "::=" : p.propertyKey, line, endLine: line,
+      ...(p.output?.ranAt ? { readAt: p.output.ranAt } : {}), live: p.extension.effects === "read",
+      query: { params, text: written, editable: !expr },
+      transform: expr ? { kind: "expression", label: "one-line script", text: argument } : { kind: t.kind, label: t.label, ...(t.block ? { block: t.block } : {}), ...(t.text !== undefined ? { text: t.text } : {}) },
+      result: resultOf(markdown),
+      ...(p.status !== "ready" && p.status !== "stale" ? { problem: p.reason ?? String(p.status) } : {}),
+    });
+  }
+
+  // The note's own generated lines.
+  for (const c of sourceCalls(text)) {
+    const base = { key: c.kind === "output" ? `#${c.region?.anchor ?? c.line}` : String(c.line), kind: c.kind, name: c.name, line: c.line, endLine: c.endLine } as const;
+    try {
+      if (c.kind === "use") {
+        const a = templateUse(store, { block: host.id, line: c.line }, clock);
+        out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: true },
+          transform: a.template ? { kind: "template", label: a.template.title, block: a.template.id, text: a.template.text } : { kind: "none", label: "no template" },
+          result: a.template ? resultOf(answerSite(store, { blockId: a.template.id, chain: a.chain, props: a.props, interpolate: { text: a.template.text, fences: "template" } }, clock).interpolated?.text ?? a.template.text) : { rows: 0, text: "" }, ...(a.problems[0] ? { problem: a.problems[0].message } : {}) });
+      } else if (c.kind === "figure" && c.figure) {
+        const block = componentBlocks(lines).find(b => b.start === c.line);
+        const src = figureSource(lines.slice(c.line + 1, block?.end ?? c.endLine), host.id, false, block?.attrs);
+        const read = figureProps(c.figure.kind, src);
+        if ("error" in read) throw new Error(read.error);
+        const props = read.props;
+        const answer = answerSite(store, { blockId: host.id, produce: { kind: "figure", figure: c.figure.kind, props } }, clock);
+        const produced = answer.produced as Extract<SiteProduced, { kind: "figure" }> | undefined;
+        const question = typeof props.query === "string" ? props.query : typeof props.view === "string" ? `view ${props.view}` : "";
+        out.push({ ...base, readAt, live: true, query: { params: [...yamlParams(c.figure.yaml), ...c.params], text: question || c.text, editable: false },
+          transform: { kind: "figure", label: `${c.name} figure`, text: c.figure.yaml || lines.slice(c.line, c.endLine + 1).join("\n") },
+          result: produced ? blocksResult(produced.blocks) : { rows: 0, text: "" }, ...(produced?.error ? { problem: produced.error } : {}) });
+      } else if (c.kind === "fields") {
+        const answer = answerSite(store, { blockId: host.id, produce: { kind: "fields", key: c.of ?? "", ...(c.params.find(p => p.key === "of") ? { of: c.params.find(p => p.key === "of")!.value } : {}) } }, clock);
+        const produced = answer.produced as Extract<SiteProduced, { kind: "fields" }> | undefined;
+        const table = (produced?.rows ?? []).slice(0, MAX_ROWS).map(r => [r.value, String(r.line + 1)]);
+        out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: false },
+          transform: { kind: "none", label: "reads the key as written" }, result: { rows: produced?.rows.length ?? 0, columns: ["value", "line"], table, text: table.map(r => r.join("\t")).join("\n") },
+          ...(produced?.problem ? { problem: produced.problem.message } : {}) });
+      } else if (c.kind === "if") {
+        const answer = answerSite(store, { blockId: host.id, produce: { kind: "if", where: c.of ?? "" } }, clock);
+        const produced = answer.produced as Extract<SiteProduced, { kind: "if" }> | undefined;
+        out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: false },
+          transform: { kind: "none", label: "a query over this note" }, result: { rows: 1, text: produced ? (produced.holds ? "holds: its body is drawn" : "does not hold: its body is not drawn") : "" },
+          ...(produced?.problem ? { problem: produced.problem.message } : {}) });
+      } else if (c.kind === "output") {
+        const r = c.region!;
+        out.push({ ...base, live: false, query: { params: [], text: c.text.replace(/^\s*>\s*/, ""), editable: false },
+          transform: r.producer ? { kind: "script", label: "its producer", block: r.producer } : { kind: "none", label: "no producer recorded" },
+          result: resultOf(r.body), ...(r.edited ? { problem: "edited here: it is yours now, and its producer's next output waits as a proposal" } : {}) });
+      }
+    } catch (error) {
+      out.push({ ...base, live: false, query: { params: c.params, text: c.text, editable: false }, transform: { kind: "none", label: "" }, result: { rows: 0, text: "" }, problem: message(error) });
+    }
+  }
+  out.sort((a, b) => a.line - b.line);
+  return { blockId: host.id, revision: host.revision, readAt, sources: out };
+}

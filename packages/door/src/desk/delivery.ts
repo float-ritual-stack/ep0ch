@@ -52,7 +52,7 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
       { key: "g", action: "board.hub" },
       { key: "t", action: "tile.slide", tile: "tree", unless: ["reader", "preview", "river.column", "echo.reader"] },
       { key: "T", action: "tile.dock", tile: "tree" },
-      { key: "S", action: "tile.dock", tile: "tree", args: { edge: "other" } },
+      { key: "S", action: "tile.dock", tile: "tree", args: { edge: "other" }, unless: ["reader", "preview", "river.column", "echo.reader"] },
       { key: "b", action: "backlinks", tile: "backlinks", unless: ["backlinks"] },
       { key: "B", action: "tile.dock", tile: "backlinks" },
       { key: "o", action: "tile.float" },

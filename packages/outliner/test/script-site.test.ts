@@ -190,6 +190,64 @@ test("keep on a render line writes its output as a note and starts no run", asyn
   expect(store.children(script.id)).toHaveLength(0);
 });
 
+test("a render script's view reaches a client as a view, its squares carrying the action they press; the text form carries none (PIE-981)", async () => {
+  const { client, create } = await setup();
+  create(`Move [script::ttt-move]\n\`\`\`js\nreturn "moved " + props.at[0];\n\`\`\``);
+  create(`Board [script::ttt-board] [mode::render]\n\`\`\`js\nreturn view.stack({ children: [view.badge({ label: "5", act: "ttt-move at=5" })] });\n\`\`\``);
+  const note = create("Game\nttt-board::");
+  const projections = async () => (await client.request<{ projections: { kind?: string; output?: { markdown: string; component?: { view: unknown } } }[] }>({ action: "resources.projection.read", blockId: note.id, materialize: true })).projections;
+  const drawn = await until("the board", async () => (await projections()).find(p => p.output)?.output);
+  expect(JSON.stringify(drawn.component?.view)).toContain('"act":"ttt-move at=5"');
+  expect(drawn.markdown).toContain("5");
+  expect(drawn.markdown).not.toContain("ttt-move");
+});
+
+test("a script's write to a note a render line reads draws the line again, and the render line itself writes nothing (PIE-981)", async () => {
+  const { store, client, create, output, run } = await setup();
+  create(`Mark [script::mark-it] [effects::write]\n\`\`\`js\nawait tools.outline_set_property({ ref: this.id, key: "mark", value: "x", revision: this.revision });\nreturn "marked";\n\`\`\``);
+  create(`Show [script::show-mark] [mode::render]\n\`\`\`js\nreturn "mark: " + ((await resolve("this.mark")).values?.[0] ?? "none");\n\`\`\``);
+  const note = create("Square\nshow-mark::");
+  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await until("the first drawing", () => output(note.id)[0]?.includes("none"));
+  await run("mark-it", { blockId: note.id });
+  await until("the line drawn again after the script's write", () => output(note.id)[0]?.includes("mark: x"));
+  expect(store.get(note.id)!.text).toContain("[mark::x]");
+});
+
+test("a script that acts on a door with none connected is refused with where to find one (PIE-957)", async () => {
+  const { create, run } = await setup();
+  create(`Ask door [script::ask-door] [effects::write]\n\`\`\`js\nawait act("actions", {});\nreturn "asked";\n\`\`\``);
+  const note = create("Somewhere");
+  const { text } = await run("ask-door", { blockId: note.id });
+  expect(text).toContain("failed");
+  expect(text).toMatch(/no door (on|here)/);
+  expect(text).toContain("door=<client>");
+});
+
+test("a script's act with no door= uses the one connected door, which a client declares with app: \"door\", not by the look of its clientId (PIE-957)", async () => {
+  const { client, create, run } = await setup();
+  create(`Ask door [script::ask-one-door] [effects::write]\n\`\`\`js\nconst r = await act("actions", {});\nreturn "door said " + JSON.stringify(r);\n\`\`\``);
+  const note = create("Somewhere else");
+  // A client whose id merely looks like a door's is not one.
+  const impostor = client.watch({ client: { clientId: "ep0ch-door-lookalike", role: "observer", contextId: "x" }, onEvent: () => {} });
+  const asked: string[] = [];
+  const door = client.watch({
+    client: { clientId: "a-real-door", role: "observer", contextId: "y", app: "door" },
+    onEvent: async event => {
+      const call = (event as unknown as { script?: { requestId: string; targetClientId: string; action: string } }).script;
+      if (event.domain !== "script" || !call || call.targetClientId !== "a-real-door") return;
+      asked.push(call.action);
+      await client.request({ action: "scripts.answer", requestId: call.requestId, clientId: "a-real-door", result: { ok: true } } as never);
+    },
+  });
+  try {
+    await until("both clients connected", async () => (await client.request<{ clientId: string }[]>({ action: "clients.list" })).length >= 2);
+    const { text } = await run("ask-one-door", { blockId: note.id });
+    expect(text).toContain("door said");
+    expect(asked).toEqual(["actions"]);
+  } finally { await impostor.stop(); await door.stop(); }
+});
+
 test("a line written before its script exists is drawn once the script is loaded, without being asked again", async () => {
   const { create, client, output } = await setup();
   const note = create("Later\nlate-bloomer::");

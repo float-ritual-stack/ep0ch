@@ -667,6 +667,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "output-regions", need: "draw what a script, handler or agent generates as the note's own content, with its controls behind one mark", part: "the output-region rule: regionRows/regionTail (src/output-region.ts) behind extensionRegion, useRegion and the [!output] callout branch of renderDoc; the gutter mark, its click and `[ ]` stop in NoteSurface; outline-core's output-region.ts grammar", files: "src/output-region.ts, src/projection.ts, src/template-use.ts, src/doc.ts, src/surface/note.ts, outline-core src/output-region.ts",
+    aside: "three generated regions in prose (a script's table, a ::= sentence, a written output region): flush with the text, no box or header · each has one dim ≡ in the margin: [ ] on it, or a click, shows its name, when it ran, keep and run again as one dim row; a second click lets go · hover isn't offered: the door asks the terminal for button events, not motion · r with no [ ] position runs nothing when a note has several lines that run, and says which · edit a word inside the written region and it is yours: its script's next output waits as a proposal",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · regions in prose", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.outputRegions], [b, n.scripts]]);
+    },
+  },
+  {
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
@@ -684,7 +692,10 @@ export const SECTIONS: Section[] = [
         render: async req => {
           const l = extensionList();
           const rows = !l ? [`${fg(C.yellow)}this service lists no extensions (it lacks extensions.list, or none are installed)${RESET}`]
-            : l.extensions.flatMap(e => [
+            : l.extensions.flatMap(e => e.id.startsWith("script-")
+            // A script is one line (its notes are in the sections that use them; four lines each would push the programs off a screen).
+            ? [`${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}script · ${e.state}${RESET}`]
+            : [
               `${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}${e.id} · ${e.state}${RESET}`,
               ...e.handlers.map(h => `  ${fg(C.grey)}${h.key}:: ${fg(C.dark)}${h.kind}${RESET}`),
               ...(e.agents ?? []).map(a => `  ${fg(C.grey)}@${a.name} ${fg(C.dark)}agent${RESET}`),
@@ -1004,6 +1015,30 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "press", need: "press a square a script's view draws: a click or ⏎ runs the action it carries, as you", part: "a view primitive's `action` (the service's ViewAction), drawn as a control of the handler line (extensionRegion's press), run through EXT_ACTIONS as the person; edit and rich edit keep the line's last drawing under it", files: "outliner/src/component-primitives.ts, src/components.ts, src/projection.ts, src/edit.ts",
+    aside: "Click a number (it runs at once, as you), or [ ] to it and ⏎ · the New game button and the prose link [start over](act: ttt-reset) are the same press · act: ext.<id>.run block=<the note> at=5 (ext ls names the script's id), element.open n=<its element> from another reader · a script you press may move your tiles: its layout changes are one transaction, ext.undo takes them back with its writes, ctrl+z undoes the layout (layout.undo) · e (then ⏎) to edit: the drawn board stays under its ttt-board:: line, read-only · the board is a [board::] property on the note, so the move is a revision you can ctrl+z",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · pressable views", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.press], [b, n.scripts]]);
+    },
+  },
+  {
+    key: "motion", need: "see a layout change as movement: tiles glide from where they were to where they are, and a button can ask for more", part: "the desk's transition (src/motion.ts, Desk.startMotion, the tick and the ghosts drawn in render) driven by the layout history's changes (src/desk/layout-history.ts); the person's setting (motion.set, EP0CH_MOTION) caps every actor's hint", files: "src/motion.ts, src/desk/desk.ts, src/desk/layout-history.ts, src/screens.ts",
+    aside: "click ✦ Shuffle the tiles (or ⏎ on it): the two tiles beside float out, wander and settle back, a script's motion=fantasia · motion.set mode=calm glides briefly, mode=off snaps · any key or a click snaps what is moving · ctrl+z puts the run's layout back · peek and snapshots read the settled layout, never the frames in flight · movement only: no fade, no flash",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
+      return deskOf({ title: "showcase · motion", panes: [a, b, c], names: ["notes", "source", "extra"], layout: ([x, y, z]) => pair("row", 0.4, leaf(x!), row(0.5, y!, z!)) }, show, [[a, n.motion], [b, n.scripts], [c, n.shed]]);
+    },
+  },
+  {
+    key: "fantasia", need: "press one button and watch the screen dance, then settle: the whole self-reference wave in one click", part: "a `::button` (outline-core button-call.ts) runs the fantasia script as you with a one-run invitation; the script's `act()` calls are one layout transaction (txn=<run id>, motion=fantasia) that the desk draws as movement, closes when scripts.ended says the run did, puts back if it stops early, and layout.undo / ext.undo take back in one step", files: "src/surface/note.ts (runPress), src/surface/invite.ts, src/surface/txn.ts, src/desk/layout-history.ts, src/motion.ts, outliner/src/script-runs.ts",
+    aside: "click ✦ Fantasia (or ⏎ on it): the tiles float, wander and settle back; your press invited the run, so it may move the tile you are in too · act ext.<id>.run block=<this note> beats=3 as an agent runs the same script attributed to it: no invitation, so the tile you are in stays · script.stop run=<id> (or esc on the run) stops it between beats and puts the layout back · ctrl+z (layout.undo) or ext.undo takes the whole run back in one step (stay=1 leaves them floating where they danced: one undo is the 2x2 again) · motion.set mode=calm or off caps the dance · a locked screen refuses, a tile you type in is never moved",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane(), d2 = new ReaderPane();
+      return deskOf({ title: "showcase · fantasia", panes: [a, b, c, d2], names: ["notes", "source", "extra", "more"], layout: ([w, x, y, z]) => pair("col", 0.5, row(0.5, w!, x!), row(0.5, y!, z!)) }, show, [[a, n.fantasia], [b, n.scripts], [c, n.shed], [d2, n.heap]]);
+    },
+  },
+  {
     key: "script-examples", need: "learn the scripts surface from notes you can paste, and see each one run", part: "the scripts reference's worked examples (outliner docs/scripts.md) as notes: render scripts, an action script, a rule that stamps", files: "outliner/docs/scripts.md, outliner/src/script-examples.ts",
     aside: "Game 1 draws a tic-tac-toe board from its [board::] property · ^K then ttt-play cell=5 plays a cell as X, then O, and the drawing follows; the note's property is the whole state, so ctrl+z takes a move back · Seed order draws a table of its children with a Cost column: edit a [qty::] (e, save) or add a child and it redraws · Bed 4, the stamping rule and the other scripts sit under Script examples · the page prints exactly these notes, and its test runs them",
     stage(n, show) {
@@ -1247,6 +1282,12 @@ export class Showcase implements Screen {
   }
 
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
+  /** The shown stage's (the status bar's stop control acts on the stage in front, so it only offers what it can stop). */
+  dancing(): boolean { return this.stages.get(this.sel)?.dancing() ?? false; }
+  settle(): boolean { return [...this.stages.values()].map(f => f.settle()).some(Boolean); }
+  scriptEnded(run: string, reason: "done" | "stopped" | "failed") { for (const f of this.stages.values()) f.scriptEnded(run, reason); }
+  scriptUndone(run: string) { for (const f of this.stages.values()) f.scriptUndone(run); }
+  scriptsLost() { for (const f of this.stages.values()) f.scriptsLost(); }
   onEvent(e: OutlineEvent) {
     for (const f of this.stages.values()) f.onEvent(e);
     if (this.reseeding && e.action !== "reconnected" && e.action !== "reset") this.reread();
@@ -1315,7 +1356,8 @@ export class Showcase implements Screen {
    */
   keys() {
     const f = this.focus === "stage" ? this.stages.get(this.sel) : undefined;
-    return f ? { ...screenKeys(f.top), busy: true, why: `the person is in section ${this.sel + 1} (${SECTIONS[this.sel]!.key}); sections change from the index` } : { focus: null, typingIn: null, busy: false };
+    const inner = f ? screenKeys(f.top) : null;
+    return f ? { ...inner!, busy: true, ...(inner!.busy ? {} : { navHold: true as const }), why: `the person is in section ${this.sel + 1} (${SECTIONS[this.sel]!.key}); sections change from the index` } : { focus: null, typingIn: null, busy: false };
   }
 
   /** The section on screen, and where the person's keys are: the index or its stage. */

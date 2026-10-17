@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the checklist box grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms, the date reader), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 205;
+export const PROTOCOL = 206;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -48,7 +48,14 @@ export interface ScriptActionCall {
   action: string;
   args: Record<string, unknown>;
   actor: { author: "user" | "agent" | "system"; actorId?: string; sessionId?: string; taskId?: string };
+  /** Who asked for the run (PIE-957): the person whose press started it, or the agent. The call's `actor` is the script. */
+  requestedBy?: { author: "user" | "agent" | "system"; actorId?: string };
+  /** The invitation the person's press minted for this run (a door's, src/surface/invite.ts): it lets the run move the person's tiles. */
+  invitation?: string;
 }
+
+/** A script run ended (`scripts.ended` event, PIE-957): the door closes the layout transaction the run held by its end rule. */
+export interface ScriptEnded { run: string; reason: "done" | "stopped" | "failed" }
 
 /** A block as the service sends it whole. Projected reads (`fields`) send a subset. */
 export interface Block {

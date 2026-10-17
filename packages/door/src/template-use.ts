@@ -8,11 +8,13 @@
 import type { SiteLink } from "@ep0ch/outline-core/site";
 import type { TemplateUseAnswer, UseCall } from "@ep0ch/outline-core/template-use";
 import type { Msg } from "./board";
-import { embedState, shade } from "./embeds";
+import type { AfterRows } from "./doc";
+import { embedState } from "./embeds";
+import { regionRows, type RegionBook } from "./output-region";
 import type { LiveSite } from "./live";
 import { printable, type Source } from "./props";
 import { LINK_OFF, LINK_ON, type LinkTarget } from "./refs";
-import { C, ellipsize, fg, linkTag, LINK_END, RESET } from "./style";
+import { C, fg, linkTag, LINK_END, RESET } from "./style";
 import { watchedOn, type Watching } from "./watched";
 
 /** The most nested `::use` calls drawn inside each other (the service's chain bound, one short). */
@@ -50,6 +52,8 @@ export interface UseDrawing {
   depth?: number;
   /** Tag a part of the region as a link (without one the region is text). */
   sink?: LinkTarget[];
+  /** The reader's book of generated regions: the gutter mark and what is behind it (absent in an embed or a print: the body only). */
+  book?: RegionBook;
 }
 
 const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
@@ -57,40 +61,44 @@ const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) =>
 /** `owner=ada mood=meh` as the call passed them, for the region's head. */
 const callWords = (props: Record<string, string[]>) => Object.entries(props).map(([k, v]) => `${k}=${v.join(",")}`).join(" ");
 
-/** The lines a `::use` draws: its head, what is wrong with it, and the template's body. */
-export function useRegion(d: UseDrawing): string[] {
-  const S = (line: string) => shade(line, d.width);
-  const dim = (text: string) => S(fg(C.dark) + text + RESET);
+/**
+ * What a `::use` draws (PIE-956's one output-region rule, src/output-region.ts): the template's body flush with the note's
+ * text, what is wrong with the call said in the flow (the nearest name and a call that works, a prop it needs), and the
+ * template's name and props behind the gutter mark, where the template's note is one click away.
+ */
+export function useRegion(d: UseDrawing): string[] | AfterRows {
+  const dim = (text: string) => fg(C.dark) + text + RESET;
   const who = d.call.of ?? "(no template)";
-  if ((d.depth ?? 0) >= MAX_USE_DEPTH) return [dim(`::use ${who} · nested too deep · at most ${MAX_USE_DEPTH} calls inside each other`)];
+  const key = `${d.host}:${d.line}`;
+  const only = (...notes: string[]) => regionRows({ key, label: `::use ${who}`, body: [], notes, facts: [`::use ${who}`], controls: [], width: d.width }, d.book);
+  if ((d.depth ?? 0) >= MAX_USE_DEPTH) return only(dim(`::use ${who} · nested too deep · at most ${MAX_USE_DEPTH} calls inside each other`));
   const read = useAnswer(d.src, d.host, d.line, d.site);
-  if (!read || read.state === "loading") return [dim(`::use ${who} · reading…`)];
-  if (read.state === "error" && !read.value) return [S(fg(C.lred) + `::use ${who} · ${printable(read.error).slice(0, 200)}` + RESET)];
+  if (!read || read.state === "loading") return only(dim(`::use ${who} · reading…`));
+  if (read.state === "error" && !read.value) return only(fg(C.lred) + `::use ${who} · ${printable(read.error).slice(0, 200)}` + RESET);
   const answer = read.value!;
-  const out: string[] = [];
+  const notes: string[] = [];
   const title = answer.template ? printable(answer.template.title) : printable(who);
   const head = `⧉ ${title}${Object.keys(answer.props).length ? ` · ${callWords(answer.props)}` : ""}`;
   const open: LinkTarget | null = answer.template ? { block: answer.template.id, role: "embed" } : null;
-  out.push(S(fg(C.dark) + (open ? tagged(d.sink, open, ellipsize(head, Math.max(8, d.width - 2))) : ellipsize(head, Math.max(8, d.width - 2))) + RESET));
   // What is wrong, said where it is, with the nearest name and a call that works (a save is never refused for it).
   for (const p of answer.problems) {
     if (p.kind === "missing") continue;
-    out.push(S(fg(C.lred) + `⚠ ${printable(p.message).slice(0, 220)}` + RESET));
-    if (p.example && p.kind !== "spec") out.push(S(fg(C.dark) + `  for example ${printable(p.example).slice(0, 200)}` + RESET));
+    notes.push(fg(C.lred) + `⚠ ${printable(p.message).slice(0, 220)}` + RESET);
+    if (p.example && p.kind !== "spec") notes.push(dim(`  for example ${printable(p.example).slice(0, 200)}`));
   }
   if (answer.missing.length) {
     const names = answer.missing.map(m => m.name).join(", ");
     const fill = "[fill it in]";
-    out.push(S(fg(C.yellow) + `needs ${names} ` + RESET + fg(C.lcyan) + (d.sink ? LINK_ON + tagged(d.sink, { block: d.host, role: "control", label: `fill in ${names}`, use: { block: d.host, line: d.line } }, fill) + LINK_OFF : fill) + RESET));
+    notes.push(fg(C.yellow) + `needs ${names} ` + RESET + fg(C.lcyan) + (d.sink ? LINK_ON + tagged(d.sink, { block: d.host, role: "control", label: `fill in ${names}`, use: { block: d.host, line: d.line } }, fill) + LINK_OFF : fill) + RESET);
   }
-  if (!answer.template) return out;
+  const draw = (body: readonly string[]) => regionRows({ key, label: title, ...(open ? { target: open } : {}), body, notes, notesFirst: true, facts: [head], controls: [], width: d.width }, d.book);
+  if (!answer.template) return draw([]);
   // The template's note: kept read by the embed machinery (its text, revision and change events); its body is drawn here.
   const st = embedState(answer.template.id, undefined, d.src, d.top);
-  if (st.kind === "loading") return [...out, dim("reading the template…")];
-  if (st.kind === "failed") return [...out, S(fg(C.lred) + `the template: ${printable(st.error).slice(0, 200)}` + RESET)];
+  if (st.kind === "loading") { notes.push(dim("reading the template…")); return draw([]); }
+  if (st.kind === "failed") { notes.push(fg(C.lred) + `the template: ${printable(st.error).slice(0, 200)}` + RESET); return draw([]); }
   const node = st.node;
-  if (node.status !== "ready" || !node.block) return [...out, S(fg(C.lred) + `the template: ${printable(node.message ?? node.status).slice(0, 200)}` + RESET)];
+  if (node.status !== "ready" || !node.block) { notes.push(fg(C.lred) + `the template: ${printable(node.message ?? node.status).slice(0, 200)}` + RESET); return draw([]); }
   // A template with a prop missing or wrong is drawn anyway (the call is the person's to fix); the body shows what it can.
-  for (const line of d.body(node.block, bodySite(answer), Math.max(4, d.width - 2))) out.push(S(" " + line));
-  return out;
+  return draw(d.body(node.block, bodySite(answer), Math.max(4, d.width)));
 }

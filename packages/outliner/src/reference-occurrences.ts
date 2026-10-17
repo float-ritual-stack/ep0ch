@@ -1,4 +1,5 @@
 import {Lexer, type Token} from "marked";
+import { maskOutputRegions } from "@ep0ch/outline-core/output-region";
 import { codeHides, protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import { pageAddressReferences, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
 import { propertyValueLinks } from "@ep0ch/outline-core/property-grammar";
@@ -109,10 +110,12 @@ export function propertyReferenceOccurrences(
 }
 
 export function outlinerReferenceOccurrences(
-  text: string,
+  source: string,
   workIdPrefix: TicketPrefixes = null,
-  propertyRecords: readonly PropertyRecord[] = parsePropertyRecords(text),
+  propertyRecords: readonly PropertyRecord[] = parsePropertyRecords(source),
 ): OutlinerReferenceOccurrence[] {
+  // A reference inside an output region is machinery, never a backlink (PIE-956).
+  const text = maskOutputRegions(source);
   const blockReferences = blockReferenceOccurrences(text);
   const blockReferenceRanges = blockReferenceEnvelopeRanges(text);
   const candidates: OutlinerReferenceOccurrence[] = blockReferences.map(
