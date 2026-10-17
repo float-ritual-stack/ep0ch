@@ -2220,7 +2220,7 @@ export class Publisher {
       embeds.values = await readPageValues(valueHost, embedded.map((b) => ({ id: b.id, text: b.text ?? "" })));
     }
     const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
-    const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages });
+    const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages }, valueHost);
     // An HTML page draws the built-in components (figures, links components, embedded views) from the service's
     // answers; Markdown keeps their source as written.
     let drawn = new Map<string, Map<number, DrawnComponent>>();
@@ -2313,7 +2313,7 @@ export class Publisher {
    */
   private async handlerLines(
     lines: ReadonlyMap<string, readonly ResourceProjection[]>, texts: ReadonlyMap<string, string>, format: "markdown" | "html",
-    components: string[], context: TextContext,
+    components: string[], context: TextContext, host: LiveHost,
   ): Promise<Map<string, Map<number, string>>> {
     const out = new Map<string, Map<number, string>>();
     // A section's callouts draw as the page's do.
@@ -2325,8 +2325,13 @@ export class Publisher {
         : [];
       const text = (texts.get(blockId) ?? "").split("\n");
       const shown = new Map<number, string>();
+      // A script's output is what its code read (the output's `reads`): it says nothing when any of those notes isn't shown
+      // here, as a `{{ }}` value that read one says nothing (publish-values.ts).
+      const readIds = [...new Set(projections.flatMap((projection) => (hasResult(projection) ? projection.output?.reads ?? [] : [])))];
+      const open = readIds.length ? await host.shown(readIds) : new Set<string>();
       for (const projection of projections) {
         const line = projection.anchor.line, output = hasResult(projection) ? projection.output : undefined;
+        if (output?.reads?.some((id) => !open.has(id))) { shown.set(line, "*hidden here*"); continue; }
         const body = projection.kind === "component" ? html.find((result) => result.line === line)?.rendered.body : undefined;
         if (body !== undefined && components.length < MAX_PUBLISHED_COMPONENTS) {
           // Its pictures as the page's own images (PIE-827): served from here when the file may leave the machine.

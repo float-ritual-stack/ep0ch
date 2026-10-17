@@ -11,7 +11,7 @@ import { asksPerItem, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } fro
 import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/outline-core/site";
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
-import type { ValueBinder } from "./block-query";
+import { parseSearchExpression, queryReach, type ValueBinder } from "./block-query";
 
 type Props = Record<string, any>;
 
@@ -120,8 +120,26 @@ function fields(store: ProducerStore, tools: SiteTools, key: string, of: string 
   return { kind: "fields", key, from, revision: note?.revision ?? 0, rows };
 }
 
-function holds(store: ProducerStore, tools: SiteTools, thisId: string, where: string): SiteProduced {
-  try { return { kind: "if", holds: store.matchQuery(where, [thisId], { this: thisId }, tools.binder).blockIds.includes(thisId) }; }
+/** The notes an `::if` with a relation clause (`child:`, `links:`…) can consult about `this`: its children and its link neighbours. */
+function neighbours(store: ProducerStore, tools: SiteTools, thisId: string): string[] {
+  const found = store.queryBlocks({ where: "parent:this OR links:this OR linkedfrom:this", this: thisId, limit: 1000, machinery: "show" } as BlockSearchQuery, tools.binder);
+  return found.blocks.map(block => block.id);
+}
+
+function holds(store: ProducerStore, bound: Bound, tools: SiteTools, thisId: string, where: string): SiteProduced {
+  try {
+    // A clause about other notes answers from them: they are the answer's dependencies (a page asks whether it may show
+    // each), and for a reader who may not see one, it says nothing: whether the body appears would tell what that note holds.
+    if (queryReach(parseSearchExpression(where).where).open) {
+      const near = neighbours(store, tools, thisId);
+      for (const id of near) bound.world.deps.add(id);
+      if (near.some(id => bound.world.hidden.has(id))) {
+        bound.world.hiddenHits += 1;
+        return { kind: "if", holds: false, problem: { message: "this reads notes that aren't shown here", didYouMean: [] } };
+      }
+    }
+    return { kind: "if", holds: store.matchQuery(where, [thisId], { this: thisId }, tools.binder).blockIds.includes(thisId) };
+  }
   catch (error) { return { kind: "if", holds: false, problem: { message: message(error), didYouMean: [], example: '::if{where="status=active"}' } }; }
 }
 
@@ -144,7 +162,7 @@ export function produce(store: ProducerStore, bound: Bound, producer: SiteProduc
     }
     case "if": {
       if (typeof producer.where !== "string" || !producer.where.trim()) throw new Error("produce an if with { kind: \"if\", where: \"status=active\" }");
-      return { answer: holds(store, tools, thisId!, producer.where), anyChange: true };
+      return { answer: holds(store, bound, tools, thisId!, producer.where), anyChange: true };
     }
     default: throw new Error("produce is a figure, children, fields or if: { kind: \"fields\", key: \"connectTo\" }");
   }

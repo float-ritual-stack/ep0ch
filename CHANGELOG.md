@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A published page reads only what it may show (PIE-978, permissions)
+
+Closes the ways a page drawn from the Site could tell a reader about a note the page may not show: a render script's
+output (`::= …`, a script line) says *hidden here* when the script read such a note; `::if` over `child:`, `links:` or
+another relation says nothing when a note it could consult is hidden (the body stays out); `self` and `chain` hosts the
+reader may not see are refused; an ambiguous id prefix names no hidden title; a figure asked outside any note obeys
+`hidden` too. Nothing to run; pie's and gurgle's published pages were checked and none drew such a line.
+
 ### Install rewrites the old brace forms (PIE-533, landing)
 
 `ep0ch install --apply` runs the brace sweep on every outline, after the schema step and before the host starts: rule

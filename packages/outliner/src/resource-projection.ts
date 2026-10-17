@@ -73,6 +73,8 @@ export interface ExtensionProjectionOutput {
   readonly title?: string;
   /** A component's data and its view in the shared primitives (src/component-primitives.ts). */
   readonly component?: { readonly data: unknown; readonly view: unknown };
+  /** The notes a script's code read to draw this (its `reads` and the rows of its queries): a reader who may not see one is not shown the output. */
+  readonly reads?: readonly string[];
   /** The block changed since this ran. */
   readonly inputsChanged?: true;
   /** The extension's version changed since this ran. */

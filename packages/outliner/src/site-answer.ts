@@ -79,9 +79,14 @@ class StoreWorld implements PathWorld {
         if (found.how === "block id prefix") this.unresolved = true;
         return { kind: "found", record: this.record(found.block), how: found.how };
       case "ambiguous": {
-        const matches = found.ids.map(id => ({ id, title: blockDisplayTitle(this.store.get(id)!) }));
+        // Every note the prefix starts is a dependency (a page asks whether it may show each), and a reader who may not see
+        // one is not told its title: the answer says nothing.
+        for (const id of found.ids) this.deps.add(id);
+        const seen = found.ids.filter(id => !this.hidden.has(id));
+        if (seen.length < found.ids.length) this.hiddenHits += 1;
+        const matches = seen.map(id => ({ id, title: blockDisplayTitle(this.store.get(id)!) }));
         if (as === "reference") this.unresolved = true;
-        return { kind: "ambiguous", matches, message: `${ref} starts ${matches.length} notes: ${matches.map(m => `${m.id.slice(0, 12)} ${m.title}`).join("; ")}; give more of it` };
+        return { kind: "ambiguous", matches, message: `${ref} starts ${found.ids.length} notes: ${matches.map(m => `${m.id.slice(0, 12)} ${m.title}`).join("; ")}; give more of it` };
       }
       case "trashed":
         if (as === "reference") this.unresolved = true;
@@ -149,19 +154,21 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
     props[key] = value;
   }
 
+  const hidden = new Set<string>();
+  if (request.hidden !== undefined) {
+    if (!Array.isArray(request.hidden) || request.hidden.some(id => typeof id !== "string")) throw new Error("hidden is a list of note ids the reader may not see");
+    for (const id of request.hidden) hidden.add(id);
+  }
+  const refused = (id: string, what: string) => { if (hidden.has(id)) throw new Error(`((${id})) is ${what} the reader may not see; it supplies no values`); };
+
   if (noteless) {
-    const world = new StoreWorld(store, clock);
+    const world = new StoreWorld(store, clock, hidden);
     return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope: { ancestors: [], world }, world, route: ["no note: the figure is asked outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
   }
   const route: string[] = [];
   const target = store.resolveBlockRef(request.blockId!);
   const exact = target.id === request.blockId!.trim().toLowerCase();
   const text = request.draft?.text ?? target.text;
-  const hidden = new Set<string>();
-  if (request.hidden !== undefined) {
-    if (!Array.isArray(request.hidden) || request.hidden.some(id => typeof id !== "string")) throw new Error("hidden is a list of note ids the reader may not see");
-    for (const id of request.hidden) hidden.add(id);
-  }
   if (hidden.has(target.id)) throw new Error(`((${target.id})) is a note the reader may not see; it has no values to read`);
   const world = new StoreWorld(store, clock, hidden);
   const deps = new Set<string>([target.id]);
@@ -175,6 +182,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
   if (!chain.length) {
     site = { at: { block: target.id }, this: recordOf(target, request.draft?.text), props, actor: NEW_SITE_ACTOR };
   } else {
+    for (const link of chain) refused(link.block, "a note the chain is written in, which");
     const hostBlock = store.get(chain[0]!.block)!;
     site = { at: { block: hostBlock.id }, this: world.record(hostBlock), props: {}, actor: NEW_SITE_ACTOR };
     route.push(`chain starts in ((${hostBlock.id.slice(0, 8)}))`);
@@ -191,6 +199,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
   if (request.self !== undefined) {
     const own = typeof request.self === "string" ? store.get(request.self) ?? (() => { try { return store.resolveBlockRef(request.self!); } catch { return null; } })() : null;
     if (!own) throw new Error(`self is the note that defines the producer (a script's note); ${String(request.self)} is no note`);
+    refused(own.id, "the note that defines the producer, which");
     site = { ...site, self: world.record(own) };
     route.push(`self is ((${own.id.slice(0, 8)}))`);
   }

@@ -209,6 +209,16 @@ const MAX_CONTEXT_TEXT = 16_000;
 const MAX_CHILD_TEXT = 2_000;
 const MAX_CHILDREN = 50;
 const MAX_MARKDOWN = 64 * 1024;
+/** The notes a render script read to draw its output: what it read by id and the rows of its queries (stored with the output). */
+function scriptReads(request: unknown): string[] | undefined {
+  const stored = request as { reads?: { id?: unknown }[]; queries?: { ids?: unknown }[] } | null;
+  if (!stored || !Array.isArray(stored.reads)) return undefined;
+  const ids = new Set<string>();
+  for (const read of stored.reads) if (typeof read?.id === "string") ids.add(read.id);
+  for (const query of stored.queries ?? []) for (const id of Array.isArray(query?.ids) ? query.ids : []) if (typeof id === "string") ids.add(id);
+  return [...ids];
+}
+
 /** A call's record of a block: from the first `max` characters of its text, which is what the call's inputs hash covers, so what an extension reads (properties, fields, title) changes only when that hash does. */
 const recordWithin = (block: Block, max: number, children: readonly string[] = []): BlockRecord => textRecord(block.text.length > max ? { ...block, text: block.text.slice(0, max) } : block, children);
 /**
@@ -936,6 +946,7 @@ export class ExtensionCalls {
       markdown: inertBlockdown(markdown),
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
+      ...(scriptReads(row.request) ? { reads: scriptReads(row.request) } : {}),
       ...(call.kind === "component" ? { component: { data: result.data, view: result.view } } : {}),
       ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),
