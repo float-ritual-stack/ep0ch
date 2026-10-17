@@ -64,6 +64,7 @@ test("a dry run writes nothing, the apply is one attributed change, and a second
   expect(report.applied).toBe(true);
   const after = new OutlinerStore(database);
   try {
+    expect(after.require(made[0]!.id).updatedAt).toBe(made[0]!.updatedAt);
     expect(after.require(made[0]!.id).text).toContain("[rule-place::append]");
     expect(after.require(made[1]!.id).text).toContain("{{props.note}}");
     for (const [i, text] of UNTOUCHED.entries()) expect(after.require(made[i + 2]!.id).text).toBe(text);
@@ -92,4 +93,25 @@ test("a runbook step's {{name}} reads the runbook note's own value: it becomes {
   expect(sweepText(swept.text).changes).toEqual([]);
   const other = "Prose\n```sh\necho {{env}}\n```";
   expect(sweepText(other)).toEqual({ text: other, changes: [] });
+});
+
+test("install stamps old peer mail once, preserving its date and body", async () => {
+  const database = join(work, "mail.sqlite");
+  const store = new OutlinerStore(database);
+  const page = store.create("Messages [page::peer-messages]");
+  const mail = store.create("← from gardener · 2026-01-01 12:00\n\nBring seeds.", page.id);
+  const ordinary = store.create("A reminder", page.id);
+  const echoed = store.create("→ to gardener · 2026-01-01 12:00 [echo::garden-mail] [from::garden@host/original]\n\nBring pots.");
+  store.close();
+  await applySweep(database);
+  const after = new OutlinerStore(database);
+  try {
+    const stamped = after.require(mail.id);
+    expect(stamped.properties).toEqual(expect.arrayContaining([{ key: "type", value: "peer-message" }, { key: "peer", value: "gardener" }]));
+    expect(stamped.updatedAt).toBe(mail.updatedAt);
+    expect(after.require(echoed.id).properties).toEqual(expect.arrayContaining([{ key: "type", value: "peer-message" }, { key: "peer", value: "gardener" }]));
+    expect(stamped.text.split("\n\n")[1]).toBe("Bring seeds.");
+    expect(after.require(ordinary.id).text).toBe(ordinary.text);
+  } finally { after.close(); }
+  expect(planSweep(database).notes).toEqual([]);
 });

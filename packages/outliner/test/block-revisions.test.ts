@@ -31,7 +31,7 @@ test("every save keeps the text it replaced: listed newest first after the curre
   expect(back.text).toBe("Seed order\n- beans\n- peas");
   expect(store.revisionText(b.id, 3).text).toBe(pasted);
   expect(() => store.revisionText(b.id, 9)).toThrow("Revision 9 of");
-  // A move changes the block's updatedAt, never when its text was saved.
+  // A move leaves the content date and when its text was saved alone.
   const saved = store.revisions(b.id).revisions[0]!.savedAt;
   const shelf = store.create("Shelf");
   Bun.sleepSync(5);

@@ -64,7 +64,7 @@ belong to the block; text after a chip makes it an inline aside.
 
 Arriving cold, read the outline's recent changes, not a context store. Per outline:
 
-1. `outline_query` with `query: "updated >= -1d"`, `sort: "updated desc"`, `fields: "id,title,updated,actor,path"`,
+1. `outline_query` with `query: "updated >= -1d NOT type=peer-message"`, `sort: "updated desc"`, `fields: "id,title,updated,actor,path"`,
    `fold: true` (or the outline's saved orient view, by `view`: its own `[sort::]` orders it). The service sorts; a
    projected row is a title, never a body. With `fold`, a note's proposals, comments and deliveries are one row with
    `changes` ("4 changes (1 proposal, 2 comments, 1 delivery)"). `under` limits it to a note's subtree.

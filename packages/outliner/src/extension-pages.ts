@@ -322,7 +322,7 @@ export class ExtensionPages {
           let page = this.live(state.pages[entry.id]?.block);
           const text = this.keepAddress(page, this.pageText(entry, loaded, demo));
           if (!page) page = this.createAddressed(text, hubId, "system");
-          else if (page.text !== text) page = this.store.update(page.id, text, page.revision, SYSTEM);
+          else if (page.text !== text) page = this.store.update(page.id, text, page.revision, SYSTEM, "text", [], page.updatedAt);
           state.pages[entry.id] = { block: page.id, name: loaded?.name ?? entry.name ?? entry.id };
           if (demo.notes.length) this.seed(state, entry.id, page.id, demo, now);
         });
@@ -334,7 +334,7 @@ export class ExtensionPages {
             const block = this.live(page.block);
             if (block && this.store.children(block.id).length) {
               const text = this.keepAddress(block, this.removedText(id, page.name));
-              if (block.text !== text) this.store.update(block.id, text, block.revision, SYSTEM);
+              if (block.text !== text) this.store.update(block.id, text, block.revision, SYSTEM, "text", [], block.updatedAt);
               return;
             }
             if (block) this.store.delete(block.id, SYSTEM);
@@ -343,7 +343,7 @@ export class ExtensionPages {
         }
         const current = this.store.require(hubId);
         const hubText = this.keepAddress(current, this.hubText(state, installed.map(({ entry, loaded }) => ({ entry, loaded }))));
-        if (current.text !== hubText) this.store.update(hubId, hubText, current.revision, SYSTEM);
+        if (current.text !== hubText) this.store.update(hubId, hubText, current.revision, SYSTEM, "text", [], current.updatedAt);
       });
     } finally {
       this.write(state);

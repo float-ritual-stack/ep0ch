@@ -47,6 +47,18 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
   });
   afterAll(() => scratch.dispose());
 
+  test("peer messages written by the mod can be excluded by plain property keys", async () => {
+    const { entryOf, entryArgv } = await mod("peer-log.ts");
+    const made = await run(entryArgv(note, entryOf("from", "gardener", Date.now(), "Bring seeds."), "test-agent"), { env });
+    expect(made.exitCode).toBe(0);
+    const found = await run(["ep0ch", "find", "--query", "type=peer-message peer=gardener", "--ids"], { env });
+    expect(found.exitCode).toBe(0);
+    expect(found.stdout).toMatch(/\(\([0-9a-f-]+\)\)/);
+    const excluded = await run(["ep0ch", "find", "--query", "peer=gardener NOT type=peer-message", "--ids"], { env });
+    expect(excluded.exitCode).toBe(0);
+    expect(excluded.stdout).not.toMatch(/\(\([0-9a-f-]+\)\)/);
+  });
+
   test("help: the probes the mod still makes find show --cells and export", async () => {
     const { knowsCells } = await mod("block-view.ts");
     const { knowsExport } = await mod("detail-view.ts");
