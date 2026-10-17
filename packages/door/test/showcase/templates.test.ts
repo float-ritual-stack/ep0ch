@@ -19,13 +19,14 @@ describe.skipIf(!outliner)("the showcase screen: templates (PIE-533 S4)", () => 
   const stage = () => { screen(); return S().stage(SECTIONS.findIndex((s: { key: string }) => s.key === "templates")).top; };
   const readers = () => (["sowing", "potting", "unfinished"] as const).map(name => {
     const pane = stage().pane(name);
-    return strip(pane?.render(100, 40, false, stage()).lines.join("\n") ?? "");
+    // One run of words: the region's gutter and where a line wraps are the width's, not what is said.
+    return strip(pane?.render(100, 40, false, stage()).lines.join("\n") ?? "").replace(/\s*▌\s*/g, " ").replace(/\s+/g, " ");
   });
 
   test("one template on three pages: this is each page, the figure lists each page's own actions, the mistakes are said where they are", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "templates" }, ...agent })).toMatchObject({ key: "templates" });
-    await until(() => readers().every(t => t.includes("Filed on")) && readers().slice(0, 2).every(t => /met \w+, mood/.test(t)), "the three pages drawn", 12_000);
+    await until(() => readers().every(t => t.includes("Filed on")) && readers().slice(0, 2).every(t => /met \w+, mood/.test(t)) && readers()[2]!.includes("no prop with was passed"), "the three pages drawn", 12_000);
     const [sowing, potting, unfinished] = readers();
     expect(sowing).toContain("met Ada, mood good");        // the default
     expect(sowing).toContain("Filed on Sowing meeting.");
