@@ -19,6 +19,42 @@ of the note with when it last read, and opens one with Query (its parameters, wr
 `site.sources`, so a published page can draw the same thing. New wire request `site.sources` (the landing's PROTOCOL bump
 covers it); outline-core `sources.ts`; actions `sources.*`.
 
+### Acting from content: buttons, transactions, one layout history (PIE-957, PIE-981; S7 of the self-reference wave)
+
+What you can now do: write a button in a note, and let a script's drawing be pressed. Kitty's noughts and crosses is the
+example: `ttt-board::` draws the board, each free square runs `ttt-move at=5`, and the board redraws with the move.
+
+- **A press is an action line.** `::button{label="Review" act="layout.load name=review"}` runs one action line;
+  `::button{label="Fantasia" of=fantasia layout=focus}` runs a script with its slots; `[review layout](act: layout.load
+  name=review)` is the same in prose. A view a script returns has a `button` primitive, and `act` on a `text`, `badge` or
+  `card` (and `acts` on a table's rows). A click, or ⏎ on the element, runs the line as you through the door's one
+  dispatcher; `act` runs the same line. Your click is the consent: a press runs at once, and what it does is attributed and undoable (`ext.undo`, `layout.undo`). Any other client (a page, an export, Detail) draws the primitive as it was, with nothing to press.
+- **A press invites the run.** A script you start by pressing may move your tiles, including the one you are looking at,
+  where "you are at the keys" would otherwise refuse an agent the moment after your click. It never reaches a draft's text,
+  and a tile you start typing in is still refused. The invitation is spent when the run ends. The run's note records you
+  and the button's author.
+- **A script's drawing arrives as a view.** A render script's output used to reach the door as Blockdown only; the stored
+  output now carries the view too, so the door draws primitives (and presses work) while every other client keeps the
+  Blockdown. A script's write redraws the render line that reads it (a move redraws the board).
+- **One layout history, for every actor.** Every change to a screen's shape is recorded with who made it; `layout.undo`
+  (ctrl+z when a reader has nothing of its own to undo and the layout changed after the last trash, the tile menu's row,
+  `act layout.undo`) rebuilds from the newest. An agent undoes its own only; nobody undoes over someone else ("the layout
+  changed since (you moved notes); undo that first").
+- **Transactions.** `txn=<id>` and `motion=<style>` are the dispatcher's own arguments, open to every actor. The first
+  action carrying `txn=` opens a transaction: all its layout changes are one history entry. A script run is one, keyed by
+  its run id; `layout.txn.end txn=<id>` closes one by hand, and one nothing joins for a minute closes itself. One that ends
+  early (the run stopped or failed, the door lost the service) puts its start back and says so; `ext.undo` takes a run's
+  writes and layout back together, and says which part it could not.
+- **`act` with no door.** A script's `act` with no door connected is refused with where to find one ("no door on pie;
+  open one or pass door=<client>"); with several doors it uses the one that asked, else lists them. `scripts.run` takes
+  `door=`.
+- **Edit and rich edit keep a handler line's last drawing under it**, read-only and without its controls, while you edit
+  the lines around it. A line typed above it moves it with the line.
+
+Wire (the landing bumps `PROTOCOL` once): `component-primitives` gains `button`, `act`/`acts`; a render script's stored
+output carries `view`; `extensions.act` takes `invitation` and `button`; `ScriptActionCall` gains `requestedBy` and
+`invitation`; the events `scripts.ended` and `scripts.undone`; `scripts.run` takes `door`.
+
 ### Generated output reads as the note's own content; `r` runs one line, never all (PIE-956, S6 of PIE-533, door)
 
 A handler's output, a component's view, an `@name` request, a `::use` and a written `[!output]` callout draw flush with

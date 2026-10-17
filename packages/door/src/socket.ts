@@ -179,6 +179,9 @@ export const DRAFT_LEASE_MS = 15_000, DRAFT_HEARTBEAT_MS = 5_000;
 export interface OutlineEvent {
   ask?: import("@ep0ch/outline-core/protocol").AskProgress;
   script?: import("@ep0ch/outline-core/protocol").ScriptActionCall;
+  /** On a `scripts.ended` event (PIE-957): a run ended; on `scripts.undone`: a run's writes were taken back. */
+  ended?: import("@ep0ch/outline-core/protocol").ScriptEnded;
+  undone?: { run: string };
   domain: string; action: string; blockId?: string; sequence: number;
   /** On an `agents` event: whether yolo is on for the outline now (PIE-973). */
   yolo?: boolean;
@@ -403,7 +406,12 @@ export const COMMENT_AUTHOR = "user";
  * `with` names others who wrote part of what is being saved (a draft the person and an agent both typed
  * into): the write stays the saver's, and its actor id names them all, `<saver>+<co-writer>…`.
  */
-export type Actor = ({ kind: "user" } | { kind: "agent"; id: string }) & { with?: string[] };
+/**
+ * Who acts. `run` and `invitation` (PIE-957) are an agent's that a script run carries: its run id, and the invitation the
+ * person's press minted for it (src/surface/invite.ts), which lets the run move the person's tiles; `for` is who asked for
+ * the run (`you`, or `agent:<id>`), who may undo what it did.
+ */
+export type Actor = ({ kind: "user" } | { kind: "agent"; id: string; run?: string; invitation?: string; for?: string }) & { with?: string[] };
 export const USER: Actor = { kind: "user" };
 /** A stored author (an actor id, `user`, …) as a byline shows it: the persona first (`actorName`), `none` when there's none. */
 export const authorName = (author: string | null | undefined, none = "?"): string => (author ? actorName(author) || none : none);
@@ -566,7 +574,7 @@ export class SocketBoard implements Board {
    * line's action) is what it acts on; `args` a tile's own. `actor` is who asks (`mutation`: the person, or an
    * agent by its own id), which the change feed records beside the extension's writes as `requestedBy`.
    */
-  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
+  async actExtension(extension: string, action: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage; invitation?: string; button?: { block: string; line?: number } } = {}, actor: Actor = USER): Promise<ExtensionActResult> {
     return this.request<ExtensionActResult>("extensions.act", { extension, extensionAction: action, ...target, clientId: this.clientId, mutation: requesterOf(actor) });
   }
 

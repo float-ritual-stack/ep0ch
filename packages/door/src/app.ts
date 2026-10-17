@@ -1,3 +1,4 @@
+import { INVITES } from "./surface/invite";
 import { MacroRecording, MACRO_ACTIONS } from "./macros";
 // The door: a stack of screens, one status bar, one paint per change.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
@@ -312,6 +313,12 @@ export interface Screen {
    * (`ep0ch-door actions` lists them). A screen without one has only the shell's.
    */
   readonly dispatch?: Dispatcher;
+  /** A script run ended (PIE-957): the screen closes the layout transaction that run held, by its end rule. */
+  scriptEnded?(run: string, reason: "done" | "stopped" | "failed"): void;
+  /** A script run's writes were taken back (`ext.undo`): the screen takes back the layout it changed in that run. */
+  scriptUndone?(run: string): void;
+  /** The service was lost and found again: transactions waiting on a run's end end early. */
+  scriptsLost?(): void;
   /** Every key is the screen's, ctrl+c included, and a paste goes to it whole: the person is typing in a terminal tile (PIE-417). */
   rawKeys?(): boolean;
   /** Where raw input bytes go right now (a running terminal tile the person is in), or null to decode keys. */
@@ -872,15 +879,30 @@ export class App implements Ctx {
     finally { this.away = null; this.redraw(); }
   }
 
+  private scriptEvent(e: OutlineEvent) {
+    const screens = [...this.stack, ...this.background];
+    if (e.ended) {
+      INVITES.spendRun(e.ended.run);
+      for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.reason);
+    } else if (e.undone) for (const s of screens) s.scriptUndone?.(e.undone.run);
+    this.redraw();
+  }
+
   event(e: OutlineEvent) {
     this.heldAsks.heard(e);
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
+    // A script run ended or was undone (PIE-957): the screens holding its layout transaction close or take it back.
+    if (e.domain === "script") { this.scriptEvent(e); return; }
     // Yolo went on or off in the service (PIE-973): this door's chip and the guards it lifts follow.
     if (e.domain === "agents") { this.heardYolo(e.yolo === true); return; }
     // A reconnected service forgot a yolo this door handed over: say it again (a restarted service starts with it off).
-    if (e.action === "reconnected" || e.action === "reset") void this.syncYolo();
+    if (e.action === "reconnected" || e.action === "reset") {
+      void this.syncYolo();
+      // A script run's layout transaction can't hear its end any more: it ends early, and its start is put back (PIE-957).
+      for (const s of [...this.stack, ...this.background]) s.scriptsLost?.();
+    }
     // A Resource registered or refreshed (PIE-445): only readers showing a projection of it redraw, and
     // those read it again. It isn't an outline change, so nothing else is asked again. An extension's line that
     // ran (`extensions.output`) or an agent that answered (`extensions.agent`) names its note.

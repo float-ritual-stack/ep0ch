@@ -14,6 +14,7 @@ import { ifProblemLines, ifState, renderFields } from "./site-blocks";
 import { regionTail, type RegionBook } from "./output-region";
 import { outputHeader, type OutputRegion } from "@ep0ch/outline-core/output-region";
 import { useCallAt, type UseCall } from "@ep0ch/outline-core/template-use";
+import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
@@ -59,6 +60,8 @@ export interface DocEnv {
    * `this` the note the line is in. Without it (an embed, a draft's preview, an export) the line stays text.
    */
   use?: (call: UseCall, line: number, width: number) => string[] | AfterRows;
+  /** A `::button` (PIE-957) drawn: a chip the reader tags as a press. Without it the line is drawn as written. */
+  button?: (call: ButtonCall, line: number, width: number) => string[];
   /** Where generated regions (a `::use`, an `[!output]` callout) keep their mark and whether one is open (src/output-region.ts). */
   regions?: RegionBook;
   /** The output regions of the note's body by their header line (outline-core output-region.ts, read from the text as written): the producer, hash and anchor the presented lines have lost. */
@@ -582,6 +585,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const drawn = env.use!(used, i, W);
       if (!Array.isArray(drawn)) for (const r of drawn.regions ?? []) regions.push({ key: r.key, row: out.length + r.at, rows: r.rows });
       out.push(...(Array.isArray(drawn) ? drawn : drawn.rows));
+      continue;
+    }
+
+    // `::button` (outline-core's button-call.ts): a labelled press.
+    const button = env.button ? buttonCallAt(src, i) : null;
+    if (button) {
+      out.push(...env.button!(button, i, W));
       continue;
     }
 

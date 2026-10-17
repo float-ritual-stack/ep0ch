@@ -880,7 +880,7 @@ export class Draft {
     const cp = [...(this.lines[row] ?? "").slice(0, col)].length;
     let vi = rows.findIndex(r => r.line === row);
     if (vi < 0) return 0;
-    while (vi + 1 < rows.length && rows[vi + 1]!.line === row && rows[vi + 1]!.start <= cp) vi++;
+    while (vi + 1 < rows.length && rows[vi + 1]!.line === row && !rows[vi + 1]!.status && rows[vi + 1]!.start <= cp) vi++;
     return vi;
   }
 
@@ -967,6 +967,13 @@ export class Draft {
     links?: { row: number; from: number; to: number; target: LinkTarget }[];
   } | null = null;
 
+  /**
+   * Rows drawn under a line, read-only (PIE-981): what a handler line last drew, kept in view while the lines around it are
+   * edited. Already coloured, `w` wide at most; the host sets it before each paint (a draft that has none draws none). The
+   * cursor never stops on one, and a click on one lands at the end of its line.
+   */
+  kept: ((line: number, w: number) => string[]) | null = null;
+
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
   private selectAsk() {
     const answer = this.answerFolds().find(p => p.line === this.row + 1);
@@ -1025,6 +1032,7 @@ export class Draft {
       if (status && width(status) > room) {
         for (const text of wrap(status.trim(), Math.max(4, w))) out.push({ line: i, start: chars.length, end: chars.length, indent: 0, status: text });
       }
+      for (const text of this.kept?.(i, Math.max(4, w)) ?? []) out.push({ line: i, start: chars.length, end: chars.length, indent: 0, status: text, drawn: true });
     });
     return out;
   }
@@ -1103,7 +1111,7 @@ export class Draft {
     });
     for (let vi = this.top; vi < Math.min(rows.length, this.top + h); vi++) {
       const r = rows[vi]!, chars = [...this.lines[r.line]!];
-      if (r.status) { out.push(fg(C.lmagenta) + r.status + RESET); continue; }
+      if (r.status) { out.push(r.drawn ? r.status : fg(C.lmagenta) + r.status + RESET); continue; }
       const cells = chars.slice(r.start, r.end).map(c => (c === "\t" || c < " " ? " " : c));
       // Selected cells, in this row's own cells.
       let s0 = -1, s1 = -1;
@@ -1126,7 +1134,7 @@ export class Draft {
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
       });
-      const progress = rows[vi + 1]?.line !== r.line ? this.askStatus(this.lines[r.line]!) : "";
+      const progress = rows[vi + 1]?.line !== r.line || rows[vi + 1]?.drawn ? this.askStatus(this.lines[r.line]!) : "";
       const roomForStatus = Math.max(0, w1 - r.indent - width(cells.join("")));
       if (progress) line += RESET + fg(C.lmagenta) + this.askStatus(this.lines[r.line]!, roomForStatus);
       const said = glow.find(g => g.last)?.label;
@@ -1138,7 +1146,11 @@ export class Draft {
 }
 
 /** One drawn row of a draft: line `line`, code points [start, end), drawn `indent` cells in. */
-export interface VRow { line: number; start: number; end: number; indent: number; status?: string }
+export interface VRow {
+  line: number; start: number; end: number; indent: number;
+  /** A row that is no text of the line: its progress words, or (`drawn`) a read-only drawing `kept` put under it, already coloured. */
+  status?: string; drawn?: true;
+}
 
 /** The keys that select with shift held (`Draft.key`). */
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);

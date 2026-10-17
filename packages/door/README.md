@@ -2184,6 +2184,8 @@ The buttons above the table do the same. **Ctrl+Z** undoes and **Ctrl+S** saves.
 Markdown tables and static `::graph-table` flow-array rows work, including tables an agent streams into
 the draft. Query tables and other component formats keep raw editing as the escape hatch.
 Try `ep0ch --showcase`, `act section name=rich-edit`.
+
+A note can hold a button (PIE-957, PIE-981). `::button{label="Review" act="layout.load name=review"}` (or `of=<script>` with its slots, or the prose link `[review layout](act: layout.load name=review)`) runs one action line as you: a click, or ⏎ on it; it runs at once (the click is the consent; `ext.undo` and ctrl+z take it back), and `act` runs the same line. A view a render script returns can put `act` on a text, badge or card, or a `button` in it. A script you start by pressing may move your tiles while it runs, as one layout transaction: `layout.undo` (ctrl+z when the layout changed after your last trash, the tile menu's row) takes back the newest change to the screen's layout, anyone's (an agent undoes its own), and `ext.undo` takes a run's writes and layout back together. `txn=<id>` on any action joins a transaction; `layout.txn.end` closes it. While you edit a note, raw or rich, each handler line's last drawing stays under it, read-only. Try `act section name=press` in the showcase: a noughts-and-crosses board whose squares you click.
 The [adapter contract](docs/UI-GRAMMAR.md#rich-component-editing-pie-593) explains the door-side extension seam.
 
 ### Extensions in a note

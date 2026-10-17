@@ -561,21 +561,29 @@ export class OutlinerServer {
         if (!response.ok) throw new Error(response.error);
         return response.result as T;
       },
-    }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal) => {
-      if (![...this.subscribers.values()].some(client => client.clientId === clientId)) return Promise.reject(new Error("The door disconnected; run the script from a connected door"));
+    }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal, meta) => {
+      // The door that asked, else the only door here; none or several is refused with which there are (PIE-957).
+      const doors = [...this.subscribers.values()].map(c => c.clientId).filter(id => id.startsWith("ep0ch-door"));
+      if (clientId === undefined) {
+        const where = this.outline?.name ? `on ${this.outline.name}` : "here";
+        if (doors.length !== 1) return Promise.reject(new Error(doors.length ? `${doors.length} doors are ${where}: pass door=<client> (${doors.join(", ")})` : `no door ${where}; open one or pass door=<client>`));
+        clientId = doors[0]!;
+      }
+      const target = clientId;
+      if (![...this.subscribers.values()].some(client => client.clientId === target)) return Promise.reject(new Error(doors.length ? `The door ${target} disconnected; doors here: ${doors.join(", ")}` : "The door disconnected; run the script from a connected door"));
       const requestId = crypto.randomUUID();
       return new Promise((resolve, reject) => {
         const abort = () => { this.scriptAnswers.delete(requestId); reject(new Error("The script run ended")); };
         signal.addEventListener("abort", abort, { once: true });
         this.scriptAnswers.set(requestId, {
-          clientId,
+          clientId: target,
           resolve: value => { signal.removeEventListener("abort", abort); resolve(value); },
           reject: error => { signal.removeEventListener("abort", abort); reject(error); },
         });
         this.broadcast({ id: requestId, domain: "script", action: "scripts.act", sequence: store.sequence,
-          script: { requestId, targetClientId: clientId, action, args, actor } });
+          script: { requestId, targetClientId: target, action, args, actor, requestedBy: meta.requestedBy, ...(meta.invitation ? { invitation: meta.invitation } : {}) } });
       });
-    });
+    }, ended => this.broadcast({ id: crypto.randomUUID(), domain: "script", action: "scripts.ended", sequence: store.sequence, ended }));
     this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
       // A trigger's action runs where any action runs: extensions.act, attributed to the extension, with who asked.
       act: (request) => this.extensionCalls.act(request),
@@ -1889,7 +1897,7 @@ export class OutlinerServer {
         await this.extensionRegistry.reload();
         const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === request.blockId);
         if (!extension) throw new Error("This block has no runnable script; add [script::name] and a closed js or ts fence");
-        const result = this.scriptRuns.start(extension, { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation });
+        const result = this.scriptRuns.start(extension, { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) });
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
@@ -1996,6 +2004,8 @@ export class OutlinerServer {
           // An action's write group taken back whole (PIE-784), as whoever asks: the person, or an agent.
           if (typeof request.undo !== "string") throw new Error("extensions.undo needs undo: the id an action's answer gave (its undo)");
           result = await this.extensionCalls.undo(request.undo, declaredRequester(request, "extensions.undo") ?? { author: "user" });
+          // The run's writes are back; a door that held its layout transaction takes the layout back too (PIE-957).
+          this.broadcast({ id: crypto.randomUUID(), domain: "script", action: "scripts.undone", sequence: this.store.sequence, undone: { run: request.undo } });
         } else if (request.action === "extensions.args") {
           // What an action asks for (PIE-784), with the choices it has on this block: what a client prompts with.
           if (typeof request.extension !== "string" || typeof request.extensionAction !== "string") throw new Error("extensions.args needs extension and extensionAction");
@@ -2057,6 +2067,8 @@ export class OutlinerServer {
           const requestedBy = declaredRequester(request, "extensions.act");
           result = await this.extensionCalls.act({
             ...(request.clientId ? { clientId: request.clientId } : {}),
+            ...(typeof request.invitation === "string" ? { invitation: request.invitation } : {}),
+            ...(request.button && typeof request.button.block === "string" ? { button: { block: request.button.block, ...(Number.isSafeInteger(request.button.line) ? { line: request.button.line } : {}) } } : {}),
             ...(request.passage !== undefined ? { passage: request.passage } : {}),
             extension: request.extension, action: request.extensionAction,
             ...(requestedBy ? { requestedBy } : {}),
@@ -3741,10 +3753,10 @@ export class OutlinerServer {
       }
       // A handler line reads its block's children and the blocks it names: a person's or agent's change to one
       // (an edit, a child added, moved, trashed or restored) may redraw the line. An extension's own writes don't, so
-      // nothing loops.
+      // nothing loops; a script's do (a render line only reads: PIE-981).
       if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")
-        && !isExtensionActor(event.change!.actor?.actorId) && !event.change!.actor?.taskId?.startsWith("trigger:script:")) {
-        this.extensionCalls.inputChanged(event.blockId, [event.change!.parentId, event.change!.previousParentId]);
+        && !isExtensionActor(event.change!.actor?.actorId)) {
+        this.extensionCalls.inputChanged(event.blockId, [event.change!.parentId, event.change!.previousParentId], !!event.change!.actor?.taskId?.startsWith("trigger:script:"));
       }
       // Rules (PIE-600) see every save, a move, a restore and a trash too (a block moved under another may start matching;
       // one in the Trash stops); an extension's own only moves what a trigger remembers. A comment, a reply or a
@@ -3813,7 +3825,7 @@ export class OutlinerServer {
       if (event.domain === "draft" && event.draft?.targetClientId !== client.clientId) {
         continue;
       }
-      if (event.domain === "script" && event.script?.targetClientId !== client.clientId) continue;
+      if (event.domain === "script" && event.script && event.script.targetClientId !== client.clientId) continue;
       if (event.domain === "browsing-context") {
         if (event.contextId === client.contextId) subscriber.write(contextLine);
         if (event.command?.targetClientId === client.clientId) {

@@ -12,6 +12,7 @@ import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLi
 import { isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
 import { formFieldChipProblems } from "./form-fields";
 import { USE_NAME, useCallsOf } from "./template-use";
+import { BUTTON_NAME, buttonCallsOf } from "./button-call";
 import { graphKind, propsWithoutRules } from "./figure-props";
 
 export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal" | "form-field" | "figure";
@@ -80,10 +81,13 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
   lines.forEach((raw, i) => {
     const open = COMPONENT_OPEN.exec(raw.replace(/\r$/, ""));
     // `::links` and its kind alone on a line is that component, unclosed by design (link-blocks.ts); so is `::fields` (site-blocks.ts)
-    // and a `::use{…}` call, which is one line (template-use.ts).
-    if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!) || open[1] === "fields" || open[1] === USE_NAME) return;
+    // a `::use{…}` call, which is one line (template-use.ts), and a `::button{…}` (button-call.ts).
+    if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!) || open[1] === "fields" || open[1] === USE_NAME || open[1] === BUTTON_NAME) return;
     out.push({ kind: "component", line: i, message: `the ::${open[1]} on line ${i + 1} isn't closed with :: on a line of its own: it's plain text` });
   });
+
+  // A `::button` that runs nothing (PIE-957): drawn as its label with the reason.
+  for (const call of buttonCallsOf(text)) if (call.problem) out.push({ kind: "component", line: call.line, message: `the ::button on line ${call.line + 1} runs nothing: ${call.problem.replace(/^::button needs /, "write ")}` });
 
   // A `::use` that names no template (PIE-533 S4): drawn as nothing, so it says so. (The template's props are the service's to check.)
   for (const call of useCallsOf(text)) if (call.problem) out.push({ kind: "component", line: call.line, message: `the ::use on line ${call.line + 1} names no template: ${call.problem.replace(/^::use needs /, "write ")}` });

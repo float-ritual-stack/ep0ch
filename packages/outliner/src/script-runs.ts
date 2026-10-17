@@ -7,7 +7,7 @@ import type { ExtensionWrites } from "./extension-writes";
 import { planPlace, type PlaceMode } from "./place";
 import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
-import { PRIMITIVE_TYPES, renderComponent, validateComponent } from "./component-primitives";
+import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
 import { textRecord } from "./block-records";
 import { answerSite } from "./site-answer";
 import { scriptFence } from "./script-sources";
@@ -16,15 +16,22 @@ import type { Address } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
-/** What a script returned, as the text a run note or a drawn line shows: a string as it is, a view (`{ view }`, or one `view.table(…)` itself) as Blockdown, the rest as JSON. */
+/**
+ * The view a script returned (`{ view }`, or one `view.table(…)` itself), checked against the catalogue; null for anything
+ * else. A component carries the data its view shows (`data`); a script that draws a view and has no data says none.
+ */
+export function scriptView(value: unknown): ComponentOutput | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if ("view" in value) return validateComponent({ data: null, ...value });
+  if ((PRIMITIVE_TYPES as readonly unknown[]).includes((value as { type?: unknown }).type)) return validateComponent({ data: null, view: value });
+  return null;
+}
+
+/** What a script returned, as the text a run note or a drawn line shows: a string as it is, a view as Blockdown, the rest as JSON. */
 export function scriptText(value: unknown): string {
   if (typeof value === "string") return value;
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    // A component carries the data its view shows (`data`); a script that draws a view and has no data says none.
-    if ("view" in value) return renderComponent(validateComponent({ data: null, ...value }), "blockdown").body;
-    if ((PRIMITIVE_TYPES as readonly unknown[]).includes((value as { type?: unknown }).type)) return renderComponent(validateComponent({ data: null, view: value }), "blockdown").body;
-  }
-  return JSON.stringify(value);
+  const view = scriptView(value);
+  return view ? renderComponent(view, "blockdown").body : JSON.stringify(value);
 }
 
 /** `week=42 tag="a b"` as props: each word `name=value` (a repeat adds a value). Words that aren't one are left out. */
@@ -35,7 +42,7 @@ export function slotProps(words: string | null | undefined): Record<string, stri
 }
 
 /** What a render-mode script drew, and what it read: the notes (with their revision when first read) and the queries (with their rows). */
-export interface ScriptRendered { markdown: string; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }
+export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }
 
 /** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
@@ -64,7 +71,9 @@ export class ScriptRuns {
     private readonly writes: ExtensionWrites, private readonly client: AgentToolsClient,
     private readonly publish: (changes: readonly OutlinerChange[]) => void,
     private readonly inverse: (run: string) => Promise<import("./draft-patch").DraftPatchEdit[]>,
-    private readonly act: (clientId: string, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal) => Promise<unknown>) {}
+    private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string }) => Promise<unknown>,
+    /** A run ended (PIE-957): done, stopped or failed. The door holding its layout transaction closes it by that. */
+    private readonly ended?: (e: import("@ep0ch/outline-core/protocol").ScriptEnded) => void) {}
 
   /**
    * The Site a run reads (`this`, `self`, `caller`, `props`) and answers `resolve` from: `this` is the note the run is
@@ -113,7 +122,8 @@ export class ScriptRuns {
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (!result.ok) throw new Error(result.error.message);
-      return { markdown: result.value === undefined ? "" : scriptText(result.value), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
+      const drew = result.value === undefined ? null : scriptView(result.value);
+      return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
     } finally { clearTimeout(timer); }
   }
 
@@ -130,6 +140,9 @@ export class ScriptRuns {
     const undo = this.writes.beginRun(`script:${extension.name}`);
     const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
+    // A press (PIE-957): the note that holds the button, and who wrote it last, so the run records both who asked and whose button it was.
+    const buttonBlock = request.button ? this.store.get(request.button.block) : undefined;
+    const button = request.button && buttonBlock ? { block: buttonBlock.id, author: buttonBlock.actorId ?? buttonBlock.author } : null;
     const controller = new AbortController();
     this.running.add(controller);
     this.runs.set(undo, controller);
@@ -139,7 +152,7 @@ export class ScriptRuns {
     this.previous.set(extension.id, source.code);
     const lines = [
       `${extension.name} · working [script-run::${undo}] [machine::script]`,
-      `Author: ${actor.actorId ?? actor.author} · revision ${source.revision} · onBehalfOf: ${requestedBy.actorId ?? requestedBy.author}`,
+      `Author: ${actor.actorId ?? actor.author} · revision ${source.revision} · onBehalfOf: ${requestedBy.actorId ?? requestedBy.author}${button ? ` · button by ${button.author} in ((${button.block}))` : ""}`,
       ...(old !== undefined && old !== source.code ? ["", "```diff", createPatch(extension.name, old, source.code), "```"] : []),
     ];
     const captured = <T>(work: () => T): T => {
@@ -216,7 +229,8 @@ export class ScriptRuns {
       effects: source.effects,
       place: (content, opts) => place(content, opts),
       mcpAccess: request.mcpAccess,
-      ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, actor, controller.signal) } : {}),
+      // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
+      act: (name: string, args: Record<string, unknown>) => this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) }),
     });
     const task = (async () => {
       let failure: string | undefined;
@@ -237,6 +251,9 @@ export class ScriptRuns {
       } finally {
         if (progress) clearTimeout(progress);
         clearTimeout(deadline);
+        // How it ended, before the abort below says it for every run: stopped by someone, failed, or done.
+        const why = controller.signal.aborted ? controller.signal.reason : undefined;
+        const reason = failure !== undefined || (why instanceof Error && /^The script ran past/.test(why.message)) ? "failed" as const : why instanceof Error && /^Stopped by/.test(why.message) ? "stopped" as const : "done" as const;
         controller.abort();
         try {
           const drafts = await this.inverse(undo);
@@ -250,6 +267,7 @@ export class ScriptRuns {
           this.captures.delete(undo);
           this.running.delete(controller);
           this.runs.delete(undo);
+          this.ended?.({ run: undo, reason: failure !== undefined && reason === "done" ? "failed" : reason });
         }
       }
       return failure;
