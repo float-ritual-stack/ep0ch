@@ -568,7 +568,7 @@ export class ExtensionRules {
     this.options.changed?.(block.id);
   }
 
-  /** What a decorate call sees of the outline: the block as a record, its children and its ancestors, bounded (the one builder every extension call uses). */
+  /** What a decorate call sees of the outline: the one context every call gets (records, extension-calls.ts). */
   private context(block: Block): Record<string, unknown> {
     return blockCallContext(this.store, block, undefined, this.now);
   }
