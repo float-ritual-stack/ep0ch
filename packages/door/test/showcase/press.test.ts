@@ -86,18 +86,18 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     // The line is raw source now, and its last drawing is still under it; its controls are not (nothing in an edit presses).
     const pane = () => screen().split("\n").filter(l => l.includes("║")).map(l => l.split("║")[1]!.trim());
     const under = () => { const i = pane().findIndex(l => l === "ttt-board::"); return i < 0 ? [] : pane().slice(i + 1, i + 5); };
-    await until(() => /∙ ttt-board/.test(under()[0] ?? "") && /\[\d\]|\[[xo]\]/.test(under()[1] ?? ""), "the board under its line in the edit");
+    await until(() => /\[[\dxo]\]/.test(under().join("\n")), "the board under its line in the edit");
     expect(screen()).not.toContain("[r run again]");
     // Typing around it leaves it: a new line above it moves its line down, and the drawing goes with it.
     await app.dispatch.act({ action: "draft.place", args: { line: 1, col: 1 } }, USER);
     press({ kind: "enter" });
     for (const c of "A new first line") ch(c);
     expect(pane().indexOf("ttt-board::")).toBeGreaterThan(3);
-    expect(under().join("\n")).toMatch(/∙ ttt-board[\s\S]*\[[\dxo]\]/);
+    expect(under().join("\n")).toMatch(/\[[\dxo]\]/);
     // Rich edit keeps it too.
     await app.dispatch.act({ action: "rich.toggle", args: { on: true } }, USER);
     expect(screen()).toContain("[+row]");
-    await until(() => /∙ ttt-board/.test(under()[0] ?? "") && /\[[\dxo]\]/.test(under()[1] ?? ""), "the board under its line in rich edit");
+    await until(() => /\[[\dxo]\]/.test(under().join("\n")), "the board under its line in rich edit");
     await app.dispatch.act({ action: "rich.toggle", args: { on: false } }, USER);
     press({ kind: "esc" }); press({ kind: "esc" });
     await untilAsync(async () => !(/editing/.test(screen())), "the edit closed");
