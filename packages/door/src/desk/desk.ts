@@ -619,7 +619,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!entry) throw new ActionRefused(txn ? `no layout change in transaction ${txn} (it was undone, or this desk restarted)` : "nothing to undo on this screen's layout");
     const later = this.history.after(entry).find(e => e.party !== entry.party);
     if (later) throw new ActionRefused(`the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}`);
-    if (actor.kind === "agent" && entry.party !== party) throw new ActionRefused(`the newest layout change is ${entry.party === "you" ? "the person's" : entry.party}'s; an agent undoes only its own`);
+    if (actor.kind === "agent" && !txn && entry.party !== party) throw new ActionRefused(`the newest layout change is ${entry.party === "you" ? "the person's" : entry.party}'s; an agent undoes only its own`);
     this.replaying = true;
     try { this.apply({ op: "load", name: "the layout before" }, actor); } finally { this.replaying = false; }
     this.rebuildTo(entry.before);
@@ -654,6 +654,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (entry && steps) asActor(this.ctx, actor).flash(`${steps === 1 ? "one layout change" : `${steps} layout changes`} · ctrl+z puts ${steps === 1 ? "it" : "them"} back`);
     return { txn, ended: reason, steps, putBack: false };
+  }
+
+  scriptEnded(run: string, reason: "done" | "stopped" | "failed") {
+    if (!this.history.isOpen(run)) return;
+    try { this.endTxn(run, reason, USER); } catch { /* gone already */ }
+    this.redraw();
+  }
+  scriptUndone(run: string) {
+    if (!this.history.forTxn(run)) return;
+    try { this.undoLayout(USER, run); this.ctx.flash("the run's layout changes put back"); } catch (e) { this.ctx.flash(`layout not undone: ${e instanceof Error ? e.message : String(e)}`, 6000); }
+  }
+  scriptsLost() {
+    for (const id of this.history.openIds()) try { this.endTxn(id, "failed", USER); } catch { /* gone already */ }
   }
 
   /** A transaction nothing has joined for a minute closes, and says so. */

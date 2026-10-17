@@ -70,6 +70,7 @@ import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, threadAgents } from "../extensions";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
+import { INVITES } from "./invite";
 import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import { componentsOf, componentsReady } from "../component-schemas";
 import { NODELIST_QUERY, nodesOf } from "../echonet/net";
@@ -3855,6 +3856,13 @@ export class NoteSurface {
       }
     }
     this.pressAsked = null;
+    // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. The
+    // run's note records the button and its author beside who asked.
+    if (actor.kind === "user" && scriptActions().some(s => s.action.name === action)) {
+      args.invitation ??= INVITES.mint("you");
+      const home = p.block || this.msg?.id;
+      if (home) args.via ??= `${home}:${p.line}`;
+    }
     const result = actor.kind === "user" ? await d.press(action, args, req.tile) : await d.act({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, actor);
     host.redraw();
     return result;
@@ -5432,9 +5440,17 @@ export class NoteSurface {
       const r = await host.ctx.board.undoExtension(e.undo, actor);
       EXT_UNDO.drop(e);
       outlineChanged(r.written);
-      say.flash(`undid ${e.label.toLowerCase()}`);
+      // The layout the run changed goes back with its writes (PIE-957, one undo id for both): the answer says which parts were
+      // undone and which were refused.
+      const dispatch = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+      let layout: { undone: true; steps: number } | { refused: string } | null = null;
+      if (dispatch) {
+        try { const l = await dispatch.act({ action: "layout.undo", args: { txn: e.undo } }, actor) as { steps: number }; layout = { undone: true, steps: l.steps }; }
+        catch (err) { const why = err instanceof Error ? err.message : String(err); if (!/no layout change in transaction/.test(why)) layout = { refused: why }; }
+      }
+      say.flash(`undid ${e.label.toLowerCase()}${layout && "refused" in layout ? ` · layout not undone: ${layout.refused}` : layout ? " · and its layout changes" : ""}`);
       host.redraw();
-      return { undone: e.undo, action: r.action, written: r.written };
+      return { undone: e.undo, action: r.action, written: r.written, ...(layout ? { layout } : {}) };
     } catch (err) {
       const why = `couldn't undo ${e.label.toLowerCase()}: ${err instanceof Error ? err.message : String(err)}`;
       // Gone from the service (undone elsewhere, or the host restarted): it can't be undone here either.

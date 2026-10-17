@@ -265,3 +265,13 @@ test("a script's write to a note a render line reads draws the line again, and t
   await until("the line drawn again after the script's write", () => output(note.id)[0]?.includes("mark: x"));
   expect(store.get(note.id)!.text).toContain("[mark::x]");
 });
+
+test("a script that acts on a door with none connected is refused with where to find one (PIE-957)", async () => {
+  const { create, run } = await setup();
+  create(`Ask door [script::ask-door] [effects::write]\n\`\`\`js\nawait act("actions", {});\nreturn "asked";\n\`\`\``);
+  const note = create("Somewhere");
+  const { text } = await run("ask-door", { blockId: note.id });
+  expect(text).toContain("failed");
+  expect(text).toMatch(/no door (on|here)/);
+  expect(text).toContain("door=<client>");
+});

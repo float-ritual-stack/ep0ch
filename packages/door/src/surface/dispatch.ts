@@ -11,6 +11,7 @@
 //   (`actorRule`, below), so no action asks who is acting for this;
 // - runs it as the person (a key, a click: a refusal is said, then the screen is redrawn) or as an agent (said on
 //   the status bar before it runs, refused with the reason, and what it did said after: ActionDef.says).
+import { INVITES } from "./invite";
 import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { USER, type Actor } from "../socket";
@@ -206,6 +207,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
     }
     case "screen": {
       if (where.away) return `${where.away}; not moved`;
+      // The person's press invited this run (src/surface/invite.ts): it may move their tiles, where the keys they just pressed would refuse it.
+      if (INVITES.covers(actor.invitation, "screen")) return null;
       // Typing in the drawer (the host layer) is never in the way of a screen change: the drawer stays over every
       // screen, so the person's text and keys stay where they are (Evan, Oct 17: "typing in the chat door shouldn't be
       // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself

@@ -127,6 +127,10 @@ export interface ExtensionActRequest {
   readonly background?: boolean;
   readonly mcpAccess?: import("@ep0ch/outline-core/protocol").McpAccessLevel;
   readonly clientId?: string;
+  /** A press (PIE-957): the invitation the door minted for it, passed on to every action the run asks the door for. */
+  readonly invitation?: string;
+  /** The button it pressed: the note and line, recorded on the run's note with the button line's author. */
+  readonly button?: { readonly block: string; readonly line?: number };
   readonly extension: string;
   readonly action: string;
   /** The block it acts on (and, for a handler's action, its line). Optional for an action on a tile. */

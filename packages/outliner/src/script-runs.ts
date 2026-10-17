@@ -70,7 +70,9 @@ export class ScriptRuns {
     private readonly writes: ExtensionWrites, private readonly client: AgentToolsClient,
     private readonly publish: (changes: readonly OutlinerChange[]) => void,
     private readonly inverse: (run: string) => Promise<import("./draft-patch").DraftPatchEdit[]>,
-    private readonly act: (clientId: string, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal) => Promise<unknown>) {}
+    private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string }) => Promise<unknown>,
+    /** A run ended (PIE-957): done, stopped or failed. The door holding its layout transaction closes it by that. */
+    private readonly ended?: (e: import("@ep0ch/outline-core/protocol").ScriptEnded) => void) {}
 
   /**
    * The Site a run reads (`this`, `self`, `caller`, `props`) and answers `resolve` from: `this` is the note the run is
@@ -137,6 +139,9 @@ export class ScriptRuns {
     const undo = this.writes.beginRun(`script:${extension.name}`);
     const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
+    // A press (PIE-957): the note that holds the button, and who wrote it last, so the run records both who asked and whose button it was.
+    const buttonBlock = request.button ? this.store.get(request.button.block) : undefined;
+    const button = request.button && buttonBlock ? { block: buttonBlock.id, author: buttonBlock.actorId ?? buttonBlock.author } : null;
     const controller = new AbortController();
     this.running.add(controller);
     this.runs.set(undo, controller);
@@ -146,7 +151,7 @@ export class ScriptRuns {
     this.previous.set(extension.id, source.code);
     const lines = [
       `${extension.name} · working [script-run::${undo}] [machine::script]`,
-      `Author: ${actor.actorId ?? actor.author} · revision ${source.revision} · onBehalfOf: ${requestedBy.actorId ?? requestedBy.author}`,
+      `Author: ${actor.actorId ?? actor.author} · revision ${source.revision} · onBehalfOf: ${requestedBy.actorId ?? requestedBy.author}${button ? ` · button by ${button.author} in ((${button.block}))` : ""}`,
       ...(old !== undefined && old !== source.code ? ["", "```diff", createPatch(extension.name, old, source.code), "```"] : []),
     ];
     const captured = <T>(work: () => T): T => {
@@ -203,7 +208,8 @@ export class ScriptRuns {
       ...(site.resolve ? { resolve: site.resolve } : {}),
       effects: source.effects,
       mcpAccess: request.mcpAccess,
-      ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, actor, controller.signal) } : {}),
+      // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
+      act: (name: string, args: Record<string, unknown>) => this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) }),
     });
     const task = (async () => {
       let failure: string | undefined;
@@ -224,6 +230,9 @@ export class ScriptRuns {
       } finally {
         if (progress) clearTimeout(progress);
         clearTimeout(deadline);
+        // How it ended, before the abort below says it for every run: stopped by someone, failed, or done.
+        const why = controller.signal.aborted ? controller.signal.reason : undefined;
+        const reason = failure !== undefined || (why instanceof Error && /^The script ran past/.test(why.message)) ? "failed" as const : why instanceof Error && /^Stopped by/.test(why.message) ? "stopped" as const : "done" as const;
         controller.abort();
         try {
           const drafts = await this.inverse(undo);
@@ -237,6 +246,7 @@ export class ScriptRuns {
           this.captures.delete(undo);
           this.running.delete(controller);
           this.runs.delete(undo);
+          this.ended?.({ run: undo, reason: failure !== undefined && reason === "done" ? "failed" : reason });
         }
       }
       return failure;

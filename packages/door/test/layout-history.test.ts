@@ -9,8 +9,15 @@ import { Desk } from "../src/desk/desk";
 import { LayoutHistory } from "../src/desk/layout-history";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
+import { INVITES } from "../src/surface/invite";
+import { extensionList } from "../src/extensions";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+
+const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
+  const end = Date.now() + ms;
+  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
+};
 
 const AGENT = { kind: "agent", id: "history-agent" } as const;
 const spec = (n: number) => ({ root: { t: "leaf", kind: "blank", name: `t${n}` } }) as never;
@@ -52,6 +59,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await board.info();
     const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
+    board.subscribe(e => app.event(e));
     app.push(new MainMenu());
     desk = new Desk();
     app.push(desk);
@@ -123,4 +131,59 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await act("layout.undo", { txn: "run-c" });
     expect(names().sort()).toEqual(before.sort());
   });
+
+  test("a script run is one transaction: a press invites it to move the tiles the person is at the keys of, its layout changes are one entry, they close when it ends, and ext.undo's broadcast takes them back", async () => {
+    const before = names();
+    const [a, b] = before.filter(n => n !== D().layoutGet().focus);
+    // It gives the keys to one tile (what the person's own keys are the screen's about), then closes two others.
+    await board.request("create", { author: "user", text: 'Tidy tiles [script::tidy-tiles] [effects::write]\n```js\nawait act("tile.focus", { tile: props.f[0] });\nawait act("tile.close", { tile: props.a[0] });\nawait act("tile.close", { tile: props.b[0] });\nreturn "closed two";\n```' });
+    const note = await board.request<{ id: string }>("create", { author: "user", text: "Scratch note for the script" });
+    await board.request("extensions.list", { reload: true });
+    await app.loadExtensions(true);
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "tidy-tiles"), "the script loaded");
+    const ext = extensionList()!.extensions.find(e => e.name === "tidy-tiles")!;
+    const text = async (run: { written: string[] }) => (await board.get(run.written[0]!))?.text ?? "";
+    const settled = async (run: { written: string[] }) => untilAsync(async () => !(await text(run)).split("\n")[0]!.includes("· working"), "the run to finish");
+    // The person has just clicked: without the press's invitation the script's moves are refused while they are at the keys.
+    (app as any).lastInput = Date.now();
+    const bare = await person(`ext.${ext.id}.run`, { block: note.id, a, b, f: D().layoutGet().focus }) as { undo: string; written: string[] };
+    await settled(bare);
+    expect(await text(bare)).toContain("at the keys");
+    expect(names().sort()).toEqual(before.sort());
+    // With the press's invitation the same run moves them, as one entry in the layout's history.
+    (app as any).lastInput = Date.now();
+    const size = D().history.size;
+    const run = await person(`ext.${ext.id}.run`, { block: note.id, a, b, f: D().layoutGet().focus, invitation: INVITES.mint("you") }) as { undo: string; written: string[] };
+    await settled(run);
+    expect(await text(run)).toContain("· done");
+    expect(names()).not.toContain(a);
+    expect(names()).not.toContain(b);
+    expect(D().history.size).toBe(size + 1);
+    await untilAsync(async () => !D().history.isOpen(run.undo), "the run's end closed its transaction", 10_000);
+    expect(D().history.forTxn(run.undo)).toMatchObject({ steps: 2 });
+    // The service takes the run's writes back and says so (scripts.undone): the door takes the layout back with them.
+    await board.undoExtension(run.undo, USER);
+    await untilAsync(async () => names().includes(a) && names().includes(b), "the layout is back", 8000);
+    expect(names().sort()).toEqual(before.sort());
+  }, 60_000);
+
+  test("a run that is stopped ends its transaction early: the layout it changed is put back, and the screen says so", async () => {
+    const before = names();
+    const b = before.find(n => n !== D().layoutGet().focus)!;
+    await board.request("create", { author: "user", text: 'Slow tidy [script::slow-tidy] [effects::write]\n```js\nawait act("tile.close", { tile: props.b[0] });\nawait wait(30000);\nreturn "never";\n```' });
+    const note = await board.request<{ id: string }>("create", { author: "user", text: "Another scratch note" });
+    await board.request("extensions.list", { reload: true });
+    await app.loadExtensions(true);
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "slow-tidy"), "the script loaded");
+    const ext = extensionList()!.extensions.find(e => e.name === "slow-tidy")!;
+    (app as any).lastInput = Date.now();
+    const run = await person(`ext.${ext.id}.run`, { block: note.id, b, invitation: INVITES.mint("you") }) as { undo: string };
+    await untilAsync(async () => !names().includes(b), "the run closed a tile");
+    expect(D().history.isOpen(run.undo)).toBe(true);
+    await board.stopScript(run.undo, USER);
+    await untilAsync(async () => names().includes(b), "the stopped run's layout put back", 8000);
+    expect(names().sort()).toEqual(before.sort());
+    expect(D().history.isOpen(run.undo)).toBe(false);
+    expect(D().history.forTxn(run.undo)).toBeNull();
+  }, 60_000);
 });

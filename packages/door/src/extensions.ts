@@ -15,6 +15,7 @@
 //
 // The service announces a change (an `extensions` event): the list is read again and bound again, so an
 // extension added or removed while the door runs shows up or goes away without a restart.
+import { INVITES } from "./surface/invite";
 import { useResourceProviders, type ResourceProviderEntry } from "./resource-providers";
 import { hostname } from "node:os";
 import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource } from "@ep0ch/outline-core/protocol";
@@ -327,12 +328,18 @@ export function connectScriptActions(ctx: ExtOn["ctx"]): void {
   ctx.board.scriptAction = call => {
     if (!ctx.dispatch) return Promise.reject(new Error("The door dispatcher is unavailable"));
     const { tile, ...args } = call.args;
-    return ctx.dispatch.act({ action: call.action, args, ...(typeof tile === "string" ? { tile } : {}) }, call.actor.author === "user"
-      ? { kind: "user" } : { kind: "agent", id: call.actor.actorId ?? call.actor.author });
+    // The run is a transaction of its own (src/surface/txn.ts): every layout change it makes is one history entry, closed when
+    // `scripts.ended` says the run did, and put back if it ended early. A press's invitation (src/surface/invite.ts) rides on
+    // every action the run asks, and is spent with the run.
+    const run = call.actor.sessionId;
+    INVITES.bind(call.invitation, run);
+    const actor: Actor = call.actor.author === "user" ? { kind: "user" }
+      : { kind: "agent", id: call.actor.actorId ?? call.actor.author, ...(run ? { run } : {}), ...(call.invitation && INVITES.covers(call.invitation, "screen") ? { invitation: call.invitation } : {}) };
+    return ctx.dispatch.act({ action: call.action, args: { ...args, ...(run && args.txn === undefined ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, actor);
   };
 }
 
-export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
+export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
   connectScriptActions(ctx);
   const say = asActor(ctx, actor);
   const name = extensionNamed(extension)?.name ?? oneLine(extension);
@@ -390,16 +397,20 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
       line: { type: "number", optional: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
       with: { type: "string", optional: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
+      invitation: { type: "string", optional: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
+      via: { type: "string", optional: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
       ...declaredArgs(a),
     } as ActionDef<ExtArgs, ExtOn>["args"],
-    run({ block: named, line, with: w, ...rest }, on, actor) {
+    run({ block: named, line, with: w, invitation, via, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
       if (!block && !bar && !outline) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
       const given = { ...withArgs(w), ...givenArgs(a, rest) };
       return askingFirst(on.ctx, e, a, block, given, actor, args =>
-        runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}) }, actor));
+        runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
+          ...(typeof invitation === "string" && invitation ? { invitation } : {}),
+          ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor));
     },
   };
 }
