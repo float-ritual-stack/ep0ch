@@ -107,7 +107,7 @@ type Failed = Extract<PathAnswer, { ok: false }>;
 
 /** A head: a name, or a reference to another note (`((id))`, `[[page]]`, a Work ID such as `PIE-533`). */
 const HEAD = /^(?:\(\([^()\n]+\)\)|\[\[[^\[\]\n]+\]\]|[A-Z][A-Z0-9]*-\d+(?![\w-])|[A-Za-z_][\w-]*)/;
-const KEY_STEP = /^\.([A-Za-z_$][\w-]*)/;
+const KEY_STEP = /^\.([A-Za-z_$][\w+-]*)/;
 const QUOTED_STEP = /^\[(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\]/;
 const INDEX_STEP = /^\[(\d+)\]/;
 
@@ -307,6 +307,11 @@ function inRecord(record: BlockRecord, steps: readonly PathStep[], i: number, la
     cx.route.push(`${label}.${lower}: the record's field (the note writes no \`${lower}\` property; \`$${lower}\` always means the field)`);
     return { cursor: field, next: i + 1 };
   }
+  // `this.echo.node` when the key is `echo.node`: a prefix of dotted keys names them.
+  const dotted = keys.filter(k => k.startsWith(`${lower}.`));
+  if (dotted.length) {
+    return { failed: problem(`no \`${first.key}\` on ${NAME(label)}, but it has ${dotted.map(k => `\`${k}\``).join(", ")}; write ${label}.${dotted[0]} or ${label}["${dotted[0]}"]`, cx.route, dotted, `{{${label}.${dotted[0]}}}`) };
+  }
   return { failed: fail(`no \`${first.key}\` on ${NAME(label)}`, [...keys, ...RECORD_KEYS], first.key, cx.route, near => `{{${label}.${near}}}`) };
 }
 
@@ -481,8 +486,12 @@ function bare(head: string, steps: readonly PathStep[], cx: Cx): PathAnswer {
     cx.route.push(`bare \`${key}\`: scope walk, nearest first → ${at.step} of ((${short(at.blockId)})), line ${at.line}`);
     return finish({ kind: "values", values: raw.flatMap(splitPropertyValue), from: at.blockId }, steps, used, cx);
   }
-  const nearby = [...keysOf(here), ...ancestors.flatMap(a => parsePropertyRecords(a.text).map(r => r.key))];
+  const key = head.toLowerCase();
   cx.route.push("bare key: the scope walk found nothing (the line, this note, each ancestor's header)");
+  // A key written lower in an ancestor isn't what a bare key reads (only the header and the lines after it): say where it is.
+  const deeper = ancestors.find(a => parsePropertyRecords(a.text).some(r => r.key === key));
+  if (deeper) return problem(`no \`${head}\` in the header of this note or its parents; it is written lower in ((${short(deeper.id)})), which a bare key doesn't read: ask for it with ((${short(deeper.id)})).${head}`, cx.route, [], `{{((${short(deeper.id)})).${head}}}`);
+  const nearby = [...keysOf(here), ...ancestors.flatMap(a => parsePropertyRecords(a.text).map(r => r.key))];
   return fail(`no \`${head}\` here or in its parents`, [...new Set(nearby)], head, cx.route, near => `{{${near}}}`);
 }
 
