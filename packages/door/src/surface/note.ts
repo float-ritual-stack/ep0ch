@@ -5450,7 +5450,9 @@ export class NoteSurface {
     let anchored: { fragmentId: string; created: boolean };
     try { anchored = await host.ctx.board.ensureFragment(drawnFields.from, row.line, drawnFields.revision, actor); }
     catch (e) {
-      const why = `not anchored: ${e instanceof Error ? e.message : String(e)}`;
+      const said = e instanceof Error ? e.message : String(e);
+      // The list was drawn from an older text: it is read again (watched), and the row anchors once it is.
+      const why = /changed since/.test(said) ? "not anchored: the note changed since the list was read; it is read again, press ⚓ once more" : `not anchored: ${said}`;
       host.ctx.flash(why);
       throw new ActionRefused(why);
     }
@@ -5460,7 +5462,7 @@ export class NoteSurface {
     host.ctx.flash(said);
     this.noteAgent(actor, said);
     host.redraw();
-    return { block: drawnFields.from, line: row.line + 1, anchor: anchored.fragmentId, created: anchored.created, link, recordedAs: mutationFor(actor) };
+    return { block: drawnFields.from, noteLine: row.line + 1, anchor: anchored.fragmentId, created: anchored.created, link, recordedAs: mutationFor(actor) };
   }
 
   /**
@@ -7807,6 +7809,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // A proposal's [apply] [dismiss] run its action as whoever asks (an agent dismisses only its own).
       if (e.kind === "control" && e.link?.proposal?.op) {
         const r: unknown = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
+        return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
+      }
+      // A `::fields` row's ⚓ anchors its line, as whoever asks.
+      if (e.link?.anchor) {
+        const r: unknown = await NOTE_ACTIONS.run("fields.anchor", { block: e.link.anchor.block, n: e.link.anchor.n }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.

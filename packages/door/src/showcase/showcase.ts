@@ -557,6 +557,19 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · questions", panes: [r] }, show, [[r, n.society]]); },
   },
   {
+    key: "fields-if", need: "see every place a note wrote a key, and draw a paragraph only while the note matches a query", part: "::fields and ::if (PIE-533 S3): outline-core's siteBlockAt reads them, the service answers them through site.answer (produce fields / if: the note's own Site, watched), src/site-blocks.ts draws the answer; a row opens its line lit, found again by the text it was written as (LinkTarget at + atLabel, revealAt), and its ⚓ gives the line an anchor on request (fields.anchor, fragments.ensure)", files: "outline-core/src/site-blocks.ts, outliner/src/site-producers.ts, src/site-blocks.ts, src/doc.ts, src/surface/note.ts (fields.anchor)",
+    aside: "the vent rail note lists its two connectTo lines with ::fields{key=connectTo}, one row each, and draws one of two ::if bodies: the one for status=active · save a third `[connectTo::…]` line and a row appears, change status to paused and the other body is drawn instead · ⏎ or a click on a row opens its line lit · ⏎ on a row's ⚓ (fields.anchor, or act) anchors that line, the only thing the component writes",
+    stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · fields and if", panes: [r] }, show, [[r, n.ventRail]]); },
+  },
+  {
+    key: "page-figure", need: "copy one figure onto two pages and have each list its own", part: "a figure over this (PIE-533 S3): query: type=ticket project={{this.project}} is a value operand bound from the page the figure sits on (never pasted into the query), so the same ::graph-table on two project pages lists each page's own tickets; the service answers it in the figure's Site (site.answer produce figure), the door and the publisher both draw that answer", files: "outliner/src/site-producers.ts, outliner/src/site-answer.ts, src/live.ts, outliner/src/publish-live.ts",
+    aside: "two project pages carry the very same figure text · Lego night lists its two tickets, Garden club its three · a figure takes call-site args too (::graph-table{project=lego-night} reads {{props.project}}), and drawn through a template the host is `this`",
+    stage(n, show) {
+      const a = new ReaderPane(true), b = new ReaderPane(true);
+      return deskOf({ title: "showcase · a figure on two pages", panes: [a, b], names: ["lego", "garden"], layout: ([x, y]) => pair("row", 0.5, leaf(x!), leaf(y!)) }, show, [[a, n.projectLego], [b, n.projectGarden]]);
+    },
+  },
+  {
     key: "dates", need: "ask about dates and numbers on any property: what's due in three days, what's done waiting, which window today is inside, grouped by the week",
     part: "typed comparisons in the views' grammar (PIE-769): key < <= > >= a bound on any property, a date when the bound reads as one (today, tomorrow, -7d, +3d, 2026-10-20, Oct 20, 10/20, 20 Oct), else a number, else text; key=<date> is that day, or a span holding it; one reader of dates as people write them (outline-core dates.ts) for the evaluator, sorts, date groups (<key>:day|week|month|year) and the save warning; the service says which values it couldn't read (the answer's hint)",
     files: "outline-core src/dates.ts, outliner src/block-query.ts (compare), src/question-answer.ts (date groups, questionValueWarning), src/query-watches.ts (the day turning), outline-core src/reference-warnings.ts (dateWarnings)",

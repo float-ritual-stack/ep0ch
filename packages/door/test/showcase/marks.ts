@@ -65,6 +65,9 @@ export const marks: Record<string, string[]> = {
   live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
   // The society page: one question as a list, tabs by crop and a rank by season.
   questions: ["Allotment society", "NOT LINKED BACK", "20 matches", "BY CROP", "beans 3 · brassicas 3"],
+  // The vent rail: its connectTo lines listed, one ::if body drawn; two project pages with one figure.
+  "fields-if": ["Vent rail demo", "SAID SO FAR", "demonstrating by doing", "shacks not cathedrals", "this paragraph is drawn only while the note is active"],
+  "page-figure": ["Lego night", "Garden club", "TICKETS FOR THIS PROJECT", "Sort the bricks", "Water the beans"],
   // The plot calendar's dates, written four ways, asked as any property (PIE-769); the lanes are saved views.
   dates: ["Plot calendar", "DUE IN THREE DAYS", "DONE WAITING", "IN ITS WINDOW TODAY", "Due in th"],
   tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],

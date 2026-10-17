@@ -54,10 +54,11 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
 
 /**
  * Whether an `::if` draws its body: `holds` once the service has answered that `this` matches; `problem` (its message)
- * when the query can't be read, the body staying hidden; `hidden` while it asks, when it doesn't match, or outside a note.
+ * when the query can't be read, the body staying hidden; `hidden` while it asks or when it doesn't match. Outside a note
+ * (the component library's example) there is nothing to match, so the body is drawn, showing what it holds.
  */
 export function ifState(where: string, note: string | undefined, site?: LiveSite): { state: "holds" | "hidden" } | { state: "problem"; message: string; didYouMean: string[] } {
-  if (!note) return { state: "hidden" };
+  if (!note) return { state: "holds" };
   const read = siteProduced(note, { kind: "if", where }, site);
   const a = read?.value as Extract<SiteProduced, { kind: "if" }> | undefined;
   if (!a) return { state: "hidden" };
