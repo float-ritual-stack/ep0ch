@@ -123,7 +123,7 @@ revision, so concurrent edits rarely collide.
   belongs to the whole block (that is what queries and views match). `[key::value]` mid-sentence is an
   inline aside on that spot. `key:: value` at the start of a line annotates that line; a `name::` line in
   someone's notes is usually a voice or persona, not an instruction to you. A `::` mid-sentence (`std::vec`) is prose;
-  a `#fff` or `#00e5ff` (exactly 3, 4, 6 or 8 hex digits) is a colour, not a tag; a `---` is a divider, a figure's
+  a `#fff` or `#00e5ff` (3, 4, 6 or 8 hex digits with a digit, or 6 or more, or one repeated; `#cafe` and `#bed` stay tags) is a colour, not a tag; a `---` is a divider, a figure's
   settings fence or a table row, and a first-line `---` followed by a blank line is a divider, not front matter.
 - **Indentation scopes context.** Nested lines are a flow of thought, not always strict parent and child.
   Keep their hierarchy when you tidy.

@@ -12,8 +12,9 @@ are its record. The outliner's entries from then are kept below, under
 
 ### Grammar collisions: colours, dividers, `::` and `@name` (PIE-950, PIE-533)
 
-- A `#word` of exactly 3, 4, 6 or 8 hex digits (`#00e5ff`, `#fff`, `#1a2b3c`) is a colour, not a tag. Words made only of
-  hex letters (`#bad`, `#cafe`) read as colours too; `[tag::bad]` still says tag. The property parser version is 12, so
+- A `#word` that is a hex colour (`#00e5ff`, `#fff`, `#1a2b3c`) is not a tag: 3, 4, 6 or 8 hex digits, with a digit among
+  them, or 6 or more, or one digit repeated. Short hex-letter words (`#bed`, `#cafe`, `#fade`) stay tags; `#facade` reads as
+  a colour, and `[tag::facade]` says tag. The property parser version is 12, so
   every outline reparses once.
 - A file whose first line is a `---` divider with a blank line before the next `---` is a divider, not empty front
   matter (the front-matter block is the first paragraph, as PIE-684 says), so importing it no longer swallows the text
