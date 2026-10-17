@@ -16,7 +16,7 @@ import { BlockQueryError, type ValueBinder } from "./block-query";
 import { textRecord } from "./block-records";
 import { blockDisplayTitle } from "./references";
 import type { BlockRefLookup } from "./store";
-import { produce, type ProducerStore } from "./site-producers";
+import { produce, unknowable, type ProducerStore } from "./site-producers";
 import type { Block } from "./types";
 
 /** What the Site read needs of the store. */
@@ -46,7 +46,8 @@ class StoreWorld implements PathWorld {
   /** How many times a read met a note the reader may not see (a value that did is left out whole). */
   hiddenHits = 0;
 
-  constructor(private readonly store: SiteStore, private readonly clock: () => number, readonly hidden: ReadonlySet<string> = new Set()) {}
+  /** The reader may not see every note (the request named `hidden`, even if none yet): what decides an answer is checked, not only what it returns. */
+  constructor(private readonly store: SiteStore, private readonly clock: () => number, readonly hidden: ReadonlySet<string> = new Set(), readonly cut = false) {}
 
   now() { return this.clock(); }
 
@@ -99,6 +100,10 @@ class StoreWorld implements PathWorld {
 
   filter(rows: readonly FilterRow[], filter: string) {
     const kept = this.store.filterRows(rows, filter, this.thisId);
+    // A filter that reads the rows' children (`child:`) answers from notes the rows don't name: they join the deps, and one the reader may not see makes it say nothing.
+    if (kept.ok && unknowable(this.store, this, rows.flatMap(row => row.id && !row.id.includes("^") ? [row.id] : []), filter).size) {
+      return { ok: false as const, message: "this filter reads other notes, and some aren't shown here" };
+    }
     // A filter that reads other notes (links:, child:, under:…) depends on notes the answer can't name.
     if (kept.ok && kept.open) {
       this.unresolved = true;
@@ -162,7 +167,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
   const refused = (id: string, what: string) => { if (hidden.has(id)) throw new Error(`((${id})) is ${what} the reader may not see; it supplies no values`); };
 
   if (noteless) {
-    const world = new StoreWorld(store, clock, hidden);
+    const world = new StoreWorld(store, clock, hidden, request.hidden !== undefined);
     return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope: { ancestors: [], world }, world, route: ["no note: the figure is asked outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
   }
   const route: string[] = [];
@@ -170,7 +175,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
   const exact = target.id === request.blockId!.trim().toLowerCase();
   const text = request.draft?.text ?? target.text;
   if (hidden.has(target.id)) throw new Error(`((${target.id})) is a note the reader may not see; it has no values to read`);
-  const world = new StoreWorld(store, clock, hidden);
+  const world = new StoreWorld(store, clock, hidden, request.hidden !== undefined);
   const deps = new Set<string>([target.id]);
 
   // The note read: its saved text, or the draft being typed (the record is built from that text, so values agree with the screen).

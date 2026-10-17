@@ -989,16 +989,17 @@ export type ValueBinder = (path: string) => string[];
 const NO_MATCH: QueryExpression = { kind: "or", operands: [] };
 
 /**
- * What a query expression asks about: the property keys it names, and whether any clause is about other notes
- * (`links:`, `under:`, `child:`…), which makes its answer depend on notes the subject doesn't name.
+ * What a query expression asks about: the property keys it names, whether any clause is about other notes (`links:`,
+ * `under:`, `child:`…), which makes its answer depend on notes the subject doesn't name, and whether one reads the
+ * properties of the subject's children (`child:status=approved`): those notes' words decide who matches.
  */
-export function queryReach(expression: QueryExpression | undefined): { open: boolean; asked: string[] } {
-  let open = false;
+export function queryReach(expression: QueryExpression | undefined): { open: boolean; children: boolean; asked: string[] } {
+  let open = false, children = false;
   const asked: string[] = [];
   const walk = (e: QueryExpression | undefined): void => {
     if (!e) return;
     switch (e.kind) {
-      case "property": if (e.relation) open = true; else asked.push(e.key); return;
+      case "property": if (e.relation) { open = true; children = true; } else asked.push(e.key); return;
       case "compare": asked.push(e.key); return;
       case "not": walk(e.operand); return;
       case "and": case "or": e.operands.forEach(walk); return;
@@ -1007,7 +1008,7 @@ export function queryReach(expression: QueryExpression | undefined): { open: boo
     }
   };
   walk(expression);
-  return { open, asked };
+  return { open, children, asked };
 }
 
 /**

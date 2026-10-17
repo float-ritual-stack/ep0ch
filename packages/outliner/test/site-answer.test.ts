@@ -702,7 +702,7 @@ describe("what a reader may not see (PIE-533 S2)", () => {
     const { store } = scratch();
     const plan = store.create("Plan [status::open]");
     const child = store.create("Quote [status::approved]", plan.id);
-    const ask = (hidden: string[]) => answerSite(store, { blockId: plan.id, produce: { kind: "if", where: "child:status=approved" }, ...(hidden.length ? { hidden } : {}) });
+    const ask = (hidden: string[]) => answerSite(store, { blockId: plan.id, produce: { kind: "if", where: "child:status=approved" }, hidden });
     const open = ask([]);
     expect(open.produced).toMatchObject({ kind: "if", holds: true });
     expect(open.deps).toContain(child.id);

@@ -16,7 +16,7 @@ Closes the ways a page drawn from the Site could tell a reader about a note the 
 output (`::= …`, a script line) says *hidden here* when the script read such a note; `::if` over `child:`, `links:` or
 another relation says nothing when a note it could consult is hidden (the body stays out); `self` and `chain` hosts the
 reader may not see are refused; an ambiguous id prefix names no hidden title; a figure asked outside any note obeys
-`hidden` too. Nothing to run; pie's and gurgle's published pages were checked and none drew such a line.
+`hidden` too; a `child:` clause (in a figure, an `::if`, a `| filter`, a script's `q()`) never answers for a note with a child the page may not show. Nothing to run (a protocol bump: update the host and the publisher together); pie's and gurgle's published pages were checked and none drew such a line.
 
 ### Install rewrites the old brace forms (PIE-533, landing)
 

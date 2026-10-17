@@ -197,7 +197,7 @@ async function produced(host: Pick<LiveHost, "request"> & Partial<Pick<LiveHost,
   // answer was computed from any, so a `{{ }}` operand never reads through one.
   const hidden = new Set<string>();
   for (let round = 0; round < 4; round++) {
-    const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce, ...(props ? { props } : {}), ...(hidden.size ? { hidden: [...hidden] } : {}) });
+    const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce, ...(props ? { props } : {}), hidden: [...hidden] });
     if (!answer.produced) throw new Error("the service answered no figure");
     const touched = answer.deps.filter(id => id !== note);
     const shown = host.shown && touched.length ? await host.shown(touched) : new Set(touched);
