@@ -36,7 +36,7 @@ export const WRITE_TOOLS = [
   'outline_edit', 'outline_patch', 'outline_set_property', 'outline_assign_id', 'outline_move', 'outline_trash', 'outline_restore', 'outline_create', 'outline_comment', 'outline_reply', 'outline_resolve_thread',
   'note_section', 'work_create', 'work_set', 'work_stage', 'work_body', 'work_link', 'work_deliver', 'work_complete', 'view_order',
 ] as const
-export const READ_TOOLS = ['outline_read', 'outline_find', 'outline_changes', 'outline_resolve', 'show'] as const
+export const READ_TOOLS = ['outline_read', 'outline_find', 'outline_changes', 'outline_resolve', 'outline_site', 'show'] as const
 /**
  * Claude Code's own file tools whose rows the mod draws too (PIE-602): the file and the lines added and removed, the
  * file pressed opens it (and `diff` its changes) where a note opens, and the row folds open on the diff.
@@ -401,6 +401,13 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       const target = targetOf(input.ref, titleOf)
       if (!target) return null
       return { kind: 'read', glyph: '⌕', lead: 'resolve', target, change: typeof out?.title === 'string' ? [`→ ${clip(out.title, QUOTE_CHARS)}`] : [] }
+    }
+    case 'outline_site': {
+      const target = targetOf(input.ref, titleOf)
+      if (!target) return null
+      const reads = [...(Array.isArray(out?.values) ? out.values : []), ...(Array.isArray(out?.paths) ? out.paths : [])]
+      const problems = typeof out?.problems === 'number' ? out.problems : 0
+      return { kind: 'read', glyph: '⌕', lead: 'site', target, change: reads.length ? [`${plural(reads.length, 'value', 'values')}${problems ? `, ${plural(problems, 'problem', 'problems')}` : ''}`] : [] }
     }
     case 'show': {
       const target = targetOf(input.ref ?? input.reference, titleOf)

@@ -25,8 +25,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path";
 import { ComponentError, renderComponent, validatePrimitive, type Primitive } from "./component-primitives";
 import { DEFAULT_DEADLINE_MS, durationMs, type ExtensionRule, type LoadedExtension } from "./extension-manifest";
-import { cleanExtensionText, contextAncestors, inertBlockdown } from "./extension-records";
-import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
+import { cleanExtensionText, inertBlockdown } from "./extension-records";
+import { blockCallContext, type ExtensionActRequest, type ExtensionActResult } from "./extension-calls";
 import type { ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockRecord, type BlockRecord } from "@ep0ch/outline-core/block-record";
@@ -568,16 +568,9 @@ export class ExtensionRules {
     this.options.changed?.(block.id);
   }
 
-  /** What a decorate call sees of the outline: the block (properties too), its children and its ancestors, bounded. */
+  /** What a decorate call sees of the outline: the block as a record, its children and its ancestors, bounded (the one builder every extension call uses). */
   private context(block: Block): Record<string, unknown> {
-    const context = this.store.blockContext(block.id);
-    return {
-      block: { id: block.id, text: block.text.slice(0, 16_000), revision: block.revision,
-        properties: parsePropertyRecords(block.text).filter((property) => property.scope === "block").map((property) => ({ key: property.key, value: property.value })) },
-      children: context.children.slice(0, 50).map((child) => ({ id: child.id, text: child.text.slice(0, 2_000) })),
-      ancestors: contextAncestors(context.ancestors),
-      now: new Date(this.now).toISOString(),
-    };
+    return blockCallContext(this.store, block, undefined, this.now);
   }
 
   // ── triggers ───────────────────────────────────────────────────────────

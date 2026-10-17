@@ -64,7 +64,7 @@ export async function drawNoteComponents(
       let html: string;
       try {
         html = links ? await drawLinks(host, links.spec, note.id)
-          : await drawFigure(host, kind!, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows));
+          : await drawFigure(host, kind!, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows), block!.attrs);
       } catch (error) {
         html = componentSourceHtml(lines.slice(i, end + 1), `couldn't ask the outline: ${(error as Error).message}`);
       }
@@ -102,8 +102,8 @@ function figureRows(note: { id: string; text: string; revision?: number }, first
   };
 }
 
-async function drawFigure(host: LiveHost, kind: string, body: readonly string[], note: string, block: boolean, source: readonly string[], rows?: (at: number) => FigureRows): Promise<string> {
-  const src = figureSource(body, note, block);
+async function drawFigure(host: LiveHost, kind: string, body: readonly string[], note: string, block: boolean, source: readonly string[], rows?: (at: number) => FigureRows, attrs?: string): Promise<string> {
+  const src = figureSource(body, note, block, attrs);
   // A figure block's child bullets are rows too (figureProps says when it wants them): asked once, then read again.
   let wanted = false;
   let read = figureProps(kind, src, () => { wanted = true; return { rows: [], waiting: true }; });

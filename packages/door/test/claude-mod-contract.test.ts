@@ -191,6 +191,24 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     } finally { board.close(); }
   });
 
+  test("outline_site reads a note's values through the real CLI, and a typo comes back with its did-you-mean (PIE-533)", async () => {
+    const { checkedInput, OUTLINE_TOOLS } = await mod("outline-tools.ts");
+    const tool = OUTLINE_TOOLS.find((t: { name: string }) => t.name === "outline_site");
+    expect(tool).toBeDefined();
+    const { input } = checkedInput(tool, { tool: "mcp__pi-outliner__outline_site", agentId: "a1", ref: note, paths: ["this.type", "this.tpye"] });
+    const command = tool.command(input);
+    expect(command.operation).toBe("site");
+    const p = Bun.spawn(["bun", OUTLINER_CLI, "agent", command.operation, "--stdin", "--actor", "claude-code@test"], { stdin: new Blob([JSON.stringify(command.input)]), stdout: "pipe", stderr: "pipe", env: { ...clean, ...env } });
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    expect(code, err).toBe(0);
+    const answer = JSON.parse(out) as { paths: { values?: string[]; problem?: { didYouMean: string[]; example?: string }; route: string[] }[]; problems: number; deps: string[] };
+    expect(answer.paths[0]).toMatchObject({ values: ["errand"] });
+    expect(answer.paths[0]!.route.length).toBeGreaterThan(0);
+    expect(answer.paths[1]!.problem).toMatchObject({ didYouMean: ["type"], example: "{{this.type}}" });
+    expect(answer.problems).toBe(1);
+    expect(answer.deps).toContain(note);
+  });
+
   test("a refusal reaches the mod plain, with its reason, even under FORCE_COLOR", async () => {
     const { failureReasonOf } = await mod("mention-message.ts");
     const { loadBlockView, forgetEp0chHelp } = await mod("block-view.ts");

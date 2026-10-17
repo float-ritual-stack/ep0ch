@@ -31,7 +31,7 @@ function read(store: OutlinerStore, blockId: string, path: string, extra: Partia
 const values = (store: OutlinerStore, blockId: string, path: string, extra = {}) => {
   const v = read(store, blockId, path, extra);
   if (v.problem) throw new Error(`${path}: ${v.problem.message}`);
-  return v.values;
+  return v.values!;
 };
 
 /** The design's fixture note (made up), a person, a reference target and a parent with a project. */
@@ -213,7 +213,7 @@ describe("what Evan's real notes taught (made-up notes of the same shapes)", () 
     expect(values(store, written.id, "this.actor")).toEqual(["karen"]);
     // The record's field is always one `$` away, and the route says which was read.
     expect(values(store, written.id, "this.$actor")).toEqual(["claude-code"]);
-    expect(values(store, written.id, "this.$created")[0]).toMatch(/^\d{4}-\d\d-\d\dT/);
+    expect(values(store, written.id, "this.$created")[0]!).toMatch(/^\d{4}-\d\d-\d\dT/);
     expect(values(store, written.id, "this.$author")).toEqual(["agent"]);
     // With no such property, the field answers (and the route says so).
     const plain = store.create("Plain note");
@@ -434,8 +434,8 @@ describe("the transplant keeps values resolving", () => {
     // The other outline: the same notes under new ids. The pack's id finder is interpolationSpans: it names every id a placeholder holds.
     const second = scratch().store;
     const renamed = new Map([[target.id, "22222222-aaaa-4bbb-8ccc-000000000001"], [template.id, "44444444-aaaa-4bbb-8ccc-000000000002"]]);
-    const fresh = (block: Block, text: string, place?: { id: string }) => second.create(text, null, "user", undefined, place);
-    fresh(target, "Recipe book [page::recipe book] [query::type=deploy]", { id: renamed.get(target.id)! });
+    const fresh = (text: string, place?: { id: string }) => second.create(text, null, "user", undefined, place);
+    fresh("Recipe book [page::recipe book] [query::type=deploy]", { id: renamed.get(target.id)! });
     // Rewrite by the spans' reference heads (positions, not a regex over the text), longest-first.
     const rewritten = (text: string) => {
       let out = text;
@@ -447,7 +447,7 @@ describe("the transplant keeps values resolving", () => {
       }
       return out;
     };
-    const copy = fresh(template, rewritten(template.text), { id: renamed.get(template.id)! });
+    const copy = fresh(rewritten(template.text), { id: renamed.get(template.id)! });
     const hostCopy = second.create(host.text.replace("33333333-aaaa-4bbb-8ccc-000000000002", renamed.get(template.id)!));
     expect(copy.text).toContain("((22222222))");
     const wantedAfter = answerSite(second, { blockId: copy.id, chain: [{ kind: "use", block: hostCopy.id, line: 2 }] }).values.map(v => v.values);
@@ -480,7 +480,7 @@ describe("the wire: site.answer is watched by the notes it was computed from", (
   });
 
   test("a watched answer is told when a note it reads changes, and not when another does", async () => {
-    const { store, client, socket } = await service();
+    const { store, socket } = await service();
     const { connect } = await import("node:net");
     const mine = store.create("Mine [owner::evan]\n\n{{this.owner}} {{parent.tag}}");
     const other = store.create("Other [owner::lee]");

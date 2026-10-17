@@ -86,13 +86,17 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
   if (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId.trim()) {
     throw new Error("site.answer needs blockId: the note to read (an id, ((id)), a Work ID or a [[page]]); for example { blockId: \"PIE-12\", paths: [\"this.owner\"] }");
   }
-  const chain = request.chain ?? [];
-  if (!Array.isArray(chain) || chain.length > MAX_CHAIN) throw new Error(`chain is the invocations that draw this note, outermost first (at most ${MAX_CHAIN}): [{ kind: "use", block: "<host id>", line: 3 }]`);
-  for (const [i, link] of chain.entries()) {
+  const given = request.chain ?? [];
+  if (!Array.isArray(given) || given.length > MAX_CHAIN) throw new Error(`chain is the invocations that draw this note, outermost first (at most ${MAX_CHAIN}): [{ kind: "use", block: "<host id>", line: 3 }]`);
+  // A link's note may be named as a person would (a prefix, a Work ID, a [[page]]).
+  const chain: SiteLink[] = given.map((link, i) => {
     if (!link || typeof link !== "object" || !["use", "embed", "box"].includes(link.kind) || typeof link.block !== "string") {
       throw new Error(`chain[${i}] is { kind: "use" | "embed" | "box", block: "<the note the invocation is written in>", line?: number }`);
     }
-  }
+    const block = store.get(link.block) ?? (() => { try { return store.resolveBlockRef(link.block); } catch { return null; } })();
+    if (!block) throw new Error(`chain[${i}].block ${link.block} is no note; it is the note the invocation is written in`);
+    return { ...link, block: block.id };
+  });
   if (request.draft !== undefined && (!request.draft || typeof request.draft.text !== "string")) throw new Error("draft is { text: \"<the note's unsaved text>\" }");
   if (request.paths !== undefined && (!Array.isArray(request.paths) || request.paths.length > MAX_PATHS || request.paths.some(p => typeof p !== "string"))) {
     throw new Error(`paths is a list of at most ${MAX_PATHS} strings, such as "this.owner" or "this.tasks | status=todo"`);
@@ -119,15 +123,14 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
   if (!chain.length) {
     site = { at: { block: target.id }, this: recordOf(target, request.draft?.text), props, actor: NEW_SITE_ACTOR };
   } else {
-    const hostBlock = store.get(chain[0]!.block);
-    if (!hostBlock) throw new Error(`chain[0].block ${chain[0]!.block} is no note; it is the note the outermost invocation is written in`);
+    const hostBlock = store.get(chain[0]!.block)!;
     site = { at: { block: hostBlock.id }, this: world.record(hostBlock), props: {}, actor: NEW_SITE_ACTOR };
     route.push(`chain starts in ((${hostBlock.id.slice(0, 8)}))`);
     for (const [k, link] of chain.entries()) {
       const next = k + 1 < chain.length ? chain[k + 1]!.block : target.id;
       const child = store.get(next);
       if (!child) throw new Error(`chain[${k}] names ((${next})), which is no note`);
-      site = deriveSite(site, link as SiteLink, next === target.id ? recordOf(child, request.draft?.text) : world.record(child));
+      site = deriveSite(site, link, next === target.id ? recordOf(child, request.draft?.text) : world.record(child));
       route.push(`${link.kind} in ((${link.block.slice(0, 8)}))${link.line !== undefined ? ` line ${link.line}` : ""} → ${link.kind === "use" ? `this stays the host ((${site.this?.id.slice(0, 8)})), self is ((${next.slice(0, 8)}))` : link.kind === "embed" ? `a fresh Site: this is ((${next.slice(0, 8)}))` : "the Site passes through"}`);
       if (link.kind === "use" && link.line !== undefined) line = link.line;
     }
