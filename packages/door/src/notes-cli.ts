@@ -526,7 +526,9 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       if (site) {
         const note = await board.get(noteId);
         if (!note) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
-        const answer = note.text.includes("{{") && interpolationSpans(note.text).length ? await board.siteAnswer(noteId).catch(() => undefined) : undefined;
+        let refused: string | undefined;
+        const answer = note.text.includes("{{") && interpolationSpans(note.text).length ? await board.siteAnswer(noteId).catch((e: unknown) => { refused = e instanceof Error ? e.message : String(e); return undefined; }) : undefined;
+        if (refused !== undefined) { io.err(`ep0ch: the service couldn't answer ${id}'s {{ }} values (${refused}); the text below has no "site": ask again with ep0ch show ${id} --site, or ep0ch where if the outline host is down`); code = 1; }
         const values = answer && answer.values.length > MAX_NOTE_VALUES ? { ...answer, values: answer.values.slice(0, MAX_NOTE_VALUES) } : answer;
         io.out(JSON.stringify({ id: noteId, uri: blockUri(board, noteId), text: note.text, ...(values ? { site: values } : {}) }));
         continue;

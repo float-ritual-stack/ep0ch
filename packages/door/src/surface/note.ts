@@ -2097,7 +2097,16 @@ export class NoteSurface {
   }
 
   private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number) => string[] } {
-    const inner: EmbedBody = (target, part, width, hooks) => {
+    // How many embedded bodies and template bodies are being drawn inside one another: an embed starts a fresh `::use`
+    // depth and a template body a fresh embed one, so a note that embeds a template that embeds it back is stopped here.
+    let nest = 0;
+    const tooDeep = (): string[] => [`${fg(C.dark)}↺ drawn inside itself too many times${RESET}`];
+    const nested = <T>(draw: () => T, stop: () => T): T => {
+      if (nest >= 8) return stop();
+      nest++;
+      try { return draw(); } finally { nest--; }
+    };
+    const inner: EmbedBody = (target, part, width, hooks) => nested(() => {
       let text: string, lines: number[], lit: Set<number>;
       if (part) {
         text = part.text;
@@ -2117,10 +2126,10 @@ export class NoteSurface {
         use: isOutlineNote(target) ? useHook(target.id, lines, undefined, 0) : undefined,
         present: presenter(target.text), liveStep,
       }).lines;
-    };
+    }, tooDeep);
     // A template's body (PIE-533 S4), drawn where its `::use` is written: the reader's renderer over the template's text, in the
     // call's Site (`this` the host, `{{props.x}}` the call's), so values, figures, `::fields` and `::if` read the host.
-    const templateBody = (depth: number) => (target: Msg, site: LiveSite, width: number): string[] => {
+    const templateBody = (depth: number) => (target: Msg, site: LiveSite, width: number): string[] => nested(() => {
       const { text, lines, literal } = readableSource(target, src);
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
@@ -2130,7 +2139,7 @@ export class NoteSurface {
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
         use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
       }).lines;
-    };
+    }, tooDeep);
     // The `::use` on body line `i`, drawn: `block` is the note whose text holds the line, `lines` its body lines' note lines.
     const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number): DocEnv["use"] => (call, i, width) => {
       const line = lines[i] ?? -1;

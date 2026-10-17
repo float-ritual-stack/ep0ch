@@ -94,7 +94,8 @@ export function sweepText(text: string): { text: string; changes: SweepChange[] 
     const starts: number[] = [];
     for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) starts.push(at);
     const literal = scanLiteralRegions(text).regions;
-    for (const fence of codeBlocks(lines).fences) {
+    // Only the first fence is the step (the runbook's commandOf runs that one); a later example keeps its text.
+    for (const fence of codeBlocks(lines).fences.slice(0, 1)) {
       if (!fence.closed || literal.some(region => starts[fence.start]! >= region.start && starts[fence.start]! < region.end)) continue;
       for (let i = fence.start + 1; i < fence.end; i++) {
         const line = lines[i]!;

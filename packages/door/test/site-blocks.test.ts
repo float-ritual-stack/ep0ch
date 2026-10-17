@@ -76,6 +76,17 @@ describe.skipIf(!outliner)("::fields, ::if and a figure over this, drawn from si
     expect(second).toContain("shown when paused");
   }, 20_000);
 
+  test("a template that embeds a note that uses the template again stops, and says so, instead of drawing forever", async () => {
+    const echo = await make("Echo");
+    const card = await make(`Card [type::template]\nbefore\n!((${echo}))`);
+    const e = (await board.get(echo))!;
+    await board.update(echo, `Echo\n::use{of=((${card}))}`, e.revision!);
+    const host = await make(`Host\n::use{of=((${card}))}`);
+    const text = await show(host);
+    expect(text).toContain("before");
+    expect(text).toContain("drawn inside itself too many times");
+  }, 20_000);
+
   test("an ::if body reads its note's values like the rest of the note", async () => {
     const id = await make(["Planter [status::active] [owner::Ada]", "", "::if{where=\"status=active\"}", "Kept by {{this.owner}}.", "::"].join("\n"));
     const text = await show(id);

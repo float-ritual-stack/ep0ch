@@ -85,6 +85,9 @@ test("a runbook step's {{name}} reads the runbook note's own value: it becomes {
   const swept = sweepText(step);
   expect(swept.text).toBe("Check the widget\nrun:: --mode=dry\n```sh\nwidget check --env {{self.env}} --at {{self.region}} --day {{now.date}} --me {{props.who}} --lit \\{{env}} ${{ secrets.X }}\n```\nNote {{env}} in prose stays.");
   expect(swept.changes.map(c => c.form)).toEqual(["runbook-step"]);
+  // Only the first fence is the step the runbook runs: a later one is an example, and keeps its text.
+  const twice = sweepText("Check\nrun:: --mode=dry\n```sh\nwidget --env {{env}}\n```\nExample:\n```sh\necho {{env}}\n```");
+  expect(twice.text).toBe("Check\nrun:: --mode=dry\n```sh\nwidget --env {{self.env}}\n```\nExample:\n```sh\necho {{env}}\n```");
   // A second run changes nothing, and a fence in a note with no run:: line is not a runbook step.
   expect(sweepText(swept.text).changes).toEqual([]);
   const other = "Prose\n```sh\necho {{env}}\n```";
