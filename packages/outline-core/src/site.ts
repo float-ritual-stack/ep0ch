@@ -100,6 +100,12 @@ export interface SiteAnswerRequest {
   /** More paths to read besides the note's own `{{ }}` (a script's `resolve`, an agent's question): `this.tasks | status=todo`. */
   paths?: string[];
   /**
+   * Text to fill in this Site besides the note's own (a runbook step's command): its `{{ }}` are read like the note's, and
+   * answered as `interpolated`. `fences: "template"` reads the ones inside code fences too, for a producer that owns its
+   * fences as templates (a step's command); by default a fence is literal.
+   */
+  interpolate?: { text: string; fences?: "literal" | "template" };
+  /**
    * Notes the reader may not see (a publisher's locked or non-public ones): a path that reads one answers `hidden` and no
    * value, and an ancestor in it supplies no bare key (nor any above it). A reader with no limits sends none.
    */
@@ -117,6 +123,8 @@ export interface SiteValue {
   /** The expression as written, and its path. */
   expression: string;
   path: string;
+  /** The path's head as written (`self`, `props`, `((id))`, a bare key): which of the Site's parts answered. */
+  head?: string;
   /** The values (always a list); absent with a `problem`. A `|| default` fills in for a problem and says so. */
   values?: string[];
   problem?: SiteProblem;
@@ -149,6 +157,8 @@ export interface SiteAnswer {
   site: { this?: string; self?: string; caller?: Address; props: Record<string, string[]> };
   values: SiteValue[];
   paths?: SiteValue[];
+  /** For `interpolate`: its text with each placeholder that has a value replaced by it (the rest as written), and each one's answer. */
+  interpolated?: { text: string; values: SiteValue[] };
   /** How the Site was bound (the chain, the draft). */
   route: string[];
   deps: string[];

@@ -8,7 +8,7 @@
 // the views' matcher) and binds the Site. A reference is looked up by `OutlinerStore.lookupBlockRef`, the same lookup
 // `resolveBlockRef` throws from. Reads only.
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
-import { interpolationSpans, spanTail, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
+import { interpolate, interpolationSpans, spanTail, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { resolvePath, type PathAnswer, type FilterRow, type NoteLookup, type PathScope, type PathWorld } from "@ep0ch/outline-core/resolve-path";
 import { deriveSite, type Site, type SiteAnswer, type SiteAnswerRequest, type SiteLink, type SiteValue } from "@ep0ch/outline-core/site";
@@ -28,6 +28,8 @@ export interface SiteStore {
 }
 
 const MAX_PATHS = 50;
+/** The most placeholders one `interpolate` text is read for. */
+const MAX_PAGE_PLACEHOLDERS = 200;
 const MAX_CHAIN = 8;
 const MAX_DEPTH = 64;
 
@@ -208,7 +210,7 @@ function valueRead(bound: Bound, expression: string, parsed: ReturnType<typeof i
   const answer = parsed.parsed
     ? resolvePath(parsed.parsed, bound.site, bound.scope, spanTail(parsed))
     : { ok: false as const, problem: { message: `\`${parsed.path}\` isn't a path: write head.key, such as this.owner`, didYouMean: [], example: "{{this.owner}}" }, route: [] };
-  const base = { ...(start !== undefined ? { start, end } : {}), expression, path: parsed.path };
+  const base = { ...(start !== undefined ? { start, end } : {}), expression, path: parsed.path, ...(parsed.parsed ? { head: parsed.parsed.head } : {}) };
   if (answer.ok) {
     const empty = answer.values.length === 0 && parsed.default !== undefined;
     const source = parsed.parsed ? sourceOfValue(bound, parsed.parsed, answer) : undefined;
@@ -248,11 +250,25 @@ function pathSpan(path: string) {
   return span;
 }
 
+const MAX_INTERPOLATE = 64 * 1024;
+
+/** `request.interpolate`: the text's `{{ }}` read in the bound Site, and the text with each value in place (an unanswered one as written). */
+function fill(bound: Bound, ask: NonNullable<SiteAnswerRequest["interpolate"]>): NonNullable<SiteAnswer["interpolated"]> {
+  if (!ask || typeof ask !== "object" || typeof ask.text !== "string" || ask.text.length > MAX_INTERPOLATE || (ask.fences !== undefined && ask.fences !== "literal" && ask.fences !== "template")) {
+    throw new Error(`interpolate is { text: "<text with {{ }}>", fences?: "template" } of at most ${MAX_INTERPOLATE} characters`);
+  }
+  const spans = interpolationSpans(ask.text, { fences: ask.fences ?? "literal" });
+  const values = spans.slice(0, MAX_PAGE_PLACEHOLDERS).map(span => valueOf(bound, span.expression, span, span.start, span.end));
+  const answered = new Map<number, SiteValue>(values.map((value, i) => [spans[i]!.start, value]));
+  return { text: interpolate(ask.text, span => { const v = answered.get(span.start); return v && v.values && !v.hidden ? v.values : undefined; }, { fences: ask.fences ?? "literal" }), values };
+}
+
 /** `site.answer`: every `{{ }}` of the note (or its draft), and any `paths` asked, answered with how and from what. */
 export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: () => number = Date.now): SiteAnswer {
   const bound = bind(store, request, clock);
   const values = interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
   const paths = (request.paths ?? []).map(path => valueOf(bound, path, pathSpan(path)));
+  const interpolated = request.interpolate ? fill(bound, request.interpolate) : undefined;
   for (const id of bound.world.deps) bound.deps.add(id);
   const { site } = bound;
   return {
@@ -261,11 +277,12 @@ export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: 
     site: { ...(site.this ? { this: site.this.id } : {}), ...(site.self ? { self: site.self.id } : {}), ...(site.caller ? { caller: site.caller } : {}), props: site.props },
     values,
     ...(request.paths ? { paths } : {}),
+    ...(interpolated ? { interpolated } : {}),
     route: bound.route,
     deps: [...bound.deps].sort(),
     ...(bound.world.unresolved ? { anyChange: true as const } : {}),
-    ...([...values, ...paths].some(v => v.clock) ? { clock: "minute" as const } : {}),
-    problems: [...values, ...paths].filter(v => v.problem && !v.usedDefault).length,
+    ...([...values, ...paths, ...(interpolated?.values ?? [])].some(v => v.clock) ? { clock: "minute" as const } : {}),
+    problems: [...values, ...paths, ...(interpolated?.values ?? [])].filter(v => v.problem && !v.usedDefault).length,
   };
 }
 

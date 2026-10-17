@@ -144,7 +144,8 @@ function externalUrl(description: ResourceDescription): string | null {
   if (isExtensionProvider(source.provider) && "key" in resource.address && "project" in source.boundary) {
     const link = resourceDirectiveProviderFor(source.provider)?.link;
     if (link) {
-      return new URL(interpolate(link, (span) => (span.path === "key" ? [encodeURIComponent(resource.address.key)] : undefined)), `${source.boundary.origin.replace(/\/$/, "")}/`).href;
+      const key = encodeURIComponent(resource.address.key);
+      return new URL(interpolate(link, (span) => (span.path === "key" ? [key] : undefined)), `${source.boundary.origin.replace(/\/$/, "")}/`).href;
     }
   }
   if (remoteEntity?.externalUrl) return remoteEntity.externalUrl;
