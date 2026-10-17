@@ -260,3 +260,9 @@ describe("quotes and callouts (PIE-592): one passage each, embedded whole", () =
     expect(fragmentCandidates(mid, "", "passage").map(c => [c.kind, c.lineIndex])).toContainEqual(["quote", 4]);
   });
 });
+
+test("a front-matter property line takes no anchor (it would become part of its value); a body line does", () => {
+  const text = ["Sowing notes [type::note]", "- re:: whether to sow early", "", "Sow the beans in May."].join("\n");
+  expect(() => ensureFragmentAnchor(text, 1)).toThrow(/front-matter property/);
+  expect(ensureFragmentAnchor(text, 3)).toMatchObject({ created: true });
+});

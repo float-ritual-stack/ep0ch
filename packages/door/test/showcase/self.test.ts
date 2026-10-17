@@ -48,7 +48,9 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
       h.press({ kind: "mouse", action: "down", button: 0, x: x + 1, y }); h.press({ kind: "mouse", action: "up", button: 0, x: x + 1, y });
     };
     click("in the front matter");
-    await until(() => reader().surface?.focusMark?.line === true && reader().surface.focusMark.spec.line === 2, "the front-matter line lit");
+    await until(() => reader().surface?.focusMark?.line === true && reader().surface.focusMark.spec.line === 2, "the front-matter line marked");
+    // Not drawn in the note, so the door says where it is instead of lighting nothing.
+    await until(() => String((app as any).message).includes("front-matter property"), "the front-matter line said");
     click("a line of its own");
     await until(() => reader().surface?.focusMark?.line === true && reader().surface.focusMark.spec.line === 6, "the body line lit");
 
@@ -56,6 +58,9 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     const rail = (await board.get(seeded.notes.fieldsRail.id))!;
     await board.update(rail.id, rail.text.replace("\n::fields{key=connectTo", "\n- third pass [connectTo::trust the drift]\n::fields{key=connectTo"), rail.revision!);
     await until(() => text().includes("trust the drift") && text().includes("live · 7 occurrences"), "the third row", 8000);
+
+    // A front-matter row's ¶ is refused: an anchor there would become part of the property's value.
+    await expect(app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 2 }, ...agent })).rejects.toThrow(/front-matter property/);
 
     // The anchor is explicit: drawing wrote nothing, then the ¶ on the second row gives that line an anchor.
     const before = (await board.get(rail.id))!;
