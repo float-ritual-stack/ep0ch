@@ -12,7 +12,7 @@ Allotment committee [type::meeting] [when::Sat 10:00] [where::the shed] [attende
 
 - `match: { "property": "type=meeting" }`: the service's own query matcher decides (any saved-view query works:
   `"query": "type=meeting AND where=\"the shed\""`).
-- `decorate: { "place": "above" }` with no `use`: the service runs `meeting-card.ts` (`operation: "decorate"`) with
+- `decorate: { "place": "prepend" }` with no `use`: the service runs `meeting-card.ts` (`operation: "decorate"`) with
   the block and its children, and keeps the view it returns until the block's revision changes.
 - Change `[type::meeting]` to anything else and the card goes; the text was never touched. `R` in the door shows the
   note as written.

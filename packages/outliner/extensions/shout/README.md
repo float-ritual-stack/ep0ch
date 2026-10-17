@@ -15,6 +15,6 @@ Close the cold frame tonight!!!
 - `decorate: { "place": "replace" }`: the band is drawn instead of the line. The text is never changed, and `R` shows
   it raw. A narrow reader draws the band as a plain `##` heading.
 - The same rule with no code is a rule note:
-  `Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::band] [rule-label::{$1}] [rule-pattern::dots]`.
+  `Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::band] [rule-label::{{match[1]}}] [rule-pattern::dots]`.
 
 Install: `outliner ext add shout`. See [rules](../../docs/extensions/README.md#rules-when-a-block-matches).

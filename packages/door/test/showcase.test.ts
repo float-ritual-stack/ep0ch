@@ -3768,7 +3768,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(note.text).not.toContain("screen.list");
     expect(note.text).toContain("block.mark");
     expect(note.text).toContain(`to="${sourceTile}"`);
-    await board.update(note.id, note.text.replace("#beans", "#{tag}").replace("recorded-query", "replayed-query"), note.revision!, USER);
+    await board.update(note.id, note.text.replace("#beans", "#{{props.tag}}").replace("recorded-query", "replayed-query"), note.revision!, USER);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "planting-layout" && e.actions.some(a => a.args?.some(x => x.name === "tag"))), "the edited macro loaded its slot");
     const extension = extensionList()!.extensions.find(e => e.name === "planting-layout")!;
     const run = await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { tag: 'peas "quoted"' } }, USER) as { written: string[] };
@@ -4003,7 +4003,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
   test("scripts run by name with slots from slash and by their bound key", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
-    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds] [effects::write]\n```actions\nblock.mark id="{note}" reason="Check seeds"\n```' });
+    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds] [effects::write]\n```actions\nblock.mark id="{{props.note}}" reason="Check seeds"\n```' });
     await board.request("extensions.list", { reload: true });
     await until(() => !!extensionList()?.extensions.find(e => e.name === "bound-seeds"), "bound script loaded");
     await app.dispatch.act({ action: "bar.open", args: { query: `bound-seeds note=${seeded.notes.shed.id}`, scope: "notes" } }, USER);
@@ -4350,7 +4350,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       .catch(e => { throw new Error(`${e.message}\n${screen()}\n${JSON.stringify(reader())?.slice(0, 2000)}`); });
     // The rule note's bands are in the headings' places, shout's in the line's; the card above the note.
     expect(drawn().map(d => [d.rule, d.place, d.on, d.line])).toEqual([
-      ["meeting-card/card", "above", "block", 0], ["shout/shout", "replace", "text", 13],
+      ["meeting-card/card", "prepend", "block", 0], ["shout/shout", "replace", "text", 13],
       ["committee-bands", "replace", "construct", 6], ["committee-bands", "replace", "construct", 10],
     ]);
     let shown = screen();
@@ -4446,12 +4446,12 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause from the outline's own values", 5000)
       .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
     // Changed elsewhere while the person chose: their answer is refused, never written over the change.
-    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-label", value: "{title}" }, as: "test-agent" });
+    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-label", value: "{{this.title}}" }, as: "test-agent" });
     while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
     press({ kind: "enter" });
     await Bun.sleep(500);
     expect(await text()).toContain("[rule-match::type=bay-job]");
-    expect(await text()).toContain("[rule-label::{title}]");
+    expect(await text()).toContain("[rule-label::{{this.title}}]");
     // Asked again, on the note as it is now: written.
     if (app.bar && !app.bar.ended()) press({ kind: "esc" });
     await until(() => !app.bar || app.bar.ended(), "the bar put away", 3000);

@@ -10,7 +10,7 @@
       "id": "card",
       "description": "A header card on every meeting: when, where, who, and how many notes are under it",
       "match": { "property": "type=meeting" },
-      "decorate": { "place": "above" }
+      "decorate": { "place": "prepend" }
     }
   ]
 }
