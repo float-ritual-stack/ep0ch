@@ -916,7 +916,7 @@ export function openSchema(database: Database, label = "This database", path?: s
       database.exec(SCHEMA_SQL);
       insertOutlineInstanceId(database);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-    })();
+    }).immediate();
     return "created";
   }
   throw new Error(schemaRefusal(label, version, path));

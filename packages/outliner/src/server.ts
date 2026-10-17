@@ -1,3 +1,4 @@
+import { isSqliteBusy } from "./sqlite-busy";
 import { OutlineSnapshots } from "./outline-snapshots";
 import { DEFAULT_MACHINERY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { scriptSources } from "./script-sources";
@@ -1880,6 +1881,26 @@ export class OutlinerServer {
     subscribedClient?: OutlinerClientRegistration,
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
+    const sequence = this.store.sequence;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.handleAsyncOnce(request, subscribedClient, connection);
+      } catch (error) {
+        // A request may contain several commits; replay only when none of its content landed.
+        if (isSqliteBusy(error) && attempt === 0 && this.store.sequence === sequence) {
+          await Bun.sleep(50);
+          continue;
+        }
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
+  }
+
+  private async handleAsyncOnce(
+    request: OutlinerRequest,
+    subscribedClient?: OutlinerClientRegistration,
+    connection?: WatchConnection,
+  ): Promise<OutlinerResponse> {
     request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (request.action === "scripts.stop") {
@@ -1888,6 +1909,7 @@ export class OutlinerServer {
         const stopped = this.scriptRuns.stopRun(request.run, declaredRequester(request, "scripts.stop") ?? { author: "user" });
         return { id: request.id, ok: true, result: { run: request.run, ...stopped }, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -1902,6 +1924,7 @@ export class OutlinerServer {
         const result = this.scriptRuns.start(extension, { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) });
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -1918,7 +1941,8 @@ export class OutlinerServer {
         if (root.parentAnnotationId) throw new Error("a TL;DR belongs to the thread: give its first annotation's id");
         const result = { asked: await this.agentRequests.tldr(root.block.id) };
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+      } catch (error) {
+        if (isSqliteBusy(error)) throw error; return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
     if(request.action==="resources.describe"){
       try {
@@ -1929,7 +1953,7 @@ export class OutlinerServer {
         const description=this.store.resources.describe(request.target.resourceId,true,request.target.revision);
         if(request.target.revision===undefined&&!description.computed&&!description.source.policy.deniedCapabilities.includes("read"))await this.store.resources.executeComputedResource(request.target.resourceId,true);
         return this.handle(request,subscribedClient);
-      } catch(error){return {id:request.id,ok:false,error:error instanceof Error?error.message:String(error),sequence:this.store.sequence};}
+      } catch(error){if (isSqliteBusy(error)) throw error;return {id:request.id,ok:false,error:error instanceof Error?error.message:String(error),sequence:this.store.sequence};}
     }
     if (request.action === "tree.index") {
       try {
@@ -1938,6 +1962,7 @@ export class OutlinerServer {
         // The snapshot's own sequence: a write between two slices is not in it.
         return { id: request.id, ok: true, result, sequence: result.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -1960,6 +1985,7 @@ export class OutlinerServer {
         }
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -1981,6 +2007,7 @@ export class OutlinerServer {
         }
         return { id: request.id, ok: true, result: visibleGotoResults(result), sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -1995,6 +2022,7 @@ export class OutlinerServer {
               : await this.draftPatches.read(request.blockId);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -2081,6 +2109,7 @@ export class OutlinerServer {
         }
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error), sequence: this.store.sequence };
       }
     }
@@ -2088,6 +2117,7 @@ export class OutlinerServer {
       try {
         return { id: request.id, ok: true, result: await this.shareRequest(request), sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -2104,6 +2134,7 @@ export class OutlinerServer {
         }
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -2123,6 +2154,7 @@ export class OutlinerServer {
         }
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -2177,6 +2209,7 @@ export class OutlinerServer {
           ...(refreshedId ? { resourceId: refreshedId } : {}) });
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
@@ -2187,6 +2220,7 @@ export class OutlinerServer {
         const result = provenance ? { ...receipt, provenance } : receipt;
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return {
           id: request.id,
           ok: false,
@@ -2277,6 +2311,7 @@ export class OutlinerServer {
       }
       return { id: request.id, ok: true, result, sequence: this.store.sequence };
     } catch (error) {
+      if (isSqliteBusy(error)) throw error;
       const problem = queryRequestProblem(error);
       return {
         id: request.id,
@@ -2702,6 +2737,7 @@ export class OutlinerServer {
                 },
               };
             } catch (error) {
+              if (isSqliteBusy(error)) throw error;
               unavailable = error instanceof Error ? error.message : String(error);
             }
           }
@@ -3203,7 +3239,8 @@ export class OutlinerServer {
         case "blocks.resolve": {
           if (!Array.isArray(request.refs) || request.refs.length > 200 || request.refs.some(ref => typeof ref !== "string")) throw new Error("refs is a list of at most 200 strings");
           result = { resolved: request.refs.map(ref => {
-            try { return { ref, id: this.store.resolveBlockRef(ref, "note").id }; } catch (error) { return { ref, error: error instanceof Error ? error.message : String(error) }; }
+            try { return { ref, id: this.store.resolveBlockRef(ref, "note").id }; } catch (error) {
+        if (isSqliteBusy(error)) throw error; return { ref, error: error instanceof Error ? error.message : String(error) }; }
           }) };
           break;
         }
@@ -3338,6 +3375,7 @@ export class OutlinerServer {
       }
       return { id: request.id, ok: true, result, sequence: this.store.sequence };
     } catch (error) {
+      if (isSqliteBusy(error)) throw error;
       const problem = queryRequestProblem(error);
       return {
         id: request.id,

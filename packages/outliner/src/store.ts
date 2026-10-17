@@ -865,7 +865,7 @@ export class OutlinerStore {
     let database: Database | undefined;
     try {
       this.database = database = new Database(path, { create: true });
-      this.dropGraphOnFailure();
+      this.configureTransactions();
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       const created = this.prepareDatabase(path) === "created";
       this.instance = openOutlineInstance(path, this.database, () => this.sequence, created);
@@ -937,7 +937,7 @@ export class OutlinerStore {
   }
 
   mcpAccessStatus(): McpAccessStatus {
-    return this.database.transaction(() => this.mcpAccessStatusFromCurrentRead())();
+    return this.database.transaction(() => this.mcpAccessStatusFromCurrentRead()).deferred();
   }
 
   configureMcpAccess(level: string): McpAccessStatus {
@@ -1118,7 +1118,7 @@ export class OutlinerStore {
   }
 
   bookmarksRoot(): Block {
-    return this.database.transaction(() => this.requireBookmarksRootFromCurrentRead())();
+    return this.database.transaction(() => this.requireBookmarksRootFromCurrentRead()).deferred();
   }
 
   bookmarkStatus(targetBlockId: string): BookmarkStatus {
@@ -1131,7 +1131,7 @@ export class OutlinerStore {
         targetBlockId,
         record: records.find((candidate) => candidate.targetBlockId === targetBlockId)?.record ?? null,
       };
-    })();
+    }).deferred();
   }
 
   resolveBookmark(recordId: string): BookmarkResolution {
@@ -1154,7 +1154,7 @@ export class OutlinerStore {
         };
       }
       return { record: record.record, target };
-    })();
+    }).deferred();
   }
   toggleBookmark(
     targetBlockId: string,
@@ -1336,7 +1336,7 @@ export class OutlinerStore {
     })();
   }
   validateRoadmapItem(input:RoadmapItemCreateInput):void {
-    this.database.transaction(()=>{this.prepareRoadmapItem(input);})();
+    this.database.transaction(()=>{this.prepareRoadmapItem(input);}).deferred();
   }
 
   private prepareRoadmapItem(input:RoadmapItemCreateInput) {
@@ -1733,7 +1733,7 @@ export class OutlinerStore {
   }
 
   quickCaptureDraft(): QuickCaptureDraft | null {
-    return this.database.transaction(() => this.quickCaptureDraftFromCurrentRead())();
+    return this.database.transaction(() => this.quickCaptureDraftFromCurrentRead()).deferred();
   }
 
   /** Durable ownership, independent of focus, timing, or editable note properties. */
@@ -1893,7 +1893,7 @@ export class OutlinerStore {
         title: firstLineWithoutPropertyTokens(block.text)?.trim() || id,
         ...queryChecklistItems(block.text, query, rows.map(propertyRecordFromRow), {figures: true}),
       };
-    })();
+    }).deferred();
   }
 
   searchChecklist(query: ChecklistSearchQuery): ChecklistSearchCollection {
@@ -1919,17 +1919,17 @@ export class OutlinerStore {
         if(result.completeness.kind==='truncated')return {matches,completeness:{kind:'truncated',limit:query.items.limit}};
       }
       return {matches,completeness:{kind:'complete'}};
-    })();
+    }).deferred();
   }
 
   /** `((id^fragment))`'s slice of its note, read in one transaction (src/transclusions.ts owns the rules). */
   readFragment(id: string, fragmentId: string): FragmentRead {
-    return this.database.transaction(() => readFragment(this.requireActive(id), fragmentId))();
+    return this.database.transaction(() => readFragment(this.requireActive(id), fragmentId)).deferred();
   }
 
   /** Fragment completion across every active note, in one read (src/fragment-search.ts owns the rules). */
   fragmentCandidates(query: FragmentCandidateQuery): FragmentCandidateCollection {
-    return this.database.transaction(() => searchFragmentCandidates(this.traverseLoadedGraph(this.loadGraph(), {}), query))();
+    return this.database.transaction(() => searchFragmentCandidates(this.traverseLoadedGraph(this.loadGraph(), {}), query)).deferred();
   }
 
   /**
@@ -1950,7 +1950,7 @@ export class OutlinerStore {
 
   /** Transclusions as readers show them, nested and cycle-safe, from one consistent read. */
   readTransclusions(targets: readonly TransclusionTarget[], options: TransclusionOptions): TransclusionRead {
-    return this.database.transaction(() => readTransclusions(id => this.getFromCurrentRead(id), targets, options))();
+    return this.database.transaction(() => readTransclusions(id => this.getFromCurrentRead(id), targets, options)).deferred();
   }
 
   updateChecklist(id: string, input: ChecklistUpdateInput, mutation: MutationProvenance): ChecklistUpdateReceipt {
@@ -2056,7 +2056,7 @@ export class OutlinerStore {
 
   /** The extension that owns a block, when one does. */
   extensionOwner(blockId: string): ExtensionRecordRow | null {
-    return this.database.transaction(() => this.extensionOwnerFromCurrentRead(blockId))();
+    return this.database.transaction(() => this.extensionOwnerFromCurrentRead(blockId)).deferred();
   }
 
   /** Owned blocks under a parent, showing one Resource, or holding one key. */
@@ -2277,7 +2277,7 @@ export class OutlinerStore {
         ORDER BY block.created_at, block.id LIMIT 1
       `).get(extensionId, itemKey.trim().toUpperCase()) as { id: string } | null;
       return own?.id ?? askers[0]!.blockId;
-    })();
+    }).deferred();
   }
 
   /**
@@ -2419,7 +2419,7 @@ export class OutlinerStore {
    * earliest wins when several do.
    */
   ticketPage(key: string): Block | null {
-    return this.database.transaction(() => this.ticketPageFromCurrentRead(key))();
+    return this.database.transaction(() => this.ticketPageFromCurrentRead(key)).deferred();
   }
 
   /** Every ticket key with a page, as `ticketPage` would answer each one. */
@@ -2882,7 +2882,7 @@ export class OutlinerStore {
       const nextOffset = offset + items.length < counts.totalValues ? offset + items.length : null;
       return { key, propertyScope, items, ...counts, totalBlocks, offset, nextOffset,
         complete: offset === 0 && nextOffset === null, sequence: this.sequence };
-    })();
+    }).deferred();
   }
 
   /**
@@ -3140,7 +3140,7 @@ export class OutlinerStore {
       // The authored limit bounds display, not rank operations over hidden members.
       const result=this.queryBlocks(virtualBranchMembershipQuery(viewId,parsed.config,1000));
       return {viewId,viewRevision:view.revision,blockIds:result.blocks.filter(b=>b.id!==viewId).map(b=>b.id),completeness:result.completeness};
-    })();
+    }).deferred();
   }
 
   placeVirtualOccurrences(input: VirtualBranchPlacementInput, mutation?: MutationProvenance): VirtualBranchOrder {
@@ -3433,12 +3433,12 @@ export class OutlinerStore {
       const target = context.blocksById.get(query.targetBlockId);
       if (!target) throw new Error(`Block not found: ${query.targetBlockId}`);
       return resolveBacklinkRelation({ query, target, ...context });
-    })();
+    }).deferred();
   }
 
   /** The active sources for these targets, read through the reference candidate index in outline order. */
   backlinkSources(ids: readonly string[]): Map<string, string[]> {
-    return this.database.transaction(() => backlinkSourceIds(this.backlinkContextFromCurrentRead(ids), new Set(ids)))();
+    return this.database.transaction(() => backlinkSourceIds(this.backlinkContextFromCurrentRead(ids), new Set(ids))).deferred();
   }
 
   /** A target reads indexed candidates and their ancestors; whole-outline relation queries share the graph. */
@@ -3526,7 +3526,7 @@ export class OutlinerStore {
   resolvePageAddress(address: string): PageAddressResolution {
     return this.database.transaction(() =>
       this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(address))
-    )();
+    ).deferred();
   }
 
   followPageAddress(
@@ -3690,7 +3690,7 @@ export class OutlinerStore {
         completeness: ranked.length <= limit ? { kind: "complete" as const } : { kind: "truncated" as const, limit },
         ...(context ? { context: { blockId: context.block.id, ...context.note } } : {}),
       };
-    })();
+    }).deferred();
   }
 
   renamePageAddress(
@@ -3813,7 +3813,7 @@ export class OutlinerStore {
   workIdAllocatorStatus(): WorkIdAllocatorStatus {
     return this.database.transaction(() =>
       this.workIdAllocatorStatusFromCurrentRead()
-    )();
+    ).deferred();
   }
 
   configureWorkIdPrefix(prefix: string): WorkIdAllocatorStatus {
@@ -3895,7 +3895,7 @@ export class OutlinerStore {
   }
 
   get(id: string): Block | null {
-    return this.database.transaction(() => this.getFromCurrentRead(id))();
+    return this.database.transaction(() => this.getFromCurrentRead(id)).deferred();
   }
 
   require(id: string): Block {
@@ -3911,12 +3911,12 @@ export class OutlinerStore {
   }
 
   children(parentId: string | null): Block[] {
-    return this.database.transaction(() => this.childrenFromCurrentRead(parentId))();
+    return this.database.transaction(() => this.childrenFromCurrentRead(parentId)).deferred();
   }
 
   /** Every block not in the Trash, in outline order: a rule's baseline (PIE-600, `src/extension-rules.ts`). */
   liveBlocks(): Block[] {
-    return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active" }))();
+    return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active" })).deferred();
   }
 
   /** A property-selected reader depends on its members and their outline order, not unrelated writes. */
@@ -3941,7 +3941,7 @@ export class OutlinerStore {
   /** `binder`: what a `{{path}}` in the question reads, when the question sits in a Site the caller has already bound (a figure in a `::use`). */
   queryBlocks(input: BlockSearchQuery, binder?: ValueBinder): VisibleBlockCollection {
     const query = normalizeBlockSearchQuery(input, binder ?? this.valueBinder(input?.this?.trim() || undefined));
-    return this.database.transaction(() => this.queryNormalizedBlocksFromCurrentRead(query))();
+    return this.database.transaction(() => this.queryNormalizedBlocksFromCurrentRead(query)).deferred();
   }
 
   /** `query.limit` is normally 1..1000; sorted saved-view reads pass UNBOUNDED_VIEW_MATCHES to count every member. */
@@ -4109,7 +4109,7 @@ export class OutlinerStore {
         completeness: selected.truncated ? { kind: "truncated", limit: effectiveLimit } : { kind: "complete" },
         ...(selected.truncated ? { nextOffset: offset + selected.members.length } : {}),
       };
-    })();
+    }).deferred();
   }
 
   /**
@@ -4138,7 +4138,7 @@ export class OutlinerStore {
         return { viewId, plan: subject ? planMoveIntoView(view, subject, now) : planCreateInView(view, text, now) };
       });
       return { sequence: this.sequence, ...(block ? { revision: block.revision } : {}), plans };
-    })();
+    }).deferred();
   }
 
   /**
@@ -4179,7 +4179,7 @@ export class OutlinerStore {
             (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));
         }),
       };
-    })();
+    }).deferred();
   }
 
   /**
@@ -4242,7 +4242,7 @@ export class OutlinerStore {
         facets[id] = linkTargetFacets(block, lookup, this.facetRules());
       }
       return { facets, missing };
-    })();
+    }).deferred();
   }
 
   /** Reads many blocks in one consistent read, reduced to the requested fields. */
@@ -4284,7 +4284,7 @@ export class OutlinerStore {
         }
       }
       return { blocks, unavailable, fields: projection };
-    })();
+    }).deferred();
   }
 
   /** `blocks.query` with a field projection: the same matches without unrequested payload. */
@@ -4354,7 +4354,7 @@ export class OutlinerStore {
         ...(workIdPrefix ? { workIdPrefix } : {}),
         ...(ticketPrefixes.length ? { ticketPrefixes } : {}),
       };
-    })();
+    }).deferred();
   }
 
   focusTree(query: string): TreeFocusCollection {
@@ -4368,7 +4368,7 @@ export class OutlinerStore {
           ? { kind: "truncated" as const, limit: 20 }
           : { kind: "complete" as const },
       };
-    })();
+    }).deferred();
   }
 
   /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
@@ -4384,14 +4384,14 @@ export class OutlinerStore {
           return resolved.status === "resolved" ? resolved.block?.id : undefined;
         },
       });
-    })();
+    }).deferred();
   }
 
   queryTree(query: BlockSearchQuery): TreeIndexCollection {
     return this.database.transaction(() => {
       const result = this.queryBlocks(query);
       return { ...result, blocks: result.blocks.map(block => compactTreeBlock(block, id => this.getFromCurrentRead(id), this.treeLabels)) };
-    })();
+    }).deferred();
   }
 
   readTreeIndex(view: WorkspaceSnapshotView = {}): TreeIndexSnapshot {
@@ -4400,7 +4400,7 @@ export class OutlinerStore {
       const graph = this.loadGraph();
       const labels = new Map(treeIndexMembers(snapshot).map(block => [block.id, compactTreeBlock(block, id => graph.byId.get(id) ?? null, this.treeLabels)]));
       return treeIndexOf(snapshot, labels);
-    })();
+    }).deferred();
   }
 
   /**
@@ -4410,14 +4410,14 @@ export class OutlinerStore {
    * it, which nothing changes.
    */
   async readTreeIndexInSlices(view: WorkspaceSnapshotView, pause: () => Promise<void>): Promise<TreeIndexSnapshot> {
-    const { snapshot, graph } = this.database.transaction(() => ({ snapshot: this.workspaceSnapshot(view, "source"), graph: this.loadGraph() }))();
+    const { snapshot, graph } = this.database.transaction(() => ({ snapshot: this.workspaceSnapshot(view, "source"), graph: this.loadGraph() })).deferred();
     const labels = new Map<string, TreeIndexBlock>();
     await inSlices(treeIndexMembers(snapshot), block => { labels.set(block.id, compactTreeBlock(block, id => graph.byId.get(id) ?? null, this.treeLabels)); }, pause);
     return treeIndexOf(snapshot, labels);
   }
 
   getSelection(): SelectionContext {
-    return this.database.transaction(() => this.selectionFromCurrentRead())();
+    return this.database.transaction(() => this.selectionFromCurrentRead()).deferred();
   }
 
   blockContext(blockId: string): SelectionContext {
@@ -4425,7 +4425,7 @@ export class OutlinerStore {
       const selected = this.getFromCurrentRead(blockId);
       if (!selected) throw new Error(`Block not found: ${blockId}`);
       return this.contextForBlockFromCurrentRead(selected);
-    })();
+    }).deferred();
   }
 
   setSelection(blockId: string | null): SelectionContext {
@@ -4433,7 +4433,7 @@ export class OutlinerStore {
   }
 
   navigationState(): NavigationState {
-    return this.database.transaction(() => this.navigationStateFromCurrentRead())();
+    return this.database.transaction(() => this.navigationStateFromCurrentRead()).deferred();
   }
 
   navigateHistory(direction: "back" | "forward"): NavigationState {
@@ -4731,7 +4731,7 @@ export class OutlinerStore {
    * The whole outline as one graph, shared by every read until something changes (PIE-625): Tree reads every saved
    * view after each change, and each read used to load and hydrate every block again. It is current while this
    * connection has changed no row (`total_changes()`) and no other connection has committed (`data_version`); a
-   * transaction that fails drops it (`dropGraphOnFailure`), since a rollback undoes rows without changing either
+   * transaction that fails drops it (`configureTransactions`), since a rollback undoes rows without changing either
    * count. Shared, so it is frozen: a reader that changes a block it got from here throws instead of changing the
    * next reader's outline.
    */
@@ -4751,10 +4751,12 @@ export class OutlinerStore {
   }
 
   /**
+   * Reserve the writer before reading: a deferred read-to-write upgrade can fail without waiting for busy_timeout.
+   * Read-only snapshots explicitly use deferred; repositories sharing this connection inherit immediate writes.
    * A failed transaction (its work threw, or its COMMIT failed) rolled rows back without moving the graph's key: the
    * graph may hold what it undid. Every way to run one (`deferred`, `immediate`, `exclusive` too) drops it then.
    */
-  private dropGraphOnFailure(): void {
+  private configureTransactions(): void {
     const transaction = this.database.transaction.bind(this.database);
     const store = this;
     type Run = (...args: unknown[]) => unknown;
@@ -4768,7 +4770,7 @@ export class OutlinerStore {
     };
     this.database.transaction = ((work: Run) => {
       const run = transaction(work) as Run & Record<"deferred" | "immediate" | "exclusive", Run>;
-      return Object.assign(guarded(run), {
+      return Object.assign(guarded(run.immediate), {
         deferred: guarded(run.deferred), immediate: guarded(run.immediate), exclusive: guarded(run.exclusive),
       });
     }) as Database["transaction"];
@@ -5193,7 +5195,7 @@ export class OutlinerStore {
   }
 
   private ensureInbox(): void {
-    const inboxes = this.database.transaction(() => this.captureInboxesFromCurrentRead())();
+    const inboxes = this.database.transaction(() => this.captureInboxesFromCurrentRead()).deferred();
     if (inboxes.length > 1) {
       throw new Error(
         `Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`,
@@ -5204,7 +5206,7 @@ export class OutlinerStore {
   }
 
   private ensureBookmarks(): void {
-    const roots = this.database.transaction(() => this.bookmarksRootsFromCurrentRead())();
+    const roots = this.database.transaction(() => this.bookmarksRootsFromCurrentRead()).deferred();
     if (roots.length > 1) {
       throw new Error(
         `Workspace must contain exactly one active [system-view::${BOOKMARKS_SYSTEM_VIEW}]; found ${roots.length}`,
@@ -5826,7 +5828,7 @@ export class OutlinerStore {
         current = this.getFromCurrentRead(current.parentId);
       }
       return false;
-    })();
+    }).deferred();
   }
 
   /**
