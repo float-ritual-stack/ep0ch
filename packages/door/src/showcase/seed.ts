@@ -158,12 +158,14 @@ if (request.input.request === "describe the beds") {
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
   ].join("\n"));
   // A view that can be pressed (PIE-981): a render script draws the board, each free square a press that runs the move script.
-  await make(notes.scripts.id, "Noughts board [script::ttt-board] [mode::render]\n```js\nconst b = (await resolve('this.board')).values[0] ?? '.........';\nconst square = i => b[i] === '.' ? view.badge({ label: String(i + 1), action: { action: 'ttt-move', args: { at: i + 1 } } }) : view.badge({ label: b[i], tone: b[i] === 'x' ? 'accent' : 'warn' });\nreturn view.stack({ children: [0, 3, 6].map(r => view.row({ minWidth: 4, children: [square(r), square(r + 1), square(r + 2)] })) });\n```");
+  await make(notes.scripts.id, "Noughts board [script::ttt-board] [mode::render]\n```js\nconst b = (await resolve('this.board')).values[0] ?? '.........';\nconst square = i => b[i] === '.' ? view.badge({ label: String(i + 1), act: `ttt-move at=${i + 1}` }) : view.badge({ label: b[i], tone: b[i] === 'x' ? 'accent' : 'warn' });\nreturn view.stack({ children: [0, 3, 6].map(r => view.row({ minWidth: 4, children: [square(r), square(r + 1), square(r + 2)] })) });\n```");
   await make(notes.scripts.id, "Noughts move [script::ttt-move] [effects::write]\n```js\nconst at = Number(props.at[0]);\nconst b = [...(await resolve('this.board')).values[0]];\nif (!(at >= 1 && at <= 9) || b[at - 1] !== '.') return `square ${props.at[0]} is not free`;\nb[at - 1] = 'x';\nconst reply = b.indexOf('.');\nif (reply >= 0) b[reply] = 'o';\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: b.join(''), revision: this.revision });\nreturn `x on ${at}`;\n```");
+  await make(notes.scripts.id, "Noughts reset [script::ttt-reset] [effects::write]\n```js\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: '.........', revision: this.revision });\nreturn 'new game';\n```");
   notes.press = await make(notes.root.id, [
     `${SEED.press} [board::.........]`,
-    "The board is drawn by a render script, which writes nothing. Each free square is a press: a click, or ⏎ on it, runs the move script as you, and the script answers with an o.",
+    "The board is drawn by a render script, which writes nothing. Each free square is a press (a button in the view): a click, or ⏎ on it, runs the move script as you. It writes, so it asks first: ⏎ or the same press again. The script answers with an o.",
     "ttt-board::",
+    '::button{label="New game" of=ttt-reset}',
   ].join("\n"));
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [

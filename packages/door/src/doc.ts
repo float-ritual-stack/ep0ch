@@ -12,6 +12,7 @@ import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
 import { ifProblemLines, ifState, renderFields } from "./site-blocks";
 import { useCallAt, type UseCall } from "@ep0ch/outline-core/template-use";
+import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
@@ -57,6 +58,8 @@ export interface DocEnv {
    * `this` the note the line is in. Without it (an embed, a draft's preview, an export) the line stays text.
    */
   use?: (call: UseCall, line: number, width: number) => string[];
+  /** A `::button` (PIE-957) drawn: a chip the reader tags as a press. Without it the line is drawn as written. */
+  button?: (call: ButtonCall, line: number, width: number) => string[];
   /**
    * The Site this body is drawn in when it is a template's (a `::use` draws it): the chain of invocations and the call's
    * props. Its figures, `::fields` and `::if` read `this` through it (the host), and `{{props.x}}` as the call passed it.
@@ -560,6 +563,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const used = env.use ? useCallAt(src, i) : null;
     if (used) {
       out.push(...env.use!(used, i, W));
+      continue;
+    }
+
+    // `::button` (outline-core's button-call.ts): a labelled press.
+    const button = env.button ? buttonCallAt(src, i) : null;
+    if (button) {
+      out.push(...env.button!(button, i, W));
       continue;
     }
 

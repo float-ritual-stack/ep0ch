@@ -222,16 +222,6 @@ export function scriptActions() {
 }
 
 
-/**
- * The action a view's press names (PIE-981): an action the door has (`ext.<id>.<action>`), or a script by its name (its
- * `run`), with the slots as text. Null when nothing here answers to it: the view then draws the primitive as it is.
- */
-export function pressedAction(a: { action: string; args?: Record<string, string | number> }): { action: string; args: Record<string, string> } | null {
-  const name = EXT_ACTIONS.has(a.action) ? a.action : scriptActions().find(s => s.extension.name === a.action)?.action.name;
-  if (!name) return null;
-  return { action: name, args: Object.fromEntries(Object.entries(a.args ?? {}).map(([k, v]) => [k, String(v)])) };
-}
-
 /** The extension `id` as listed, while it serves. */
 export const extensionNamed = (id: string): ExtensionEntry | undefined => current?.extensions.find(e => e.id === id && serving(e));
 

@@ -245,11 +245,11 @@ test("keep on a render line writes its output as a note and starts no run", asyn
 test("a render script's view reaches a client as a view, its squares carrying the action they press; the text form carries none (PIE-981)", async () => {
   const { client, create } = await setup();
   create(`Move [script::ttt-move]\n\`\`\`js\nreturn "moved " + props.at[0];\n\`\`\``);
-  create(`Board [script::ttt-board] [mode::render]\n\`\`\`js\nreturn view.stack({ children: [view.badge({ label: "5", action: { action: "ttt-move", args: { at: 5 } } })] });\n\`\`\``);
+  create(`Board [script::ttt-board] [mode::render]\n\`\`\`js\nreturn view.stack({ children: [view.badge({ label: "5", act: "ttt-move at=5" })] });\n\`\`\``);
   const note = create("Game\nttt-board::");
   const projections = async () => (await client.request<{ projections: { kind?: string; output?: { markdown: string; component?: { view: unknown } } }[] }>({ action: "resources.projection.read", blockId: note.id, materialize: true })).projections;
   const drawn = await until("the board", async () => (await projections()).find(p => p.output)?.output);
-  expect(JSON.stringify(drawn.component?.view)).toContain('"action":{"action":"ttt-move","args":{"at":5}}');
+  expect(JSON.stringify(drawn.component?.view)).toContain('"act":"ttt-move at=5"');
   expect(drawn.markdown).toContain("5");
   expect(drawn.markdown).not.toContain("ttt-move");
 });

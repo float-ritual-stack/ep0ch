@@ -11,7 +11,7 @@ import { TONE as CALLOUT_TONE } from "./callouts";
 import { imageSource, type ImagePrimitive } from "@ep0ch/outline-core/media-line";
 
 /** The service's primitives (src/component-primitives.ts PRIMITIVE_TYPES): what `primitiveLines` draws. */
-export const PRIMITIVES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"] as const;
+export const PRIMITIVES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button"] as const;
 
 /** A primitive this door doesn't draw (a newer catalogue), or a view past the catalogue's bounds. */
 export class PrimitiveUnknown extends Error {}
@@ -88,18 +88,13 @@ function bandOf(n: Record<string, unknown>, w: number, headings: HeadingStyleReg
 type Node = Record<string, unknown>;
 const kids = (n: Node): unknown[] => (Array.isArray(n.children) ? n.children : []);
 
-/** What a press runs (PIE-981; the service's ViewAction): an action's name or a script's, and its slots. */
-export interface ViewPress { action: string; args?: Record<string, string | number> }
-/** A primitive's `action`, as the service checked it (the door draws nothing it can't run). */
-const pressOf = (v: unknown): ViewPress | null => (v && typeof v === "object" && typeof (v as ViewPress).action === "string" ? v as ViewPress : null);
-
 /** What the reader lends a view's drawing. */
 export interface PrimitiveDraw {
   /**
-   * Tags `text` as a press (PIE-981): a primitive that carries an `action`. The reader's `[ ]` stops on it, ⏎ and a click
-   * run the action as the person. Without it (a page, a draft's preview) the primitive is drawn as it is.
+   * Tags `text` as a press (PIE-957): a primitive that carries an action line (`act`). The reader's `[ ]` stops on it, ⏎
+   * and a click run the line as the person. Without it (a page, a draft's preview) the primitive is drawn as it is.
    */
-  press?(action: ViewPress, text: string): string;
+  press?(act: string, text: string): string;
   /** Tags a card's or a table row's block (`link` and `links` in the view): the reader's `[ ]` stops on it, a click opens it. */
   link?(block: string, text: string): string;
   /** A `blockdown` primitive drawn as the reader draws a note's body, `width` wide. Without it, its lines as written. */
@@ -127,17 +122,17 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
   const { link } = draw, headings = draw.headings ?? BUILTIN_HEADING_STYLE_REGISTRY;
   const inner = (v: unknown, width: number) => primitiveLines(v, width, draw, depth + 1);
   const tag = (block: unknown, text: string) => (link && typeof block === "string" ? link(block, text) : text);
-  const press = (action: unknown, text: string) => { const a = pressOf(action); return a && draw.press ? draw.press(a, text) : text; };
+  const press = (act: unknown, text: string) => (typeof act === "string" && act && draw.press ? draw.press(act, text) : text);
   switch (n.type) {
     case "text":
       // Its lines are its own, as the service's terminal target keeps them; each wraps to the width.
-      return String(n.text ?? "").split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + press(n.action, l) + UNBOLD : press(n.action, l)) + RESET);
+      return String(n.text ?? "").split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(toned(n.tone ?? "default")) + (n.strong ? BOLD + press(n.act, l) + UNBOLD : press(n.act, l)) + RESET);
     case "blockdown": {
       const text = String(n.text ?? "");
       return draw.blockdown ? draw.blockdown(text, w) : text.split("\n").flatMap(t => wrap(one(t), w)).map(l => fg(C.white) + l + RESET);
     }
     case "badge":
-      return [fg(toned(n.tone ?? "accent")) + press(n.action, `[${one(n.label)}]`) + RESET];
+      return [fg(toned(n.tone ?? "accent")) + press(n.act, `[${one(n.label)}]`) + RESET];
     case "stat": {
       const value = `${one(n.value)}${n.unit !== undefined ? ` ${one(n.unit)}` : ""}`;
       return wrap(`${one(n.label)}  ${value}`, w).map((l, i) => (i ? fg(toned(n.tone)) + l : l.replace(/^(.*?)( {2})/, `${fg(C.grey)}$1$2${fg(toned(n.tone))}${BOLD}`) + UNBOLD) + RESET);
@@ -149,6 +144,8 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       const room = Math.max(4, Math.min(20, w - vwidth(label) - vwidth(tail) - 4));
       return [pad(`${fg(C.grey)}${label}  ${meter(value, max, room, n.tone)}  ${fg(toned(n.tone))}${tail}${RESET}`, w)];
     }
+    case "button":
+      return [fg(toned(n.tone ?? "accent")) + BOLD + press(n.act, `[${one(n.label)}]`) + UNBOLD + RESET];
     case "sparkline": {
       const values = Array.isArray(n.values) ? n.values.map(Number).filter(Number.isFinite) : [];
       if (!values.length) throw new PrimitiveUnknown("a sparkline needs values");
@@ -166,7 +163,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
     case "table": {
       const columns = (Array.isArray(n.columns) ? n.columns : []).map(one);
       const rows = (Array.isArray(n.rows) ? n.rows as unknown[][] : []).map(r => (Array.isArray(r) ? r : []).map(one));
-      const links = Array.isArray(n.links) ? n.links : [], actions = Array.isArray(n.actions) ? n.actions : [];
+      const links = Array.isArray(n.links) ? n.links : [], acts = Array.isArray(n.acts) ? n.acts : [];
       if (!columns.length) throw new PrimitiveUnknown("a table needs columns");
       const widths = columns.map((c, i) => Math.max(vwidth(c), ...rows.map(r => vwidth(r[i] ?? ""))));
       // Too wide: the widest columns give room first, down to 4 cells each.
@@ -179,12 +176,12 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       return [
         fg(C.grey) + BOLD + line(columns) + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
-        ...rows.map((r, k) => { const text = line(columns.map((_, i) => r[i] ?? "")); return fg(C.white) + (links[k] ? tag(links[k], text) : press(actions[k], text)) + RESET; }),
+        ...rows.map((r, k) => { const text = line(columns.map((_, i) => r[i] ?? "")); return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET; }),
       ];
     }
     case "card": {
       const badge = n.badge && typeof n.badge === "object" ? n.badge as Node : null;
-      const title = n.link ? tag(n.link, one(n.title)) : press(n.action, one(n.title));
+      const title = n.link ? tag(n.link, one(n.title)) : press(n.act, one(n.title));
       const head = `${fg(C.lcyan)}▌ ${fg(C.white)}${BOLD}${title}${UNBOLD}${badge ? `  ${fg(toned(badge.tone ?? "accent"))}[${one(badge.label)}]` : ""}${RESET}`;
       return [head, ...(n.subtitle !== undefined ? wrap(one(n.subtitle), w - 2).map(l => `${fg(C.lcyan)}▌ ${fg(C.dark)}${l}${RESET}`) : []),
         ...kids(n).flatMap(c => inner(c, w - 2).map(l => `  ${l}`))];

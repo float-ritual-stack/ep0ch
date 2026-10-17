@@ -18,7 +18,7 @@ import { anyChangeSince, changeClock, changedSince, type LinkTarget } from "./re
 import { LIST_FIELDS } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { resourceProviderKeys } from "./resource-providers";
-import { decoratingRules, handlerActions, handlerKeyAction, mentionsExtension, pressedAction, type ExtensionAction } from "./extensions";
+import { decoratingRules, handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines, type PrimitiveDraw } from "./components";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
@@ -553,13 +553,8 @@ export function extensionRegion(p: ResourceProjection, w: number, indent: number
   const extension = p.extension?.id ?? p.provider, handler = p.extension?.handler ?? p.propertyKey ?? p.provider;
   const at = (action: string) => ({ ext: { block: d.note, line: p.anchor.line, action, extension, handler }, refresh: d.note, refreshLine: p.anchor.line });
   const primary = primaryAction(p);
-  // A view's pressable primitive (PIE-981): a control that runs the action it names on this line's note, with its slots.
-  const pressing: PrimitiveDraw["press"] | undefined = link ? (a, text) => {
-    const r = pressedAction(a);
-    if (!r) return text;
-    const there = at(r.action);
-    return link({ role: "control", label: text, ...there, ext: { ...there.ext, ...(Object.keys(r.args).length ? { args: r.args } : {}) } }, text);
-  } : undefined;
+  // A view's pressable primitive (PIE-957): a control that runs the action line it carries on this line's note.
+  const pressing: PrimitiveDraw["press"] | undefined = link ? (act, text) => link({ role: "control", label: text, press: { act, block: d.note, line: p.anchor.line } }, text) : undefined;
   const ready = (p.status === "ready" || p.status === "stale") && (p.output || p.summary !== undefined);
   const bad = !ready && p.status !== "not-run" && p.status !== "not-fetched";
   // The head: the title (the primary action), then what it is now.
