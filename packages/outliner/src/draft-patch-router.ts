@@ -80,6 +80,12 @@ export interface DraftPatchRouterDeps {
   holds: DraftHolds;
   /** Whether a door's client is still connected. */
   isLive(clientId: string): boolean;
+  /**
+   * Yolo is on (PIE-973): the person's door lifted the agent gate, so an agent settles proposals as the person does
+   * (any proposal, applied as "apply anyway") and the `edit` policy's guard on dropped structure lets it through.
+   * Who wrote what is recorded as ever.
+   */
+  yolo?(): boolean;
   /** Ask the door holding a draft; rejects when it doesn't answer in time (the hold is then let go). */
   ask(hold: DraftHold, request: DraftHolderAsk): Promise<DraftHolderAnswer>;
   /** Reads for the `edit` policy's guard (backlinks, block text), in process. */
@@ -261,6 +267,8 @@ function normalizeMutation(mutation: MutationProvenance | undefined): MutationPr
 export class DraftPatchRouter {
   constructor(private readonly deps: DraftPatchRouterDeps) {}
 
+  private yolo(): boolean { return this.deps.yolo?.() === true; }
+
   private holderOf(blockId: string): DraftHold | null {
     return this.deps.holds.holderOf(blockId, clientId => this.deps.isLive(clientId));
   }
@@ -428,7 +436,7 @@ export class DraftPatchRouter {
       // "Apply anyway" is the person's choice. An agent's is held to the same compare as a patch, under the
       // patch's own policy (a proposal from before policies was prose), against the text as it is now (it
       // can't force its own proposal). Both stay above the mark.
-      const forced = who.author !== "agent";
+      const forced = who.author !== "agent" || this.yolo();
       const policy: DraftPatchPolicyName = proposal.policy === "edit" ? "edit" : "prose";
       const allowStructural = policy === "edit" && proposal.allowStructural === true;
       if (!forced && policy === "prose") {
@@ -467,7 +475,7 @@ export class DraftPatchRouter {
       throw new Error(`Couldn't apply it: ${error instanceof Error ? error.message : String(error)}`);
     }
     const edits = proposal.edits.length ? normalizeDraftPatchEdits({ edits: proposal.edits }) : [];
-    const forced = who.author !== "agent";
+    const forced = who.author !== "agent" || this.yolo();
     const outcome = await this.run(edits, forced
       ? { mutation: who, force: true, policy: "edit", proposal: { id: proposalId, op: "apply" }, alongside: prepared.write, made: madeBy(proposal.group) }
       : { mutation: who, current: true, policy: "edit", proposal: { id: proposalId, op: "apply" }, alongside: prepared.write, told: toldBy(proposal.group), made: madeBy(proposal.group) });
@@ -487,7 +495,7 @@ export class DraftPatchRouter {
   async dismissProposal(proposalId: string, mutation: MutationProvenance): Promise<{ outcome: "dismissed"; embedRemoved: DraftPatchRoute | null } & ProposalSettled> {
     const who = normalizeMutation(mutation);
     const { proposal } = this.openProposal(proposalId);
-    if (who.author === "agent") {
+    if (who.author === "agent" && !this.yolo()) {
       const owner = proposal.actor?.actorId;
       if (owner !== who.actorId) {
         throw new Error(`That proposal is ${owner ? `@${owner}'s` : "someone else's"}; an agent dismisses only its own (the person can dismiss any)`);
@@ -779,7 +787,7 @@ export class DraftPatchRouter {
       if (!reason) return null;
       return { ok: false, reason: blamed(reason, blame(edits, edit, text, next => draftPatchTextPolicy(text, next) !== null, locate), total) };
     }
-    if (options.allowStructural) return null;
+    if (options.allowStructural || this.yolo()) return null;
     const lost = await droppedLinkedStructure(this.deps.client, edit.blockId, text, after, {
       text: blockId => options.leaves?.get(blockId), written: options.leaves?.keys() ?? [], made: options.made ?? [], ...(options.told ? { told: options.told } : {}),
     });

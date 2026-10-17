@@ -501,6 +501,38 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(restore.text).toContain("needs full access");
   });
 
+  test("yolo (PIE-973): a propose-level outline takes an agent's patch applied while a door says so, and proposes again once it is off", async () => {
+    const uri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.frogs! });
+    const door = new SocketBoard(here.sock, 30_000, "pond-notes");
+    boards.push(door);
+    door.subscribe(() => {});
+    const patchTo = async (replacement: string) => {
+      const now = await textOf(here, "pond-notes", HERE, ids.frogs!);
+      return tool("outline_patch", { uri, revision: now.revision, patches: [{ observed: now.text.includes("Nine") ? "Nine" : "Twelve", replacement }] });
+    };
+    expect((await tool("outline_patch", { uri, revision: (await textOf(here, "pond-notes", HERE, ids.frogs!)).revision, patches: [{ observed: "Twelve", replacement: "Nine" }] })).json.outcome).toBe("proposed");
+    await door.setAgentsYolo(true);
+    try {
+      expect((await patchTo("Nine")).json).toMatchObject({ outcome: "applied" });
+      expect((await textOf(here, "pond-notes", HERE, ids.frogs!)).text).toContain("Nine at dusk");
+      // Still the agent's, as before: the edit is attributed to the remote client.
+      expect((await editsBy(here, "pond-notes", ids.frogs!)).length).toBeGreaterThan(0);
+    } finally { await door.setAgentsYolo(false); }
+    expect((await patchTo("Ten")).json.outcome).toBe("proposed");
+    // The mod's and MCP's outline_proposal_dismiss: refused at propose, and for another agent's proposal; both lift while yolo is on.
+    const pond = boardOn(here, "pond-notes", HERE);
+    const note = await pond.request<any>("create", { parentId: null, text: "Reeds\nTall and green.", author: "user" });
+    const theirs = await pond.request<any>("draft.patch", { blockId: note.id, revision: note.revision, patches: [{ observed: "Tall", replacement: "Short" }], propose: "always", mutation: { author: "agent", actorId: "other-agent" } });
+    const dismissUri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: theirs.proposalId });
+    const refusedDismiss = await tool("outline_proposal_dismiss", { uri: dismissUri });
+    expect(refusedDismiss.isError).toBe(true);
+    expect(refusedDismiss.text).toContain("needs full access");
+    await door.setAgentsYolo(true);
+    try { expect((await tool("outline_proposal_dismiss", { uri: dismissUri })).json.outcome).toBe("applied"); }
+    finally { await door.setAgentsYolo(false); }
+    await boardOn(here, "pond-notes", HERE).request("update", { blockId: ids.frogs!, text: "Frog count [page::Frog Count]\nTwelve at dusk by the reeds.", expectedRevision: (await textOf(here, "pond-notes", HERE, ids.frogs!)).revision, mutation: { author: "user" } });
+  });
+
   test("propose: a patch and a property are proposals; a new block is a comment on its parent; read takes no writes", async () => {
     const uri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.frogs! });
     const before = await textOf(here, "pond-notes", HERE, ids.frogs!);

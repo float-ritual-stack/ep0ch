@@ -170,7 +170,9 @@ export class RemoteOutline {
   private async liveWrites(client: OutlinerClient, fresh: boolean): Promise<string | null> {
     if (fresh || !this.access || this.now() - this.access.at >= ACCESS_MS) {
       try {
-        this.access = { at: this.now(), level: (await client.request<McpAccessStatus>({ action: "mcp.access.status" })).level };
+        // The owner's setting, not yolo's (PIE-973): a page's writes are a reader's, which the agent gate never lifted.
+        const status = await client.request<McpAccessStatus>({ action: "mcp.access.status" });
+        this.access = { at: this.now(), level: status.configured ?? status.level };
       } catch (error) {
         return `${this.machine} didn't say what ${this.outline} takes (${error instanceof Error ? error.message : String(error)})`;
       }

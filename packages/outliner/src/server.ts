@@ -51,6 +51,8 @@ import { markTriggered } from "./extension-writes";
 import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
+import { Yolo } from "./yolo";
+import { yoloTask } from "@ep0ch/outline-core/attribution";
 import { BUILT_IN_EXTENSIONS, ExtensionRegistry, extensionRoots } from "./extension-registry";
 import { ExtensionPages } from "./extension-pages";
 import { addExtension, removeExtension } from "./extension-install";
@@ -367,6 +369,8 @@ export class OutlinerServer {
   /** `shares.start` calls waiting for their tunnel's report (`shares.tunnel`), by share id. */
   private readonly tunnelWaits = new Map<string, () => void>();
   private extensionRuntime!: ResourceExtensionRuntime;
+  /** Yolo (PIE-973): the person's door lifted the agent gate; held by that door's connection (src/yolo.ts). */
+  private readonly yolo = new Yolo();
   private readonly holderAnswers = new Map<string, { clientId: string; resolve: (answer: DraftHolderAnswer) => void; reject: (error: Error) => void; timer: Timer }>();
   /** Holds whose door missed an answer's deadline and hasn't been heard from since: asked again, they fail at once. */
   private readonly stalledHolds = new Set<string>();
@@ -451,6 +455,7 @@ export class OutlinerServer {
       store,
       holds: this.draftHolds,
       isLive: clientId => this.hasClient(clientId),
+      yolo: () => this.yolo.on,
       ask: (hold, request) => this.askHolder(hold, request),
       // The edit policy's guard reads backlinks and block text through the service's own handler.
       client: {
@@ -510,6 +515,7 @@ export class OutlinerServer {
     extensionRuntime.useConnection(connection);
     this.extensionRuntime = extensionRuntime;
     this.agentRequests = new AgentRequests(store, this.extensionRegistry, extensionRuntime, {
+      yolo: () => this.yolo.on,
       runSource: async (blockId, clientId) => {
         await this.extensionRegistry.reload();
         const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === blockId);
@@ -902,6 +908,8 @@ export class OutlinerServer {
     }
     if (removed) {
       this.draftHolds.releaseClient(removed.clientId);
+      // A door that goes away takes its yolo with it: never on without the door that set it.
+      if (this.yolo.release(removed.clientId)) this.announceYolo();
       // A door that went away answers nothing it was asked: don't wait out the deadline.
       for (const [requestId, waiting] of this.holderAnswers) {
         if (waiting.clientId !== removed.clientId) continue;
@@ -1861,6 +1869,7 @@ export class OutlinerServer {
     subscribedClient?: OutlinerClientRegistration,
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
+    request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (request.action === "scripts.stop") {
       try {
@@ -1874,7 +1883,7 @@ export class OutlinerServer {
     if (request.action === "scripts.run") {
       try {
         const levels = ["none", "read", "propose", "full"] as const;
-        const access = levels[Math.min(levels.indexOf(request.access), levels.indexOf(this.store.mcpAccessStatus().level))];
+        const access = levels[Math.min(levels.indexOf(request.access), levels.indexOf(this.mcpAccess().level))];
         if (access !== "propose" && access !== "full") throw new Error(`MCP access is ${access}: no script runs`);
         await this.extensionRegistry.reload();
         const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === request.blockId);
@@ -2332,7 +2341,10 @@ export class OutlinerServer {
           result = templatePropsOf(this.store, request);
           break;
         case "mcp.access.status":
-          result = this.store.mcpAccessStatus();
+          result = this.mcpAccess();
+          break;
+        case "agents.yolo":
+          result = this.setYolo(request);
           break;
         case "agents.held":
           result = { held: this.agentRequests.held() };
@@ -4080,7 +4092,46 @@ export class OutlinerServer {
   private grantedLevel(grant: ExtensionGrant): McpAccessLevel {
     const here = this.outline?.name;
     if (!grant.outline || !here || grant.outline === here || (!grant.relayed && !this.store.mcpAccessConfigured())) return "full";
-    return this.store.mcpAccessStatus().level;
+    return this.mcpAccess().level;
+  }
+
+  /**
+   * The outline's MCP access as an agent meets it. While yolo is on it is `full`, whatever the owner set (`configured`
+   * says what that is, so `ep0ch mcp access` can show both); every reader of the level goes through here.
+   */
+  private mcpAccess(): McpAccessStatus {
+    const status = this.store.mcpAccessStatus();
+    return this.yolo.on ? { ...status, level: "full", canRead: true, yolo: true, configured: status.level } : status;
+  }
+
+  /**
+   * `agents.yolo`: the person's door turns yolo on (or off, for every door). An agent can't turn it on, and a client
+   * that isn't connected can't either: it goes with the connection (removeSubscriber).
+   */
+  private setYolo(request: Extract<OutlinerRequest, { action: "agents.yolo" }>): { yolo: boolean } {
+    if (request.mutation?.author === "agent") throw new Error("yolo is the person's to hand over: they turn it on in their door (ctrl+k > agents.yolo); ask them to");
+    if (typeof request.on !== "boolean") throw new Error("agents.yolo needs on: true or false");
+    if (request.on) {
+      if (!this.hasClient(request.clientId)) throw new Error("yolo is held by a connected door: subscribe with that clientId first");
+      if (this.yolo.set(request.clientId)) this.announceYolo();
+    } else if (this.yolo.clear()) this.announceYolo();
+    return { yolo: this.yolo.on };
+  }
+
+  /**
+   * While yolo is on, an agent's request says so in its own record: `via:yolo` on the mutation's (or a new block's)
+   * task id (outline-core attribution.ts). Author and actor id stay the agent's.
+   */
+  private viaYolo<T extends OutlinerRequest>(request: T): T {
+    if (!this.yolo.on) return request;
+    const r = request as unknown as { mutation?: { author?: string; taskId?: string }; author?: string; provenance?: { taskId?: string } };
+    const mutation = r.mutation && typeof r.mutation === "object" && r.mutation.author === "agent" ? { mutation: { ...r.mutation, taskId: yoloTask(r.mutation.taskId) } } : {};
+    const provenance = r.author === "agent" && r.provenance && typeof r.provenance === "object" ? { provenance: { ...r.provenance, taskId: yoloTask(r.provenance.taskId) } } : {};
+    return Object.keys(mutation).length || Object.keys(provenance).length ? { ...request, ...mutation, ...provenance } : request;
+  }
+
+  private announceYolo(): void {
+    this.broadcast({ id: crypto.randomUUID(), domain: "agents", action: "agents.yolo", yolo: this.yolo.on, sequence: this.store.sequence });
   }
 
   /**

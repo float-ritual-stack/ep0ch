@@ -814,9 +814,12 @@ export async function droppedLinkedStructure(client: WorkToolsClient, blockId: s
  * Refuses an agent's rewrite of `block` to `next` that drops a `[page::…]`
  * property, or an `^anchor` another note links to (`droppedLinkedStructure`).
  * Every agent text write that can drop them (outline_edit, a note section, an
- * item body) asks this first; only outline_edit's explicit `allowStructural` skips it.
+ * item body) asks this first; only outline_edit's explicit `allowStructural` skips it, and yolo (the person's door
+ * lifted the agent gate).
  */
 export async function refuseDroppedStructure(client: WorkToolsClient, block: Block, next: string): Promise<void> {
+  // Yolo (PIE-973): the person's door lifted the agent gate, so this guard lets the edit through. Unreadable: it holds.
+  if ((await client.request<{ yolo?: true }>({ action: "mcp.access.status" }).catch(() => ({}) as { yolo?: true })).yolo) return;
   const lost = await droppedLinkedStructure(client, block.id, block.text, next);
   if (lost.length) {
     throw new WorkToolRefusal(

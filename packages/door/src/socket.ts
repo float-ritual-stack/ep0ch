@@ -135,7 +135,7 @@ export interface Change {
   sequence: number; changeId: number; action: string;
   kind: "create" | "edit" | "move" | "delete" | "restore" | "purge" | "annotate" | "draft" | "reorder" | "other";
   blockId?: string; parentId?: string | null; previousParentId?: string | null;
-  revision?: number; deleted?: boolean; actor?: { author?: string; actorId?: string };
+  revision?: number; deleted?: boolean; actor?: { author?: string; actorId?: string; taskId?: string };
   /** Who asked for it when that isn't its writer: an extension's action (`actor` `ext:<id>`) run for the person or an agent. */
   requestedBy?: { author?: string; actorId?: string };
   /** An edit that moved only `[key::value]` tokens: the words are as they were. */
@@ -179,6 +179,8 @@ export interface OutlineEvent {
   ask?: import("@ep0ch/outline-core/protocol").AskProgress;
   script?: import("@ep0ch/outline-core/protocol").ScriptActionCall;
   domain: string; action: string; blockId?: string; sequence: number;
+  /** On an `agents` event: whether yolo is on for the outline now (PIE-973). */
+  yolo?: boolean;
   /** The Resource a `resource-catalog` event names (a registration, a refresh). */
   resourceId?: string;
   change?: Change;
@@ -1043,6 +1045,11 @@ export class SocketBoard implements Board {
 
   async mcpAccessStatus(): Promise<McpAccessStatus> {
     return this.request<McpAccessStatus>("mcp.access.status", {});
+  }
+
+  /** Yolo (PIE-973): this door hands the outline's agents the person's permissions in the service too (`on`), or takes them back (any door can). */
+  async setAgentsYolo(on: boolean): Promise<boolean> {
+    return (await this.request<{ yolo: boolean }>("agents.yolo", { clientId: this.clientId, on })).yolo;
   }
 
   async configureMcpAccess(level: McpAccessLevel): Promise<McpAccessStatus> {

@@ -405,8 +405,58 @@ export class App implements Ctx {
   reconnects = 0;
   /** Whether "what changed" (the +N count, newscan) includes what tools wrote for their own bookkeeping: `changes.machinery`. */
   machineryChanges = false;
-  /** Agents are in yolo (`agents.yolo`): the person handed them the door. Off by default; a restarted door starts off. */
-  agentsYolo = false;
+  /** This door's person turned yolo on (`agents.yolo`): the door's guards lift, and the service is told (PIE-973). Off when the door starts. */
+  private yoloHere = false;
+  /** The service says yolo is on for the outline: this door's, or another door's (`agents` events, `mcp.access.status`). */
+  private yoloService = false;
+  /**
+   * Agents are in yolo: the person handed them the door, and (PIE-973) the service's own rules too, as long as a door
+   * of theirs says so. On when this door turned it on or the service says another did; setting it tells the service,
+   * which drops it when this door's connection does.
+   */
+  get agentsYolo(): boolean { return this.yoloHere || this.yoloService; }
+  set agentsYolo(on: boolean) {
+    this.yoloHere = on;
+    if (!on) this.yoloService = false;
+    void this.tellYolo(on);
+  }
+  /** Bumped by every change of yolo this door hears or makes: an answer that was asked before the latest one is stale and dropped. */
+  private yoloEpoch = 0;
+  async syncYolo(): Promise<void> {
+    const epoch = ++this.yoloEpoch;
+    const said = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
+    if (epoch !== this.yoloEpoch) return;
+    // The service holds this door's yolo by its connection: after a reconnect it is gone (a restarted service or a dropped
+    // connection ends it, and another door may have taken it back meanwhile). The person turns it on again.
+    if (this.yoloHere && !said) this.flash("YOLO ended: the connection to the outline dropped. Turn it on again (ctrl+k > agents.yolo) if you still want it", 8000);
+    this.yoloHere = false;
+    this.yoloService = said;
+    this.redraw();
+  }
+  private async tellYolo(on: boolean): Promise<void> {
+    const epoch = ++this.yoloEpoch;
+    try {
+      const said = await this.board.setAgentsYolo(on);
+      if (epoch === this.yoloEpoch) this.yoloService = said;
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      if (on) { this.yoloHere = false; this.flash(`YOLO is off: the outline service didn't take it (${why})`, 8000); }
+      else {
+        // A take-back that didn't reach the service must not look done: what the service says is what shows, and a click tries again.
+        const said = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
+        if (epoch === this.yoloEpoch) this.yoloService = said;
+        if (said) this.flash(`YOLO is still on: the outline service didn't take it back (${why}); click YOLO to try again`, 8000);
+      }
+    }
+    this.redraw();
+  }
+  /** The service says yolo changed (an `agents` event): off is off for every door, this one's own hand-over included. */
+  private heardYolo(on: boolean): void {
+    this.yoloEpoch++;
+    this.yoloService = on;
+    if (!on) this.yoloHere = false;
+    this.redraw();
+  }
   /** Where the status bar's YOLO sits, for a click (agents.yolo on=false). */
   private yoloAt: { from: number; to: number; row: number } | null = null;
   /** Where the status bar's `+N machine` sits, for a click. */
@@ -827,6 +877,10 @@ export class App implements Ctx {
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
+    // Yolo went on or off in the service (PIE-973): this door's chip and the guards it lifts follow.
+    if (e.domain === "agents") { this.heardYolo(e.yolo === true); return; }
+    // A reconnected service forgot a yolo this door handed over: say it again (a restarted service starts with it off).
+    if (e.action === "reconnected" || e.action === "reset") void this.syncYolo();
     // A Resource registered or refreshed (PIE-445): only readers showing a projection of it redraw, and
     // those read it again. It isn't an outline change, so nothing else is asked again. An extension's line that
     // ran (`extensions.output`) or an agent that answered (`extensions.agent`) names its note.

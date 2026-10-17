@@ -1238,13 +1238,17 @@ async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
   const board = await boardFor(parsed.boardArgs);
   if ("error" in board) { err(`ep0ch: ${board.error}`); return 1; }
   try {
+    // `level` is what agents have now (`full` while a door has yolo on, PIE-973); `configured` is the owner's setting.
     const was = parsed.level ? (await board.mcpAccessStatus()).level : undefined;
-    const status = parsed.level ? await board.configureMcpAccess(parsed.level) : await board.mcpAccessStatus();
+    if (parsed.level) await board.configureMcpAccess(parsed.level);
+    const status = await board.mcpAccessStatus();
     // Whether the gateway's write tools come or go with this change: a connected client won't see it until it reconnects.
     const toolsChanged = was !== undefined && !!writesAt(was) !== !!writesAt(status.level);
     if (parsed.json) write(JSON.stringify({ outline: board.address.outline, machine: board.address.machine, ...status, ...(toolsChanged ? { reconnect: RECONNECT_HINT } : {}) }, null, 2));
     else {
-      write(`MCP access for ${board.address.outline}@${board.address.machine}: ${status.level}${ACCESS_SAYS[status.level]}`);
+      const setting = status.configured ?? status.level;
+      write(`MCP access for ${board.address.outline}@${board.address.machine}: ${setting}${ACCESS_SAYS[setting]}`);
+      if (status.yolo) write("  YOLO is on (the person's door): agents act as full until they take it back (ctrl+k > agents.yolo on=false, or click YOLO)");
       if (toolsChanged) write(`  ${RECONNECT_HINT}`);
     }
     return 0;

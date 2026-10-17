@@ -63,7 +63,8 @@ function door(rows = 30, cols = 100) {
     write() {}, paint(lines: string[]) { painted = lines; }, paintRow(r: number, l: string) { painted[r] = l; },
     invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {},
   };
-  const app = new App(term, { protocol: null } as any, Date.now(), () => {});
+  const yoloTold: boolean[] = [];
+  const app = new App(term, { protocol: null, setAgentsYolo: async (on: boolean) => (yoloTold.push(on), on) } as any, Date.now(), () => {});
   const renders: { rows: number }[] = [];
   const screen = (title: string, more: Record<string, unknown> = {}) => ({
     title, key() {}, ...more,
@@ -72,7 +73,7 @@ function door(rows = 30, cols = 100) {
   const paint = () => { (app as any).paint(); return painted.map(plain); };
   /** Bytes as the terminal would send them, through the raw sink when there is one. */
   const type = (bytes: string) => { const sink = term.rawSink?.(); if (sink) sink(bytes); else throw new Error("no raw sink: the keys aren't the agent's"); };
-  return { app, term, screen, renders, paint, type, key: (k: Key) => key(k), A: app as any };
+  return { app, term, screen, renders, paint, type, yoloTold, key: (k: Key) => key(k), A: app as any };
 }
 
 describe("the drawer", () => {
@@ -250,6 +251,8 @@ describe("the drawer", () => {
       // An agent can't hand itself the door.
       await expect(d.app.act({ action: "agents.yolo", args: { on: true }, as: "claude-7" })).rejects.toThrow(/the person's to hand over/);
       await d.app.dispatch.press("agents.yolo", { on: true });
+      // The outline service is told too (PIE-973): its own rules lift with the door's.
+      expect(d.yoloTold).toEqual([true]);
       expect(d.paint().at(-1)).toContain("YOLO");
       expect(d.app.person().yolo).toBe(true);
       // Typing in the drawer and at the keys a moment ago: the agent puts the drawer away all the same, and it's said.
@@ -260,7 +263,39 @@ describe("the drawer", () => {
       const row = d.paint().length - 1, col = d.paint().at(-1)!.indexOf("YOLO");
       d.key(mouse("down", col, row)); d.key(mouse("up", col, row));
       expect(d.app.agentsYolo).toBe(false);
+      expect(d.yoloTold).toEqual([true, false]);
+      // Another door's yolo (the service says so) shows here, and lifts this door's guards too; a click takes it back for all.
+      d.app.event({ domain: "agents", action: "agents.yolo", yolo: true, sequence: 1 });
+      expect(d.app.agentsYolo).toBe(true);
+      expect(d.paint().at(-1)).toContain("YOLO");
+      const again = d.paint().at(-1)!.indexOf("YOLO");
+      d.key(mouse("down", again, row)); d.key(mouse("up", again, row));
+      expect(d.yoloTold).toEqual([true, false, false]);
+      expect(d.app.agentsYolo).toBe(false);
       expect(d.paint().at(-1)).not.toContain("YOLO");
+    } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
+  });
+
+  test("yolo: another door taking it back takes it back here too, and an answer older than that event doesn't bring it back (PIE-973)", async () => {
+    const d = door();
+    try {
+      d.app.push(d.screen("main menu") as any);
+      await d.app.dispatch.press("agents.yolo", { on: true });
+      expect(d.app.agentsYolo).toBe(true);
+      d.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 2 });
+      expect(d.app.agentsYolo).toBe(false);
+      // A reconnect asks the service; the answer that says yes was read before another door's no arrived.
+      let answer = (_: boolean) => {};
+      (d.A.board as any).mcpAccessStatus = () => new Promise(resolve => { answer = () => resolve({ yolo: true }); });
+      const synced = d.A.syncYolo();
+      d.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 3 });
+      answer(true); await synced;
+      expect(d.app.agentsYolo).toBe(false);
+      // A reconnect: the service holds yolo by the connection, so this door's hand-over is over unless the service still has it.
+      await d.app.dispatch.press("agents.yolo", { on: true });
+      (d.A.board as any).mcpAccessStatus = async () => ({});
+      await d.A.syncYolo();
+      expect(d.app.agentsYolo).toBe(false);
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
