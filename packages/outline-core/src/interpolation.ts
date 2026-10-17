@@ -12,7 +12,7 @@
 // literal `{{` anywhere. A producer that owns its fences as templates (an `actions` fence, a runbook step) says so with
 // `fences: "template"`, which leaves only literal regions alone.
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, type SourceRange } from "./code-ranges";
-import { parsePath, resolvePath, isReferenceHead, type ParsedPath, type PathScope } from "./resolve-path";
+import { parsePath, resolvePath, isReferenceHead, splitTail, type ParsedPath, type PathScope, type PathStep, type PathTail } from "./resolve-path";
 import type { Site } from "./site";
 
 export interface InterpolationPolicy {
@@ -31,6 +31,8 @@ export interface InterpolationSpan {
   path: string;
   /** `| status=todo`: the filter's query atoms, for the service to apply. */
   filter?: string;
+  /** Steps after the filter (`| status=todo .count`). */
+  then?: PathStep[];
   /** `|| none`: what to write when nothing answers. */
   default?: string;
   /** The path read (null when it isn't a path: the span is a problem to show, not to guess at). */
@@ -47,13 +49,15 @@ function literalRanges(text: string, policy: InterpolationPolicy): SourceRange[]
 
 const OPEN = /\{\{([^\n]+?)\}\}/g;
 
-function parseExpression(expression: string): Pick<InterpolationSpan, "path" | "filter" | "default"> {
+function parseExpression(expression: string): Pick<InterpolationSpan, "path" | "filter" | "then" | "default"> {
   const dflt = expression.indexOf("||");
   const head = (dflt < 0 ? expression : expression.slice(0, dflt)).trim();
   const bar = head.indexOf("|");
+  const tail = bar >= 0 ? splitTail(head.slice(bar + 1)) : {};
   return {
     path: (bar < 0 ? head : head.slice(0, bar)).trim(),
-    ...(bar >= 0 ? { filter: head.slice(bar + 1).trim() } : {}),
+    ...(bar >= 0 ? { filter: tail.filter ?? "" } : {}),
+    ...(tail.then ? { then: tail.then } : {}),
     ...(dflt >= 0 ? { default: expression.slice(dflt + 2).trim() } : {}),
   };
 }
@@ -99,11 +103,15 @@ export function interpolate(text: string, answers: SpanAnswer, policy: Interpola
 /** `interpolate` over a Site: each path through `resolvePath`; a path it can't answer is missing. */
 export function interpolateWith(text: string, site: Site, scope: PathScope = {}, policy: InterpolationPolicy & { missing?: "keep" | "empty" } = {}): string {
   return interpolate(text, span => {
-    if (!span.parsed || span.filter !== undefined) return undefined;
-    const answer = resolvePath(span.parsed, site, scope);
+    if (!span.parsed) return undefined;
+    const answer = resolvePath(span.parsed, site, scope, spanTail(span));
     return answer.ok ? answer.values : undefined;
   }, policy);
 }
+
+/** What a span adds to its path: the filter, and the steps after it. */
+export const spanTail = (span: InterpolationSpan): PathTail | undefined =>
+  span.filter || span.then ? { ...(span.filter ? { filter: span.filter } : {}), ...(span.then ? { then: span.then } : {}) } : undefined;
 
 /** `text` with every `{{` escaped, so what a producer writes into prose never starts resolving there. */
 export const escapeInterpolation = (text: string): string => text.replaceAll("{{", "\\{{");

@@ -50,7 +50,7 @@ test("this.block.key is block scope alone; this.fields.key has the line each val
   expect(values("this.block.storyTime")).toEqual([]);
   expect(values("this.block.status")).toEqual(["active"]);
   const a = resolvePath("this.fields.connectTo", site());
-  expect(a).toEqual({ ok: true, values: ["demonstrating by doing", "shacks not cathedrals"], lines: [3, 4] });
+  expect(a).toMatchObject({ ok: true, values: ["demonstrating by doing", "shacks not cathedrals"], lines: [3, 4], from: "vent" });
 });
 
 test("a plain value's commas are one value; an explicit bracket list is several (#604)", () => {
@@ -60,7 +60,7 @@ test("a plain value's commas are one value; an explicit bracket list is several 
 });
 
 test("a missing key is a problem that names the nearest key, never an empty string", () => {
-  expect(values("this.ownr")).toEqual({ message: "no `ownr` on this note; did you mean `owner`?", didYouMean: ["owner"] });
+  expect(values("this.ownr")).toEqual({ message: "no `ownr` on this note; did you mean `owner`?", didYouMean: ["owner"], example: "{{this.owner}}" });
   expect(values("this.zzzzzz")).toEqual({ message: "no `zzzzzz` on this note", didYouMean: [] });
 });
 

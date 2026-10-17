@@ -1,21 +1,69 @@
 // `resolvePath(path, site, scope)` (PIE-533): the one pure resolver for a path like `this.owner`, `parent.project`,
-// `props.week`, `this.fields.storyTime` or a bare `project`. The service, every client and every host call (a script's
-// `resolve`, the runbook, rule labels) read values through it; nobody walks a note's properties on their own.
+// `props.week`, `this.fields.storyTime`, `((id)).query`, `person.firstName` or a bare `project`. The service, every
+// client and every host call (a script's `resolve`, the runbook, rule labels) read values through it; nobody walks a
+// note's properties on their own.
 //
-// A path is `head(.key | [n])*`, optionally ending in `.count`. Heads this file answers without reading anything else:
-// `this`, `parent`, `self` (records), `props` (the call site's arguments) and a bare key, which walks the scope
-// (scope-walk.ts: the line, then the note, then each ancestor, nearest first). A head that names another note (`((id))`,
-// `[[page]]`, a Work ID), `now`, `caller`, `match`, link-following and the `| filter` tail need the service: they come
-// with the Site read (S1). Pure: no I/O.
-import type { BlockRecord } from "./block-record";
+// A path is `head(.key | [n] | ["dotted.key"])*`, optionally followed by a filter (`| status=todo`) and more steps.
+//
+// Heads:
+//   this, parent, self   records (the note, its parent, the producer's definition)
+//   props, match, caller the call's arguments, what a rule matched, where the call was written
+//   now                  the clock: `now.date`, `now.week`, `now.time`, and `now.date-1d` / `now.date+7d`
+//   ((id)) [[page]] PIE-1  another note, read through the world (below)
+//   a bare key           the scope walk (scope-walk.ts): the line, then the note, then each ancestor, nearest first
+//
+// What the resolver can't read itself (another note, the clock, a query's matcher) it asks of a `PathWorld`: the
+// service builds one over the store, a test builds one over a few records. So there is one resolver, in outline-core,
+// and the service only supplies lookups. Pure: no I/O.
+//
+// Keys. A written property always wins over the record's own field of the same name (`[created::…]` and `[actor::…]`
+// are Evan's properties, hundreds of them): `this.created` is the property when the note writes one, else the record's
+// creation time. `this.$created` is always the record's field. A property key with a dot in it (`echo.node`) is
+// `this.echo.node` (steps are joined back when the note has that key) or `this["echo.node"]`.
+//
+// Links. A value is a link when it is exactly one `((id))`, `[[page]]` or Work ID, when it contains exactly one
+// `((id))` / `[[page]]`, or when it looks like an id (8 or more hex characters and dashes) and names exactly one
+// note. A link continues the path into its note (`person.firstName`); a value that names no note, or more than one,
+// stays plain text, silently, unless it was written as a `((id))` or `[[page]]` and a key was asked of it.
+//
+// Every answer carries its `route`: which head, which resolver answered, which fallback was taken ("the how matters").
+import { valuesOf, type BlockRecord } from "./block-record";
+import { stepClosed } from "./checklist-marks";
+import { isoDay, readDateBound, wallClock } from "./dates";
 import { splitPropertyValue } from "./property-grammar";
 import { parsePropertyRecords } from "./property-parse";
 import { createContextResolver, type ContextBlock, type ContextKeyMatcher } from "./scope-walk";
 import type { Site } from "./site";
 import { closest } from "./tool-args";
 
+/** One step after the head: `.key` (a quoted `["a.b"]` is a key too) or `[n]`. */
+export type PathStep = { key: string } | { index: number };
+
 /** A path, read: its head and the keys and indexes after it. */
-export interface ParsedPath { head: string; steps: ({ key: string } | { index: number })[] }
+export interface ParsedPath { head: string; steps: PathStep[] }
+
+/** A note the world found for a reference. `how` says which resolver answered (the route shows it). */
+export type NoteLookup =
+  | { kind: "found"; record: BlockRecord; how: string }
+  | { kind: "ambiguous"; matches: { id: string; title: string }[]; message: string }
+  | { kind: "missing"; message: string; didYouMean: string[] }
+  | { kind: "hidden"; message: string };
+
+/** One row a filter reads: a note or a task, as the views' matcher sees it. */
+export interface FilterRow { id?: string; text: string; properties: { key: string; value: string }[] }
+
+/** What a path may ask of the service. */
+export interface PathWorld {
+  /** The clock, in epoch milliseconds. */
+  now(): number;
+  /**
+   * The note a reference names. `reference`: it was written to be a note (`((id))`, `[[page]]`, a Work ID as a head), so
+   * a miss is worth saying; `value`: it is a property's value that may be a link, so a miss is plain text.
+   */
+  note(ref: string, as: "reference" | "value"): NoteLookup;
+  /** Which of `rows` the views' query `filter` holds for, or why it can't be read. */
+  filter?(rows: readonly FilterRow[], filter: string): { ok: true; keep: boolean[] } | { ok: false; message: string; didYouMean?: string[] };
+}
 
 /** Where the Site's own line sits: what a bare key's scope walk starts from. */
 export interface PathScope {
@@ -25,102 +73,388 @@ export interface PathScope {
   ancestors?: readonly ContextBlock[];
   /** The note's parent as a record, for `parent.key`. */
   parent?: BlockRecord;
+  /** The service's lookups: another note, the clock, a query's matcher. Without one, those heads say so. */
+  world?: PathWorld;
 }
 
-/** The answer: every value (always a list), or why there is none, with the nearest keys. */
+/** What follows a path in a span: `| status=todo .count` is a filter, then steps. */
+export interface PathTail { filter?: string; then?: PathStep[] }
+
+/** Why a path has no answer, with the nearest keys and a path that works. */
+export interface PathProblem { message: string; didYouMean: string[]; example?: string }
+
+/** A value that is a link to a note, as the world found it. */
+export interface ResolvedLink { text: string; id: string; title: string; how: string }
+
+/**
+ * The answer: every value (always a list), or why there is none. `route` says how: which head, which resolver
+ * answered, which fallback was taken. It is on a problem too (how far the path got).
+ */
 export type PathAnswer =
-  | { ok: true; values: string[]; /** For `.fields.key`: the line each value was written on. */ lines?: number[] }
-  | { ok: false; problem: { message: string; didYouMean: string[] } };
+  | {
+    ok: true; values: string[];
+    /** For `.fields.key`: the line each value was written on, and that line's text. */
+    lines?: number[]; marks?: string[];
+    /** The note the values were read from. */
+    from?: string;
+    /** The values that are links to a note (shown by the note's title). */
+    links?: ResolvedLink[];
+    route: string[];
+  }
+  | { ok: false; problem: PathProblem; route: string[] };
+
+type Failed = Extract<PathAnswer, { ok: false }>;
 
 /** A head: a name, or a reference to another note (`((id))`, `[[page]]`, a Work ID such as `PIE-533`). */
 const HEAD = /^(?:\(\([^()\n]+\)\)|\[\[[^\[\]\n]+\]\]|[A-Z][A-Z0-9]*-\d+(?![\w-])|[A-Za-z_][\w-]*)/;
+const KEY_STEP = /^\.([A-Za-z_$][\w-]*)/;
+const QUOTED_STEP = /^\[(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\]/;
+const INDEX_STEP = /^\[(\d+)\]/;
 
-/** Whether a head names another note, which only the service can read. */
+/** Whether a head names another note, which only the world can read. */
 export const isReferenceHead = (head: string): boolean => /^(?:\(\(|\[\[|[A-Z][A-Z0-9]*-\d+$)/.test(head);
+
+/** Steps from `.a[0]["b.c"]` text, or null when the text isn't only steps. */
+export function parseSteps(text: string): PathStep[] | null {
+  const steps: PathStep[] = [];
+  let rest = text.trim();
+  while (rest) {
+    const key = KEY_STEP.exec(rest), quoted = QUOTED_STEP.exec(rest), index = INDEX_STEP.exec(rest);
+    if (key) { steps.push({ key: key[1]! }); rest = rest.slice(key[0].length); }
+    else if (quoted) { steps.push({ key: (quoted[1] ?? quoted[2])!.replace(/\\(.)/g, "$1") }); rest = rest.slice(quoted[0].length); }
+    else if (index) { steps.push({ index: Number(index[1]) }); rest = rest.slice(index[0].length); }
+    else return null;
+  }
+  return steps;
+}
 
 /** `this.tasks[0].title` → head `this`, steps. Null when the text isn't a path. */
 export function parsePath(path: string): ParsedPath | null {
   const text = path.trim();
   const head = HEAD.exec(text)?.[0];
   if (!head) return null;
-  const steps: ParsedPath["steps"] = [];
-  let rest = text.slice(head.length);
-  while (rest) {
-    const key = /^\.([A-Za-z_][\w-]*)/.exec(rest);
-    const index = /^\[(\d+)\]/.exec(rest);
-    if (key) { steps.push({ key: key[1]! }); rest = rest.slice(key[0].length); }
-    else if (index) { steps.push({ index: Number(index[1]) }); rest = rest.slice(index[0].length); }
-    else return null;
-  }
-  return { head, steps };
+  const steps = parseSteps(text.slice(head.length));
+  return steps ? { head, steps } : null;
 }
 
-const fail = (message: string, candidates: readonly string[], asked: string): PathAnswer => {
+/**
+ * What a span's text after `|` holds: the query atoms, then optionally more steps (`status=todo .count`). The steps are
+ * the trailing whitespace-separated `.key` / `[n]` words.
+ */
+export function splitTail(text: string): PathTail {
+  const m = /(?:^|\s)((?:\.[A-Za-z_$][\w-]*|\[\d+\])(?:\s*(?:\.[A-Za-z_$][\w-]*|\[\d+\]))*)\s*$/.exec(text);
+  const then = m ? parseSteps(m[1]!.replace(/\s+/g, "")) : null;
+  const filter = (m && then ? text.slice(0, m.index) : text).trim();
+  return { ...(filter ? { filter } : {}), ...(then?.length ? { then } : {}) };
+}
+
+// --- problems ---
+
+const problem = (message: string, route: string[], didYouMean: string[] = [], example?: string): Failed =>
+  ({ ok: false, problem: { message, didYouMean, ...(example ? { example } : {}) }, route });
+
+const fail = (message: string, candidates: readonly string[], asked: string, route: string[], example?: (near: string) => string): Failed => {
   const near = closest(asked, candidates);
-  return { ok: false, problem: { message: near ? `${message}; did you mean \`${near}\`?` : message, didYouMean: near ? [near] : [] } };
+  return problem(near ? `${message}; did you mean \`${near}\`?` : message, route, near ? [near] : [], near && example ? example(near) : undefined);
 };
 
 /** The record's own fields a path can name besides a property. */
-export const RECORD_KEYS = ["id", "parent", "title", "body", "text", "children", "created", "updated", "author", "actor", "revision"] as const;
+export const RECORD_KEYS = ["id", "parent", "title", "body", "text", "children", "tasks", "created", "updated", "author", "actor", "revision"] as const;
 
-function recordField(record: BlockRecord, key: string): string[] | undefined {
-  switch (key) {
-    case "id": case "title": case "body": case "text": case "created": case "updated": case "author": case "revision":
-      return [String(record[key])];
-    case "parent": return record.parent ? [record.parent] : [];
-    case "actor": return record.actor ? [record.actor] : [];
-    case "children": return [...record.children];
-  }
-  return undefined;
-}
+// --- the cursor: what a path has reached ---
 
-/** Block-scope values of `key`, in order. */
-const blockValues = (record: BlockRecord, key: string) => record.properties.filter(p => p.key === key).flatMap(p => p.values);
+type TaskRow = BlockRecord["tasks"][number];
+type Cursor =
+  | { kind: "values"; values: string[]; lines?: number[]; marks?: string[]; from?: string }
+  | { kind: "notes"; notes: BlockRecord[]; list: boolean; /** How the note was reached (`this`), for messages. */ label?: string }
+  | { kind: "tasks"; tasks: TaskRow[]; list: boolean; of: BlockRecord };
+
+interface Cx { site: Site; scope: PathScope; route: string[]; tail?: PathTail }
+type Stepped = { cursor: Cursor; next: number } | { failed: Failed };
+
+const keysOf = (record: BlockRecord) => [...new Set([...record.properties.map(p => p.key), ...record.fields.map(f => f.key)])];
 
 /**
  * Every value of `key` on a note: block scope first (front matter, header chips, hashtags: what queries match), then each
  * occurrence in the note's fields (line and inline) in document order. A value is what the list rule says one is
- * (`splitPropertyValue`: a plain value's commas are part of it, `[a, b]` is two).
+ * (`splitPropertyValue`: a plain value's commas are part of it, `[a, b]` is two). `valuesOf` (block-record.ts) is the
+ * block-scope half; this adds the fields. Two names, two jobs.
  */
 export function noteValues(record: BlockRecord, key: string): string[] {
   const k = key.toLowerCase();
-  return [...blockValues(record, k), ...record.fields.filter(f => f.key === k).flatMap(f => splitPropertyValue(f.value))];
+  return [...valuesOf(record, k), ...record.fields.filter(f => f.key === k).flatMap(f => splitPropertyValue(f.value))];
 }
 
-const keysOf = (record: BlockRecord) => [...new Set([...record.properties.map(p => p.key), ...record.fields.map(f => f.key)])];
+const titleOf = (r: BlockRecord) => r.title || r.id;
+const short = (id: string) => id.slice(0, 8);
 
-function inRecord(record: BlockRecord, steps: ParsedPath["steps"], label: string): PathAnswer {
-  const [first, ...rest] = steps;
-  if (!first) return { ok: true, values: [record.title] };
-  if ("index" in first) return { ok: false, problem: { message: `\`${label}\` is a note, not a list`, didYouMean: [] } };
+// --- links ---
+
+const LINK_ONLY = /^(?:\(\([^()\n]+\)\)|\[\[[^\[\]\n]+\]\])$/;
+const LINK_TOKEN = /\(\([^()\n]+\)\)|\[\[[^\[\]\n]+\]\]/g;
+const WORK_ID = /^[A-Z][A-Z0-9]*-\d+$/;
+/** 8 or more hex characters and dashes: the shortest id prefix the service resolves. */
+const ID_LIKE = /^[0-9a-f][0-9a-f-]{7,}$/i;
+
+/** The reference a value is, contains or looks like; null when it isn't one. `written`: it was written as a link. */
+export function linkTokenOf(value: string): { token: string; written: boolean } | null {
+  const v = value.trim();
+  if (LINK_ONLY.test(v)) return { token: v, written: true };
+  if (WORK_ID.test(v) || ID_LIKE.test(v)) return { token: v, written: false };
+  const tokens = v.match(LINK_TOKEN);
+  return tokens?.length === 1 ? { token: tokens[0]!, written: true } : null;
+}
+
+/** The notes a list of values names, and why the others weren't. */
+function followValues(values: readonly string[], cx: Cx): { notes: BlockRecord[]; misses: string[] } {
+  const world = cx.scope.world;
+  const notes: BlockRecord[] = [], misses: string[] = [];
+  for (const value of values) {
+    const link = world ? linkTokenOf(value) : null;
+    if (!link) { misses.push(`\`${value}\` is text, not a note`); continue; }
+    const found = world!.note(link.token, link.written ? "reference" : "value");
+    if (found.kind === "found") {
+      notes.push(found.record);
+      cx.route.push(`link ${value} → ((${short(found.record.id)})) by ${found.how}`);
+    } else if (found.kind === "ambiguous" || found.kind === "hidden") misses.push(found.message);
+    else misses.push(link.written ? found.message : `\`${value}\` names no note`);
+  }
+  return { notes, misses };
+}
+
+// --- records ---
+
+/** A cursor for a record's own field, or null when the record has none by that name. */
+function recordField(record: BlockRecord, key: string, cx: Cx): Cursor | null {
+  switch (key) {
+    case "id": case "title": case "body": case "text": case "created": case "updated": case "author": case "revision":
+      return { kind: "values", values: [String(record[key])], from: record.id };
+    case "parent": return { kind: "values", values: record.parent ? [record.parent] : [], from: record.id };
+    case "actor": return { kind: "values", values: record.actor ? [record.actor] : [], from: record.id };
+    case "tasks": return { kind: "tasks", tasks: record.tasks, list: true, of: record };
+    case "children": {
+      const world = cx.scope.world;
+      if (!world) return { kind: "values", values: [...record.children], from: record.id };
+      const notes: BlockRecord[] = [];
+      for (const id of record.children.slice(0, 200)) {
+        const found = world.note(id, "reference");
+        if (found.kind === "found") notes.push(found.record);
+      }
+      return { kind: "notes", notes, list: true };
+    }
+  }
+  return null;
+}
+
+/** The longest run of key steps from `i` that, joined with dots, is one of `keys` (case-insensitive): `echo.node`. */
+function joinedKey(steps: readonly PathStep[], i: number, keys: readonly string[]): { key: string; used: number } | null {
+  let run = 0;
+  while (i + run < steps.length && "key" in steps[i + run]!) run += 1;
+  const have = new Set(keys.map(k => k.toLowerCase()));
+  for (let n = run; n >= 1; n -= 1) {
+    const key = steps.slice(i, i + n).map(s => (s as { key: string }).key).join(".").toLowerCase();
+    if (have.has(key)) return { key, used: n };
+  }
+  return null;
+}
+
+const NAME = (label: string) => (label === "this" ? "this note" : `\`${label}\``);
+
+/** One step into one record. */
+function inRecord(record: BlockRecord, steps: readonly PathStep[], i: number, label: string, cx: Cx): Stepped {
+  const first = steps[i];
+  if (!first) return { cursor: { kind: "values", values: [titleOf(record)], from: record.id }, next: i };
+  if ("index" in first) return { failed: problem(`\`${label}\` is a note, not a list`, cx.route) };
+  const keys = keysOf(record);
+  const lower = first.key.toLowerCase();
+
+  // `block.key`: block scope alone. `fields.key`: each occurrence with its line.
+  if (lower === "block" || lower === "fields") {
+    const next = steps[i + 1];
+    if (!next || "index" in next) {
+      return { failed: problem(`\`${label}.${lower}\` needs a key after it: \`${label}.${lower}.${keys[0] ?? "key"}\``, cx.route, [], `{{${label}.${lower}.${keys[0] ?? "key"}}}`) };
+    }
+    const joined = joinedKey(steps, i + 1, keys) ?? { key: next.key.toLowerCase(), used: 1 };
+    if (lower === "block") {
+      cx.route.push(`${label}.block.${joined.key}: block scope (what queries match)`);
+      return { cursor: { kind: "values", values: valuesOf(record, joined.key), from: record.id }, next: i + 1 + joined.used };
+    }
+    const found = record.fields.filter(f => f.key === joined.key).flatMap(f => splitPropertyValue(f.value).map(value => ({ value, line: f.line })));
+    const lines = record.text.split("\n");
+    cx.route.push(`${label}.fields.${joined.key}: each occurrence with its line`);
+    return {
+      cursor: { kind: "values", values: found.map(f => f.value), lines: found.map(f => f.line), marks: found.map(f => lines[f.line] ?? ""), from: record.id },
+      next: i + 1 + joined.used,
+    };
+  }
+
+  // `$created`: the record's own field, whatever properties the note writes.
+  if (first.key.startsWith("$")) {
+    const name = first.key.slice(1).toLowerCase();
+    const field = recordField(record, name, cx);
+    if (field) { cx.route.push(`${label}.$${name}: the record's own field`); return { cursor: field, next: i + 1 }; }
+    return { failed: fail(`${NAME(label)} has no record field \`${first.key}\``, RECORD_KEYS.map(k => `$${k}`), first.key, cx.route, near => `{{${label}.${near}}}`) };
+  }
+
+  // A property the note writes wins over a record field of the same name; dotted keys are joined back.
+  const property = joinedKey(steps, i, keys);
+  if (property) {
+    cx.route.push(`${label}.${property.key}: ${valuesOf(record, property.key).length ? "block scope, then each occurrence in the text" : "each occurrence in the text"}`);
+    return { cursor: { kind: "values", values: noteValues(record, property.key), from: record.id }, next: i + property.used };
+  }
+  const field = recordField(record, lower, cx);
+  if (field) {
+    cx.route.push(`${label}.${lower}: the record's field (the note writes no \`${lower}\` property; \`$${lower}\` always means the field)`);
+    return { cursor: field, next: i + 1 };
+  }
+  return { failed: fail(`no \`${first.key}\` on ${NAME(label)}`, [...keys, ...RECORD_KEYS], first.key, cx.route, near => `{{${label}.${near}}}`) };
+}
+
+/** A step into a list of notes: each note's answer, joined. */
+function inNotes(notes: readonly BlockRecord[], steps: readonly PathStep[], i: number, cx: Cx, label?: string): Stepped {
+  if (notes.length === 1) return inRecord(notes[0]!, steps, i, label ?? short(notes[0]!.id), cx);
+  if (!notes.length) return { cursor: { kind: "values", values: [] }, next: steps.length };
+  const parts = notes.map(n => inRecord(n, steps, i, short(n.id), { ...cx, route: [] }));
+  const good = parts.filter((p): p is Extract<Stepped, { cursor: Cursor }> => "cursor" in p);
+  if (!good.length) return parts[0]!;
+  const next = good[0]!.next;
+  const kind = good[0]!.cursor.kind;
+  cx.route.push(`${notes.length} notes: ${good.length} have it`);
+  if (kind === "notes") return { cursor: { kind: "notes", notes: good.flatMap(p => (p.cursor as Extract<Cursor, { kind: "notes" }>).notes), list: true }, next };
+  if (kind === "tasks") return { cursor: { kind: "tasks", tasks: good.flatMap(p => (p.cursor as Extract<Cursor, { kind: "tasks" }>).tasks), list: true, of: notes[0]! }, next };
+  return { cursor: { kind: "values", values: good.flatMap(p => (p.cursor as Extract<Cursor, { kind: "values" }>).values) }, next };
+}
+
+// --- tasks ---
+
+const CHIP = /\s*\[[\w.-]+::[^\]]*\]/g;
+
+/**
+ * A task as a row the views' matcher reads: its chips, `status` (the chip when it has one, else the box), `box` (the
+ * box itself: todo, done, waiting, problem, approved, rejected) and `state` (`done` when the box is closed, else `open`).
+ * Only 2 of 105 checkbox lines in a real outline carry a status chip: the box has to count.
+ */
+export function taskRow(task: TaskRow, of: BlockRecord): FilterRow {
+  const chips = parsePropertyRecords(task.text).map(p => ({ key: p.key, value: p.value }));
+  const synthetic = [
+    ...(chips.some(c => c.key === "status") ? [] : [{ key: "status", value: task.status }]),
+    { key: "box", value: task.status },
+    { key: "state", value: stepClosed(task.status) ? "done" : "open" },
+  ];
+  return { text: task.text, properties: [...chips, ...synthetic], ...(task.id ? { id: `${of.id}^${task.id}` } : {}) };
+}
+
+/** A step into tasks: each one's text, box, line, id or a chip. */
+function inTask(tasks: readonly TaskRow[], of: BlockRecord, steps: readonly PathStep[], i: number, cx: Cx): Stepped {
+  const first = steps[i];
+  if (!first || "index" in first) return { failed: problem("a task needs a key: text, status, box, state, line or a chip such as owner", cx.route, [], "{{this.tasks.text}}") };
   const key = first.key.toLowerCase();
-  if (key === "block" || key === "fields") {
-    const next = rest[0];
-    if (!next || "index" in next) return { ok: false, problem: { message: `\`${label}.${key}\` needs a key after it: \`${label}.${key}.${keysOf(record)[0] ?? "key"}\``, didYouMean: [] } };
-    const wanted = next.key.toLowerCase();
-    if (key === "block") return finish({ ok: true, values: blockValues(record, wanted) }, rest.slice(1));
-    const found = record.fields.filter(f => f.key === wanted).flatMap(f => splitPropertyValue(f.value).map(value => ({ value, line: f.line })));
-    return finish({ ok: true, values: found.map(f => f.value), lines: found.map(f => f.line) }, rest.slice(1));
+  const rows = tasks.map(t => taskRow(t, of));
+  const chips = [...new Set(rows.flatMap(r => r.properties.map(p => p.key)))];
+  if (!["text", "line", "id"].includes(key) && !chips.includes(key)) {
+    return { failed: fail(`no task has \`${first.key}\``, ["text", "line", "id", ...chips], first.key, cx.route, near => `{{this.tasks.${near}}}`) };
   }
-  const field = recordField(record, key);
-  if (field) return finish({ ok: true, values: field }, rest);
-  // A key the note writes with no value (`[tags::[]]`) is there, as an empty list.
-  if (keysOf(record).includes(key)) return finish({ ok: true, values: noteValues(record, key) }, rest);
-  return fail(`no \`${first.key}\` on ${label === "this" ? "this note" : `\`${label}\``}`, [...keysOf(record), ...RECORD_KEYS], first.key);
+  const values = key === "text" ? tasks.map(t => t.text.replace(CHIP, "").trim())
+    : key === "line" ? tasks.map(t => String(t.line))
+    : key === "id" ? tasks.flatMap(t => t.id ? [t.id] : [])
+    : rows.flatMap(r => r.properties.filter(p => p.key === key).map(p => p.value));
+  cx.route.push(`tasks.${key}: read from the checkbox lines`);
+  return { cursor: { kind: "values", values, from: of.id }, next: i + 1 };
 }
 
-/** `[n]` picks one value; `.count` counts them; anything else after a list of plain values is a problem. */
-function finish(answer: Extract<PathAnswer, { ok: true }>, steps: ParsedPath["steps"]): PathAnswer {
-  let current = answer;
-  for (const step of steps) {
-    if ("index" in step) {
-      const at = current.values[step.index];
-      current = { ok: true, values: at === undefined ? [] : [at], ...(current.lines && current.lines[step.index] !== undefined ? { lines: [current.lines[step.index]!] } : {}) };
-    } else if (step.key.toLowerCase() === "count") current = { ok: true, values: [String(current.values.length)] };
-    else return { ok: false, problem: { message: `a value has no \`${step.key}\`; a link value continues into its note once the service reads it`, didYouMean: [] } };
-  }
-  return current;
+// --- the clock ---
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const NOW_KEY = /^(date|week|time|iso|year|month|day|weekday)(?:([+-]\d{1,6}[dwhm]))?$/i;
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** The ISO week and its year, `2026-W42`. */
+function isoWeek(d: Date): string {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const week = Math.ceil(((t.getTime() - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86_400_000 + 1) / 7);
+  return `${t.getUTCFullYear()}-W${pad(week)}`;
 }
+
+function nowAnswer(steps: readonly PathStep[], cx: Cx): PathAnswer {
+  const world = cx.scope.world;
+  if (!world) return problem("`now` is the service's clock; this read has none", cx.route);
+  const first = steps[0];
+  const wall = wallClock(world.now());
+  cx.route.push(`now: the host's clock (${new Date(world.now()).toISOString()}) in the host's time zone`);
+  if (!first || "index" in first) return problem("`now` needs a part: now.date, now.week, now.time, or now.date-1d", cx.route, [], "{{now.date}}");
+  const m = NOW_KEY.exec(first.key);
+  if (!m) return fail(`\`now\` has no \`${first.key}\``, ["date", "week", "time", "iso", "year", "month", "day", "weekday"], first.key, cx.route, near => `{{now.${near}}}`);
+  let at = wall;
+  if (m[2]) {
+    const bound = readDateBound(m[2], wall);
+    if (!bound) return problem(`\`${m[2]}\` isn't an offset: write -1d, +7d, -2w, -3h or -30m`, cx.route, [], "{{now.date-1d}}");
+    at = bound.from;
+    cx.route.push(`offset ${m[2]} (whole calendar days for d and w, an instant for h and m)`);
+  }
+  const d = new Date(at);
+  const part = m[1]!.toLowerCase();
+  const day = isoDay({ from: at, to: at });
+  const text = part === "date" ? day
+    : part === "week" ? isoWeek(d)
+    : part === "time" ? `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+    : part === "iso" ? `${day}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+    : part === "year" ? String(d.getUTCFullYear())
+    : part === "month" ? `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`
+    : part === "day" ? String(d.getUTCDate())
+    : WEEKDAYS[d.getUTCDay()]!;
+  return finish({ kind: "values", values: [text] }, steps, 1, cx);
+}
+
+// --- caller, match, props ---
+
+function callerAnswer(steps: readonly PathStep[], cx: Cx): PathAnswer {
+  const caller = cx.site.caller;
+  if (!caller) return problem("there is no `caller` here: only a template, script or component is called from a line", cx.route);
+  cx.route.push(`caller: the line that invoked this, in ((${short(caller.block)}))`);
+  const first = steps[0];
+  if (!first) return finish({ kind: "values", values: [caller.mark ?? caller.block], from: caller.block }, steps, 0, cx);
+  if ("index" in first) return problem("`caller` is a place, not a list", cx.route);
+  const key = first.key.toLowerCase();
+  const own: Record<string, string | undefined> = {
+    block: caller.block, anchor: caller.anchor, mark: caller.mark, page: caller.page,
+    line: caller.line === undefined ? undefined : String(caller.line),
+  };
+  if (key in own) return finish({ kind: "values", values: own[key] === undefined ? [] : [own[key]!], from: caller.block }, steps, 1, cx);
+  const found = cx.scope.world?.note(caller.block, "reference");
+  if (found?.kind === "found") return finish({ kind: "notes", notes: [found.record], list: false }, steps, 0, cx);
+  return fail(`\`caller\` has no \`${first.key}\``, ["block", "anchor", "mark", "line", "page"], first.key, cx.route, near => `{{caller.${near}}}`);
+}
+
+/** `match.text`, `match.level`, `match[N]` (a text pattern's captures): what a rule matched. */
+function matched(steps: readonly PathStep[], cx: Cx): PathAnswer {
+  const m = cx.site.match;
+  if (!m) return problem("`match` is what a rule matched; only a rule's label has one", cx.route);
+  const [first] = steps;
+  cx.route.push("match: what the rule matched");
+  if (!first) return finish({ kind: "values", values: [m.text] }, steps, 0, cx);
+  if ("index" in first) return finish({ kind: "values", values: [m.captures[first.index] ?? ""] }, steps, 1, cx);
+  const key = first.key.toLowerCase();
+  if (key === "text") return finish({ kind: "values", values: [m.text] }, steps, 1, cx);
+  if (key === "level") return finish({ kind: "values", values: m.level === undefined ? [] : [String(m.level)] }, steps, 1, cx);
+  return fail(`\`match\` has no \`${first.key}\``, ["text", "level"], first.key, cx.route, near => `{{match.${near}}}`);
+}
+
+function propsAnswer(steps: readonly PathStep[], cx: Cx): PathAnswer {
+  const props = cx.site.props;
+  const first = steps[0];
+  if (!first || "index" in first) return problem("`props` needs a name: props.week", cx.route, [], "{{props.week}}");
+  const names = Object.keys(props);
+  const joined = joinedKey(steps, 0, names);
+  if (joined) {
+    const original = names.find(n => n.toLowerCase() === joined.key)!;
+    cx.route.push(`props.${original}: the call's argument`);
+    return finish({ kind: "values", values: [...props[original]!] }, steps, joined.used, cx);
+  }
+  return fail(`no prop \`${first.key}\` was passed`, names, first.key, cx.route, near => `{{props.${near}}}`);
+}
+
+// --- the bare key ---
 
 /** The scope walk's matcher for one property key: its values, wherever the text writes them. */
 const matcherFor = (key: string): ContextKeyMatcher => ({
@@ -129,54 +463,168 @@ const matcherFor = (key: string): ContextKeyMatcher => ({
   keyFromProperty: value => value.trim() || null,
 });
 
-function bare(key: string, steps: ParsedPath["steps"], site: Site, scope: PathScope): PathAnswer {
+function bare(head: string, steps: readonly PathStep[], cx: Cx): PathAnswer {
+  const { site, scope } = cx;
   const here = site.this;
-  if (!here) return { ok: false, problem: { message: `no note to look \`${key}\` up from; this run has no note`, didYouMean: [] } };
-  const k = key.toLowerCase();
-  const found = createContextResolver({ block: { id: here.id, text: here.text }, ancestors: scope.ancestors ?? [], matcher: matcherFor(k) }).resolve(scope.line ?? 0);
-  // Two different values at the nearest level are a list: that level supplies them all.
-  const raw = found.kind === "resolved" ? [found.key] : found.kind === "ambiguous" ? found.keys : [];
-  if (!raw.length) {
-    const nearby = [...keysOf(here), ...(scope.ancestors ?? []).flatMap(a => parsePropertyRecords(a.text).map(r => r.key))];
-    return fail(`no \`${key}\` here or in its parents`, [...new Set(nearby)], key);
+  if (!here) return problem(`no note to look \`${head}\` up from; this run has no note`, cx.route);
+  const ancestors = scope.ancestors ?? [];
+  // `margin.x` is one key when the walk finds a value for it; otherwise `margin` and a step.
+  let run = 0;
+  while (run < steps.length && "key" in steps[run]!) run += 1;
+  for (let used = run; used >= 0; used -= 1) {
+    const key = [head, ...steps.slice(0, used).map(s => (s as { key: string }).key)].join(".").toLowerCase();
+    const found = createContextResolver({ block: { id: here.id, text: here.text }, ancestors, matcher: matcherFor(key) }).resolve(scope.line ?? 0);
+    // Two different values at the nearest level are a list: that level supplies them all.
+    const raw = found.kind === "resolved" ? [found.key] : found.kind === "ambiguous" ? found.keys : [];
+    if (found.kind === "none" || !raw.length) continue;
+    const at = found.site;
+    cx.route.push(`bare \`${key}\`: scope walk, nearest first → ${at.step} of ((${short(at.blockId)})), line ${at.line}`);
+    return finish({ kind: "values", values: raw.flatMap(splitPropertyValue), from: at.blockId }, steps, used, cx);
   }
-  return finish({ ok: true, values: raw.flatMap(splitPropertyValue) }, steps);
+  const nearby = [...keysOf(here), ...ancestors.flatMap(a => parsePropertyRecords(a.text).map(r => r.key))];
+  cx.route.push("bare key: the scope walk found nothing (the line, this note, each ancestor's header)");
+  return fail(`no \`${head}\` here or in its parents`, [...new Set(nearby)], head, cx.route, near => `{{${near}}}`);
 }
 
-/** `match.text`, `match.level`, `match[N]` (a text pattern's captures): what a rule matched. */
-function matched(steps: ParsedPath["steps"], site: Site): PathAnswer {
-  const m = site.match;
-  if (!m) return { ok: false, problem: { message: "`match` is what a rule matched; only a rule's label has one", didYouMean: [] } };
-  const [first, ...rest] = steps;
-  if (!first) return { ok: true, values: [m.text] };
-  if ("index" in first) return finish({ ok: true, values: [m.captures[first.index] ?? ""] }, rest);
-  const key = first.key.toLowerCase();
-  if (key === "text") return finish({ ok: true, values: [m.text] }, rest);
-  if (key === "level") return finish({ ok: true, values: m.level === undefined ? [] : [String(m.level)] }, rest);
-  return fail(`\`match\` has no \`${first.key}\``, ["text", "level"], first.key);
+// --- walking the steps ---
+
+const sizeOf = (c: Cursor) => (c.kind === "values" ? c.values.length : c.kind === "notes" ? c.notes.length : c.tasks.length);
+
+function pick(c: Cursor, index: number): Cursor {
+  if (c.kind === "values") {
+    const at = c.values[index];
+    return {
+      kind: "values", values: at === undefined ? [] : [at], ...(c.from ? { from: c.from } : {}),
+      ...(c.lines?.[index] !== undefined ? { lines: [c.lines[index]!] } : {}), ...(c.marks?.[index] !== undefined ? { marks: [c.marks[index]!] } : {}),
+    };
+  }
+  if (c.kind === "notes") return { kind: "notes", notes: c.notes[index] ? [c.notes[index]!] : [], list: false };
+  return { kind: "tasks", tasks: c.tasks[index] ? [c.tasks[index]!] : [], list: false, of: c.of };
 }
 
-/** Resolve one path against a Site. */
-export function resolvePath(path: string | ParsedPath, site: Site, scope: PathScope = {}): PathAnswer {
-  const parsed = typeof path === "string" ? parsePath(path) : path;
-  if (!parsed) return { ok: false, problem: { message: `\`${String(path)}\` isn't a path: write head.key, such as this.owner`, didYouMean: [] } };
-  const { head, steps } = parsed;
-  switch (head) {
-    case "this": return site.this ? inRecord(site.this, steps, "this") : { ok: false, problem: { message: "this run has no note; pass at= or run it from a note", didYouMean: [] } };
-    case "self": return site.self ? inRecord(site.self, steps, "self") : { ok: false, problem: { message: "there is no `self` here: only a script, template or component has one", didYouMean: [] } };
-    case "parent": return scope.parent ? inRecord(scope.parent, steps, "parent") : { ok: false, problem: { message: "this note has no parent", didYouMean: [] } };
-    case "props": {
-      const [first, ...rest] = steps;
-      if (!first || "index" in first) return { ok: false, problem: { message: "`props` needs a name: props.week", didYouMean: [] } };
-      const values = Object.hasOwn(site.props, first.key) ? site.props[first.key] : undefined;
-      if (values) return finish({ ok: true, values: [...values] }, rest);
-      return fail(`no prop \`${first.key}\` was passed`, Object.keys(site.props), first.key);
+/** Run `steps` from `from` over a cursor. */
+function walk(start: Cursor, steps: readonly PathStep[], from: number, cx: Cx): { cursor: Cursor } | { failed: Failed } {
+  let cursor = start, i = from;
+  while (i < steps.length) {
+    const step = steps[i]!;
+    const isList = cursor.kind === "values" || cursor.list;
+    if (isList && "index" in step) { cursor = pick(cursor, step.index); i += 1; continue; }
+    // A list counts; a single note's `count` is a key like any other.
+    if (isList && "key" in step && step.key.toLowerCase() === "count") { cursor = { kind: "values", values: [String(sizeOf(cursor))] }; i += 1; continue; }
+    if (cursor.kind === "values") {
+      if ("index" in step) return { failed: problem("a value has no index; this isn't a list", cx.route) };
+      const { notes, misses } = followValues(cursor.values, cx);
+      if (!notes.length) {
+        const first = cursor.values[0];
+        const shown = first !== undefined && first.length > 60 ? `${first.slice(0, 57)}...` : first;
+        return { failed: problem(shown === undefined
+          ? `there is no value to read \`${step.key}\` from`
+          : `\`${shown}\` is a value, not a note, so it has no \`${step.key}\` (${misses[0] ?? "it names no note"}); a link value ([[page]], ((id)) or an id that names one note) continues into its note`,
+        cx.route, [], "{{person.firstName}} with [person::[[evan schultz]]]") };
+      }
+      cursor = { kind: "notes", notes, list: notes.length > 1 };
+      continue;
     }
-    case "match": return matched(steps, site);
-    case "caller": case "now":
-      return { ok: false, problem: { message: `\`${head}\` is answered by the service (the Site read)`, didYouMean: [] } };
+    const stepped = cursor.kind === "notes" ? inNotes(cursor.notes, steps, i, cx, cursor.label) : inTask(cursor.tasks, cursor.of, steps, i, cx);
+    if ("failed" in stepped) return stepped;
+    cursor = stepped.cursor; i = stepped.next;
+  }
+  return { cursor };
+}
+
+/** A cursor's final values: values themselves, notes by title, tasks by text. */
+function valuesOfCursor(c: Cursor): string[] {
+  return c.kind === "values" ? c.values : c.kind === "notes" ? c.notes.map(titleOf) : c.tasks.map(t => t.text.replace(CHIP, "").trim());
+}
+
+/** Walk the rest of the steps, then the span's filter and the steps after it, and write the answer. */
+function finish(start: Cursor, steps: readonly PathStep[], from: number, cx: Cx): PathAnswer {
+  const { tail } = cx;
+  let reached = walk(start, steps, from, cx);
+  if ("failed" in reached) return reached.failed;
+  let cursor = reached.cursor;
+
+  if (tail?.filter) {
+    const world = cx.scope.world;
+    if (cursor.kind === "values") return problem("a filter works on a list of notes or tasks (this.tasks, this.children), not on plain values", cx.route, [], "{{this.tasks | status=todo}}");
+    if (!world?.filter) return problem("a filter needs the service's query matcher; this read has none", cx.route);
+    const rows = cursor.kind === "notes"
+      ? cursor.notes.map((n): FilterRow => ({ id: n.id, text: n.text, properties: n.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))) }))
+      : cursor.tasks.map(t => taskRow(t, cursor.kind === "tasks" ? cursor.of : (undefined as never)));
+    const kept = world.filter(rows, tail.filter);
+    if (!kept.ok) return problem(kept.message.replace("{rows}", cursor.kind === "tasks" ? "tasks" : "notes"), cx.route, kept.didYouMean ?? [], "{{this.tasks | status=todo}}");
+    cx.route.push(`filter \`${tail.filter}\`: ${kept.keep.filter(Boolean).length} of ${rows.length} kept (the views' query grammar)`);
+    cursor = cursor.kind === "notes"
+      ? { kind: "notes", notes: cursor.notes.filter((_, n) => kept.keep[n]), list: true }
+      : { kind: "tasks", tasks: cursor.tasks.filter((_, n) => kept.keep[n]), list: true, of: cursor.of };
+  }
+  if (tail?.then) {
+    reached = walk(cursor, tail.then, 0, cx);
+    if ("failed" in reached) return reached.failed;
+    cursor = reached.cursor;
+  }
+
+  const values = valuesOfCursor(cursor);
+  const out: Extract<PathAnswer, { ok: true }> = { ok: true, values, route: cx.route };
+  if (cursor.kind === "values") {
+    if (cursor.lines) out.lines = cursor.lines;
+    if (cursor.marks) out.marks = cursor.marks;
+    if (cursor.from) out.from = cursor.from;
+    // Values that are links to a note are shown by its title, and a client may open them.
+    const world = cx.scope.world;
+    if (world) {
+      const links: ResolvedLink[] = [];
+      for (const value of values) {
+        const link = linkTokenOf(value);
+        if (!link) continue;
+        const found = world.note(link.token, "value");
+        if (found.kind === "found") links.push({ text: value, id: found.record.id, title: titleOf(found.record), how: found.how });
+      }
+      if (links.length) out.links = links;
+    }
+  } else if (cursor.kind === "notes" && cursor.notes.length === 1) out.from = cursor.notes[0]!.id;
+  return out;
+}
+
+// --- reference heads ---
+
+function referenceHead(head: string, steps: readonly PathStep[], cx: Cx): PathAnswer {
+  const world = cx.scope.world;
+  if (!world) return problem(`\`${head}\` names another note; the service reads it (this read has no service)`, cx.route);
+  const found = world.note(head, "reference");
+  if (found.kind === "found") {
+    cx.route.push(`${head} → ((${short(found.record.id)})) by ${found.how}`);
+    return finish({ kind: "notes", notes: [found.record], list: false }, steps, 0, cx);
+  }
+  if (found.kind === "ambiguous") {
+    cx.route.push(`${head}: more than one note`);
+    return problem(found.message, cx.route, found.matches.map(m => m.id));
+  }
+  cx.route.push(`${head}: ${found.kind}`);
+  return problem(found.message, cx.route, found.kind === "missing" ? found.didYouMean : []);
+}
+
+/** Resolve one path against a Site, then the span's `tail` (a filter, and steps after it). */
+export function resolvePath(path: string | ParsedPath, site: Site, scope: PathScope = {}, tail?: PathTail): PathAnswer {
+  const parsed = typeof path === "string" ? parsePath(path) : path;
+  const route: string[] = [];
+  if (!parsed) return problem(`\`${String(typeof path === "string" ? path : path.head)}\` isn't a path: write head.key, such as this.owner`, route, [], "{{this.owner}}");
+  const { head, steps } = parsed;
+  const cx: Cx = { site, scope, route, ...(tail ? { tail } : {}) };
+  const record = (r: BlockRecord | undefined, label: string, why: string, missing: string): PathAnswer => {
+    if (!r) return problem(missing, route);
+    route.push(`${label}: ${why}`);
+    return finish({ kind: "notes", notes: [r], list: false, label }, steps, 0, cx);
+  };
+  switch (head) {
+    case "this": return record(site.this, "this", "the note the producer sits in", "this run has no note; pass at= or run it from a note");
+    case "self": return record(site.self, "self", "the producer's definition", "there is no `self` here: only a script, template or component has one");
+    case "parent": return record(scope.parent, "parent", "the note's parent", "this note has no parent");
+    case "props": return propsAnswer(steps, cx);
+    case "match": return matched(steps, cx);
+    case "caller": return callerAnswer(steps, cx);
+    case "now": return nowAnswer(steps, cx);
     default:
-      if (isReferenceHead(head)) return { ok: false, problem: { message: `\`${head}\` names another note; the service reads it (the Site read)`, didYouMean: [] } };
-      return bare(head, steps, site, scope);
+      return isReferenceHead(head) ? referenceHead(head, steps, cx) : bare(head, steps, cx);
   }
 }

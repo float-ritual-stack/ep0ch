@@ -172,8 +172,8 @@ export interface QuestionAnswerFields {
 }
 
 /**
- * A watched read (ADR 0004): `blocks.query`, `views.read`, `blocks.authored-links`, `references.backlinks` and
- * `query.matches` take
+ * A watched read (ADR 0004): `blocks.query`, `views.read`, `blocks.authored-links`, `references.backlinks`,
+ * `query.matches` and `site.answer` take
  * `watch: <key>` (kept on this connection; its answer is generation 0) and `generation` (answered from the newest
  * answer kept, never evaluated again). After changes the service evaluates every watch at most every 250 ms and at
  * least once a second under steady writes, and tells the connection which answers changed (a hash of the whole
@@ -185,7 +185,11 @@ export interface QueryChange { key: string; generation: number; dropped?: true }
 export const QUERIES_CHANGED = "queries.changed";
 export const WATCH_LIMITS = { perConnection: 64, perService: 512, settleMs: 250, maxWaitMs: 1000 } as const;
 /** The reads a client may watch. */
-export const WATCHABLE_ACTIONS = ["blocks.query", "views.read", "blocks.authored-links", "references.backlinks", "query.matches"] as const;
+export const WATCHABLE_ACTIONS = ["blocks.query", "views.read", "blocks.authored-links", "references.backlinks", "query.matches", "site.answer"] as const;
+
+// The Site read (PIE-533): what a `{{ }}`, a figure, a script or a template reads of the note it sits in. Defined beside the
+// Site (site.ts), named here with the rest of the wire.
+export type { SiteAnswer, SiteAnswerRequest, SiteLink, SiteProblem, SiteValue } from "./site";
 
 /** A query the service refused, with where. */
 export interface OutlinerRequestProblem {

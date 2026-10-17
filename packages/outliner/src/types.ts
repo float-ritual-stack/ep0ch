@@ -1451,7 +1451,15 @@ export type QueryExpression =
    * block with what sits under it (a ticket page's `[status::]` with its
    * Jira record's `jira.status`).
    */
-  | { kind: "property"; key: string; value?: string; relation?: "child"; /** `child>=N:`: at least N children have it (default 1). */ count?: number }
+  | {
+    kind: "property"; key: string; value?: string; relation?: "child"; /** `child>=N:`: at least N children have it (default 1). */ count?: number;
+    /**
+     * `key={{this.project}}`: the value is read from the Site when the question is bound (`bindThis`), as an operand: the
+     * values it gives are compared as values, never pasted into the query text, so one that holds `OR` or a quote can't
+     * change the query. A list means any of them; none matches nothing. Never present once bound.
+     */
+    from?: string;
+  }
   | { kind: "time"; field: QueryTimeField; op: QueryComparison; value: string }
   /**
    * `due <= +3d`, `rating > 3`, `stage >= beta`: any property against a bound, as dates when the bound reads as one
@@ -1950,6 +1958,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[] }
+  | ({ id: string; action: "site.answer" } & import("@ep0ch/outline-core/site").SiteAnswerRequest & WatchFields)
   /** Each block's link facets (kind, stage, dates), as an Outlink's target carries them: the links model's children and query rows (PIE-693). Reads only. */
   | { id: string; action: "blocks.facets"; blockIds: string[] }
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
