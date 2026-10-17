@@ -27,7 +27,7 @@ import type { Step } from "../session/restore";
 import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
-import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, REGION_MARK, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
@@ -3777,13 +3777,27 @@ export class NoteSurface {
     return EXT_ACTIONS.run(action, { block: x.block, line: x.line }, { ctx: host.ctx as Ctx }, actor);
   }
 
-  /** The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note. */
+  /**
+   * The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
+   * line that runs. With no position and several lines that run (a handler line, a component, an @name request), `r`
+   * runs none of them and says which there are: a stray key never asks an agent again or runs a script (PIE-956).
+   */
   refreshTarget(): { block: string; line?: number } {
     const x = this.inView()?.link?.ext;
     if (x) return { block: x.block, line: x.line };
     const l = this.inView()?.link;
     if (l?.refresh) return { block: l.refresh, ...(l.refreshLine !== undefined ? { line: l.refreshLine } : {}) };
-    return { block: l?.role === "resource" && l.block ? l.block : this.msg!.id };
+    if (l?.role === "resource" && l.block) return { block: l.block };
+    const m = this.msg!;
+    const runs = projectionsOf(m, this.src).filter(p => p.kind && p.kind !== "data");
+    if (runs.length === 1) return { block: m.id, line: runs[0]!.anchor.line };
+    if (runs.length > 1) throw new ActionRefused(`${this.runsWords(runs)} here: nothing ran · press ${RUN_AGAIN_KEY} with [ ] on one, or click its ${REGION_MARK} mark and its run again`);
+    return { block: m.id };
+  }
+  /** The lines that run, in the words a refusal names them by: `3 lines run (kids, kids, @tidy)`. */
+  private runsWords(runs: readonly ResourceProjection[]): string {
+    const names = runs.map(p => (p.kind === "agent" ? String(p.key ?? p.propertyKey ?? "@ask") : p.label ?? p.propertyKey ?? p.provider));
+    return `${runs.length} lines run (${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""})`;
   }
 
   /**
@@ -7386,6 +7400,11 @@ const PROPOSAL_DEFS = {
 /** The reader and a reader-free id call run the same proposal actions. */
 export const PROPOSAL_ACTIONS = actionSet<{ surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }>()("proposal", PROPOSAL_DEFS);
 
+/** What `r` with no line runs: `refreshTarget`'s answer, or its refusal said on the person's status bar (the key's own is quiet). */
+function refreshOf(surface: NoteSurface, host: SurfaceHost, actor: Actor): { block: string; line?: number } {
+  try { return surface.refreshTarget(); } catch (e) { if (e instanceof ActionRefused && actor.kind === "user") host.ctx.flash(e.message); throw e; }
+}
+
 export const NOTE_ACTIONS = actionSet<On>()("note", {
   "ask.beside": def({
     summary: "show this ask's answer beside the note, keeping the person's keys in the note",
@@ -8000,7 +8019,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "projection.refresh": def({
-    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (every ticket and handler line, and every @name request not answered yet). Who runs it is who asked (an @name line says so). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or a line's [r run again]",
+    summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (its tickets; its one line that runs, when it has one). A note with several lines that run (handler lines, components, @name requests) and no position is refused naming them: none runs (PIE-956). Who runs it is who asked (an @name line says so). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or on a line's run again control (behind its gutter mark)",
     touches: "nothing", replay: "ask",
     args: {
       block: { type: "string", optional: true, about: "the block whose tickets and lines to fetch or run (a page or a ticket block); default: the reader's" },
@@ -8009,7 +8028,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run(a, { surface, host }, actor) {
       const m = surface.msg;
       const t = typeof a.block === "string" && a.block ? { block: a.block, ...(a.line !== undefined ? { line: a.line } : {}) }
-        : m && isOutlineNote(m) ? (a.line !== undefined ? { block: m.id, line: a.line } : surface.refreshTarget()) : null;
+        : m && isOutlineNote(m) ? (a.line !== undefined ? { block: m.id, line: a.line } : refreshOf(surface, host, actor)) : null;
       if (!t) throw new ActionRefused("no note with tickets here");
       return surface.refreshTickets(host, t.block, actor, t.line);
     },

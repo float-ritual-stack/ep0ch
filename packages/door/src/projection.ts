@@ -518,6 +518,11 @@ export interface ExtDraw {
 /** The action a head or a control runs when it isn't the extension's own: r, run it again (ask again). */
 export const RUN_AGAIN = "projection.refresh";
 
+/** The key that runs a line again, as the controls and the refusals name it: one place to change when the key audit (PIE-957) moves it. */
+export const RUN_AGAIN_KEY = "r";
+/** The glyph of the one dim mark a generated region carries in the reader's gutter (PIE-956). */
+export const REGION_MARK = "≡";
+
 /** The words `r` says on a line of this kind: an agent is asked again, a record fetched, the rest run again. */
 export const againWords = (p: ResourceProjection) => (p.kind === "agent" ? "ask again" : p.kind === "data" ? "fetch" : "run again");
 
