@@ -31,7 +31,7 @@ import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resour
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
-import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
+import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -244,7 +244,7 @@ export interface SavedNav { v: typeof NAV_VERSION; here?: SavedPlace; backs: Sav
 const savedPlace = (p: Place): SavedPlace => ({ id: p.msg.id, title: subject(p.msg), position: structuredClone(p.position), cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
 /** A saved place as a stub the reader reads whole when it goes there (a list row's shape: `partial`). */
 const placeOf = (s: SavedPlace): Place => ({
-  msg: { id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, props: {}, partial: true },
+  msg: { id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [], partial: true },
   position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
@@ -1282,7 +1282,7 @@ export class NoteSurface {
     // bold line (brighter in the focused tile, a step down in the others), then one dim line holding everything else.
     // Keep normal cell width: a terminal's sizing probe cannot prove its font will scale instead of spacing the letters.
     // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
-    const named = workIdTitle(subject(m), m.props["work-id"]), focused = host?.focused !== false;
+    const named = workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false;
     const title = named.workId ? `${named.workId} · ${named.title}` : named.title;
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
     // body; the note's top heading is drawn as its headings are.
@@ -1827,7 +1827,7 @@ export class NoteSurface {
       const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines), bodyText = source.split("\n");
       // A view note's results under its body, drawn as an embedded view (the service's answer).
       const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn) : null;
-      const view = !!results && (m.props.type ?? "").toLowerCase() === "virtual-branch";
+      const view = !!results && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
       const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
       return regions.size || view || plan.after.size || plan.place.size ? {
@@ -9233,7 +9233,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const { of, u, now } = await unsentHere(surface, host, k, false);
       if (actor.kind === "agent") return { of, kind: k, text: u.text, copy: u.copy, at: u.at };
       const base = k === "edit" && now ? await baseTextOf(u, of, now, host.ctx.board) : undefined;
-      const view = copyNote(now ?? ({ id: of, text: "", parentId: null, childIds: [], createdAt: u.at, updatedAt: u.at, author: "unsent", props: {} } as Msg), u, base);
+      const view = copyNote(now ?? ({ id: of, text: "", parentId: null, childIds: [], createdAt: u.at, updatedAt: u.at, author: "unsent", properties: [] } as Msg), u, base);
       host.navigate(view, { fresh: true });
       return { of, opened: view.id, copy: u.copy };
     },

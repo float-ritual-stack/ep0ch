@@ -24,6 +24,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
+import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyper, mounts and groups", () => {
   const h = useShowcaseScreen();
@@ -85,7 +86,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(await kids()).toEqual(["Seed trays", "Cold frame", "Potting bench"]);
     expect(selected()).toBe(was);
     // A move under a system note is the guard's, as outline_move's: refused, said.
-    const trash = (await board.roots()).find(r => r.props["system-view"] === "trash")!.id;
+    const trash = (await board.roots()).find(r => prop(r, "system-view") === "trash")!.id;
     await expect(app.act({ action: "tree.move", args: { id: id("Seed trays"), to: trash }, as: "test-agent" })).rejects.toThrow(/which the service fills itself/);
     // The person, by keys: into the stage (the outline has them), onto Cold frame, alt+↓, I (in under the note above), O, ctrl+z.
     press({ kind: "enter" });

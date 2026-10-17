@@ -7,6 +7,7 @@
 // whoever reads a thread decides from its last comment, which is why outline_read shows each thread's latest.
 import { actorHandle, actorLabel, parseActor } from "@ep0ch/outline-core/attribution";
 import type { Comment, IndexBlock } from "./socket";
+import { prop } from "./props";
 
 /** `author` is the actor id as recorded; `by` how a person reads it (`loki (claude-code@float-2)`). */
 export interface ThreadComment { id: string; author: string; by: string; at: string | null; body: string }
@@ -73,10 +74,10 @@ export interface InboxFilter { status: "open" | "resolved" | "all"; since?: numb
  */
 export function notesWithThreads(index: IndexBlock[], filter: InboxFilter): { noteId: string; title: string; at: number }[] {
   const byId = new Map(index.map(b => [b.id, b]));
-  const roots = index.filter(b => b.props.type === "annotation" && b.parentId && (filter.status === "all" || (b.props["annotation-status"] ?? "open") === filter.status));
+  const roots = index.filter(b => prop(b, "type") === "annotation" && b.parentId && (filter.status === "all" || (prop(b, "annotation-status") ?? "open") === filter.status));
   const activity = new Map<string, number>();
   for (const r of roots) activity.set(r.id, r.createdAt);
-  for (const b of index) if (b.props.type === "annotation-reply" && activity.has(b.props["parent-annotation"] ?? "")) activity.set(b.props["parent-annotation"]!, Math.max(activity.get(b.props["parent-annotation"]!)!, b.createdAt));
+  for (const b of index) if (prop(b, "type") === "annotation-reply" && activity.has(prop(b, "parent-annotation") ?? "")) activity.set(prop(b, "parent-annotation")!, Math.max(activity.get(prop(b, "parent-annotation")!)!, b.createdAt));
   const notes = new Map<string, number>();
   for (const r of roots) {
     const at = activity.get(r.id)!;

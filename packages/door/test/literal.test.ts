@@ -9,7 +9,7 @@ import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
-const note = (text: string): Msg => ({ id: "aaaaaaaa-1111-4222-8333-444444444444", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, props: {} });
+const note = (text: string): Msg => ({ id: "aaaaaaaa-1111-4222-8333-444444444444", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, properties: [] });
 const host = (): SurfaceHost => ({
   ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any,
   redraw() {}, navigate() {},

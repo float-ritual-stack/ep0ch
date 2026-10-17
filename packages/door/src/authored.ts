@@ -190,7 +190,7 @@ export function resourceNote(d: ResourceDescription, from?: string): Msg {
   const commentable = !!source?.hash;
   if (source && !source.hash) why = "the service didn't say which version of the text this is";
   return {
-    id: `${RESOURCE_NOTE}${r.id}`, text: header + body, parentId: null, childIds: [], createdAt: Date.parse(r.createdAt) || at, updatedAt: at, author: "resource", props: {},
+    id: `${RESOURCE_NOTE}${r.id}`, text: header + body, parentId: null, childIds: [], createdAt: Date.parse(r.createdAt) || at, updatedAt: at, author: "resource", properties: [],
     ...(commentable ? { revision: resourceTextRevision(source!.hash!) } : {}),
     resource: { id: r.id, ...(from ? { from } : {}), sourceAt: source?.at == null ? null : header.length + source.at, ...(commentable ? {} : { uncommentable: why ?? "nothing to quote here" }) },
   };

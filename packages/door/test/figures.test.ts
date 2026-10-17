@@ -168,7 +168,7 @@ describe("ep0ch export's ASCII twin", () => {
 describe("a figure block's child bullets", () => {
   // A stand-in outline: the note's children (the service leaves comments out: the question says so), and a query
   // that never answers. A fresh one per test: its reads are kept per connection.
-  const kids = [{ id: "k1", text: "Apr: sow [type::row] - [n::1]", props: {} }, { id: "k2", text: "**May: plant**", props: {} }];
+  const kids = [{ id: "k1", text: "Apr: sow [type::row] - [n::1]", properties: [] }, { id: "k2", text: "**May: plant**", properties: [] }];
   let asked = 0, wheres: string[] = [];
   const outline = () => ({
     request: (_a: string, p: any) => {

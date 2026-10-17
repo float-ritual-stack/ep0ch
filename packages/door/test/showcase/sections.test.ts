@@ -24,6 +24,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
+import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gallery, reading", () => {
   const h = useShowcaseScreen();
@@ -201,8 +202,8 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     const out = await desk.dispatch.act({ action: "note.reply", tile: "reader", args: { text: "re:: Replies at the orchard\n\nLeave the windfalls." } }, { kind: "agent", id: "orchard-helper" }) as { id: string };
     const saved = await board.get(out.id);
     expect(saved!.parentId).toBe(seeded.notes.replies.id);
-    expect(saved!.props.replyto).toBe(seeded.notes.replies.id);
-    expect(saved!.props.thread).toBe("orchard");
+    expect(prop(saved!, "replyto")).toBe(seeded.notes.replies.id);
+    expect(prop(saved!, "thread")).toBe("orchard");
     expect(rd.surface.draft).toBeNull();
     expect(rd.surface.msg!.id).toBe(seeded.notes.replies.id);
     await desk.dispatch.press("note.reply", {}, "reader");

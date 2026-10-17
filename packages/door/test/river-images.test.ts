@@ -25,7 +25,7 @@ writeFileSync(PNG, encodePng({ width: 400, height: 200, data: Buffer.alloc(400 *
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const ready = () => until(() => media(PNG, "img").state === "ready", "the seed tray image");
-const note = (text: string): Msg => ({ id: "31111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} });
+const note = (text: string): Msg => ({ id: "31111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] });
 
 function host(graphics: boolean, kitty: boolean): SurfaceHost {
   return {

@@ -13,7 +13,7 @@ import { outliner, Scratch, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const item = (id: string, props: Record<string, string>, createdAt = 0): Msg =>
-  ({ id, text: id, parentId: null, childIds: [], createdAt, updatedAt: createdAt, author: null, props: { type: "outbox-item", outbox: "waiting", ...props } });
+  ({ id, text: id, parentId: null, childIds: [], createdAt, updatedAt: createdAt, author: null, properties: [{ key: "type", value: "outbox-item" }, { key: "outbox", value: "waiting", ...props }] });
 
 describe("what an outbox item waits on", () => {
   test("sent is local time, 12-hour or 24-hour; without it, when the item was written", () => {

@@ -37,7 +37,7 @@ async function withState<T>(f: (dir: string) => Promise<T> | T): Promise<T> {
     rmSync(dir, { recursive: true, force: true });
   }
 }
-const note = (text: string, over: Partial<Msg> = {}): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {}, ...over });
+const note = (text: string, over: Partial<Msg> = {}): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [], ...over });
 
 describe("the surface without a service", () => {
   const host = (): SurfaceHost => ({
@@ -167,7 +167,7 @@ describe("the surface without a service", () => {
     });
     const s = new NoteSurface();
     s.show(note("Plan the allotment [stage::queued]\nBeans."), h);
-    s.startDraft({ ...s.msg!, revision: 3, props: { stage: "queued" } }, h);
+    s.startDraft({ ...s.msg!, revision: 3, properties: [{ key: "stage", value: "queued" }] }, h);
     for (const c of " soon") s.key(char(c), h);
     const previewed = s.draft!.text;
     const saving = s.save(h);

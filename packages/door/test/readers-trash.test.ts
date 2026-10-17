@@ -21,7 +21,7 @@ const SWEEP: Actor = { kind: "agent", id: "sweep" };
 
 test("staleOn: a change to the note it hasn't seen, a reset, and any trash, restore or purge", () => {
   const s = new NoteSurface();
-  (s as any).msg = { id: "child-1", text: "Jars", props: {}, revision: 4, childIds: [] };
+  (s as any).msg = { id: "child-1", text: "Jars", properties: [], revision: 4, childIds: [] };
   const change = (kind: string, blockId: string, revision?: number) => ({ domain: "outline", action: "changed", blockId, sequence: 1, change: { sequence: 1, changeId: 1, action: kind, kind, blockId, revision, recordedAt: "" } }) as any;
   expect(s.staleOn(change("edit", "child-1", 5))).toBe(true);
   expect(s.staleOn(change("edit", "child-1", 4))).toBe(false);          // its own save coming back
@@ -35,10 +35,10 @@ test("staleOn: a change to the note it hasn't seen, a reset, and any trash, rest
 
 test("reread: a burst of changes while a read is out makes one more read, not one each", async () => {
   const s = new NoteSurface();
-  (s as any).msg = { id: "child-1", text: "Jars", props: {}, revision: 4, childIds: [] };
+  (s as any).msg = { id: "child-1", text: "Jars", properties: [], revision: 4, childIds: [] };
   let reads = 0, redraws = 0;
   const waiting: (() => void)[] = [];
-  const board = { get: (id: string) => { reads++; return new Promise(ok => waiting.push(() => ok({ id, text: "Jars", props: {}, revision: 4, deleted: true, childIds: [] }))); } };
+  const board = { get: (id: string) => { reads++; return new Promise(ok => waiting.push(() => ok({ id, text: "Jars", properties: [], revision: 4, deleted: true, childIds: [] }))); } };
   const host = { ctx: { board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false }, redraw() { redraws++; }, navigate() {} } as unknown as SurfaceHost;
   for (let i = 0; i < 20; i++) s.reread(host);
   expect(reads).toBe(1);

@@ -32,7 +32,7 @@ describe("a thread inline, without a service", () => {
   test("in a narrow reader every control is drawn whole, on as many rows as it takes, and is an element", async () => {
     for (const w of [18, 24, 40, 80]) {
       const s = new NoteSurface(), h = host();
-      s.show({ id: "5eed0000-1111-4222-8333-444444444444", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} }, h);
+      s.show({ id: "5eed0000-1111-4222-8333-444444444444", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] }, h);
       await until(() => s.comments?.length === 1, "the comment");
       s.setExpanded(comment.id, true);
       const text = s.render(w, 40, h).lines.map(plain).join("\n");
@@ -53,7 +53,7 @@ describe("a thread's TL;DR, without a service (PIE-860)", () => {
     replies: [{ id: `${id.slice(0, -4)}aaaa`, author: "user", body: "The dry one.", at: Date.now() - 30_000 }, { id: `${id.slice(0, -4)}bbbb`, author: "ext:marginalia", body: "Dry lube on the chain, before the frost.", at: Date.now(), tldr: true }],
     tldr: { id: `${id.slice(0, -4)}bbbb`, author: "ext:marginalia", body: "Dry lube on the chain, before the frost.", at: Date.now() },
   });
-  const note = { id: "5eed0000-1111-4222-8333-555555555555", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} };
+  const note = { id: "5eed0000-1111-4222-8333-555555555555", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] };
   const host = (comments: unknown[]) => ({ ctx: { board: { ancestors: async () => [], comments: async () => comments }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
 
   test("expanded: the TL;DR once, at the top, with Edit TL;DR, TL;DR again and No TL;DR; the discussion under it", async () => {
@@ -89,7 +89,7 @@ describe("marks only, without a service (PIE-873)", () => {
   const quote = "Oil the chain", at = TEXT.indexOf(quote);
   const onWords = { id: "c0ffee00-1111-4222-8333-666666660001", author: "sam", body: "Use the dry lube.", quote, at: Date.now(), open: true, lifecycle: "open" as const, start: at, end: at + quote.length, replies: [] };
   const onNote = { id: "c0ffee00-1111-4222-8333-666666660002", author: "sam", body: "A tidy list.", quote: "", at: Date.now(), open: true, lifecycle: "open" as const, start: null, end: null, replies: [] };
-  const note = { id: "5eed0000-1111-4222-8333-666666666666", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} };
+  const note = { id: "5eed0000-1111-4222-8333-666666666666", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] };
   const host = () => ({ ctx: { board: { ancestors: async () => [], comments: async () => [onWords, onNote] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
 
   test("the count reads marks only, the cards go, and the whole-note thread's mark is after the title", async () => {
@@ -125,7 +125,7 @@ describe("several threads on one passage, without a service (PIE-541)", () => {
   const at = TEXT.indexOf(quote);
   const thread = (n: number, open: boolean) => ({ id: `c0ffee0${n}-1111-4222-8333-444444444444`, author: "sam", body: `Note ${n}.`, quote, at: Date.now() - 60_000, open, lifecycle: (open ? "open" : "seen") as "open" | "seen", start: at, end: at + quote.length, replies: [] });
   const host = (comments: unknown[]) => ({ ctx: { board: { ancestors: async () => [], comments: async () => comments }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
-  const note = { id: "5eed0000-1111-4222-8333-444444444444", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} };
+  const note = { id: "5eed0000-1111-4222-8333-444444444444", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] };
 
   test("the margin gets one mark, whole escapes only, yellow while any of them is open; each thread is still an element", async () => {
     for (const threads of [[thread(1, false), thread(2, true), thread(3, false)], [thread(1, false), thread(2, false)]]) {

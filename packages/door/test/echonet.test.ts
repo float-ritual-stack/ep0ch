@@ -13,10 +13,11 @@ import { banner, quoteLines, type EchoAreas, type EchoMessages, type EchoReader 
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { hostOutliner, ScratchHost, until } from "./scratch";
+import { prop } from "../src/props";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "").replace(/\|\d\d/g, "");
 const msg = (id: string, text: string, props: Record<string, string>, createdAt = 1, parentId: string | null = null): Msg =>
-  ({ id, text, parentId, childIds: [], createdAt, updatedAt: createdAt, author: "agent:echo-tosser", props, properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
+  ({ id, text, parentId, childIds: [], createdAt, updatedAt: createdAt, author: "agent:echo-tosser", properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
 
 describe("the shapes", () => {
   const sub = msg("5ab0c2d4-0000-4000-8000-000000000001", "Cafe chat [subscribe::cafe@box-a] [echo::cafe.chat]", { subscribe: "cafe@box-a", echo: "cafe.chat" });
@@ -40,7 +41,7 @@ describe("the shapes", () => {
   });
   test("a copy's footer: the tear line, its origin and area, SEEN-BY from its seen-by marks; its header says when upstream is newer", () => {
     const copy = msg("c1", "Frost tonight\nCover the beans.", { from: "cafe@box-a/0a1b2c3d-1111-4222-8333-444455556666", echo: "cafe.chat", "from-rev": "2", tossed: "2026-10-11T05:12:00Z", "upstream-newer": "3", by: "fern" });
-    expect(parseFrom(copy.props.from)).toEqual({ node: "cafe@box-a", id: "0a1b2c3d-1111-4222-8333-444455556666" });
+    expect(parseFrom(prop(copy, "from"))).toEqual({ node: "cafe@box-a", id: "0a1b2c3d-1111-4222-8333-444455556666" });
     const marked = seenByMarks([{ props: { kind: ["echo-seen-by"], "echo.node": ["attic@box-c"] } }, { props: { kind: ["note"] } }, {}]);
     expect(marked).toEqual(["attic@box-c"]);
     expect(seenBy(copy, area, marked)).toEqual(["cafe@box-a", "shack@box-b", "attic@box-c"]);
@@ -52,10 +53,10 @@ describe("the shapes", () => {
     expect(head[3]).toBe("Subj : Frost tonight");
     expect(head[5]).toContain("a newer version is upstream (rev 3, this copy is rev 2)");
     expect(head[6]).toBe("   take it: ext.echonet.take-newer · compare: ext.echonet.compare-newer");
-    const gone = headerOf({ msg: { ...copy, props: { ...copy.props, "upstream-gone": "2026-10-12" } }, n: 2, fresh: false }, 5, area).map(plain);
+    const gone = headerOf({ msg: { ...copy, properties: [...copy.properties, { key: "upstream-gone", value: "2026-10-12" }] }, n: 2, fresh: false }, 5, area).map(plain);
     expect(gone[7]).toBe(" ! gone upstream since 2026-10-12: the original was trashed at cafe@box-a; this copy stays");
     // A copy that doesn't say who wrote it is from the outline it came from; the person's own post is the sysop's.
-    const bare = msg(copy.id, copy.text, { from: copy.props.from! });
+    const bare = msg(copy.id, copy.text, { from: prop(copy, "from")! });
     expect(messageFrom(bare)).toBe("cafe");
     expect(plain(headerOf({ msg: bare, n: 1, fresh: false }, 5, area)[1]!)).toStartWith("From : cafe@box-a · ");
     expect(messageFrom({ ...msg(copy.id, copy.text, {}), author: "user" })).toBe("sysop");

@@ -31,6 +31,7 @@ import { lastTrashed } from "../note-trash";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs, type MoveDone } from "../note-move";
 import type { WriteBoard } from "../mcp-writes";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
+import { prop } from "../props";
 
 
 /** The links shown under one row: that occurrence's own (PIE-324), with which groups are folded. */
@@ -65,7 +66,7 @@ interface Branch {
 }
 
 /** A block that is a virtual branch: the service decides what its query means, the tree only asks. */
-export const isBranch = (m: Msg) => (m.props.type ?? "").toLowerCase() === "virtual-branch";
+export const isBranch = (m: Msg) => (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
 /** The id of the note a fold id stands for (a result's is `v:<view>>…>id`). */
 const idOfFold = (foldId: string) => foldId.slice(foldId.lastIndexOf(">") + 1);
 /** The levels `D` steps through: the view's own, then results only, then 1…3. */
@@ -602,7 +603,7 @@ export class TreePane implements Pane {
         const mark = k === "loading" ? "…" : leaf ? (r.via !== undefined && r.rel === 0 ? "◇" : "·") : this.fold.open.has(r.foldId) || this.panels.has(r.key) ? "▾" : "▸";
         const branch = !r.via && isBranch(r.m) ? this.branches.get(r.m.id) : undefined;
         const found = branch && branch.read !== "loading" && branch.read.status === "ready" ? `V:${branch.read.total ?? branch.items.length}` : "";
-        const tag = (found || (r.m.props["work-id"] ?? r.m.props.status ?? r.m.props.type ?? "")).slice(0, 14);
+        const tag = (found || (prop(r.m, "work-id") ?? prop(r.m, "status") ?? prop(r.m, "type") ?? "")).slice(0, 14);
         const room = Math.max(4, w - (tag ? tag.length + 1 : 0));
         if (on) return selected(focused) + pad(`${indent}${mark} ${subject(r.m)}`, room) + (tag ? " " + tag : "") + RESET;
         const here = desk.current?.id === r.m.id;

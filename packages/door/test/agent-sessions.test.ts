@@ -66,9 +66,9 @@ describe("the model, without a door", () => {
 
   test("agent configs are notes with agent-config::, their program, args, persona and folder as written", () => {
     const got = configsOf([
-      { id: "n1", props: { "agent-config": "fern", program: "claude", args: "--model fable", persona: "fern", folder: "~/garden-shed" } },
-      { id: "n2", props: { "agent-config": "moss" } },
-      { id: "n3", props: { "agent-config": "fern", program: "codex" } },          // a second of one name: the first wins
+      { id: "n1", properties: [{ key: "agent-config", value: "fern" }, { key: "program", value: "claude" }, { key: "args", value: "--model fable" }, { key: "persona", value: "fern" }, { key: "folder", value: "~/garden-shed" }] },
+      { id: "n2", properties: [{ key: "agent-config", value: "moss" }] },
+      { id: "n3", properties: [{ key: "agent-config", value: "fern" }, { key: "program", value: "codex" }] },          // a second of one name: the first wins
     ]);
     expect(got).toEqual([
       { name: "fern", program: "claude", args: ["--model", "fable"], persona: "fern", folder: "~/garden-shed", id: "n1" },

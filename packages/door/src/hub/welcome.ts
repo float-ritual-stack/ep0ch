@@ -37,6 +37,7 @@ import { tileKind, type KindHost, type TileKind, type TileKindName } from "../de
 import { nowPage } from "./now";
 import { RowView } from "../scroll";
 import { newNoteOffer } from "../new-note";
+import { prop } from "../props";
 
 export const WELCOME_KEY = "welcome";
 const WELCOME_LIMIT = 200;
@@ -315,7 +316,7 @@ export class WelcomeList implements Pane {
     if (pv && (pv.msg?.id === m.id || (other && actor.kind !== "agent"))) pv.show(null, desk);
     if (focus && actor.kind !== "agent" && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
     const items = this.items ?? [], i = items.findIndex(x => x.id === m.id);
-    const s: Shown = { id: m.id, title: subject(m), welcome: m.props[WELCOME_KEY] ?? null, n: i >= 0 ? i + 1 : null, of: items.length };
+    const s: Shown = { id: m.id, title: subject(m), welcome: prop(m, WELCOME_KEY) ?? null, n: i >= 0 ? i + 1 : null, of: items.length };
     desk.redraw();
     return s;
   }
@@ -352,7 +353,7 @@ export class WelcomeList implements Pane {
   describe(desk: DeskApi) {
     const items = this.items, d = this.detail?.msg, pv = this.preview(desk)?.msg;
     return {
-      welcome: items ? items.map((m, i) => ({ n: i + 1, key: tabKey(i), id: m.id, title: subject(m), value: m.props[WELCOME_KEY] ?? "" })) : null,
+      welcome: items ? items.map((m, i) => ({ n: i + 1, key: tabKey(i), id: m.id, title: subject(m), value: prop(m, WELCOME_KEY) ?? "" })) : null,
       view: this.orderView ? { id: this.orderView.id, title: subject(this.orderView) } : null,
       shown: this.at >= 0 ? this.at + 1 : null,
       detail: d ? { id: d.id, title: subject(d) } : null,

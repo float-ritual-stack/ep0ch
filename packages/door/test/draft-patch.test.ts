@@ -13,6 +13,7 @@ import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note
 import type { Key } from "../src/term";
 import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -533,14 +534,14 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(reader.hint()).toContain("A apply anyway");
     reader.key(char("A"), h);
     await until(() => e.d.text.includes("The peas climb the net."), "the proposal applied in the draft");
-    expect((await board.get(id))!.props["proposal-status"]).toBe("applied");
+    expect(prop((await board.get(id))!, "proposal-status")).toBe("applied");
   }, 30_000);
 
   test("one whose passage was reworded before it came offers only dismiss: A says why, X dismisses it and the draft is as typed", async () => {
     const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
     const id = await proposedInDraft(e, true);
     const proposal = (await board.get(id))!;
-    expect(proposal.props["proposal-applies"]).toBe("no");
+    expect(prop(proposal, "proposal-applies")).toBe("no");
     const reader = new NoteSurface(), h = host();
     reader.show(proposal, h);
     const header = reader.render(90, 30, h).lines.map(visible).slice(0, 8).join("\n");

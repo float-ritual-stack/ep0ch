@@ -21,6 +21,7 @@ const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000)
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 import { useShowcaseScreen } from "./harness";
+import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: new notes", () => {
   const h = useShowcaseScreen();
@@ -33,7 +34,7 @@ describe.skipIf(!outliner)("the showcase screen: new notes", () => {
     const guide = seeded.notes.newNotes.id;
     // Out of the stage the test before left the keys in: an agent changes sections only from the index.
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
-    const inbox = (await board.roots()).find(r => r.props["system-view"] === "inbox")!.id;
+    const inbox = (await board.roots()).find(r => prop(r, "system-view") === "inbox")!.id;
     const reads = async (ok: () => Promise<boolean>, what: string) => { const end = Date.now() + 5000; while (!await ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(30); } };
     (app as any).lastInput = 0;
     const n = SECTIONS.findIndex(s => s.key === "newnotes") + 1;

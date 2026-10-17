@@ -23,6 +23,7 @@ import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
+import { prop } from "../props";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
 export interface PaneView { gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
@@ -343,7 +344,7 @@ export class ReaderPane implements Pane {
     // the mode is sure to be set.
     const letGo = () => { if (desk.followSource?.(this)) desk.followFrom?.(this, null, USER); };
     if (next === "pinned") {
-      const name = page ?? this.msg?.props.page;
+      const name = page ?? prop(this.msg, "page");
       if (!name) throw new ActionRefused(`${this.msg ? "that note has no page to pin to" : "nothing to pin yet"} · name one: act reader.mode mode=pinned page=<name>`);
       const r = await desk.ctx.board.resolvePage(name);
       if (r.status !== "resolved" || !r.block) throw new ActionRefused(`no page ${name} in this outline to pin to`);

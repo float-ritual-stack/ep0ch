@@ -20,8 +20,7 @@ import { outliner, Scratch, until } from "./scratch";
 import * as BV from "./board-view";
 
 const card = (props: Record<string, string>, over: Partial<Msg> = {}): Msg => ({
-  id: "c1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, props,
-  properties: Object.entries(props).map(([key, value]) => ({ key, value })), ...over,
+  id: "c1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, properties: Object.entries(props).map(([key, value]) => ({ key, value })), ...over,
 });
 
 // Its waits allow 8 s (a loaded machine, --parallel): a test's own limit is longer, so a slow wait fails as

@@ -25,6 +25,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
+import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links and resource comments", () => {
   const h = useShowcaseScreen();
@@ -115,7 +116,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     await until(() => tile("now")?.showing?.id === seeded.notes.notebook.id && tile("detail")?.showing?.id === seeded.notes.shed.id, "the held and the pinned reader on their notes", 5000);
     expect(tile("reader")).toMatchObject({ kind: "reader", mode: "follows" });
     expect(tile("detail")).toMatchObject({ kind: "reader", mode: "held" });
-    expect(tile("now")).toMatchObject({ kind: "reader", mode: "pinned", page: seeded.notes.notebook.props.page });
+    expect(tile("now")).toMatchObject({ kind: "reader", mode: "pinned", page: prop(seeded.notes.notebook, "page") });
     // The held one lets go and follows the outline's selection; held again, it keeps what it shows.
     expect(await app.act({ action: "reader.mode", tile: "detail", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "detail", mode: "follows", held: false });
     expect((app as any).message).toContain("test-agent");

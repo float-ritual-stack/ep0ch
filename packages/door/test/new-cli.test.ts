@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
+import { prop } from "../src/props";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
 const run = async (args: string[], env: Record<string, string> = {}) => {
@@ -20,7 +21,7 @@ describe.skipIf(!outliner)("ep0ch new on an empty outline", () => {
     const sock = await scratch.start();
     env = { EP0CH_SOCKET: sock, EP0CH_WS: scratch.name };
     board = new SocketBoard(sock, undefined, scratch.name);
-    inbox = (await board.roots()).find(r => r.props["system-view"] === "inbox")!.id;
+    inbox = (await board.roots()).find(r => prop(r, "system-view") === "inbox")!.id;
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 

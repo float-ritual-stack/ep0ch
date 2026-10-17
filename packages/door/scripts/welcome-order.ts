@@ -16,6 +16,7 @@ import { subject, type Msg } from "../src/board";
 import { connectTarget } from "../src/door";
 import { WELCOME_KEY, WELCOME_VIEW_TEXT, welcomeView } from "../src/hub/welcome";
 import type { Actor } from "../src/socket";
+import { prop } from "../src/props";
 
 const args = process.argv.slice(2);
 const flag = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined; };
@@ -25,7 +26,7 @@ if (!ws) { console.error(`say which outline: bun ${me} --ws <outline> [--as <act
 const actor: Actor = { kind: "agent", id: flag("--as") ?? "welcome-order" };
 
 /** The order the door used before: numbers first, lowest first; then the rest by title; ties by age. */
-const number = (m: Msg): number | null => { const v = m.props[WELCOME_KEY]?.trim() ?? ""; return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : null; };
+const number = (m: Msg): number | null => { const v = prop(m, WELCOME_KEY)?.trim() ?? ""; return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : null; };
 const before = (list: Msg[]) => [...list].sort((a, b) => {
   const x = number(a), y = number(b);
   if (x !== null && y !== null && x !== y) return x - y;
@@ -39,9 +40,9 @@ const { board } = target;
 const notes = before(await board.query(WELCOME_KEY, 500, "created", "asc", false));
 let view = await welcomeView(board);
 console.log(`${notes.length} welcome note(s) on ${ws}, in this order:`);
-notes.forEach((m, i) => console.log(`  ${i + 1}. ${subject(m)} [${WELCOME_KEY}::${m.props[WELCOME_KEY] ?? ""}] ((${m.id}))`));
+notes.forEach((m, i) => console.log(`  ${i + 1}. ${subject(m)} [${WELCOME_KEY}::${prop(m, WELCOME_KEY) ?? ""}] ((${m.id}))`));
 console.log(view ? `the Welcome view: ${subject(view)} ((${view.id}))` : "no Welcome view yet");
-const rewrite = notes.filter(m => (m.props[WELCOME_KEY] ?? "").trim() !== "true");
+const rewrite = notes.filter(m => (prop(m, WELCOME_KEY) ?? "").trim() !== "true");
 const ordering = !view && notes.some(m => number(m) !== null);
 console.log(ordering ? "this order is set on the Welcome view this run makes" : view ? "the Welcome view is there: its order is left as it is (only values are rewritten)" : "no numbered welcome notes: no order to set");
 console.log(`${rewrite.length} value(s) to rewrite to true`);

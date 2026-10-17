@@ -68,7 +68,7 @@ describe("terminal cells, not code points", () => {
       const row = historyRow(w * 2 + 3, cjk + cjk, emoji + emoji)!;
       expect(cells(row.line)).toBeLessThanOrEqual(w * 2 + 3);
     }
-    const m = { id: "b1", text: cjk + cjk, props: {} } as any;
+    const m = { id: "b1", text: cjk + cjk, properties: [] } as any;
     expect(cells(titleOf(m, 9))).toBeLessThanOrEqual(9);
     expect(titleOf(m, 9)).toEndWith("…");
     // ellipsize: cut to cells with …, never padded, never half a wide or joined glyph.

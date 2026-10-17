@@ -96,7 +96,7 @@ describe("unsent drafts against the note now", () => {
   test("the compare view: the answer first, then only the edit's own changes, each marked; a conflict shows both versions; two-way says so", () => {
     const base = "Shed jobs\n- fix the hinge\n- paint the door\n- sweep up";
     const draft = "Shed jobs\n- fix the hinge\n- oil the lock\n- sweep up\n- lock the gate";
-    const now = { id: "note-shed", text: "Shed jobs\n- fix the hinge\n- paint the door red\n- sweep up\n- lock the gate", revision: 9, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: {} };
+    const now = { id: "note-shed", text: "Shed jobs\n- fix the hinge\n- paint the door red\n- sweep up\n- lock the gate", revision: 9, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [] };
     const oct1 = new Date(2026, 9, 1, 12).getTime();
     const v = diffNote(now, { key: "edit:note-shed", text: draft, base: 7, at: oct1, copy: null }, base);
     expect(unsentView(v.id)).toEqual({ of: "note-shed", view: "diff" });
@@ -210,7 +210,7 @@ describe("the three-way comparison: the draft's own changes, each against the no
     expect(located.ok && applyLocated(now, located.spans)).toBe("Greenhouse (north)\nwater the tomatoes twice\nshut the vents\nsweep the floor\nlock the door");
     // Quietly: the note has all of it; the entry goes, a copy exists.
     keepUnsent({ key: "edit:note-glass", text: draft, base: 3, at: Date.now(), copy: null, from: base });
-    const note = { id: "note-glass", text: draft, revision: 9, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: {} };
+    const note = { id: "note-glass", text: draft, revision: 9, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [] };
     const here = async () => note;
     const done = await settleQuietly(note, { revisionText: async () => { throw new Error("not asked"); }, get: here });
     expect(done?.copy && readFileSync(done.copy, "utf8")).toBe(draft + "\n");

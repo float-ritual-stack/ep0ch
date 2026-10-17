@@ -16,6 +16,7 @@ import { SocketBoard } from "../../src/socket";
 import { drawNote } from "../../src/notes-cli";
 import { C } from "../../src/style";
 import { outliner, Scratch, until } from "../scratch";
+import { prop } from "../../src/props";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -68,7 +69,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     const s = await loadShowcase(board);
     expect(s).not.toBeNull();
     expect(Object.keys(s!.notes).sort()).toEqual(Object.keys(SEED).sort());
-    expect((await board.roots()).filter(r => r.props.type === "showcase").length).toBe(1);
+    expect((await board.roots()).filter(r => prop(r, "type") === "showcase").length).toBe(1);
   });
 
   test("no seeded note leaves a construct open but the half-written one, so no reader shows a ⚠ by accident (PIE-669)", async () => {
@@ -86,7 +87,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     const note = seeded.notes.remoteWrites;
     const now = (await board.get(note.id))!;
     expect(now.text).toContain(REMOTE_LINE);
-    const proposal = (await board.children(note.id)).find(m => m.props.type === "draft-proposal");
+    const proposal = (await board.children(note.id)).find(m => prop(m, "type") === "draft-proposal");
     expect(proposal?.text).toContain("from @chat.example.test: not applied, because its writer may propose changes here, not make them");
     // Beside the note (PIE-725): its text names no proposal.
     expect(now.text).not.toContain(proposal!.id);
@@ -94,13 +95,13 @@ describe.skipIf(!outliner)("the showcase seed", () => {
   });
 
   test("a board hub whose lanes are saved views, with cards in every stage", async () => {
-    const lanes = (await board.children(seeded.notes.hub.id)).filter(k => k.props.type === "virtual-branch");
+    const lanes = (await board.children(seeded.notes.hub.id)).filter(k => prop(k, "type") === "virtual-branch");
     expect(lanes.map(l => l.text.split(" [")[0])).toEqual([...LANES]);
     const counts: Record<string, number> = {};
     for (const l of lanes) { const r = await board.readSavedView(l.id); expect(r?.status).toBe("ready"); counts[l.text.split(" [")[0]!] = r!.blocks.length; }
     expect(counts).toEqual({ Queued: 2, Doing: 2, Review: 1, Done: 1 });
     // Roadmap items through the allocator: work-ids, under the project's work queue.
-    expect(seeded.cards.map(c => c.props["work-id"])).toEqual(["HOME-001", "HOME-002", "HOME-003", "HOME-004", "HOME-005", "HOME-006"]);
+    expect(seeded.cards.map(c => prop(c, "work-id"))).toEqual(["HOME-001", "HOME-002", "HOME-003", "HOME-004", "HOME-005", "HOME-006"]);
     expect(seeded.cards.every(c => c.parentId === seeded.notes.queue.id)).toBe(true);
     const garden = await board.readSavedView(seeded.notes.gardenView.id);
     expect(garden?.blocks.map(b => b.text.split(" [")[0])).toEqual(expect.arrayContaining(["Water the beans", "Turn the compost", "Net the brassicas"]));
@@ -146,7 +147,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
   test("comment threads, open and resolved; children; every figure kind", async () => {
     const threads = await board.comments(seeded.notes.shed.id);
     expect(threads.map(c => [c.open, c.replies.length])).toEqual([[true, 0], [false, 1]]);
-    expect((await board.children(seeded.notes.shed.id)).filter(k => !k.props.type?.startsWith("annotation")).map(k => k.text.split("\n")[0])).toEqual(["Puncture kit", "Chain oil"]);
+    expect((await board.children(seeded.notes.shed.id)).filter(k => !prop(k, "type")?.startsWith("annotation")).map(k => k.text.split("\n")[0])).toEqual(["Puncture kit", "Chain oil"]);
     for (const k of FIGURE_KINDS) expect(seeded.notes.figures.text).toContain(`::graph-${k}\n`);
     expect(seeded.notes.figures.text).toContain(`view: ((${seeded.notes.gardenView.id}))`);
     for (const k of MARKDOWN_KINDS) expect(seeded.notes.markdownFigures.text).toContain(`::graph-${k}\n`);
@@ -197,9 +198,9 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     const [day] = await board.children(seeded.notes.recentFiles.id);
     const [project] = await board.children(day!.id);
     const [session] = await board.children(project!.id);
-    expect([day!.props["file-day"], project!.props["file-project"], session!.props["file-session"]]).toEqual(["2026-03-11", "allotment", RECENT_SESSION]);
+    expect([prop(day!, "file-day"), prop(project!, "file-project"), prop(session!, "file-session")]).toEqual(["2026-03-11", "allotment", RECENT_SESSION]);
     const files = await board.children(session!.id);
-    expect(files.map(f => [f.props.file, f.props.type, f.props.touches])).toEqual(RECENT_FILES().map(f => [f.file, "file-touch", String(f.touches)]));
+    expect(files.map(f => [prop(f, "file"), prop(f, "type"), prop(f, "touches")])).toEqual(RECENT_FILES().map(f => [f.file, "file-touch", String(f.touches)]));
     for (const f of RECENT_FILES()) expect(existsSync(f.file)).toBe(true);
   });
 

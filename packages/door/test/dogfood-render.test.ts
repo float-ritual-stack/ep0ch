@@ -25,7 +25,7 @@ import { outliner, Scratch, until } from "./scratch";
 /** Every glyph the VGA font (CP437) draws; anything else is a ? on kitty+crt. */
 const CP437 = new Set([...CP437_HIGH, ..."☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼"]);
 const notCp437 = (s: string) => [...visible(s)].filter(c => c.charCodeAt(0) >= 128 && !CP437.has(c));
-const msg = (id: string, text: string): Msg => ({ id, text, props: {}, author: "user", parentId: null, childIds: [], createdAt: 0, updatedAt: 0 } as unknown as Msg);
+const msg = (id: string, text: string): Msg => ({ id, text, properties: [], author: "user", parentId: null, childIds: [], createdAt: 0, updatedAt: 0 } as unknown as Msg);
 
 test("a component's sparkline and a ::graph-spark figure draw only CP437 glyphs, still low to high", () => {
   const spark = primitiveLines({ type: "sparkline", label: "Dread", values: [2, 3, 9, 1, 6, 7, 5] }, 40).join("\n");

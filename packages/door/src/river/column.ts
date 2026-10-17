@@ -37,6 +37,7 @@ import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, lookupComp
 import { filterTargetAtCursor } from "../completion";
 import { Fold } from "../fold";
 import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "@ep0ch/outline-core/search-match";
+import { prop } from "../props";
 
 /** A property notice or an agent line in a column the person isn't in clears after this long on screen. */
 export const BANNER_MS = 30_000;
@@ -68,9 +69,9 @@ const authorColour = (a: string | null) => {
   return C.lmagenta;
 };
 const chipColour = (key: string) => CHIP_COLOURS[[...key].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % CHIP_COLOURS.length]!;
-const chips = (props: Record<string, string>) =>
-  ["type", "status", "stage", "project", "priority"].filter(k => props[k]).map(k => `${fg(chipColour(k))}#${props[k]}${RESET}`).join(" ");
-const glyph = (m: Msg) => GLYPH[m.props.type ?? ""] ?? "◇";
+const chips = (m: Msg) =>
+  ["type", "status", "stage", "project", "priority"].filter(k => prop(m, k)).map(k => `${fg(chipColour(k))}#${prop(m, k)}${RESET}`).join(" ");
+const glyph = (m: Msg) => GLYPH[prop(m, "type") ?? ""] ?? "◇";
 // Properties are in the chips; inside a literal region (PIE-422) `[key::value]` is text, so it stays.
 const bodyLines = (m: Msg) => bodyLinesOf(m.text).map(l => (l.literal ? l.text : withoutPropertyTokens(l.text)).trimEnd()).filter(l => l.trim());
 
@@ -99,7 +100,7 @@ function passesOwn(m: Msg, f: Clause[]): boolean {
 export const filterQuery = (f: Clause[]) =>
   f.filter(c => !ownClause(c)).map(c => `${c.exclude === !c.value ? "" : "NOT "}${c.key}${c.value === "*" || !c.value ? "" : `="${c.value.replace(/[\\"]/g, "\\$&")}"`}`).join(" ");
 /** The properties `#` offers to follow: a note's own, but the machinery the door keeps. */
-const followable = (m: Msg | undefined): [string, string][] => (m ? Object.entries(m.props).filter(([key]) => !["source-block", "proof", "work-batch"].includes(key)).slice(0, 9) : []);
+const followable = (m: Msg | undefined): [string, string][] => (m ? [...new Set(m.properties.map(p => p.key))].filter(key => !["source-block", "proof", "work-batch"].includes(key)).slice(0, 9).map((key): [string, string] => [key, prop(m, key) ?? ""]) : []);
 
 // ── the outline's index: reply counts (one per service, shared by every column) ─────────────────
 
@@ -445,7 +446,7 @@ export class RiverColumn extends ReaderPane {
       const mark = on ? fg(active ? C.lcyan : C.grey) + "▌" + RESET : " ";
       const tw = Math.max(8, w - row.depth * 2 - 2);
       push(rail + mark + (on && active ? selected() : fg(C.white)) + pad(`${glyph(m)} ${subject(m)}`, tw) + RESET, n);
-      push(rail + " " + pad(`${fg(authorColour(m.author))}${authorName(m.author)}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m.props)}`, tw), n);
+      push(rail + " " + pad(`${fg(authorColour(m.author))}${authorName(m.author)}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m)}`, tw), n);
       // Links read as their titles here too (not as raw ((ids))); an embed reads as its title.
       const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, desk ? { board: desk.ctx.board, redraw: () => desk.redraw() } : null, m.text));
       for (const l of wrap(gist, tw).slice(0, 2)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);
@@ -910,7 +911,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     args: { key: { type: "string", about: "the property key" }, value: { type: "string", optional: true, about: "its value; default the selected note's" } },
     async run({ key, value }, { pane, desk, tile }, actor) {
       const c = columnOf(pane), m = c.flat()[c.sel]?.m ?? c.noteOf();
-      const v = value ?? m?.props[key];
+      const v = value ?? prop(m, key);
       if (!v) throw new ActionRefused(`the selected note in ${tile} has no ${key}::; pass value=`);
       if (!desk.within) throw new ActionRefused("a column of the same property opens on a screen with tiles");
       const r = await desk.within("tile.open", { kind: "river.column", source: `tag:${key}=${v}`, where: "next" }, actor, pane) as { tile: string };

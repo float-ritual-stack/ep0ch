@@ -18,7 +18,7 @@ import { outliner, Scratch, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const row = (id: string, date: string | null, updatedAt: number, createdAt = updatedAt): Msg =>
-  ({ id, text: id, parentId: null, childIds: [], createdAt, updatedAt, author: null, props: date ? { type: "daily-brief", "brief-date": date } : { type: "daily-brief" } });
+  ({ id, text: id, parentId: null, childIds: [], createdAt, updatedAt, author: null, properties: [{ key: "type", value: "daily-brief" }, ...(date ? [{ key: "brief-date", value: date }] : [])] });
 
 describe("which brief is which", () => {
   test("oldest first by brief-date, a redraft of the same day after the first; no brief-date: the day it was made", () => {

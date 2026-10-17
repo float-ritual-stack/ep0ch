@@ -23,7 +23,7 @@ describe("a host's own header over the surface, without a service", () => {
   const note = { id: ID, text: `Seed swap [related::((${TARGET}))]\nSaturday by the compost bays.`, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, props: { related: `((${TARGET}))` }, properties: [{ key: "related", value: `((${TARGET}))` }] };
   const opened: string[] = [];
   const host = (): SurfaceHost => ({
-    ctx: { board: { ancestors: async () => [], comments: async () => [], get: async (id: string) => ({ ...note, id, text: "Compost bays", props: {}, properties: [] }) }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any,
+    ctx: { board: { ancestors: async () => [], comments: async () => [], get: async (id: string) => ({ ...note, id, text: "Compost bays", properties: [] }) }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any,
     redraw() {}, navigate: m => { opened.push(m.id); }, summaryKeys: () => ["related"],
     header: (m, w) => ["Date: today", "From: you", `Subj: ${subject(m)}`].map(l => l.padEnd(w)),
   });

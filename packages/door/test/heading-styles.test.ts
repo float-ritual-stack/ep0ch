@@ -160,7 +160,7 @@ describe("declared styles", () => {
 
 describe("in a reader", () => {
   const host = (): SurfaceHost => ({ ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
-  const note = (text: string): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {} });
+  const note = (text: string): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [] });
 
   test(") stops on a styled heading and f folds its section; the band says what it hides", () => {
     const s = new NoteSurface(), h = host();

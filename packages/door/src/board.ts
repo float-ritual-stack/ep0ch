@@ -6,6 +6,7 @@ import { presentLinks, stripMarks } from "./refs";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { withoutHeaderDashes } from "@ep0ch/outline-core/header-line";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
+import { prop } from "./props";
 
 export interface Msg {
   id: string;
@@ -15,11 +16,10 @@ export interface Msg {
   createdAt: number;   // epoch ms
   updatedAt: number;
   author: string | null;
-  props: Record<string, string>;
   /** The service's revision of this text; a save names it so a stale draft is refused. */
   revision?: number;
-  /** Block-scope properties in order, repeats kept (`props` keeps only the last of a key). */
-  properties?: { key: string; value: string }[];
+  /** Block-scope properties in order, repeats kept, as the service sends them. Read one with `prop(m, key)` / `propValues(m, key)` (props.ts). */
+  properties: { key: string; value: string }[];
   /**
    * A list row: title, properties and revision without the note's full text (`text` is just the title).
    * Readers fetch the whole note before showing, editing or commenting on it.
@@ -110,12 +110,12 @@ export const subject = (m: Msg) => { const t = titleLine(m.text); return printab
 /** A title with its work id before it, unless the title already starts with it: "HUB-007 End-of-day update", as /notes rows read. */
 export const withWorkId = (workId: string | undefined, title: string) => (workId && !title.startsWith(workId) ? `${workId} ` : "") + title;
 /** A note as a list row reads it: its work id, then its title. */
-export const noteLabel = (m: Msg) => withWorkId(m.props["work-id"], subject(m));
+export const noteLabel = (m: Msg) => withWorkId(prop(m, "work-id"), subject(m));
 /** What a list filter matches a note by (outline-core's matcher, as every bar scope): its work id, its page name and its title. */
 export const identityFields = (workId: string | undefined, page: string | undefined, title: string): string[] => [withWorkId(workId, title), workId ?? "", page ?? ""].filter(Boolean);
 
 /** A note's title with its Work ID first (PIE-809: `HOME-042 · <title>`), said once: as its tile's border and spine say it. */
 export function headedTitle(m: Msg): string {
-  const named = workIdTitle(subject(m), m.props["work-id"]);
+  const named = workIdTitle(subject(m), prop(m, "work-id"));
   return named.workId ? `${named.workId} · ${named.title}` : named.title;
 }

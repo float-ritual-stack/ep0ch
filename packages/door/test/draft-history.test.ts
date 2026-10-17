@@ -135,7 +135,7 @@ describe("a draft's history", () => {
     const d = new Draft("b1", 1, "old");
     d.place(0, 3);
     type(d, " typed");
-    d.rebase({ id: "b1", text: "new from elsewhere", props: {}, revision: 2 } as never);
+    d.rebase({ id: "b1", text: "new from elsewhere", properties: [], revision: 2 } as never);
     await undo(d);
     expect(d.text).toBe("old typed");
   });

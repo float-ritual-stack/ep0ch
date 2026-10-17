@@ -9,6 +9,7 @@ import { localAdmin } from "../src/mcp-outlines";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
 import { OUTLINE_TOOLS } from "../../claude-mod/hooks/outline-tools";
+import { prop } from "../src/props";
 
 interface RpcResponse { id: string | number | null; result?: unknown; error?: { message?: string } }
 interface ToolResult { content: { type: "text"; text: string }[]; isError?: boolean }
@@ -259,11 +260,11 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
         await setAccess("propose");
         const denied = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: { ref: remote.id, outline: scratch.name } } }]);
         expect(called(denied.find(r => r.id === 2))).toMatchObject({ isError: true });
-        expect((await board.get(remote.id))!.props["proposal-status"]).toBe("open");
+        expect(prop((await board.get(remote.id))!, "proposal-status")).toBe("open");
         await setAccess("full");
         const response = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: { ref: remote.id, outline: scratch.name } } }]);
         expect(called(response.find(r => r.id === 2))).toMatchObject({ isError: false, json: { outcome: "applied" } });
-        expect((await board.get(remote.id))!.props["proposal-status"]).toBe(op === "apply" ? "applied" : "dismissed");
+        expect(prop((await board.get(remote.id))!, "proposal-status")).toBe(op === "apply" ? "applied" : "dismissed");
         expect((await board.get(remote.note.id))!.text).toContain(op === "apply" ? "Plant peas." : "Plant beans.");
       }
       const other = await make("another-agent");

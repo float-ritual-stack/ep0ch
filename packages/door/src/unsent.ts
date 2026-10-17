@@ -198,5 +198,5 @@ export function copyNote(m: Msg, u: Unsent, base?: string | null): Msg {
 
 const view = (m: Msg, kind: "diff" | "copy", text: string, at: number): Msg =>
   // The note's revision rides along: the view's kept-draft line says whether the edit is on an older one.
-  ({ id: `${UNSENT_NOTE}${m.id}#${kind}`, text, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "unsent", props: {}, ...(m.revision !== undefined ? { revision: m.revision } : {}) });
+  ({ id: `${UNSENT_NOTE}${m.id}#${kind}`, text, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "unsent", properties: [], ...(m.revision !== undefined ? { revision: m.revision } : {}) });
 

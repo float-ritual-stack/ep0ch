@@ -17,6 +17,7 @@
 //
 // Identity is the folder plus the program, so resuming is the program's own "continue the last conversation in this
 // folder" (`resumeArgs`), whoever started it and however.
+import { prop } from "../props";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -213,13 +214,13 @@ export function sessionFacts(s: AgentSession, n?: number): Record<string, unknow
 export interface AgentConfig { name: string; program: string; args: string[]; persona?: string; folder?: string; id?: string }
 
 /** The agent configs from the notes that hold `agent-config::` (the service's query; their properties as written). */
-export function configsOf(notes: readonly { id: string; props: Record<string, string> }[]): AgentConfig[] {
+export function configsOf(notes: readonly { id: string; properties: { key: string; value: string }[] }[]): AgentConfig[] {
   const out: AgentConfig[] = [];
   for (const m of notes) {
-    const name = m.props["agent-config"]?.trim();
+    const name = prop(m, "agent-config")?.trim();
     if (!name || out.some(c => c.name === name)) continue;
-    const program = m.props.program?.trim() || name;
-    out.push({ name, program, args: words(m.props.args ?? ""), ...(m.props.persona?.trim() ? { persona: m.props.persona.trim() } : {}), ...(m.props.folder?.trim() ? { folder: m.props.folder.trim() } : {}), id: m.id });
+    const program = prop(m, "program")?.trim() || name, persona = prop(m, "persona")?.trim(), folder = prop(m, "folder")?.trim();
+    out.push({ name, program, args: words(prop(m, "args") ?? ""), ...(persona ? { persona } : {}), ...(folder ? { folder } : {}), id: m.id });
   }
   return out;
 }
