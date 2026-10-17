@@ -45,6 +45,15 @@ describe.skipIf(!outliner)("::fields, ::if and a figure over this, drawn from si
     expect(after).toContain("live · 3 occurrences");
   }, 20_000);
 
+  test("::fields of=((id)) lists another note's occurrences, whether the id is whole or its first characters", async () => {
+    const source = await make("Bed plan\n\n- first [crop::leeks]\n- second [crop::kale]");
+    const page = await make(`Beds\n\n::fields{key=crop of=((${source}))}\n\n::fields{key=crop of=((${source.slice(0, 8)}))}`);
+    const text = await show(page);
+    expect(text).not.toContain("needs a ((block))");
+    expect(text.match(/live · 2 occurrences/g)).toHaveLength(2);
+    expect(text).toContain("leeks");
+  }, 20_000);
+
   test("::fields of a key nobody wrote says so; an unknown option is said, not guessed", async () => {
     const id = await make("Empty\n\n::fields{key=connectTo}\n\n::fields{key=x colour=red}");
     const text = await show(id);
@@ -65,6 +74,13 @@ describe.skipIf(!outliner)("::fields, ::if and a figure over this, drawn from si
     const second = await show(id);
     expect(second).not.toContain("shown when active");
     expect(second).toContain("shown when paused");
+  }, 20_000);
+
+  test("an ::if body reads its note's values like the rest of the note", async () => {
+    const id = await make(["Planter [status::active] [owner::Ada]", "", "::if{where=\"status=active\"}", "Kept by {{this.owner}}.", "::"].join("\n"));
+    const text = await show(id);
+    expect(text).toContain("Kept by Ada.");
+    expect(text).not.toContain("{{this.owner}}");
   }, 20_000);
 
   test("an ::if whose query can't be read says so where its body would be", async () => {

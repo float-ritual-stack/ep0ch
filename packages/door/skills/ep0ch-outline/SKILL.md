@@ -43,6 +43,13 @@ tasks, links, backlinks). `ep0ch export … --out <dir>` writes notes as Markdow
 matter. Write header chips with blanks or ` - ` between them (`Seed order [type::errand] - [area::garden]`): both
 belong to the block; text after a chip makes it an inline aside.
 
+- **With only a shell** (no mod): `outliner create --text '<text>' --parent <full id> --author agent --actor <you>` makes a
+  note (`--parent` takes the whole id, not the first 8 characters), `outliner list --subtree <id> --limit 1` reads the text and
+  its `revision`, `outliner update --id <id> --text '<text>' --expected <revision> --author agent --actor <you>` rewrites it,
+  and `outliner agent <operation> --json '{…}' --actor <you>` is every tool above (`set-property` among them). Read what a note
+  draws with `ep0ch show <id>`; it draws values, `::fields`, `::if` and `::use`, but not a script's or an extension's output
+  (see [references/scripts.md](references/scripts.md), "Looking at a script's output").
+
 - **The tools follow the folder Claude runs in.** They (and Recent Mentions and the links in replies) use the
   outline its nearest `.ep0ch/config.toml` names (old `.ep0ch` files are still read) (`ws = "<name>"`, written by `ep0ch init` or the Choose outline popup);
   `outliner bound-folder` says which. Installing the mod (`packages/outliner/scripts/install-claude-mod.ts`) needs no folder. In a
@@ -161,7 +168,7 @@ revision, so concurrent edits rarely collide.
 A note can say what it knows about itself: `Play it at {{this.target}}. Owner: {{this.owner}}.` Every reader draws the
 value, not the braces; the editor, `ep0ch show --source` and the stored text keep what the author typed.
 
-- **Heads:** `this.key` (the note), `parent.key`, a bare `key` (the nearest value up the outline: this note's header,
+- **Heads:** `this.key` (the note's own header only: it does not inherit), `parent.key`, a bare `key` (the nearest value up the outline: this note's header,
   then each ancestor's), `((id)).key` or `[[page]].key` (another note), `person.firstName` (through a property whose
   value is a link), `now.date`, `props.key`. Every key is a list: several values read joined with commas. `{{ path ||
   fallback }}` fills in when there is nothing.
@@ -452,10 +459,10 @@ A `> [!quote]` callout's last line `— name, source` is drawn as its byline.
 **Fields and conditions** (a note that reads itself). `::fields{key=connectTo}` lists every place the note wrote that
 key (a `[connectTo::…]` chip or a `connectTo:: …` line in its body, after the first blank line), one row per occurrence
 with its line number; a row opens its own line, lit, found again by the text it was written as, and a row appears as soon
-as a line is saved. `of=((id))` lists another note's, `title=` titles it. Its `¶` anchors that line on request
+as a line is saved. `of=((id))` lists another note's (the whole id or its first 8 characters; a title in the brackets is not an id, `ep0ch find <words> --ids` prints them), `title=` titles it. Its `¶` anchors that line on request
 (`fields.anchor key=connectTo n=2`), giving a `((note^anchor))` that links to it for good; drawing it never writes. `::if{where="status=active"}`
 … `::` draws its lines only while the note matches the query (the saved views' grammar, `{{this.owner}}` operands bound,
-never pasted in); its body holds Blockdown but no other component. A figure copied onto two pages lists each page's own
+never pasted in); its body holds Blockdown (its `{{ }}` values are drawn like the rest of the note's) but no other component. A figure copied onto two pages lists each page's own
 (`query: type=ticket project={{this.project}}`), and takes call-site args: `::graph-table{project=lego}` reads
 `{{props.project}}`. The service answers all of these through `site.answer`; `outline_site` is the same read for an agent.
 

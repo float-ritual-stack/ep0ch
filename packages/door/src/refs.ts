@@ -3,6 +3,8 @@
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
 // Edit mode, comments and storage keep the raw text: this is presentation only.
 import { tokensOf, type Source } from "./props";
+import { COMPONENT_OPEN, componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
+import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
 import { ticketKeyReferences, type TicketPrefixes } from "@ep0ch/outline-core/work-ids";
 import { emphasis } from "./inline";
 import { ADORN, LINK_END, linkTag, STYLE, stripMarks } from "./style";
@@ -12,7 +14,6 @@ import type { FigureControl } from "./graphs";
 import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
-import { noteStructure } from "@ep0ch/outline-core/component-block";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
 import { blockReferenceOccurrences, linkOccurrences, pageAddressText } from "@ep0ch/outline-core/link-syntax";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
@@ -365,6 +366,17 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   const scope = src ? ticketPrefixesOf(src) : null;
   // A fence inside a callout or quote is code too (PIE-690): its lines stay as typed.
   for (const span of structuralLiteralLines(lines)) for (let j = span.start; j <= span.end; j++) if (typed[j]! < 0) typed[j] = span.start;
+  // A `::fields{…}` standing alone on its line is no component block (it has no closing `::`), but its `of=((id))` is
+  // its question as much as a figure's `of: ((id))` is: drawn as a link it would name a title, not the id.
+  lines.forEach((line, i) => { if (typed[i]! < 0 && line.trimStart().startsWith("::fields") && siteBlockAt(lines, i)) typed[i] = i; });
+  // An `::if` body is the note's own prose, shown while the query holds: its words are presented as any line's are. A
+  // body holding a figure, a fence or another component keeps the whole block as typed.
+  for (const block of componentBlocks(lines)) {
+    if (block.name !== "if") continue;
+    const body = lines.slice(block.start + 1, block.end);
+    if (body.some(l => COMPONENT_OPEN.test(l) || /^\s*(```|~~~|---\s*$)/.test(l))) continue;
+    for (let j = block.start + 1; j < block.end; j++) if (typed[j] === block.start) typed[j] = -1;
+  }
   // A `{{ }}` as the reader draws it: tagged as an element of its own, never in a link's colour unless it is a URL.
   const drawValue = (raw: string, v: SiteValue, block: string): string => {
     const words = readerWords(raw, v);

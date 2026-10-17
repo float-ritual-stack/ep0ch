@@ -6,7 +6,7 @@ this page is the template half: live with `::use`, as a new note with `template.
 ## A template
 
 A note, usually marked `[type::template]`. It declares its props with `[form-field::…]` chips and says what it makes
-with `[template-for::…]`:
+with `[template-for::…]` (optional: its word becomes the stamped note's `[type::…]`, and `of=type:<word>` finds it; a template with none is stamped by `[[page]]` or `((id))`):
 
 ```text
 Meeting {{props.with}} {{props.date}} [page::meeting-template] [type::template] [template-for::meeting]
