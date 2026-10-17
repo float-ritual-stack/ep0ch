@@ -25,6 +25,25 @@ import { safeExtensionHtml } from "./extension-html";
  */
 
 export const PRIMITIVE_TYPES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"] as const;
+/** The fields each primitive accepts besides `type` (anything else is refused): the one list the validator checks and the scripts reference prints. */
+export const PRIMITIVE_FIELDS = {
+  text: ["text", "tone", "strong"],
+  blockdown: ["text"],
+  badge: ["label", "tone"],
+  stat: ["label", "value", "unit", "tone"],
+  bar: ["label", "value", "max", "tone"],
+  table: ["columns", "rows", "links"],
+  checklist: ["items"],
+  sparkline: ["label", "values"],
+  card: ["title", "subtitle", "badge", "link", "children"],
+  box: ["title", "children"],
+  stack: ["children"],
+  row: ["children", "minWidth"],
+  band: ["text", "level", "style", "pattern", "align", "row", "tone"],
+  track: ["style", "pattern", "tone"],
+  image: ["src", "alt", "size", "fit", "height", "caption"],
+} as const satisfies Record<typeof PRIMITIVE_TYPES[number], readonly string[]>;
+
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
 export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;
@@ -135,7 +154,7 @@ function tone(value: unknown, path: string): Tone | undefined {
 }
 
 function only(object: Record<string, unknown>, keys: readonly string[], path: string): void {
-  for (const key of Object.keys(object)) if (!keys.includes(key)) fail(path, `has a field it doesn't know: ${key}`);
+  for (const key of Object.keys(object)) if (key !== "type" && !keys.includes(key)) fail(path, `has a field it doesn't know: ${key}`);
 }
 
 /** Checks a view tree against the catalogue and its bounds; returns a clean copy. */
@@ -152,31 +171,31 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
   };
   switch (node.type) {
     case "text":
-      only(node, ["type", "text", "tone", "strong"], path);
+      only(node, PRIMITIVE_FIELDS.text, path);
       if (node.strong !== undefined && typeof node.strong !== "boolean") fail(`${path}.strong`, "must be true or false");
       return { type: "text", text: text(node.text, `${path}.text`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}), ...(node.strong ? { strong: true } : {}) };
     case "blockdown":
-      only(node, ["type", "text"], path);
+      only(node, PRIMITIVE_FIELDS.blockdown, path);
       return { type: "blockdown", text: text(node.text, `${path}.text`, false, MAX_BLOCKDOWN)! };
     case "badge":
-      only(node, ["type", "label", "tone"], path);
+      only(node, PRIMITIVE_FIELDS.badge, path);
       return { type: "badge", label: text(node.label, `${path}.label`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     case "stat": {
-      only(node, ["type", "label", "value", "unit", "tone"], path);
+      only(node, PRIMITIVE_FIELDS.stat, path);
       const statValue = typeof node.value === "number" ? finite(node.value, `${path}.value`) : text(node.value, `${path}.value`)!;
       return { type: "stat", label: text(node.label, `${path}.label`)!, value: statValue,
         ...(node.unit !== undefined ? { unit: text(node.unit, `${path}.unit`)! } : {}),
         ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     }
     case "bar": {
-      only(node, ["type", "label", "value", "max", "tone"], path);
+      only(node, PRIMITIVE_FIELDS.bar, path);
       const max = finite(node.max, `${path}.max`);
       if (max <= 0) fail(`${path}.max`, "must be more than 0");
       return { type: "bar", label: text(node.label, `${path}.label`)!, value: finite(node.value, `${path}.value`), max,
         ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     }
     case "table": {
-      only(node, ["type", "columns", "rows", "links"], path);
+      only(node, PRIMITIVE_FIELDS.table, path);
       if (!Array.isArray(node.columns) || node.columns.length === 0 || node.columns.length > MAX_COLUMNS) fail(`${path}.columns`, `must list 1 to ${MAX_COLUMNS} columns`);
       const columns = node.columns.map((column, index) => text(column, `${path}.columns[${index}]`)!);
       if (!Array.isArray(node.rows) || node.rows.length > MAX_ROWS) fail(`${path}.rows`, `must be a list of at most ${MAX_ROWS} rows`);
@@ -196,7 +215,7 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
       return { type: "table", columns, rows, ...(links ? { links } : {}) };
     }
     case "checklist": {
-      only(node, ["type", "items"], path);
+      only(node, PRIMITIVE_FIELDS.checklist, path);
       if (!Array.isArray(node.items) || node.items.length > MAX_ROWS) fail(`${path}.items`, `must be a list of at most ${MAX_ROWS} items`);
       return { type: "checklist", items: node.items.map((item, index) => {
         if (!item || typeof item !== "object") fail(`${path}.items[${index}]`, "must be { label, done }");
@@ -207,13 +226,13 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
       }) };
     }
     case "sparkline": {
-      only(node, ["type", "label", "values"], path);
+      only(node, PRIMITIVE_FIELDS.sparkline, path);
       if (!Array.isArray(node.values) || node.values.length === 0 || node.values.length > MAX_VALUES) fail(`${path}.values`, `must list 1 to ${MAX_VALUES} numbers`);
       return { type: "sparkline", ...(node.label !== undefined ? { label: text(node.label, `${path}.label`)! } : {}),
         values: node.values.map((entry, index) => finite(entry, `${path}.values[${index}]`)) };
     }
     case "card": {
-      only(node, ["type", "title", "subtitle", "badge", "link", "children"], path);
+      only(node, PRIMITIVE_FIELDS.card, path);
       let badge: { label: string; tone?: Tone } | undefined;
       if (node.badge !== undefined) {
         if (!node.badge || typeof node.badge !== "object") fail(`${path}.badge`, "must be { label, tone? }");
@@ -229,18 +248,18 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         ...(node.children !== undefined ? { children: children() } : {}) };
     }
     case "box":
-      only(node, ["type", "title", "children"], path);
+      only(node, PRIMITIVE_FIELDS.box, path);
       return { type: "box", ...(node.title !== undefined ? { title: text(node.title, `${path}.title`)! } : {}), children: children() };
     case "stack":
-      only(node, ["type", "children"], path);
+      only(node, PRIMITIVE_FIELDS.stack, path);
       return { type: "stack", children: children() };
     case "row": {
-      only(node, ["type", "children", "minWidth"], path);
+      only(node, PRIMITIVE_FIELDS.row, path);
       if (node.minWidth !== undefined && (!Number.isInteger(node.minWidth) || (node.minWidth as number) < 4 || (node.minWidth as number) > 200)) fail(`${path}.minWidth`, "must be a whole number from 4 to 200");
       return { type: "row", children: children(), ...(node.minWidth !== undefined ? { minWidth: node.minWidth as number } : {}) };
     }
     case "band": {
-      only(node, ["type", "text", "level", "style", "pattern", "align", "row", "tone"], path);
+      only(node, PRIMITIVE_FIELDS.band, path);
       if (node.style !== undefined && (typeof node.style !== "string" || !HEADING_STYLE_NAME.test(node.style))) fail(`${path}.style`, "must be a heading style's name");
       if (node.level !== undefined && node.level !== 1 && node.level !== 2 && node.level !== 3) fail(`${path}.level`, "must be 1, 2 or 3");
       const choice = <T extends string>(key: string, options: readonly T[]): T | undefined => {
@@ -256,14 +275,14 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     }
     case "track": {
-      only(node, ["type", "style", "pattern", "tone"], path);
+      only(node, PRIMITIVE_FIELDS.track, path);
       if (node.style !== undefined && (typeof node.style !== "string" || !HEADING_STYLE_NAME.test(node.style))) fail(`${path}.style`, "must be a heading style's name");
       if (node.pattern !== undefined && !BAND_PATTERNS.includes(node.pattern as BandPattern)) fail(`${path}.pattern`, `must be one of ${BAND_PATTERNS.join(", ")}`);
       return { type: "track", ...(node.style !== undefined ? { style: node.style as string } : {}), ...(node.pattern !== undefined ? { pattern: node.pattern as BandPattern } : {}),
         ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     }
     case "image": {
-      only(node, ["type", "src", "alt", "size", "fit", "height", "caption"], path);
+      only(node, PRIMITIVE_FIELDS.image, path);
       const src = text(node.src, `${path}.src`)!;
       // A file the outline names, as a note's image line does: never a page on the web or a stored Resource.
       if (!src.trim() || src.includes("\0") || (isResourceRef(src) && !src.startsWith("file:")) || (src.startsWith("file:") && "problem" in parseResourceRef(src)))

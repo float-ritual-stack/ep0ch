@@ -13,7 +13,8 @@ applies:
 - [CONTRIBUTING.md](CONTRIBUTING.md) has the verification steps and the review checklist. The `ep0ch-core` skill
   ([packages/door/skills/ep0ch-core](packages/door/skills/ep0ch-core/SKILL.md)) is the map across the packages, with
   the real-pane test recipe; `ep0ch-outline` is for working in an outline for someone, `ep0ch` for driving a door,
-  `echonet` for carrying notes between outlines (`ep0ch --skill` lists them all).
+  `echonet` for carrying notes between outlines (`ep0ch --skill` lists them all). The script surface is one page,
+  [packages/outliner/docs/scripts.md](packages/outliner/docs/scripts.md), which the skills link and a test keeps true.
 
 ## The repository
 

@@ -14,6 +14,7 @@
     "./agent-tools": "./src/agent-tools.ts",
     "./mcp-write": "./src/mcp-write.ts",
     "./host-api": "./src/host-api.ts",
+    "./script-examples": "./src/script-examples.ts",
     "./draft-patch": "./src/draft-patch.ts",
     "./echo-health": "./src/echo-health.ts",
     "./extension-update": "./src/extension-update.ts",

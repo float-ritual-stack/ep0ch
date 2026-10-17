@@ -1004,6 +1004,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "script-examples", need: "learn the scripts surface from notes you can paste, and see each one run", part: "the scripts reference's worked examples (outliner docs/scripts.md) as notes: render scripts, an action script, a rule that stamps", files: "outliner/docs/scripts.md, outliner/src/script-examples.ts",
+    aside: "Game 1 draws a tic-tac-toe board from its [board::] property · ^K then ttt-play cell=5 plays a cell as X, then O, and the drawing follows; the note's property is the whole state, so ctrl+z takes a move back · Seed order draws a table of its children with a Cost column: edit a [qty::] (e, save) or add a child and it redraws · Bed 4, the stamping rule and the other scripts sit under Script examples · the page prints exactly these notes, and its test runs them",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · script examples", panes: [a, b], names: ["game", "table"], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.exampleGame], [b, n.exampleOrder]]);
+    },
+  },
+  {
     key: "one-place", need: "keep your place when reading, editing and returning to a held edit", part: "NoteSurface and Draft share source positions through Doc.source; DraftSession keeps the edit in the ReaderMode stack; PaneView.scroll draws its bar", files: "src/reader-position.ts, src/surface/note.ts, src/edit.ts, src/draft-session.ts",
     aside: "Scroll halfway, then e and Enter: the same line stays put. Click the shed, wheel the held edit, click back once to focus, again to place the cursor. Wheel away and type to return to the cursor. The scroll bar stays visible in both edits. Esc returns to reading at the same source line.",
     stage(n, show) {
