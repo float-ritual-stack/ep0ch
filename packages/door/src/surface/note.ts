@@ -55,6 +55,7 @@ import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline
 import { lastTrashed } from "../note-trash";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
+import { fieldsDrawn } from "../site-blocks";
 import { visible, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -4097,6 +4098,7 @@ export class NoteSurface {
       if (!select) throw new ActionRefused("going into a ::links list is the person's; an agent reads it with links.blocks and opens a row with links.open");
       return this.runKey("links.enter", { block: e.link.linksBlock.key }, host);
     }
+    if (e.link?.anchor) return this.runKey("fields.anchor", { block: e.link.anchor.block, n: e.link.anchor.n }, host);
     if (e.kind === "control") return this.useControl(e, host);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
@@ -4893,6 +4895,7 @@ export class NoteSurface {
     }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
     if (l.unsent) { void this.runKey(`unsent.${l.unsent.op}`, { kind: l.unsent.kind }, host); return Promise.resolve(null); }
+    if (l.anchor) { void this.runKey("fields.anchor", { block: l.anchor.block, n: l.anchor.n }, host); return Promise.resolve(null); }
     if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
     if (l.role === "figure" && l.figure) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
@@ -5432,6 +5435,32 @@ export class NoteSurface {
     this.noteAgent(actor, said);
     host.redraw();
     return { block: ref.block, step: r.item.itemId ?? null, status: r.item.status, from: before, changed: r.changed, revision: r.block.revision ?? null, ...(link ? { link } : {}), recordedAs: mutationFor(actor) };
+  }
+
+  /**
+   * The `⚓` on a `::fields` row (S3): the row's line gets an anchor (`fragments.ensure`, attributed), so `((note^anchor))`
+   * links to it for good. The one thing a `::fields` writes, and only when asked: drawing it never does.
+   */
+  async anchorField(block: number, n: number, host: SurfaceHost, actor: Actor) {
+    const m = this.requireNote();
+    const drawnFields = fieldsDrawn(m.id, block);
+    if (!drawnFields) throw new ActionRefused(`this note draws no ::fields ${block}${block === 1 ? "" : " (they are numbered from 1, in the order drawn)"}`);
+    const row = drawnFields.rows[n - 1];
+    if (!row) throw new ActionRefused(`::fields ${block} has rows 1 to ${drawnFields.rows.length}`);
+    let anchored: { fragmentId: string; created: boolean };
+    try { anchored = await host.ctx.board.ensureFragment(drawnFields.from, row.line, drawnFields.revision, actor); }
+    catch (e) {
+      const why = `not anchored: ${e instanceof Error ? e.message : String(e)}`;
+      host.ctx.flash(why);
+      throw new ActionRefused(why);
+    }
+    const link = `((${drawnFields.from}^${anchored.fragmentId}))`;
+    if (actor.kind === "user") host.ctx.copy?.(link);
+    const said = `${anchored.created ? "anchored" : "already anchored"} line ${row.line + 1}: ${link}${actor.kind === "user" ? " · copied" : ""}`;
+    host.ctx.flash(said);
+    this.noteAgent(actor, said);
+    host.redraw();
+    return { block: drawnFields.from, line: row.line + 1, anchor: anchored.fragmentId, created: anchored.created, link, recordedAs: mutationFor(actor) };
   }
 
   /**
@@ -9190,6 +9219,18 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ copy, ...which }, { surface, host }, actor) {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, copy === false ? "address" : "copy-link", host, actor);
+    },
+  }),
+  "fields.anchor": def({
+    summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: block= which ::fields of the note (from 1, in the order drawn), n= its row (from 1)",
+    keys: "⏎ or a click on a ::fields row's ⚓",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      block: { type: "number", optional: true, about: "which ::fields of the note, from 1 in the order drawn (default 1)" },
+      n: { type: "number", optional: true, about: "the row, from 1 (default 1)" },
+    },
+    async run({ block, n }, { surface, host }, actor) {
+      return surface.anchorField(block ?? 1, n ?? 1, host, actor);
     },
   }),
   "task.menu": def({

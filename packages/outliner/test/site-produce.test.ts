@@ -82,7 +82,7 @@ describe("a figure over this", () => {
     expect(answer.blocks).toHaveLength(3);
     expect(answer.done).toHaveLength(1);
     const stat = figure(store, lego.id, { items: [{ label: "mine", query: "type=ticket project={{this.project}}" }, { label: "all", query: "type=ticket" }] }, {}, "stat");
-    expect(stat.counts).toEqual([{ value: "3" }, { value: "4" }]);
+    expect(stat.counts!.map(c => c.ids.length)).toEqual([3, 4]);
     expect(figure(store, lego.id, { query: "type=ticket", direction: "sideways" }).error).toMatch(/^direction: sideways/);
   });
 
@@ -140,6 +140,7 @@ describe("::fields", () => {
     expect(produced.rows[0]!.mark).toBe("- first pass [connectTo::demonstrating by doing]");
     const text = store.get(note.id)!.text;
     expect(text.slice(produced.rows[1]!.offset!, produced.rows[1]!.offset! + "[connectTo::shacks".length)).toBe("[connectTo::shacks");
+    expect(produced.rows.map(r => r.token)).toEqual(["[connectTo::demonstrating by doing]", "[connectTo::shacks not cathedrals]"]);
     expect(produced.revision).toBe(store.get(note.id)!.revision);
     expect(answer.deps).toEqual([note.id]);
   });
@@ -164,6 +165,7 @@ describe("::fields", () => {
     expect(of.from).toBe(note.id);
     const own = answerSite(store, { blockId: other.id, produce: { kind: "fields", key: "connectTo" } }).produced as Extract<SiteProduced, { kind: "fields" }>;
     expect(own.rows[0]!.link?.title).toBe("Vent rail");
+    expect(own.rows[0]!.token).toBe("[connectTo::[[Vent rail]]]");
     const none = answerSite(store, { blockId: note.id, produce: { kind: "fields", key: "nope" } }).produced as Extract<SiteProduced, { kind: "fields" }>;
     expect(none.rows).toEqual([]);
   });

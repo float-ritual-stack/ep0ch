@@ -124,7 +124,9 @@ export interface FieldRow {
   /** The line index and its text: a row finds its line again by this text when the note was edited since. */
   line: number;
   mark: string;
-  /** The field's offset in the note's text, and the note's revision when it was read (to anchor the line). */
+  /** The field as written (`[connectTo::trust the drift]`, or its `key:: value` line): a reader finds it again by this text. */
+  token?: string;
+  /** The field's offset in the note's text. */
   offset?: number;
   /** A value that is a link to a note: shown by its title. */
   link?: { id: string; title: string };
@@ -141,8 +143,8 @@ export type SiteProduced =
     now?: string[];
     hint?: string;
     error?: string;
-    /** A `stat`/`kpi` whose items ask for themselves: each item's count (or its problem), in the items' order. */
-    counts?: { value: string; error?: string }[];
+    /** A `stat`/`kpi` whose items ask for themselves: each item's results (a page counts the ones it shows) or its problem, in the items' order. */
+    counts?: { ids: string[]; truncated: boolean; error?: string }[];
   }
   | { kind: "children"; blocks: unknown[] }
   | { kind: "fields"; key: string; /** The note read (its id) and its revision. */ from: string; revision: number; rows: FieldRow[]; problem?: SiteProblem }

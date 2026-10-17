@@ -24,7 +24,7 @@ type Props = Record<string, any>;
  * One figure's answer: its results, the service's `groups` when the figure groups, and which results the figure's
  * `done:` and `now:` queries hold for (as the service says).
  */
-interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string; counts?: { value: string; error?: string }[] }
+interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string; counts?: { ids: string[]; truncated: boolean; error?: string }[] }
 type Answer = Omit<Entry, "state" | "error">;
 
 let board: SocketBoard | null = null;
@@ -53,6 +53,10 @@ function changed() { onChange(); for (const fn of listeners) fn(); }
 export interface LiveSite { chain?: SiteLink[]; args?: Record<string, string> }
 
 /** A producer's question asked of its note's Site, watched: the service answers it (`site.answer`), and says when the answer changed. */
+export function siteProduced(note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> | null {
+  return board ? produced(board, note, producer, site) : null;
+}
+
 function produced(b: SocketBoard, note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> {
   const props = site?.args && Object.keys(site.args).length ? Object.fromEntries(Object.entries(site.args).map(([k, v]) => [k, [v]])) : undefined;
   return watchedOn(b).read("site.answer", { ...(note ? { blockId: note } : {}), produce: producer, ...(site?.chain?.length ? { chain: site.chain } : {}), ...(props ? { props } : {}) }, (r: { produced: SiteProduced }) => {
@@ -77,7 +81,7 @@ function ask(kind: string, p: Props, note: string | undefined, site?: LiveSite):
   const a = read.value as Extract<SiteProduced, { kind: "figure" }>;
   const items = a.blocks as unknown as Msg[];
   const error = read.state === "error" ? read.error : a.error;
-  if (error) return { state: "error", items, truncated: false, error };
+  if (error) return { state: "error", items, truncated: false, error, ...(a.counts ? { counts: a.counts } : {}) };
   return { state: "ready", items, truncated: a.truncated, ...(a.groups ? { groups: a.groups } : {}), ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}), ...(a.counts ? { counts: a.counts } : {}) };
 }
 
@@ -129,7 +133,7 @@ export function resolveLive(kind: string, p: Props, note?: string, site?: LiveSi
     const a = ask(kind, p, note, site);
     if (!a) return null;
     if (a.state === "loading") return { props: { ...p, items: p.items.map((i: Props) => ({ ...i, value: i?.query || i?.view ? "…" : i?.value })) }, status: "live", waiting: true };
-    const items = p.items.map((i: Props, k: number) => (a.counts?.[k] && (i?.query || i?.view) ? { ...i, value: a.counts[k]!.value } : i));
+    const items = p.items.map((i: Props, k: number) => (a.counts?.[k] && (i?.query || i?.view) ? { ...i, value: a.counts[k]!.error ? "?" : `${a.counts[k]!.ids.length}${a.counts[k]!.truncated ? "+" : ""}` } : i));
     return { props: { ...p, items }, status: "live", waiting: false, error: a.error };
   }
   const asking = liveAsk(kind, p);

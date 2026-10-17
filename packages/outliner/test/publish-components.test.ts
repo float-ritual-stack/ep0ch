@@ -204,3 +204,47 @@ test("on a public page a live figure lists only public notes", async () => {
   expect(html).not.toContain("Weed the onion bed");
   expect(html).toContain("live · 1 result");
 });
+
+test("PIE-533 S3 on a page: one figure on two project pages lists each page's own, ::fields lists the occurrences, ::if draws its body only when this matches", async () => {
+  const { store, page } = await setup();
+  for (const [title, project] of [["Sort the bricks", "lego-night"], ["Build the tower", "lego-night"], ["Water the beans", "garden"]]) store.create(`${title} [type::ticket] [project::${project}]`);
+  const figure = "::graph-table\n---\nquery: type=ticket project={{this.project}}\ncolumns: [title]\n---\n::";
+  const lego = store.create(`Lego night [project::lego-night]\n\n${figure}`);
+  const garden = store.create(`Garden [project::garden]\n\n${figure}`);
+  const a = await page(`/p/${lego.id}`), b = await page(`/p/${garden.id}`);
+  expect(a).toContain("Sort the bricks");
+  expect(a).toContain("Build the tower");
+  expect(a).not.toContain("Water the beans");
+  expect(b).toContain("Water the beans");
+  expect(b).not.toContain("Sort the bricks");
+
+  const rail = store.create([
+    "Vent rail [status::active]", "",
+    "- first pass [connectTo::demonstrating by doing]", "- second pass [connectTo::shacks not cathedrals]", "",
+    "::fields{key=connectTo}", "",
+    "::if{where=\"status=active\"}", "shown when active", "::", "",
+    "::if{where=\"status=paused\"}", "shown when paused", "::",
+  ].join("\n"));
+  const html = await page(`/p/${rail.id}`);
+  expect(html).toContain("demonstrating by doing");
+  expect(html).toContain("shacks not cathedrals");
+  expect(html).toContain("line 3");
+  expect(html).toContain("live · 2 occurrences");
+  expect(html).toContain("shown when active");
+  expect(html).not.toContain("shown when paused");
+  expect(html).not.toContain("::if");
+  expect(html).not.toContain("::fields");
+});
+
+test("on a public page a stat counts only the notes the page may show", async () => {
+  const { store, publisher } = await setup();
+  store.create("Sow the runner beans [type::chore] [publish::public]");
+  store.create("Weed the onion bed [type::chore]");
+  store.create("Mulch the paths [type::chore]");
+  const note = store.create('Chore counts [publish::public]\n::graph-stat\n---\ntitle: Counts\nitems:\n  - label: chores\n    query: "type=chore"\n---\n::');
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`, { headers: { accept: "text/html" } }), "public");
+  const html = await response.text();
+  expect(html).toContain("chores");
+  expect(html).toMatch(/>1</);
+  expect(html).not.toMatch(/>3</);
+});

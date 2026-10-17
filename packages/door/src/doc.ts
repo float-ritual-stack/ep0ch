@@ -9,6 +9,8 @@ import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv, type RowInline } from "./graphs";
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
+import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
+import { ifProblemLines, ifState, renderFields } from "./site-blocks";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
 import { linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
@@ -392,10 +394,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const own = listLayers(src, first).map(l => (look!.lists ? { ...l, fields: look!.lists(l.line!, l.fields) } : l));
     return own.some(l => Object.keys(l.fields).length) ? resolveStyle([...look!.layers, ...own], look!.width).values : look!.values;
   };
+  // `::fields` drawn so far (the nth is what `fields.anchor` names), and the closing lines of the `::if` bodies drawn (not text).
+  let fieldsDrawn = 0;
+  const ifCloses = new Set<number>();
   for (let i = 0; i < src.length; i++) {
     mark();
     insert(i);
     from = i;
+    if (ifCloses.has(i)) continue;
     const line = src[i]!;
 
     // The look's list rows (PIE-673): blank rows and a divider between one item and the next, every other item tinted.
@@ -536,6 +542,22 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (lb) {
       out.push(...renderLinkBlock(lb.spec, env.note, W, frame, env.tag, env.linkBlocks));
       i = lb.end;
+      continue;
+    }
+
+    // `::fields` and `::if` (src/site-blocks.ts): the components that read their note's Site, drawn from the service's
+    // answer. An `::if` whose query holds draws its body in place of its two lines; any other state draws nothing.
+    const sb = siteBlockAt(src, i, componentAt);
+    if (sb?.kind === "fields") {
+      out.push(...renderFields(sb.spec, env.note, W, ++fieldsDrawn, env.tag));
+      i = sb.end;
+      continue;
+    }
+    if (sb?.kind === "if") {
+      const held = sb.spec.problem ? { state: "problem" as const, message: sb.spec.problem, didYouMean: [] } : ifState(sb.spec.where, env.note);
+      if (held.state === "holds") { ifCloses.add(sb.end); continue; }
+      if (held.state === "problem") out.push(...ifProblemLines(held.message, W));
+      i = sb.end;
       continue;
     }
 

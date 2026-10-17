@@ -17,7 +17,7 @@ type Props = Record<string, any>;
 
 /** What the producers need of the store, beyond the Site read's. */
 export interface ProducerStore {
-  get(id: string): { id: string; revision: number } | null;
+  get(id: string): { id: string; revision: number; text: string } | null;
   queryBlocks(input: BlockSearchQuery, binder?: ValueBinder): VisibleBlockCollection & { groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string };
   readSavedView(viewId: string, options: Record<string, never>, format: "tree"): SavedViewReadResult<TreeIndexBlock>;
   matchQuery(expression: unknown, ids: unknown, narrow?: { this?: unknown }, binder?: ValueBinder): { blockIds: string[] };
@@ -66,8 +66,8 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   if (asksPerItem(kind, p)) {
     const counts = (p.items as Props[]).map(item => {
       const a = ask(store, tools, thisId, item);
-      if (!a) return { value: String(item?.value ?? "") };
-      return a.error ? { value: "?", error: a.error } : { value: `${a.blocks.length}${a.truncated ? "+" : ""}` };
+      if (!a) return { ids: [], truncated: false };
+      return a.error ? { ids: [], truncated: false, error: a.error } : { ids: a.blocks.map(b => b.id), truncated: a.truncated };
     });
     const error = counts.find(c => c.error)?.error;
     return { kind: "figure", blocks: [], truncated: false, counts, ...(error ? { error } : {}) };
@@ -89,20 +89,33 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   };
 }
 
+/** A field as written: a `[key::value]` chip to its closing bracket (links inside nest), else its `key:: value` line. */
+function tokenAt(text: string, offset: number, line: string): string {
+  if (text[offset] === "[") {
+    for (let i = offset, depth = 0; i < text.length && text[i] !== "\n"; i++) {
+      if (text[i] === "[") depth++;
+      else if (text[i] === "]" && --depth === 0) return text.slice(offset, i + 1);
+    }
+  }
+  return line.trim();
+}
+
 function fields(store: ProducerStore, tools: SiteTools, key: string, of: string | undefined): SiteProduced {
   const path = `${of ? `((${of}))` : "this"}.fields.${key}`;
   const read = tools.read(path);
   if (read.problem) return { kind: "fields", key, from: of ?? "", revision: 0, rows: [], problem: read.problem };
   const from = read.from ?? of ?? "";
+  const note = store.get(from);
   const rows: FieldRow[] = (read.values ?? []).map((value, i) => {
     const link = read.links?.find(l => l.text === value);
+    const offset = read.offsets?.[i], mark = read.marks?.[i] ?? "";
     return {
-      value, line: read.lines?.[i] ?? 0, mark: read.marks?.[i] ?? "",
-      ...(read.offsets?.[i] !== undefined ? { offset: read.offsets[i]! } : {}),
+      value, line: read.lines?.[i] ?? 0, mark,
+      ...(offset !== undefined ? { offset, token: tokenAt(note?.text ?? "", offset, mark) } : {}),
       ...(link ? { link: { id: link.id, title: link.title } } : {}),
     };
   });
-  return { kind: "fields", key, from, revision: store.get(from)?.revision ?? 0, rows };
+  return { kind: "fields", key, from, revision: note?.revision ?? 0, rows };
 }
 
 function holds(store: ProducerStore, tools: SiteTools, thisId: string, where: string): SiteProduced {
