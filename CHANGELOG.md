@@ -45,6 +45,29 @@ What you can now do: write a template once and use it two ways. Draw it live whe
   `form-field` types `note` and `tag`; a template's fields may be named `with` and `color`, the names an action's
   request reserves. No `PROTOCOL` change in this slice.
 
+### Notes that read themselves: `::fields`, `::if` and one figure orchestrator (PIE-953, fourth slice of PIE-533)
+
+What you can now write in a note, and what it does:
+
+- **`::fields{key=connectTo}`** lists every place the note wrote that key, one row per occurrence with its line. A row
+  opens its own line, lit, found again by the text it was written as, so it still works after edits above it; a row
+  appears as soon as a line is saved. `of=((id))` lists another note's. A row's `¶` anchors its line when you ask
+  (`fields.anchor`, by click, `⏎` or `act`) and gives you `((note^anchor))`; drawing it never writes.
+- **`::if{where="status=active"}` … `::`** draws its lines only while the note matches the query (the views' grammar,
+  `{{this.owner}}` operands bound). A query it can't read hides the body and says why. Its body holds Blockdown but no
+  other component (components don't nest yet).
+- **A figure copied onto two pages lists each page's own** (`query: type=ticket project={{this.project}}`), including
+  drawn inside another note (`site.answer` takes the `chain`), and takes call-site args: `::graph-table{project=lego}`
+  reads `{{props.project}}`.
+- **One orchestrator.** A figure's question (view or query, groups, `done:`/`now:`, a stat's per-item counts) and a
+  figure block's child bullets are asked of the service once, in the figure's Site (`site.answer` with `produce`); the
+  door and the published pages both draw that answer, and a page cuts it to the notes it may show. The child-bullets
+  query now leaves out proposals as well as comments.
+
+For people who run things: no `PROTOCOL` bump in this slice (the wave bumps it once at landing). Wire: `site.answer`
+takes `produce` and answers `produced`; `blockId` may be left out for a figure asked outside any note; a
+`.fields.` path answers `offsets` too; `blocks.query`/`query.matches` are unchanged.
+
 ### Notes that read themselves: values in every reader (PIE-952, fourth slice of PIE-533)
 
 What you can now do: write `Play it at {{this.target}}. Owner: {{this.owner}}.` in a note and see the value, not the

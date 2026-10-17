@@ -97,6 +97,8 @@ export type PathAnswer =
     ok: true; values: string[];
     /** For `.fields.key`: the line each value was written on, and that line's text. */
     lines?: number[]; marks?: string[];
+    /** For `.fields.key`: where each value's field starts in the note's text (to open the line lit). */
+    offsets?: number[];
     /** The note the values were read from. */
     from?: string;
     /** The values that are links to a note (shown by the note's title). */
@@ -169,7 +171,7 @@ export const RECORD_KEYS = ["id", "parent", "title", "body", "text", "children",
 
 type TaskRow = BlockRecord["tasks"][number];
 type Cursor =
-  | { kind: "values"; values: string[]; lines?: number[]; marks?: string[]; from?: string }
+  | { kind: "values"; values: string[]; lines?: number[]; marks?: string[]; offsets?: number[]; from?: string }
   | { kind: "notes"; notes: BlockRecord[]; list: boolean; /** How the note was reached (`this`), for messages. */ label?: string }
   | { kind: "tasks"; tasks: TaskRow[]; list: boolean; of: BlockRecord };
 
@@ -287,11 +289,11 @@ function inRecord(record: BlockRecord, steps: readonly PathStep[], i: number, la
       cx.route.push(`${label}.block.${joined.key}: block scope (what queries match)`);
       return { cursor: { kind: "values", values: valuesOf(record, joined.key), from: record.id }, next: i + 1 + joined.used };
     }
-    const found = record.fields.filter(f => f.key === joined.key).flatMap(f => splitPropertyValue(f.value).map(value => ({ value, line: f.line })));
+    const found = record.fields.filter(f => f.key === joined.key).flatMap(f => splitPropertyValue(f.value).map(value => ({ value, line: f.line, offset: f.offset })));
     const lines = record.text.split("\n");
     cx.route.push(`${label}.fields.${joined.key}: each occurrence with its line`);
     return {
-      cursor: { kind: "values", values: found.map(f => f.value), lines: found.map(f => f.line), marks: found.map(f => lines[f.line] ?? ""), from: record.id },
+      cursor: { kind: "values", values: found.map(f => f.value), lines: found.map(f => f.line), marks: found.map(f => lines[f.line] ?? ""), offsets: found.map(f => f.offset), from: record.id },
       next: i + 1 + joined.used,
     };
   }
@@ -503,6 +505,7 @@ function pick(c: Cursor, index: number): Cursor {
     return {
       kind: "values", values: at === undefined ? [] : [at], ...(c.from ? { from: c.from } : {}),
       ...(c.lines?.[index] !== undefined ? { lines: [c.lines[index]!] } : {}), ...(c.marks?.[index] !== undefined ? { marks: [c.marks[index]!] } : {}),
+      ...(c.offsets?.[index] !== undefined ? { offsets: [c.offsets[index]!] } : {}),
     };
   }
   if (c.kind === "notes") return { kind: "notes", notes: c.notes[index] ? [c.notes[index]!] : [], list: false };
@@ -605,6 +608,7 @@ function finish(start: Cursor, steps: readonly PathStep[], from: number, cx: Cx)
   if (cursor.kind === "values") {
     if (cursor.lines) out.lines = cursor.lines;
     if (cursor.marks) out.marks = cursor.marks;
+    if (cursor.offsets) out.offsets = cursor.offsets;
     if (cursor.from) out.from = cursor.from;
     // Values that are links to a note are shown by its title, and a client may open them.
     const world = cx.scope.world;

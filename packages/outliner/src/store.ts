@@ -3879,8 +3879,9 @@ export class OutlinerStore {
     return thisId ? path => pathValues(this, thisId, path) : undefined;
   }
 
-  queryBlocks(input: BlockSearchQuery): VisibleBlockCollection {
-    const query = normalizeBlockSearchQuery(input, this.valueBinder(input?.this?.trim() || undefined));
+  /** `binder`: what a `{{path}}` in the question reads, when the question sits in a Site the caller has already bound (a figure in a `::use`). */
+  queryBlocks(input: BlockSearchQuery, binder?: ValueBinder): VisibleBlockCollection {
+    const query = normalizeBlockSearchQuery(input, binder ?? this.valueBinder(input?.this?.trim() || undefined));
     return this.database.transaction(() => this.queryNormalizedBlocksFromCurrentRead(query))();
   }
 
@@ -4086,7 +4087,7 @@ export class OutlinerStore {
    * `text` (every word, any order) and `subtreeRootId` (that block and those under it) narrow it as in `blocks.query`;
    * with either, the expression may be left out.
    */
-  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown } = {}): { blockIds: string[] } {
+  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown } = {}, binder?: ValueBinder): { blockIds: string[] } {
     const { text, subtreeRootId, this: thisId } = narrow;
     if (thisId !== undefined && (typeof thisId !== "string" || !thisId)) throw new Error("Query match this must be a block ID");
     if (text !== undefined && typeof text !== "string") throw new Error("Query match text must be a string");
@@ -4096,7 +4097,7 @@ export class OutlinerStore {
     if (!(typeof expression === "string" && expression.trim()) && !narrowed) throw new Error("Query match needs a query expression");
     if (!Array.isArray(ids) || ids.length > 1000 || ids.some(id => typeof id !== "string")) throw new Error("Query match needs blockIds: an array of at most 1000 block IDs");
     const parsed = typeof expression === "string" && expression.trim() ? parseSearchExpression(expression) : { filters: [], where: undefined };
-    const filters = parsed.filters, where = parsed.where && bindThis(parsed.where, thisId as string | undefined, this.valueBinder(thisId as string | undefined));
+    const filters = parsed.filters, where = parsed.where && bindThis(parsed.where, thisId as string | undefined, binder ?? this.valueBinder(thisId as string | undefined));
     if (filters.some(filter => filter.key === "deleted")) throw new Error("deleted=true selects Trash; it isn't a property to match");
     const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph())) : null;
     const terms = typeof text === "string" ? searchTextTerms(text) : [];

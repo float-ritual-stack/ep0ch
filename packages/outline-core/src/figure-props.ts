@@ -13,6 +13,7 @@ import { componentAttrs, componentBlocks, type ComponentBlock } from "./componen
 import { expandRuns, figureRow, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
 import { readDate } from "./dates";
 import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
+import type { SiteLink } from "./site";
 
 /** A figure's props, from its YAML (or its Markdown, or the outline). */
 export type Props = Record<string, any>;
@@ -39,6 +40,8 @@ export interface FigureSource {
   at?: number;
   /** The `{…}` after the figure's name (`::graph-table{project=lego}`): call-site arguments, read as props under its YAML. */
   attrs?: string;
+  /** Where the figure is drawn: the invocations that draw its note (a `::use` on a host, an embed), outermost first. Absent: the note itself. */
+  chain?: SiteLink[];
 }
 
 /** A `::graph-*` block's lines (after its first line, to its `::`) as its YAML and its Markdown. */

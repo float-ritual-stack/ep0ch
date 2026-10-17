@@ -56,6 +56,8 @@ import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline
 import { lastTrashed } from "../note-trash";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
+import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
+import { fieldsDrawn } from "../site-blocks";
 import { visible, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -4101,6 +4103,7 @@ export class NoteSurface {
       if (!select) throw new ActionRefused("going into a ::links list is the person's; an agent reads it with links.blocks and opens a row with links.open");
       return this.runKey("links.enter", { block: e.link.linksBlock.key }, host);
     }
+    if (e.link?.anchor) return this.runKey("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, host);
     if (e.kind === "control") return this.useControl(e, host);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
@@ -4907,6 +4910,7 @@ export class NoteSurface {
     }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
     if (l.unsent) { void this.runKey(`unsent.${l.unsent.op}`, { kind: l.unsent.kind }, host); return Promise.resolve(null); }
+    if (l.anchor) { void this.runKey("fields.anchor", { key: l.anchor.key, n: l.anchor.n }, host); return Promise.resolve(null); }
     if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
     if (l.role === "figure" && l.figure) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
@@ -5025,7 +5029,7 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
+    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.atSays ? { says: l.atSays } : l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
     this.track(() => host.navigate(target, how));
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
@@ -5451,6 +5455,40 @@ export class NoteSurface {
     this.noteAgent(actor, said);
     host.redraw();
     return { block: ref.block, step: r.item.itemId ?? null, status: r.item.status, from: before, changed: r.changed, revision: r.block.revision ?? null, ...(link ? { link } : {}), recordedAs: mutationFor(actor) };
+  }
+
+  /**
+   * The `¶` on a `::fields` row (S3): the row's line gets an anchor (`fragments.ensure`, attributed), so `((note^anchor))`
+   * links to it for good. The one thing a `::fields` writes, and only when asked: drawing it never does.
+   */
+  async anchorField(key: string | undefined, n: number, host: SurfaceHost, actor: Actor) {
+    const m = this.requireNote();
+    const read = fieldsDrawn(m.id, key);
+    if ("problem" in read) throw new ActionRefused(read.problem);
+    const drawnFields = read.found;
+    // What was drawn may be gone from the note (edited away, drawn by a reader that has since moved on).
+    const now = await this.whole();
+    if (!fieldsBlocksOf(now.text).some(s => s.key.toLowerCase() === drawnFields.key.toLowerCase() && (s.of ?? null) === drawnFields.of)) {
+      throw new ActionRefused(`this note no longer holds a ::fields{key=${drawnFields.key}}`);
+    }
+    const row = drawnFields.rows[n - 1];
+    if (!row) throw new ActionRefused(`::fields{key=${drawnFields.key}} has rows 1 to ${drawnFields.rows.length}`);
+    let anchored: { fragmentId: string; created: boolean };
+    try { anchored = await host.ctx.board.ensureFragment(drawnFields.from, row.line, drawnFields.revision, actor); }
+    catch (e) {
+      const said = e instanceof Error ? e.message : String(e);
+      // The list was drawn from an older text: it is read again (watched), and the row anchors once it is.
+      const why = /changed since/.test(said) ? "not anchored: the note changed since the list was read; it is read again, press ¶ once more" : `not anchored: ${said}`;
+      host.ctx.flash(why);
+      throw new ActionRefused(why);
+    }
+    const link = `((${drawnFields.from}^${anchored.fragmentId}))`;
+    if (actor.kind === "user") host.ctx.copy?.(link);
+    const said = `${anchored.created ? "anchored" : "already anchored"} line ${row.line + 1}: ${link}${actor.kind === "user" ? " · copied" : ""}`;
+    host.ctx.flash(said);
+    this.noteAgent(actor, said);
+    host.redraw();
+    return { block: drawnFields.from, noteLine: row.line + 1, anchor: anchored.fragmentId, created: anchored.created, link, recordedAs: mutationFor(actor) };
   }
 
   /**
@@ -7807,6 +7845,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const r: unknown = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
+      // A `::fields` row's ¶ anchors its line, as whoever asks.
+      if (e.link?.anchor) {
+        const r: unknown = await NOTE_ACTIONS.run("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, on, actor);
+        return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
+      }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
       if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : e.control === "untldr" || e.control === "tldr" ? `thread.tldr thread=${e.thread!.slice(0, 8)}${e.control === "untldr" ? " remove=true" : ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
@@ -9230,6 +9273,18 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ copy, ...which }, { surface, host }, actor) {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, copy === false ? "address" : "copy-link", host, actor);
+    },
+  }),
+  "fields.anchor": def({
+    summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: key= which ::fields (its key; default the only one the note draws), n= its row (from 1)",
+    keys: "⏎ or a click on a ::fields row's ¶",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      key: { type: "string", optional: true, about: "which ::fields: its key (default the only one the note draws)" },
+      n: { type: "number", optional: true, about: "the row, from 1 (default 1)" },
+    },
+    async run({ key, n }, { surface, host }, actor) {
+      return surface.anchorField(key, n ?? 1, host, actor);
     },
   }),
   "task.menu": def({

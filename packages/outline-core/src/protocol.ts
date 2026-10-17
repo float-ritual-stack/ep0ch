@@ -189,7 +189,7 @@ export const WATCHABLE_ACTIONS = ["blocks.query", "views.read", "blocks.authored
 
 // The Site read (PIE-533): what a `{{ }}`, a figure, a script or a template reads of the note it sits in. Defined beside the
 // Site (site.ts), named here with the rest of the wire.
-export type { SiteAnswer, SiteAnswerRequest, SiteLink, SiteProblem, SiteValue } from "./site";
+export type { FieldRow, SiteAnswer, SiteAnswerRequest, SiteLink, SiteProblem, SiteProduced, SiteProducer, SiteValue } from "./site";
 
 /** A query the service refused, with where. */
 export interface OutlinerRequestProblem {

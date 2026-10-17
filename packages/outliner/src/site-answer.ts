@@ -12,14 +12,15 @@ import { interpolate, interpolationSpans, spanTail, type InterpolationSpan } fro
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { resolvePath, type PathAnswer, type FilterRow, type NoteLookup, type PathScope, type PathWorld } from "@ep0ch/outline-core/resolve-path";
 import { deriveSite, type Site, type SiteAnswer, type SiteAnswerRequest, type SiteLink, type SiteValue } from "@ep0ch/outline-core/site";
-import { BlockQueryError } from "./block-query";
+import { BlockQueryError, type ValueBinder } from "./block-query";
 import { textRecord } from "./block-records";
 import { blockDisplayTitle } from "./references";
 import type { BlockRefLookup } from "./store";
+import { produce, type ProducerStore } from "./site-producers";
 import type { Block } from "./types";
 
 /** What the Site read needs of the store. */
-export interface SiteStore {
+export interface SiteStore extends ProducerStore {
   get(id: string): Block | null;
   children(parentId: string | null): Block[];
   lookupBlockRef(ref: string): BlockRefLookup;
@@ -104,7 +105,7 @@ class StoreWorld implements PathWorld {
 }
 
 /** A bound Site: what `resolvePath` reads, and the notes it came from. */
-interface Bound {
+export interface Bound {
   site: Site;
   scope: PathScope;
   world: StoreWorld;
@@ -113,12 +114,18 @@ interface Bound {
   blockId: string;
   revision: number;
   text: string;
+  /** A value a producer's question read changes within the day by the clock alone (`{{now.time}}` in a query). */
+  clock?: true;
+  /** The unsaved text of the note read, when a draft was given. */
+  draft?: { id: string; text: string };
 }
 
 const NEW_SITE_ACTOR = { id: "site.answer", author: "system" as const };
 
-function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number): Bound {
-  if (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId.trim()) {
+export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number): Bound {
+  // A figure may be asked outside any note (a library preview, a draft of a note that isn't saved): no `this`.
+  const noteless = !!request && typeof request === "object" && request.blockId === undefined && request.produce?.kind === "figure";
+  if (!noteless && (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId!.trim())) {
     throw new Error("site.answer needs blockId: the note to read (an id, ((id)), a Work ID or a [[page]]); for example { blockId: \"PIE-12\", paths: [\"this.owner\"] }");
   }
   const given = request.chain ?? [];
@@ -142,9 +149,13 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
     props[key] = value;
   }
 
+  if (noteless) {
+    const world = new StoreWorld(store, clock);
+    return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope: { ancestors: [], world }, world, route: ["no note: the figure is asked outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
+  }
   const route: string[] = [];
-  const target = store.resolveBlockRef(request.blockId);
-  const exact = target.id === request.blockId.trim().toLowerCase();
+  const target = store.resolveBlockRef(request.blockId!);
+  const exact = target.id === request.blockId!.trim().toLowerCase();
   const text = request.draft?.text ?? target.text;
   const hidden = new Set<string>();
   if (request.hidden !== undefined) {
@@ -157,7 +168,7 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
 
   // The note read: its saved text, or the draft being typed (the record is built from that text, so values agree with the screen).
   const recordOf = (block: Block, draft?: string) => draft === undefined ? world.record(block) : (deps.add(block.id), textRecord({ ...block, text: draft }));
-  route.push(`note ((${target.id.slice(0, 8)}))${exact ? "" : ` (from \`${request.blockId.trim()}\`)`}: read from ${request.draft ? "the draft text" : `the saved text, revision ${target.revision}`}`);
+  route.push(`note ((${target.id.slice(0, 8)}))${exact ? "" : ` (from \`${request.blockId!.trim()}\`)`}: read from ${request.draft ? "the draft text" : `the saved text, revision ${target.revision}`}`);
 
   let site: Site;
   let line = request.line;
@@ -205,10 +216,10 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
     at = block.parentId;
   }
   const scope: PathScope = { ...(line !== undefined ? { line } : {}), ancestors, ...(parentBlock ? { parent: () => world.record(parentBlock!) } : parentHidden ? { parent: () => { world.hiddenHits += 1; return undefined; } } : {}), world };
-  return { site, scope, world, route, deps, blockId: target.id, revision: target.revision, text };
+  return { site, scope, world, route, deps, blockId: target.id, revision: target.revision, text, ...(request.draft ? { draft: { id: target.id, text } } : {}) };
 }
 
-function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof interpolationSpans>[number], start?: number, end?: number): SiteValue {
+export function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof interpolationSpans>[number], start?: number, end?: number): SiteValue {
   const hitsBefore = bound.world.hiddenHits;
   const read = valueRead(bound, expression, parsed, start, end);
   // A read that met a note the reader may not see says nothing of it: no value, not even a partial list.
@@ -227,7 +238,7 @@ function valueRead(bound: Bound, expression: string, parsed: ReturnType<typeof i
     const source = parsed.parsed ? sourceOfValue(bound, parsed.parsed, answer) : undefined;
     return {
       ...base, values: empty ? [parsed.default!] : answer.values, ...(empty ? { usedDefault: true as const } : {}),
-      ...(answer.lines ? { lines: answer.lines } : {}), ...(answer.marks ? { marks: answer.marks } : {}),
+      ...(answer.lines ? { lines: answer.lines } : {}), ...(answer.marks ? { marks: answer.marks } : {}), ...(answer.offsets ? { offsets: answer.offsets } : {}),
       ...(answer.from ? { from: answer.from } : {}), ...(source ? { source } : {}), ...(answer.links ? { links: answer.links } : {}), ...(answer.clock ? { clock: answer.clock } : {}),
       route: empty ? [...answer.route, `no value: the \`|| ${parsed.default}\` default`] : answer.route,
     };
@@ -255,7 +266,7 @@ function sourceOfValue(bound: Bound, parsed: NonNullable<ReturnType<typeof inter
 }
 
 /** A path as asked (`this.tasks | status=todo .count`), read as a span would be. */
-function pathSpan(path: string) {
+export function pathSpan(path: string) {
   const span = interpolationSpans(`{{${path}}}`, { fences: "template" })[0];
   if (!span) throw new Error(`\`${path}\` isn't a path: write head.key, such as this.owner or this.tasks | status=todo`);
   return span;
@@ -277,7 +288,11 @@ function fill(bound: Bound, ask: NonNullable<SiteAnswerRequest["interpolate"]>):
 /** `site.answer`: every `{{ }}` of the note (or its draft), and any `paths` asked, answered with how and from what. */
 export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: () => number = Date.now): SiteAnswer {
   const bound = bind(store, request, clock);
-  const values = interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
+  // A producer's question (a figure, `::fields`, `::if`): asked of the bound Site, so `this` and its `{{ }}` operands are its host's.
+  if (request.produce && request.draft && request.produce.kind !== "fields") bound.route.push("draft not read: this producer asks the saved note and the outline (a draft is read for `{{ }}` values and ::fields)");
+  const produced = request.produce ? produce(store, bound, request.produce, { read: path => valueOf(bound, path, pathSpan(path)), binder: boundBinder(bound) }) : undefined;
+  // With a producer asking, only its question is answered: the note's own `{{ }}` are the client's other watch.
+  const values = request.produce ? [] : interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
   const paths = (request.paths ?? []).map(path => valueOf(bound, path, pathSpan(path)));
   const interpolated = request.interpolate ? fill(bound, request.interpolate) : undefined;
   for (const id of bound.world.deps) bound.deps.add(id);
@@ -289,11 +304,29 @@ export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: 
     values,
     ...(request.paths ? { paths } : {}),
     ...(interpolated ? { interpolated } : {}),
+    ...(produced ? { produced: produced.answer } : {}),
     route: bound.route,
     deps: [...bound.deps].sort(),
-    ...(bound.world.unresolved ? { anyChange: true as const } : {}),
-    ...([...values, ...paths, ...(interpolated?.values ?? [])].some(v => v.clock) ? { clock: "minute" as const } : {}),
+    // A question about the outline at large (a figure's query, an `::if` over links:) depends on notes the answer can't name.
+    ...(bound.world.unresolved || produced?.anyChange ? { anyChange: true as const } : {}),
+    ...([...values, ...paths, ...(interpolated?.values ?? [])].some(v => v.clock) || bound.clock ? { clock: "minute" as const } : {}),
     problems: [...values, ...paths, ...(interpolated?.values ?? [])].filter(v => v.problem && !v.usedDefault).length,
+  };
+}
+
+/**
+ * What a `{{path}}` operand of a question reads, in the Site already bound for it (the figure's host, its props): the
+ * path's values, or a corrective error, never an empty list for a typo.
+ */
+export function boundBinder(bound: Bound): ValueBinder {
+  return path => {
+    const read = valueOf(bound, path, pathSpan(path));
+    if (read.clock) bound.clock = true;
+    if (read.problem) {
+      const hint = read.problem.example ? ` (for example ${read.problem.example})` : "";
+      throw new BlockQueryError(`{{${path}}} in a query: ${read.problem.message}${hint}`);
+    }
+    return read.values ?? [];
   };
 }
 
@@ -302,13 +335,7 @@ export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: 
  * with no answer throws a corrective error, never an empty list: a typo can't silently match nothing.
  */
 export function pathValues(store: SiteStore, thisId: string, path: string, clock: () => number = Date.now): string[] {
-  const bound = bind(store, { blockId: thisId }, clock);
-  const read = valueOf(bound, path, pathSpan(path));
-  if (read.problem) {
-    const hint = read.problem.example ? ` (for example ${read.problem.example})` : "";
-    throw new BlockQueryError(`{{${path}}} in a query: ${read.problem.message}${hint}`);
-  }
-  return read.values ?? [];
+  return boundBinder(bind(store, { blockId: thisId }, clock))(path);
 }
 
 /**

@@ -207,31 +207,28 @@ describe("the surface: summary, panel and embeds at any width", () => {
 
 describe("live figures: the query grammar", () => {
   const block = (id: string, title: string) => ({ id, parentId: null, text: title, author: "agent", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", properties: [] });
-  const fake = (seen: any[]): any => ({
-    request: async (_a: string, p: any) => { seen.push(p.query); return { blocks: [block("a", "Rake leaves")], completeness: { kind: "complete" } }; },
+  // A stand-in service: site.answer's figure producer, with the asks it received. The query itself is the service's
+  // (site-produce.test.ts), so the door's part is what it sends: the figure's props, and what it makes of the answer.
+  const fake = (seen: any[], extra: Record<string, unknown> = {}): any => ({
+    request: async (_a: string, p: any) => { seen.push(p.produce); return { produced: { kind: "figure", blocks: [block("a", "Rake leaves")], truncated: false, ...extra } }; },
     toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", properties: [] })),
   });
 
-  test("OR / NOT / dates go to the service as its where", async () => {
+  test("OR / NOT / dates go to the service as the figure's query, whole", async () => {
     const seen: any[] = [];
     setLiveSource(fake(seen), () => {});
     const p = { query: "type=chore (priority=high OR due) updated > 2026-09-20" };
     answer(p); await until(() => answer(p)?.state === "ready", "the answer");
-    expect(seen[0]).toMatchObject({ where: p.query });
-    expect(seen[0].filters).toBeUndefined();
+    expect(seen[0]).toMatchObject({ kind: "figure", props: { query: p.query } });
   });
 
-  test("done: and now: are the service's answer too (query.matches), OR and all", async () => {
-    const asked: [string, string[]][] = [];
-    const base = fake([]);
-    // A watched query.matches of its own: it changes when the subset does, even if the results don't.
-    const b = { ...base, request: async (a: string, p: any) => { if (a !== "query.matches") return base.request(a, p); asked.push([p.expression, p.blockIds]); return { blockIds: p.blockIds }; } };
-    setLiveSource(b, () => {});
+  test("done: and now: are the service's answer too, OR and all: the rows it names hold", async () => {
+    const seen: any[] = [];
+    setLiveSource(fake(seen, { done: ["a"] }), () => {});
     const p = { query: "type=chore", done: "stage=done OR stage=dropped" };
     resolveLive("check", p);
-    await until(() => answer(p)?.state === "ready" && asked.length > 0, "the answer");
-    await Bun.sleep(5);
-    expect(asked).toEqual([["stage=done OR stage=dropped", ["a"]]]);
+    await until(() => answer(p)?.state === "ready", "the answer");
+    expect(seen[0].props).toMatchObject({ query: "type=chore", done: "stage=done OR stage=dropped" });
     expect(resolveLive("check", p)!.props.items[0].done).toBe(true);
   });
 });

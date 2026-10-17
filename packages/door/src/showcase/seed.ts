@@ -19,6 +19,7 @@ import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, PROGRAM_E
 
 import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./seed/names";
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
+import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, figuresText, markdownFiguresText } from "./seed/figures";
 import { DEEP_LINKS, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
@@ -239,6 +240,11 @@ if (request.input.request === "describe the beds") {
   const society: Msg[] = [];
   for (const m of SOCIETY_NOTES) society.push(await make(mentions.id, `${m.title} [type::society-note] [crop::${m.crop}] [season::${m.season}]\nFrom the [[${SEED.society}]].`));
   notes.society = await board.update(notes.society.id, societyText(society.slice(0, SOCIETY_LINKED_BACK)), notes.society.revision!);
+  // Notes that read themselves (PIE-533 S3): the tickets, then two project pages with the one figure, and the vent rail.
+  for (const t of PROJECT_TICKETS) await make(notes.root.id, `${t.title} [type::ticket] [project::${t.project}]`);
+  notes.projectLego = await make(notes.root.id, `${SEED.projectLego} [project::lego-night]\n\n${PROJECT_FIGURE}`);
+  notes.projectGarden = await make(notes.root.id, `${SEED.projectGarden} [project::garden-club]\n\n${PROJECT_FIGURE}`);
+  notes.fieldsRail = await make(notes.root.id, VENT_RAIL);
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
   notes.meeting = await make(notes.root.id, MEETING);
