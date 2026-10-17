@@ -1,4 +1,5 @@
 import { createPatch } from "diff";
+import { slotPairs } from "@ep0ch/outline-core/action-line";
 import type { AgentToolsClient } from "./agent-tools";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import type { LoadedExtension, ScriptSource } from "./extension-manifest";
@@ -37,7 +38,7 @@ export function scriptText(value: unknown): string {
 /** `week=42 tag="a b"` as props: each word `name=value` (a repeat adds a value). Words that aren't one are left out. */
 export function slotProps(words: string | null | undefined): Record<string, string[]> {
   const props: Record<string, string[]> = {};
-  for (const m of (words ?? "").matchAll(/([A-Za-z_][\w-]*)=(?:"((?:[^"\\]|\\.)*)"|(\S*))/g)) (props[m[1]!] ??= []).push(m[2] !== undefined ? m[2].replace(/\\(.)/g, "$1") : m[3]!);
+  for (const { key, value } of slotPairs(words)) (props[key] ??= []).push(value);
   return props;
 }
 

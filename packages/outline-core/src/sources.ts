@@ -2,9 +2,10 @@
 // answered: the one answer the door's Sources inspector draws (a published page's read-only panel is a follow-up: PIE-996), so a second client agrees with it. A page
 // shows none of it by default (generated output reads as the note's own content); this is what "where this comes from"
 // opens. Pure: no I/O. The service fills it (outliner `site-sources.ts`, the `site.sources` request).
+import { slotPairs } from "./action-line";
 import { codeBlocks } from "./code-fence";
 import { componentAttrs, componentBlocks } from "./component-block";
-import { graphKind } from "./figure-props";
+import { figureSource, graphKind } from "./figure-props";
 import { siteBlockAt } from "./site-blocks";
 import { findOutputRegions } from "./output-region";
 import { useCallAt } from "./template-use";
@@ -62,7 +63,7 @@ export interface SourceCall {
   /** For a `::use`: the template as written. For `::fields`: the key. For `::if`: the query. For an output region: its producer's block id. */
   of?: string;
   /** For an output region: its anchor and whether its person edited it. */
-  region?: { anchor?: string; edited: boolean; hash?: string; producer?: string };
+  region?: { anchor?: string; edited: boolean; hash?: string; producer?: string; body: string };
 }
 
 const pairsOf = (attrs: string | undefined) => (attrs ? componentAttrs(attrs.replace(/^\{|\}$/g, "")).pairs : []);
@@ -93,15 +94,13 @@ export function sourceCalls(text: string): SourceCall[] {
     const block = blocks.get(i), kind = block && graphKind(block);
     if (block && kind) {
       const body = lines.slice(i + 1, block.end);
-      const rule = body.findIndex(l => /^\s*---\s*$/.test(l));
-      const close = rule >= 0 ? body.findIndex((l, k) => k > rule && /^\s*---\s*$/.test(l)) : -1;
-      const yaml = rule >= 0 && close > rule ? body.slice(rule + 1, close).join("\n") : "";
+      const yaml = figureSource(body).yaml;
       out.push({ kind: "figure", line: i, endLine: block.end, name: `graph-${kind}`, params: pairsOf(block.attrs), text: lines[i]!, figure: { kind, yaml } });
       i = block.end;
     }
   }
   for (const r of regions) {
-    out.push({ kind: "output", line: r.startLine, endLine: r.endLine, name: r.label || "output", params: [], text: lines[r.startLine]!, region: { ...(r.anchor ? { anchor: r.anchor } : {}), edited: r.edited, ...(r.hash ? { hash: r.hash } : {}), ...(r.producer ? { producer: r.producer } : {}) } });
+    out.push({ kind: "output", line: r.startLine, endLine: r.endLine, name: r.label || "output", params: [], text: lines[r.startLine]!, region: { body: r.body, ...(r.anchor ? { anchor: r.anchor } : {}), edited: r.edited, ...(r.hash ? { hash: r.hash } : {}), ...(r.producer ? { producer: r.producer } : {}) } });
   }
   return out.sort((a, b) => a.line - b.line);
 }
@@ -123,9 +122,7 @@ export const sourcesSummary = (a: SourcesAnswer): string => (a.sources.length ? 
 function slotWords(line: string): { head: string; words: SourceParam[] } | null {
   const m = /^(\s*[^\s:]+::(?:\s+|$))(.*)$/.exec(line.replace(/\r$/, ""));
   if (!m) return null;
-  const words: SourceParam[] = [];
-  for (const w of m[2]!.matchAll(/([A-Za-z_][\w-]*)=(?:"((?:[^"\\]|\\.)*)"|(\S*))/g)) words.push({ key: w[1]!, value: w[2] !== undefined ? w[2].replace(/\\(.)/g, "$1") : w[3]! });
-  return { head: m[1]!, words };
+  return { head: m[1]!, words: slotPairs(m[2]) };
 }
 
 /**

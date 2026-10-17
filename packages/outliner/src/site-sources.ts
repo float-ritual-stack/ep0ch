@@ -114,10 +114,9 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
           ...(produced?.problem ? { problem: produced.problem.message } : {}) });
       } else if (c.kind === "output") {
         const r = c.region!;
-        const body = lines.slice(c.line + 1, c.endLine + 1).map(l => l.replace(/^\s*>\s?/, "")).join("\n");
         out.push({ ...base, live: false, query: { params: [], text: c.text.replace(/^\s*>\s*/, ""), editable: false },
           transform: r.producer ? { kind: "script", label: "its producer", block: r.producer } : { kind: "none", label: "no producer recorded" },
-          result: resultOf(body), ...(r.edited ? { problem: "edited here: it is yours now, and its producer's next output waits as a proposal" } : {}) });
+          result: resultOf(r.body), ...(r.edited ? { problem: "edited here: it is yours now, and its producer's next output waits as a proposal" } : {}) });
       }
     } catch (error) {
       out.push({ ...base, live: false, query: { params: c.params, text: c.text, editable: false }, transform: { kind: "none", label: "" }, result: { rows: 0, text: "" }, problem: message(error) });

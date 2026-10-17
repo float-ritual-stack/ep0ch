@@ -76,7 +76,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. A render line keeps repeats (`tag=a tag=b` is two values); every action run path gives one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:49` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:38` |
-| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:210` |
+| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:246` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -212,7 +212,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:31` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:25` |
 | `undefined` | nothing (a run note ends at the output lines) | `packages/outliner/src/script-runs.ts:247` |
-| `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:28` |
+| `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:35` |
 
 ## Record shapes
 
