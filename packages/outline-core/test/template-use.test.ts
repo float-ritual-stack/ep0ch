@@ -38,6 +38,9 @@ describe("adding props to a call", () => {
     expect(withUseProps("::use{of=[[t]] n=1}", { n: "{{parent.n}}" })).toBe("::use{of=[[t]] n={{parent.n}}}");
     expect(withUseProps("::use [[t]] mood=meh", { owner: "ada" })).toBe("::use [[t]] mood=meh owner=ada");
     expect(withUseProps("just text", { owner: "ada" })).toBeNull();
+    // A value the line can't hold (a brace, a line break) is refused, not written to break the call.
+    expect(withUseProps("::use{of=[[t]]}", { owner: "a}b" })).toBeNull();
+    expect(withUseProps("::use{of=[[t]]}", { owner: "a\nb" })).toBeNull();
     expect(withUseProps("::use{of=[[t]]}", {})).toBe("::use{of=[[t]]}");
     // The words read back as what was given.
     expect(useCallAt([withUseProps("::use{of=[[t]]}", { owner: "O'Neil \"Jr\"", n: "3" })!], 0)!.props).toEqual([{ key: "owner", value: "O'Neil \"Jr\"" }, { key: "n", value: "3" }]);

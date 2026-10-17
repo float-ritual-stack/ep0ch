@@ -15,7 +15,7 @@
 // what is new. A template that is a subtree is stamped whole. A step's generated id (`^t-3fa9c1`) is not carried over (the new
 // note's steps are its own to address), so an agent can fill a placeholder step in without declaring an identity change. Writes only through the store's normal paths, attributed
 // as whoever asked; refuses before writing anything when the template, a prop or `for` is wrong.
-import { interpolationSpans, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
+import { escapeInterpolation, interpolationSpans, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
 import { ADDRESS_KEYS } from "@ep0ch/outline-core/property-grammar";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { checkProps } from "@ep0ch/outline-core/props-spec";
@@ -88,8 +88,8 @@ function fill(text: string, read: ReturnType<typeof siteReader>, warnings: strin
     if (!isStampSpan(span)) continue;
     const answer = read(span);
     let words: string;
-    if (answer.ok && (answer.values.length || span.default === undefined)) words = answer.values.join(", ");
-    else if (span.default !== undefined) words = span.default;
+    if (answer.ok && (answer.values.length || span.default === undefined)) words = literal(answer.values.join(", "));
+    else if (span.default !== undefined) words = literal(span.default);
     else { warnings.push(`{{${span.expression}}}: ${answer.ok ? "no value" : answer.problem.message}; left as written`); continue; }
     out += text.slice(at, span.start) + words;
     at = span.end;
@@ -117,6 +117,7 @@ function withoutTemplateChips(text: string, addresses: ReadonlySet<string>): str
 /** The first line with its words replaced by `title`, its marker (`# `, `- `) and its trailing chips kept. */
 function withTitle(text: string, title: string): string {
   const [first = "", ...rest] = text.split("\n");
+  title = title.replace(/\s*\n\s*/g, " ");
   const m = /^(\s*(?:#{1,6}\s+|[-*+]\s+)?)(.*?)((?:\s*\[[^\]\n]*::[^\]\n]*\])*)\s*$/.exec(first)!;
   return [`${m[1]}${title}${m[3]}`, ...rest].join("\n");
 }
@@ -140,6 +141,9 @@ function withoutStepIds(text: string): string {
   return out;
 }
 const GENERATED_STEP_ID = /^t-[0-9a-f]{6,}$/;
+
+/** A value written into a stamped text is words: a `{{` in it never becomes a live placeholder of the new note. */
+const literal = (words: string) => escapeInterpolation(words);
 
 const lineEnd = (text: string) => { const i = text.indexOf("\n"); return i < 0 ? text.length : i; };
 /** `[key::value]` added at the end of the first line. */
@@ -240,7 +244,7 @@ export function stampTemplate(store: StampStore, request: TemplateStampRequest, 
           const block = store.resolveBlockRef(id);
           if (!block.text.includes("{{")) continue;
           const answer = answerSite(store, { blockId: id }, clock);
-          const next = substituteValues(block.text, answer.values);
+          const next = substituteValues(block.text, answer.values, { words: literal });
           if (next !== block.text) {
             frozen += answer.values.filter(v => v.values !== undefined).length;
             store.update(id, next, block.revision, mutation);

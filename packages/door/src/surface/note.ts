@@ -5508,7 +5508,8 @@ export class NoteSurface {
       const props = Object.fromEntries(Object.entries({ ...given, ...answers }).filter(([, v]) => v !== ""));
       if (!Object.keys(props).length) throw new ActionRefused("nothing to write: no prop was given");
       const before = whole.text.split("\n")[call.line] ?? "", after = withUseProps(before, props);
-      if (after === null || after === before) throw new ActionRefused(`line ${call.line + 1} isn't a ::use any more`);
+      if (after === null) throw new ActionRefused(`those values can't be written on line ${call.line + 1}: a ::use line holds a value on one line, without { or } (outside a {{ }}); write it by hand, or give another value`);
+      if (after === before) throw new ActionRefused(`line ${call.line + 1} already says that`);
       const r = await this.rewriteLines(whole.id, [{ line: call.line, before, after }], this.useHistory, host, actor, USE_STALE);
       const said = `${answer.template?.title ?? "::use"}: wrote ${Object.entries(props).map(([k, v]) => `${k}=${v}`).join(" ")}`;
       host.ctx.flash(`${said}${actor.kind === "user" ? " · ctrl+z takes it back" : ""}`);

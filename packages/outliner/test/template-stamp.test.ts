@@ -148,3 +148,14 @@ describe("stamp and step ids (PIE-818)", () => {
     expect(text(store, store.resolveBlockRef("[[plan-template]]").id)).toContain("^t-3fa9c1");
   });
 });
+
+describe("what a stamp writes is words", () => {
+  test("a prop value holding {{ }} is written escaped, so the new note never reads what the caller typed; a title is one line", () => {
+    const store = scratch();
+    store.create("Greeting {{props.who}} [page::greeting-tpl] [type::template]\n[form-field::who text]\nHello {{props.who}}.");
+    const out = stamp(store, { of: "[[greeting-tpl]]", props: { who: "{{this.secret}}" } });
+    expect(text(store, out.stamped[0]!.id)).toContain("Hello \\{{this.secret}}.");
+    const second = stamp(store, { of: "[[greeting-tpl]]", props: { who: "Ada" }, title: "Line one\nline two" });
+    expect(text(store, second.stamped[0]!.id)).toStartWith("Line one line two ");
+  });
+});

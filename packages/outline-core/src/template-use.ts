@@ -104,12 +104,19 @@ export function withUseProps(line: string, props: Record<string, string>): strin
   if (!open || open[1] !== USE_NAME) return null;
   const added = Object.entries(props);
   if (!added.length) return line;
-  if (!open[3]) return `${line.trimEnd()} ${added.map(([key, value]) => attrWord(key, value)).join(" ")}`;
-  const had = new Set(added.map(([key]) => key.toLowerCase()));
-  const { classes, pairs } = componentAttrs(open[3].slice(1, -1));
-  const words = [...classes.map(c => `.${c}`), ...pairs.filter(p => !had.has(p.key.toLowerCase())).map(p => attrWord(p.key, p.value)), ...added.map(([key, value]) => attrWord(key, value))];
-  const at = line.indexOf(open[3]);
-  return `${line.slice(0, at)}{${words.join(" ")}}${line.slice(at + open[3].length)}`;
+  let written: string;
+  if (!open[3]) written = `${line.trimEnd()} ${added.map(([key, value]) => attrWord(key, value)).join(" ")}`;
+  else {
+    const had = new Set(added.map(([key]) => key.toLowerCase()));
+    const { classes, pairs } = componentAttrs(open[3].slice(1, -1));
+    const words = [...classes.map(c => `.${c}`), ...pairs.filter(p => !had.has(p.key.toLowerCase())).map(p => attrWord(p.key, p.value)), ...added.map(([key, value]) => attrWord(key, value))];
+    const at = line.indexOf(open[3]);
+    written = `${line.slice(0, at)}{${words.join(" ")}}${line.slice(at + open[3].length)}`;
+  }
+  // The line must read back as the call it was with these props (a value with a brace or a line break can't be written on it).
+  const back = useCallAt([written], 0);
+  const same = back && !back.problem && added.every(([key, value]) => back.props.some(p => p.key.toLowerCase() === key.toLowerCase() && p.value === value));
+  return same ? written : null;
 }
 
 // ── the wire: `template.use` ──
