@@ -1,12 +1,15 @@
 # Scripts in their Site
 
+The full surface, with a source pointer for every entry and four worked examples, is the repository's
+`packages/outliner/docs/scripts.md`; this is the short form for working in an outline.
+
 A script is a note with `[script::name]` and a closed `js`, `ts` or `actions` fence. It runs as `script:<name>`, in the
 same Site a `{{ }}` is read in: it knows which note asked, takes slots, and reads a note's properties and inline fields.
 (`this` is a keyword inside the script's own `function`; arrow functions inside it keep it.)
 
 | Global | What it is |
 |---|---|
-| `this` | The note the run is about, as a record: `this.title`, `this.id`, `this.properties` (`[{key, values}]`), `this.fields` (inline `[k::v]` with their lines), `this.tasks`, `this.children` (ids). A rule-fired script gets the matched block; a key or power-bar run the note in front; an agent's `act ext.<id>.run block=<id>` names it. With none, any `this.*` says so. |
+| `this` | The note the run is about, as a record: `this.title`, `this.id`, `this.properties` (`[{key, values}]`), `this.fields` (inline `[k::v]` with their lines), `this.tasks` (`this.children`, `links` and `backlinks` are empty on `this`: use `read(this.id)` or `q("parent:this")`). A rule-fired script gets the matched block; a key or power-bar run the note in front; an agent's `act ext.<id>.run block=<id>` names it. With none, any `this.*` says so. |
 | `self` | The script's own note, as a record. |
 | `caller` | `{ block, line? }`: where it was invoked (null when nothing named a place). |
 | `props` | Slots, every key a list: `week=42` is `props.week[0]`. Name them by using them: the power bar offers every `props.x` the code reads. |

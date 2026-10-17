@@ -632,6 +632,32 @@ doesn't have the environment variable: the service reads the group when a call s
 
 ## Scripts
 
+**When to reach for one:** a small thing that belongs to one note or one outline and needs no disk, network or secret: a
+computed column over a note's children, a sentence built from its properties, a checklist stamped on every match, a move
+you keep repeating. Needing a file, the web, a key or another language makes it an extension (below). **The whole surface**
+(globals, `q`/`read`/`resolve`/`act`/`wait`, every `tools.*` and `view.*`, modes, effects, lifecycle, the traps, four worked
+examples) is one page with a `path:line` pointer per entry: `packages/outliner/docs/scripts.md` in the repository. Read it
+before writing a script that isn't a copy of the example below.
+
+A render-mode script and the note that asks for it (a table of the note's children with a computed column):
+
+````blockdown
+Seed table [script::seed-table] [mode::render]
+```js
+const host = await read(this.id, { depth: 1 });
+const rows = [];
+for (const child of host.children) {
+  const note = await read(child.id);
+  const number = key => Number(note.properties.find(p => p.key === key)?.values[0] ?? 0);
+  rows.push([note.title, number("qty"), number("price"), number("qty") * number("price")]);
+}
+return view.table({ columns: ["Item", "Qty", "Price", "Cost"], rows });
+```
+````
+
+Write `seed-table::` on a line of the parent note; each child is `Beans [qty::5] [price::2]`. Two traps from the page: `this.children`
+is always empty (read `this.id` or use `q("parent:this")`), and a `q` row has no properties (read the row).
+
 - A script is a block with `[script::name]` and a closed `js`, `ts` or `actions` fence, loaded by the extension registry.
 - `tools.*` calls the shared agent tools, such as `tools.outline_comment({ref, whole: true, body})`.
 - `q(query)` calls `outline_find` with the views' query grammar.

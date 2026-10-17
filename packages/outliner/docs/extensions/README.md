@@ -9,6 +9,10 @@ code; clients (Detail, the door, the publisher, agents) only draw what the servi
 
 ## Script blocks and files (PIE-601)
 
+The whole script surface (globals, `q`/`read`/`resolve`/`act`/`wait`, every `tools.*` and `view.*`, modes, effects,
+lifecycle, the traps and four worked examples, each entry with a `path:line` pointer to its source) is one page:
+[Scripts in a note: the surface](../scripts.md). This section is where scripts sit among the extension kinds.
+
 A block with `[script::name]` and a closed `js` or `ts` fence loads through the same registry as folder
 extensions. Files load only from `<outline folder>/.ep0ch/scripts/` (`.js` or `.ts`), and only when their
 first line is `// ep0ch-script`. The filename supplies the name. Files without that header, and files in the
