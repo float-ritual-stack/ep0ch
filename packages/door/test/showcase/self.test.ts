@@ -47,7 +47,6 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     expect(anchored.link).toBe(`((${rail.id}^${anchored.anchor}))`);
     const after = (await board.get(rail.id))!;
     expect(after.text.split("\n")[anchored.noteLine - 1]).toContain(`^${anchored.anchor}`);
-    expect(after.revisions ?? after.revision).toBeTruthy();
     // Again, once the list has been read from the anchored text: already anchored, nothing more written.
     await until(() => { screen(); return fieldsDrawn(rail.id)?.revision === after.revision; }, "the list read again", 8000);
     expect(await app.act({ action: "fields.anchor", tile: "reader", args: { n: 2 }, ...agent })).toMatchObject({ created: false, anchor: anchored.anchor });

@@ -419,6 +419,16 @@ Two beds of scaffold boards.
 
 A `> [!quote]` callout's last line `— name, source` is drawn as its byline.
 
+**Fields and conditions** (a note that reads itself). `::fields{key=connectTo}` lists every place the note wrote that
+key (a `[connectTo::…]` chip or a `connectTo:: …` line in its body, after the first blank line), one row per occurrence
+with its line number; a row opens its own line, lit, found again by the text it was written as, and a row appears as soon
+as a line is saved. `of=((id))` lists another note's, `title=` titles it. Its `⚓` anchors that line on request
+(`fields.anchor n=2`), giving a `((note^anchor))` that links to it for good; drawing it never writes. `::if{where="status=active"}`
+… `::` draws its lines only while the note matches the query (the saved views' grammar, `{{this.owner}}` operands bound,
+never pasted in); its body holds Blockdown but no other component. A figure copied onto two pages lists each page's own
+(`query: type=ticket project={{this.project}}`), and takes call-site args: `::graph-table{project=lego}` reads
+`{{props.project}}`. The service answers all of these through `site.answer`; `outline_site` is the same read for an agent.
+
 **Links** (`packages/door/src/links.ts`). `::links` lists a note's Outlinks, Resources (`[file::…]`, `jira::`
 tickets; `!` marks one that's unavailable) and Backlinks, answered by the service on every render, the same
 rows as the door's links tile. `::outlinks`, `::resources` and `::backlinks` list one group. One line, the words
