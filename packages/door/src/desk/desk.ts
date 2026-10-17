@@ -584,11 +584,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // An answer asked of an earlier state would undo what changed since: never taken (asks and commits are paired).
     if (r.base !== this.state) throw new Error("a layout answer was committed over a newer layout; ask again");
     const was = this.layout.collapsed;
-    // The shape it leaves, against the shape it began from: a change of shape is a history entry (a focus move is none).
-    // (An operation that has already swapped a tile's pane for the new state can't serialize the old one: it records nothing.)
-    const by = this.asked.get(r), snap = this.replaying ? null : this.snapshotShape();
+    // The shape it leaves against the last settled one (kept after every commit and build, so an operation that has already
+    // swapped a pane in can't leave us nothing to rebuild from): a change of shape is an entry, a focus move is none.
+    const by = this.asked.get(r), prior = this.settled ?? this.snapshotShape();
     this.state = r.state;
-    if (snap && this.snapshotShape()?.shape !== snap.shape) this.recordChange(snap.before, by?.actor ?? USER, by?.op ?? "change");
+    const now = this.snapshotShape();
+    if (!this.replaying && prior && now && now.shape !== prior.shape) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change");
+    this.settled = now;
     this.focus = r.focus;
     this.noteFocus();
     // A tile folded or opened is told (it keeps what it holds exactly).
@@ -599,6 +601,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private apply(op: Op<number>, actor: Actor = USER): Extract<Result<number>, { ok: true }> { return this.commit(this.ask(op, actor)); }
 
   // ── the layout's one history, undo and transactions (PIE-957, design §4.9) ────────
+
+  /** The shape as of the last commit or build: what the next change is recorded against. */
+  private settled: { shape: string; before: LayoutSpec } | null = null;
 
   /** The screen's shape now, as text and as a spec to rebuild from; null when a pane the layout names is already gone (mid-operation). */
   private snapshotShape(): { shape: string; before: LayoutSpec } | null {
@@ -801,6 +806,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.focus = f !== undefined && ids.includes(f) ? f : ids[0]!;
     this.keysTo(this.focus);
     if (this.ctx) for (const id of fresh) this.startTile(id);
+    this.settled = this.snapshotShape();
   }
   /** The keys on tile `id`, as the person's own: shown in its tab set (nothing else moves). */
   private keysTo(id: number) { const r = this.ask({ op: "focus", tile: id, quiet: true }); if (r.ok) this.commit(r); }

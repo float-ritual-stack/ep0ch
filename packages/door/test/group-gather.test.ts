@@ -369,4 +369,17 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(tile("reader").showing?.id).toBe(b);
     await mine("tile.focus", {}, "tree"); await act("tile.close", {}, "pv"); await act("tile.close", {}, "det");
   }, 30_000);
+
+  test("gathering is a history entry the person can undo (PIE-957): layout.undo ungathers it, and the group's tiles are back where they were", async () => {
+    render();
+    const before = names().slice().sort();
+    const seq = D().history.newest()?.seq ?? 0;
+    const g = await act("tile.group", { with: "replies", where: "down" }, "activity");
+    render();
+    expect(D().history.newest().seq).toBeGreaterThan(seq);
+    expect(names()).toContain(g.tile);
+    await me("layout.undo");
+    render();
+    expect(names().slice().sort()).toEqual(before);
+  });
 });
