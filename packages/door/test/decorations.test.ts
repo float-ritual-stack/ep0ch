@@ -8,7 +8,7 @@ import { foldPoints, renderDoc } from "../src/doc";
 import type { Decoration } from "../src/projection";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
-const deco = (over: Partial<Decoration>): Decoration => ({ rule: "note:x", name: "r", source: { kind: "note", blockId: "x" }, place: "above", status: "ready",
+const deco = (over: Partial<Decoration>): Decoration => ({ rule: "note:x", name: "r", source: { kind: "note", blockId: "x" }, place: "prepend", status: "ready",
   hit: { at: "block", line: 0, end: 5, text: "T" }, view: { type: "badge", label: "hi" }, ...over });
 const draw = { markdown: (t: string) => [t] };
 
@@ -33,7 +33,7 @@ test("planDecorations: a block's above the body or below it; a construct's above
   const lines = [1, 2, 3, 4];
   const plan = planDecorations([
     deco({}),
-    deco({ place: "below" }),
+    deco({ place: "append" }),
     deco({ place: "replace", hit: { at: "construct", line: 2, end: 3, text: "Beds", kind: "heading", level: 1 } }),
     deco({ place: "around", hit: { at: "construct", line: 3, end: 5, text: "a", kind: "list" }, view: { type: "box", title: "List", children: [] } }),
     // The same place again: drawn above it instead.

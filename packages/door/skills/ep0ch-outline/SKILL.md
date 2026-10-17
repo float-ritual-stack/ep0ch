@@ -596,7 +596,7 @@ doesn't have the environment variable: the service reads the group when a call s
 - `extensions.undo` with the returned `undo` receipt undoes the whole run's saved writes, door-action writes and draft patches; conflicts preserve intervening edits, and receipts last for this host process.
 - An agent-written `[script::]` runs as soon as invoked, attributed, with no approval gate.
 - MCP `script_run` takes a script block's `ref` or `uri` and runs as the MCP caller: `propose` makes proposals, `full` applies writes, and `read`/`none` cannot start a run.
-- The person presses `alt+Q` to record a macro and again to save its script block, then edits action values into `{slot}` placeholders.
+- The person presses `alt+Q` to record a macro and again to save its script block, then edits action values into `{{props.slot}}` placeholders (one grammar: `{{ path || default }}`).
 
 One fictional block; run `seed-summary` from the power bar:
 
@@ -654,7 +654,7 @@ that links to it is told by netmail, never written (packages/outliner `docs/exte
 
 **Rules** (PIE-600) say "when a block matches this, draw this on it, or run this", without touching its text:
 `match` by a property (`type=meeting`), a saved-view query, a text pattern (line by line, never in code) or a
-construct kind (`heading:1`, `callout`, `list`, `rule`, `image`); then `decorate` (view primitives above, below, in
+construct kind (`heading:1`, `callout`, `list`, `rule`, `image`); then `decorate` (view primitives before (`prepend`), after (`append`), in
 place of or around what matched; `band` and `track` for heading styles and dividers) and `on` (an action when a
 block starts or stops matching, or changes while it matches; an extension's own writes never set one off). The
 no-code tier is a **rule note** you can write for a person in their outline:

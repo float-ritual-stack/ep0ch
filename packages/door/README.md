@@ -307,7 +307,7 @@ and `ext.undo` takes back the run. The adjacent reader stays available for typin
 press it again or click `REC stop` to save. `macro.record name=planting` and `macro.stop` are the same actions.
 Only your successful actions are recorded; agent actions and power-bar navigation stay out.
 The new `[script::planting]` block contains an `actions` fence using the power bar's action-line grammar.
-Edit it normally, replacing a value with `{tag}` or another `{slot}`. Run it from the power bar to fill its
+Edit it normally, replacing a value with `{{props.tag}}` or another `{{props.slot}}`. Run it from the power bar to fill its
 slots, or pass them as `act ext.<script-id>.run tag=beans`. Replay uses the script runtime, stops at the
 first refusal, and leaves a run note with the failed step. It does not roll earlier steps back automatically.
 The recording stays in this door until stopped; stop before ending the session.

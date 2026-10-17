@@ -10,9 +10,9 @@ import { closesCodeFence, codeBlocks, codeFenceOpen, fenceEnd, type CodeFence, t
 /**
  * The opening line: `::` and a component name, indented at most three spaces (four is code), with or without
  * arguments (`::links ((id))`), or with attributes straight after the name (`::box{pad=1 list.gap=1}`, PIE-549's
- * block attributes; group 3). One with attributes is a block: it closes with `::`, as one without arguments does.
+ * block attributes; group 3; a `{{ placeholder }}` may be inside them, `::status-card{status={{parent.status}}}`). One with attributes is a block: it closes with `::`, as one without arguments does.
  */
-export const COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{[^{}\n]*\}))?[ \t]*$/;
+export const COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\})*\}))?[ \t]*$/;
 /** The closing line: `::` alone. */
 export const COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 
@@ -56,19 +56,75 @@ export function componentBlockAt(source: string): { name: string; raw: string } 
   return open[2] ? oneLine : null;
 }
 
-/** One attribute token: `.class`, `key=value`, `key="value"`, `key='value'`, or a bare `key` (on). */
-const ATTR = /\.([A-Za-z][\w-]*)|([A-Za-z][\w.-]*)(?:=(?:"([^"]*)"|'([^']*)'|([^\s"']+)))?/g;
+// ── the call-site readers ────────────────────────────────────────────────────────────────────────────
+// Two readers, each with one job (PIE-533): `componentAttrs` for the `{…}` after a component's name and a handler
+// line's `--option=value` words, and `lineWords` for an action line (`act`, `@name`). Both split words the way a shell
+// does, so quoting works the same wherever a person writes arguments.
+
+/** The quotes a typed or pasted line may use, each with the one that closes it (a chat's curly ones too). */
+const QUOTES: Record<string, string> = { '"': '"', "'": "'", "\u201c": "\u201d", "\u2018": "\u2019" };
+
+/** One word of a line: what it means (quotes taken out) and what was written (`raw`, for text that isn't ours to read). */
+export interface Word { value: string; raw: string }
+
+/**
+ * A line split into words as a shell splits a command: spaces between words, and a quote, anywhere in a word, keeps
+ * what's inside it in that word without the quotes (`query="#build report"` is `query=#build report`). A backslash
+ * keeps the next character as it is (`\ `, `\"`; inside double quotes only `\"` and `\\`, as a shell's), never inside single
+ * quotes. An unclosed quote runs to the end. With `shell` off (a component's attributes, a handler line) a quote opens
+ * only at the start of a word or right after its `=`, so an apostrophe inside a word (`Bob's`) is just text. A `{{ placeholder }}` is part of its word, spaces and quotes as written
+ * (interpolation.ts fills it later, per value). With `lines`, one row per line.
+ */
+export function splitWords(line: string, lines: boolean, shell = true): Word[][] {
+  const rows: Word[][] = [];
+  let out: Word[] = [];
+  let word = "", inWord = false, close: string | null = null, escaped = false, brace = false, from = 0, at = 0;
+  const push = (end: number) => { out.push({ value: word, raw: line.slice(from, end) }); word = ""; inWord = false; };
+  for (const c of line) {
+    const here = at;
+    at += c.length;
+    // A placeholder: from its `{{` to its `}}`.
+    // An unfinished one ends with its line: it never swallows the next action.
+    if (brace && c === "\n") brace = false;
+    if (brace) { word += c; if (c === "}" && word.endsWith("}}")) brace = false; continue; }
+    if (c === "{" && !close && !escaped && word.endsWith("{") && !word.endsWith("\\{")) { word += c; brace = true; continue; }
+    if (escaped) { word += (close && c !== close && c !== "\\") || c === "{" ? `\\${c}` : c; escaped = false; continue; }
+    if (c === "\\" && close !== "'" && close !== "\u2019") { if (!inWord) from = here; escaped = true; inWord = true; continue; }
+    if (close) { if (c === close) close = null; else word += c; continue; }
+    if (QUOTES[c] && (shell || !inWord || word.endsWith("="))) { if (!inWord) from = here; close = QUOTES[c]!; inWord = true; continue; }
+    if (/\s/.test(c)) {
+      if (inWord) push(here);
+      if (lines && c === "\n") { rows.push(out); out = []; }
+      continue;
+    }
+    if (!inWord) from = here;
+    word += c; inWord = true;
+  }
+  if (inWord) push(at);
+  rows.push(out);
+  return rows;
+}
+
+/** An action line's words, quotes taken out: the CLI's, the power bar's, a script's. */
+export function lineWords(line: string): string[] { return splitWords(line, false).flat().map(word => word.value); }
+
+/** One attribute word: `.class`, `key=value` (quotes already taken out), or a bare `key` (on). */
+const ATTR_KEY = /^[A-Za-z][\w.-]*$/;
 
 /**
  * A component's `{…}` attributes (`::box{pad=1 .accent}`, `::links{query="type=outbox-item" preview=right}`), as
- * written: its classes, and each `key=value` in order (a bare key's value is `on`). The one reader of the braces: a
- * box reads them as style tokens, the links component as its own keys.
+ * written: its classes, and each `key=value` in order (a bare key's value is `on`). Values quote as a shell's words do
+ * (`query="a b"`, `'a b'`, `a\ b`, a chat's curly quotes). The one reader of the braces: a box reads them as style
+ * tokens, the links component as its own keys; a handler line's `--option=value` words are read by `splitWords` too.
  */
 export function componentAttrs(attrs: string): { classes: string[]; pairs: { key: string; value: string }[] } {
   const classes: string[] = [], pairs: { key: string; value: string }[] = [];
-  for (const m of attrs.matchAll(ATTR)) {
-    if (m[1]) classes.push(m[1]);
-    else if (m[2]) pairs.push({ key: m[2], value: m[3] ?? m[4] ?? m[5] ?? "on" });
+  for (const { value: word } of splitWords(attrs, false, false).flat()) {
+    const cls = /^\.([A-Za-z][\w-]*)$/.exec(word);
+    if (cls) { classes.push(cls[1]!); continue; }
+    const eq = word.indexOf("=");
+    const key = eq < 0 ? word : word.slice(0, eq);
+    if (ATTR_KEY.test(key)) pairs.push({ key, value: eq < 0 ? "on" : word.slice(eq + 1) });
   }
   return { classes, pairs };
 }

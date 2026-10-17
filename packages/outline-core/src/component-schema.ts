@@ -8,6 +8,7 @@
 // Writing a schema is enough: no client has per-component docs or completion code. Pure: no I/O. A change to what it
 // says or matches bumps PROTOCOL (protocol.ts).
 
+import { interpolate } from "./interpolation";
 import { BUILTIN_HEADING_STYLES, type HeadingStyle } from "./heading-styles";
 import { BUILTIN_CALLOUTS, CALLOUT_TONES, type CalloutType } from "./callouts";
 import { codeSpanRanges } from "./code-ranges";
@@ -80,8 +81,8 @@ export interface ComponentSchema {
   where: string;
   props: PropSchema[];
   /**
-   * The source a variation writes. `use`: the text that uses it, `{key}` standing for a property's value (its default,
-   * else nothing, when the variation leaves it out) and `{yaml}` for the YAML properties given, a `key: value` line each.
+   * The source a variation writes. `use`: the text that uses it, `{{props.key}}` standing for a property's value (its default,
+   * else nothing, when the variation leaves it out) and `{{props.yaml}}` for the YAML properties given, a `key: value` line each.
    * `note`: the declaring note, written only when a variation sets one of its properties.
    */
   source: { use: string; note?: DeclaringNote };
@@ -125,7 +126,7 @@ const HEADING_STYLE: ComponentSchema = {
   where: "`[heading::name]` on a heading line, `[rule::name]` after a `---`; the `heading-*` properties on the line that declares a style, or on a heading line to restyle it alone",
   props: [
     { key: "heading", where: "line", type: "enum", meaning: "the style this heading is drawn with", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES) },
-    { key: "rule", where: "line", type: "enum", meaning: "the style this `---` is drawn with: its band with no heading in it", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES), use: "Before the break\n\n--- [rule::{rule}]\n\nAfter it" },
+    { key: "rule", where: "line", type: "enum", meaning: "the style this `---` is drawn with: its band with no heading in it", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES), use: "Before the break\n\n--- [rule::{{props.rule}}]\n\nAfter it" },
     { key: "heading-style", where: "note", type: "name", meaning: "declares a style by this name (a slug); the other heading-* properties on the same note describe it", samples: ["plot"] },
     { key: "heading-pattern", where: "note", type: "enum", meaning: "the glyph track the band is drawn in", default: "stack", values: enumOf({ stack: "shades fading out from the edge into sparse dots", waffle: "a checkerboard of shades, every other column", uptime: "an uptime strip's bars", dots: "sparse dots, now and then a bright one", rule: "a frame's ruled line, doubled above and below the heading" }) },
     { key: "heading-rows", where: "note", type: "int", meaning: "the band's height in rows", default: "3", min: 1, max: 3 },
@@ -137,7 +138,7 @@ const HEADING_STYLE: ComponentSchema = {
     { key: "heading-letters", where: "note", type: "enum", meaning: "how the heading's letters are drawn", default: "plain", values: enumOf({ plain: "as written", upper: "in capitals", spaced: "in spaced capitals: Y O U R" }) },
     { key: "heading-default", where: "note", type: "levels", meaning: "the heading levels (1 to 6) it draws when a heading names no style, and `rule` for every `---`", samples: ["2", "1, 2", "rule"], use: "## Your calls\n\n---" },
   ],
-  source: { use: "## Your calls [heading::{heading}]", note: { title: "My style", name: "heading-style", value: "mine", uses: "heading" } },
+  source: { use: "## Your calls [heading::{{props.heading}}]", note: { title: "My style", name: "heading-style", value: "mine", uses: "heading" } },
   example: { heading: "band" },
   sweep: ["heading", "rule", "heading-pattern", "heading-rows", "heading-align", "heading-row", "heading-letters", "heading-tone", "heading-padding", "heading-margin", "heading-default"],
   grids: [["heading-pattern", "heading-align"], ["heading-rows", "heading-row"]],
@@ -158,7 +159,7 @@ const CALLOUT: ComponentSchema = {
     { key: "callout-title", where: "note", type: "text", meaning: "the title a callout of it shows when it names none", samples: ["Recipe", "From the kitchen"] },
     { key: "callout-aliases", where: "note", type: "list", meaning: "other names that mean it, comma-separated", samples: ["dish, meal"] },
   ],
-  source: { use: "> [!{callout}]{fold}\n> Water the beds before nine.", note: { title: "My type", name: "callout-type", value: "mine", uses: "callout" } },
+  source: { use: "> [!{{props.callout}}]{{props.fold}}\n> Water the beds before nine.", note: { title: "My type", name: "callout-type", value: "mine", uses: "callout" } },
   example: { callout: "tip" },
   sweep: ["callout", "fold", "callout-tone", "callout-icon", "callout-title"],
   grids: [["callout-tone", "callout-icon"]],
@@ -183,8 +184,8 @@ const RULE: ComponentSchema = {
     { key: "rule-text", where: "note", type: "pattern", meaning: "a pattern tested line by line outside code; (?i) ignores case, ] is written \\x5d", samples: ["!!(.+)!!"] },
     { key: "rule-kind", where: "note", type: "enum", meaning: "a construct it matches", values: enumOf(KIND_MEANING) },
     { key: "rule-decorate", where: "note", type: "enum", meaning: "what it draws", values: enumOf({ band: "the heading in a band of glyph tracks (a heading style's)", card: "a header card of the block's properties", badge: "a short label", text: "words in a tone", box: "a frame around what matched", divider: "a plain track: a hard page divider" }) },
-    { key: "rule-place", where: "note", type: "enum", meaning: "where it draws: a band and a divider take the line's place, a box goes around, the rest above", values: enumOf({ above: "above what matched", below: "below what matched", replace: "in its place", around: "around it", span: "on the characters a text pattern hit (a tone on the words)", margin: "a card beside them, in the reader's margin" }) },
-    { key: "rule-label", where: "note", type: "template", meaning: "its words: {title}, {text}, {level}, {$1} a pattern's capture, {key} any property of the block", samples: ["{title}", "{text} · {when}"] },
+    { key: "rule-place", where: "note", type: "enum", meaning: "where it draws: a band and a divider take the line's place, a box goes around, the rest before it", values: enumOf({ prepend: "before what matched", append: "after what matched", replace: "in its place", around: "around it", span: "on the characters a text pattern hit (a tone on the words)", margin: "a card beside them, in the reader's margin" }) },
+    { key: "rule-label", where: "note", type: "template", meaning: "its words: {{this.title}}, {{match.text}}, {{match.level}}, {{match[1]}} a pattern's capture, {{this.key}} any property of the block", samples: ["{{this.title}}", "{{match.text}} · {{this.when}}"] },
     { key: "rule-tone", where: "note", type: "enum", meaning: "the tone it's drawn in", values: enumOf({ default: "the reader's own", good: "green: done, fine", warn: "amber: look at this", bad: "red: something's wrong", dim: "quiet", accent: "the accent" }) },
     { key: "rule-fields", where: "note", type: "list", meaning: "the block's properties a card shows, comma-separated", samples: ["when, who"] },
     { key: "rule-pattern", where: "note", type: "enum", meaning: "a band's or divider's glyph track", values: enumOf({ stack: "shades fading out", waffle: "a checkerboard", uptime: "an uptime strip's bars", dots: "sparse dots", rule: "a ruled line" }) },
@@ -245,7 +246,7 @@ const METER: ComponentSchema = {
     { key: "label", where: "yaml", type: "text", meaning: "the bar's label, with a limit", samples: ["photos"] },
     { key: "caption", where: "yaml", type: "text", meaning: "a quiet line under the bar", samples: ["the shared disk"] },
   ],
-  source: { use: "::graph-meter\n---\n{yaml}\n---\n::" },
+  source: { use: "::graph-meter\n---\n{{props.yaml}}\n---\n::" },
   example: { title: "Disk", value: "0.6" },
   sweep: ["value", "limit", "unit", "label", "caption"],
   grids: [["value", "limit"]],
@@ -262,7 +263,7 @@ const SPARK: ComponentSchema = {
     { key: "data", where: "yaml", type: "list", meaning: "the numbers, in order: [3, 5, 2]", samples: ["[3, 5, 2, 8, 6, 9]", "[9, 7, 5, 3, 1]", "[1, 1, 2, 3, 5, 8, 13]"] },
     { key: "caption", where: "yaml", type: "text", meaning: "a quiet line under it", samples: ["the last seven days"] },
   ],
-  source: { use: "::graph-spark\n---\n{yaml}\n---\n::" },
+  source: { use: "::graph-spark\n---\n{{props.yaml}}\n---\n::" },
   example: { title: "Visits", data: "[3, 5, 2, 8, 6, 9]" },
   sweep: ["data", "caption"],
   grids: [["data", "caption"]],
@@ -410,8 +411,8 @@ function yamlScalar(v: string): string {
 
 /**
  * The source for `set` over the example's values. A note property given writes the declaring note (its name, then
- * those properties as `[key::value]`) and names it on the line (`uses`); `{key}` in the use is a value, its default when
- * left out, else nothing; `{yaml}` the YAML properties given. An axis drawn alone uses its own `use` when it has one
+ * those properties as `[key::value]`) and names it on the line (`uses`); `{{props.key}}` in the use is a value, its default when
+ * left out, else nothing; `{{props.yaml}}` the YAML properties given. An axis drawn alone uses its own `use` when it has one
  * (`axis`).
  */
 export function variation(schema: ComponentSchema, set: Record<string, string>, axis?: string): Variation {
@@ -431,11 +432,15 @@ export function variation(schema: ComponentSchema, set: Record<string, string>, 
   const shown = Object.fromEntries(Object.entries(values).filter(([k]) => prop.get(k)?.where !== "note"));
   const template = (axis && prop.get(axis)?.use) || schema.source.use;
   const yaml = schema.props.filter(p => p.where === "yaml" && shown[p.key] !== undefined && shown[p.key] !== "").map(p => `${p.key}: ${yamlScalar(shown[p.key]!)}`).join("\n");
-  const use = template.replace(/\{([A-Za-z][A-Za-z0-9_.-]*)\}/g, (whole, key: string) => {
-    if (key === "yaml") return yaml;
+  const use = interpolate(template, span => {
+    // A prop's key may hold dots (`margin.x`), which a path reads as steps: the key is all of them.
+    const steps = span.parsed?.head === "props" ? span.parsed.steps : [];
+    const key = steps.length && steps.every(step => "key" in step) ? steps.map(step => (step as { key: string }).key).join(".") : undefined;
+    if (key === undefined) return undefined;
+    if (key === "yaml") return [yaml];
     const p = prop.get(key);
-    return p ? (shown[key] ?? p.default ?? "") : whole;
-  });
+    return p ? [shown[key] ?? p.default ?? ""] : undefined;
+  }, { fences: "template" });
   return { values: Object.fromEntries(Object.entries(values).filter(([k]) => prop.has(k))), ...(note ? { note } : {}), use };
 }
 

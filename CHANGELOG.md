@@ -39,6 +39,23 @@ What changes for an agent or an extension author: a property is read from the no
 - The MCP `pending.body` fences a queued edit `⟦pending <id>⟧…⟦/pending⟧`, not `{{pending <id>}}…{{/pending}}`, so
   the note's `{{ }}` values (coming) can never mistake it for one.
 
+### One placeholder grammar, `{{ path || default }}` (PIE-950, PIE-533)
+
+The three single-brace templates are one. A rule's label, an `actions` fence's slots and a component's `use` snippet all
+read outline-core's `interpolation.ts`: `{{this.title}}`, `{{match.text}}`, `{{match[1]}}`, `{{props.tag}}`,
+`{{props.week || main}}`. A `{{` in a code span, a fence or a literal region stays as written, and `\{{` is a literal
+`{{` anywhere. A slot is filled per argument value, after the line is split into words, so a value holding `x tile=other`
+or `"; layout.load` is one value and can't become another argument or action. A component's `{…}` attributes and a handler
+line's `--option=value` words read quotes as a shell's words do (`query="a b"`, `'a b'`, `a\ b`).
+Rule placement uses the words every producer will share: `[rule-place::prepend|append|replace|around]` (`above` is now
+`prepend`, `below` is `append`; a rule note still saying them is told so).
+
+**What you must run:** the sweep rewrites your rule notes and scripts (`{title}` becomes `{{this.title}}`, `{slot}` in an
+`actions` fence becomes `{{props.slot}}`, `above` and `below` become `prepend` and `append`). `outliner sweep
+<database.sqlite>` prints the diff and writes nothing; adding `--apply` (host stopped) writes it as one attributed change,
+and a second run changes nothing. The landing runs it for each outline in the install step. An extension's own
+`extension.json` writing `"place": "above"` or `{key}` in a component's `use` is yours to edit. The runbook keeps its own `{{name}}` until it is rebuilt.
+
 ### One parser, one scope walk, one path resolver (PIE-950, first slice of PIE-533)
 
 Nothing changes on screen. The property parser (`parsePropertyRecords` and its strip and title helpers), the property

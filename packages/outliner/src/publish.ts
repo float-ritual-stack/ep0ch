@@ -2720,10 +2720,10 @@ export function decoratedText(text: string, decorations: readonly Decoration[] |
   for (const decoration of decorations ?? []) {
     if ((decoration.status !== "ready" && decoration.status !== "stale") || !decoration.markdown?.trim()) continue;
     const { at, line } = decoration.hit, end = Math.min(decoration.hit.end, lines.length);
-    if (at === "block") { (decoration.place === "below" ? tail : head).push(block(decoration)); continue; }
+    if (at === "block") { (decoration.place === "append" ? tail : head).push(block(decoration)); continue; }
     if (line >= lines.length || end <= line) continue;
     if (decoration.place === "replace" && !taken(line, end)) replaced.set(line, { end, lines: block(decoration) });
-    else if (decoration.place === "below") after[end - 1]!.push(block(decoration));
+    else if (decoration.place === "append") after[end - 1]!.push(block(decoration));
     else if (decoration.place === "around") { if (decoration.title) before[line]!.push(["", `**${decoration.title.replace(/[*_`\\[\]]/g, "")}**`]); }
     else before[line]!.push(block(decoration));
   }

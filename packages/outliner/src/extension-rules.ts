@@ -3,7 +3,6 @@ import {
   builtInSpec,
   compileRulePattern,
   defaultPlace,
-  expandTemplate,
   parseKindSpec,
   DEFAULT_RULE_FROM,
   parseRuleCap,
@@ -30,6 +29,11 @@ import { cleanExtensionText, contextAncestors, inertBlockdown } from "./extensio
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import type { ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { blockRecord, type BlockRecord } from "@ep0ch/outline-core/block-record";
+import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
+import { interpolateWith } from "@ep0ch/outline-core/interpolation";
+import { noteValues } from "@ep0ch/outline-core/resolve-path";
+import type { Site } from "@ep0ch/outline-core/site";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { ExtensionOutputRow, OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
@@ -873,34 +877,50 @@ export class ExtensionRules {
 
 // ── the built-in decorations ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * The matched block as a record, for a label's `{{this.…}}`: its title and properties (a rule note's own `rule-*` words
+ * aren't the block's), without the links and tasks a label never reads. Only a preview has just the text.
+ */
+function ruleRecord(block: Block): BlockRecord {
+  const text = block.text;
+  const properties = parsePropertyRecords(text).filter((property) => !(RULE_KEYS as readonly string[]).includes(property.key));
+  return blockRecord({
+    block: { id: block.id ?? "", parentId: block.parentId ?? null, text, revision: block.revision ?? 0, author: block.author ?? "user", ...(block.actorId ? { actorId: block.actorId } : {}), createdAt: block.createdAt ?? "1970-01-01T00:00:00.000Z", updatedAt: block.updatedAt ?? "1970-01-01T00:00:00.000Z" },
+    title: title(text), properties, literal: scanPropertyLiteralRanges(text), children: [], tasks: [], links: [], backlinks: [], resources: [],
+  });
+}
+
 /** A built-in decoration's view for one hit: the no-code tier, composed from the same primitives a code rule returns. */
 export function builtInView(spec: BuiltInSpec, hit: RuleHit, block: Block): Primitive {
-  const properties = parsePropertyRecords(block.text).filter((property) => property.scope === "block" && !(RULE_KEYS as readonly string[]).includes(property.key));
-  const values = {
-    title: title(block.text),
-    text: hit.at === "block" ? title(block.text) : hit.at === "construct" ? hit.text : (hit.captures?.[1] ?? hit.captures?.[0] ?? hit.text),
-    ...(hit.level !== undefined ? { level: hit.level } : {}),
-    ...(hit.captures ? { captures: hit.captures } : {}),
-    property: (key: string) => properties.filter((property) => property.key === key).map((property) => property.value),
+  const record = ruleRecord(block);
+  // The matched block is the rule's `this`, and what matched is its `match` (a pattern's capture 1, else 0, is its text).
+  const site: Site = {
+    at: { block: record.id }, this: record, props: {}, actor: { id: "rule", author: "system" },
+    match: {
+      text: hit.at === "block" ? record.title : hit.at === "construct" ? hit.text : (hit.captures?.[1] ?? hit.captures?.[0] ?? hit.text),
+      ...(hit.level !== undefined ? { level: hit.level } : {}),
+      captures: hit.captures ? [...hit.captures] : [],
+    },
   };
-  const words = (fallback: string) => cleanExtensionText(expandTemplate(spec.label ?? fallback, values)).slice(0, 300);
+  // A label naming nothing the block has is empty, as a rule's label always was; a person's text is never refused.
+  const words = (fallback: string) => cleanExtensionText(interpolateWith(spec.label ?? fallback, site, {}, { missing: "empty" })).slice(0, 300);
   const tone = spec.tone ? { tone: spec.tone } : {};
   switch (spec.use) {
     case "band": {
       const level = Math.min(3, Math.max(1, hit.kind === "heading" ? hit.level ?? 1 : 1)) as 1 | 2 | 3;
-      return validatePrimitive({ type: "band", text: words("{text}"), level, ...(spec.style ? { style: spec.style } : {}), ...(spec.pattern ? { pattern: spec.pattern } : {}), ...(spec.align ? { align: spec.align } : {}), ...tone });
+      return validatePrimitive({ type: "band", text: words("{{match.text}}"), level, ...(spec.style ? { style: spec.style } : {}), ...(spec.pattern ? { pattern: spec.pattern } : {}), ...(spec.align ? { align: spec.align } : {}), ...tone });
     }
     case "divider":
       return validatePrimitive({ type: "track", ...(spec.style ? { style: spec.style } : {}), ...(spec.pattern ? { pattern: spec.pattern } : {}), ...tone });
     case "badge":
-      return validatePrimitive({ type: "badge", label: words("{text}"), ...tone });
+      return validatePrimitive({ type: "badge", label: words("{{match.text}}"), ...tone });
     case "text":
-      return validatePrimitive({ type: "text", text: words("{text}"), strong: true, ...tone });
+      return validatePrimitive({ type: "text", text: words("{{match.text}}"), strong: true, ...tone });
     case "box":
       return validatePrimitive({ type: "box", title: words(""), children: [] });
     case "card": {
-      const fields = (spec.fields ?? []).map((key) => ({ type: "stat", label: key, value: values.property(key).join(", ") || "—" }));
-      return validatePrimitive({ type: "card", title: words("{title}"), ...(fields.length ? { children: [{ type: "row", children: fields }] } : {}) });
+      const fields = (spec.fields ?? []).map((key) => ({ type: "stat", label: key, value: noteValues(record, key).join(", ") || "—" }));
+      return validatePrimitive({ type: "card", title: words("{{this.title}}"), ...(fields.length ? { children: [{ type: "row", children: fields }] } : {}) });
     }
   }
 }

@@ -62,7 +62,7 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     expect(note.text).not.toContain("screen.list");
     expect(note.text).toContain("block.mark");
     expect(note.text).toContain(`to="${sourceTile}"`);
-    await board.update(note.id, note.text.replace("#beans", "#{tag}").replace("recorded-query", "replayed-query"), note.revision!, USER);
+    await board.update(note.id, note.text.replace("#beans", "#{{props.tag}}").replace("recorded-query", "replayed-query"), note.revision!, USER);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "planting-layout" && e.actions.some(a => a.args?.some(x => x.name === "tag"))), "the edited macro loaded its slot");
     const extension = extensionList()!.extensions.find(e => e.name === "planting-layout")!;
     const run = await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { tag: 'peas "quoted"' } }, USER) as { written: string[] };
@@ -304,7 +304,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
   test("scripts run by name with slots from slash and by their bound key", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
-    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds] [effects::write]\n```actions\nblock.mark id="{note}" reason="Check seeds"\n```' });
+    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds] [effects::write]\n```actions\nblock.mark id="{{props.note}}" reason="Check seeds"\n```' });
     await board.request("extensions.list", { reload: true });
     await until(() => !!extensionList()?.extensions.find(e => e.name === "bound-seeds"), "bound script loaded");
     await app.dispatch.act({ action: "bar.open", args: { query: `bound-seeds note=${seeded.notes.shed.id}`, scope: "notes" } }, USER);

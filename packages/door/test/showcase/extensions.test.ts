@@ -195,7 +195,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
       .catch(e => { throw new Error(`${e.message}\n${screen()}\n${JSON.stringify(reader())?.slice(0, 2000)}`); });
     // The rule note's bands are in the headings' places, shout's in the line's; the card above the note.
     expect(drawn().map(d => [d.rule, d.place, d.on, d.line])).toEqual([
-      ["meeting-card/card", "above", "block", 0], ["shout/shout", "replace", "text", 13],
+      ["meeting-card/card", "prepend", "block", 0], ["shout/shout", "replace", "text", 13],
       ["committee-bands", "replace", "construct", 6], ["committee-bands", "replace", "construct", 10],
     ]);
     let shown = screen();
@@ -292,12 +292,12 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => asked().includes("Rules · rule-match · rule-match = type=bay-job AND status=todo"), "the clause from the outline's own values", 5000)
       .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(asked())}`); });
     // Changed elsewhere while the person chose: their answer is refused, never written over the change.
-    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-label", value: "{title}" }, as: "test-agent" });
+    await app.act({ action: "settings.set", tile: "reader", args: { key: "rule-label", value: "{{this.title}}" }, as: "test-agent" });
     while (!(app.bar!.items[app.bar!.selected]?.row.label === "type=bay-job AND status=todo")) press({ kind: "down" });
     press({ kind: "enter" });
     await Bun.sleep(500);
     expect(await text()).toContain("[rule-match::type=bay-job]");
-    expect(await text()).toContain("[rule-label::{title}]");
+    expect(await text()).toContain("[rule-label::{{this.title}}]");
     // Asked again, on the note as it is now: written.
     if (app.bar && !app.bar.ended()) press({ kind: "esc" });
     await until(() => !app.bar || app.bar.ended(), "the bar put away", 3000);

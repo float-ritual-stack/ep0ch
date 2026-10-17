@@ -95,6 +95,9 @@ Outlines
   ${OUTLINE_USAGE}
   import <source.sqlite> <target.sqlite> [--json]
                                        a new outline database from an older one (no host needed)
+  sweep <database.sqlite> [--apply] [--json]
+                                       the brace sweep: old {slot}, {key} and rule-place forms in the new grammar; a diff,
+                                       or with --apply one attributed change (stop the host first; no host needed)
   bound-folder [<folder>]              the nearest folder whose .ep0ch names an outline
 
 Publishing and extensions
@@ -134,6 +137,34 @@ if (process.argv[2] === "import") {
       console.log(`imported ${report.source} into ${report.target}: ${report.blocks} blocks, ${report.properties} properties, ${report.pageAddresses} page addresses, ${report.workIds} work ids`);
       for (const [table, why] of Object.entries(report.notCarried)) console.log(`  not carried: ${table} (${why})`);
       for (const column of report.droppedColumns) console.log(`  dropped column: ${column}`);
+    }
+    process.exit(0);
+  } catch (error) {
+    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
+/**
+ * `sweep <database.sqlite> [--apply] [--json]` (PIE-533): the brace sweep (src/brace-sweep.ts) over one outline's
+ * notes. Without `--apply` it prints each note's changed lines and writes nothing (a served file may be looked at);
+ * with it, every note is rewritten in one transaction and one attributed change, or none (a served file is refused:
+ * stop the host first). Needs no service. A second run changes nothing.
+ */
+if (process.argv[2] === "sweep") {
+  const { values, positionals } = parseArgs({ args: process.argv.slice(3), allowPositionals: true, strict: true, options: { apply: { type: "boolean" }, json: { type: "boolean" } } });
+  if (positionals.length !== 1) {
+    console.error("error: sweep expects: <database.sqlite> [--apply] [--json]");
+    process.exit(2);
+  }
+  try {
+    const { applySweep, planSweep, sweepDiff } = await import("./brace-sweep");
+    const database = resolve(positionals[0]!);
+    const report = values.apply ? await applySweep(database) : planSweep(database);
+    if (values.json) console.log(JSON.stringify({ database: report.database, applied: report.applied, notes: report.notes.map(n => ({ id: n.id, revision: n.revision, changes: n.changes })) }, null, 2));
+    else if (!report.notes.length) console.log(`${database}: nothing to rewrite`);
+    else {
+      for (const note of report.notes) console.log(sweepDiff(note));
+      console.log(report.applied ? `rewrote ${report.notes.length} notes in ${database}` : `${report.notes.length} notes would change; run again with --apply (host stopped) to write them`);
     }
     process.exit(0);
   } catch (error) {

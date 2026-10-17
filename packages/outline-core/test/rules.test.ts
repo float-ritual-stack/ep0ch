@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { builtInSpec, compileRulePattern, expandTemplate, noteConstructs, parseKindSpec, ruleHits, rulesFromBlocks, ruleWaitMs, ruleWriter } from "../src/rules";
+import { builtInSpec, compileRulePattern, noteConstructs, parseKindSpec, ruleHits, rulesFromBlocks, ruleWaitMs, ruleWriter } from "../src/rules";
 
 const NOTE = [
   "Allotment plan",
@@ -84,11 +84,6 @@ describe("built-in decorations and templates", () => {
     expect("spec" in r && r.problems.length).toBe(2);
     expect("problem" in builtInSpec({ use: "sparkle" })).toBe(true);
   });
-  test("expandTemplate", () => {
-    const props: Record<string, string[]> = { attendees: ["Ann", "Bo"] };
-    expect(expandTemplate("{title} · {attendees} · {$1} · {level} · {nope}", { title: "Sync", text: "x", level: 2, captures: ["a!!", "a"], property: k => props[k] ?? [] }))
-      .toBe("Sync · Ann, Bo · a · 2 · ");
-  });
 });
 
 describe("rulesFromBlocks", () => {
@@ -96,13 +91,20 @@ describe("rulesFromBlocks", () => {
   test("a rule note: its match and its built-in decoration", () => {
     const { rules, problems } = rulesFromBlocks([
       block("11111111-0000-4000-8000-000000000001", { "rule-name": "h1-band", "rule-kind": "heading:1", "rule-decorate": "band", "rule-pattern": "stack", "rule-align": "center" }),
-      block("11111111-0000-4000-8000-000000000002", { "rule-name": "Meetings", "rule-match": "type=meeting", "rule-decorate": "card", "rule-fields": "attendees, when", "rule-place": "below" }),
+      block("11111111-0000-4000-8000-000000000002", { "rule-name": "Meetings", "rule-match": "type=meeting", "rule-decorate": "card", "rule-fields": "attendees, when", "rule-place": "append" }),
     ]);
     expect(problems).toEqual([]);
     expect(rules).toEqual([
       { name: "h1-band", block: "11111111-0000-4000-8000-000000000001", match: { kind: "heading:1" }, decorate: { use: "band", pattern: "stack", align: "center" } },
-      { name: "meetings", block: "11111111-0000-4000-8000-000000000002", match: { query: "type=meeting" }, place: "below", decorate: { use: "card", fields: ["attendees", "when"] } },
+      { name: "meetings", block: "11111111-0000-4000-8000-000000000002", match: { query: "type=meeting" }, place: "append", decorate: { use: "card", fields: ["attendees", "when"] } },
     ]);
+  });
+  test("the old placement words are refused with the new ones named", () => {
+    const { rules, problems } = rulesFromBlocks([
+      { id: "33333333-0000-4000-8000-000000000001", properties: [{ key: "rule-name", value: "x" }, { key: "rule-match", value: "type=a" }, { key: "rule-decorate", value: "badge" }, { key: "rule-place", value: "above" }] },
+    ]);
+    expect(rules[0]?.place).toBeUndefined();
+    expect(problems.join("\n")).toContain("rule-place above is now prepend");
   });
   test("what can't be used is said, and the first note keeps a name", () => {
     const { rules, problems } = rulesFromBlocks([

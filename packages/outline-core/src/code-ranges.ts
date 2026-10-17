@@ -164,9 +164,10 @@ const YAML_FENCE_LINE = /^ {0,3}---[ \t]*$/;
  * to). Both are bounded the way their readers bound them (PIE-669): an unclosed component is plain text, so it
  * swallows nothing, and an unclosed quoted fence ends where its quote does.
  */
-export function structuralLiteralLines(lines: readonly string[]): { start: number; end: number }[] {
+export function structuralLiteralLines(lines: readonly string[], yaml = true): { start: number; end: number }[] {
   const spans: { start: number; end: number }[] = [];
-  for (const block of componentBlocks(lines)) {
+  // `yaml` off: a component's front matter is read by its owner, and a `{{ }}` in it is a placeholder (PIE-533 example 14).
+  for (const block of yaml ? componentBlocks(lines) : []) {
     let open = -1, closed = false;
     for (let i = block.start + 1; i <= block.end; i++) {
       if (!YAML_FENCE_LINE.test(lines[i]!.replace(/\r$/, ""))) continue;
@@ -199,9 +200,9 @@ function quotedFenceLines(lines: readonly string[]): { start: number; end: numbe
 }
 
 /** `structuralLiteralLines` by offsets: whole lines, line breaks included unless `withBreak` is false. */
-function structuralLiteralRanges(text: string, lines: SourceLine[], withBreak = true): SourceRange[] {
+function structuralLiteralRanges(text: string, lines: SourceLine[], withBreak = true, yaml = true): SourceRange[] {
   const texts = lines.map(line => text.slice(line.start, line.contentEnd));
-  return structuralLiteralLines(texts).map(span => ({ start: lines[span.start]!.start, end: withBreak ? lines[span.end]!.end : lines[span.end]!.contentEnd }));
+  return structuralLiteralLines(texts, yaml).map(span => ({ start: lines[span.start]!.start, end: withBreak ? lines[span.end]!.end : lines[span.end]!.contentEnd }));
 }
 
 function mergeRanges(ranges: SourceRange[]): SourceRange[] {
@@ -235,7 +236,7 @@ export function scanPropertyLiteralRanges(text: string): SourceRange[] {
  * spans (`codeSpanRanges`). Ranges are by line, without line
  * breaks, and may overlap.
  */
-export function protectedCodeRanges(text: string): SourceRange[] {
+export function protectedCodeRanges(text: string, yaml = true): SourceRange[] {
   const lines = text.split("\n"), starts: number[] = [];
   for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) starts.push(at);
   const lineRange = (i: number) => ({ start: starts[i]!, end: starts[i]! + lines[i]!.length });
@@ -243,7 +244,7 @@ export function protectedCodeRanges(text: string): SourceRange[] {
   const ranges: SourceRange[] = [];
   for (const block of fences) for (let i = block.start; i <= block.end; i++) ranges.push(lineRange(i));
   for (const i of indented) ranges.push(lineRange(i));
-  ranges.push(...structuralLiteralRanges(text, sourceLines(text), false));
+  ranges.push(...structuralLiteralRanges(text, sourceLines(text), false, yaml));
   ranges.push(...codeSpanRanges(text));
   return ranges;
 }

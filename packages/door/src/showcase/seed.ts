@@ -409,7 +409,7 @@ if (request.input.request === "describe the beds") {
   // The outline's own status families (PIE-819): `answered` is done here, so Dee's answered reply counts as done.
   await make(notes.rules.id, "answered [status-family::done]");
   // A rule note whose settings card (`,`) sets its fields with pickers (PIE-786), and the job it badges.
-  notes.settings = await make(notes.root.id, `${SEED.settings} [rule-name::bay-badges] [rule-match::type=bay-job] [rule-decorate::badge] [rule-label::{status}] [rule-tone::accent]\nA rule note is configured, not typed: , opens its card, each field a picker (the tone's values, a query over this outline's own properties, the actions extensions offer, whose saves set it off).`);
+  notes.settings = await make(notes.root.id, `${SEED.settings} [rule-name::bay-badges] [rule-match::type=bay-job] [rule-decorate::badge] [rule-label::{{this.status}}] [rule-tone::accent]\nA rule note is configured, not typed: , opens its card, each field a picker (the tone's values, a query over this outline's own properties, the actions extensions offer, whose saves set it off).`);
   await make(notes.settings.id, "Turn the compost bay [type::bay-job] [status::todo]");
 
   // Comment threads on the shed: one open, one resolved with a reply.

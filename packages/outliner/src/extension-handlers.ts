@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ExtensionHandler, ExtensionOptionSpec } from "./extension-manifest";
 import type { BoundHandler } from "./extension-registry";
 import { parsePropertyDirectiveLines } from "@ep0ch/outline-core/property-parse";
+import { splitWords } from "@ep0ch/outline-core/component-block";
 
 /**
  * Handler lines: `key:: [argument] [--option[=value]]` for a key an
@@ -78,16 +79,17 @@ export function handlerCalls(text: string, table: HandlerTable): HandlerCall[] {
     const bound = table.handler(line.key);
     if (!bound || bound.handler.kind === "resource") continue;
     const { handler, extension } = bound;
-    const words = line.value.split(/[ \t]+/).filter(Boolean);
+    const words = splitWords(line.value, false, false).flat();
     const positional: string[] = [];
     const options: Record<string, OptionValue> = {};
     const display: Record<string, OptionValue> = {};
     const unknown: string[] = [];
     const problems: string[] = [];
-    for (const word of words) {
+    for (const { value: word, raw } of words) {
       const option = /^--([a-z][a-z0-9-]{0,31})(?:=(.*))?$/.exec(word);
       if (!option) {
-        positional.push(word);
+        // The argument is the text as written: a quote in it is the person's own (`Bob's`), not an option's.
+        positional.push(raw);
         continue;
       }
       const spec = handler.options?.[option[1]!];

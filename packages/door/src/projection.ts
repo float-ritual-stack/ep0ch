@@ -101,7 +101,7 @@ export interface Decoration {
   rule: string; name: string;
   source: { kind: "extension"; extension: string; rule: string } | { kind: "note"; blockId: string };
   hit: RuleHit;
-  place: "above" | "below" | "replace" | "around" | (string & {});
+  place: "prepend" | "append" | "replace" | "around" | (string & {});
   status: "ready" | "stale" | "not-run" | "unavailable" | (string & {});
   view?: unknown; title?: string; markdown?: string; ranAt?: string; fetching?: boolean; reason?: string;
 }

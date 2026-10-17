@@ -15,7 +15,7 @@ export interface Address { block: string; anchor?: string; mark?: string; line?:
 export interface SiteActor { id: string; author: BlockAuthor; requestedBy?: string }
 
 /** What a rule matched: `{{match.text}}`, `{{match.level}}`, `{{match[N]}}`. */
-export interface RuleMatch { text: string; level?: number; captures: string[] }
+export interface RuleMatched { text: string; level?: number; captures: string[] }
 
 /** The producer's execution context. */
 export interface Site {
@@ -28,7 +28,7 @@ export interface Site {
   /** Where I was invoked (the `::run` line, the button, the `@name` line, the `::use` line). */
   caller?: Address;
   /** For a rule: what matched. */
-  match?: RuleMatch;
+  match?: RuleMatched;
   /** Invocation arguments, checked against my `PropsSpec`. */
   props: Record<string, string[]>;
   actor: SiteActor;

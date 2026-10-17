@@ -32,7 +32,9 @@ const values = (path: string, s = site(), scope = {}) => {
 test("a path is a head, keys and indexes", () => {
   expect(parsePath("this.tasks[0].title")).toEqual({ head: "this", steps: [{ key: "tasks" }, { index: 0 }, { key: "title" }] });
   expect(parsePath("this.")).toBeNull();
-  expect(parsePath("((9db884d1)).query")).toBeNull();
+  // Another note's id, page or Work ID is a head too; only the service reads it.
+  expect(parsePath("((9db884d1)).query")).toEqual({ head: "((9db884d1))", steps: [{ key: "query" }] });
+  expect(parsePath("PIE-533.title")).toEqual({ head: "PIE-533", steps: [{ key: "title" }] });
 });
 
 test("this.key: block scope first, then every occurrence in document order, each key a list", () => {
