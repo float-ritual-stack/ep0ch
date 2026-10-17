@@ -667,6 +667,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "output-regions", need: "draw what a script, handler or agent generates as the note's own content, with its controls behind one mark", part: "the output-region rule: regionRows/regionTail (src/output-region.ts) behind extensionRegion, useRegion and the [!output] callout branch of renderDoc; the gutter mark, its click and `[ ]` stop in NoteSurface; outline-core's output-region.ts grammar", files: "src/output-region.ts, src/projection.ts, src/template-use.ts, src/doc.ts, src/surface/note.ts, outline-core src/output-region.ts",
+    aside: "three generated regions in prose (a script's table, a ::= sentence, a written output region): flush with the text, no box or header · each has one dim ≡ in the margin: [ ] on it, or a click, shows its name, when it ran, keep and run again as one dim row; a second click lets go · hover isn't offered: the door asks the terminal for button events, not motion · r with no [ ] position runs nothing when a note has several lines that run, and says which · edit a word inside the written region and it is yours: its script's next output waits as a proposal",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · regions in prose", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.outputRegions], [b, n.scripts]]);
+    },
+  },
+  {
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {

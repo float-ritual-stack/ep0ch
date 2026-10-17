@@ -11,6 +11,8 @@ import { figureSource, frame, graphKind, reframeAscii, renderGraph, type Figures
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
 import { ifProblemLines, ifState, renderFields } from "./site-blocks";
+import { regionTail, type RegionBook } from "./output-region";
+import { outputHeader, type OutputRegion } from "@ep0ch/outline-core/output-region";
 import { useCallAt, type UseCall } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
@@ -56,7 +58,11 @@ export interface DocEnv {
    * Draw the `::use` call on body line `line` (PIE-533 S4, src/template-use.ts): a template drawn live, its body in place with
    * `this` the note the line is in. Without it (an embed, a draft's preview, an export) the line stays text.
    */
-  use?: (call: UseCall, line: number, width: number) => string[];
+  use?: (call: UseCall, line: number, width: number) => string[] | AfterRows;
+  /** Where generated regions (a `::use`, an `[!output]` callout) keep their mark and whether one is open (src/output-region.ts). */
+  regions?: RegionBook;
+  /** The output regions of the note's body by their header line (outline-core output-region.ts, read from the text as written): the producer, hash and anchor the presented lines have lost. */
+  outputs?: ReadonlyMap<number, OutputRegion>;
   /**
    * The Site this body is drawn in when it is a template's (a `::use` draws it): the chain of invocations and the call's
    * props. Its figures, `::fields` and `::if` read `this` through it (the host), and `{{props.x}}` as the call passed it.
@@ -106,7 +112,7 @@ export interface DocEnv {
    * is (after a whole table, fence or callout), and not when a fold hides the line: a resource projection's
    * region (src/projection.ts). Without it (an embed, a draft's preview) nothing is inserted.
    */
-  after?: (line: number, width: number) => string[];
+  after?: (line: number, width: number) => string[] | AfterRows;
   /**
    * A list item's step box (`[ ]`, `[x]`, `[~]`, `[!]`, `[✓]`, `[✗]`: outline-core's checklist-marks.ts) on body line `line`: the text to draw in its place
    * (the reader tags it, so `[ ]` stops on it and a click opens its status choice, PIE-472), or null to
@@ -191,6 +197,8 @@ export interface DocMedia { path: string; kind: string; row: number; line: numbe
  */
 export interface Doc {
   lines: string[]; images: DocImage[]; media: DocMedia[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number }[];
+  /** The generated regions drawn (`env.after`'s `regions`), by row of `lines`. */
+  regions?: DocRegion[];
   /** The drawing a copy leaves out, by row of `lines` (only rows that have some). */
   trims: Map<number, DocTrim>;
   /** The code blocks, quotes and callouts drawn, in reading order: what the copy control copies. */
@@ -209,6 +217,14 @@ export interface Doc {
    */
   wraps?: Map<number, string>;
 }
+
+/**
+ * Rows `env.after` inserts, with where the generated regions among them are (PIE-956): `at` is the row of `rows` a region's
+ * first row is, `rows` how many it spans (its body and the panel under it). The reader draws each one's mark in the gutter.
+ */
+export interface AfterRows { rows: string[]; regions?: { key: string; at: number; rows: number }[] }
+/** A generated region as drawn: where its rows are in `lines`, and the key the reader knows it by. */
+export interface DocRegion { key: string; row: number; rows: number }
 
 /** A background under rows [from, to) of `lines`, across cells [from, to) (`cols`; the whole row without), in `bg` (an SGR). */
 export interface DocTint { rows: [number, number]; cols?: [number, number]; bg: string }
@@ -377,6 +393,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (cuts.length) cut(base + r, ...cuts);
     });
     for (const [r, j] of sub.wraps ?? []) wraps.set(base + r, j);
+    for (const r of sub.regions ?? []) regions.push({ ...r, row: base + r.row });
     for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
   };
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
@@ -389,9 +406,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const mark = () => { while (source.length < out.length) source.push(from); };
   // Inserted rows (env.after) for each body line before `to`, once: they belong to the line they follow.
   let inserted = 0;
+  const regions: DocRegion[] = [];
   const insert = (to: number) => {
     for (; inserted < to; inserted++) {
-      const rows = env.after?.(inserted, W) ?? [];
+      const got = env.after?.(inserted, W) ?? [];
+      const rows = Array.isArray(got) ? got : got.rows;
+      if (!Array.isArray(got)) for (const r of got.regions ?? []) regions.push({ key: r.key, row: out.length + r.at, rows: r.rows });
       out.push(...rows);
       for (const _ of rows) source.push(Math.max(0, inserted));
     }
@@ -559,7 +579,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // `::use` (src/template-use.ts): a template drawn live in place of its line.
     const used = env.use ? useCallAt(src, i) : null;
     if (used) {
-      out.push(...env.use!(used, i, W));
+      const drawn = env.use!(used, i, W);
+      if (!Array.isArray(drawn)) for (const r of drawn.regions ?? []) regions.push({ key: r.key, row: out.length + r.at, rows: r.rows });
+      out.push(...(Array.isArray(drawn) ? drawn : drawn.rows));
       continue;
     }
 
@@ -645,6 +667,37 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // Callout (PIE-538): > [!type]± title, then its lines, each quoted at least as deep; one quoted deeper is a
     // callout inside it, drawn by this same renderer in its frame, to any depth.
     const cb = callouts.get(i);
+    // An output region (outline-core output-region.ts: a script's or an @name's `> [!output]-` callout): the body is the note's
+    // own content, flush, behind one gutter mark (src/output-region.ts). A fold on it is the person's to ask for, not drawn.
+    const known = cb && cb.depth === 1 ? env.outputs?.get(i) : undefined;
+    const og = known ?? (cb && cb.depth === 1 ? outputHeader(src[i]!) : null);
+    if (cb && og) {
+      const off = i + 1, inside = (n: number) => n > i && n < cb.end;
+      const body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
+      const sub = renderDoc(body.join("\n"), {
+        ...env, nested: true, width: W, keepTags: true, embed: undefined, after: undefined, use: undefined, regions: undefined, outputs: undefined, task: undefined, decorate: undefined,
+        literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
+        folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
+        callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),
+      });
+      mark();
+      const base = out.length;
+      sub.lines.forEach((l, r) => { out.push(l); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
+      for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
+      adopt(sub, base, 0, off, undefined, cb.depth);
+      const key = `${env.note ?? ""}:#${og.anchor ?? i}`;
+      const source0 = og.producer && env.tag ? env.tag({ block: og.producer, role: "control", label: `source of ${og.label || "this output"}` }, "[source]") : "";
+      const edited = !!known?.edited;
+      // The body is already in `out`; what follows it is what is wrong with it and the row behind the mark.
+      out.push(...regionTail({
+        key, label: og.label || "output", target: og.producer ? { block: og.producer, role: "embed" as const, label: og.label } : { role: "resource" as const, label: og.label }, body: sub.lines,
+        notes: edited ? [fg(C.dark) + "edited here: it is yours now, and the next output waits as a proposal" + RESET] : [],
+        facts: [og.label || "output", og.type === "answer" ? "an agent's answer" : "written by a script"], controls: source0 ? [fg(C.lcyan) + source0 + RESET] : [], width: W,
+      }, env.regions));
+      regions.push({ key, row: base, rows: out.length - base });
+      i = cb.end - 1;
+      continue;
+    }
     if (cb) {
       const t = (env.callouts ?? BUILTIN_CALLOUT_REGISTRY).style(cb.type), colour = TONE[t.tone];
       let body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
@@ -804,9 +857,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   // A glyph the drawing adds after a link (the ↗ of a link to the web) is marked ADORN: its cell is a cut, drawn and never copied.
   out.forEach((row, r) => { for (let at = row.indexOf(ADORN); at >= 0; at = row.indexOf(ADORN, at + 1)) { const col = vwidth(row.slice(0, at)); cut(r, [col, col + 1]); } });
   const z = { ...(tints.length ? { tints } : {}), ...(wraps.size ? { wraps } : {}) };
-  if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}), ...z }; }
+  if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z }; }
   const { lines, ranges } = extractLinks(out.map(stripMarks));
-  return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(hero ? { hero } : {}), ...z };
+  return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z };
 }
 
 /** Rows `cols` cells of `m` take, its aspect kept. */
