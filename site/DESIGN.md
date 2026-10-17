@@ -86,8 +86,8 @@ comments, outline-core's callout tones, the door's `TONE`).
 | `surface-sunk` | the ground, darker | code and cast wells |
 | `surface-raised` | `tint.embed` | callouts, signatures, chips |
 | `surface-bar` | the bars (palette 1) | status bar, player controls |
-| `surface-select` | `tint.select` | the current chapter, the current page |
-| `surface-ruler` | `tint.ruler` | the line in focus |
+| `surface-select` | `focus.selection` | the current chapter, the current page |
+| `surface-ruler` | `focus.container` | the line in focus |
 | `surface-agent` | `tint.agent` | an agent's selection |
 | `line-frame`, `line-quiet` | bars toward dim | frames; rules inside a frame |
 | `ink-body` | grey (7) | running text |

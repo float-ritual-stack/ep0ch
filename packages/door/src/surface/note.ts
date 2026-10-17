@@ -1698,7 +1698,7 @@ export class NoteSurface {
       // Item focus (PIE-969): the row the cursor is on inside a figure or list, over the container's ruler tint.
       if (itemRows && row >= itemRows[0] && row < itemRows[1]) {
         const band = paintRange(pad(l, W), 0, W, host?.focused === false ? ITEM_IDLE_BG : ITEM_BG);
-        const bar = bx > 0 && row >= top ? putCell(band, bx - 1, "▌", fgRgb(theme().item.bar)) : null;
+        const bar = bx > 0 && row >= top ? putCell(band, bx - 1, theme().focus.item.glyph, fgRgb(theme().focus.item.bar)) : null;
         return this.paintSelection(marked(bar ?? band, row), row);
       }
       const tint = ruled(row) ? RULER_BG : readingBand && row >= readingBand[0] && row < readingBand[1] ? (host?.focused === false ? RULER_IDLE_BG : RULER_BG) : inQuote(row) ? THREAD_BG : null;

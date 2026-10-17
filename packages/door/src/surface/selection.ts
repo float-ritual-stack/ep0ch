@@ -72,7 +72,7 @@ export let ITEM_IDLE_BG = "";
 export let ZEBRA_BG = "";
 /** The zebra stripe for a look (PIE-675): its `list.zebra.bg` surface at `list.zebra.strength`, capped dark. */
 export const zebraBg = (v?: Pick<StyleValues, "list.zebra.bg" | "list.zebra.strength">) => surfaceBg(v?.["list.zebra.bg"] ?? "raised", v?.["list.zebra.strength"] ?? 2);
-themed(() => { SELECT_BG = tint("select"); AGENT_BG = tint("agent"); RULER_BG = tint("ruler"); RULER_IDLE_BG = bgRgb(theme().tint.ruler.map(c => Math.round(c * 0.55)) as [number, number, number]); THREAD_BG = tint("thread"); ITEM_BG = itemBg(); ITEM_IDLE_BG = tint("idleRow"); ZEBRA_BG = zebraBg(); });
+themed(() => { SELECT_BG = bgRgb(theme().focus.selection); AGENT_BG = tint("agent"); RULER_BG = bgRgb(theme().focus.container); RULER_IDLE_BG = bgRgb(theme().focus.container.map(c => Math.round(c * 0.55)) as [number, number, number]); THREAD_BG = tint("thread"); ITEM_BG = itemBg(); ITEM_IDLE_BG = tint("idleRow"); ZEBRA_BG = zebraBg(); });
 
 const SGR = /(\x1b\[[\d;]*m)/;
 const TAG = /[\u{100000}-\u{10FFFD}]/u;
