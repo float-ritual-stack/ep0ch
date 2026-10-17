@@ -635,7 +635,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the pointer is the motion.
    */
   private startMotion(hint: string | undefined, what: string) {
-    if (what === "resize" || what === "float.place" || this.dragging || this.floatDrag || inResize()) return;
+    if (what === "resize" || this.dragging || this.floatDrag || inResize()) return;
     const plan = planMotion(hint, motionMode());
     if (!plan) return;
     const now = this.clock();

@@ -1020,6 +1020,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "motion", need: "see a layout change as movement: tiles glide from where they were to where they are, and a button can ask for more", part: "the desk's transition (src/motion.ts, Desk.startMotion, the tick and the ghosts drawn in render) driven by the layout history's changes (src/desk/layout-history.ts); the person's setting (motion.set, EP0CH_MOTION) caps every actor's hint", files: "src/motion.ts, src/desk/desk.ts, src/desk/layout-history.ts, src/screens.ts",
+    aside: "click ✦ Shuffle the tiles (or ⏎ on it): the two tiles beside float out, wander and settle back, a script's motion=fantasia · motion.set mode=calm glides briefly, mode=off snaps · any key or a click snaps what is moving · ctrl+z puts the run's layout back · peek and snapshots read the settled layout, never the frames in flight · movement only: no fade, no flash",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
+      return deskOf({ title: "showcase · motion", panes: [a, b, c], names: ["notes", "source", "extra"], layout: ([x, y, z]) => pair("row", 0.4, leaf(x!), row(0.5, y!, z!)) }, show, [[a, n.motion], [b, n.scripts], [c, n.shed]]);
+    },
+  },
+  {
     key: "one-place", need: "keep your place when reading, editing and returning to a held edit", part: "NoteSurface and Draft share source positions through Doc.source; DraftSession keeps the edit in the ReaderMode stack; PaneView.scroll draws its bar", files: "src/reader-position.ts, src/surface/note.ts, src/edit.ts, src/draft-session.ts",
     aside: "Scroll halfway, then e and Enter: the same line stays put. Click the shed, wheel the held edit, click back once to focus, again to place the cursor. Wheel away and type to return to the cursor. The scroll bar stays visible in both edits. Esc returns to reading at the same source line.",
     stage(n, show) {
