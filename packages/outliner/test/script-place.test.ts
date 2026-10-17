@@ -76,6 +76,8 @@ test("place appends a region under the anchor as the script; a rerun with upsert
   const once = findOutputRegions(store.get(note.id)!.text);
   expect(once).toHaveLength(1);
   expect(once[0]).toMatchObject({ body: "v1", label: "weekly", edited: false });
+  // The region names its producer by the script note's own id, exactly as stored (the address `((id))` resolves).
+  expect(once[0]!.producer).toBe(store.queryBlocks({ where: "script=weekly" }).blocks[0]!.id);
   expect(store.get(note.id)!.text).toContain("my own paragraph");
   const edit = store.changes.since(0, 1000);
   const change = edit.kind === "changes" ? edit.changes.find(c => c.kind === "edit" && c.blockId === note.id) : undefined;

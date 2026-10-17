@@ -898,7 +898,7 @@ export class SocketBoard implements Board {
     return list.map(c => ({
       id: c.clientId,
       name: c.role,
-      host: c.runtime?.hostname ?? (String(c.clientId).startsWith("ep0ch-door") ? "ep0ch door" : "—"),
+      host: c.runtime?.hostname ?? (c.app === "door" ? "ep0ch door" : "—"),
       activity: c.currentTarget?.kind === "block" ? `reading ${c.currentTarget.blockId.slice(0, 8)}`
         : c.currentTarget?.kind === "resource" ? "in the file area" : c.role === "observer" ? "lurking" : "idle",
       since: null,
@@ -1407,7 +1407,7 @@ export class SocketBoard implements Board {
       this.retryEvents(sub);
     });
     s.on("connect", () => s.write(jsonLine({
-      id: "sub", action: "events.subscribe", client: { clientId: this.clientId, role: "observer", contextId: this.clientId },
+      id: "sub", action: "events.subscribe", client: { clientId: this.clientId, role: "observer", contextId: this.clientId, app: "door" },
       ...(this.outline ? { outline: this.outline } : {}),
     })));
     this.events = s;

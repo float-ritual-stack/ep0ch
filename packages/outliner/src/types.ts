@@ -1173,6 +1173,8 @@ export interface OutlinerClientRegistration {
   clientId: string;
   role: OutlinerClientRole;
   contextId: string;
+  /** The program a client says it is (a door says `door`): what a script's `act()` looks for, not a clientId prefix. */
+  app?: "door";
   /** The host outline this pane is on; a hosted outline stamps its own name. */
   outline?: string;
   navigationProtection?: string | null;

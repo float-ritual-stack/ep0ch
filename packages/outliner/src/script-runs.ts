@@ -212,7 +212,7 @@ export class ScriptRuns {
       if (!site.thisId) throw new Error("place writes into this run's note: run this script from a note (this run has none)");
       const draft = await client.request<{ text: string; revision: number; holder?: string }>({ action: "drafts.read", blockId: site.thisId });
       const line = request.line;
-      const producer = { id: (source.blockId ?? extension.id).replace(/[^A-Za-z0-9_-]/g, "-").padEnd(8, "-"), name: extension.name };
+      const producer = { id: source.blockId ?? extension.id.replace(/[^A-Za-z0-9_-]/g, "-").padEnd(8, "-"), name: extension.name };
       const plan = planPlace(draft.text, {
         producer, content, ...(opts.at !== undefined ? { at: opts.at } : {}), ...(opts.mode !== undefined ? { mode: opts.mode as PlaceMode } : {}),
         ...(opts.label !== undefined ? { label: opts.label } : {}), ...(line !== undefined ? { here: line } : {}), ...(opts.interpolate ? { interpolate: true } : {}),

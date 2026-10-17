@@ -564,7 +564,7 @@ export class OutlinerServer {
       },
     }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal, meta) => {
       // The door that asked, else the only door here; none or several is refused with which there are (PIE-957).
-      const doors = [...this.subscribers.values()].map(c => c.clientId).filter(id => id.startsWith("ep0ch-door"));
+      const doors = [...this.subscribers.values()].filter(c => c.app === "door").map(c => c.clientId);
       if (clientId === undefined) {
         const where = this.outline?.name ? `on ${this.outline.name}` : "here";
         if (doors.length !== 1) return Promise.reject(new Error(doors.length ? `${doors.length} doors are ${where}: pass door=<client> (${doors.join(", ")})` : `no door ${where}; open one or pass door=<client>`));
