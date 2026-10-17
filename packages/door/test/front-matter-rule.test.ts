@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
-const note = (text: string) => ({ id: "c1111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} });
+const note = (text: string) => ({ id: "c1111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] });
 
 // What the service answers for a line of only hashtags inside the first paragraph: block-scope, a metadata line.
 const records = (text: string) => text.split("\n").flatMap((l, line) => (line > 0 && /^(?:[-*+] +)?#\S+(?: +(?:- +)?#\S+)*$/.test(l.trim()) && !text.split("\n").slice(1, line).includes("") && !text.split("\n").slice(1, line).some(x => /^-{3,}$/.test(x))

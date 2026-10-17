@@ -359,8 +359,9 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       };
       const todo: typeof found = [];
       for (const o of found) {
+        // An outline the sweep can't read is left alone and said (nothing was written); it never holds the install back.
         try { if ((await look(o.path, false)).notes.length) todo.push(o); }
-        catch (e) { throw new StepFailed(`reading ${o.name} for the sweep failed: ${(e as Error).message}`, `nothing was rewritten; bun ${sh(cli)} sweep ${sh(o.path)} shows what it would change`); }
+        catch (e) { show(`    ! ${o.name}: not swept (${(e as Error).message.split("\n")[0]}); bun ${sh(cli)} sweep ${sh(o.path)} says why`); }
       }
       if (!todo.length) { say("nothing to rewrite"); return; }
       const u = f.host.unit, uid = process.getuid?.() ?? 0;
