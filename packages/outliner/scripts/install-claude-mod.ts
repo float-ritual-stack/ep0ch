@@ -52,13 +52,14 @@ if(!settings||typeof settings!=='object'||Array.isArray(settings))throw Error(`$
 // PIE-971: the mod was called pi-outliner and is now ep0ch. Wherever Claude's config names it (tool names such as
 // mcp__pi-outliner__*, in permission lists and hooks; plugin keys such as pi-outliner@inline in pluginConfigs,
 // enabledPlugins and installed_plugins.json) the name is moved, so a machine ends with the new name only. A key
-// already under the new name wins over the old one, and a list never holds a rule twice.
+// already under the new name wins over the old one, and a rule the rename would list twice is kept once.
 const OLD_TOOLS='mcp__pi-outliner__';
 const renameModIn=(value:unknown):unknown=>{
  if(typeof value==='string')return value.split(OLD_TOOLS).join('mcp__ep0ch__');
  if(Array.isArray(value)){
+  // Only an entry the rename changed is dropped when its new form is already listed; other arrays stay as written.
   const renamed=value.map(renameModIn);
-  return renamed.filter((item,index)=>typeof item!=='string'||renamed.indexOf(item)===index);
+  return renamed.filter((item,index)=>item===value[index]||!value.includes(item)&&renamed.indexOf(item)===index);
  }
  if(value&&typeof value==='object'){
   const out:Record<string,unknown>={};
