@@ -191,11 +191,21 @@ async function childRows(host: LiveHost, note: string): Promise<Row[]> {
 }
 
 /** What a producer in a note asks of its Site, answered by the service (`site.answer`): the one orchestration, here and in the door. */
-async function produced(host: Pick<LiveHost, "request">, note: string, produce: SiteProducer, args?: Record<string, string>): Promise<SiteProduced> {
+async function produced(host: Pick<LiveHost, "request"> & Partial<Pick<LiveHost, "shown">>, note: string, produce: SiteProducer, args?: Record<string, string>): Promise<SiteProduced> {
   const props = args && Object.keys(args).length ? Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]])) : undefined;
-  const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce, ...(props ? { props } : {}) });
-  if (!answer.produced) throw new Error("the service answered no figure");
-  return answer.produced;
+  // As a page's `{{ }}` values are read (publish-values.ts): asked again naming the notes the page may not show, when the
+  // answer was computed from any, so a `{{ }}` operand never reads through one.
+  const hidden = new Set<string>();
+  for (let round = 0; round < 4; round++) {
+    const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce, ...(props ? { props } : {}), ...(hidden.size ? { hidden: [...hidden] } : {}) });
+    if (!answer.produced) throw new Error("the service answered no figure");
+    const touched = answer.deps.filter(id => id !== note);
+    const shown = host.shown && touched.length ? await host.shown(touched) : new Set(touched);
+    const fresh = touched.filter(id => !shown.has(id) && !hidden.has(id));
+    if (!fresh.length) return answer.produced;
+    for (const id of fresh) hidden.add(id);
+  }
+  throw new Error("this reads a note that isn't shown here");
 }
 
 /** A live figure's props from the service's answer, or null when it asks nothing. */

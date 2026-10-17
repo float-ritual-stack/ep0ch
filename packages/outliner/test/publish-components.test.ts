@@ -257,3 +257,14 @@ test("a figure's call-site args reach the page's question: ::graph-table{project
   expect(html).toContain("Water the beans");
   expect(html).not.toContain("Sort the bricks");
 });
+
+test("on a public page a figure's {{ }} operand never reads through a note the page may not show", async () => {
+  const { store, publisher } = await setup();
+  store.create("Sort the bricks [type::ticket] [project::secret-plan] [publish::public]");
+  const parent = store.create("Private plans [project::secret-plan]");
+  const note = store.create('Tickets [publish::public]\n\n::graph-table\n---\nquery: type=ticket project={{project}}\ncolumns: [title]\n---\n::', parent.id);
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`, { headers: { accept: "text/html" } }), "public");
+  const html = await response.text();
+  expect(html).not.toContain("Sort the bricks");
+  expect(html).not.toContain("secret-plan");
+});
