@@ -210,7 +210,7 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
 
   test("r opens the shared composer on the subject; q with the message quoted; an agent replies by act", async () => {
     // r: on the subject line, nothing written yet (left unchanged, esc lets it go).
-    ch("r");
+    ch("R");
     await until(() => !!reader().surface.session?.composer, "the reply composer");
     expect(reader().surface.session!.composer!.text).toBe("");
     expect((reader().surface.session as any).target?.passage?.quote).toBe("Frost tonight");

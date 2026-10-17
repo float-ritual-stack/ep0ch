@@ -520,7 +520,7 @@ export class EchoReader extends ReaderPane {
       },
       // SEEN-BY names the nodes the tosser's seen-by marks on it name, once its threads are read.
       footer: (m: Msg, w: number) => (this.list.some(x => x.msg.id === m.id) ? footerOf(m, a, w, this.msg?.id === m.id ? this.seen(m, desk) : []).map(paint) : []),
-      ownKeys: "[]rq",
+      ownKeys: "[]Rq",
     };
     return h;
   }
