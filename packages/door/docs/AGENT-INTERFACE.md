@@ -635,6 +635,11 @@ at, and what it does while they're typing:
 | `proposal.dismiss` | no | its own proposals only (the actor its patch names, checked by the service), recorded as it; the person dismisses any |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
 
+YOLO belongs to the door session. An update handover carries this door's own grant once through the session checkpoint;
+the successor reasserts it to the service and says “YOLO kept across the update” on the status line. Ending or crashing
+the door, or losing its service connection, ends its grant. A new session starts off; another door's grant is never
+copied into this door's checkpoint. The `agents.yolo` action still requires the person to turn it on.
+
 ## What's kept as unsent
 
 A draft the person put aside (esc twice, a closed screen, the door quitting) shows under the reader's header as a calm

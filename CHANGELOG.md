@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### YOLO survives a session update (PIE-980)
+
+When an update hands your door session to new code, its YOLO stays on in the door and the outline service.
+The status line says “YOLO kept across the update” once. Ending or crashing the door still ends its grant,
+as does losing the service connection; a new session starts off.
+
 ### Fantasia: one button, the whole chain (PIE-959, S9 of the self-reference wave)
 
 `::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia}` in a note floats the screen's tiles, dances them with

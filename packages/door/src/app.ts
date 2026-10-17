@@ -416,7 +416,7 @@ export class App implements Ctx {
   reconnects = 0;
   /** Whether "what changed" (the +N count, newscan) includes what tools wrote for their own bookkeeping: `changes.machinery`. */
   machineryChanges = false;
-  /** This door's person turned yolo on (`agents.yolo`): the door's guards lift, and the service is told (PIE-973). Off when the door starts. */
+  /** This door's person turned yolo on (`agents.yolo`): the door's guards lift, and the service is told (PIE-973). Kept only across a session handover. */
   private yoloHere = false;
   /** The service says yolo is on for the outline: this door's, or another door's (`agents` events, `mcp.access.status`). */
   private yoloService = false;
@@ -426,10 +426,13 @@ export class App implements Ctx {
    * which drops it when this door's connection does.
    */
   get agentsYolo(): boolean { return this.yoloHere || this.yoloService; }
-  set agentsYolo(on: boolean) {
+  set agentsYolo(on: boolean) { void this.setAgentsYolo(on); }
+  /** Only this door's grant belongs in its handover, never another door's grant. */
+  get ownsYolo(): boolean { return this.yoloHere; }
+  async setAgentsYolo(on: boolean): Promise<void> {
     this.yoloHere = on;
     if (!on) this.yoloService = false;
-    void this.tellYolo(on);
+    await this.tellYolo(on);
   }
   /** Bumped by every change of yolo this door hears or makes: an answer that was asked before the latest one is stale and dropped. */
   private yoloEpoch = 0;
