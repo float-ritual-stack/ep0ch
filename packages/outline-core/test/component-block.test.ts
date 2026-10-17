@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { componentBlockAt, componentBlocks } from "../src/component-block";
+import { componentAttrs, componentBlockAt, componentBlocks } from "../src/component-block";
+import { interpolationSpans } from "../src/interpolation";
 import { COMARK_NOTE, COMARK_NOTE_BLOCKS } from "./fixtures/component-notes";
 import * as modCopy from "../../claude-mod/hooks/component-block";
 
@@ -57,4 +58,20 @@ test("the Claude mod's copy (a hooks module can't import outside its plugin) sta
   const [own, copy] = await Promise.all([read("../src/component-block.ts"), read("../../claude-mod/hooks/component-block.ts")]);
   expect(copy.slice(copy.indexOf("\n") + 1)).toBe(own);
   expect(modCopy.componentBlocks(COMARK_NOTE)).toEqual(componentBlocks(COMARK_NOTE));
+});
+
+test("a placeholder inside the call-site braces is still a component line, and the reader agrees (design examples 13 and 14)", () => {
+  // 13: a prop may itself be a path, filled in the caller's Site before the call.
+  const card = "::status-card{status={{parent.status}} .wide}\n- body\n::";
+  const [found] = componentBlocks(card.split("\n"));
+  expect(found).toMatchObject({ name: "status-card", start: 0, end: 2, attrs: "status={{parent.status}} .wide" });
+  expect(componentAttrs(found!.attrs!)).toEqual({ classes: ["wide"], pairs: [{ key: "status", value: "{{parent.status}}" }] });
+  expect(componentAttrs("status=paused").pairs).toEqual([{ key: "status", value: "paused" }]);
+  // A default with spaces stays one value; an unfinished one is not a component line.
+  expect(componentAttrs("status={{ parent.status || on hold }} pad=1").pairs).toEqual([{ key: "status", value: "{{ parent.status || on hold }}" }, { key: "pad", value: "1" }]);
+  expect(componentBlocks("::status-card{status={{oops}\n::".split("\n"))).toEqual([]);
+  // 14: a query that adapts to its page reads its placeholder in the figure's YAML.
+  const figure = "::graph-table\n---\nwhere: project={{this.project}}\n---\n::";
+  expect(componentBlocks(figure.split("\n"))).toHaveLength(1);
+  expect(interpolationSpans(figure).map(s => s.path)).toEqual(["this.project"]);
 });

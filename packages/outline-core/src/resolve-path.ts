@@ -32,7 +32,11 @@ export type PathAnswer =
   | { ok: true; values: string[]; /** For `.fields.key`: the line each value was written on. */ lines?: number[] }
   | { ok: false; problem: { message: string; didYouMean: string[] } };
 
-const HEAD = /^[A-Za-z_][\w-]*/;
+/** A head: a name, or a reference to another note (`((id))`, `[[page]]`, a Work ID such as `PIE-533`). */
+const HEAD = /^(?:\(\([^()\n]+\)\)|\[\[[^\[\]\n]+\]\]|[A-Z][A-Z0-9]*-\d+(?![\w-])|[A-Za-z_][\w-]*)/;
+
+/** Whether a head names another note, which only the service can read. */
+export const isReferenceHead = (head: string): boolean => /^(?:\(\(|\[\[|[A-Z][A-Z0-9]*-\d+$)/.test(head);
 
 /** `this.tasks[0].title` → head `this`, steps. Null when the text isn't a path. */
 export function parsePath(path: string): ParsedPath | null {
@@ -57,7 +61,7 @@ const fail = (message: string, candidates: readonly string[], asked: string): Pa
 };
 
 /** The record's own fields a path can name besides a property. */
-const RECORD_KEYS = ["id", "parent", "title", "body", "text", "children", "created", "updated", "author", "actor", "revision"] as const;
+export const RECORD_KEYS = ["id", "parent", "title", "body", "text", "children", "created", "updated", "author", "actor", "revision"] as const;
 
 function recordField(record: BlockRecord, key: string): string[] | undefined {
   switch (key) {
@@ -139,6 +143,19 @@ function bare(key: string, steps: ParsedPath["steps"], site: Site, scope: PathSc
   return finish({ ok: true, values: raw.flatMap(splitPropertyValue) }, steps);
 }
 
+/** `match.text`, `match.level`, `match[N]` (a text pattern's captures): what a rule matched. */
+function matched(steps: ParsedPath["steps"], site: Site): PathAnswer {
+  const m = site.match;
+  if (!m) return { ok: false, problem: { message: "`match` is what a rule matched; only a rule's label has one", didYouMean: [] } };
+  const [first, ...rest] = steps;
+  if (!first) return { ok: true, values: [m.text] };
+  if ("index" in first) return finish({ ok: true, values: [m.captures[first.index] ?? ""] }, rest);
+  const key = first.key.toLowerCase();
+  if (key === "text") return finish({ ok: true, values: [m.text] }, rest);
+  if (key === "level") return finish({ ok: true, values: m.level === undefined ? [] : [String(m.level)] }, rest);
+  return fail(`\`match\` has no \`${first.key}\``, ["text", "level"], first.key);
+}
+
 /** Resolve one path against a Site. */
 export function resolvePath(path: string | ParsedPath, site: Site, scope: PathScope = {}): PathAnswer {
   const parsed = typeof path === "string" ? parsePath(path) : path;
@@ -155,8 +172,11 @@ export function resolvePath(path: string | ParsedPath, site: Site, scope: PathSc
       if (values) return finish({ ok: true, values: [...values] }, rest);
       return fail(`no prop \`${first.key}\` was passed`, Object.keys(site.props), first.key);
     }
-    case "caller": case "match": case "now":
+    case "match": return matched(steps, site);
+    case "caller": case "now":
       return { ok: false, problem: { message: `\`${head}\` is answered by the service (the Site read)`, didYouMean: [] } };
-    default: return bare(head, steps, site, scope);
+    default:
+      if (isReferenceHead(head)) return { ok: false, problem: { message: `\`${head}\` names another note; the service reads it (the Site read)`, didYouMean: [] } };
+      return bare(head, steps, site, scope);
   }
 }

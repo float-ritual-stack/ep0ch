@@ -34,7 +34,7 @@ function figure(k: Kind): ComponentSchema {
   const id = `graph-${k.kind}`;
   return {
     id, title: `${k.title} (::${id})`, intro: k.intro, where: k.where ?? `a \`::${id}\` block: its options in the YAML between \`---\` lines, its rows in Markdown after them`,
-    props: k.props, source: { use: `::${id}\n---\n{yaml}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
+    props: k.props, source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
     sweep: k.sweep, grids: k.grids ?? [], space: k.space ?? k.sweep,
   };
 }

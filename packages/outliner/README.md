@@ -3144,7 +3144,7 @@ Scripts default to read; writes and door actions require `[effects::write]`. Run
 [script contract](docs/extensions/README.md#script-blocks-and-files-pie-601).
 
 A `[script::name]` block may hold an `actions` fence as well as a TypeScript/JavaScript fence.
-Action lines use the power bar’s shared quote grammar; `{slot}` argument values are required run arguments.
+Action lines use the power bar’s shared quote grammar; `{{props.slot}}` argument values are run arguments, required unless the slot has a default (`{{props.slot || main}}`). A slot is filled per argument value, after the line is split into words, so a value holding `x tile=other` stays one value. `outliner sweep <database> [--apply]` rewrites the old `{slot}`, rule `{title}` label and `[rule-place::above|below]` forms (a diff first; `--apply` is one attributed change, host stopped).
 The loader exposes them through the existing extension manifest, and the same script runtime awaits each
 `act` in order, reporting the first refused step in its run note. Editing the source still invalidates an
 older run. The door’s [macro controls](../door/README.md#the-showcase) record these blocks.

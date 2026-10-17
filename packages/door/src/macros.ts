@@ -69,7 +69,7 @@ export const MACRO_ACTIONS = actionSet<{ ctx: Ctx; recording: MacroRecording }>(
     },
   }),
   "macro.stop": def({
-    summary: "stop recording and save its action lines in a [script::] block; edit argument values to {slot} to fill them at replay",
+    summary: "stop recording and save its action lines in a [script::] block; edit argument values to {{props.slot}} to fill them at replay",
     keys: "alt+Q (while recording), or ^K then macro.stop; a click on REC stop or its power bar row",
     touches: "nothing", replay: "ask", person: "Only the person stops their recording",
     args: {}, run(_, { ctx, recording }) { return recording.stop(ctx); },

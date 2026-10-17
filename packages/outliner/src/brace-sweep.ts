@@ -1,0 +1,137 @@
+// The brace sweep (PIE-533 S0c): one pass over an outline's notes that writes the old single-brace and old placement
+// forms in the new grammar. It is a rewriter, not an expander: the only place the old forms are still named, so the
+// runtime (outline-core's `interpolate`) reads one grammar and nothing else.
+//
+//   rule labels   `[rule-label::{title} · {when}]`     -> `[rule-label::{{this.title}} · {{this.when}}]`
+//                 (`{text}` `{level}` `{$N}`           -> `{{match.text}}` `{{match.level}}` `{{match[N]}}`)
+//   rule places   `[rule-place::above|below]`          -> `[rule-place::prepend|append]`
+//   action slots  `{slot}` in a `[script::]` note's    -> `{{props.slot}}`
+//                 `actions` fence
+//
+// Each form is rewritten only where it was read: a rule's property value, a script's `actions` fence. Text that merely
+// holds a `{word}` (code, prose) is left alone, and a second run changes nothing. `ep0ch install --apply` runs it on
+// each outline in the step that hands it the new code, as it runs migrations; with the host stopped it opens the
+// database itself (a served file is refused), in one transaction and one attributed change (`brace-sweep`), so every
+// note's previous text is in its revisions and the install's backup is the rollback.
+import { Database } from "bun:sqlite";
+import { codeBlocks } from "@ep0ch/outline-core/code-fence";
+import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { RECORD_KEYS } from "@ep0ch/outline-core/resolve-path";
+
+export interface SweepChange { form: "rule-label" | "rule-place" | "action-slot"; before: string; after: string }
+
+const SINGLE = /(?<!\{)\{([A-Za-z$][A-Za-z0-9_.$-]{0,63})\}(?!\})/g;
+const PLACES = new Map([["above", "prepend"], ["below", "append"]]);
+/** A key `this.<key>` reads as a path: a plain name. Anything else (`margin.x`) has no path and is left as written. */
+const PLAIN_KEY = /^[A-Za-z_][\w-]*$/;
+
+/**
+ * A rule label in the new grammar. `{key}` meant the block's own property of that name, so a key that is also a record
+ * field (`{author}`, `{id}`) becomes `this.block.<key>`, which reads properties alone; a key a path can't spell is left.
+ */
+function label(value: string): string {
+  return value.replace(SINGLE, (whole, name: string) => {
+    if (name === "title") return "{{this.title}}";
+    if (name === "text") return "{{match.text}}";
+    if (name === "level") return "{{match.level}}";
+    const capture = /^\$([0-9])$/.exec(name);
+    if (capture) return `{{match[${capture[1]}]}}`;
+    if (!PLAIN_KEY.test(name)) return whole;
+    return (RECORD_KEYS as readonly string[]).includes(name.toLowerCase()) || ["block", "fields", "count"].includes(name.toLowerCase()) ? `{{this.block.${name}}}` : `{{this.${name}}}`;
+  });
+}
+
+/** The edit that puts `value` where the property's own value is written, whichever way it is written (`[k::v]`, `k:: v`). */
+function rewrite(text: string, record: { start: number; end: number; value: string }, value: string): { start: number; end: number; to: string } | null {
+  const raw = text.slice(record.start, record.end);
+  const at = raw.indexOf(record.value, raw.indexOf("::") + 2);
+  if (at < 0) return null;
+  return { start: record.start + at, end: record.start + at + record.value.length, to: value };
+}
+
+/** `text` with its old forms rewritten, and each rewrite named. Pure. */
+export function sweepText(text: string): { text: string; changes: SweepChange[] } {
+  const changes: SweepChange[] = [];
+  // Offsets in the original, edited from the end so earlier ones stay true.
+  const edits: { start: number; end: number; to: string }[] = [];
+  const records = parsePropertyRecords(text);
+  for (const record of records) {
+    if (record.scope !== "block") continue;
+    if (record.key === "rule-label") {
+      const after = label(record.value);
+      const edit = after !== record.value ? rewrite(text, record, after) : null;
+      if (edit) { edits.push(edit); changes.push({ form: "rule-label", before: record.value, after }); }
+    } else if (record.key === "rule-place") {
+      const after = PLACES.get(record.value.trim().toLowerCase());
+      const edit = after ? rewrite(text, record, after) : null;
+      if (edit) { edits.push(edit); changes.push({ form: "rule-place", before: record.value, after: after! }); }
+    }
+  }
+  if (records.some(r => r.scope === "block" && r.key === "script") && text.includes("{")) {
+    const lines = text.split("\n");
+    const starts: number[] = [];
+    for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) starts.push(at);
+    // An example inside a `<!-- literal -->` region is text, not a script.
+    const literal = scanLiteralRegions(text).regions;
+    for (const fence of codeBlocks(lines).fences) {
+      if (fence.fence.info !== "actions" || !fence.closed) continue;
+      if (literal.some(region => starts[fence.start]! >= region.start && starts[fence.start]! < region.end)) continue;
+      for (let i = fence.start + 1; i < fence.end; i++) {
+        const line = lines[i]!;
+        const after = line.replace(/(?<!\{)\{([a-z][a-z0-9_-]*)\}(?!\})/g, "{{props.$1}}");
+        if (after !== line) { edits.push({ start: starts[i]!, end: starts[i]! + line.length, to: after }); changes.push({ form: "action-slot", before: line.trim(), after: after.trim() }); }
+      }
+    }
+  }
+  let out = text;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, edit.start) + edit.to + out.slice(edit.end);
+  return { text: out, changes };
+}
+
+export interface SweepNote { id: string; revision: number; before: string; after: string; changes: SweepChange[] }
+export interface SweepReport { database: string; applied: boolean; notes: SweepNote[] }
+
+/** A unified-style diff of the lines that changed in one note, for the dry run. */
+export function sweepDiff(note: SweepNote): string {
+  const was = note.before.split("\n"), now = note.after.split("\n");
+  const out = [`@@ ${note.id} (revision ${note.revision}) @@`];
+  for (let i = 0; i < was.length; i++) if (was[i] !== now[i]) out.push(`- ${was[i]}`, `+ ${now[i]}`);
+  return out.join("\n");
+}
+
+const CANDIDATES = `SELECT id, text, revision FROM blocks WHERE effective_deleted_root_id IS NULL
+  AND (text LIKE '%rule-label::%' OR text LIKE '%rule-place::%' OR text LIKE '%script::%') ORDER BY created_at, id`;
+
+/** What the sweep would change in `database`, read without opening it for writing (so a served file can be looked at). */
+export function planSweep(database: string): SweepReport {
+  const db = new Database(database, { readonly: true });
+  try {
+    const rows = db.query(CANDIDATES).all() as { id: string; text: string; revision: number }[];
+    const notes: SweepNote[] = [];
+    for (const row of rows) {
+      const swept = sweepText(row.text);
+      if (swept.changes.length) notes.push({ id: row.id, revision: row.revision, before: row.text, after: swept.text, changes: swept.changes });
+    }
+    return { database, applied: false, notes };
+  } finally {
+    db.close();
+  }
+}
+
+/** Writes the plan: every note in one transaction and one attributed change, or none of it. Refuses a served file. */
+export async function applySweep(database: string): Promise<SweepReport> {
+  const { OutlinerStore } = await import("./store");
+  const plan = planSweep(database);
+  if (!plan.notes.length) return plan;
+  const store = new OutlinerStore(database);
+  try {
+    const actor = { author: "system" as const, actorId: "brace-sweep" };
+    store.changes.run(store.changes.attribution({ action: "brace-sweep", actor }), () => store.database.transaction(() => {
+      for (const note of plan.notes) store.update(note.id, note.after, note.revision, actor);
+    })());
+  } finally {
+    store.close();
+  }
+  return { ...plan, applied: true };
+}

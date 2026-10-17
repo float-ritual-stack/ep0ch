@@ -695,7 +695,7 @@ changes the note's text.
 
 ```json
 "rules": [
-  { "id": "card", "match": { "property": "type=meeting" }, "decorate": { "place": "above" } },
+  { "id": "card", "match": { "property": "type=meeting" }, "decorate": { "place": "prepend" } },
   { "id": "bands", "match": { "kind": "heading:1", "under": "<a block id>" }, "decorate": { "use": "band", "pattern": "stack", "align": "center" } },
   { "id": "stamp", "match": { "property": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" } }
 ]
@@ -722,10 +722,10 @@ after the last).
 
 | Field | Meaning |
 |---|---|
-| `place` | `above`, `below`, `replace` (in its place) or `around`. Default: a band or divider replaces, a box goes around, the rest above. A whole block's `replace` and `around` are `above`. With `match.text` also `span` (ADR 0004 contract 6: the characters the pattern hit, `hit.span`, drawn in `tone` on a capped-dark surface; the publisher a `<mark>`) and `margin` (a card beside them: the reader's margin column when it's wide, under the passage when it isn't) |
+| `place` | `prepend` (before what matched), `append` (after it), `replace` (in its place) or `around`: the Placement words every producer shares. Default: a band or divider replaces, a box goes around, the rest prepends. A whole block's `replace` and `around` are `prepend`. With `match.text` also `span` (ADR 0004 contract 6: the characters the pattern hit, `hit.span`, drawn in `tone` on a capped-dark surface; the publisher a `<mark>`) and `margin` (a card beside them: the reader's margin column when it's wide, under the passage when it isn't) |
 | `use` | a built-in decoration, no code: `band` (a heading in three rows of glyph track, PIE-599's banner), `divider` (one row of track), `card` (the block's title and `fields`), `badge`, `text`, `box` |
 | `style` | a `band` or `divider` draws with this heading style ([heading styles](../../../../CHANGELOG.md), PIE-599: `[heading-style::name]` declarations and the built-ins `band`, `tab`, `waffle`, `uptime`, `dots`, `rule`, `fade`); `pattern`, `align` and `tone` go over it. Default: `band` (a divider: `fade`) |
-| `label`, `tone`, `fields`, `pattern`, `align` | the built-in's words (a template: `{title}`, `{text}`, `{level}`, `{$1}`, any property `{status}`), tone, the card's property keys, the band's glyphs (`stack`, `waffle`, `uptime`, `dots`, `rule`) and where its words sit |
+| `label`, `tone`, `fields`, `pattern`, `align` | the built-in's words (a `{{ }}` template: `{{this.title}}`, `{{match.text}}`, `{{match.level}}`, `{{match[1]}}`, any property `{{this.status}}`; a name the block lacks is empty), tone, the card's property keys, the band's glyphs (`stack`, `waffle`, `uptime`, `dots`, `rule`) and where its words sit |
 | `deadline` | a code rule's call |
 
 Without `use`, the service runs the extension's **`decorate`** operation for each hit:
@@ -742,7 +742,7 @@ runs again when the block's revision changes, showing the last one (`stale`) mea
 
 ```json
 { "rule": "ext:meeting-card/card", "name": "meeting-card/card", "source": { "kind": "extension", "extension": "meeting-card", "rule": "card" },
-  "hit": { "at": "block", "line": 0, "end": 1, "text": "Committee" }, "place": "above", "status": "ready",
+  "hit": { "at": "block", "line": 0, "end": 1, "text": "Committee" }, "place": "prepend", "status": "ready",
   "view": { "type": "card", … }, "markdown": "**Committee** …", "ranAt": "…" }
 ```
 
@@ -789,7 +789,7 @@ A note with `[rule-name::name]` is a rule, with the outline (like `[callout-type
 
 ```text
 Committee headings [rule-name::committee-bands] [rule-under::((<id>))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]
-Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees] [rule-label::{title} at {where}]
+Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees] [rule-label::{{this.title}} at {{this.where}}]
 Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [rule-tone::warn]
 ```
 
@@ -822,7 +822,7 @@ props' keys`):
 { "id": "mood", "title": "Mood", "intro": "How a standup went.", "where": "`[mood::…]` on a standup's note",
   "props": [{ "key": "mood", "where": "line", "type": "enum", "meaning": "how it went",
               "values": [{ "value": "calm", "meaning": "nothing on fire" }, { "value": "stormy", "meaning": "something is" }] }],
-  "source": { "use": "Standup [mood::{mood}]" }, "example": { "mood": "calm" },
+  "source": { "use": "Standup [mood::{{props.mood}}]" }, "example": { "mood": "calm" },
   "sweep": ["mood"], "grids": [], "space": ["mood"] }
 ```
 
@@ -831,7 +831,7 @@ props' keys`):
   `query`; for the settings card's pickers `action`, `writers`, `duration`, `property`, `node`), `meaning`, and as they apply `values` (each `{ value, meaning }`), `min` and `max`, `default`, `samples`
   (values worth drawing for a type with no list), `token` (how it's written when that isn't `[key::value]`), `use`
   (the source to show this property with).
-- `source.use`: the text a variation writes, `{key}` a value and `{yaml}` the YAML properties given; `source.note`
+- `source.use`: the text a variation writes, `{{props.key}}` a value and `{{props.yaml}}` the YAML properties given; `source.note`
   (`{ title, name, value, uses?, requires? }`): the declaring note a variation writes when it sets a `note` property.
   A note carrying `name` (and every key in `requires`) is one of these: the door's settings card (`,`) draws its `note`
   properties as fields, a section per component a note is (echonet's `echonet-area` requires `query`).

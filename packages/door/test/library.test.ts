@@ -165,7 +165,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
       contract: 2, id: "moods", version: 1, name: "Moods", components: [{
         id: "mood", title: "Mood", intro: "How a standup went.", where: "`[mood::…]` on a standup's note",
         props: [{ key: "mood", where: "line", type: "enum", meaning: "how it went", values: [{ value: "calm", meaning: "nothing on fire" }, { value: "stormy", meaning: "something is" }] }],
-        source: { use: "Standup [mood::{mood}]" }, example: { mood: "calm" }, sweep: ["mood"], grids: [], space: ["mood"],
+        source: { use: "Standup [mood::{{props.mood}}]" }, example: { mood: "calm" }, sweep: ["mood"], grids: [], space: ["mood"],
       }],
     }));
     // The host sees the folder and says so (an `extensions` event): the door asks for the components again.

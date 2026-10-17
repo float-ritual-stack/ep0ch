@@ -12,7 +12,7 @@ const result = await runHerdrScenario({
     await s.keys(s.panes.tree, "enter");
     await s.waitVisible(s.panes.detail, "Committee");
     await s.checkpoint("01-note-before-rule");
-    await s.client.request<Block>({action: "create", text: "Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when] [rule-label::{title} at {where}]"});
+    await s.client.request<Block>({action: "create", text: "Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when] [rule-label::{{this.title}} at {{this.where}}]"});
     await s.waitVisible(s.panes.detail, "Committee at the shed");
     await s.checkpoint("02-rule-card-drawn");
   },

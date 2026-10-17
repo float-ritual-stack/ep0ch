@@ -605,7 +605,7 @@ export async function learnDetailRules(requester: DetailEmbedRequester): Promise
  * the source is never hidden here. It rides the projection slot, so a decoration that lands later redraws the note.
  */
 export function decorationProjection(decoration: Decoration): ResourceProjection {
-  const line = decoration.hit.at === "block" ? 0 : decoration.place === "below" || decoration.place === "around" ? decoration.hit.end - 1 : decoration.hit.line;
+  const line = decoration.hit.at === "block" ? 0 : decoration.place === "append" || decoration.place === "around" ? decoration.hit.end - 1 : decoration.hit.line;
   const shown = decoration.status === "ready" || decoration.status === "stale";
   return {
     anchor: { kind: "directive", line, start: 0, end: 0 },
