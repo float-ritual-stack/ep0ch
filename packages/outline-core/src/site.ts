@@ -88,7 +88,8 @@ export function deriveSite(parent: Site, link: SiteLink, child: BlockRecord): Si
 
 /** `site.answer`'s question. `blockId` is the note whose text holds the placeholders being read. */
 export interface SiteAnswerRequest {
-  blockId: string;
+  /** Absent only for a figure asked outside any note: it has no `this`. */
+  blockId?: string;
   /** The unsaved text of `blockId` (a draft being typed): values, problems and deps agree with what is on screen. */
   draft?: { text: string };
   /** Where `blockId` is drawn: the invocations from the outermost host in (a `::use` in a host, an embed in a `::use`). */

@@ -8,7 +8,6 @@
 import type { Msg } from "./board";
 import type { SocketBoard } from "./socket";
 import { subject } from "./board";
-import { viewReadOf } from "./views";
 import { propertyListOf } from "./props";
 import { recordProperties } from "@ep0ch/outline-core/block-record";
 import { watchedOn, type Watching } from "./watched";
@@ -16,7 +15,8 @@ import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { figureRow } from "@ep0ch/outline-core/figure-markdown";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { Row } from "@ep0ch/outline-core/figure-props";
-import { asksPerItem, figureQuestion, liveAsk, liveProps, liveStatus, sortProblem, type FigureItem } from "@ep0ch/outline-core/figure-live";
+import { askProps, asksPerItem, figureQuestion, liveAsk, liveProps, liveStatus, type FigureItem } from "@ep0ch/outline-core/figure-live";
+import type { SiteLink, SiteProduced, SiteProducer } from "@ep0ch/outline-core/site";
 export { NONE } from "@ep0ch/outline-core/figure-live";
 
 type Props = Record<string, any>;
@@ -24,7 +24,7 @@ type Props = Record<string, any>;
  * One figure's answer: its results, the service's `groups` when the figure groups, and which results the figure's
  * `done:` and `now:` queries hold for (as the service says).
  */
-interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string }
+interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string; counts?: { value: string; error?: string }[] }
 type Answer = Omit<Entry, "state" | "error">;
 
 let board: SocketBoard | null = null;
@@ -49,63 +49,44 @@ const listeners = new Set<() => void>();
 export function listenLive(fn: () => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
 function changed() { onChange(); for (const fn of listeners) fn(); }
 
-/** A figure's `done:` or `now:` answer while a newer one is asked for (its results changed): shown until it comes. */
-const lastSubset = new Map<string, Set<string>>();
+/** What a figure's Site is: the invocations that draw it (a `::use`, an embed) and its call-site args, as `site.answer` takes them. */
+export interface LiveSite { chain?: SiteLink[]; args?: Record<string, string> }
 
-/**
- * Which of `items` the figure's `done:` (or `now:`) query holds for: a watched `query.matches` of its own, so it changes
- * when the subset does even if the results don't (`done: linkedfrom:this`). Undefined when the figure has none.
- */
-function subset(b: SocketBoard, p: Props, k: "done" | "now", items: readonly Msg[], note: string | undefined): { ids?: Set<string>; error?: string } {
-  if (!p[k]) return {};
-  const held = `${note ?? ""}|${p.view ?? p.query}|${k}|${p[k]}`;
-  const read = watchedOn(b).read("query.matches", { expression: String(p[k]), blockIds: items.map(m => m.id), ...(note ? { this: note } : {}) }, (r: { blockIds: string[] }) => new Set(r.blockIds));
-  if (read.state === "ready") lastSubset.set(held, read.value);
-  if (read.state === "error") return { error: `${k}: ${read.error}` };
-  return { ids: read.value ?? lastSubset.get(held) ?? new Set() };
+/** A producer's question asked of its note's Site, watched: the service answers it (`site.answer`), and says when the answer changed. */
+function produced(b: SocketBoard, note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> {
+  const props = site?.args && Object.keys(site.args).length ? Object.fromEntries(Object.entries(site.args).map(([k, v]) => [k, [v]])) : undefined;
+  return watchedOn(b).read("site.answer", { ...(note ? { blockId: note } : {}), produce: producer, ...(site?.chain?.length ? { chain: site.chain } : {}), ...(props ? { props } : {}) }, (r: { produced: SiteProduced }) => {
+    const answer = r.produced;
+    return answer.kind === "figure" || answer.kind === "children" ? { ...answer, blocks: b.toMsgs(answer.blocks as any[]) } as SiteProduced : answer;
+  });
 }
 
 /**
- * The figure's question, watched: a saved view read faithfully (`view:`), or a query (`query:`) the service parses,
- * sorts (unset: updated, newest first) and groups (`group:`, for the figures that group). Null without either. `note`
- * is the note it sits in: `this` in its queries.
+ * The figure's question, watched: the service reads it in the figure's Site (`site.answer`): a saved view faithfully
+ * (`view:`), or a query (`query:`) it parses, sorts (unset: updated, newest first) and groups (`group:`, for the figures
+ * that group), `this` and its `{{ }}` operands the note's the figure sits in (or its host, drawn through a template).
+ * Null without either.
  */
-function ask(p: Props, note: string | undefined, group?: string): Entry | null {
+function ask(kind: string, p: Props, note: string | undefined, site?: LiveSite): Entry | null {
   if (!board) return null;
-  const b = board, watched = watchedOn(b);
-  const question = figureQuestion(p, group);
-  if (!question) return null;
-  if ("error" in question) return { state: "error", items: [], truncated: false, error: question.error };
-  let read: Watching<Answer>;
-  if (question.kind === "view") {
-    read = watched.read("views.read", { viewId: question.viewId, format: "tree" }, (r: any) => {
-      const view = viewReadOf({ ...r, blocks: b.toMsgs(r.blocks ?? []) });
-      if (view.status !== "ready") throw new Error(`view ${view.status}: ${view.errors.join("; ")}`);
-      return { items: view.items, truncated: view.truncated, ...(r.machineryHidden ? { hint: `${r.machineryHidden > 50 ? "50+" : r.machineryHidden} machinery note${r.machineryHidden === 1 ? "" : "s"} hidden · machinery=show` } : {}) };
-    });
-  } else {
-    const { where, limit, sort, direction, machinery } = question;
-    // `this` in the query is the note the figure sits in (`links:this`).
-    const query = { where, ...(note ? { this: note } : {}), limit, sort: `${sort} ${direction}`, ...(group ? { group } : {}), ...(machinery ? { machinery } : {}) };
-    read = watched.read("blocks.query", { query }, (r: { blocks: any[]; completeness?: { kind: string }; groups?: QuestionGroup[]; hint?: string }) =>
-      ({ items: b.toMsgs(r.blocks), truncated: r.completeness?.kind === "truncated", ...(r.groups ? { groups: r.groups } : {}), ...(r.hint ? { hint: r.hint } : {}) }));
-    if (read.state === "error") read = { ...read, error: sortProblem(read.error, sort, direction) };
-  }
+  const asking = liveAsk(kind, p);
+  if (!figureQuestion(asking.ask, asking.group) && !asksPerItem(kind, p)) return null;
+  const read = produced(board, note, { kind: "figure", figure: kind, props: askProps(p) }, site);
   if (read.state === "loading") return { state: "loading", items: [], truncated: false };
   if (read.state === "error" && !read.value) return { state: "error", items: [], truncated: false, error: read.error };
-  const answer = read.value!;
-  const done = subset(b, p, "done", answer.items, note), now = subset(b, p, "now", answer.items, note);
-  const error = read.state === "error" ? read.error : done.error ?? now.error;
-  if (error) return { state: "error", items: answer.items, truncated: false, error };
-  return { state: "ready", ...answer, ...(done.ids ? { done: done.ids } : {}), ...(now.ids ? { now: now.ids } : {}) };
+  const a = read.value as Extract<SiteProduced, { kind: "figure" }>;
+  const items = a.blocks as unknown as Msg[];
+  const error = read.state === "error" ? read.error : a.error;
+  if (error) return { state: "error", items, truncated: false, error };
+  return { state: "ready", items, truncated: a.truncated, ...(a.groups ? { groups: a.groups } : {}), ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}), ...(a.counts ? { counts: a.counts } : {}) };
 }
 
 /**
  * Synchronous for the renderer: the newest answer to the figure's question, asked once and told when it changes.
  * `note` is the note the figure sits in: what `this` stands for in its query.
  */
-export function answer(p: Props, note?: string): Entry | null {
-  return ask(p, note);
+export function answer(p: Props, note?: string, site?: LiveSite): Entry | null {
+  return ask("table", p, note, site);
 }
 
 /**
@@ -122,11 +103,10 @@ export async function liveSettled(ms = 10_000): Promise<void> {
  * (annotation blocks) aren't rows. `waiting` until the first answer. The children are a watched question
  * (`parent:this`), in the note's order.
  */
-export function childRows(note: string): { rows: Row[]; waiting: boolean } | null {
+export function childRows(note: string, site?: LiveSite): { rows: Row[]; waiting: boolean } | null {
   if (!board) return null;
-  const b = board;
-  const read = watchedOn(b).read("blocks.query", { query: { where: "parent:this NOT type=annotation NOT type=annotation-reply", this: note, limit: 1000 } }, (r: { blocks: any[] }) => b.toMsgs(r.blocks));
-  const items = read.value ?? [];
+  const read = produced(board, note, { kind: "children" }, site);
+  const items = ((read.value as Extract<SiteProduced, { kind: "children" }> | undefined)?.blocks ?? []) as unknown as Msg[];
   // Each child's header line without its chips and their ` - ` (outline-core's reading, as its title is made); a
   // child with no text isn't a row.
   const rows = items.flatMap(m => { const prose = headerLine(m.text).prose.trim(); return prose ? [{ ...figureRow(prose), block: m.id }] : []; });
@@ -143,23 +123,19 @@ export interface Resolved { props: Props; status: string | null; waiting: boolea
  * for one result (a check item, an event, a table row) carries its note's id (`block`, `blocks`), so the
  * reader can open it (PIE-441).
  */
-export function resolveLive(kind: string, p: Props, note?: string): Resolved | null {
-  // stat/kpi: each item can carry its own source.
+export function resolveLive(kind: string, p: Props, note?: string, site?: LiveSite): Resolved | null {
+  // stat/kpi: each item can carry its own source; the service counts them in the figure's Site.
   if (asksPerItem(kind, p)) {
-    let waiting = false, error: string | undefined;
-    const items = p.items.map((i: Props) => {
-      const a = answer(i, note);
-      if (!a) return i;
-      if (a.state === "error") error = a.error;
-      if (a.state === "loading" && !a.items.length) { waiting = true; return { ...i, value: "…" }; }
-      return { ...i, value: `${a.items.length}${a.truncated ? "+" : ""}` };
-    });
-    return { props: { ...p, items }, status: "live", waiting, error };
+    const a = ask(kind, p, note, site);
+    if (!a) return null;
+    if (a.state === "loading") return { props: { ...p, items: p.items.map((i: Props) => ({ ...i, value: i?.query || i?.view ? "…" : i?.value })) }, status: "live", waiting: true };
+    const items = p.items.map((i: Props, k: number) => (a.counts?.[k] && (i?.query || i?.view) ? { ...i, value: a.counts[k]!.value } : i));
+    return { props: { ...p, items }, status: "live", waiting: false, error: a.error };
   }
   const asking = liveAsk(kind, p);
   if (asking.error) return { props: p, status: null, waiting: false, error: asking.error };
   p = asking.props;
-  const a = ask(asking.ask, note, asking.group);
+  const a = ask(kind, p, note, site);
   if (!a) return null;
   if (a.state === "error") return { props: p, status: null, waiting: false, error: a.error };
   if (a.state === "loading" && !a.items.length) return { props: p, status: null, waiting: true };

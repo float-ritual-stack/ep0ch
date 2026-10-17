@@ -31,7 +31,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /** One question, asked: the results, or why not. A view is read as the door's tree reads it. */
 type Asked = { blocks: (VisibleBlock | TreeIndexBlock)[]; truncated: boolean; groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string; error?: string };
 
-function ask(store: ProducerStore, tools: SiteTools, thisId: string, p: Props, group?: string): Asked | null {
+function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined, p: Props, group?: string): Asked | null {
   const question = figureQuestion(p, group);
   if (!question) return null;
   if ("error" in question) return { blocks: [], truncated: false, error: question.error };
@@ -48,7 +48,7 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string, p: Props, g
   }
   const { where, limit, sort, direction, machinery } = question;
   try {
-    const found = store.queryBlocks({ where, this: thisId, limit, sort: `${sort} ${direction}`, ...(question.group ? { group: question.group } : {}), machinery: machinery ?? DEFAULT_MACHINERY } as BlockSearchQuery, tools.binder);
+    const found = store.queryBlocks({ where, ...(thisId ? { this: thisId } : {}), limit, sort: `${sort} ${direction}`, ...(question.group ? { group: question.group } : {}), machinery: machinery ?? DEFAULT_MACHINERY } as BlockSearchQuery, tools.binder);
     return { blocks: found.blocks, truncated: found.completeness?.kind === "truncated", ...(found.groups ? { groups: found.groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
   } catch (error) {
     return { blocks: [], truncated: false, error: sortProblem(message(error), sort, direction) };
@@ -56,13 +56,13 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string, p: Props, g
 }
 
 /** Which of `ids` a figure's `done:` or `now:` query holds for. */
-function subset(store: ProducerStore, tools: SiteTools, thisId: string, expression: string, ids: readonly string[]): { ids?: string[]; error?: string } {
+function subset(store: ProducerStore, tools: SiteTools, thisId: string | undefined, expression: string, ids: readonly string[]): { ids?: string[]; error?: string } {
   if (!ids.length) return { ids: [] };
-  try { return { ids: store.matchQuery(expression, ids, { this: thisId }, tools.binder).blockIds }; }
+  try { return { ids: store.matchQuery(expression, ids, thisId ? { this: thisId } : {}, tools.binder).blockIds }; }
   catch (error) { return { error: message(error) }; }
 }
 
-function figure(store: ProducerStore, tools: SiteTools, thisId: string, kind: string, p: Props): SiteProduced {
+function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefined, kind: string, p: Props): SiteProduced {
   if (asksPerItem(kind, p)) {
     const counts = (p.items as Props[]).map(item => {
       const a = ask(store, tools, thisId, item);
@@ -113,14 +113,14 @@ function holds(store: ProducerStore, tools: SiteTools, thisId: string, where: st
 /** A producer's question answered over the bound Site; `anyChange`: it depends on notes the answer can't name. */
 export function produce(store: ProducerStore, bound: Bound, producer: SiteProducer, tools: SiteTools): { answer: SiteProduced; anyChange?: true } {
   const thisId = bound.site.this?.id;
-  if (!thisId) return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
+  if (!thisId && producer.kind !== "figure") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
   switch (producer.kind) {
     case "figure": {
       if (!producer.figure || typeof producer.figure !== "string" || !producer.props || typeof producer.props !== "object") throw new Error("produce a figure with { kind: \"figure\", figure: \"table\", props: { query: \"type=ticket\" } }");
       return { answer: figure(store, tools, thisId, producer.figure, producer.props as Props), anyChange: true };
     }
     case "children": {
-      const found = store.queryBlocks({ where: CHILDREN_QUERY, this: thisId, limit: 1000 } as BlockSearchQuery, tools.binder);
+      const found = store.queryBlocks({ where: CHILDREN_QUERY, this: thisId!, limit: 1000 } as BlockSearchQuery, tools.binder);
       return { answer: { kind: "children", blocks: found.blocks }, anyChange: true };
     }
     case "fields": {
@@ -129,7 +129,7 @@ export function produce(store: ProducerStore, bound: Bound, producer: SiteProduc
     }
     case "if": {
       if (typeof producer.where !== "string" || !producer.where.trim()) throw new Error("produce an if with { kind: \"if\", where: \"status=active\" }");
-      return { answer: holds(store, tools, thisId, producer.where), anyChange: true };
+      return { answer: holds(store, tools, thisId!, producer.where), anyChange: true };
     }
     default: throw new Error("produce is a figure, children, fields or if: { kind: \"fields\", key: \"connectTo\" }");
   }

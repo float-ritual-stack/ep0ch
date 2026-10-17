@@ -103,7 +103,9 @@ export interface Bound {
 const NEW_SITE_ACTOR = { id: "site.answer", author: "system" as const };
 
 export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number): Bound {
-  if (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId.trim()) {
+  // A figure may be asked outside any note (a library preview, a draft of a note that isn't saved): no `this`.
+  const noteless = !!request && typeof request === "object" && request.blockId === undefined && request.produce?.kind === "figure";
+  if (!noteless && (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId!.trim())) {
     throw new Error("site.answer needs blockId: the note to read (an id, ((id)), a Work ID or a [[page]]); for example { blockId: \"PIE-12\", paths: [\"this.owner\"] }");
   }
   const given = request.chain ?? [];
@@ -127,16 +129,20 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
     props[key] = value;
   }
 
+  if (noteless) {
+    const world = new StoreWorld(store, clock);
+    return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope: { ancestors: [], world }, world, route: ["no note: the figure is asked outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
+  }
   const route: string[] = [];
-  const target = store.resolveBlockRef(request.blockId);
-  const exact = target.id === request.blockId.trim().toLowerCase();
+  const target = store.resolveBlockRef(request.blockId!);
+  const exact = target.id === request.blockId!.trim().toLowerCase();
   const text = request.draft?.text ?? target.text;
   const world = new StoreWorld(store, clock);
   const deps = new Set<string>([target.id]);
 
   // The note read: its saved text, or the draft being typed (the record is built from that text, so values agree with the screen).
   const recordOf = (block: Block, draft?: string) => draft === undefined ? world.record(block) : (deps.add(block.id), textRecord({ ...block, text: draft }));
-  route.push(`note ((${target.id.slice(0, 8)}))${exact ? "" : ` (from \`${request.blockId.trim()}\`)`}: read from ${request.draft ? "the draft text" : `the saved text, revision ${target.revision}`}`);
+  route.push(`note ((${target.id.slice(0, 8)}))${exact ? "" : ` (from \`${request.blockId!.trim()}\`)`}: read from ${request.draft ? "the draft text" : `the saved text, revision ${target.revision}`}`);
 
   let site: Site;
   let line = request.line;

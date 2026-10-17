@@ -53,11 +53,13 @@ describe("::graph-tabs from the outline", () => {
     setLiveSource({
       // The service groups (`group: stage`): every match counted, in the property's value order, no value last.
       request: async (_a: string, p: any) => ({
-        blocks: results, completeness: { kind: "complete" },
-        ...(p.query.group === "stage" ? { groups: [
-          { value: "blocked", count: 1, ids: ["c"] }, { value: "doing", count: 1, ids: ["b"] },
-          { value: "queued", count: 3, ids: ["a", "d", "f"] }, { value: null, count: 1, ids: ["e"] },
-        ] } : {}),
+        produced: {
+          kind: "figure", blocks: results, truncated: false,
+          ...(p.produce.props.group === "stage" ? { groups: [
+            { value: "blocked", count: 1, ids: ["c"] }, { value: "doing", count: 1, ids: ["b"] },
+            { value: "queued", count: 3, ids: ["a", "d", "f"] }, { value: null, count: 1, ids: ["e"] },
+          ] } : {}),
+        },
       }),
       toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: b.properties })),
     } as any, () => {});

@@ -243,3 +243,10 @@ export function keepGroups(groups: readonly QuestionGroup[] | undefined, kept: R
     return g.ids.length && !ids.length ? [] : [{ ...g, ids, count: Math.max(0, g.count - (g.ids.length - ids.length)) }];
   });
 }
+
+/** The props a figure's question is read from (`liveAsk`, `figureQuestion`, `done:`/`now:`, a stat's items): what a client sends to be answered. */
+const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value"] as const;
+export function askProps(p: Props): Props {
+  const pick = (from: Props) => Object.fromEntries(ASK_KEYS.flatMap(k => from?.[k] === undefined ? [] : [[k, from[k]]]));
+  return { ...pick(p), ...(Array.isArray(p.items) ? { items: p.items.map(pick) } : {}) };
+}
