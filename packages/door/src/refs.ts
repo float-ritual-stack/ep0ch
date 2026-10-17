@@ -268,6 +268,11 @@ export type LinkTarget = {
    * `handler` say whose line it is, so the reader finds the keys its actions answer to.
    */
   ext?: { block: string; line: number; action: string; extension: string; handler: string };
+  /**
+   * A press (PIE-957): a `::button`, or a view's button, badge, card, text or table row that carries an action line (role
+   * "control"). ⏎ and a click run `act` through the door's one dispatcher as the person, on the note `block` (the script's `this`).
+   */
+  press?: { act: string; block: string; line: number };
   /** A ticket's age (PIE-445): following it refreshes the tickets this block shows (`projection.refresh`). */
   refresh?: string;
   /** With `refresh`: only the ticket under this line of that block (its index in the note's text). */
@@ -428,8 +433,11 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     }
     for (const l of linkOccurrences(line, code)) {
       if (l.kind === "markdown") {
+        // `[review layout](act: layout.load name=review)` (PIE-957) is a press: its text runs the action line as the person.
+        const act = /^act:\s*(\S.*)$/.exec(l.url.trim())?.[1]?.trim();
+        if (act) spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { role: "control", label: l.text, press: { act, block: site?.block ?? "", line: i } }) });
         // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).
-        spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }, isExternalUrl(l.url)) });
+        else spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }, isExternalUrl(l.url)) });
       } else if (l.kind === "page") {
         spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) });
       } else if (!l.embed || !embeds) {

@@ -59,6 +59,7 @@ export const SEED = {
   asks: "Keep writing while the answer arrives",
   scriptTarget: "Planting checklist",
   scriptsInPlace: "Scripts in place",
+  press: "Noughts and crosses",
   outputRegions: "Regions in prose",
   remoteWrites: "Remote writes and the netmail queue",
   buildLog: "Shed roof build log",

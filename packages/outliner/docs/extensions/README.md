@@ -644,25 +644,53 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 
 | Primitive | Fields |
 |---|---|
-| `text` | `text`, `tone?`, `strong?` |
+| `text` | `text`, `tone?`, `strong?`, `act?` (a [press](#pressing-a-view)) |
 | `blockdown` | `text` (16 000 characters at most): Blockdown each client draws with its own reader, as it draws a note (the door's note surface, Detail's, the publisher's HTML), so headings, lists, links and properties read as written |
-| `badge` | `label`, `tone?` |
+| `badge` | `label`, `tone?`, `act?` (a [press](#pressing-a-view)) |
 | `stat` | `label`, `value` (number or text), `unit?`, `tone?` |
 | `bar` | `label`, `value`, `max`, `tone?` |
-| `table` | `columns`, `rows` (cells: text or numbers), `links?` (a block id or a [Resource ref](#opening-a-resource) per row, or null: Enter or a click opens it) |
+| `table` | `columns`, `rows` (cells: text or numbers), `links?` (a block id or a [Resource ref](#opening-a-resource) per row, or null: Enter or a click opens it), `acts?` (an action line to [press](#pressing-a-view) per row or null, in place of its link) |
 | `checklist` | `items: [{ label, done }]` |
 | `sparkline` | `label?`, `values` |
-| `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id or a [Resource ref](#opening-a-resource)), `children?` |
+| `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id or a [Resource ref](#opening-a-resource)) or `act?` (a [press](#pressing-a-view); not both), `children?` |
 | `box` | `title?`, `children` |
 | `stack` | `children`, top to bottom |
 | `row` | `children` side by side; `minWidth?` (4–200, default 12): the narrowest a child may be, in characters (terminal cells; `ch` on the web). Where a reader can't give each child that much, it stacks them: the door, Detail and the web alike |
 | `band` | `text?`, `level?` (1–3), `pattern?`, `align?`, `row?`, `tone?`: a heading in glyph tracks (rules) |
 | `track` | `pattern?`, `tone?`: one row of glyph track, a divider (rules) |
+| `button` | `label`, `act` (an action line to [press](#pressing-a-view)), `tone?`: a labelled press, drawn in the control row an extension line's controls are |
 | `image` | `src` (a path, as a note's `[img::]` line names one, or a `file:/path` Resource ref; never a web page or a stored Resource), `alt?`, `size?` (as `[size::]`: cells, `N%` or `full`), `fit?` (`cover` or `contain`), `height?` (1–60 rows), `caption?` (`false`: the picture alone, without its caption line, where it's drawn): a picture, drawn the way each reader draws a note's image line (PIE-827; see [Pictures in a view](#pictures-in-a-view)) |
 
 `tone` is `default`, `good`, `warn`, `bad`, `dim` or `accent`. Limits: depth 8, 400 primitives, 200
 rows, 12 columns, 2 000 characters of text each, 256 KiB of data. A view that breaks one is refused
 with a path to the problem (`view.children[0].max must be more than 0`), and the line shows it.
+
+#### Pressing a view
+
+A `button`, or a `text`, `badge`, `card` or table row (`acts`) that carries `act` is a press (PIE-957, PIE-981). `act` is an
+**action line**, as the power bar and `ep0ch act` take one: an action's name, then `key=value` words (`layout.load
+name=review`, `ttt-move at=5`). The head is an action the door has (`layout.load`, `ext.<id>.<action>`) or a script's name
+(it runs as the script, with the note the press is written in as `this`); the words are its slots (`at=5` is `props.at[0]`
+in a script). `as=` is refused: a press runs as whoever presses. A press and a link are exclusive on one card or row. The
+same line is written in a note as `::button{label="Review" act="layout.load name=review"}`, as `::button{label="Fantasia"
+of=fantasia layout=focus}` (`of=` a script, every other word a slot, `txn=` and `motion=` the dispatcher's), or in prose as
+`[review layout](act: layout.load name=review)`.
+
+- **The door** draws a press as a control: `[ ]` stops on it, the hint row shows the line before the press, and a click or
+  ⏎ runs it through the one dispatcher as the person (the run is attributed like a `[w ward]` chip's; `act element.open` presses
+  it as an agent, said on the status bar). The person's click is the consent: it runs at once, and what it does is attributed and undoable. A press of a script mints a one-run invitation (shape, screen): the script may move the person's
+  tiles while it runs, never a draft's text, and the invitation is spent when the run ends. The run's note records the person
+  and the button's author.
+- **Every other client** (a page, an export, Detail, MCP) draws the primitive as it was: a button is its label. A page
+  gains no write it didn't already allow (ADR 0005: readers read).
+- A render-mode script returns its view with `view.badge({ label: "5", act: "ttt-move at=5" })` and the like; the stored
+  output keeps the view beside its Blockdown. A script's write to the note a render line reads draws that line again.
+- **A run is a layout transaction.** Every layout action a script makes joins one history entry keyed by its run id (the
+  dispatcher's reserved `txn=`); when the run ends the transaction closes, and one that ends early (stopped, failed, the
+  door lost the service) puts its start back. `ext.undo` takes the run's writes and its layout back together and says which
+  part it couldn't. `script.stop` ends a run; the service broadcasts `scripts.ended {run, reason}` and `scripts.undone {run}`.
+- **A script's `act` goes to a door**: the one that started the run (`door=` on `scripts.run`), else the only door on the
+  outline; with none or several it is refused with where to look.
 
 #### Pictures in a view
 

@@ -70,7 +70,10 @@ import { draftState, editHint, editorClick, openInEditor, renderEditor, wheelTar
 import { clampFloat, COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, frameZone, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox, type FloatRect } from "./composer";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, extensionList, passageActions, runExtensionAction, threadAgents } from "../extensions";
+import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, threadAgents } from "../extensions";
+import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
+import { INVITES } from "./invite";
+import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import { componentsOf, componentsReady } from "../component-schemas";
 import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
@@ -214,6 +217,8 @@ export interface SurfaceHost {
    * reader's `p`): an extension's key on a line never takes one of them (PIE-512).
    */
   ownKeys?: string;
+  /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it when it is newer than the reader's own. */
+  layoutUndoSeq?(): number | undefined;
   /**
    * This note's links (Outlinks, Resources, Backlinks) in the screen's links tile, as `b` asks: where the host has
    * one, or can open one beside the reader. Without it `b` says so and points at the inline `::links`.
@@ -995,6 +1000,7 @@ export class NoteSurface {
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
+    if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label).slice(0, 30)} · ⏎ runs ${printable(e.link.press.act).slice(0, 80)}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
     if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
@@ -2163,6 +2169,12 @@ export class NoteSurface {
       if (line < 0) return [];
       return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m.id, width, src, sink: drawn, depth, body: templateBody(depth), ...(book ? { book } : {}) });
     };
+    // A `::button` on body line `i` (PIE-957): a chip that is a press of its action line, on this note.
+    const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
+      const line = lines[i] ?? -1, label = printable(call.label);
+      if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
+      return [fg(C.lcyan) + BOLD + tagged(drawn, { role: "control", label, press: { act: call.act, block, line } }, `[${label}]`) + RESET];
+    };
     const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
     const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
@@ -2174,7 +2186,7 @@ export class NoteSurface {
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     return {
       present: presenter(m.text), ...(outline ? { liveStep } : {}),
-      ...(outline ? { embed: embedHook, use: useHook(m.id, noteLines, undefined, 0, env.regions) } : {}),
+      ...(outline ? { embed: embedHook, use: useHook(m.id, noteLines, undefined, 0, env.regions), button: buttonHook(m.id, noteLines) } : {}),
       // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
       ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m.id) } : {}),
       task: (i, box) => {
@@ -2499,7 +2511,36 @@ export class NoteSurface {
     return true;
   }
 
+  /**
+   * What each handler line last drew (an extension's output or a script's view), kept under its line while the note is
+   * edited, read-only (PIE-981): `Draft.kept` for the raw edit and the rich one. The note as it was read says which line
+   * drew what; a line that moved since (a line typed above it) still gets its drawing, found by its text.
+   */
+  private keptDrawings(d: Draft, m: Msg): Draft["kept"] {
+    if (!isOutlineNote(m)) return null;
+    const drawn = projectionsOf(m, this.src).filter(p => (p.kind === "output" || p.kind === "component") && !p.record && p.output && (p.status === "ready" || p.status === "stale"));
+    if (!drawn.length) return null;
+    const was = m.text.split("\n"), at = new Map<number, ResourceProjection[]>();
+    for (const p of drawn) {
+      const line = p.anchor.line, text = was[line];
+      let to = d.lines[line] === text ? line : -1;
+      for (let k = 1; to < 0 && k <= d.lines.length; k++) to = d.lines[line - k] === text ? line - k : d.lines[line + k] === text ? line + k : -1;
+      if (to >= 0) at.set(to, [...(at.get(to) ?? []), p]);
+    }
+    const now = Date.now(), memo = new Map<string, string[]>();
+    const doc = (text: string, width: number) => this.snippetDoc(text, width).lines;
+    return (line, width) => {
+      const ps = at.get(line);
+      if (!ps) return [];
+      const key = `${line}|${width}`;
+      let rows = memo.get(key);
+      if (!rows) memo.set(key, (rows = ps.flatMap(p => extensionRegion(p, width, now, undefined, { note: m.id, markdown: doc, blockdown: doc, bare: true }).rows)));
+      return rows;
+    };
+  }
+
   private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false): string[] {
+    d.kept = this.keptDrawings(d, m);
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
@@ -3707,6 +3748,8 @@ export class NoteSurface {
       // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
       if (trashedAt !== undefined && trashedAt > last.seq) return false;
+      const laid = host.layoutUndoSeq?.();
+      if (laid !== undefined && laid > last.seq) return false;
       void this.runKey(last.name, {}, host, true);
       return true;
     }
@@ -3792,6 +3835,41 @@ export class NoteSurface {
     if (action === RUN_AGAIN) return NOTE_ACTIONS.run("projection.refresh", { block: x.block, line: x.line }, { surface: this, host }, actor);
     if (!EXT_ACTIONS.has(action)) { host.ctx.flash(`${action} isn't here any more: its extension was removed or reloaded`); return Promise.resolve(null); }
     return EXT_ACTIONS.run(action, { block: x.block, line: x.line }, { ctx: host.ctx as Ctx }, actor);
+  }
+
+  /**
+   * A press (PIE-957, a `::button` or a view's button, badge, card or row): its action line through the door's one dispatcher,
+   * as `actor`. The head is an action the door has, or a script's name (it runs as the script, with the note the press is in
+   * as `this`); the words are its arguments. The person's press runs at once (their click is the consent; what it does is
+   * attributed and undoable: ext.undo, layout.undo). An agent's is attributed and said, as any `act` is.
+   */
+  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor): Promise<unknown> {
+    const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+    if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
+    let req;
+    try { req = actRequestOf(lineWords(p.act)); } catch (e) { throw new ActionRefused(`${p.act}: ${e instanceof Error ? e.message : String(e)}`); }
+    if (req.as !== undefined) throw new ActionRefused(`${p.act}: a press runs as ${actor.kind === "user" ? "you" : "its presser"}; leave out as=`);
+    const args: Record<string, unknown> = { ...(req.args ?? {}) };
+    let action = req.action;
+    if (!d.has(action)) {
+      const scripts = scriptActions().filter(s => s.extension.name === action);
+      if (scripts.length !== 1) throw new ActionRefused(scripts.length > 1 ? `${scripts.length} scripts are named ${action}; ext ls lists them` : `nothing here answers to ${action}: \`actions\` lists the door's, \`ext ls\` the scripts`);
+      action = scripts[0]!.action.name;
+    }
+    // An extension's action acts on a note: the one this press is written in, unless the line names another.
+    if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
+    // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. The
+    // run's note records the button and its author beside who asked.
+    if (actor.kind === "user" && scriptActions().some(s => s.action.name === action)) {
+      args.invitation ??= INVITES.mint("you");
+      const home = p.block || this.msg?.id;
+      if (home) args.via ??= `${home}:${p.line}`;
+    }
+    const result: unknown = actor.kind === "user" ? await d.press(action, args, req.tile) : await d.act({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, actor);
+    // The run it started: the invitation belongs to it from here (and is spent when it ends).
+    if (typeof args.invitation === "string" && result && typeof result === "object" && typeof (result as { undo?: unknown }).undo === "string") INVITES.bind(args.invitation, (result as { undo: string }).undo);
+    host.redraw();
+    return result;
   }
 
   /**
@@ -4479,7 +4557,7 @@ export class NoteSurface {
       // A step's is its item in the note, or its row in an embed (the whole region is one note line).
       else if (kind === "task" && l.task?.via) ruler = [top + r.line, top + r.line + 1];
       // An extension's control is its own row.
-      else if (kind === "control" && l.ext) ruler = [top + r.line, top + r.line + 1];
+      else if (kind === "control" && (l.ext || l.press)) ruler = [top + r.line, top + r.line + 1];
       const label = kind === "task" && l.task ? `${STEP_BOXES[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}`
         // A view's picture (PIE-827) is named by its file, as a note's image is.
@@ -5415,9 +5493,17 @@ export class NoteSurface {
       const r = await host.ctx.board.undoExtension(e.undo, actor);
       EXT_UNDO.drop(e);
       outlineChanged(r.written);
-      say.flash(`undid ${e.label.toLowerCase()}`);
+      // The layout the run changed goes back with its writes (PIE-957, one undo id for both): the answer says which parts were
+      // undone and which were refused.
+      const dispatch = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+      let layout: { undone: true; steps: number } | { refused: string } | null = null;
+      if (dispatch) {
+        try { const l = await dispatch.act({ action: "layout.undo", args: { txn: e.undo } }, actor) as { steps: number }; layout = { undone: true, steps: l.steps }; }
+        catch (err) { const why = err instanceof Error ? err.message : String(err); if (!/no layout change in transaction/.test(why)) layout = { refused: why }; }
+      }
+      say.flash(`undid ${e.label.toLowerCase()}${layout && "refused" in layout ? ` · layout not undone: ${layout.refused}` : layout ? " · and its layout changes" : ""}`);
       host.redraw();
-      return { undone: e.undo, action: r.action, written: r.written };
+      return { undone: e.undo, action: r.action, written: r.written, ...(layout ? { layout } : {}) };
     } catch (err) {
       const why = `couldn't undo ${e.label.toLowerCase()}: ${err instanceof Error ? err.message : String(err)}`;
       // Gone from the service (undone elsewhere, or the host restarted): it can't be undone here either.
@@ -8007,6 +8093,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const r = await surface.runExt(e.link.ext.action, e.link.ext, host, actor);
         surface.noteAgent(actor, `ran ${e.link.ext.action} on ${e.label.slice(0, 40)}`);
         return { element: i, kind: e.kind, action: e.link.ext.action, ...(r && typeof r === "object" ? r : {}) };
+      }
+      // A press (PIE-957): its action line, through the door's dispatcher, as whoever asks (the person's asks first when it writes).
+      if (e.link?.press && e.kind === "control") {
+        const r = await surface.runPress(e.link.press, host, actor).catch((err: Error) => { if (actor.kind === "user") { host.ctx.flash(err.message); return null; } throw err; });
+        surface.noteAgent(actor, `pressed ${e.label.slice(0, 40)} (${e.link.press.act.slice(0, 60)})`);
+        return { element: i, kind: e.kind, act: e.link.press.act, ...(r && typeof r === "object" ? r : {}) };
       }
       // An `■ unsent` line's control runs its action as whoever asks (an agent's is refused: the unsent text is the person's).
       if (e.kind === "control" && e.link?.unsent) {

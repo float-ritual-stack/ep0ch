@@ -48,7 +48,14 @@ export interface ScriptActionCall {
   action: string;
   args: Record<string, unknown>;
   actor: { author: "user" | "agent" | "system"; actorId?: string; sessionId?: string; taskId?: string };
+  /** Who asked for the run (PIE-957): the person whose press started it, or the agent. The call's `actor` is the script. */
+  requestedBy?: { author: "user" | "agent" | "system"; actorId?: string };
+  /** The invitation the person's press minted for this run (a door's, src/surface/invite.ts): it lets the run move the person's tiles. */
+  invitation?: string;
 }
+
+/** A script run ended (`scripts.ended` event, PIE-957): the door closes the layout transaction the run held by its end rule. */
+export interface ScriptEnded { run: string; reason: "done" | "stopped" | "failed" }
 
 /** A block as the service sends it whole. Projected reads (`fields`) send a subset. */
 export interface Block {

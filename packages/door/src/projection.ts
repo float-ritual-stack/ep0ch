@@ -520,6 +520,8 @@ export interface ExtDraw {
   row?(block: string, text: string): string;
   /** The keys the reader's host keeps (SurfaceHost.ownKeys): a control never names one as its key. */
   hostKeys?: string;
+  /** Only what the line last drew, with no controls or hints (PIE-981: it stays under its line while the note is edited). */
+  bare?: boolean;
 }
 
 /** The action a head or a control runs when it isn't the extension's own: r, run it again (ask again). */
@@ -538,9 +540,9 @@ export function primaryAction(p: ResourceProjection): { name: string; label: str
 }
 
 /** A line's view: drawn from its primitives, else (a primitive this door doesn't draw) its markdown, else its data. */
-function componentBody(p: ResourceProjection, width: number, d: ExtDraw): { lines: string[]; via: "primitives" | "markdown" | "json" } {
+function componentBody(p: ResourceProjection, width: number, d: ExtDraw, press?: PrimitiveDraw["press"]): { lines: string[]; via: "primitives" | "markdown" | "json" } {
   const c = p.output?.component;
-  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}), ...(d.image ? { image: d.image } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
+  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(press ? { press } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}), ...(d.image ? { image: d.image } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
   if (p.output?.markdown.trim()) return { lines: d.markdown(p.output.markdown, width), via: "markdown" };
   return { lines: wrap(JSON.stringify(c?.data ?? null, null, 1) ?? "null", width).map(l => fg(C.grey) + l + RESET), via: "json" };
 }
@@ -557,6 +559,8 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   const extension = p.extension?.id ?? p.provider, handler = p.extension?.handler ?? p.propertyKey ?? p.provider;
   const at = (action: string) => ({ ext: { block: d.note, line: p.anchor.line, action, extension, handler }, refresh: d.note, refreshLine: p.anchor.line });
   const primary = primaryAction(p);
+  // A view's pressable primitive (PIE-957): a control that runs the action line it carries on this line's note.
+  const pressing: PrimitiveDraw["press"] | undefined = link ? (act, text) => link({ role: "control", label: text, press: { act, block: d.note, line: p.anchor.line } }, text) : undefined;
   const ready = (p.status === "ready" || p.status === "stale") && (p.output || p.summary !== undefined);
   const bad = !ready && p.status !== "not-run" && p.status !== "not-fetched";
   const when = p.output?.ranAt ?? p.fetchedAt;
@@ -567,7 +571,7 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   const running = p.fetching ? (p.kind === "agent" ? "working…" : "running…") : "";
   // The result: flush.
   const body: string[] = [];
-  if (ready && p.kind === "component") body.push(...componentBody(p, inner, d).lines);
+  if (ready && (p.kind === "component" || p.output?.component)) body.push(...componentBody(p, inner, d, pressing).lines);
   else if (ready && p.output?.markdown.trim()) body.push(...d.markdown(p.output.markdown, inner));
   else if (ready && p.kind === "data" && p.fields.length) body.push(...wrap(p.fields.map(f => `${drawnInline(f.label)}: ${drawnInline(f.value)}`).join(" · "), inner).map(r => fg(C.brown) + r + RESET));
   // What is wrong, or all there is to say when there is no result (a request's state, a line not run yet): in the flow, dim or yellow.
@@ -579,6 +583,8 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   if (p.reason && (!ready || p.status === "stale")) said(drawnInline(p.reason), bad || p.status === "stale" ? C.yellow : C.dark);
   if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · ${RUN_AGAIN_KEY} runs it again`, C.dark);
   for (const option of p.options.unknown) said(`unknown option ${drawnInline(option)}`, C.yellow);
+  // Kept under its line while the note is edited (PIE-957): what it last drew, with no mark and no controls.
+  if (d.bare) return { rows: [...body, ...notes] };
   // Behind the mark: the line's actions (their key, if the reader leaves it to them), then run again.
   const acts = p.extension && p.kind !== "agent" ? handlerActions(p.extension.id, p.extension.handler) : [];
   const control = (action: string, text: string) => fg(C.lcyan) + (link ? link({ role: "control", label: text, ...at(action) }, `[${text}]`) : `[${text}]`) + RESET;

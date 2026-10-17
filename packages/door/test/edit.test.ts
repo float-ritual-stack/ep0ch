@@ -24,6 +24,20 @@ const until = async (ok: () => boolean, what: string, ms = 5000) => {
 };
 
 describe("draft", () => {
+  test("rows kept under a line (PIE-981) are drawn read-only: up and down step over them, a click on one lands at the end of its line, typing is unmoved", () => {
+    const d = new Draft("b1", 1, "one\nboard::\nthree");
+    d.kept = line => (line === 1 ? ["KEPT a", "KEPT b"] : []);
+    expect(d.render(20, 8).map(l => l.replace(/\x1b\[[\d;]*m/g, "").trimEnd()).filter(Boolean)).toEqual(["one", "board::", "KEPT a", "KEPT b", "three"]);
+    d.place(1, 2);
+    d.key({ kind: "down" });
+    expect([d.row, d.col]).toEqual([2, 2]);
+    d.key({ kind: "up" });
+    expect([d.row]).toEqual([1]);
+    expect(d.posAt(0, 3)).toEqual({ row: 1, col: 7 });
+    d.place(1, 7);
+    type(d, "!");
+    expect(d.lines).toEqual(["one", "board::!", "three"]);
+  });
   test("keeps the whole text, subject and properties included", () => {
     const d = new Draft("b1", 4, "Title [stage::queued]\nbody");
     expect(d.text).toBe("Title [stage::queued]\nbody");
