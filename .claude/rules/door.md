@@ -35,7 +35,7 @@ Claude Code loads it when you touch a file under `packages/door/`; other tools r
 Each reuse-map row gets a showcase section (the door README names the few still without one), and a user-visible
 feature gets a showcase section or note in the same PR, live where possible (`ep0ch --showcase`;
 `packages/door/src/showcase/`). The demo is also its end-to-end test: a new section's test in
-`packages/door/test/showcase.test.ts` opens it on the seeded outline, drives it through `act` and checks the result,
+`packages/door/test/showcase/` opens it on the seeded outline, drives it through `act` and checks the result,
 so a feature can't quietly break its own demo. If it can't be shown there, the PR says why.
 
 ## Capture, tested as a person works

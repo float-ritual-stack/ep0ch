@@ -1,6 +1,6 @@
 // Live tabs figures (`::graph-tabs`) and a table's density: how the results are grouped and ordered, how a title
 // wraps with a hanging indent, and how `ep0ch show` prints every tab. The reader's switching (figure.tab,
-// figure.density by keys, click and act) is driven in the showcase's tabs section (test/showcase.test.ts).
+// figure.density by keys, click and act) is driven in the showcase's tabs section (test/showcase/).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderGraph, titleLines, type FigureInfo } from "../src/graphs";
 import { setLiveSource } from "../src/live";

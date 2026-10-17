@@ -35,6 +35,8 @@ describe.skipIf(!outliner)("the showcase screen: search", () => {
   test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 6, key: "search" });
+    // The door draws a frame after it: that is when the section's desk is entered and has the door's context.
+    screen();
     const r = await app.act({ action: "search", args: { query: "alotment notebok" }, as: "test-agent" }) as any;
     expect(r.query).toBe("alotment notebok");
     expect(r.hits[0]).toMatchObject({ n: 1, title: "Allotment notebook" });

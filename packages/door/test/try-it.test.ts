@@ -1,5 +1,5 @@
 // `scripts/try-it.sh --showcase`: it seeds on first run, keeps edits, --reset puts the seed back, and its pidfile never
-// makes it signal a process that isn't its service (moved out of showcase.test.ts, PIE-760: it tests the script, not a
+// makes it signal a process that isn't its service (moved out of the showcase tests, PIE-760: it tests the script, not a
 // section). Scratch services only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

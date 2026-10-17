@@ -191,7 +191,7 @@ calm/night switch).
 
 - **Source:** one showcase section per feature page, driven through the door's control socket (`act`, plus keys
   and SGR mouse where the mouse is the point), on the showcase's scratch outline. A test already drives each
-  section (`packages/door/test/showcase.test.ts`); the tour drives the same actions, so the demo, its test and its
+  section (`packages/door/test/showcase/`); the tour drives the same actions, so the demo, its test and its
   cast agree.
 - **Chapters:** one `m` marker per tour step, labelled by what happens. The page draws its chapter list from the
   cast's markers once it loads (the list in the HTML is the at-rest copy), so a re-recorded tour can't leave stale
@@ -225,4 +225,4 @@ can't read fails), in page order, with
     done when the host reads the note back changed.
 
   `data-expect` is text the output must contain. Examples that need a running door (`act` lines) are the actions
-  `showcase.test.ts` drives.
+  `test/showcase/` drives.

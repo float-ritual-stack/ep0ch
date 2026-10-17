@@ -360,7 +360,11 @@ A second curl of that link is refused. The showcase test drives `outline.snapsho
 queries the copy.
 
 Adding a shared part means adding its section (`SECTIONS` in `src/showcase/showcase.ts`) and the seed
-content it needs; the review checklist's "The map" item covers both.
+content it needs; the review checklist's "The map" item covers both. Its content goes in a file of its own, so
+parallel changes don't collide: the seed's notes and fixtures are `src/showcase/seed/<area>.ts` (a new area is a new
+file; `seed.ts` keeps the names in `seed/names.ts`'s `SEED`, the order the notes are written in and the `Seeded`
+shape), and the section's test is a file in `test/showcase/` (`harness.ts` seeds a scratch outline and opens the
+screen on it; `marks.ts` says what each section draws; a test file calls `useShowcaseScreen()` inside its describe).
 
 ## The daily brief
 

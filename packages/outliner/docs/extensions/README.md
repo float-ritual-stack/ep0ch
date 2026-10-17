@@ -2150,7 +2150,7 @@ An extension that calls an outside API is shown the same way, with the outside w
    the extension no secret in the showcase. Don't install an extension that names a real group into a showcase
    without one: its first call would send the person's real token to the real service.
 3. **A section and its test.** The section shows what the person would see (the extension's lines, its schedule in the
-   extensions list, the notes it wrote), and `packages/door/test/showcase.test.ts` opens it, runs the action through
+   extensions list, the notes it wrote), and `packages/door/test/showcase/` opens it, runs the action through
    `act` (`ext.<id>.<action>`) and checks what the fake was sent and what the outline holds.
 
 ### Worked example: "sync my starred items from an outside API every hour"
