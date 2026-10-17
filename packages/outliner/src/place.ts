@@ -195,6 +195,8 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
         }
       }
     }
+    // A component's standalone `^anchor` line sits under its closing `::`: output goes after it, so the anchor still names the component.
+    if (where === "after" && at && at.kind !== "heading" && at.lineIndex > line && lines.slice(line + 1, at.lineIndex).every(l => !l.trim()) && lines[at.lineIndex]!.trim() === `^${at.id}`) line = at.lineIndex;
     const r = region(target);
     // A second append with the same producer at the same target would reuse the anchor: it stays unique by suffix.
     let anchorId = r.anchor, n = 1;

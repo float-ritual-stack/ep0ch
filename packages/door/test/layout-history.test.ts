@@ -134,6 +134,19 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await expect(act("tile.focus", { txn: "bad id!" }, names()[0])).rejects.toThrow("txn= is an id");
   });
 
+  test("undoing a layout change keeps the readers opened into the screen (a note you opened is not part of what a resize undoes)", async () => {
+    const note = await board.request<{ id: string }>("create", { author: "user", text: "A note opened beside the others" });
+    await act("open", { id: note.id });
+    await until(() => (D().layoutGet() as { tiles: { note?: string }[] }).tiles.some(t => JSON.stringify(t).includes(note.id.slice(0, 8))), "the note opened in a reader");
+    const before = names();
+    const other = before.find(n => n !== D().layoutGet().focus)!;
+    const resized = await person("tile.resize", { axis: "col", by: 1 }, other).then(() => true, () => false) || await person("tile.resize", { axis: "row", by: 1 }, other).then(() => true, () => false);
+    expect(resized).toBe(true);
+    await person("layout.undo");
+    expect(names().sort()).toEqual(before.sort());
+    expect(JSON.stringify(D().layoutGet())).toContain(note.id.slice(0, 8));
+  }, 30_000);
+
   test("a transaction is one entry for every layout change in it; layout.txn.end closes it; layout.undo txn= takes all of it back", async () => {
     const before = names();
     const [a, b] = before.filter(n => n !== D().layoutGet().focus) as [string, string];

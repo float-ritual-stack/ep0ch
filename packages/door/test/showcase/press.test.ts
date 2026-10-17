@@ -72,6 +72,15 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     const rows2 = screen().split("\n"), y2 = proseRow();
     click(rows2[y2]!.indexOf("start over") + 2, y2);
     await untilAsync(async () => (await boardOf()) === ".........", "a new game by the inline press");
+    // An agent presses it by its words, in the reader the person holds, with no element numbers to look up (button.press).
+    await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "6" } }, USER);
+    await untilAsync(async () => (await boardOf()) !== ".........", "a move before the agent's press");
+    const pressed = await app.act({ action: "button.press", args: { label: "New game" }, as: "test-agent" }) as { ok?: boolean; result?: { act?: string } };
+    expect(JSON.stringify(pressed)).toContain("ttt-reset");
+    await untilAsync(async () => (await boardOf()) === ".........", "a new game by an agent's button.press");
+    const refused = await app.act({ action: "button.press", args: { label: "no such button" }, as: "test-agent" }).then(() => "", (e: Error) => e.message);
+    expect(refused).toContain("no button says");
+    expect(refused).toContain('Example: button.press label="');
   }, 60_000);
 
   test("edit and rich edit keep the board drawn under its line, read-only, while the lines around it are edited", async () => {

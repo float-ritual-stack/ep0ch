@@ -1279,7 +1279,8 @@ export class Showcase implements Screen {
   }
 
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
-  dancing(): boolean { return [...this.stages.values()].some(f => f.dancing()); }
+  /** The shown stage's (the status bar's stop control acts on the stage in front, so it only offers what it can stop). */
+  dancing(): boolean { return this.stages.get(this.sel)?.dancing() ?? false; }
   settle(): boolean { return [...this.stages.values()].map(f => f.settle()).some(Boolean); }
   scriptEnded(run: string, reason: "done" | "stopped" | "failed") { for (const f of this.stages.values()) f.scriptEnded(run, reason); }
   scriptUndone(run: string) { for (const f of this.stages.values()) f.scriptUndone(run); }

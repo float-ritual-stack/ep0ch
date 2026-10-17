@@ -194,7 +194,7 @@ is drawn in (`this`); `act` runs the same line. The click is the consent, so the
 attributed and undoable (`ext.undo`, `layout.undo`). A script run that a press starts may move the person's tiles (the
 press invites it); an agent's run of the same script may not move the tile the person is in. Any other client draws the
 primitive's label without the line. In a note the same press is `::button{label="Review" act="layout.load name=review"}`,
-`::button{label="Play" of=ttt-play cell=5}` or `[review](act: layout.load name=review)`.
+`::button{label="Play" of=ttt-play cell=5}` or `[review](act: layout.load name=review)`. An agent presses one with `button.press label="Play"` (the door's action, through the same dispatcher; `n=` from `elements`).
 
 | Entry | Source |
 |---|---|
@@ -545,8 +545,8 @@ Beans [qty::5] [price::2]
 
 #### Fantasia: a button, a transaction, motion, undo (needs a door)
 
-`::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia}` in a note, and this script as `[script::fantasia] [effects::write]`.
-It is the acceptance test of the self-reference wave: one click runs the whole chain. Unlike examples 1 to 5 it needs a connected door (it moves tiles), so it is not pasted by the scripts-docs test; the showcase's *fantasia* section runs it live.
+`::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia stay=1}` in a note (`stay=1` leaves the tiles where they danced, so `layout.undo` has something to take back; without it the script undoes itself at the end), and this script as `[script::fantasia] [effects::write]`.
+It is the acceptance test of the self-reference wave: one click runs the whole chain. It needs several tiles the person isn't holding to show anything, and unlike examples 1 to 5 it needs a connected door (it moves tiles), so it is not pasted by the scripts-docs test; the showcase's *fantasia* section runs it live.
 
 ```js
 const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));

@@ -31,6 +31,26 @@ with `motion=fantasia` and settles them back, as one layout transaction a press 
 stop and an undo, is `packages/outliner/docs/scripts.md` ("Fantasia", the worked example), and `ep0ch --showcase` has it live
 (`act section name=fantasia`).
 
+## Trying a button or a dance on a scratch outline
+
+Everything here runs from your worktree and under `scripts/agent-env <name> --`, never against the person's outline or the live
+`ep0ch` (a worktree whose `PROTOCOL` differs from the installed one answers "update the door (ep0ch install --apply)": run
+`bun packages/door/src/main.ts …` from the worktree for every command instead of `ep0ch`).
+
+1. A scratch host: `scripts/agent-env <name> -- bun packages/outliner/src/host-main.ts` in the background (the Bash tool's
+   `run_in_background`; stop it by its pid), then `scripts/agent-env <name> -- bun packages/door/src/main.ts outline create <ws>`.
+2. Notes: a multi-line note goes in as one argument (`new "$(cat note.md)"`, or `$'line one\nline two'`) and lands in the Inbox;
+   a script is a note with `[script::name] [effects::write]` and a closed `js` fence.
+3. A test door: in a tmux pane started through agent-env (it inherits `EP0CH_STATE` and `EP0CH_CONTROL`), `bun packages/door/src/main.ts
+   --ws <ws> --no-daemon --screen detail <full id>`. The first screen is a reader the person holds; an agent's presses and moves
+   go through `act` (`--as <id>`).
+4. Press: `act button.press label="Bump"` presses a button of the note in front (`n=` from `act elements`; a miss lists the buttons the
+   note has). It runs the line through the same dispatcher as a click, attributed to you, and answers the line it ran.
+5. A dance moves tiles that are not held: a screen of one or two tiles shows little. Use a layout with several readers (the board, the
+   showcase's `fantasia` section), and add `stay=1` to the button to leave the tiles where they danced, so `act layout.undo` has
+   something to take back. `act ext.undo run=<the run's undo id>` takes back the script's writes and layout together (the answer's
+   `undo` names the script's run note, which is what `ext.undo` wants, not the note the button is in).
+
 ## Looking at a script's output
 
 `ep0ch show` draws the note and its values but not what a script or other extension line returns: that is drawn by a door's

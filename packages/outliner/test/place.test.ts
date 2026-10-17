@@ -92,6 +92,13 @@ describe("planPlace", () => {
     const fm = "Title\n[status::draft] a line ^fm\n\nbody";
     expect(planPlace(fm, { producer, at: "fm", content: "x" })).toMatchObject({ kind: "refused", reason: expect.stringContaining("front matter") });
   });
+  test("output placed at a component's anchor goes after the standalone ^anchor line, so the anchor still names the component", () => {
+    const t = "Title\n\n::table{rows=2}\n| a | b |\n::\n^chart\n\nafter";
+    const out = apply(t, planPlace(t, { producer, at: "^chart", content: "x" }));
+    expect(out.indexOf("[!output]")).toBeGreaterThan(out.indexOf("^chart\n"));
+    const slice = resolveFragmentSlice(out, "chart");
+    expect(slice.status === "resolved" && slice.slice.text).toBe("::table{rows=2}\n| a | b |\n::");
+  });
   test("here appends right after the invocation line, and upsert finds it again after the line moved", () => {
     const t = "Title\n\nkids:: ran\n\nafter";
     const first = planPlace(t, { producer, here: 2, mode: "upsert", content: "v1" });

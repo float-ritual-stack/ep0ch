@@ -667,11 +667,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async stopRuns(actor: Actor): Promise<{ stopped: string[] }> {
     const runs = this.runningScripts();
     if (!runs.length) throw new ActionRefused("no script run is rearranging this screen");
-    const results = await Promise.all(runs.map(run => this.ctx.board.stopScript(run, actor).then(r => (r.stopped ? run : null), () => null)));
-    const stopped = results.filter((r): r is string => !!r);
-    // A run that has already ended (or was started elsewhere) isn't there to stop: the transaction is closed here as stopped.
-    for (const run of runs) if (!stopped.includes(run)) { try { this.endTxn(run, "stopped", actor); stopped.push(run); } catch { /* gone */ } }
-    asActor(this.ctx, actor).flash(stopped.length ? "stopped the dance; the layout is put back" : "nothing to stop");
+    // The service answers { stopped: false } for a run that has already ended (or was started elsewhere): its transaction is
+    // closed here as stopped. A request that failed (the service unreachable, a refusal) stops nothing, and says so.
+    const failed: string[] = [];
+    const results = await Promise.all(runs.map(run => this.ctx.board.stopScript(run, actor).then(r => ({ run, ended: true as const, r }), (e: Error) => { failed.push(e.message); return { run, ended: false as const, r: null }; })));
+    const stopped: string[] = [];
+    for (const { run, ended } of results) if (ended) { try { this.endTxn(run, "stopped", actor); } catch { /* gone */ } stopped.push(run); }
+    asActor(this.ctx, actor).flash(failed.length ? `could not stop the dance: ${failed[0]}` : stopped.length ? "stopped the dance; the layout is put back" : "nothing to stop", failed.length ? 6000 : undefined);
     this.redraw();
     return { stopped };
   }
@@ -712,18 +714,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * (nobody undoes over someone else), and the module's `load` check must allow it (a lock, the tile the person types in).
    * Stops at the first that doesn't, with why; what was undone is done.
    */
-  private undoEntries(entries: LayoutEntry[], actor: Actor): { done: LayoutEntry[]; blocked?: string } {
+  private undoEntries(entries: LayoutEntry[], actor: Actor, keepFocus = false): { done: LayoutEntry[]; blocked?: string } {
     const done: LayoutEntry[] = [];
     for (const entry of entries) {
       // Rebuilding clears what the person is in the middle of (an edit, a terminal): never under their typing.
       if (this.holdsKeys()) return { done, blocked: "you are typing; ctrl+z (layout.undo) puts it back when you are done" };
-      const later = this.history.after(entry).find(e => e.party !== entry.party && e.owner !== entry.owner);
+      // A change by someone else since (the same transaction's own steps are part of taking this one back): undoing under it would erase it.
+      const later = this.history.after(entry).find(e => e.party !== entry.party && (entry.txn === undefined || e.txn !== entry.txn));
       if (later) return { done, blocked: `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` };
       this.replaying = true;
       try { this.apply({ op: "load", name: "the layout before" }, actor); }
       catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; }
       finally { this.replaying = false; }
-      this.rebuildTo(entry.before);
+      this.rebuildTo(entry.before, keepFocus);
       this.history.take(entry);
       done.push(entry);
     }
@@ -731,10 +734,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Rebuild the shape `spec`, keeping the tiles it names (as `layout.load` does), and no new entry. */
-  private rebuildTo(spec: LayoutSpec) {
+  private rebuildTo(spec: LayoutSpec, keepFocus = false) {
     this.replaying = true;
     this.startMotion(TXN.getStore()?.motion, "put back");
-    try { this.entered.clear(); this.ptyIn = null; this.build(spec, true); } finally { this.replaying = false; }
+    // A rollback nobody asked for (a run that ended early) leaves the keys where the person put them, when that tile is still there.
+    const here = keepFocus ? this.nameOf(this.focus) : undefined;
+    const names = here ? new Set(this.all().map(id => this.nameOf(id))) : null;
+    try { this.entered.clear(); this.ptyIn = null; this.build(here && names!.has(here) ? { ...spec, focus: here } : spec, true); } finally { this.replaying = false; }
   }
 
   /**
@@ -748,7 +754,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const early = reason === "stopped" || reason === "failed";
     if (early && entries.length) {
       // Put back what it changed, newest first, as far as nothing else changed since and the screen allows (it may be locked now).
-      const r = this.undoEntries([...entries].reverse(), USER);
+      const r = this.undoEntries([...entries].reverse(), USER, true);
       this.save(); this.redraw();
       asActor(this.ctx, actor).flash(r.blocked ? `${txn} ${reason}; layout only partly put back: ${r.blocked}` : `${txn} ${reason}; layout put back`, r.blocked ? 8000 : undefined);
       return { txn, ended: reason, steps, putBack: !r.blocked, ...(r.blocked ? { left: r.blocked } : {}) };

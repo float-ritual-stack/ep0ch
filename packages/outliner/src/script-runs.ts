@@ -256,7 +256,8 @@ export class ScriptRuns {
         clearTimeout(deadline);
         // How it ended, before the abort below says it for every run: stopped by someone, failed, or done.
         const why = controller.signal.aborted ? controller.signal.reason : undefined;
-        const reason = failure !== undefined || (why instanceof Error && /^The script ran past/.test(why.message)) ? "failed" as const : why instanceof Error && /^Stopped by/.test(why.message) ? "stopped" as const : "done" as const;
+        const stoppedBy = why instanceof Error && /^Stopped by/.test(why.message);
+        const reason = stoppedBy ? "stopped" as const : failure !== undefined || (why instanceof Error && /^The script ran past/.test(why.message)) ? "failed" as const : "done" as const;
         controller.abort();
         try {
           const drafts = await this.inverse(undo);

@@ -8382,6 +8382,31 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return surface.describeElements()[n! - 1];
     },
   }),
+  "button.press": def({
+    summary: "press a button or a pressable square of a view in this note by its label (or n from elements): its action line runs through the door's dispatcher as whoever asks, attributed and undoable. It opens nothing and moves nothing the person is reading, so it works on the reader they hold",
+    keys: "a click on a button, or ⏎ on it (element.open does the same)", touches: "nothing", replay: "ask",
+    args: {
+      label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
+      n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
+    },
+    async run({ label, n }, { surface, host }, actor) {
+      await surface.whole();
+      surface.requireDrawn();
+      if ((label === undefined) === (n === undefined)) throw new ActionRefused("say label= (the button's words) or n= (its number in elements)");
+      const all = surface.describeElements();
+      const pressable = (i: number) => { const e = surface.element(i + 1); return e.kind === "control" && !!e.link?.press; };
+      const hits = n !== undefined ? (n >= 1 && n <= all.length && pressable(n - 1) ? [n] : []) : all.map((_, i) => i + 1).filter(i => pressable(i - 1) && all[i - 1]!.label.toLowerCase().includes(label!.toLowerCase()));
+      if (!hits.length) {
+        const have = all.map((e, i) => ({ e, i: i + 1 })).filter(x => pressable(x.i - 1)).map(x => `${x.i}: ${x.e.label}`);
+        throw new ActionRefused(`${n !== undefined ? `element ${n} is not a button` : `no button says "${label}"`} in this note; ${have.length ? `it has ${have.join(", ")}` : "it has none (a button is ::button{label=… act=…} or a view's pressable square)"}. Example: button.press label="${(have[0]?.split(": ")[1] ?? "Review").replace(/^\[|\]$/g, "")}"`);
+      }
+      if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons (${hits.map(i => `${i}: ${all[i - 1]!.label}`).join(", ")}); say n=`);
+      const i = hits[0]!, e = surface.element(i);
+      const r = await surface.runPress(e.link!.press!, host, actor).catch((err: Error) => { if (actor.kind === "user") { host.ctx.flash(err.message); return null; } throw err; });
+      surface.noteAgent(actor, `pressed ${e.label.slice(0, 40)} (${e.link!.press!.act.slice(0, 60)})`);
+      return { element: i, kind: e.kind, act: e.link!.press!.act, ...(r && typeof r === "object" ? r : {}) };
+    },
+  }),
   "element.open": def({
     summary: "do what enter does on an element: a link follows (where is the view's call), a fold toggles, a row or an embed opens its note, a comment mark opens its thread; fresh=true opens a link, row or embed in a new reader. An agent's leaves the person's [ ] position alone, is refused in the reader they have, and never opens the browser (it is given the address)", keys: "enter, alt+enter, a click",
     touches: "tile", replay: "ask", way: "opening an element there would move what they're reading · an agent opens one in another reader (tile=), opens the note with open id=, or folds a section with fold or unfold",

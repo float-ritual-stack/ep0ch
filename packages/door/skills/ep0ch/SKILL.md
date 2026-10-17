@@ -204,8 +204,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
   refuses to undo over them). Any action takes the dispatcher's own `txn=<id>` (and `motion=<style>`, alone a hint for that one action): its
   layout changes join one entry that stays open until `layout.txn.end txn=<id>` (or a minute idle); `layout.undo
   txn=<id>` takes the whole transaction back. A script's run is one already. A person's press of a button (`::button`,
-  `[label](act: …)`, a view's `button`) runs an action line as them: `element.open n=<its element>` presses it as you, in
-  another reader than the one they have; a layout change you make glides (`motion=fantasia` on an action in a transaction asks for
+  `[label](act: …)`, a view's `button`) runs an action line as them: `button.press label="Review"` (or `n=` from `elements`) presses it as you, in the
+  reader they hold too (it opens and moves nothing they read; a mismatch lists the buttons the note has); a layout change you make glides (`motion=fantasia` on an action in a transaction asks for
   the wandering path; `settle` or none is the plain ease) unless the person's `motion.set` is calm or off, which caps your hint;
   `peek` and `layout.get` always read the settled layout; `layout.stop` (the person's Esc while a script run is rearranging the screen) stops the run and puts its layout changes back; a script `act()` with no door refused names the doors (`door=<client>` picks one).
 - **The drawer** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size

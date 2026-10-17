@@ -221,6 +221,8 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     : Promise.reject(new WorkToolRefusal("resolve answers for a note: run this script from a note, or pass at= (this run has no note)"));
   const act = (name: string, args: Record<string, unknown> = {}) => options.effects === "read"
     ? Promise.reject(new WorkToolRefusal("This script is read-only; declare effects=write to dispatch door actions"))
+    : options.mcpAccess && options.mcpAccess !== "full"
+    ? Promise.reject(new WorkToolRefusal(`MCP access is ${options.mcpAccess}: a run may not dispatch door actions (act); ep0ch mcp access full lets it`))
     : options.act
     ? options.act(name, args)
     : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));
