@@ -168,7 +168,7 @@ describe('the formatter: one row per tool', () => {
       .toBe('⌕ changes since 2026-03-01T00:00:00Z by garden-agent · 1 block')
     expect(words(toolRowOf(done('outline_resolve', { ref: '[[Seed Swap]]' }, { id: NOTE, title: 'Seed swap plan' })))).toBe('⌕ resolve Seed Swap · → Seed swap plan')
     expect(words(toolRowOf(done('show', { reference: 'PIE-12' }, 'Shown')))).toBe('⌕ show PIE-12')
-    expect(words(toolRowOf(done('outline_site', { ref: 'PIE-12' }, JSON.stringify({ values: [{}], paths: [{}, {}], problems: 1 }))))).toBe('⌕ site PIE-12 · 3 values, 1 problem')
+    expect(words(toolRowOf(done('outline_site', { ref: 'PIE-12' }, { values: [{}], paths: [{}, {}], problems: 1 })))).toBe('⌕ site PIE-12 · 3 values, 1 problem')
   })
 
   test('every tool the mod draws has a row for a usual input', () => {
