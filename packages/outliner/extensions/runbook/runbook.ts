@@ -18,7 +18,9 @@ import { outline } from "./outline";
 /** A property as the service sends it: a wire block's `{ key, value }`, or a record's `{ key, values }` (`context.block`, outline-core's record). */
 interface Prop { key: string; value?: string; values?: string[] }
 interface Block { id: string; text: string; revision: number; properties?: Prop[] }
-interface Context { block: Block; line?: { index: number; text: string }; children: Block[]; ancestors: { id: string; title: string }[]; now: string }
+/** An ancestor as the call's context sends it: its `properties` are the record's, so a list or a repeat is already read. */
+interface Ancestor { id: string; title: string; properties?: Prop[] }
+interface Context { block: Block; line?: { index: number; text: string }; children: Block[]; ancestors: Ancestor[]; now: string }
 type Config = { timeoutSeconds?: number };
 type Asker = { author: string; actorId?: string };
 type Request =
@@ -65,14 +67,9 @@ const titleOf = (text: string) => outsideFences(text).find((line) => line.trim()
 /** Every value a block has for a property, from the service's parse (never a scan of its text). */
 const valuesOf = (block: { properties?: Prop[] }, key: string) => (block.properties ?? []).filter((prop) => prop.key === key).flatMap((prop) => prop.values ?? (prop.value === undefined ? [] : [prop.value]));
 
-/** The runbook a step is in: the nearest ancestor that is [type::runbook] (or the block itself). */
-async function runbookOf(context: Context): Promise<Block | null> {
-  const chain = [context.block.id, ...[...context.ancestors].reverse().map((ancestor) => ancestor.id)];
-  for (const id of chain) {
-    const block = await outline<Block>({ action: "get", blockId: id });
-    if (valuesOf(block, "type").includes("runbook")) return block;
-  }
-  return null;
+/** The runbook a step is in: the nearest ancestor that is [type::runbook] (or the step itself), read from the properties the call carries. */
+function runbookOf(step: { properties?: Prop[] }, ancestors: readonly Ancestor[]): { properties?: Prop[] } | null {
+  return [step, ...[...ancestors].reverse()].find((candidate) => valuesOf(candidate, "type").includes("runbook")) ?? null;
 }
 function fill(template: string, param: (name: string) => string | undefined): { command: string; missing: string[] } {
   const missing = new Set<string>();
@@ -117,7 +114,7 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
   if (!line) return refuse("it has no run:: line");
   const template = commandOf(step.text);
   if (!template) return refuse("it has no command: put one in a code fence under the run:: line");
-  const root = await runbookOf({ ...context, block: step });
+  const root = runbookOf(step, context.ancestors);
   // A value passed at run time lands in a shell command: plain characters only. A runbook's own properties are its author's.
   const unsafe = Object.entries(args).find(([key, value]) => key !== "confirm" && !/^[\w.@:\/=+,-]*$/.test(value));
   if (unsafe) return refuse(`${unsafe[0]}=… has characters a command could be built from; put the value on the runbook note as [${unsafe[0]}::value] instead`);
@@ -160,7 +157,7 @@ if (request.operation === "run") {
   const { context } = request.input;
   const line = runLine(context.block.text);
   const template = commandOf(context.block.text);
-  const root = await runbookOf(context);
+  const root = runbookOf(context.block, context.ancestors);
   const all = runs(context.children);
   const last = all.at(-1);
   const ok = last?.status === "ok";
@@ -191,9 +188,9 @@ if (request.operation === "run") {
     else {
       const steps: Array<{ block: Block; ancestors: Context["ancestors"] }> = [];
       const walk = async (parentId: string, ancestors: Context["ancestors"]) => {
-        for (const child of await outline<Block[]>({ action: "children", parentId })) { if (runLine(child.text)) steps.push({ block: child, ancestors }); await walk(child.id, [...ancestors, { id: child.id, title: "" }]); }
+        for (const child of await outline<Block[]>({ action: "children", parentId })) { if (runLine(child.text)) steps.push({ block: child, ancestors }); await walk(child.id, [...ancestors, { id: child.id, title: "", ...(child.properties ? { properties: child.properties } : {}) }]); }
       };
-      await walk(root.id, [...input.context.ancestors, { id: root.id, title: "" }]);
+      await walk(root.id, [...input.context.ancestors, { id: root.id, title: "", ...(root.properties ? { properties: root.properties } : {}) }]);
       const done: string[] = [];
       let stopped = "";
       const began = Date.now(), budget = 280_000;   // the call's deadline is 5 m: settle before it, never leave a record "running"

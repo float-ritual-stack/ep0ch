@@ -15,6 +15,14 @@ describe("props written without their --- lines", () => {
     expect(propsWithoutRules("table", lines("query: type=errand\ncolumns:\n  - title\n  - created"))).not.toBeNull();
   });
 
+  test("a caption that happens to read key: value is a caption, and empty fences are fences", () => {
+    expect(propsWithoutRules("decision", lines("Note: figures are provisional\n- **raised beds**: drains"))).toBeNull();
+    expect(propsWithoutRules("decision", lines("Note: figures are provisional"))).toBeNull();
+    const empty = figureSource(lines("---\n---\nquery: shown as text"));
+    expect(figureProps("table", empty)).not.toHaveProperty("warning");
+    expect(syntaxWarnings("::graph-table\n---\n---\nquery: x\n::")).toEqual([]);
+  });
+
   test("a figure with its --- lines, or with real rows, or with nothing, says nothing", () => {
     expect(propsWithoutRules("table", lines("---\nquery: type=errand\n---"))).toBeNull();
     expect(propsWithoutRules("bar", lines("- Ana: 4\n- Bo: 6"))).toBeNull();

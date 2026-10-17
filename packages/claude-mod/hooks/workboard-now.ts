@@ -33,7 +33,10 @@ export function listArgs(query: string, limit: number, fields = 'id,title,proper
 
 export const PRS_ARGV = ['gh', 'pr', 'list', '--state', 'open', '--limit', '20', '--json', 'number,title,headRefName,isDraft'] as const
 
-export type ListedBlock = { id: string; title: string; properties: Record<string, string>; createdAt?: string }
+/** A row of `list`: its properties as the service sends them, one entry per occurrence (never a key → value map). */
+export type ListedBlock = { id: string; title: string; properties: { key: string; value: string }[]; createdAt?: string }
+/** A property's first value on a row, if it has one. */
+const valueOf = (item: ListedBlock, key: string): string | undefined => item.properties.find(p => p.key === key)?.value
 export type OpenPr = { number: number; title: string; branch: string; draft: boolean }
 
 /** How many rows a read asks for: far more than a board holds, so the counts are whole (a cut read says so). */
@@ -42,7 +45,7 @@ export const LIST_LIMIT = 500
 export type Listed = { blocks: ListedBlock[]; complete: boolean }
 
 /**
- * `list`'s JSON as rows (properties flattened, the first value of a key kept) and whether the service said that was
+ * `list`'s JSON as rows (properties as sent) and whether the service said that was
  * all of them, or null when it isn't that.
  */
 export function listedOf(stdout: string): Listed | null {
@@ -52,10 +55,7 @@ export function listedOf(stdout: string): Listed | null {
   if (!Array.isArray(blocks)) return null
   return { complete: completeness?.kind === 'complete', blocks: blocks.flatMap((b): ListedBlock[] => {
     if (!b || typeof b.id !== 'string') return []
-    const properties: Record<string, string> = {}
-    for (const p of Array.isArray(b.properties) ? b.properties : []) {
-      if (typeof p?.key === 'string' && typeof p.value === 'string' && !(p.key in properties)) properties[p.key] = p.value
-    }
+    const properties = (Array.isArray(b.properties) ? b.properties : []).flatMap((p: { key?: unknown; value?: unknown }) => (typeof p?.key === 'string' && typeof p.value === 'string' ? [{ key: p.key, value: p.value }] : []))
     return [{ id: b.id, title: typeof b.title === 'string' ? b.title : '', properties, ...(typeof b.createdAt === 'string' ? { createdAt: b.createdAt } : {}) }]
   }) }
 }
@@ -89,12 +89,12 @@ function clip(s: string, max: number): string {
 
 /** An item's label: its title (which leads with its Work ID), else its Work ID, else its id. */
 function itemLabel(item: ListedBlock): string {
-  return clip(item.title || item.properties['work-id'] || item.id, 90)
+  return clip(item.title || valueOf(item, 'work-id') || item.id, 90)
 }
 
 /** Whether an item waits on the person: `needs::sysop`, or `needs::sysop: <why>`. */
 export function waitsOnPerson(item: ListedBlock): boolean {
-  return /^sysop\b/i.test(item.properties.needs ?? '')
+  return /^sysop\b/i.test(valueOf(item, 'needs') ?? '')
 }
 
 function lane<T>(name: string, items: readonly T[], line: (item: T) => string): string[] {
@@ -111,7 +111,7 @@ function lane<T>(name: string, items: readonly T[], line: (item: T) => string): 
 export function workboardText(facts: WorkboardFacts, hasItems: boolean): string | null {
   const latest = [...facts.logs].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))[0]
   if (!facts.items.length && !hasItems && !latest) return null
-  const byStage = (stage: Stage) => facts.items.filter(i => i.properties['work-stage'] === stage)
+  const byStage = (stage: Stage) => facts.items.filter(i => valueOf(i, 'work-stage') === stage)
   const waiting = facts.items.filter(waitsOnPerson)
   const lines = [
     `The ${facts.outline} workboard as this conversation started (read from the outline; it moves, so read an item again before acting on it):`,
@@ -120,8 +120,8 @@ export function workboardText(facts: WorkboardFacts, hasItems: boolean): string 
     ...lane('review', byStage('review'), itemLabel),
     ...lane('validate', byStage('validate'), itemLabel),
     ...lane('waiting on the person (needs::sysop)', waiting, i => {
-      const why = (i.properties.needs ?? '').replace(/^sysop\s*:?\s*/i, '')
-      return `${clip(i.properties['work-id'] || i.title || i.id, 60)}${why ? `: ${clip(why, 80)}` : ''}`
+      const why = (valueOf(i, 'needs') ?? '').replace(/^sysop\s*:?\s*/i, '')
+      return `${clip(valueOf(i, 'work-id') || i.title || i.id, 60)}${why ? `: ${clip(why, 80)}` : ''}`
     }),
   ]
   if (!STAGES.some(s => byStage(s).length)) lines.push('- nothing in doing, review or validate')

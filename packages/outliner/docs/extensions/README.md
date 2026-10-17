@@ -373,7 +373,7 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
              "header": [{ "key": "status", "value": "doing" }], "body": "…", "tasks": [], "children": ["…"], "…": "…" },
   "line": { "index": 1, "text": "horoscope:: virgo" },
   "children": [{ "id": "…", "title": "Bin", "text": "…", "properties": [{ "key": "size", "values": ["big"] }], "fields": [] }],
-  "ancestors": [{ "id": "…", "title": "…" }],
+  "ancestors": [{ "id": "…", "title": "…", "properties": [{ "key": "type", "values": ["runbook"] }] }],
   "now": "2026-10-01T09:00:00.000Z"
 }
 ```
@@ -387,7 +387,7 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
   first line without its properties.
 - `children` are the block's first 50 children, each a record with its text (2 000 characters at most).
 - `ancestors` are every block above it, **the outline's top first and the block's parent last** (so the nearest is
-  `ancestors.at(-1)`), each its id and its first line (200 characters at most).
+  `ancestors.at(-1)`), each its id, its first line (200 characters at most) and its `properties` (as a record has them).
 
 A block an extension reads through its own connection (`outline get`, `children`, `blocks.query`) is the service's wire
 block, whose `properties` are `[{ "key", "value" }]`, one entry per occurrence.
