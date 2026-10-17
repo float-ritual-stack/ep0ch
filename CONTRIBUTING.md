@@ -39,8 +39,8 @@ Before a PR claims a change works:
      worktree (a second is refused, naming the running pid, commit, age and how to stop it; `--replace` stops the old
      run by its process group first); at most `EP0CH_BOX_SLOTS` (default 2) runs at once, by flock slots, and a run past the
      cap prints "waiting for a slot: N run(s) ahead, oldest M min" until one frees; each run is its own process group,
-     killed whole on exit, Ctrl-C, TERM, timeout and a dead ssh, then anything still tied to its run dir (environment,
-     command line or working folder, so a daemon that left the group too) is killed, and a survivor fails the run
+     killed whole on exit, Ctrl-C, TERM, timeout and a dead ssh, then anything still tied to its run dir (environment or
+     working folder, so a daemon that left the group too) is killed, and a survivor fails the run
      (exit 97, "LEAK"); before each run, processes of runs whose dir is gone are swept (and counted in the output).
    - **On boxd** (PIE-597) the script
      forks the golden box (the repo cloned, `bun install` done), checks out your commit (unpushed is fine: it goes

@@ -19,7 +19,7 @@ const sh = (cwd: string, ...argv: string[]) => {
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const until = async (what: string, ok: () => boolean, ms = 120_000) => {
   for (const end = Date.now() + ms; Date.now() < end;) { if (ok()) return; await Bun.sleep(100); }
-  throw new Error(`timed out waiting for ${what}`);
+  throw new Error(`timed out waiting for ${what}${"\n" + [...texts].map(t => t.err).join("\n")}`);
 };
 const lines = (file: string) => existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
 const pids = (file: string) => lines(file).map(Number);
@@ -27,6 +27,7 @@ const pids = (file: string) => lines(file).map(Number);
 let origin = "";
 const worktrees: string[] = [];
 const runs: ReturnType<typeof Bun.spawn>[] = [];
+const texts = new Set<{ err: string }>();
 /** The run dir a process of a run carries (its BOX_TEST_RUN_DIR), read while it lives. */
 const runDirOf = (pid: number) => readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").find(kv => kv.startsWith("BOX_TEST_RUN_DIR="))?.slice(17) ?? "";
 
@@ -51,6 +52,7 @@ function box(dir: string, tag: string, flags: string[] = [], env: Record<string,
   });
   runs.push(p);
   const text = { err: "" };
+  texts.add(text);
   (async () => { for await (const c of p.stderr as unknown as AsyncIterable<Uint8Array>) text.err += new TextDecoder().decode(c); })();
   (async () => { for await (const _ of p.stdout as unknown as AsyncIterable<Uint8Array>) { /* drained */ } })();
   return { p, text, started: () => lines(join(out, `${tag}.started`)).length > 0, daemons: () => pids(join(out, `${tag}.daemons`)), go: () => writeFileSync(join(out, `${tag}.go`), "") };
@@ -73,6 +75,7 @@ beforeAll(() => {
     'echo $$ >> "$FIX_OUT/$FIX_TAG.started"',
     `setsid sh -c 'echo $$ >> "$FIX_OUT/$FIX_TAG.daemons"; exec sleep 600' </dev/null >/dev/null 2>&1 &`,
     'while [ ! -e "$FIX_OUT/$FIX_TAG.go" ]; do sleep 0.2; done',
+    '[ -z "$FIX_FAIL" ] || exit 1',
     "",
   ].join("\n"));
   sh(seed, "git", "init", "-q", "-b", "main");
@@ -164,6 +167,19 @@ describe("scripts/box-test limits", () => {
     expect(r.text.err).toContain("passed EP0CH_BOX_MAX");
     await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 90_000);
     expect(existsSync(dir)).toBe(false);
+  }, 360_000);
+
+  test("a failing suite's exit code comes through, and a process that only names the run dir is left alone", async () => {
+    const r = box(worktree("wt-g"), "g1", [], { FIX_FAIL: "1" });
+    await until("the run to start", r.started);
+    await until("its daemon", () => r.daemons().length > 0);
+    // What `ssh` is to this machine when box-test runs on float-box itself: a process of the caller's with the dir in its command line.
+    const decoy = Bun.spawn(["sh", "-c", "exec sleep 300", `${runDirOf(r.daemons()[0]!)}/guard.sh`]);
+    r.go();
+    expect(await r.p.exited).toBe(1);
+    expect(r.text.err).not.toContain("LEAK");
+    expect(alive(decoy.pid)).toBe(true);
+    decoy.kill();
   }, 360_000);
 
   test("a sweep kills orphans of runs whose dir is gone, and says how many", async () => {

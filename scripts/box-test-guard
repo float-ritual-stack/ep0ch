@@ -7,7 +7,7 @@
 #   a cap on runs          BOX_SLOTS flock slots; a run past the cap waits and says so.
 #   nothing outlives it    the run is a process group of its own, killed whole on every way out (exit, INT, TERM, HUP,
 #                          the ssh that started it dying, the timeout), then anything still tied to the run dir
-#                          (its environment, command line or working folder) is killed too and a survivor is reported.
+#                          (its environment or working folder) is killed too and a survivor is reported.
 #   a sweep first          processes whose parent is init (or systemd) and whose run dir is gone are killed, and counted.
 #
 # Environment (all set by box-test): BOX_DIR the run dir, BOX_WT the worktree's key, BOX_WT_LABEL its path for messages,
@@ -29,16 +29,19 @@ now() { date +%s; }
 age() { local s=$(( $(now) - $1 )); if [ $s -ge 120 ]; then echo "$((s / 60)) min"; else echo "${s} s"; fi; }
 dir_re='(/tmp/ep0ch-box-[A-Za-z0-9_.-]+-[A-Za-z0-9]{8})([^A-Za-z0-9]|$)'
 
-# The run dir a process is tied to: its environment (BOX_TEST_RUN_DIR), command line or working folder; empty if none.
-# Bash builtins only for the first two, so the scan makes no processes of its own.
+# The run dir a process is tied to: its environment (BOX_TEST_RUN_DIR), its working folder and, unless $2 is "strict", its
+# command line; empty if none. A survivor check is strict: a command line that merely names the dir is not a process of the
+# run (the ssh that started this guard, when ssh is to this same machine, names it).
 run_dir_of() {
   local p=/proc/$1 kv all=
   [ -O "$p" ] || return 0
   while IFS= read -r -d '' kv; do
     case $kv in BOX_TEST_RUN_DIR=*) echo "${kv#BOX_TEST_RUN_DIR=}"; return 0;; esac
   done 2>/dev/null < "$p/environ"
-  while IFS= read -r -d '' kv; do all+="$kv "; done 2>/dev/null < "$p/cmdline"
-  [[ $all =~ $dir_re ]] && { echo "${BASH_REMATCH[1]}"; return 0; }
+  if [ "${2:-}" != strict ]; then
+    while IFS= read -r -d '' kv; do all+="$kv "; done 2>/dev/null < "$p/cmdline"
+    [[ $all =~ $dir_re ]] && { echo "${BASH_REMATCH[1]}"; return 0; }
+  fi
   all=$(readlink "$p/cwd" 2>/dev/null) || return 0
   [[ $all =~ $dir_re ]] && echo "${BASH_REMATCH[1]}"
   return 0
@@ -115,7 +118,7 @@ survivors() {
     [ "$pid" = $$ ] && continue
     [ "$pid" = "$BASHPID" ] && continue
     case $ancestors in *" $pid "*) continue;; esac
-    d=$(run_dir_of "$pid"); [ "$d" = "$dir" ] && out+=("$pid")
+    d=$(run_dir_of "$pid" strict); [ "$d" = "$dir" ] && out+=("$pid")
   done
   echo "${out[@]:-}"
 }
@@ -127,7 +130,7 @@ reap() {
   local left; left=$(survivors)
   if [ -n "${left// /}" ]; then
     for pid in $left; do kill -TERM "$pid" 2>/dev/null; done; sleep 1
-    for pid in $left; do [ "$(run_dir_of "$pid")" = "$dir" ] && kill -KILL "$pid" 2>/dev/null; done; sleep 0.5
+    for pid in $left; do [ "$(run_dir_of "$pid" strict)" = "$dir" ] && kill -KILL "$pid" 2>/dev/null; done; sleep 0.5
     left=$(survivors)
     if [ -n "${left// /}" ]; then
       say "LEAK: process(es) of this run survived their kill: $left"
