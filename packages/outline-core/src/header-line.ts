@@ -85,7 +85,7 @@ export function headerLine(text: string, literal: readonly LiteralRange[] = []):
 }
 
 /** A thematic break: `---`, `***` or `___` (three or more) alone on a line. */
-const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
+const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t\r]*$/;
 const LIST_LINE = /^[ \t]*[-*+][ \t]+/;
 const BARE_PROPERTY = new RegExp(String.raw`^(?:${PROPERTY_KEY_SOURCE})::`);
 /** A list item that carries properties (`- [a::b] - [c::d]`, `- re:: why`), as floatty wrote its front matter. */

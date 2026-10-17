@@ -149,6 +149,7 @@ describe("front matter ends at a rule or a list item that isn't a property line 
     expect(lines(`${head}\n---\n- #a - #b`)).toEqual([0]);
     expect(lines(`${head}\n[x::y]\n***\n#a`)).toEqual([0, 1]);
     expect(lines(`${head}\n---\n\n- #a - #b`)).toEqual([0]);
+    expect(lines(`${head}\r\n---\r\n- #a`)).toEqual([0]);
   });
   test("a list item that isn't a property line ends it; a bulleted property line stays", () => {
     expect(lines(`${head}\n- #a\nbody`)).toEqual([0]);
