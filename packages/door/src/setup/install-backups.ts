@@ -13,7 +13,9 @@ export function pruneInstallBackups(root: string, keep: number, say: (line: stri
     const folder = join(root, run);
     const outlines = new Map<string, string[]>();
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".sqlite")) continue;
+      // install writes <outline>.sqlite (and <outline>.schema-N.sqlite before a migration); anything else in the folder
+      // is someone's own file and stays.
+      if (!entry.isFile() || !/^[A-Za-z0-9][A-Za-z0-9._-]*?(?:\.schema-\d+)?\.sqlite$/.test(entry.name)) continue;
       const name = entry.name.replace(/(?:\.schema-\d+)?\.sqlite$/, "");
       outlines.set(name, [...(outlines.get(name) ?? []), entry.name]);
     }

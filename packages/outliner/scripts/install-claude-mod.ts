@@ -63,19 +63,21 @@ if(!settings||typeof settings!=='object'||Array.isArray(settings))throw Error(`$
 const OLD_SERVER='mcp__pi-outliner';
 const renameRule=(rule:string)=>rule===OLD_SERVER||rule.startsWith(`${OLD_SERVER}__`)?`mcp__ep0ch${rule.slice(OLD_SERVER.length)}`:rule;
 const renamePluginId=(id:string)=>id.startsWith('pi-outliner@')?`ep0ch@${id.slice('pi-outliner@'.length)}`:id;
+// Rename in place, dropping an entry only when the rename made it a copy of one already there; other duplicates stay.
+const renameList=(items:string[],rename:(s:string)=>string)=>items.flatMap(item=>{const to=rename(item);return to!==item&&items.includes(to)?[]:[to];});
 const renameModIn=(value:Record<string,any>)=>{
  const out={...value};
  for(const key of ['enabledPlugins','pluginConfigs','plugins']){
   const map=value[key];
   if(!map)continue;
-  if(Array.isArray(map)){out[key]=[...new Set(map.map(renamePluginId))];continue;}
+  if(Array.isArray(map)){out[key]=renameList(map,renamePluginId);continue;}
   out[key]=Object.fromEntries(Object.entries(map).filter(([id])=>renamePluginId(id)===id||!(renamePluginId(id) in map)).map(([id,payload])=>[renamePluginId(id),payload]));
  }
  if(value.permissions){
   out.permissions={...value.permissions};
   for(const key of ['allow','deny','ask']){
    const rules=value.permissions[key];
-   if(rules)out.permissions[key]=[...new Set(rules.map(renameRule))];
+   if(rules)out.permissions[key]=renameList(rules,renameRule);
   }
  }
  return out;
@@ -173,12 +175,13 @@ if(allowed.length){
 // These are launch commands, not Claude settings: report the exact file for the owner to fix.
 for(const root of [join(process.env.XDG_CONFIG_HOME??join(homedir(),'.config'),'systemd/user'),join(homedir(),'Library/LaunchAgents')]){
  const walk=async(dir:string):Promise<void>=>{
-  const entries=await readdir(dir,{withFileTypes:true}).catch((error:NodeJS.ErrnoException)=>{if(error.code==='ENOENT')return [];throw error;});
+  const entries=await readdir(dir,{withFileTypes:true}).catch((error:NodeJS.ErrnoException)=>{if(error.code!=='ENOENT')notes.push(`Couldn't list ${dir} to check for old tool names (${error.code}); skipped.`);return [];});
   for(const entry of entries){
    const path=join(dir,entry.name);
    if(entry.isDirectory()){await walk(path);continue;}
    if(!/\.(service|socket|timer|conf|plist)$/.test(entry.name))continue;
-   const text=await readFile(path,'utf8');
+   const text=await readFile(path,'utf8').catch(()=>null);
+   if(text===null){notes.push(`Couldn't read ${path} to check it for old tool names; skipped.`);continue;}
    if(/mcp__pi-outliner(?=__|[^a-zA-Z0-9_-]|$)/.test(text))
     notes.push(`Old tool names in ${path}: replace mcp__pi-outliner with mcp__ep0ch (including --allowedTools), then ${path.endsWith('.plist')?'reload this launchd plist':'run systemctl --user daemon-reload and restart the affected unit'}. Running Claude sessions need a restart.`);
   }
