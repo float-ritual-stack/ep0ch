@@ -1238,3 +1238,41 @@ test("source-line destinations preserve quoted paragraphs and stay inside callou
   const article = html.split('<article>')[1]!.split('</article>')[0]!.replace(/<span[^>]*><\/span>/g, '');
   expect(article).toMatch(/<blockquote>\s*<p>First passage<\/p>\s*<p>Second passage<\/p>\s*<\/blockquote>/);
 });
+
+// PIE-533 S2: the `{{ }}` of a page.
+test("a page carries the values its placeholders read, never the placeholders, and a value read through a locked note says hidden here", async () => {
+  const { store, get } = await setup();
+  const person = store.create("Evan Schultz [page::evan schultz] [firstName::evan] [nickname::ev]");
+  const secret = store.create("Gate codes [publish::never] [code::4471]");
+  const walk = store.create([
+    `Moth walk [publish::tour] [owner::sam] [target::https://example.test/walk] [person::[[evan schultz]]] [vault::${secret.id}] [shout::*loud*]`,
+    "Led by {{this.owner}}, on {{this.target}}; guide {{person.firstName}}.",
+    "The code is {{this.vault.code}}. Typo {{this.ownr}}. Shout {{this.shout}}.",
+  ].join("\n"));
+  void person; void walk;
+  const markdown = await (await get("/p/tour")).text();
+  expect(markdown).toContain("Led by sam, on <https://example.test/walk>; guide evan.");
+  expect(markdown).toContain("The code is *hidden here*.");
+  expect(markdown).not.toContain("4471");
+  expect(markdown).not.toContain("{{this.owner}}");
+  // A typo stays as typed (the page shows what the author wrote); the characters a value holds are text, never Markdown.
+  expect(markdown).toContain("{{this.ownr}}");
+  expect(markdown).toContain("Shout \\*loud\\*.");
+});
+
+test("a bare key from an ancestor the page may not show is not supplied, and an embedded note's values are read in its own Site", async () => {
+  const { store, get, publisher } = await setup();
+  const parent = store.create("Private plans [crew::secret crew]");
+  const mid = store.create("Open page [publish::public:open]", parent.id);
+  store.create("Crew: {{crew}}", mid.id);
+  const note = store.create("Embedded [owner::ada]\nOwner here: {{this.owner}}");
+  store.create(`Host [publish::public:host] [owner::bo]\n!((${note.id}))`);
+  // The tailnet page shows its ancestors' keys; the public page, whose parent is not public, does not.
+  expect(await (await get("/p/open")).text()).toContain("Crew: secret crew");
+  const open = await (await sharing(publisher)("/share/p/open")).text();
+  expect(open).not.toContain("secret crew");
+  expect(open).toContain("Crew:");
+  // An embed is a fresh Site: its `this` is the embedded note, not the host (the embed is public here by being shown).
+  const host = await (await get("/p/host")).text();
+  expect(host).toContain("> Owner here: ada");
+});

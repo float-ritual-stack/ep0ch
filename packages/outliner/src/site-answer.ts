@@ -177,6 +177,7 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
   world.thisId = here.id;
   const ancestors: { id: string; text: string }[] = [];
   let parentBlock: Block | undefined;
+  const parentHidden = !!here.parent && hidden.has(here.parent);
   for (let at = here.parent, depth = 0; at && depth < MAX_DEPTH; depth += 1) {
     const block = store.get(at);
     // Nothing above a note the reader may not see supplies a value: the walk stops there.
@@ -186,7 +187,7 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
     if (depth === 0) parentBlock = block;
     at = block.parentId;
   }
-  const scope: PathScope = { ...(line !== undefined ? { line } : {}), ancestors, ...(parentBlock ? { parent: () => world.record(parentBlock!) } : {}), world };
+  const scope: PathScope = { ...(line !== undefined ? { line } : {}), ancestors, ...(parentBlock ? { parent: () => world.record(parentBlock!) } : parentHidden ? { parent: () => { world.hiddenHits += 1; return undefined; } } : {}), world };
   return { site, scope, world, route, deps, blockId: target.id, revision: target.revision, text };
 }
 

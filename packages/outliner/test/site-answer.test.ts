@@ -618,3 +618,40 @@ describe("review findings: shapes that differ, budgets, dependencies the answer 
     expect(JSON.parse(sent[0]!).event.changes).toEqual([{ key: "clock", generation: 1 }]);
   });
 });
+
+describe("what a reader may not see (PIE-533 S2)", () => {
+  test("a value read through a note the reader may not see is left out whole, and says so", () => {
+    const { store } = scratch();
+    const { vent, person } = fixture(store);
+    const open = answerSite(store, { blockId: vent.id, paths: ["this.person.firstName", "this.owner"] });
+    expect(open.paths!.map(p => p.values)).toEqual([["evan"], ["evan"]]);
+    const shut = answerSite(store, { blockId: vent.id, hidden: [person.id], paths: ["this.person.firstName", "this.owner"] });
+    expect(shut.paths![0]).toMatchObject({ hidden: true, problem: { message: expect.stringContaining("isn't shown") } });
+    expect(shut.paths![0]!.values).toBeUndefined();
+    expect(shut.paths![0]!.from).toBeUndefined();
+    expect(shut.paths![1]!.values).toEqual(["evan"]);
+    expect(shut.problems).toBe(open.problems + 1);          // the hidden read joins the fixture's own typo
+  });
+
+  test("an ancestor the reader may not see supplies no bare key, nor any above it", () => {
+    const { store } = scratch();
+    const { vent, project } = fixture(store);
+    expect(values(store, vent.id, "project")).toEqual(["lego-night"]);
+    const shut = answerSite(store, { blockId: vent.id, hidden: [project.id], paths: ["project", "parent.project"] });
+    expect(shut.paths![0]!.problem).toBeDefined();
+    expect(shut.paths![1]).toMatchObject({ hidden: true });
+  });
+
+  test("a value says where it is written: the note, the property token's offset, line and text", () => {
+    const { store } = scratch();
+    const { vent, person } = fixture(store);
+    const own = answerSite(store, { blockId: vent.id, paths: ["this.owner", "this.person.firstName", "this.title"] });
+    const text = store.get(vent.id)!.text;
+    expect(own.paths![0]!.source).toEqual({ block: vent.id, start: text.indexOf("[owner::evan]"), line: 0, mark: "[owner::evan]" });
+    expect(own.paths![1]!.source).toMatchObject({ block: person.id, mark: "[firstName::evan]" });
+    expect(own.paths![2]!.source).toBeUndefined();
+    // The same through the note's own placeholders, and for a draft being typed.
+    const draft = answerSite(store, { blockId: vent.id, draft: { text: "Draft [owner::sam]\n{{this.owner}}" } });
+    expect(draft.values[0]).toMatchObject({ values: ["sam"], source: { block: vent.id, start: 6, line: 0, mark: "[owner::sam]" } });
+  });
+});

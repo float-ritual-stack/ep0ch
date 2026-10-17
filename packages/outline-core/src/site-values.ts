@@ -70,7 +70,7 @@ export const hasWords = (v: SiteValue | undefined): boolean => !!v && v.values !
  */
 export function substituteValues(
   text: string, values: readonly SiteValue[],
-  how: { problem?: (expression: string, value: SiteValue) => string; hidden?: (expression: string) => string; policy?: InterpolationPolicy } = {},
+  how: { words?: (words: string, value: SiteValue) => string; problem?: (expression: string, value: SiteValue) => string; hidden?: (expression: string) => string; policy?: InterpolationPolicy } = {},
 ): string {
   const pairs = pairValues(text, values, how.policy);
   let out = "", at = 0;
@@ -78,7 +78,7 @@ export function substituteValues(
     const v = pair.value;
     if (!v) continue;
     const raw = text.slice(pair.start, pair.end);
-    const words = v.hidden ? (how.hidden ? how.hidden(pair.expression) : "") : hasWords(v) ? valueWords(v) : how.problem ? how.problem(pair.expression, v) : raw;
+    const words = v.hidden ? (how.hidden ? how.hidden(pair.expression) : "") : hasWords(v) ? (how.words ? how.words(valueWords(v) || EMPTY_VALUE, v) : valueWords(v)) : how.problem ? how.problem(pair.expression, v) : raw;
     out += text.slice(at, pair.start) + words;
     at = pair.end;
   }
