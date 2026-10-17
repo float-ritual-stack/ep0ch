@@ -37,6 +37,7 @@ import { SHELL_IDLE_MS } from "./whereabouts";
 import { authorName, type Actor, type OutlineEvent } from "./socket";
 import { parseFieldKey, parseStyleValue, type FieldKey } from "@ep0ch/outline-core/style-cascade";
 import { tuningOf, UNSET, type TuneTarget } from "./look";
+import { prop } from "./props";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1077,7 +1078,7 @@ export class MessageList extends BbsList {
     list.slice(start, start + page).forEach((m, i) => {
       const n = start + i;
       this.ptr.row(lines.length, n, w);
-      const num = (m.props["work-id"] ?? String(n + 1)).padStart(7).slice(-7);
+      const num = (prop(m, "work-id") ?? String(n + 1)).padStart(7).slice(-7);
       const row = ` ${num}  ${pad(authorName(m.author), 17)} ${pad(subject(m), Math.max(10, w - 52))} ${bbsDate(m.updatedAt)}`;
       lines.push(n === this.sel ? selected() + pad(row, w) + RESET : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(authorName(m.author), 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
     });
@@ -1098,7 +1099,7 @@ export class MessageList extends BbsList {
     ctx.push(new MessageList(`thread: ${subject(m).slice(0, 30)}`, async () => (await readReplies(ctx.board, m.id, true)).children.map(c => c.block), "", false));
   }
   listRows(): ListRow[] | null {
-    return this.items?.map((m, i) => ({ n: i + 1, title: subject(m), id: m.id, author: m.author ?? null, updatedAt: m.updatedAt, ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) ?? null;
+    return this.items?.map((m, i) => ({ n: i + 1, title: subject(m), id: m.id, author: m.author ?? null, updatedAt: m.updatedAt, ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}) })) ?? null;
   }
   openRow(i: number, ctx: Ctx) { ctx.push(new MessageReader(this.items!, i)); }
 }
@@ -1175,15 +1176,15 @@ export class MessageReader implements Screen {
 
   /** The BBS message header, from the note the surface shows (the whole one once a list row is read). */
   private header(m: Msg, w: number, info: HeaderInfo): string[] {
-    const status = m.props.status ?? m.props.type ?? "public message";
+    const status = prop(m, "status") ?? prop(m, "type") ?? "public message";
     const replies = this.replies?.for === m.id ? this.replies.n : null;
     const c = info.comments;
     const comments = c?.total ? ` |08· ${c.open ? `|14■ ${c.open} open comment${c.open === 1 ? "" : "s"}` : `■ ${c.total} resolved`} |08(m)` : "";
     const props = info.properties ? ` |08· i ${info.properties} propert${info.properties === 1 ? "y" : "ies"}` : "";
     return [
-      paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${m.props["work-id"] ?? m.id.slice(0, 8)} |08(${this.index + 1} of ${this.list.length})`),
+      paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${prop(m, "work-id") ?? m.id.slice(0, 8)} |08(${this.index + 1} of ${this.list.length})`),
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
-      paint(`|09  To: |07${pad(m.props.to?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
+      paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
       paint(`|09From: |14${pad(authorName(m.author), 23)} |09Reply: |07${replies === null ? "…" : replies}`),
       // An edit armed here (e, src/arm.ts): the subject asks in the edit's colour until ⏎ opens it or a key lets it go.
       this.ctx?.armed?.()?.of === this.surface
@@ -1211,7 +1212,7 @@ export class MessageReader implements Screen {
   private countReplies(id: string, ctx: Ctx) {
     ctx.board.children(id).then(kids => {
       if (this.replies?.for !== id) return;
-      this.replies.n = kids.filter(k => k.props.type !== "annotation" && k.props.type !== "annotation-reply").length;
+      this.replies.n = kids.filter(k => prop(k, "type") !== "annotation" && prop(k, "type") !== "annotation-reply").length;
       ctx.redraw();
     }, () => {});
   }
@@ -1384,17 +1385,17 @@ export class Conferences extends BbsList {
     const lines = [center(paint("|09─=|11[ |15CONFERENCES |11]|09=─"), w), center(paint("|08top-level blocks on the board"), w), ""];
     (this.confs ?? []).forEach((c, i) => {
       this.ptr.row(lines.length, i, w);
-      const label = `${String(i + 1).padStart(3)}  ${pad(subject(c), w - 30)} ${fg(C.dark)}${c.props.type ?? ""}`;
+      const label = `${String(i + 1).padStart(3)}  ${pad(subject(c), w - 30)} ${fg(C.dark)}${prop(c, "type") ?? ""}`;
       lines.push(i === this.sel ? selected() + pad(label, w) + RESET : fg(C.lcyan) + label.slice(0, 5) + fg(C.grey) + label.slice(5) + RESET);
     });
     if (!this.confs) lines.push(paint("|08  dialing…"));
     lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ↑↓ select · ", ["|15ENTER|08 join", ENTER], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
   }
-  listRows(): ListRow[] | null { return this.confs?.map((c, i) => ({ n: i + 1, title: subject(c), id: c.id, type: c.props.type ?? null })) ?? null; }
+  listRows(): ListRow[] | null { return this.confs?.map((c, i) => ({ n: i + 1, title: subject(c), id: c.id, type: prop(c, "type") ?? null })) ?? null; }
   openRow(i: number, ctx: Ctx) {
     const c = this.confs![i]!;
-    ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), c.props.type ?? "", false));
+    ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), prop(c, "type") ?? "", false));
   }
 }
 

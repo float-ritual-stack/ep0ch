@@ -139,6 +139,9 @@ test("handler lines: one grammar, typed options, display options left out of the
   expect(wrong!.problems).toEqual(["--days is at most 7", "--mood doesn't match ^(calm|wild)$", "Leo isn't a sign stars:: knows"]);
   expect(wrong!.unknown).toEqual(["--colour"]);
   expect(missing!.problems).toEqual(["stars:: needs sign"]);
+  // Options read quotes as a shell's words do; an apostrophe in the argument is the person's own text, never an opening quote.
+  const [quoted] = handlerCalls(`stars:: Bob's --mood="wild"`, stars);
+  expect(quoted).toMatchObject({ argument: "Bob's", options: { mood: "wild" }, unknown: [] });
   expect(handlerCalls("stars:: leo", table([]))).toEqual([]);
 });
 

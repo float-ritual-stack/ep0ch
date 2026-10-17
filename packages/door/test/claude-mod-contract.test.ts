@@ -156,7 +156,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     const logs = listedOf(await outliner(listArgs(BUILD_LOG_QUERY, LIST_LIMIT, "id,title,timestamps")));
     const any = listedOf(await outliner(listArgs(ANY_ITEM_QUERY, 1, "id")));
     // The done item's needs::sysop is history, not a wait; the queued one waits.
-    expect(items.blocks.map((b: { properties: Record<string, string> }) => b.properties["work-id"]).sort()).toEqual(["GAR-1", "GAR-3"]);
+    expect(items.blocks.map((b: { properties: { key: string; value: string }[] }) => b.properties.find((p: { key: string; value: string }) => p.key === "work-id")?.value).sort()).toEqual(["GAR-1", "GAR-3"]);
     expect(items.complete).toBe(true);
     expect(logs.blocks[0].createdAt).toEqual(expect.any(String));
     expect(any.blocks).toHaveLength(1);
@@ -189,6 +189,24 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
       expect(threads.find(t => t.id === a)?.props).toMatchObject({ kind: ["patch-note"] });
       expect(threads.find(t => t.id === b)?.props).toMatchObject({ kind: ["patch-note"], tags: ["peas"] });
     } finally { board.close(); }
+  });
+
+  test("outline_site reads a note's values through the real CLI, and a typo comes back with its did-you-mean (PIE-533)", async () => {
+    const { checkedInput, OUTLINE_TOOLS } = await mod("outline-tools.ts");
+    const tool = OUTLINE_TOOLS.find((t: { name: string }) => t.name === "outline_site");
+    expect(tool).toBeDefined();
+    const { input } = checkedInput(tool, { tool: "mcp__pi-outliner__outline_site", agentId: "a1", ref: note, paths: ["this.type", "this.tpye"] });
+    const command = tool.command(input);
+    expect(command.operation).toBe("site");
+    const p = Bun.spawn(["bun", OUTLINER_CLI, "agent", command.operation, "--stdin", "--actor", "claude-code@test"], { stdin: new Blob([JSON.stringify(command.input)]), stdout: "pipe", stderr: "pipe", env: { ...clean, ...env } });
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    expect(code, err).toBe(0);
+    const answer = JSON.parse(out) as { paths: { values?: string[]; problem?: { didYouMean: string[]; example?: string }; route: string[] }[]; problems: number; deps: string[] };
+    expect(answer.paths[0]).toMatchObject({ values: ["errand"] });
+    expect(answer.paths[0]!.route.length).toBeGreaterThan(0);
+    expect(answer.paths[1]!.problem).toMatchObject({ didYouMean: ["type"], example: "{{this.type}}" });
+    expect(answer.problems).toBe(1);
+    expect(answer.deps).toContain(note);
   });
 
   test("a refusal reaches the mod plain, with its reason, even under FORCE_COLOR", async () => {

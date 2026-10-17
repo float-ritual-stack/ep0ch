@@ -173,11 +173,12 @@ export function compileRulePattern(raw: string): RegExp | { problem: string } {
 // ── built-in decorations: what a rule draws with no code ────────────────────────────────────────────────
 
 /**
- * Where a decoration goes: above or below what matched, in its place, or around it; or (ADR 0004 contract 6) `span`, on
+ * Where a decoration goes: before (`prepend`) or after (`append`) what matched, in its place, or around it (the
+ * Placement words every producer shares, PIE-533); or (ADR 0004 contract 6) `span`, on
  * the characters a text pattern hit (a tone on the words), and `margin`, a card beside them (in the reader's margin
  * column when there's room, folded under the passage when there isn't).
  */
-export const PLACES = ["above", "below", "replace", "around", "span", "margin"] as const;
+export const PLACES = ["prepend", "append", "replace", "around", "span", "margin"] as const;
 export type Place = (typeof PLACES)[number];
 
 /**
@@ -195,7 +196,8 @@ export type RuleTone = (typeof RULE_TONES)[number];
 
 /**
  * A built-in decoration, as a rule note's `rule-*` properties or a manifest rule's `decorate.use` write it. `label` is
- * a template (`{title}`, `{text}`, `{$1}`, `{level}`, any property of the block: `{status}`); `fields` the block's
+ * a `{{ }}` template (`{{this.title}}`, `{{match.text}}`, `{{match[1]}}` a pattern's capture, `{{match.level}}`, any
+ * property of the block: `{{this.status}}`); `fields` the block's
  * properties a card shows.
  */
 export interface BuiltInSpec {
@@ -209,11 +211,11 @@ export interface BuiltInSpec {
   style?: string;
 }
 
-/** The place a decoration goes when its rule doesn't say: a band and a divider take the line's place, a box goes around, the rest above. */
+/** The place a decoration goes when its rule doesn't say: a band and a divider take the line's place, a box goes around, the rest before it. */
 export function defaultPlace(use: BuiltInDecoration | null, hit: "block" | "construct" | "text"): Place {
-  if (use === "band" || use === "divider") return hit === "block" ? "above" : "replace";
+  if (use === "band" || use === "divider") return hit === "block" ? "prepend" : "replace";
   if (use === "box") return "around";
-  return "above";
+  return "prepend";
 }
 
 /** Reads a built-in spec from loose fields (a rule note's properties, a manifest's `decorate`), or why it can't be one. */
@@ -245,22 +247,6 @@ export function builtInSpec(fields: { use?: string; label?: string; tone?: strin
   const good = keys.filter(k => /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(k)).slice(0, 12);
   if (good.length) spec.fields = good;
   return { spec, problems };
-}
-
-/**
- * A template's words for one hit: `{title}` the block's title, `{text}` what matched (a heading's words, the line),
- * `{level}`, `{$0}`…`{$9}` a text pattern's captures, and any other `{key}` the block's property of that name
- * (several values joined with `, `). A name with nothing behind it is empty.
- */
-export function expandTemplate(template: string, values: { title: string; text: string; level?: number; captures?: readonly string[]; property: (key: string) => readonly string[] }): string {
-  return template.replace(/\{([A-Za-z$][A-Za-z0-9_.$-]{0,63})\}/g, (_, name: string) => {
-    if (name === "title") return values.title;
-    if (name === "text") return values.text;
-    if (name === "level") return values.level === undefined ? "" : String(values.level);
-    const capture = /^\$([0-9])$/.exec(name);
-    if (capture) return values.captures?.[Number(capture[1])] ?? "";
-    return values.property(name).join(", ");
-  });
 }
 
 // ── a rule note: the no-code tier ───────────────────────────────────────────────────────────────────────
@@ -364,8 +350,8 @@ const blockRef = (raw: string) => /^\(\(([0-9a-f-]{36})(?:\|[^)]*)?\)\)$/i.exec(
  *   reply is matched like a note), `[rule-view::((id))]`, `[rule-under::((id))]`,
  *   `[rule-text::!!(.+)!!]` (a pattern; `]` written `\x5d`), `[rule-kind::heading:1]`; at least one of match, view,
  *   text or kind;
- * - what it draws: `[rule-decorate::band]` (band, card, badge, text, box, divider), `[rule-place::replace]` (above,
- *   below, replace, around), `[rule-label::{title}]`, `[rule-tone::accent]`, `[rule-fields::attendees, when]`,
+ * - what it draws: `[rule-decorate::band]` (band, card, badge, text, box, divider), `[rule-place::replace]` (prepend,
+ *   append, replace, around), `[rule-label::{{this.title}}]`, `[rule-tone::accent]`, `[rule-fields::attendees, when]`,
  *   `[rule-pattern::stack]`, `[rule-align::center]`, `[rule-style::plot]` (a heading style by name, PIE-599: a band or
  *   divider draws with it, the pattern and align above over it).
  * - what it runs (PIE-786): `[rule-on::intake/prior-art]` (an extension's action, when a block starts matching),
@@ -462,6 +448,7 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
     let place: Place | undefined;
     if (placeRaw) {
       if ((PLACES as readonly string[]).includes(placeRaw)) place = placeRaw as Place;
+      else if (placeRaw === "above" || placeRaw === "below") problems.push(`${where}: rule-place ${placeRaw} is now ${placeRaw === "above" ? "prepend" : "append"} (the Placement words are ${PLACES.join(", ")}); the brace sweep rewrites old rule notes: outliner sweep <database.sqlite> --apply`);
       else problems.push(`${where}: rule-place ${JSON.stringify(placeRaw)} is one of ${PLACES.join(", ")}`);
     }
     rules.push({ name, block: b.id, match, ...(place ? { place } : {}), ...(decorate ? { decorate } : {}), ...(runs ? { on } : {}) });

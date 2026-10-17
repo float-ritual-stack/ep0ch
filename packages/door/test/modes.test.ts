@@ -90,7 +90,7 @@ describe("the stack", () => {
 });
 
 describe("the reader's four modes, with no service", () => {
-  const note = (text: string, revision = 3): Msg => ({ id: "0e1f2a3b-1111-4222-8333-444455556666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision, props: text.includes("[stage::queued]") ? { stage: "queued" } : {} } as Msg);
+  const note = (text: string, revision = 3): Msg => ({ id: "0e1f2a3b-1111-4222-8333-444455556666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision, properties: text.includes("[stage::queued]") ? [{ key: "stage", value: "queued" }] : [] } as Msg);
   const host = (): SurfaceHost => ({ ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
   const TEXT = "Seed potatoes [stage::queued]\nChit them in the shed.\n\n- [ ] buy the seed\n- [ ] find the trays";
 

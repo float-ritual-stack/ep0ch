@@ -23,6 +23,7 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 import type { RowPress } from "../scroll";
 import { OutlineStore } from "../outline-store";
+import { prop } from "../props";
 
 export const WHAT_CHANGED_KIND_NAME = "what-changed";
 const SEEN_FILE = "changes-seen.json";
@@ -186,8 +187,8 @@ export class WhatChanged extends OutlineStore {
       // used to stay as "(gone)", a stack of them (PIE-891). A trashed one is still read, and says so.
       // `read` answers null only for a note the service says it has not found: any other refusal reads as unreadable.
       try { const m = await board.read(r.blockId); if (!m) { this.rows.delete(r.blockId); return; } r.title = subject(m); delete r.retitle;
-        if (m.props["work-id"]) r.workId = m.props["work-id"]; else delete r.workId;
-        if (m.props.page) r.page = m.props.page; else delete r.page; } catch { r.title = "(unreadable)"; }
+        if (prop(m, "work-id")) r.workId = prop(m, "work-id"); else delete r.workId;
+        if (prop(m, "page")) r.page = prop(m, "page"); else delete r.page; } catch { r.title = "(unreadable)"; }
     }));
     if (todo.length) this.notify();
   }

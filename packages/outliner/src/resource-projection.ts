@@ -6,8 +6,8 @@ import {
   type ContextKeyMatcher,
   type ContextResolution,
   type ContextResolutionStep,
-} from "./context-resolution";
-import { parsePropertyRecords } from "./properties";
+} from "@ep0ch/outline-core/scope-walk";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import {
   providerKeyOccurrences,
   resourceDirectiveOccurrences,

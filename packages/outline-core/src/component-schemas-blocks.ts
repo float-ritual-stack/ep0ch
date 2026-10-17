@@ -34,7 +34,7 @@ function linksComponent(name: (typeof LINK_GROUPS)[number]): ComponentSchema {
     id: name, title: `${w.title} (::${name})`,
     intro: `${w.intro}\n\nOne line, \`::${name} jira\`, filters by the words after the name; \`::${name} ((id))\` names whose; a block to its \`::\` takes \`of:\`, \`filter:\`, \`title:\`${name === "links" ? ", `groups:`, `query:` and `preview:` lines, or the same keys in braces on its first line (`::links{query=\"type=outbox-item status=waiting\" preview=right}`)" : ""} lines. The service answers the links and the reader lays them out, so the library has no outline to ask for the rows and draws the frame.`,
     where: `a \`::${name}\` line or block in a note; \`of:\`, \`filter:\` and \`title:\` lines inside a block`,
-    props, source: { use: `::${name}\n---\n{yaml}\n---\n::` }, example: { title: w.title },
+    props, source: { use: `::${name}\n---\n{{props.yaml}}\n---\n::` }, example: { title: w.title },
     sweep: ["filter", "title", ...(name === "links" ? ["groups", "preview"] : [])], grids: [], space: ["filter", "title"],
   };
 }
@@ -57,7 +57,7 @@ const BOX: ComponentSchema = {
     { key: "list.zebra", where: "line", type: "enum", token: "list.zebra={value}", meaning: "every other list item on a quiet tint", default: "false", values: enumOf({ false: "no tint", true: "every other item tinted" }) },
     { key: "list.divider", where: "line", type: "enum", token: "list.divider={value}", meaning: "a line between a list's items", default: "none", values: enumOf({ none: "no line", line: "a ruled line", dots: "a line of dots" }) },
   ],
-  source: { use: "::box{margin.x={margin.x} pad.x={pad.x} margin.y={margin.y} pad.y={pad.y} list.gap={list.gap} list.zebra={list.zebra} list.divider={list.divider}}\n- Water the beds before nine\n- Cover the tomatoes\n- Check the traps\n::" },
+  source: { use: "::box{margin.x={{props.margin.x}} pad.x={{props.pad.x}} margin.y={{props.margin.y}} pad.y={{props.pad.y}} list.gap={{props.list.gap}} list.zebra={{props.list.zebra}} list.divider={{props.list.divider}}}\n- Water the beds before nine\n- Cover the tomatoes\n- Check the traps\n::" },
   example: { "list.gap": "1" },
   sweep: ["margin.x", "pad.x", "margin.y", "pad.y", "list.gap", "list.zebra", "list.divider"],
   grids: [["list.gap", "list.divider"]],
@@ -67,7 +67,7 @@ const BOX: ComponentSchema = {
 // ── pictures ──────────────────────────────────────────────────────────────────
 
 const PIC = "[img::shots/moth.png]";
-const line = (key: string, type: PropSchema["type"], meaning: string, extra: Partial<PropSchema> = {}): PropSchema => ({ key, where: "line", type, meaning, ...extra, use: `${PIC} [${key}::{${key}}]` });
+const line = (key: string, type: PropSchema["type"], meaning: string, extra: Partial<PropSchema> = {}): PropSchema => ({ key, where: "line", type, meaning, ...extra, use: `${PIC} [${key}::{{props.${key}}}]` });
 
 const IMAGE: ComponentSchema = {
   id: "image",
@@ -90,11 +90,11 @@ const HERO: ComponentSchema = {
   intro: "A note's header: its picture with `[layout::hero]`, drawn above the title, behind the sticky header as the note scrolls (the first image of a note that has none marked, or one that is the note's first block). `[fit::cover]` crops it to fill, `contain` shows it whole, and `[hero-focus::x,y]` keeps a point of it in view.",
   where: "an image line with `[layout::hero]` in the note's first lines",
   props: [
-    { key: "layout", where: "line", type: "enum", meaning: "marks the picture as the note's header", values: enumOf({ hero: "the note's header image" }), use: `${PIC} [layout::{layout}]` },
-    { key: "fit", where: "line", type: "enum", meaning: "how it fills the header", default: "cover", values: enumOf({ cover: "crop it to fill the header", contain: "show it whole" }), use: `${PIC} [layout::hero] [fit::{fit}]` },
-    { key: "hero-focus", where: "line", type: "text", meaning: "the point the crop and the backdrop keep in view: x,y as fractions or percents across and down (the middle when left out)", samples: ["0.5,0.5", "0.2,0.3", "80%,20%"], use: `${PIC} [layout::hero] [hero-focus::{hero-focus}]` },
-    { key: "height", where: "line", type: "int", meaning: "the header's height in rows", min: 4, max: 40, samples: ["6", "10", "16"], use: `${PIC} [layout::hero] [height::{height}]` },
-    { key: "dim", where: "line", type: "number", meaning: "how far to darken it, 0 (none) to 1 (black)", samples: ["0", "0.3", "0.6"], use: `${PIC} [layout::hero] [dim::{dim}]` },
+    { key: "layout", where: "line", type: "enum", meaning: "marks the picture as the note's header", values: enumOf({ hero: "the note's header image" }), use: `${PIC} [layout::{{props.layout}}]` },
+    { key: "fit", where: "line", type: "enum", meaning: "how it fills the header", default: "cover", values: enumOf({ cover: "crop it to fill the header", contain: "show it whole" }), use: `${PIC} [layout::hero] [fit::{{props.fit}}]` },
+    { key: "hero-focus", where: "line", type: "text", meaning: "the point the crop and the backdrop keep in view: x,y as fractions or percents across and down (the middle when left out)", samples: ["0.5,0.5", "0.2,0.3", "80%,20%"], use: `${PIC} [layout::hero] [hero-focus::{{props.hero-focus}}]` },
+    { key: "height", where: "line", type: "int", meaning: "the header's height in rows", min: 4, max: 40, samples: ["6", "10", "16"], use: `${PIC} [layout::hero] [height::{{props.height}}]` },
+    { key: "dim", where: "line", type: "number", meaning: "how far to darken it, 0 (none) to 1 (black)", samples: ["0", "0.3", "0.6"], use: `${PIC} [layout::hero] [dim::{{props.dim}}]` },
   ],
   source: { use: `${PIC} [layout::hero]` }, example: {}, sweep: ["fit", "hero-focus", "height", "dim"], grids: [], space: ["fit", "hero-focus"],
 };
@@ -106,10 +106,10 @@ const ARTIFACT: ComponentSchema = {
   intro: "A file claude.ai would run, in a note (PIE-793): a line that is only `[artifact::path]` (or `artifact:: path`) naming a React component (`.jsx`, `.tsx`), an HTML page, an SVG or a mermaid diagram. A relative path is the outline's own folder (`artifacts/` there, say). The web pages run it inline in a sandboxed frame; the door draws a card that opens that page (`artifact.open`). The path here is illustrative, so the library draws the card a missing file gets.",
   where: "a line of a note: `[artifact::path]` and the `[height::…]`, `[size::…]`… beside it on the same line",
   props: [
-    { key: "height", where: "line", type: "int", meaning: "its frame's height on the web page, in rows", min: 1, max: 80, samples: ["16", "24", "40"], use: `${ART} [height::{height}]` },
-    { key: "size", where: "line", type: "text", meaning: "its frame's width: columns, a percentage of the page, or `full`", samples: ["60%", "full"], use: `${ART} [size::{size}]` },
-    { key: "align", where: "line", type: "enum", meaning: "where its frame sits across the page", default: "left", values: enumOf({ left: "at the left", center: "in the middle", right: "at the right" }), use: `${ART} [align::{align}]` },
-    { key: "alt", where: "line", type: "text", meaning: "its title, over an HTML file's own <title> and its file's name", samples: ["Pulse pad"], use: `${ART} [alt::{alt}]` },
+    { key: "height", where: "line", type: "int", meaning: "its frame's height on the web page, in rows", min: 1, max: 80, samples: ["16", "24", "40"], use: `${ART} [height::{{props.height}}]` },
+    { key: "size", where: "line", type: "text", meaning: "its frame's width: columns, a percentage of the page, or `full`", samples: ["60%", "full"], use: `${ART} [size::{{props.size}}]` },
+    { key: "align", where: "line", type: "enum", meaning: "where its frame sits across the page", default: "left", values: enumOf({ left: "at the left", center: "in the middle", right: "at the right" }), use: `${ART} [align::{{props.align}}]` },
+    { key: "alt", where: "line", type: "text", meaning: "its title, over an HTML file's own <title> and its file's name", samples: ["Pulse pad"], use: `${ART} [alt::{{props.alt}}]` },
   ],
   source: { use: ART }, example: {}, sweep: ["height", "alt"], grids: [], space: ["height"],
 };
@@ -133,7 +133,7 @@ const EMBED: ComponentSchema = {
       { value: "[[Moth Garden]]", meaning: "a page, by its name" },
     ],
   }],
-  source: { use: "See {form} for the plan." }, example: { form: `((${ID}|the beds))` }, sweep: ["form"], grids: [], space: ["form"],
+  source: { use: "See {{props.form}} for the plan." }, example: { form: `((${ID}|the beds))` }, sweep: ["form"], grids: [], space: ["form"],
 };
 
 const LANGS = ["ts", "sh", "json", "yaml", "sql", "diff", "md", "text"];
@@ -143,7 +143,7 @@ const FENCE: ComponentSchema = {
   intro: "Fenced code: three backticks (or more, when the code holds three) and a language, to a matching fence. It is literal: properties, references and components inside are the code's text, never read as the note's. The language names the colouring; one the reader doesn't know is drawn plain.",
   where: "a fenced block in a note; the language after the opening backticks",
   props: [{ key: "lang", where: "line", type: "enum", token: "```{value}", meaning: "the language after the opening fence", default: "text", values: LANGS.map(l => ({ value: l, meaning: l === "text" ? "plain, no colouring" : `${l} code` })) }],
-  source: { use: "```{lang}\nmoths = 3  # [not::a property]\n```" }, example: { lang: "sh" }, sweep: ["lang"], grids: [], space: ["lang"],
+  source: { use: "```{{props.lang}}\nmoths = 3  # [not::a property]\n```" }, example: { lang: "sh" }, sweep: ["lang"], grids: [], space: ["lang"],
 };
 
 const TABLE: ComponentSchema = {
@@ -152,8 +152,34 @@ const TABLE: ComponentSchema = {
   intro: "A table in Blockdown is Markdown's: a header row, a delimiter row, then rows, cells between `|`s. The colons in the delimiter row align a column. (A figure's `::graph-table` is the table that can be live and sorted.)",
   where: "lines of a note: a header row, a delimiter row of dashes, then the rows",
   props: [{ key: "align", where: "line", type: "enum", token: "| {value} |", meaning: "the delimiter cell of the second column: how its cells align", default: "---", values: enumOf({ "---": "the reader's default (left)", ":---": "left", "---:": "right", ":---:": "centred" }) }],
-  source: { use: "| item | cost |\n| --- | {align} |\n| bolts | 12 |\n| boards | 140 |" }, example: { align: "---:" }, sweep: ["align"], grids: [], space: ["align"],
+  source: { use: "| item | cost |\n| --- | {{props.align}} |\n| bolts | 12 |\n| boards | 140 |" }, example: { align: "---:" }, sweep: ["align"], grids: [], space: ["align"],
 };
 
-/** The links components, the box, pictures, references, fences and tables. */
-export const BLOCK_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [...LINK_GROUPS.map(linksComponent), BOX, IMAGE, HERO, ARTIFACT, EMBED, FENCE, TABLE];
+// ── the components that read their note (S3) ──────────────────────────────────
+
+const FIELDS: ComponentSchema = {
+  id: "fields",
+  title: "Fields (::fields)",
+  intro: "Every place a note writes a key, listed: one row per occurrence of `connectTo` (a `[connectTo::…]` chip in a line, a `connectTo:: …` line), each row opening its own line with the line lit, found again by the text it was written as, so it still works after edits above it. A row appears as soon as a line is saved. A row's `¶` anchors its line (`fields.anchor`), so `((note^anchor))` links to it for good; drawing the component never writes. The service answers it (`site.answer`) and every reader draws the answer.",
+  where: "a `::fields{key=connectTo}` line in a note, alone or closed by `::`",
+  props: [
+    { key: "key", where: "yaml", type: "text", meaning: "the property to list, case-insensitive (`connectTo`, `storyTime`)", samples: ["connectTo", "storyTime", "decision"] },
+    { key: "of", where: "yaml", type: "ref", meaning: "whose fields: a ((block)) or a block id (the note it is written in when left out)" },
+    { key: "title", where: "yaml", type: "text", meaning: "a title over the list (the key when left out)", samples: ["Connections", "Said so far"] },
+  ],
+  source: { use: "::fields{key={{props.key}}}" }, example: { key: "connectTo" },
+  sweep: ["key"], grids: [], space: ["key"],
+};
+
+const IF: ComponentSchema = {
+  id: "if",
+  title: "Only when (::if)",
+  intro: "Its lines are drawn only while the note it sits in matches a query (the saved views' grammar: `status=active`, `owner={{this.owner}}`, `NOT type=template`). Otherwise they are not drawn at all. `{{ }}` operands in the query are bound from the note, never pasted into it. A query the service can't read hides the body and says why. Like every component, it closes with `::`, so its body holds Blockdown but no other component.",
+  where: "a `::if{where=\"status=active\"}` line, the lines to show, and a closing `::`",
+  props: [{ key: "where", where: "yaml", type: "query", meaning: "the query the note must match to draw the body", samples: ["status=active", "owner={{this.owner}}", "NOT type=template"] }],
+  source: { use: "::if{where=\"{{props.where}}\"}\nShown only while the note matches.\n::" }, example: { where: "status=active" },
+  sweep: ["where"], grids: [], space: ["where"],
+};
+
+/** The links components, the box, pictures, references, fences and tables, and the two that read their note's Site. */
+export const BLOCK_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [...LINK_GROUPS.map(linksComponent), BOX, IMAGE, HERO, ARTIFACT, EMBED, FENCE, TABLE, FIELDS, IF];

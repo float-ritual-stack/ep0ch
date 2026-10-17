@@ -1,5 +1,5 @@
 import {diffLines} from "diff";
-import {parsePropertyRecords} from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 
 export interface EditHunk { start: number; end: number; text: string }
 export interface EditMerge {

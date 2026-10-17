@@ -21,6 +21,7 @@ import { remoteWrite } from "../src/app";
 import { canonicalLocalMachineName, type NotesBoard } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
 import { outliner, ScratchHost, scratchDir } from "./scratch";
+import { prop } from "../src/props";
 
 // A persona is read from the environment given, else ~/.config/ep0ch/mcp.env under its HOME (XDG_CONFIG_HOME first). A call with
 // an environment of its own would otherwise fall through to the person's real home, and a persona of theirs would leak into
@@ -152,7 +153,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     do { log = await board.get(started.json.written[0]); if (!log!.text.includes("· working")) break; await Bun.sleep(20); } while (Date.now() < end);
     expect(log!.text).toContain("· done");
     expect((await board.get(target!.id))!.text).toBe(target!.text);
-    const proposal = (await board.children(target!.id)).find(n => n.props.type === "draft-proposal");
+    const proposal = (await board.children(target!.id)).find(n => prop(n, "type") === "draft-proposal");
     expect(proposal!.text).toContain("Broad beans");
     expect(String(proposal!.author)).toContain("script:seed-suggestion");
   });
@@ -782,7 +783,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     try {
       const landed = await pull();
       expect(landed.settled.map(s => s.state)).toEqual(["refused", "refused"]);
-      for (const id of pending) expect((await attic.get(id))!.props["proposal-status"]).toBe("open");
+      for (const id of pending) expect(prop((await attic.get(id))!, "proposal-status")).toBe("open");
       expect((await pull()).settled).toEqual([]);
     } finally { await attic.configureMcpAccess("full"); follow("attic-notes"); }
   }, 60_000);

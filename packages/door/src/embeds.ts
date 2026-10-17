@@ -14,7 +14,7 @@ import { anchorsOfText, nearestAnchor } from "@ep0ch/outline-core/reference-warn
 import type { Msg } from "./board";
 import { subject } from "./board";
 import type { DocEnv } from "./doc";
-import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
+import { printable, summarySegments, viewSummaryKeys, type Source, prop } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, shortId, type LinkTarget } from "./refs";
 import type { ChecklistStep, ProposalsBeside, SocketBoard, TransclusionNode } from "./socket";
 import { BOLD, C, ellipsize, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
@@ -220,13 +220,13 @@ const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) =>
  * An agent's proposal still waiting (PIE-501): open (not applied or dismissed), and not in the Trash
  * (dismissing one trashes it). `A`, `X` and its `[apply]` `[dismiss]` controls act on it.
  */
-export const isOpenProposal = (m: Msg) => m.props.type === "draft-proposal" && m.props["proposal-status"] === "open" && !m.deleted;
+export const isOpenProposal = (m: Msg) => prop(m, "type") === "draft-proposal" && prop(m, "proposal-status") === "open" && !m.deleted;
 
 /**
  * Whether "apply anyway" can place it: the service marks one whose passage was already gone when it was
  * proposed `[proposal-applies::no]` (PIE-510), and only dismiss is offered.
  */
-export const proposalApplies = (m: Msg) => m.props["proposal-applies"] !== "no";
+export const proposalApplies = (m: Msg) => prop(m, "proposal-applies") !== "no";
 
 /** Why `A` is refused on a proposal that can't be applied: said by the action, and by the hint instead of the key. */
 export const NOT_APPLICABLE = "the passage it changes was already gone when it was proposed, so it can't be applied; dismiss it (X) and edit the note by hand";
@@ -261,7 +261,7 @@ function heading(id: string, fragment: string | undefined, text: string, w: numb
  * a view. Only a note typed a virtual branch is asked; null for any other, or one the service says isn't a view.
  */
 export function viewResults(m: Msg, w: number, src: Source | null | undefined, sink?: LinkTarget[]): string[] | null {
-  if ((m.props.type ?? "").toLowerCase() !== "virtual-branch") return null;
+  if ((prop(m, "type") ?? "").toLowerCase() !== "virtual-branch") return null;
   const st = embedState(m.id, undefined, src);
   if (st.kind === "loading") return [shade(fg(C.dark) + "≡ reading the view's results…" + RESET, w)];
   if (st.kind !== "node" || st.node.kind !== "view") return null;

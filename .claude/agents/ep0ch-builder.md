@@ -100,7 +100,7 @@ found" with what was checked.
   README or extension docs, AGENTS.md when a rule changed, the skills under `packages/*/skills` and
   `packages/outliner/pi-extension/skills` that describe the behaviour, and the CHANGELOG.
 - **A user-visible feature gets a kitchen-sink section** (`packages/door/src/showcase/`) with its test in
-  `packages/door/test/showcase.test.ts`, or the PR says why it can't be shown there.
+  `packages/door/test/showcase/`, or the PR says why it can't be shown there.
 - **Validated by driving the app yourself:** a real pane in your own tmux for the door (the recipe is in
   ep0ch-core), a private Herdr session for Tree and Detail, headless Chromium for the web, scratch outlines only.
   Look at the snapshots that changed. What truly needs the person's hands (their keyboard, terminal, Mac or

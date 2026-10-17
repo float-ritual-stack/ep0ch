@@ -6,7 +6,7 @@ import type { ReaderPosition } from "./reader-position";
 // (`blockTarget`), a comment or reply (`commentTarget`), or a new card or child note (`cardTarget`). Hosts
 // (the reader, the board's composer, the comment session) call `key` and `leave`; the actions the keys run
 // call `submit`, `close` and `replace`. Every rule about an agent and a draft is `agentRefusal`, here.
-import { propertyListOf, type PropertyList } from "./props";
+import { propertyListOf, type PropertyList, prop } from "./props";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -901,7 +901,7 @@ export function commentEditTarget(o: {
       if (!now) { d.note = `the ${what} is gone from the outline`; return; }
       mark = now;
       s.settled();
-      d.rebase({ id: now.id, text: now.body, revision: now.revision, props: {}, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null });
+      d.rebase({ id: now.id, text: now.body, revision: now.revision, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null });
       d.note = `loaded its words at revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
     },
   };
@@ -949,7 +949,7 @@ export function cardTarget(o:
 export function noteReplyTarget(parent: Msg, board: Pick<SocketBoard, "newNote">): DraftTarget {
   const target = cardTarget({ kind: "child", parent, async create(text, by) {
     const lines = text.split("\n");
-    lines.splice(1, 0, `[replyTo::${parent.id}]${parent.props.thread ? ` [thread::${parent.props.thread}]` : ""}`);
+    lines.splice(1, 0, `[replyTo::${parent.id}]${prop(parent, "thread") ? ` [thread::${prop(parent, "thread")}]` : ""}`);
     const { note } = await board.newNote(lines.join("\n"), parent.id, by, true);
     return note;
   } });

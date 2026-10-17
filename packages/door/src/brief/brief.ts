@@ -18,6 +18,7 @@ import { ch, type Key } from "../term";
 import { ReaderPane, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import { tileKind, type KindHost, type TileKind, type TileKindName } from "../desk/tile-kinds";
+import { prop } from "../props";
 
 export const BRIEF_TYPE = "daily-brief";
 /** How many briefs the door asks for: years of mornings. */
@@ -25,7 +26,7 @@ const BRIEF_LIMIT = 1000;
 
 /** A brief's day: its `brief-date` (YYYY-MM-DD), or the local day it was created when it has none. */
 export function briefDate(m: Msg): string {
-  const d = /^\d{4}-\d{2}-\d{2}/.exec(m.props["brief-date"]?.trim() ?? "")?.[0];
+  const d = /^\d{4}-\d{2}-\d{2}/.exec(prop(m, "brief-date")?.trim() ?? "")?.[0];
   if (d) return d;
   const c = new Date(m.createdAt);
   return `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}-${String(c.getDate()).padStart(2, "0")}`;

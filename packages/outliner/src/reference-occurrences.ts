@@ -3,7 +3,7 @@ import { codeHides, protectedCodeRanges } from "@ep0ch/outline-core/code-ranges"
 import { pageAddressReferences, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
 import { propertyValueLinks } from "@ep0ch/outline-core/property-grammar";
 import { isResourcePropertyKey } from "./resource-references";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { PropertyRecord } from "./types";
 import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { ticketKeyReferences, type TicketPrefixes } from "./work-ids";

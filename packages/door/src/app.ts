@@ -13,6 +13,7 @@ import { stopCompletion, useCompletion } from "./surface/completer";
 import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
+import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { printable } from "./text";
@@ -971,6 +972,7 @@ export class App implements Ctx {
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
     { set: BAR_ACTIONS, takes: "none", on: () => ({ on: this.barOn }) },
     // A tile the screen shown doesn't have but the drawer does (tile=, PIE-498): the drawer's desk answers it.

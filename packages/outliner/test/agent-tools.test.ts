@@ -52,6 +52,27 @@ async function setup() {
 
 const LONG_NOTE = "Seed swap plan [page::Seed Swap] [kind::plan]\n\n## Beans\n\nBorlotti and runner beans. ^beans\n\n## Squash\n\nButternut only.";
 
+test("read carries what a note's {{ }} read as (site), bounded to a note that holds one; text stays as written (PIE-533 S2)", async () => {
+  const { store, agent } = await setup();
+  const note = store.create("Vent rail [owner::sam]\nOwner {{this.owner}}, typo {{this.ownr}}.");
+  const read = await agent("read", { ref: `((${note.id}))` });
+  expect(read.json.text).toContain("{{this.owner}}");
+  expect(read.json.site.values.map((v: any) => [v.expression, v.values ?? null])).toEqual([["this.owner", ["sam"]], ["this.ownr", null]]);
+  expect(read.json.site.values[1].problem.didYouMean).toContain("owner");
+  expect(read.json.site.problems).toBe(1);
+  expect(read.json.site.route.length).toBeGreaterThan(0);
+  const plain = store.create("Nothing to read");
+  expect((await agent("read", { ref: `((${plain.id}))` })).json.site).toBeUndefined();
+});
+
+test("read keeps a repeated key and a list as values, and a property further down as a field", async () => {
+  const { store, agent } = await setup();
+  const note = store.create("Seed swap [tags::beans] [tags::[squash, leeks]] [note::a, b]\n\nBring them [due::friday].");
+  const read = await agent("read", { ref: `((${note.id}))` });
+  expect(read.json.properties).toEqual([{ key: "tags", values: ["beans", "squash", "leeks"] }, { key: "note", values: ["a, b"] }]);
+  expect(read.json.fields.map((f: any) => [f.key, f.value, f.scope])).toEqual([["due", "friday", "inline"]]);
+});
+
 test("read gives the full text, properties, revision and bounded children with a completeness flag", async () => {
   const { store, agent } = await setup();
   const note = store.create(LONG_NOTE);
@@ -63,7 +84,9 @@ test("read gives the full text, properties, revision and bounded children with a
   expect(shallow.exitCode).toBe(0);
   expect(shallow.json.text).toBe(LONG_NOTE); // never the title alone
   expect(shallow.json.revision).toBe(note.revision);
-  expect(shallow.json.properties).toMatchObject({ page: "Seed Swap", kind: "plan" });
+  // The record's shape (as `find --json` gives it): each key once with its values, never a key → value map.
+  expect(shallow.json.properties).toEqual([{ key: "page", values: ["Seed Swap"] }, { key: "kind", values: ["plan"] }]);
+  expect(shallow.json.fields).toEqual([]);
   expect(shallow.json.children.map((c: any) => c.text)).toEqual(["Bring labels", "Tables from the hall"]);
   expect(shallow.json.children[0].more).toBe(true);
   expect(shallow.json.complete).toBe(false);

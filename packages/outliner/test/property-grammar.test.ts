@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parsePropertyRecords } from "../src/properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import {
   isLinkValue,
   isWritablePropertyValue,

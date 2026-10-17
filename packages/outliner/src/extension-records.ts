@@ -1,4 +1,5 @@
-import { parsePropertyRecords } from "./properties";
+import { recordProperties, type BlockRecord } from "@ep0ch/outline-core/block-record";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { isPropertyKey, replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { sanitizedTextParts } from "./terminal";
 
@@ -80,8 +81,8 @@ export function isExtensionActor(actorId: string | undefined | null): boolean {
  * A call's `context.ancestors`: every ancestor of the block, the outline's top first and the block's parent last,
  * each its id and its first line (200 characters at most).
  */
-export function contextAncestors(ancestors: readonly { readonly id: string; readonly text: string }[]): { id: string; title: string }[] {
-  return ancestors.map((ancestor) => ({ id: ancestor.id, title: ancestor.text.split("\n", 1)[0]!.trim().slice(0, 200) }));
+export function contextAncestors(ancestors: readonly { readonly id: string; readonly text: string; readonly properties?: readonly { key: string; value: string }[] }[]): { id: string; title: string; properties: BlockRecord["properties"] }[] {
+  return ancestors.map((ancestor) => ({ id: ancestor.id, title: ancestor.text.split("\n", 1)[0]!.trim().slice(0, 200), properties: recordProperties(ancestor.properties ?? []) }));
 }
 
 export function cleanExtensionText(text: string, lines = false): string {

@@ -18,10 +18,16 @@ export function fileTouchesOff(option: unknown, environment: string | undefined)
   return off(option) || off(environment)
 }
 
-/** The `[file-touches::<glob>]` values on the Recent files page's text: the areas whose touches are recorded. */
-export function fileTouchGlobsOf(pageText: string): string[] {
-  const prose = pageText.replace(/^(`{3,}|~{3,})[\s\S]*?^\1[ \t]*$/gm, '').replace(/`[^`\n]*`/g, '')
-  return [...prose.matchAll(/\[file-touches::([^\]\n]+)\]/g)].map(m => m[1].trim()).filter(Boolean)
+/**
+ * The `[file-touches::<glob>]` values on the Recent files page, from `agent read` of it (the record's `properties` and
+ * `fields`, so a property in code is already left out, and a glob's comma in `{a,b}` stays in it): the areas whose
+ * touches are recorded.
+ */
+export function fileTouchGlobsOf(read: { properties?: { key: string; values: string[] }[]; fields?: { key: string; value: string }[] } | null | undefined): string[] {
+  return [
+    ...(read?.properties ?? []).filter(p => p.key === 'file-touches').flatMap(p => p.values),
+    ...(read?.fields ?? []).filter(f => f.key === 'file-touches').map(f => f.value),
+  ].map(glob => glob.trim()).filter(Boolean)
 }
 
 /**

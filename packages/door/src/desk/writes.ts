@@ -3,6 +3,7 @@
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { subject, type Msg } from "../board";
 import { ellipsize } from "../style";
+import { prop } from "../props";
 
 export interface ParentPick { id: string; why: string }
 
@@ -12,7 +13,7 @@ export interface ParentPick { id: string; why: string }
  * are spread across parents gets no guess, and the reason says how to name one.
  */
 export function pickParent(laneName: string, def: Msg | undefined, laneItems: Msg[], boardItems: Msg[]): ParentPick | { refused: string } {
-  const named = def?.properties?.filter(p => p.key === "create-parent") ?? (def?.props["create-parent"] ? [{ key: "create-parent", value: def.props["create-parent"] }] : []);
+  const named = def?.properties.filter(p => p.key === "create-parent") ?? [];
   if (named.length > 1) return { refused: `${laneName} has more than one create-parent::` };
   if (named.length === 1) {
     const id = referencedBlock(named[0]!.value)?.blockId ?? named[0]!.value.trim();

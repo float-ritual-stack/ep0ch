@@ -101,7 +101,7 @@ describe("the selection model", () => {
 
 describe("the note surface selects and copies, without a service", () => {
   const TEXT = "Plan the allotment\nSow peas early by the fence.\nWater the seedlings every morning.\n\n- dig the bed\n- buy canes";
-  const note = (text = TEXT): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {} });
+  const note = (text = TEXT): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [] });
   const setup = () => {
     const copies: string[] = [], flashes: string[] = [];
     const h: SurfaceHost = {

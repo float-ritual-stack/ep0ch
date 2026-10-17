@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient, type RequestInput } from "../src/client";
-import { PROPERTY_PARSER_VERSION } from "../src/properties";
+import { PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { PropertyParsePreview, VisibleBlockCollection } from "../src/types";

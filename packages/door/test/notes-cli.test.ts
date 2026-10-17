@@ -21,7 +21,7 @@ describe("every note, for a picker that filters as it's typed", () => {
   test("newest first, each with its ancestors' titles as its path", () => {
     const at = (n: number) => n * 1000;
     const b = (id: string, parentId: string | null, title: string, updatedAt: number) =>
-      ({ id, parentId, title, updatedAt, position: 0, depth: 0, author: "you", createdAt: 0, props: {}, hasChildren: false });
+      ({ id, parentId, title, updatedAt, position: 0, depth: 0, author: "you", createdAt: 0, properties: [], hasChildren: false });
     const list = everyNote([b("a", null, "Allotment", at(1)), b("b", "a", "Beds", at(3)), b("c", "b", "Bean canes", at(2))]);
     expect(list.map(f => [f.id, f.title, f.path])).toEqual([["b", "Beds", "Allotment"], ["c", "Bean canes", "Allotment › Beds"], ["a", "Allotment", ""]]);
   });
@@ -42,7 +42,7 @@ describe("every note, for a picker that filters as it's typed", () => {
 describe("the outline as a tree, from the index in the service's order", () => {
   // The index as the service sends it: depth first, each row with its depth (here: a shed, its tools, a bench).
   const row = (id: string, parentId: string | null, depth: number, title: string, props: Record<string, string> = {}) =>
-    ({ id, parentId, depth, title, props, updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
+    ({ id, parentId, depth, title, properties: Object.entries(props).map(([key, value]) => ({ key, value })), updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
   const index = [
     row("shed", null, 0, "Bike shed", { type: "place" }),
     row("tools", "shed", 1, "Tools"),
@@ -118,6 +118,7 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
       const note = (await board.get(ids.emph!))!;
       await board.comment(`pie541-${i}`, ids.emph!, note.revision!, body, { quote: last, start: note.text.indexOf(last) });
     }
+    await make("values", ["Vent rail [owner::sam] [target::https://example.test/vent]", "Owner {{this.owner}} at {{this.target}}; typo {{this.ownr}}."].join("\n"));
     await make("figures", ["Garden figures [count::2]", "", "::graph-check", "---", "title: Chores (live query)", 'query: "type=chore"', "---", "::", "", `See ((${ids.shed}|the shed)).`, "", "::links", ""].join("\n"));
     board.close();
   });
@@ -185,6 +186,21 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     expect(ansi.out.split("\n").map(l => visible(l).trimEnd())).toEqual(plain.out.split("\n"));
     // ((id)) as a picker outputs it is taken as the id.
     expect((await run(["show", `((${ids.oil}))`, "--width", "40"], env)).out).toBe(plain.out);
+  });
+
+  test("show draws a note's {{ }} as their values; --source keeps them as written; --site gives the text and the service's whole answer (PIE-533 S2)", async () => {
+    const drawn = await run(["show", ids.values!, "--width", "100"], env);
+    expect(drawn.out).toContain("Owner sam at https://example.test/vent; typo {{this.ownr}} · did you mean owner?.");
+    expect((await run(["show", ids.values!, "--source"], env)).out).toContain("Owner {{this.owner}} at {{this.target}}; typo {{this.ownr}}.");
+    const site = JSON.parse((await run(["show", ids.values!, "--site"], env)).out);
+    expect(site).toMatchObject({ id: ids.values, text: expect.stringContaining("{{this.owner}}") });
+    expect(site.site.values.map((v: any) => [v.expression, v.values ?? null, v.problem?.didYouMean?.[0] ?? null])).toEqual([
+      ["this.owner", ["sam"], null], ["this.target", ["https://example.test/vent"], null], ["this.ownr", null, "owner"],
+    ]);
+    expect(site.site.problems).toBe(1);
+    // A note with no placeholder has no answer; two of the modes at once is refused.
+    expect(JSON.parse((await run(["show", ids.oil!, "--site"], env)).out).site).toBeUndefined();
+    expect((await run(["show", ids.values!, "--site", "--cells"], env)).code).toBe(2);
   });
 
   test("show: links inside italics and bold are drawn in colour, and a line with several comment threads gets one mark (PIE-541)", async () => {
@@ -323,7 +339,7 @@ describe("the ep0ch channel's lines (ext/television's ep0ch-tv)", () => {
   const ID = /^.*\x1b\]8;;ep0ch:([0-9A-Za-z_-]+)\x1b.*$/;
   const shown = (l: string) => l.replace(/\x1b\][^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, "");
   const row = (id: string, parentId: string | null, depth: number, title: string, props: Record<string, string> = {}) =>
-    ({ id, parentId, depth, title, props, updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
+    ({ id, parentId, depth, title, properties: Object.entries(props).map(([key, value]) => ({ key, value })), updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
   let dir = "";
   beforeAll(() => { dir = mkdtempSync(join(tmpdir(), "ep0ch-tv-")); });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));

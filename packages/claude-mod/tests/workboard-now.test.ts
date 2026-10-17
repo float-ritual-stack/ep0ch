@@ -154,7 +154,7 @@ describe('workboard now, in the first prompt', () => {
 
 describe('workboard text', () => {
   test('a long lane is cut, with the rest counted', () => {
-    const items = Array.from({ length: 9 }, (_, i) => ({ id: `i${i}`, title: `GAR-${i} — Bed ${i}`, properties: { 'work-stage': 'doing' } }))
+    const items = Array.from({ length: 9 }, (_, i) => ({ id: `i${i}`, title: `GAR-${i} — Bed ${i}`, properties: [{ key: 'work-stage', value: 'doing' }] }))
     const text = workboardText({ outline: 'garden', items, logs: [], prs: [] }, true)!
     expect(text).toContain('- doing (9):')
     expect(text).toContain('  - and 3 more')

@@ -9,7 +9,7 @@ import type { ToolArgsSpec, ToolSchema } from './tool-args'
 
 /** The `outliner agent` operations a tool runs. */
 export type AgentToolOperation =
-  | "read" | "find" | "resolve" | "edit" | "create" | "comment" | "reply" | "edit-comment" | "resolve-thread"
+  | "read" | "find" | "resolve" | "site" | "edit" | "create" | "comment" | "reply" | "edit-comment" | "resolve-thread"
   | "proposal-apply" | "proposal-dismiss" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
 
 /**
@@ -74,9 +74,11 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     writes: false,
     target: "ref",
     description:
-      "Read {note}: its full text (never just the title), properties, revision, who last wrote it and when, and its " +
+      "Read {note}: its full text (never just the title), `properties` (each key once with its `values`, as `find --json` gives them) and `fields` (the properties of a line or a spot in the text), revision, who last wrote it and when, and its " +
       "children to `depth` levels (default 1), at most `limit` descendants (default 50), each with full text. " +
-      "`complete` says whether anything was left out; a child with `more` has unread children. Read before you " +
+      "`complete` says whether anything was left out; a child with `more` has unread children. A note that holds " +
+      "a `{{ }}` also returns `site`: what each placeholder reads as (`values`, or a `problem` with the nearest keys), " +
+      "how it was found (`route`), and the notes it came from (`deps`); `text` stays what the author wrote. Read before you " +
       "edit: outline_edit and outline_patch need the revision this returns. A Resource (`resource:<id>`, or a " +
       "`[file::path]` token) reads as its stored text with the comment threads that are open on it: read a file " +
       "that has threads before you rewrite it.",
@@ -128,6 +130,43 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     command(input) {
       if (!nonEmpty(input.ref)) return "Give the ref to resolve.";
       return { operation: "resolve", input: inputOf(input, ["ref"]) };
+    },
+  },
+  {
+    name: "outline_site",
+    operation: "site",
+    example: { ref: "PIE-123", paths: ["this.owner", "this.tasks | status=todo"] },
+    writes: false,
+    target: "ref",
+    description:
+      "Read what {note}'s `{{ }}` placeholders say, and any `paths` you ask, the way the person's screen reads them (the " +
+      "outline's one resolver): `this.owner`, `parent.project`, a bare `project` (the nearest value up the outline), " +
+      "`((id)).query`, `[[page]].title`, `person.firstName` through a link value, `this.tasks | status=todo`, " +
+      "`this.children | type=task .count`, `now.date-1d`, `props.week`. Every key is a list. A key the note writes wins over " +
+      "its record field of the same name; `this.$created` is the record's. A key with a dot is `this[\"echo.node\"]`. " +
+      "Returns, per placeholder and path: `values`, or a `problem` with a did-you-mean and an example that works; `route` " +
+      "(which resolver answered, which fallback was taken); `links` (values that name a note); and `deps`, the notes it was " +
+      "computed from. `draft` reads the text you are about to write, unsaved; `chain` reads a note as drawn inside another " +
+      "(a `::use` in a host: `[{kind: \"use\", block, line}]`); `props` are the call's arguments. A note that holds `::use` " +
+      "lines also returns `uses`: each call as the service reads it (its template, the `props` it gets, `problems` with the " +
+      "nearest name and a call that works, `missing` required props). Only reads.",
+    properties: {
+      ref: REF,
+      paths: { type: "array", items: { type: "string" }, description: "Paths to read besides the note's own placeholders: this.owner, parent.project, this.tasks | status=todo, now.date-1d" },
+      draft: { type: "string", description: "The note's unsaved text: its placeholders are read as if it were saved" },
+      chain: { type: "array", items: { type: "object" }, description: "Where the note is drawn, outermost first: [{ kind: \"use\" | \"embed\" | \"box\", block: <the note holding the invocation>, line?: number }]" },
+      props: { type: "object", description: "The call's arguments, read as props.<name>: { status: \"paused\" }" },
+      line: { type: "integer", minimum: 0, description: "The line of the note a bare key's lookup starts from (default: the first)" },
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref)) return "Give the ref: a block id, ((id)), [[page]] or Work ID.";
+      if (input.paths !== undefined && (!Array.isArray(input.paths) || input.paths.some(p => !nonEmpty(p)))) return "paths is a list of paths, such as [\"this.owner\", \"this.tasks | status=todo\"].";
+      if (input.draft !== undefined && typeof input.draft !== "string") return "draft is the note's unsaved text.";
+      const props = input.props && typeof input.props === "object" && !Array.isArray(input.props)
+        ? Object.fromEntries(Object.entries(input.props as Record<string, unknown>).map(([k, v]) => [k, (Array.isArray(v) ? v : [v]).map(String)]))
+        : undefined;
+      return { operation: "site", input: { ...inputOf(input, ["ref", "paths", "draft", "chain", "line"]), ...(props ? { props } : {}) } };
     },
   },
   {
@@ -512,6 +551,7 @@ export const AGENT_TOOL_SURFACES: Readonly<Record<string, Readonly<Record<AgentT
   outline_read: { mod: true, gateway: "its own outline_read (an enveloped block record, seen, raw): converge on one read (PIE-720)" },
   outline_find: { mod: true, gateway: "its own outline_find (the ranked search ep0ch find uses): converge on one search (PIE-720)" },
   outline_resolve: { mod: true, gateway: "not yet on the gateway (PIE-720)" },
+  outline_site: { mod: true, gateway: "not yet on the gateway (PIE-533)" },
   outline_edit: { mod: true, gateway: "not yet on the gateway (PIE-720)" },
   outline_create: { mod: true, gateway: true },
   outline_comment: { mod: true, gateway: true },

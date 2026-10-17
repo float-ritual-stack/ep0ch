@@ -24,7 +24,8 @@ import outlinerExtension, {
 import { OutlinerClient, type RequestInput } from "../src/client";
 import {OutlinerStore} from "../src/store";
 import {OutlinerServer} from "../src/server";
-import { parseProperties, parsePropertyRecords, patchPropertyText } from "../src/properties";
+import { patchPropertyText } from "../src/properties";
+import { parseProperties, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import type {
   AnnotationAgentPromptPackage,

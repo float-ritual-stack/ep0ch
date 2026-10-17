@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { recordJson, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { OutlinerClient } from "../src/client";
-import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "../src/properties";
+import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { createPropertyInspectorModel, propertyInspectorAuthoredText } from "../src/property-inspector";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";

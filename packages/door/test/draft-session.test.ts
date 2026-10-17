@@ -13,6 +13,7 @@ import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import type { Msg } from "../src/board";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 const AGENT: Actor = { kind: "agent", id: "tidy" };
 const OTHER: Actor = { kind: "agent", id: "sorter" };
@@ -438,7 +439,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect(again.draft.text).toBe("Sow the peas [stage::doing]\nby the fence");               // brought back
     expect(await again.submit(USER)).toMatchObject({ ok: false, again: true });
     expect(await again.submit(USER)).toMatchObject({ ok: true });
-    expect((await board.get(id))!.props.stage).toBe("doing");
+    expect(prop((await board.get(id))!, "stage")).toBe("doing");
   }, 30_000);
 
   test("a block (PIE-802): tags added beside others read as added, never one removed; a save that only reorders tags needs no second save", async () => {
@@ -507,7 +508,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
   }, 30_000);
 
   test("a refused comment keeps its draft open with the text, copies it to disk and says why and what to do (PIE-761)", async () => {
-    const m: Msg = { id: "note-kitty", text: "A live table wraps only the title", revision: 3, props: {}, childIds: [] } as unknown as Msg;
+    const m: Msg = { id: "note-kitty", text: "A live table wraps only the title", revision: 3, properties: [], childIds: [] } as unknown as Msg;
     const refusing = { comment: async () => { throw new Refused("Block is not an annotation: 1d76bf7d-9039-4265-8"); } };
     const refusedWhy: string[] = [];
     const s = DraftSession.open(commentTarget({
@@ -559,7 +560,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect(theirs.drafting).toBeNull();
     await theirs.whole();
     await expect(theirs.act("props.edit", { key: "stage", value: "doing" }, a, AS)).rejects.toThrow("open in a draft");
-    expect((await board.get(id))!.props.stage).toBe("queued");
+    expect(prop((await board.get(id))!, "stage")).toBe("queued");
     // Its patch goes through the person's draft (the hold), where the compare decides: away from their typing, it lands.
     const m = (await board.get(id))!;
     const r = await other.request("draft.patch", { blockId: id, revision: m.revision, patches: [{ observed: "cut canes", replacement: "cut hazel canes" }], mutation: { author: "agent", actorId: "gardener" } });

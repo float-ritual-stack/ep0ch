@@ -1,43 +1,22 @@
 // A note's properties the way Detail shows them: a one-line summary of chosen keys under the title, the
 // block's metadata lines kept out of the body, and every token (repeats and scope kept) for the property
 // panel. The service parses; the door only presents what `properties.preview` says the text holds.
+import { valueOf, valuesOf } from "@ep0ch/outline-core/block-record";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
-import type { PropertyRecord, SocketBoard } from "./socket";
+import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
+import type { SocketBoard } from "./socket";
 import { stateDir } from "./state";
+import { DEFAULT_PROPERTY_SUMMARY_KEYS, parsePropertySummaryKeys, propertySummarySegments } from "@ep0ch/outline-core/property-summary";
 import { printable } from "./text";
-
-/** Detail's default (`OUTLINER_PROPERTY_SUMMARY_KEYS`). */
-export const DEFAULT_SUMMARY_KEYS = ["status", "work-stage", "priority", "track"] as const;
-
-/** `a, B ,a` → `["a", "b"]`; undefined stays undefined (not set), "" is an explicit empty list (no summary). */
-export function parseSummaryKeys(value: string | undefined | null): string[] | undefined {
-  if (value === undefined || value === null) return undefined;
-  const keys: string[] = [];
-  for (const c of value.split(",")) { const k = c.trim().toLowerCase(); if (k && !keys.includes(k)) keys.push(k); }
-  return keys;
-}
 
 /** Control characters out of a value before it reaches the terminal: text.ts's one `printable`. */
 export { printable };
 
-export interface SummarySegment { key: string; label: string; value: string; plain: string }
-
-/**
- * Detail's property summary (pi-herdr-outliner `propertySummarySegments`): keys in order, repeated values
- * joined, `work-stage` labelled `stage`, and a roadmap item's `status` left out (its lifecycle is work-stage).
- */
-export function summarySegments(properties: readonly { key: string; value: string }[], keys: readonly string[]): SummarySegment[] {
-  const roadmap = properties.some(p => p.key === "type" && p.value.toLowerCase() === "roadmap-item");
-  return keys.filter(k => !roadmap || k !== "status").flatMap(key => {
-    const values = [...new Set(properties.filter(p => p.key.toLowerCase() === key).map(p => printable(p.value)).filter(Boolean))];
-    if (!values.length) return [];
-    const label = key === "work-stage" ? "stage" : key;
-    const value = values.join(", ");
-    return [{ key, label, value, plain: `${label} ${value}` }];
-  });
-}
+/** Detail's summary segments (outline-core's property-summary.ts), cleaned of control characters for the terminal. */
+export const summarySegments = (properties: readonly { key: string; value: string }[], keys: readonly string[]) =>
+  propertySummarySegments(properties, keys, printable);
 
 // ── which keys: the view's, yours, the environment's, or Detail's default ─────
 
@@ -48,7 +27,7 @@ const prefsFile = () => join(stateDir(), "properties.json");
 export function userSummaryKeys(): string[] | null {
   try {
     const j = JSON.parse(readFileSync(prefsFile(), "utf8"));
-    return Array.isArray(j.summaryKeys) ? parseSummaryKeys(j.summaryKeys.join(",")) ?? null : null;
+    return Array.isArray(j.summaryKeys) ? parsePropertySummaryKeys(j.summaryKeys.join(",")) ?? null : null;
   } catch { return null; }
 }
 
@@ -68,23 +47,26 @@ export function summaryKeys(view?: readonly string[] | null): { keys: string[]; 
   if (view) return { keys: [...view], source: "view" };
   const mine = userSummaryKeys();
   if (mine) return { keys: mine, source: "yours" };
-  const env = parseSummaryKeys(process.env.OUTLINER_PROPERTY_SUMMARY_KEYS);
+  const env = parsePropertySummaryKeys(process.env.OUTLINER_PROPERTY_SUMMARY_KEYS);
   if (env) return { keys: env, source: "env" };
-  return { keys: [...DEFAULT_SUMMARY_KEYS], source: "default" };
+  return { keys: [...DEFAULT_PROPERTY_SUMMARY_KEYS], source: "default" };
 }
 
 /** A saved view's own summary keys (`[summary-properties::work-stage,priority]`), if it names any. */
 export const viewSummaryKeys = (def: Msg | null | undefined): string[] | null =>
-  parseSummaryKeys(def?.properties?.find(p => p.key === "summary-properties")?.value ?? def?.props["summary-properties"]) ?? null;
+  parsePropertySummaryKeys(prop(def, "summary-properties")) ?? null;
 
 // ── the tokens of a text, from the service ─────────────────────────────────────
 
 /** Where a reader's reads go, and what to redraw when an answer arrives: the reader's own connection. */
 /** A note's properties in the service's list form: one entry per value, a key written twice (tags) listed twice. */
 export type PropertyList = readonly { key: string; value: string }[];
-/** The list form of a `Msg`: its `properties` as the service sent them, else its one-value-per-key `props`. */
-export const propertyListOf = (m: { props: Record<string, string>; properties?: PropertyList }): PropertyList =>
-  m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value }));
+/** The list form of a `Msg`: its `properties` as the service sent them. */
+export const propertyListOf = (m: { properties: PropertyList }): PropertyList => m.properties;
+/** A note's first value for a property (block scope, outline-core's list rule), or undefined. Keys compare in lower case. */
+export const prop = (m: { properties: PropertyList } | null | undefined, key: string): string | undefined => valueOf(m ?? {}, key);
+/** Every value a note has for a property, in order: a repeated key adds, a `[a, b]` list is two. */
+export const propValues = (m: { properties: PropertyList } | null | undefined, key: string): string[] => valuesOf(m ?? {}, key);
 
 export interface Source { board: SocketBoard; redraw(): void }
 

@@ -29,7 +29,7 @@ describe("list rows", () => {
       { id: "t", parentId: "x", preview: "Water the ferns ↵ twice a week", revision: 1 },
       { id: "f", parentId: null, text: "Whole note\nbody", revision: 2 },
     ] as any);
-    expect([p!.text, p!.partial, p!.props, p!.revision]).toEqual(["Paint the shed", true, { stage: "doing" }, 3]);
+    expect([p!.text, p!.partial, p!.properties, p!.revision]).toEqual(["Paint the shed", true, [{ key: "stage", value: "doing" }], 3]);
     expect([t!.text, t!.partial]).toEqual(["Water the ferns", true]);
     expect([f!.text, f!.partial]).toEqual(["Whole note\nbody", undefined]);
   });
@@ -37,8 +37,7 @@ describe("list rows", () => {
 
 describe("review fixes without a service", () => {
   const row = (id: string, text: string, props: Record<string, string> = {}): Msg => ({
-    id, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, props,
-    properties: Object.entries(props).map(([key, value]) => ({ key, value })),
+    id, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, revision: 1, properties: Object.entries(props).map(([key, value]) => ({ key, value })),
   });
 
   test("a view-domain change record (a lane's reorder) reaches the screens; other view events don't", () => {
@@ -294,7 +293,8 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     answer(p);
     await until(() => answer(p)?.state === "ready", "the live answer");
     expect(answer(p)!.items.map(m => m.id)).toEqual([cards.gate.id]);
-    expect(board.sent.slice(before).includes("views.read")).toBe(true);
+    // The figure's question is asked of the service in its Site (site.answer), which reads the view.
+    expect(board.sent.slice(before).includes("site.answer")).toBe(true);
   });
 
   test("an unrelated edit asks no lane again", async () => {

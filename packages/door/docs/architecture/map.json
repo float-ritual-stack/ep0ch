@@ -168,11 +168,11 @@
     {
       "id": "svc.grammar", "name": "Property grammar", "group": "service", "chapter": "outline", "ladder": "shared", "was": "accidental", "dependsOn": [],
       "does": "The one definition of a property key and a [key::value] token, with its escape. [2nd-pass::yes] is text; [plot.row::3] is a property.",
-      "built": "outline-core's property-grammar.ts is pure (no imports); properties.ts and block-query.ts build on it and the door imports it. A note's header line (the chips ending line 1, blanks or ` - ` between them, PIE-534) is outline-core's header-line.ts on it: the parser's block scope for those chips, every title, Detail's property table and ep0ch export's front matter.",
+      "built": "outline-core's property-grammar.ts is pure (no imports); property-parse.ts (the parser) and block-query.ts build on it and the door imports it. A note's header line (the chips ending line 1, blanks or ` - ` between them, PIE-534) is outline-core's header-line.ts on it: the parser's block scope for those chips, every title, Detail's property table and ep0ch export's front matter.",
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/property-grammar.ts", "l": 19, "m": "PROPERTY_KEY_SOURCE = " },
         { "r": "outliner", "p": "../outline-core/src/header-line.ts", "l": 53, "m": "export function headerLine" },
-        { "r": "outliner", "p": "src/properties.ts", "l": 247, "m": "headerLine(text, literalRanges)" },
+        { "r": "outliner", "p": "../outline-core/src/property-parse.ts", "l": 263, "m": "headerLine(text, literalRanges)" },
         { "r": "outliner", "p": "src/properties.ts", "l": 3, "m": "@ep0ch/outline-core/property-grammar" },
         { "r": "outliner", "p": "src/block-query.ts", "l": 6, "m": "@ep0ch/outline-core/property-grammar" }
       ]

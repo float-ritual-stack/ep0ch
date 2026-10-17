@@ -145,6 +145,15 @@ test("figures draw live from the service, links list the note's links, and an em
   expect(html).not.toContain("::graph-decision");
 });
 
+test("a figure written without its --- lines says so on the page (PIE-941)", async () => {
+  const { store, page } = await setup();
+  const bare = store.create("Deploys\n::graph-table\nquery: type=deploy\ncolumns: [title, created]\n::");
+  const html = await page(`/p/${bare.id}`);
+  expect(html).toContain("the ::graph-table has query:, columns: but no --- lines");
+  const ruled = store.create("Deploys\n::graph-table\n---\ntitle: Deploys\nheaders: [a]\nrows: [[b]]\n---\n::");
+  expect(await page(`/p/${ruled.id}`)).not.toContain("no --- lines");
+});
+
 test("the Markdown view keeps a figure's source as written", async () => {
   const { store, publisher } = await setup();
   const note = store.create("Report\n::graph-stat\n---\ntitle: Counts\n---\n- chores: 3\n::");
@@ -194,4 +203,68 @@ test("on a public page a live figure lists only public notes", async () => {
   expect(html).toContain("Sow the runner beans");
   expect(html).not.toContain("Weed the onion bed");
   expect(html).toContain("live · 1 result");
+});
+
+test("PIE-533 S3 on a page: one figure on two project pages lists each page's own, ::fields lists the occurrences, ::if draws its body only when this matches", async () => {
+  const { store, page } = await setup();
+  for (const [title, project] of [["Sort the bricks", "lego-night"], ["Build the tower", "lego-night"], ["Water the beans", "garden"]]) store.create(`${title} [type::ticket] [project::${project}]`);
+  const figure = "::graph-table\n---\nquery: type=ticket project={{this.project}}\ncolumns: [title]\n---\n::";
+  const lego = store.create(`Lego night [project::lego-night]\n\n${figure}`);
+  const garden = store.create(`Garden [project::garden]\n\n${figure}`);
+  const a = await page(`/p/${lego.id}`), b = await page(`/p/${garden.id}`);
+  expect(a).toContain("Sort the bricks");
+  expect(a).toContain("Build the tower");
+  expect(a).not.toContain("Water the beans");
+  expect(b).toContain("Water the beans");
+  expect(b).not.toContain("Sort the bricks");
+
+  const rail = store.create([
+    "Vent rail [status::active]", "",
+    "- first pass [connectTo::demonstrating by doing]", "- second pass [connectTo::shacks not cathedrals]", "",
+    "::fields{key=connectTo}", "",
+    "::if{where=\"status=active\"}", "shown when active", "::", "",
+    "::if{where=\"status=paused\"}", "shown when paused", "::",
+  ].join("\n"));
+  const html = await page(`/p/${rail.id}`);
+  expect(html).toContain("demonstrating by doing");
+  expect(html).toContain("shacks not cathedrals");
+  expect(html).toContain("line 3");
+  expect(html).toContain("live · 2 occurrences");
+  expect(html).toContain("shown when active");
+  expect(html).not.toContain("shown when paused");
+  expect(html).not.toContain("::if");
+  expect(html).not.toContain("::fields");
+});
+
+test("on a public page a stat counts only the notes the page may show", async () => {
+  const { store, publisher } = await setup();
+  store.create("Sow the runner beans [type::chore] [publish::public]");
+  store.create("Weed the onion bed [type::chore]");
+  store.create("Mulch the paths [type::chore]");
+  const note = store.create('Chore counts [publish::public]\n::graph-stat\n---\ntitle: Counts\nitems:\n  - label: chores\n    query: "type=chore"\n---\n::');
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`, { headers: { accept: "text/html" } }), "public");
+  const html = await response.text();
+  expect(html).toContain("chores");
+  expect(html).toMatch(/>1</);
+  expect(html).not.toMatch(/>3</);
+});
+
+test("a figure's call-site args reach the page's question: ::graph-table{project=…} reads {{props.project}}", async () => {
+  const { store, page } = await setup();
+  for (const [title, project] of [["Sort the bricks", "lego-night"], ["Water the beans", "garden"]]) store.create(`${title} [type::ticket] [project::${project}]`);
+  const note = store.create("Pick\n\n::graph-table{project=garden}\n---\nquery: type=ticket project={{props.project}}\ncolumns: [title]\n---\n::");
+  const html = await page(`/p/${note.id}`);
+  expect(html).toContain("Water the beans");
+  expect(html).not.toContain("Sort the bricks");
+});
+
+test("on a public page a figure's {{ }} operand never reads through a note the page may not show", async () => {
+  const { store, publisher } = await setup();
+  store.create("Sort the bricks [type::ticket] [project::secret-plan] [publish::public]");
+  const parent = store.create("Private plans [project::secret-plan]");
+  const note = store.create('Tickets [publish::public]\n\n::graph-table\n---\nquery: type=ticket project={{project}}\ncolumns: [title]\n---\n::', parent.id);
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`, { headers: { accept: "text/html" } }), "public");
+  const html = await response.text();
+  expect(html).not.toContain("Sort the bricks");
+  expect(html).not.toContain("secret-plan");
 });

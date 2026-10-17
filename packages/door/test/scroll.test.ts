@@ -11,7 +11,7 @@ import { Term, type Key } from "../src/term";
 
 const DOWN = "\x1b[<65;10;20M", UP = "\x1b[<64;10;20M";
 const note = (lines: number): Msg => ({
-  id: "11111111-2222-4333-8444-555555555555", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {},
+  id: "11111111-2222-4333-8444-555555555555", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [],
   text: ["Harbour log", ...Array.from({ length: lines }, (_, i) => `L${i + 1} the keeper counts the gulls on the breakwater, see [[Tide table]]`)].join("\n"),
 });
 

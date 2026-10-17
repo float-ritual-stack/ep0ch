@@ -2,10 +2,10 @@
 // shape (notification.ts); each becomes one note on the notifications page, keyed by `[notify.key::source:id]`, so a
 // pull is idempotent. The boards (hubs of views) are the demo's (demo/), written once when it's installed. No model is called.
 import { outline } from "./outline";
-import { KEY, keyOf, merged, type Notification, type Source } from "./notification";
+import { KEY, keyOf, merged, valueOf, type Notification, type Source } from "./notification";
 import { fixture, REAL } from "./sources";
 
-interface Block { id: string; text: string; revision: number }
+interface Block { id: string; text: string; revision: number; properties?: { key: string; value: string }[] }
 interface Config {
   sources?: string[]; page?: string; outline?: string; days?: number; fixtures?: Record<string, string>;
 }
@@ -53,12 +53,12 @@ const page = await ensurePage();
 const tally = { created: 0, changed: 0, same: 0 };
 const problems: string[] = [];
 const synced: Record<string, string> = {};
-const readCursor = (text: string, name: string) => text.split("\n")[0]!.match(new RegExp(`\\[notify\\.synced\\.${name}::([^\\]]*)\\]`))?.[1];
+const readCursor = (note: Block, name: string) => valueOf(note, `notify.synced.${name}`);
 
 for (const name of names) {
   const started = new Date(Date.parse(now) - 60_000).toISOString(); // a minute of overlap: a write is idempotent
   try {
-    const since = readCursor(page.text, name) ?? new Date(Date.parse(now) - (config.days ?? 14) * 86_400_000).toISOString();
+    const since = readCursor(page, name) ?? new Date(Date.parse(now) - (config.days ?? 14) * 86_400_000).toISOString();
     const fetched: Notification[] = await sourceFor(name).fetch({ since, days: config.days ?? 14 });
     for (const n of fetched) {
       const key = keyOf(n);
@@ -69,7 +69,7 @@ for (const name of names) {
         continue;
       }
       const current = await o<Block>({ action: "get", blockId: found.blocks[0].id });
-      const text = merged(n, current.text);
+      const text = merged(n, current);
       if (text === current.text) { tally.same++; continue; }
       await o({ action: "update", blockId: current.id, expectedRevision: current.revision, text });
       tally.changed++;

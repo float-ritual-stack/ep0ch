@@ -205,7 +205,7 @@ describe("scaling, with no system tool (PIE-494)", () => {
 });
 
 describe("the reader draws the header image above the title", () => {
-  const note = (text: string) => ({ id: "41111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} });
+  const note = (text: string) => ({ id: "41111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] });
   const host = (graphics: boolean): SurfaceHost => ({
     ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cols: 100, rows: 40, cellW: 10, cellH: 20, kitty: graphics }, graphics } as any,
     redraw() {}, navigate() {},
@@ -279,7 +279,7 @@ describe("the reader draws the header image above the title", () => {
 });
 
 describe("the header takes the hero image as it scrolls under (PIE-598)", () => {
-  const note = (text: string) => ({ id: "41111111-2222-4333-8444-666666666666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} });
+  const note = (text: string) => ({ id: "41111111-2222-4333-8444-666666666666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] });
   const host = (graphics: boolean): SurfaceHost => ({
     ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cols: 100, rows: 40, cellW: 10, cellH: 20, kitty: graphics }, graphics } as any,
     redraw() {}, navigate() {},
@@ -465,7 +465,7 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
 // PIE-846: "img:: in a comment draws the image, as in a note". Evan saw only "▣ Screenshot … · 4030×2110" in the
 // comment's preview and in the posted thread; both are drawn by the reader's renderer, pictures included.
 describe("pictures in a comment", () => {
-  const note = { id: "51111111-2222-4333-8444-555555555555", text: "Seed packets\n\nThe tray by the door holds this year's.", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 4, props: {} };
+  const note = { id: "51111111-2222-4333-8444-555555555555", text: "Seed packets\n\nThe tray by the door holds this year's.", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 4, properties: [] };
   const thread = (body: string) => ({ id: "c1111111-2222-4333-8444-555555555555", author: "user", body, quote: "", at: 0, open: true, lifecycle: "open", start: null, end: null, replies: [] });
   const host = (comments: unknown[]): SurfaceHost => ({
     ctx: { board: { ancestors: async () => [], comments: async () => comments, get: async () => note }, flash() {}, t: { cols: 100, rows: 40, cellW: 10, cellH: 20, kitty: true }, graphics: true } as any,

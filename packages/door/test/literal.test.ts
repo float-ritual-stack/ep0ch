@@ -2,15 +2,14 @@
 // service doesn't parse properties, so the door draws `[key::value]` there as text, hides the matched
 // marker lines while reading (not while editing). Both find the regions with outline-core's scan (code-ranges.ts).
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { bodyLinesOf, subject, type Msg } from "../src/board";
 import { renderDoc } from "../src/doc";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
-import { outliner } from "./scratch";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
-const note = (text: string): Msg => ({ id: "aaaaaaaa-1111-4222-8333-444444444444", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, props: {} });
+const note = (text: string): Msg => ({ id: "aaaaaaaa-1111-4222-8333-444444444444", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, properties: [] });
 const host = (): SurfaceHost => ({
   ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any,
   redraw() {}, navigate() {},
@@ -38,11 +37,10 @@ const CORPUS = [
   "Region at the end\n<!-- literal -->\n<!-- /literal -->",
 ];
 
-describe.skipIf(!outliner)("the service's literal regions in a title", () => {
+describe("the service's literal regions in a title", () => {
   test("a note's title skips marker lines and keeps a region's tokens, as the service's title does", async () => {
-    const theirs = await import(join(outliner!, "src/properties.ts"));
     for (const text of CORPUS) {
-      const want: string | undefined = theirs.firstLineWithoutPropertyTokens(text)?.trim().replace(/\s+/g, " ");
+      const want: string | undefined = firstLineWithoutPropertyTokens(text)?.trim().replace(/\s+/g, " ");
       if (want === undefined) continue;
       expect({ text, title: subject(note(text)).replace(/\s+/g, " ") }).toEqual({ text, title: want });
     }

@@ -9,6 +9,10 @@ import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv, type RowInline } from "./graphs";
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
+import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
+import { ifProblemLines, ifState, renderFields } from "./site-blocks";
+import { useCallAt, type UseCall } from "@ep0ch/outline-core/template-use";
+import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
 import { linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
@@ -48,6 +52,16 @@ export interface DocEnv {
    * text.
    */
   embed?: (id: string, fragment: string | undefined, n: number, width: number) => string[];
+  /**
+   * Draw the `::use` call on body line `line` (PIE-533 S4, src/template-use.ts): a template drawn live, its body in place with
+   * `this` the note the line is in. Without it (an embed, a draft's preview, an export) the line stays text.
+   */
+  use?: (call: UseCall, line: number, width: number) => string[];
+  /**
+   * The Site this body is drawn in when it is a template's (a `::use` draws it): the chain of invocations and the call's
+   * props. Its figures, `::fields` and `::if` read `this` through it (the host), and `{{props.x}}` as the call passed it.
+   */
+  site?: LiveSite;
   /**
    * The body's fold points (from `foldPoints` of the same body, line for line), which of them are folded,
    * and the one selected by the keys. Without it nothing folds (an embed, a draft's preview).
@@ -392,10 +406,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const own = listLayers(src, first).map(l => (look!.lists ? { ...l, fields: look!.lists(l.line!, l.fields) } : l));
     return own.some(l => Object.keys(l.fields).length) ? resolveStyle([...look!.layers, ...own], look!.width).values : look!.values;
   };
+  // The closing lines of the `::if` bodies drawn (not text).
+  const ifCloses = new Set<number>();
   for (let i = 0; i < src.length; i++) {
     mark();
     insert(i);
     from = i;
+    if (ifCloses.has(i)) continue;
     const line = src[i]!;
 
     // The look's list rows (PIE-673): blank rows and a divider between one item and the next, every other item tinted.
@@ -539,13 +556,37 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       continue;
     }
 
+    // `::use` (src/template-use.ts): a template drawn live in place of its line.
+    const used = env.use ? useCallAt(src, i) : null;
+    if (used) {
+      out.push(...env.use!(used, i, W));
+      continue;
+    }
+
+    // `::fields` and `::if` (src/site-blocks.ts): the components that read their note's Site, drawn from the service's
+    // answer. An `::if` whose query holds draws its body in place of its two lines; any other state draws nothing.
+    const sb = siteBlockAt(src, i, componentAt);
+    if (sb?.kind === "fields") {
+      out.push(...renderFields(sb.spec, env.note, W, env.tag, env.site));
+      i = sb.end;
+      continue;
+    }
+    if (sb?.kind === "if") {
+      const held = sb.spec.problem ? { state: "problem" as const, message: sb.spec.problem, didYouMean: [] } : ifState(sb.spec.where, env.note, env.site);
+      if (held.state === "holds") { ifCloses.add(sb.end); continue; }
+      if (held.state === "problem") out.push(...ifProblemLines(held.message, W));
+      i = sb.end;
+      continue;
+    }
+
     // mdxcn Comark figure: ::graph-kind, --- yaml ---, ::
     const figure = componentAt.get(i), gk = figure && graphKind(figure);
     if (figure && gk) {
       // Its YAML and its Markdown rows; the note's figure block (the first line of a note's own body) takes its child
       // bullets as rows too.
       const block = !env.nested && src.slice(0, i).every(l => !l.trim());
-      const source = figureSource(src.slice(i + 1, figure.end), env.note, block), at = i + 1 + (source.at ?? 0);
+      // Drawn through a `::use`: its chain and the call's props, so `this` is the host and `{{props.x}}` the call's (S4).
+      const source = { ...figureSource(src.slice(i + 1, figure.end), env.note, block, figure.attrs), ...(env.site?.chain?.length ? { chain: env.site.chain } : {}), ...(env.site?.props ? { props: env.site.props } : {}) }, at = i + 1 + (source.at ?? 0);
       // Its rows' words drawn as the note's are, and a check row's box a step (PIE-864): a written row's by its body
       // line (the service reads it as a step), a live row's by its note and what its `done:` names.
       const rows: RowInline | undefined = env.present && {

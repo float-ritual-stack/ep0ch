@@ -5,7 +5,7 @@ import {
   projectDetailRead,
   type DetailEmbedRequester,
 } from "../src/detail-embeds";
-import { parseProperties } from "../src/properties";
+import { parseProperties } from "@ep0ch/outline-core/property-parse";
 import { parseVirtualBranchConfig, selectVirtualBranchMembers } from "../src/virtual-branches";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import type {
@@ -275,6 +275,18 @@ test("renders ordinary block Markdown without loading a workspace snapshot or ne
   });
   expect(requester.calls).not.toContainEqual({ action: "workspace.snapshot" });
   expect(requester.calls).not.toContainEqual({ action: "get", blockId: "nested-target" });
+});
+
+test("a figure written without its --- lines gets a notice line after it; its authored lines stay as they were (PIE-941)", async () => {
+  const text = "Deploys\n::graph-table\nquery: type=deploy\ncolumns: [title, created]\n::\nAfter";
+  const projection = await projectDetailRead(new FakeRequester(new Map(), new Map()), text);
+  const lines = projection.text.split("\n");
+  expect(lines.slice(0, 5)).toEqual(text.split("\n").slice(0, 5));
+  expect(lines[5]).toBe("⚠ the ::graph-table has query:, columns: but no --- lines: they are read as Markdown rows, not properties; put them between --- lines (line 2)");
+  expect(lines.at(-1)).toBe("After");
+  // With its lines it says nothing.
+  const ruled = await projectDetailRead(new FakeRequester(new Map(), new Map()), "Deploys\n::graph-table\n---\nquery: type=deploy\n---\n::\nAfter");
+  expect(ruled.text).not.toContain("⚠");
 });
 
 test("embed syntax inside fenced or indented host code stays as written and is never loaded", async () => {
@@ -628,4 +640,69 @@ test("a proposal beside the note is drawn as an embed of it after its mark line;
   // Read at another revision than the note shown: nothing is drawn beside it (the next read brings it).
   const stale = await projectDetailRead(requester, host.text, { hostBlockId: host.id, hostRevision: 2 });
   expect(stale.text).toBe(host.text);
+});
+
+// PIE-533 S2: the preview reads a note's {{ }} as values; the editor's text is untouched.
+test("Detail's read preview shows a note's {{ }} as the service reads them, line for line, with a token's source as the origin of its value", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { OutlinerClient } = await import("../src/client");
+  const { OutlinerServer } = await import("../src/server");
+  const { OutlinerStore } = await import("../src/store");
+  const directory = mkdtempSync(join(tmpdir(), "detail-values-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const socket = join(directory, "o.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  try {
+    const note = store.create("Vent rail [owner::sam] [target::https://example.test/vent]\nOwner {{this.owner}}; typo {{this.ownr}}; nobody {{this.crew}}.\nLast line");
+    const projection = await projectDetailRead(new OutlinerClient(socket), note.text, { hostBlockId: note.id, hostRevision: note.revision });
+    const lines = projection.text.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toBe("Owner sam; typo {{this.ownr}} (no `ownr` on this note; did you mean `owner`?); nobody {{this.crew}} (no `crew` on this note).");
+    // The drawn value's run maps back to the token, whole.
+    const at = projection.text.indexOf("sam;");
+    const run = projection.provenance.runs.find(r => r.start <= at && at < r.end)!;
+    expect(run.mapping).toBe("atomic");
+    expect(run.origin.kind).toBe("source");
+    const slice = (run.origin as unknown as { slices: { start: number; end: number; document: { text: string } }[] }).slices[0]!;
+    expect(slice.document.text.slice(slice.start, slice.end)).toBe("{{this.owner}}");
+    // A note with no placeholder is left alone, and a service that can't answer leaves them as typed.
+    expect((await projectDetailRead(new OutlinerClient(socket), "Plain", { hostBlockId: note.id, hostRevision: 1 })).text).toBe("Plain");
+    expect((await projectDetailRead(new FakeRequester(new Map(), new Map()), "A {{this.owner}}", { hostBlockId: note.id })).text).toBe("A {{this.owner}}");
+  } finally {
+    await server.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a value in Detail's preview is literal: it never becomes emphasis, markup or an embed, and a lone address is a link", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { OutlinerClient } = await import("../src/client");
+  const { OutlinerServer } = await import("../src/server");
+  const { OutlinerStore } = await import("../src/store");
+  const directory = mkdtempSync(join(tmpdir(), "detail-values-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const socket = join(directory, "o.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  try {
+    const other = store.create("Other note\nbody");
+    const holder = store.create(`Holder [embed::!((${other.id}))]`);
+    const note = store.create(`Card [shout::*loud* ~gone~ <b>] [site::https://example.test/a_b]\nA {{this.shout}}; B {{((${holder.id})).embed}}; C {{this.site}}.\nEnd`);
+    const projection = await projectDetailRead(new OutlinerClient(socket), note.text, { hostBlockId: note.id, hostRevision: note.revision });
+    const lines = projection.text.split("\n");
+    expect(lines).toHaveLength(3);
+    // A value that is a link to a note shows the note's title, as plain text: no embed is made of it.
+    expect(lines[1]).toBe(`A \\*loud\\* \\~gone\\~ \\<b\\>; B Other note; C <https://example.test/a_b>.`);
+    expect(projection.embeds).toEqual([]);
+  } finally {
+    await server.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

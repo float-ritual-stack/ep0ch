@@ -387,14 +387,15 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
-      block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
+      block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
       line: { type: "number", optional: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
       with: { type: "string", optional: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
       ...declaredArgs(a),
     } as ActionDef<ExtArgs, ExtOn>["args"],
     run({ block: named, line, with: w, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
-      const block = named ?? (actor.kind === "user" && !handler && !bar && !outline ? on.ctx.noteInFront?.() ?? undefined : undefined);
+      // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
+      const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
       if (!block && !bar && !outline) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
       const given = { ...withArgs(w), ...givenArgs(a, rest) };
       return askingFirst(on.ctx, e, a, block, given, actor, args =>
@@ -418,6 +419,9 @@ function givenArgs(a: ExtensionAction, raw: Record<string, unknown>): Record<str
   return out;
 }
 
+/** A field of type `tag` (a template's prop, PIE-533 S4) is asked as text, typed as written (`#garden`). */
+const asQuestion = <Q extends { type: string }>(x: Q): Q => (x.type === "tag" ? { ...x, type: "text", free: true } : x);
+
 /** An argument the door asks the person for when they didn't give it: a choice or a property (from its choices), or a needed one. */
 const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "property" || (!!x.required && x.default === undefined && !x.defaultProperty);
 
@@ -434,14 +438,14 @@ export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: Ex
     try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch (err) { throw new ActionRefused(err instanceof Error ? err.message : String(err)); }
     const open = specs.filter(x => (x.fromBlock || asks(x)) && !Object.hasOwn(given, x.name));
     if (!open.length) return run(given);
-    const r = await askInBar(ctx, a.label, open.map(x => (x.fromBlock ? { ...x, required: !!x.required } : x)), given, actor, run);
+    const r = await askInBar(ctx, a.label, open.map(x => asQuestion(x.fromBlock ? { ...x, required: !!x.required } : x)), given, actor, run);
     return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
   }
   const open = (a.args ?? []).filter(x => asks(x) && given[x.name] === undefined);
   if (!open.length) return run(given);
   let specs: ExtensionArgChoice[];
   try { specs = (await ctx.board.extensionArgs(e.id, a.id, block)).args; } catch { specs = open; }
-  const r = await askInBar(ctx, a.label, open.map(x => ({ ...x, ...specs.find(y => y.name === x.name) })), given, actor, run);
+  const r = await askInBar(ctx, a.label, open.map(x => asQuestion({ ...x, ...specs.find(y => y.name === x.name) })), given, actor, run);
   return r && typeof r === "object" && "asking" in r ? { asking: (r as { asking: string }).asking, action: a.name } : r;
 }
 

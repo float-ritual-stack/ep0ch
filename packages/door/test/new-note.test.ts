@@ -12,6 +12,7 @@ import type { Key } from "../src/term";
 import { Draft } from "../src/edit";
 import { personOpens, putAway } from "../src/new-note";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -89,7 +90,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     await board.info();
     const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
     notes.plot = await mk(null, "Plot notes\nSee [[Bean diary]] for the runner beans.");
-    inbox = (await board.roots()).find(r => r.props["system-view"] === "inbox")!.id;
+    inbox = (await board.roots()).find(r => prop(r, "system-view") === "inbox")!.id;
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
@@ -204,9 +205,9 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     await until(() => !reader.surface.draft, "reply saved");
     const replies = await board.children(parent.id);
     expect(replies[0]!.text).toContain("Pick them tomorrow.");
-    expect(replies[0]!.props.replyto).toBe(parent.id);
-    expect(replies[0]!.props.thread).toBe("orchard");
-    expect(replies[0]!.props.re).toBe("Orchard report");
+    expect(prop(replies[0]!, "replyto")).toBe(parent.id);
+    expect(prop(replies[0]!, "thread")).toBe("orchard");
+    expect(prop(replies[0]!, "re")).toBe("Orchard report");
     expect(reader.surface.msg!.id).toBe(parent.id);
     key(char("R"));
     await until(() => !!reader.surface.draft, "second reply");
@@ -241,7 +242,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     await until(() => !!(app.screens().at(-1) as any).surface?.draft, "a second new note's edit", 8000);
     const second = (app.screens().at(-1) as any).surface.draft.blockId;
     key({ kind: "esc" });
-    await reads(async () => (await board.get(second))?.props === undefined || !(await board.children(inbox)).some(m => m.id === second), "the empty note trashed", 5000);
+    await reads(async () => (await board.get(second))?.properties === undefined || !(await board.children(inbox)).some(m => m.id === second), "the empty note trashed", 5000);
   }, 30_000);
 
   test("ctrl+n in a desk reader: under the note it shows, floating with the keys; esc on it empty puts it in the trash and the float goes", async () => {

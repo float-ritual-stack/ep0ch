@@ -11,14 +11,18 @@ import { pageLinkSpans } from "./link-syntax";
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges } from "./code-ranges";
 import { isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
 import { formFieldChipProblems } from "./form-fields";
+import { USE_NAME, useCallsOf } from "./template-use";
+import { graphKind, propsWithoutRules } from "./figure-props";
 
-export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal" | "form-field";
+export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal" | "form-field" | "figure";
 
 /** One construct left open: its kind, its line (0 is the title line), and a sentence saying what is read and how to close it. */
 export interface SyntaxWarning {
   kind: SyntaxWarningKind;
   line: number;
   message: string;
+  /** The last line of the construct, when it spans lines (a figure's closing `::`); a generated note about it can follow there. */
+  end?: number;
 }
 
 const MAX_WRITTEN = 40;
@@ -75,15 +79,26 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
   for (const f of codeBlocks(lines).fences) for (let j = f.start; j <= f.end; j++) covered.add(j);
   lines.forEach((raw, i) => {
     const open = COMPONENT_OPEN.exec(raw.replace(/\r$/, ""));
-    // `::links` and its kind alone on a line is that component, unclosed by design (link-blocks.ts).
-    if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!)) return;
+    // `::links` and its kind alone on a line is that component, unclosed by design (link-blocks.ts); so is `::fields` (site-blocks.ts)
+    // and a `::use{…}` call, which is one line (template-use.ts).
+    if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!) || open[1] === "fields" || open[1] === USE_NAME) return;
     out.push({ kind: "component", line: i, message: `the ::${open[1]} on line ${i + 1} isn't closed with :: on a line of its own: it's plain text` });
   });
+
+  // A `::use` that names no template (PIE-533 S4): drawn as nothing, so it says so. (The template's props are the service's to check.)
+  for (const call of useCallsOf(text)) if (call.problem) out.push({ kind: "component", line: call.line, message: `the ::use on line ${call.line + 1} names no template: ${call.problem.replace(/^::use needs /, "write ")}` });
 
   // A form's field chip that can't be read (PIE-828): saved as written, its action says the same when it runs.
   for (const { start, problem } of formFieldChipProblems(text)) {
     const line = lineOf(start);
     out.push({ kind: "form-field", line, message: `${problem.message} (line ${line + 1})` });
+  }
+
+  // A figure whose props are written without their `---` lines (PIE-941): drawn as Markdown rows, so it says so.
+  for (const c of componentBlocks(lines)) {
+    const kind = c.end > c.start ? graphKind(c) : null;
+    const problem = kind ? propsWithoutRules(kind, lines.slice(c.start + 1, c.end)) : null;
+    if (problem) out.push({ kind: "figure", line: c.start, end: c.end, message: `${problem} (line ${c.start + 1})` });
   }
 
   const unterminated = scanLiteralRegions(text).unterminated;

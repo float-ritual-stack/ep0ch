@@ -1,5 +1,6 @@
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, parseAnnotationBlockContent } from "./annotations";
-import { getProperty, stripPropertyTokens } from "./properties";
+import { getProperty } from "./properties";
+import { stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import type { BacklinkSourceFacets, BacklinkStageBucket, Block, LinkTargetFacets } from "./types";
 
 /**

@@ -14,7 +14,8 @@ import { deliveryIdentities, parseDeliveryIdentity, type DeliveryIdentity } from
 import { documentFolds } from "./document-folds";
 import { droppedStructure } from "./draft-patch";
 import { markdownSourceTokens } from "./markdown-structure";
-import { getProperty, matchesFilters, normalizePropertyKey, parsePropertyRecords, patchPropertyText, validateProperty } from "./properties";
+import { getProperty, matchesFilters, normalizePropertyKey, patchPropertyText, validateProperty } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { parseWorkId } from "./work-ids";
 import { ticketOf } from "./work-stage-follows";

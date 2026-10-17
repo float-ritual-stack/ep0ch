@@ -88,7 +88,7 @@ test("rules.preview: what a rule note, never saved, draws on a sample note's tex
   expect(band.decorations).toHaveLength(1);
   expect(band.decorations[0]).toMatchObject({ name: "card", place: "replace", status: "ready", hit: { at: "construct", line: 2 }, view: { type: "band", text: "Decisions", tone: "accent" } });
   const shout = await client.request<Preview>({ action: "rules.preview", note: "Shout [rule-name::shout] [rule-text::!!(.+)!!] [rule-decorate::badge]", text });
-  expect(shout.decorations[0]).toMatchObject({ place: "above", hit: { at: "text", line: 3 }, view: { type: "badge", label: "today" } });
+  expect(shout.decorations[0]).toMatchObject({ place: "prepend", hit: { at: "text", line: 3 }, view: { type: "badge", label: "today" } });
   const broken = await client.request<Preview>({ action: "rules.preview", note: "Nothing [rule-name::nothing] [rule-decorate::band]", text });
   expect(broken).toEqual({ decorations: [], problems: [expect.stringContaining("matches nothing")] });
   // Nothing is written: the outline has no rule notes.

@@ -9,7 +9,8 @@
 //   a copy       [from::<outline>@<machine>/<id>] …: never a message itself, so nothing bounces between nodes
 //   EchoNet's own  [type::nodelist], [type::toss], [type::echo-ledger], [type::echo-undeliverable]
 
-export interface Property { key: string; value: string }
+/** A property as the service sends it: a wire block's `{ key, value }`, or a record's `{ key, values }` (`context.block`, outline-core's block record). */
+export interface Property { key: string; value?: string; values?: string[] }
 export interface Block {
   id: string; parentId: string | null; text: string; revision: number; properties: Property[];
   createdAt?: string; updatedAt?: string;
@@ -30,12 +31,13 @@ export const sameMachine = (a: string, b: string) => a.toLowerCase().split(".")[
 export const FROM = /^([a-z0-9][a-z0-9-]*@[\w.-]+)\/([0-9a-f-]{36})$/;
 export const OWN_TYPES: ReadonlySet<string> = new Set(["nodelist", "toss", "echo-ledger", "echo-undeliverable"]);
 
-export const prop = (block: Block, key: string) => block.properties.find((p) => p.key === key)?.value;
+const raw = (block: Pick<Block, "properties">, key: string) => block.properties.filter((p) => p.key === key).flatMap((p) => p.values ?? (p.value === undefined ? [] : [p.value]));
+export const prop = (block: Pick<Block, "properties">, key: string) => raw(block, key)[0];
 /** Every value of a key: repeated tokens and comma lists (`[echo::a] [echo::b]`, `[echo::a, b]`). */
-export const values = (block: Block, key: string) =>
-  [...new Set(block.properties.filter((p) => p.key === key).flatMap((p) => p.value.split(",")).map((v) => v.trim()).filter(Boolean))];
+export const values = (block: Pick<Block, "properties">, key: string) =>
+  [...new Set(raw(block, key).flatMap((v) => v.split(",")).map((v) => v.trim()).filter(Boolean))];
 /** A copy's `from` in EchoNet's shape (`<node>/<id>`), whatever other `from` the note holds (`[from::karen]`). */
-export const fromOf = (block: Block) => block.properties.find((p) => p.key === "from" && FROM.test(p.value.trim()))?.value.trim();
+export const fromOf = (block: Pick<Block, "properties">) => raw(block, "from").map((v) => v.trim()).find((v) => FROM.test(v));
 export const isCopy = (block: Block) => fromOf(block) !== undefined;
 export const trashed = (block: Block) => !!(block.effectiveDeletedRootId || block.deletedAt);
 /** A highlight, comment or question (`type::annotation`), or a reply in its thread (`type::annotation-reply`). */

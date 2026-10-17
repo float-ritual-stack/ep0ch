@@ -31,7 +31,8 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch find --query "<expr>" [--view <id>] [--under <id>] [--ids | --lines | --json]
                                      the notes the outline says a query holds for (the views' grammar; --updated-after
                                      <date> and the like write it); --ids prints ((id)) a line, --json block records
-    ep0ch show <note>… [--width <n>] notes drawn as a reader draws them, as text; --source: as written; no door needed
+    ep0ch show <note>… [--width <n>] notes drawn as a reader draws them, as text; --source: as written; --site: JSON, the
+                                     text and what its {{ }} read as (values, or a problem with the nearest keys); no door needed
                                      (a <note> is an id, ((id)), its first 8+ characters, a Work ID such as PIE-870 or [[a page]])
     ep0ch export <id>… | --query … [--children] [--format md|json] [--out <dir>]
                                      notes as files: the header line's chips in YAML front matter, the body verbatim
@@ -218,6 +219,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   takes the same (any note by id, shown in the tree or not) and `undo=true`. Recorded as you, by `outline_move`'s rules
   (the guard on system notes is that tool's); your move never takes the person's selection. The person's `Z` in a
   reader, `alt+↑ alt+↓` in a reader, and `alt+↑ alt+↓` (`K J`), `I`, `O` in the outline are these same actions (a river column's is `column.move`).
+- **Templates** (PIE-533 S4): `template.stamp of=<[[page]]|((id))|type:kind> [as=new] [parent=…] [title=…] [for=<query>] [freeze=all] [with='{"prop":"value"}']` writes a template out as a new note (props, `self` and `now` filled; `this`, `parent` and bare keys left as `{{ }}`; `for=` once per match, a match already stamped skipped), recorded as you, opening nothing; a prop the template needs and you left out is refused with the call that works. `use.fill [line=N] with='{"prop":"value"}'` gives a `::use` line the props it needs (`ctrl+z` / `use.undo` takes them back); the person is asked in the power bar instead.
 - **New notes and pages** (every screen, PIE-544): `note.new text=… [near=<id>|inbox=true]` makes a note where the
   outline's placement rule puts it (under `near`, else the top of the Inbox; a `near` that's gone is refused, with
   the `inbox=true` command to run instead), as you, said on the status bar (with no door open: `ep0ch new "<text>"

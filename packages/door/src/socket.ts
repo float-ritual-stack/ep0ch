@@ -127,7 +127,7 @@ export interface ProposalsBeside { blockId: string; revision: number; proposals:
 /** One row of the whole-outline index: everything but the full text. `depth`: 0 for a top-level note. */
 export interface IndexBlock {
   id: string; parentId: string | null; position: number; depth: number; title: string; author: string;
-  createdAt: number; updatedAt: number; props: Record<string, string>; hasChildren: boolean;
+  createdAt: number; updatedAt: number; properties: { key: string; value: string }[]; hasChildren: boolean;
 }
 export type { BacklinkCollection, BacklinkSource } from "./backlinks";
 /** The service's record of one committed change (PIE-399), on content events and from `changes.since`. */
@@ -223,7 +223,6 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   createdAt: b.createdAt ? Date.parse(b.createdAt) : 0,
   updatedAt: b.updatedAt ? Date.parse(b.updatedAt) : 0,
   author: b.actorId ?? b.author ?? null,
-  props: Object.fromEntries((b.properties ?? []).map(p => [p.key, p.value])),
   revision: b.revision,
   properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
   ...(b.text === undefined ? { partial: true } : {}),
@@ -233,16 +232,6 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
 /** A writer that is an extension (`ext:jira`): the service attributes every extension write that way. */
 export const isExtensionWriter = (author: string | null | undefined) => !!author?.startsWith("ext:");
 
-/**
- * Every property token in a text as the service's save-time parser reads it (PIE-401 `properties.preview`):
- * key, value, scope (block / line / inline), where it sits, and the `ordinal` `properties.patch` addresses.
- * Ordinals count every token (hashtags too) and hold only for exactly that text.
- */
-export interface PropertyRecord {
-  key: string; value: string; raw: string; start: number; end: number; line: number; column: number;
-  placement: "metadata-line" | "trailing-metadata" | "inline"; syntax: "bracket" | "bare" | "hashtag";
-  ordinal: number; scope: "block" | "line" | "inline";
-}
 /** How the service reads one `((id^fragment|label))` (`references.resolve`). */
 export interface ReferenceResolution {
   blockId: string; fragmentId?: string; label?: string;
@@ -253,6 +242,9 @@ export interface ReferenceResolution {
 export interface PageResolution { address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
+import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
+import type { PropsSpec, SiteAnswer, SiteLink } from "@ep0ch/outline-core/site";
+import type { TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
 /**
@@ -312,6 +304,7 @@ export type CreatePlan =
 /** A step's status: outline-core's checklist grammar (checklist-marks.ts, PIE-811). */
 export type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
 import type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
+import { prop, propValues } from "./props";
 /** One checklist step as `checklist.query` reads it. */
 export interface ChecklistStep {
   itemId?: string; identity: "unassigned" | "unique" | "duplicate"; status: StepStatus; evidence: string;
@@ -595,6 +588,11 @@ export class SocketBoard implements Board {
     return this.request("extensions.undo", { undo, mutation: requesterOf(actor) });
   }
 
+  /** End one running script (`scripts.stop`) by its run id (the undo its start answered with); `stopped` is false when it isn't running. */
+  stopScript(run: string, actor: Actor = USER): Promise<{ run: string; stopped: boolean }> {
+    return this.request("scripts.stop", { run, mutation: requesterOf(actor) });
+  }
+
   /** What an action asks for (`extensions.args`, PIE-784): each declared argument with its choices on `blockId` and its value when not given. */
   extensionArgs(extension: string, action: string, blockId?: string): Promise<{ args: ExtensionArgChoice[] }> {
     return this.request("extensions.args", { extension, extensionAction: action, ...(blockId ? { blockId } : {}) });
@@ -767,6 +765,33 @@ export class SocketBoard implements Board {
     return { address: r.address, status: r.status, ...(r.block ? { block: toMsg(r.block) } : {}) };
   }
 
+  /**
+   * A template written out as a new note (PIE-533 S4, `template.stamp`): the service fills the stamp's own values and makes
+   * the note (or one per `for` match), recorded as `actor`'s. Never retried blindly.
+   */
+  async templateStamp(req: { of: string; parent?: string; title?: string; props?: Record<string, string>; for?: string; freeze?: string; as?: string; into?: string }, actor: Actor = USER): Promise<{ template: { id: string; title: string }; stamped: { id: string; title: string; parentId: string | null; blocks: number; frozen: number; for?: string }[]; skipped: { for: string; stamped: string }[]; warnings: string[]; said: string }> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    return this.request("template.stamp", { ...req, ...who });
+  }
+
+  /** The props a template declares (`template.props`): what a person is asked before it is stamped. */
+  templateProps(of: string): Promise<{ template: { id: string; title: string; how: string }; spec: PropsSpec; problems: string[] }> {
+    return this.request("template.props", { of });
+  }
+
+  /** The call a `::use` line makes (`template.use`), once; a drawing asks it watched (src/template-use.ts). */
+  templateUse(block: string, line: number, draft?: string): Promise<TemplateUseAnswer> {
+    return this.request("template.use", { block, line, ...(draft !== undefined ? { draft: { text: draft } } : {}) });
+  }
+
+  /**
+   * What the `{{ }}` of a note read as (PIE-533 `site.answer`): the service resolves, the door draws. `draft` is the note's
+   * unsaved text, so values agree with what is on screen. A service without it answers an error (the placeholders stay text).
+   */
+  async siteAnswer(blockId: string, draft?: string, call?: { chain?: SiteLink[]; props?: Record<string, string[]> }): Promise<SiteAnswer> {
+    return this.request<SiteAnswer>("site.answer", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}), ...(call?.chain?.length ? { chain: call.chain } : {}), ...(call?.props ? { props: call.props } : {}) });
+  }
+
   /** Every property token in `text`, as the service parses it (PIE-401). */
   async propertyRecords(text: string): Promise<PropertyRecord[]> {
     return (await this.request<{ tokens: PropertyRecord[] }>("properties.preview", { text })).tokens;
@@ -885,7 +910,7 @@ export class SocketBoard implements Board {
     return order.map(b => ({
       id: b.id, parentId: b.parentId ?? null, position: b.position ?? 0, depth: b.depth ?? 0, title: String(b.preview ?? "").trim() || "(untitled)",
       author: b.actorId ?? b.author ?? "?", createdAt: Date.parse(b.createdAt), updatedAt: Date.parse(b.updatedAt),
-      props: Object.fromEntries((b.properties ?? []).map((p: any) => [p.key, p.value])), hasChildren: !!b.hasChildren,
+      properties: (b.properties ?? []).map((p: any) => ({ key: p.key, value: p.value })), hasChildren: !!b.hasChildren,
     }));
   }
 
@@ -1067,7 +1092,7 @@ export class SocketBoard implements Board {
    */
   async untargeted(noteId: string, shown: readonly string[]): Promise<Array<{ id: string; why: string }>> {
     const known = new Set(shown);
-    const stray = (await this.children(noteId)).filter(child => child.props.type === "annotation" && !known.has(child.id)).slice(0, 20);
+    const stray = (await this.children(noteId)).filter(child => prop(child, "type") === "annotation" && !known.has(child.id)).slice(0, 20);
     const found: Array<{ id: string; why: string }> = [];
     for (const { id } of stray) {
       try { await this.request("annotations.get", { annotationId: id }); } catch (error) { found.push({ id, why: error instanceof Error ? error.message : String(error) }); }
@@ -1211,7 +1236,7 @@ export class SocketBoard implements Board {
   }
   /** The outline's Inbox: the root the service made it as (`[system-view::inbox]`), or null. */
   async inboxId(): Promise<string | null> {
-    return (await this.roots()).find(r => [r.props["system-view"]].flat().includes("inbox"))?.id ?? null;
+    return (await this.roots()).find(r => propValues(r, "system-view").includes("inbox"))?.id ?? null;
   }
 
   /**

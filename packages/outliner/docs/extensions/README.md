@@ -41,8 +41,8 @@ An ask in a live draft uses that draft holder's dispatcher for `act`, under the 
 when the person authored the script. A saved ask or rule has no door: service calls work, while `act`
 reports that it needs a connected door. Run those UI scripts from the power bar or a live draft.
 
-QuickJS codemode runs on a worker. Code has the host API's `tools.*`, `q(query)`, `read(ref)` and
-`act(name, args)`; `act` uses the connected door's dispatcher. Disk, network and imports stay in folder
+QuickJS codemode runs on a worker. Code has the host API's `tools.*`, `q(query)`, `read(ref)`, `resolve(path)`,
+`wait(ms)` and `act(name, args)`; `act` uses the connected door's dispatcher. Disk, network and imports stay in folder
 extensions. Saving a malformed source still saves the block; the registry reports its problem.
 
 Starting a run returns immediately with its progress note and undo receipt. Each completed host call
@@ -59,6 +59,35 @@ Outside agents use MCP `script_run` with a script block's `ref` or `uri`. They r
 the gateway's existing access setting and proposal handler apply to each write. Propose access produces
 proposals, full access applies writes, and read/none cannot start a run. Automatic agent-written views
 remain a later scripting slice.
+
+### A script in its Site (PIE-955)
+
+A script reads where it runs without an id written in it, as a template or a `{{ }}` does:
+
+- `this`: the note the run is about, as its record (`this.title`, `this.properties`, `this.fields`, `this.tasks`…). A
+  rule-fired script gets the matched block; a key or power-bar run gets the note in front of the person; an agent's
+  `act ext.<id>.run block=<id>` names it. With none, every `this.*` read says "this run has no note; pass at= or run
+  it from a note".
+- `self`: the script's own note, as a record. `caller`: `{ block, line? }`, where it was invoked (a rule's matched
+  note, a handler line). `props`: its slots, every key a list (`week=42` is `props.week[0]`); a js script's `props.x`
+  uses are offered as optional arguments by the power bar and `ext ls`.
+- `read(ref)` returns the note's record (header, body, properties, fields, tasks, links, backlinks) with
+  `outline_read`'s `children`, `depth` and `limit`. `resolve(path)` answers like `{{ path }}` through the service's one
+  resolver (`site.answer`): `{ values, links?, route }` or `{ problem: { message, didYouMean, example } }`, never an empty
+  string for a typo. `q("parent:this")` binds `this` to the run's note.
+- A returned string shows as plain text; `{ view }` or one `view.table(…)` itself as a table or card; the rest as JSON.
+- `wait(ms)` sleeps and ends with the run. A run ends at its deadline (`[deadline::2m]`, at most five minutes) and
+  says so; `scripts.stop` (`script.stop run=<undo id>` in the door) ends one run, naming who stopped it.
+- A run that writes into its own note goes on: the source is the code of its fence, so only an edit of the code ends a
+  run.
+- A run note is machinery (`[machine::script]`): it counts for no backlink.
+
+**Render mode.** `[mode::render]` makes the script a handler: a line `name::` (with `week=42` words as `props`) draws
+what the script returns under the line, live. It is the one producer path of every handler line (the output store and
+`inputs`, with the notes the script read and their revisions, so it redraws when one changes and never on a keystroke),
+it writes no run note, and it refuses `[effects::write]` (the script isn't served, `ext ls` says why). Drawing the
+same line again leaves every block and revision as it was. A `::= expression` line is a one-line render-mode script:
+`::= (await resolve('this.owner')).values[0]`.
 
 ## Keys and secrets
 
@@ -367,19 +396,30 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 
 ```json
 {
-  "block": { "id": "…", "text": "…(16 000 characters at most)", "revision": 4, "properties": [{ "key": "status", "value": "doing" }] },
+  "block": { "id": "…", "title": "Heap", "text": "…(16 000 characters at most)", "revision": 4,
+             "properties": [{ "key": "status", "values": ["doing"] }, { "key": "tags", "values": ["compost", "leaves"] }],
+             "fields": [{ "key": "due", "value": "friday", "scope": "inline", "line": 2, "column": 10, "offset": 41 }],
+             "header": [{ "key": "status", "value": "doing" }], "body": "…", "tasks": [], "children": ["…"], "…": "…" },
   "line": { "index": 1, "text": "horoscope:: virgo" },
-  "children": [{ "id": "…", "text": "…" }],
-  "ancestors": [{ "id": "…", "title": "…" }],
+  "children": [{ "id": "…", "title": "Bin", "text": "…", "properties": [{ "key": "size", "values": ["big"] }], "fields": [] }],
+  "ancestors": [{ "id": "…", "title": "…", "properties": [{ "key": "type", "values": ["runbook"] }] }],
   "now": "2026-10-01T09:00:00.000Z"
 }
 ```
 
+- `block` and each of `children` are **records** (outline-core's `BlockRecord`, the shape `ep0ch find --json` gives), built
+  from the note's text, so a value is read from `properties` (each key once, its `values` in order: a repeated key
+  adds, `[a, b]` is two, a plain `a, b` is one) and `fields` (a property of a line or a spot in it, where it starts),
+  never found by a regex over `text`. They carry no `links`, `backlinks` or `resources` (`truncated` says so).
 - `block.text` is the block's whole saved text (16 000 characters at most): its first line with its properties, and
-  every line under it, fences and `key::` lines included. A door's unsaved draft isn't in it.
-- `children` are the block's first 50 children, each its text (2 000 characters at most).
+  every line under it, fences and `key::` lines included. A door's unsaved draft isn't in it. `block.title` is its
+  first line without its properties.
+- `children` are the block's first 50 children, each a record with its text (2 000 characters at most).
 - `ancestors` are every block above it, **the outline's top first and the block's parent last** (so the nearest is
-  `ancestors.at(-1)`), each its id and its first line (200 characters at most).
+  `ancestors.at(-1)`), each its id, its first line (200 characters at most) and its `properties` (as a record has them).
+
+A block an extension reads through its own connection (`outline get`, `children`, `blocks.query`) is the service's wire
+block, whose `properties` are `[{ "key", "value" }]`, one entry per occurrence.
 
 ## Handler lines
 
@@ -695,7 +735,7 @@ changes the note's text.
 
 ```json
 "rules": [
-  { "id": "card", "match": { "property": "type=meeting" }, "decorate": { "place": "above" } },
+  { "id": "card", "match": { "property": "type=meeting" }, "decorate": { "place": "prepend" } },
   { "id": "bands", "match": { "kind": "heading:1", "under": "<a block id>" }, "decorate": { "use": "band", "pattern": "stack", "align": "center" } },
   { "id": "stamp", "match": { "property": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" } }
 ]
@@ -722,10 +762,10 @@ after the last).
 
 | Field | Meaning |
 |---|---|
-| `place` | `above`, `below`, `replace` (in its place) or `around`. Default: a band or divider replaces, a box goes around, the rest above. A whole block's `replace` and `around` are `above`. With `match.text` also `span` (ADR 0004 contract 6: the characters the pattern hit, `hit.span`, drawn in `tone` on a capped-dark surface; the publisher a `<mark>`) and `margin` (a card beside them: the reader's margin column when it's wide, under the passage when it isn't) |
+| `place` | `prepend` (before what matched), `append` (after it), `replace` (in its place) or `around`: the Placement words every producer shares. Default: a band or divider replaces, a box goes around, the rest prepends. A whole block's `replace` and `around` are `prepend`. With `match.text` also `span` (ADR 0004 contract 6: the characters the pattern hit, `hit.span`, drawn in `tone` on a capped-dark surface; the publisher a `<mark>`) and `margin` (a card beside them: the reader's margin column when it's wide, under the passage when it isn't) |
 | `use` | a built-in decoration, no code: `band` (a heading in three rows of glyph track, PIE-599's banner), `divider` (one row of track), `card` (the block's title and `fields`), `badge`, `text`, `box` |
 | `style` | a `band` or `divider` draws with this heading style ([heading styles](../../../../CHANGELOG.md), PIE-599: `[heading-style::name]` declarations and the built-ins `band`, `tab`, `waffle`, `uptime`, `dots`, `rule`, `fade`); `pattern`, `align` and `tone` go over it. Default: `band` (a divider: `fade`) |
-| `label`, `tone`, `fields`, `pattern`, `align` | the built-in's words (a template: `{title}`, `{text}`, `{level}`, `{$1}`, any property `{status}`), tone, the card's property keys, the band's glyphs (`stack`, `waffle`, `uptime`, `dots`, `rule`) and where its words sit |
+| `label`, `tone`, `fields`, `pattern`, `align` | the built-in's words (a `{{ }}` template: `{{this.title}}`, `{{match.text}}`, `{{match.level}}`, `{{match[1]}}`, any property `{{this.status}}`; a name the block lacks is empty), tone, the card's property keys, the band's glyphs (`stack`, `waffle`, `uptime`, `dots`, `rule`) and where its words sit |
 | `deadline` | a code rule's call |
 
 Without `use`, the service runs the extension's **`decorate`** operation for each hit:
@@ -742,7 +782,7 @@ runs again when the block's revision changes, showing the last one (`stale`) mea
 
 ```json
 { "rule": "ext:meeting-card/card", "name": "meeting-card/card", "source": { "kind": "extension", "extension": "meeting-card", "rule": "card" },
-  "hit": { "at": "block", "line": 0, "end": 1, "text": "Committee" }, "place": "above", "status": "ready",
+  "hit": { "at": "block", "line": 0, "end": 1, "text": "Committee" }, "place": "prepend", "status": "ready",
   "view": { "type": "card", … }, "markdown": "**Committee** …", "ranAt": "…" }
 ```
 
@@ -789,7 +829,7 @@ A note with `[rule-name::name]` is a rule, with the outline (like `[callout-type
 
 ```text
 Committee headings [rule-name::committee-bands] [rule-under::((<id>))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]
-Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees] [rule-label::{title} at {where}]
+Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees] [rule-label::{{this.title}} at {{this.where}}]
 Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [rule-tone::warn]
 ```
 
@@ -822,7 +862,7 @@ props' keys`):
 { "id": "mood", "title": "Mood", "intro": "How a standup went.", "where": "`[mood::…]` on a standup's note",
   "props": [{ "key": "mood", "where": "line", "type": "enum", "meaning": "how it went",
               "values": [{ "value": "calm", "meaning": "nothing on fire" }, { "value": "stormy", "meaning": "something is" }] }],
-  "source": { "use": "Standup [mood::{mood}]" }, "example": { "mood": "calm" },
+  "source": { "use": "Standup [mood::{{props.mood}}]" }, "example": { "mood": "calm" },
   "sweep": ["mood"], "grids": [], "space": ["mood"] }
 ```
 
@@ -831,7 +871,7 @@ props' keys`):
   `query`; for the settings card's pickers `action`, `writers`, `duration`, `property`, `node`), `meaning`, and as they apply `values` (each `{ value, meaning }`), `min` and `max`, `default`, `samples`
   (values worth drawing for a type with no list), `token` (how it's written when that isn't `[key::value]`), `use`
   (the source to show this property with).
-- `source.use`: the text a variation writes, `{key}` a value and `{yaml}` the YAML properties given; `source.note`
+- `source.use`: the text a variation writes, `{{props.key}}` a value and `{{props.yaml}}` the YAML properties given; `source.note`
   (`{ title, name, value, uses?, requires? }`): the declaring note a variation writes when it sets a `note` property.
   A note carrying `name` (and every key in `requires`) is one of these: the door's settings card (`,`) draws its `note`
   properties as fields, a section per component a note is (echonet's `echonet-area` requires `query`).
@@ -999,8 +1039,9 @@ actions yet; `r` is its path today.
 
 - **Fields from the note** (PIE-828): `"fieldsFrom": "block"` beside (or instead of) `args` makes the action also ask
   for the fields the block it runs on writes, one chip per field: `[form-field::<name> <type> [<options>] [required]
-  [default=<value>]]`, the type `text`, `number`, `choice` (options split by `|`: `mood choice good|meh|rough`) or
-  `property`, names as declared arguments' (not one the request uses). One action then serves every note that writes
+  [default=<value>]]`, the type `text`, `number`, `choice` (options split by `|`: `mood choice good|meh|rough`),
+  `property`, `note` or `tag`, names as declared arguments' (not one the request uses; a template's props, which are these
+  same chips, may use `with` and `color`). One action then serves every note that writes
   its own form, and the form is edited where it's used. The service reads the chips (outline-core's `form-fields.ts`),
   lists them after the declared ones in `extensions.args` on that block (each `fromBlock: true`), checks the answers the
   same way, and tells the action the note's form as `input.fields` (`[{ name, type, options?, required?, default? }]`).
@@ -1302,6 +1343,33 @@ to do: `… was saved since it was read (revision 4, now 5); read it again`.
 
 The calls an extension makes most, with what each takes and answers, are [the call reference](#the-call-reference)
 below.
+
+### Reading in the Site: `site.answer` with `self`, `props` and `interpolate` (PIE-533 S4)
+
+An extension that fills `{{ }}` in text it owns (a command, a message) asks the service; it carries no parser, no
+resolver and no substitution of its own. `site.answer` (an extension's connection may read it) binds a Site for the call
+and reads the text in it:
+
+```jsonc
+{ "action": "site.answer",
+  "blockId": "<the note the call is about: `this`>",
+  "self": "<the extension's definition note: `self`>",   // optional
+  "props": { "env": ["staging"] },                        // the call's arguments, every key a list
+  "interpolate": { "text": "deploy --env {{props.env}} --name {{self.name}}", "fences": "template" } }
+```
+
+The answer's `interpolated.text` is the text with every placeholder that has a value replaced (a list joins with `, `;
+the rest stay as written), and `interpolated.values` carries each one's `values`, or its `problem` with `didYouMean` and an
+example, plus `head` (which part of the Site answered: `self`, `props`, `this`, `((id))`, a bare key), `from` (the note the
+values were read from) and `route`. `fences: "template"` reads placeholders inside code fences too (a step's command lives in
+one); by default a fence is literal.
+
+What an extension does with that is its own: the **runbook** is the proof. It asks with the step as `this`, the runbook note
+as `self` and the run's arguments as `props`; refuses a step when any value has a `problem`; trusts a value whose `head` is
+`self` and whose `from` is the runbook note (its author's); and holds every other value (a prop, a parent, a `((id))`, a
+clock, a link followed from `self`) to the shell check, refusing the step otherwise. Nothing in outline-core, the service or
+the door names the runbook; everything it uses (`site.answer`, `children`, `create`, `update`, `secrets.group`) is this
+contract, and a new extension gets the same.
 
 ### Writes anywhere, through the normal paths
 
@@ -2056,7 +2124,7 @@ Both built with no core change, working around these. Wave 2 closed them:
   }, {
     "id": "jira", "handlers": [{ "key": "jira", "kind": "resource", "effects": "read", … }], …
   }],
-  "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{key}" }],
+  "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{{key}}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
   "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"],
@@ -2139,7 +2207,7 @@ An extension that calls an outside API is shown the same way, with the outside w
    the extension no secret in the showcase. Don't install an extension that names a real group into a showcase
    without one: its first call would send the person's real token to the real service.
 3. **A section and its test.** The section shows what the person would see (the extension's lines, its schedule in the
-   extensions list, the notes it wrote), and `packages/door/test/showcase.test.ts` opens it, runs the action through
+   extensions list, the notes it wrote), and `packages/door/test/showcase/` opens it, runs the action through
    `act` (`ext.<id>.<action>`) and checks what the fake was sent and what the outline holds.
 
 ### Worked example: "sync my starred items from an outside API every hour"

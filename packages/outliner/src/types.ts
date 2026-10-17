@@ -155,22 +155,9 @@ export interface BlockEditActivityPage {
   cursor: number;
 }
 
-export type PropertyPlacement = "inline" | "trailing-metadata" | "metadata-line";
-export type PropertyScope = "block" | "line" | "inline";
+export type { PropertyPlacement, PropertyRecord, PropertyScope, PropertySyntax } from "@ep0ch/outline-core/property-parse";
+import type { PropertyRecord, PropertyScope } from "@ep0ch/outline-core/property-parse";
 export type PropertyQueryScope = PropertyScope | "all";
-export type PropertySyntax = "bracket" | "bare" | "hashtag";
-
-export interface PropertyRecord extends BlockProperty {
-  ordinal: number;
-  raw: string;
-  start: number;
-  end: number;
-  line: number;
-  column: number;
-  placement: PropertyPlacement;
-  scope: PropertyScope;
-  syntax: PropertySyntax;
-}
 
 /**
  * How the save-time parser reads a draft. Nothing is stored: a client compares
@@ -1464,7 +1451,15 @@ export type QueryExpression =
    * block with what sits under it (a ticket page's `[status::]` with its
    * Jira record's `jira.status`).
    */
-  | { kind: "property"; key: string; value?: string; relation?: "child"; /** `child>=N:`: at least N children have it (default 1). */ count?: number }
+  | {
+    kind: "property"; key: string; value?: string; relation?: "child"; /** `child>=N:`: at least N children have it (default 1). */ count?: number;
+    /**
+     * `key={{this.project}}`: the value is read from the Site when the question is bound (`bindThis`), as an operand: the
+     * values it gives are compared as values, never pasted into the query text, so one that holds `OR` or a quote can't
+     * change the query. A list means any of them; none matches nothing. Never present once bound.
+     */
+    from?: string;
+  }
   | { kind: "time"; field: QueryTimeField; op: QueryComparison; value: string }
   /**
    * `due <= +3d`, `rating > 3`, `stage >= beta`: any property against a bound, as dates when the bound reads as one
@@ -1963,6 +1958,11 @@ export type OutlinerRequestAction =
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[] }
+  | ({ id: string; action: "site.answer" } & import("@ep0ch/outline-core/site").SiteAnswerRequest & WatchFields)
+  /** The call a `::use` line makes (PIE-533 S4): the template, the props resolved and checked, the chain to draw its body in. Reads only. */
+  | ({ id: string; action: "template.use" } & import("@ep0ch/outline-core/template-use").TemplateUseRequest & WatchFields)
+  /** The props a template declares, for asking for them before a stamp or a use. Reads only. */
+  | { id: string; action: "template.props"; of: string }
   /** Each block's link facets (kind, stage, dates), as an Outlink's target carries them: the links model's children and query rows (PIE-693). Reads only. */
   | { id: string; action: "blocks.facets"; blockIds: string[] }
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
@@ -2183,6 +2183,8 @@ export type OutlinerRequestAction =
       author?: BlockAuthor;
       provenance?: BlockProvenance;
     }
+  /** A template written out as a new note, props filled (PIE-533 S4, src/template-stamp.ts); `for` stamps once per match. */
+  | ({ id: string; action: "template.stamp" } & import("./template-stamp").TemplateStampRequest)
   | { id:string; action:"mentions.ingest"; message:MentionMessage }
   | { id:string; action:"mentions.list"; scope?:MentionScope; limit?:number }
   | { id:string; action:"mentions.message"; messageKey:string }
@@ -2448,6 +2450,7 @@ export type OutlinerRequestAction =
    * `{ undone, extension, action, written }`.
    */
   | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
+  | { id: string; action: "scripts.stop"; run: string; mutation?: MutationProvenance }
   | { id: string; action: "scripts.run"; blockId: string; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance }
   | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }
   /**

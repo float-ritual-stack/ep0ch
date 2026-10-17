@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scratchOutline } from "./scratch-outline";
-import { parsePropertyRecords } from "../src/properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 

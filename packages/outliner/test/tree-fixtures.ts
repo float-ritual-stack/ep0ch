@@ -1,5 +1,5 @@
 import { authoredTextDigest } from "../src/authored-links";
-import { firstLineWithoutPropertyTokens } from "../src/properties";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceDisplayText, resolveBlockReferencesWithStatus } from "../src/references";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { Block, TreeIndexBlock, VisibleBlock } from "../src/types";

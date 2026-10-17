@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "runbook",
-  "version": 2,
+  "version": 4,
   "name": "Runbook",
   "description": "A note is a runbook: each step is a command block you run by name, secrets join a step from a with-secrets group at run time, and every run is recorded under the step.",
   "demo": "demo",
@@ -42,14 +42,31 @@
       "on": "handler:run",
       "key": "x",
       "effects": "write",
-      "description": "Runs the step's command (its first code fence) with its secrets group, and records the run under it. An apply step is the person's, and needs confirm=<its confirm word>."
+      "description": "Runs the step's command (its first code fence) with its secrets group, and records the run under it. An apply step is the person's, and needs confirm=<its confirm word>.",
+      "args": [
+        {
+          "name": "confirm",
+          "type": "text",
+          "label": "Confirm",
+          "description": "the word an apply step needs (its --confirm=<word>; default apply)"
+        }
+      ]
     },
     {
       "id": "run-all",
       "label": "Run the runbook",
       "on": "block",
       "effects": "write",
-      "description": "Runs a [type::runbook] note's steps in order and stops at the first one that fails or is not an agent's to run. Records each run under its step."
+      "description": "Runs a [type::runbook] note's steps in order and stops at the first one that fails or is not an agent's to run. Records each run under its step. The note's own [form-field::name text] chips are the run's props ({{props.name}}), asked for in the door.",
+      "args": [
+        {
+          "name": "confirm",
+          "type": "text",
+          "label": "Confirm",
+          "description": "the word an apply step needs (its --confirm=<word>; default apply)"
+        }
+      ],
+      "fieldsFrom": "block"
     }
   ],
   "configSchema": {

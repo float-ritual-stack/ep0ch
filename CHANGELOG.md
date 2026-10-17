@@ -10,6 +10,241 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Install rewrites the old brace forms (PIE-533, landing)
+
+`ep0ch install --apply` runs the brace sweep on every outline, after the schema step and before the host starts: rule
+labels and places, `actions` slots and a runbook's `{{env}}` (now `{{self.env}}`). It looks first and writes nothing when
+no note needs it; only then does it stop the host (the sweep refuses a served file), and it says what it changed per
+outline. Each outline is one transaction and one attributed change (`brace-sweep`), so every previous text is in its
+revisions, and a second install changes nothing. `ep0ch install` (without `--apply`) lists the step.
+
+### Templates: `::use`, `template.stamp`, and the runbook on the shared grammar (PIE-954, S4 of PIE-533)
+
+What you can now do: write a template once and use it two ways. Draw it live where a page says
+`::use{of=[[meeting-template]] date=2026-10-14 with=Jay}`, or write it out as a note of its own to edit.
+
+- **`::use` draws a template live.** Its body is drawn in place with `this` the page the line is on, so `{{this.title}}`
+  in the template is that page's title, also inside a figure, `::fields` or `::if` in its body; `{{props.with}}` is what
+  the line passed. Edit the template and every page that uses it redraws.
+- **A template declares its props** with `[form-field::with text required]`, `[form-field::mood choice good|meh
+  default=good]` chips (text, number, choice, note, tag; `required`, `default=`; a default may be a path:
+  `default={{parent.owner}}`). A prop written on the line that the template doesn't declare is a warning with the nearest
+  name (`stauts` → did you mean `status`?); a value outside a choice's options says the nearest option; a required one
+  left out is asked for by a press (the picker of its kind), or refused with the call that works.
+- **A prop can be a path.** `status={{parent.status}}`, or `owner="[[evan schultz]].firstName"` / `ref=((id)).status`
+  written as a person writes them, are read in the page's own Site before the template is drawn.
+- **`template.stamp` writes the filled text as a new note.** `ep0ch act template.stamp of='[[daily-template]]' as=new
+  parent='[[Daily notes]]' title='{{now.date}}'` makes today's daily note: `props.*`, `self.*` and `now.*` become text now;
+  `this.*`, `parent.*`, a bare key and a reference stay as `{{ }}` and read where the note lands (`freeze=all` writes those
+  too). `for=<query>` stamps once per match (each is `props.for`, `{{props.for.title}}`) and skips a match already stamped
+  from the template. The template's own chips are not stamped; `[template-for::meeting]` becomes the new note's
+  `[type::meeting]`, and `[from-template::((id))]` says where it came from. The person is asked, in the power bar, for the
+  template and for what it needs; an agent names it (`with='{"who":"Jay"}'`).
+- **Templates are found by what they make, too.** `of=type:meeting` is the one note that says `[template-for::meeting]`.
+- **The runbook runs on the shared grammar** (breaking for runbooks: see its CHANGELOG). A step's `{{self.env}}` is the
+  runbook note's own value, `{{props.env}}` a value the run is given; the service fills them. A placeholder with no value,
+  or a value from anywhere but the runbook note that could build a command, stops the step. `ep0ch install --apply` rewrites
+  an old step's `{{env}}` to `{{self.env}}`.
+- **The last single-brace expanders are gone from the grammar's neighbourhood:** an extension's resource link
+  `browse/{{key}}` reads `{{ }}`; intake's archive command takes `%word%` (an extension's own argv, not a note's text).
+- **A stamped note carries no generated step ids** (`^t-3fa9c1`, a step made addressable): they were the template's steps' addresses, and nothing links to the new note's, so an agent can fill a placeholder step in without declaring an identity change (PIE-818's first request; a name the author wrote, `## Log ^log`, is kept).
+- **Kitchen sink:** the section "Templates" (`ep0ch --showcase`, `act section name=templates`).
+- Wire: new service reads `template.use` (watched) and `template.props`, and write `template.stamp`; `site.answer` takes
+  `interpolate` (a text filled in the Site; the runbook's step) and answers `interpolated` and each value's `head`.
+  `form-field` types `note` and `tag`; a template's fields may be named `with` and `color`, the names an action's
+  request reserves. No `PROTOCOL` change in this slice.
+
+### Notes that read themselves: `::fields`, `::if` and one figure orchestrator (PIE-953, fourth slice of PIE-533)
+
+What you can now write in a note, and what it does:
+
+- **`::fields{key=connectTo}`** lists every place the note wrote that key, one row per occurrence with its line. A row
+  opens its own line, lit, found again by the text it was written as, so it still works after edits above it; a row
+  appears as soon as a line is saved. `of=((id))` lists another note's. A row's `¶` anchors its line when you ask
+  (`fields.anchor`, by click, `⏎` or `act`) and gives you `((note^anchor))`; drawing it never writes.
+- **`::if{where="status=active"}` … `::`** draws its lines only while the note matches the query (the views' grammar,
+  `{{this.owner}}` operands bound). A query it can't read hides the body and says why. Its body holds Blockdown but no
+  other component (components don't nest yet).
+- **A figure copied onto two pages lists each page's own** (`query: type=ticket project={{this.project}}`), including
+  drawn inside another note (`site.answer` takes the `chain`), and takes call-site args: `::graph-table{project=lego}`
+  reads `{{props.project}}`.
+- **One orchestrator.** A figure's question (view or query, groups, `done:`/`now:`, a stat's per-item counts) and a
+  figure block's child bullets are asked of the service once, in the figure's Site (`site.answer` with `produce`); the
+  door and the published pages both draw that answer, and a page cuts it to the notes it may show. The child-bullets
+  query now leaves out proposals as well as comments.
+
+For people who run things: no `PROTOCOL` bump in this slice (the wave bumps it once at landing). Wire: `site.answer`
+takes `produce` and answers `produced`; `blockId` may be left out for a figure asked outside any note; a
+`.fields.` path answers `offsets` too; `blocks.query`/`query.matches` are unchanged.
+
+### Scripts in their Site (PIE-955, S5 of PIE-533)
+
+What changes for a script: it knows which note asked, takes slots, draws in place, and can be stopped.
+
+- **The Site's globals.** A script reads `this` (the note it is about: a rule's matched block, the note in front of a key
+  press, `block=` of an agent's act), `self` (its own note), `caller` and `props` (`week=42` is `props.week[0]`; the
+  power bar offers every `props.x` the code reads). No id is written in the script: the Showcase's seed report no longer
+  looks itself up.
+- **Reads.** `read()` returns the note's record (header, body, properties, fields, tasks, links, backlinks) with its
+  children. `resolve("this.owner")` answers as `{{this.owner}}` does, with a did-you-mean for a typo. `q("parent:this")`
+  binds `this`. A returned string shows as plain text; one `view.table(…)` is drawn without wrapping it.
+- **Render mode.** `[mode::render]` makes a script a handler: a `name:: week=42` line draws what it returns under the
+  line, live, redrawn when a note it read changes. It writes no run note and refuses `[effects::write]`. A `::= expression`
+  line is a one-line render-mode script. The kitchen sink has a "Scripts in place" section.
+- **Running.** A script that writes into its own note keeps running (only an edit of its code ends a run). `wait(ms)` is
+  bounded by the script's deadline (`[deadline::2m]`, five minutes at most). `script.stop run=<id>` (`scripts.stop`)
+  ends one run. A run note is machinery (`[machine::script]`): lists, queries and what-changed leave it out by default, and
+  it counts for no backlink. The backlink relation now leaves out every note stamped `[machine::…]` as a source
+  (deliveries, tosses, receipts too); `links:` and `linkedfrom:` are unchanged. An action run now stops at five
+  minutes unless the script says `[deadline::…]` (it was unbounded).
+- Wire: `site.answer` takes `self` and `caller`; new service action `scripts.stop`. No `PROTOCOL` bump of its own.
+
+### Notes that read themselves: `::fields`, `::if` and one figure orchestrator (PIE-953, fourth slice of PIE-533)
+
+What you can now write in a note, and what it does:
+
+- **`::fields{key=connectTo}`** lists every place the note wrote that key, one row per occurrence with its line. A row
+  opens its own line, lit, found again by the text it was written as, so it still works after edits above it; a row
+  appears as soon as a line is saved. `of=((id))` lists another note's. A row's `¶` anchors its line when you ask
+  (`fields.anchor`, by click, `⏎` or `act`) and gives you `((note^anchor))`; drawing it never writes.
+- **`::if{where="status=active"}` … `::`** draws its lines only while the note matches the query (the views' grammar,
+  `{{this.owner}}` operands bound). A query it can't read hides the body and says why. Its body holds Blockdown but no
+  other component (components don't nest yet).
+- **A figure copied onto two pages lists each page's own** (`query: type=ticket project={{this.project}}`), including
+  drawn inside another note (`site.answer` takes the `chain`), and takes call-site args: `::graph-table{project=lego}`
+  reads `{{props.project}}`.
+- **One orchestrator.** A figure's question (view or query, groups, `done:`/`now:`, a stat's per-item counts) and a
+  figure block's child bullets are asked of the service once, in the figure's Site (`site.answer` with `produce`); the
+  door and the published pages both draw that answer, and a page cuts it to the notes it may show. The child-bullets
+  query now leaves out proposals as well as comments.
+
+For people who run things: no `PROTOCOL` bump in this slice (the wave bumps it once at landing). Wire: `site.answer`
+takes `produce` and answers `produced`; `blockId` may be left out for a figure asked outside any note; a
+`.fields.` path answers `offsets` too; `blocks.query`/`query.matches` are unchanged.
+
+### Notes that read themselves: values in every reader (PIE-952, fourth slice of PIE-533)
+
+What you can now do: write `Play it at {{this.target}}. Owner: {{this.owner}}.` in a note and see the value, not the
+braces, in the door, in Detail's preview, on a published page, in `ep0ch show` and in what an agent reads. The editor
+shows what you typed.
+
+- **The door's reader** draws a value in place, lightly marked as computed (italic; a URL in a link's colour). ⏎ or a
+  click on it (or `[ ]` to it first) lights the line it is written on, said in the banner (`the line this.owner reads`),
+  or says it is computed (`now.date`) or why it has no value. Selecting the drawn words and commenting anchors on the
+  whole `{{this.owner}}`, not on a lookalike word elsewhere on the line.
+- **A typo never loses the save.** `{{this.ownr}}` is saved as typed and drawn dimmed as `{{this.ownr}} · did you mean
+  owner?`; fix it and the value redraws. Values follow a change to any note they were read from.
+- **The property panel (`i`) lists the values read here** under the properties: what each says, what it reads as (or why
+  not) and the note it came from. Detail's property inspector does the same.
+- **Detail's read preview** shows the values line for line; a comment on a drawn value anchors on its token.
+- **Published pages** carry the value in the HTML. A value that read a note the page may not show (a locked note, a note
+  outside a share or a public page) says *hidden here* and names nothing; a bare key is not supplied by an ancestor the
+  page may not show, nor any above it.
+- **`outline_read` returns `site`** for a note that holds a `{{ }}` (`values`, `problems`, `route`, `deps`);
+  `ep0ch show <id> --site` prints the same as a line of JSON with the text.
+- **Kitchen sink:** the section "Notes that read themselves" (`ep0ch --showcase`, `act section name=values`).
+- Wire: `site.answer` takes `hidden` (notes the reader may not see), answers `hidden` and `source` (the property token a
+  value is written in) per value; `outline_read` has `site`. No `PROTOCOL` change in this slice.
+
+### The Site: one read for what a note says about itself (PIE-951, third slice of PIE-533)
+
+What changes for an agent, a script or a figure: a note's own values, its parent's, its ancestors', another note's and
+the clock are read through one resolver, with a route that says how each was found. (The door, Detail and the web draw
+`{{this.target}}` in the next slice; this one is the service and the tool.)
+
+- **`site.answer`** (new, watched) answers a note's `{{ }}` placeholders and any `paths` asked: `this.owner`,
+  `parent.project`, a bare `project` (the nearest value up the outline), `((id)).query` (a unique id prefix works; an
+  ambiguous one lists its matches), `[[page]].title`, `person.firstName` through a link value, `this.tasks | status=todo
+  .count`, `this.children | type=task`, `now.date-1d`, `props.week`, `caller.line`. Every key is a list. A missing key is
+  a problem with a did-you-mean and an example, never an empty string. `draft` reads unsaved text; `chain` reads a note as
+  drawn inside another (a `::use` in a host keeps the host as `this`; an embed starts fresh).
+- **`outline_site`** (the Claude mod; `outliner agent site`) is the same read for an agent.
+- **Properties win over record fields.** A note that writes `[created::…]` or `[actor::…]` (hundreds do) gets its
+  property from `this.created`; `this.$created` is always the record's. A key with a dot is `this.echo.node` or
+  `this["echo.node"]`.
+- **Links in values.** A value that is a `((id))`, a `[[page]]`, a Work ID or an id of 8 or more hex characters is tried
+  as a note: exactly one match is a link (shown by its title), anything else is plain text, silently. No key is special
+  (a `commit::` value is text unless it names one note).
+- **Tasks take open or done from the checkbox**, not a chip: `status` (the chip, else the box), `box` and `state`
+  (`open` or `done`) on `this.tasks`.
+- **A question can take a value from the note:** `where: project={{this.project}}` binds the note's values as an
+  operand (any of a list, nothing for none); a value holding `OR` or a quote cannot change the query. One figure copied
+  onto two pages lists each page's own.
+- **Watches name their notes.** A watched `site.answer` is evaluated again only when a change touched a note it was
+  computed from.
+- A figure takes call-site arguments (`::graph-table{project=lego}`) as props under its YAML, and a YAML value that starts
+  with `{{` stays text instead of parsing as a map.
+- Wire: `site.answer`, `outline_site` and the new `Site` types; nothing to run on a machine.
+
+### One property shape for clients and extensions (PIE-950, second slice of PIE-533)
+
+What changes for an agent or an extension author: a property is read from the note's record, never from a flattened
+`key → value` map that kept only the last of a repeated key.
+
+- **`outline_read`** (the mod's tool, the MCP gateway's and a script's `read()`) answers `properties` as
+  `[{ key, values }]`, each key once with its values in order, as `ep0ch find --json` does, and a new `fields` for
+  the properties of a line or a spot in the text (with where they start). It was a map from key to a value or a list.
+  Absorbs PIE-572.
+- **An extension's `context`** carries `block` and each of `children` as records (`properties` as `{ key, values }`,
+  `fields`, `header`, `title`, `text`) instead of `properties: [{ key, value }]`. An extension reads a value from them,
+  not by a regex over `text`: notify, readwise, gallery, columns, glyphs, meeting-card, echonet and runbook do now
+  (the runbook's `{{name}}` fills from the runbook note's properties the same way, and a run's status and exit code
+  from the run's record). An extension that read `context.block.properties[i].value` reads `values` now.
+- **A figure** reads each note it draws through the same record (`FigureItem.properties`), and the mod reads the
+  Recent files page's `[file-touches::…]` globs from `outline_read`'s `properties` and `fields`, so a glob with a
+  brace's comma, a front-matter one and one further down the page all count, and one in code doesn't.
+- **A figure written without its `---` lines** (`::graph-table` then `query:` and `columns:` lines) is read as
+  Markdown rows, so its props never arrived. It now says so, in outline-core's words, in the door (the figure and the
+  reader's list of what a note leaves open), in Detail (a line after the figure), on a published page (in the figure)
+  and in a save's warnings (PIE-941).
+- **The door** reads a note's properties from its list (`Msg.properties`, with `prop(m, key)` and `propValues(m, key)`),
+  not from `Msg.props`, a map that kept only the last value of a repeated key and left a `[a, b]` list as one string. A
+  repeated key now reads its first value, and a list its first element (`system-view` asks every value).
+- The showcase's seed and tests are split by area (`src/showcase/seed/*.ts`, `test/showcase/*.test.ts`), so a new
+  section is a new file. Nothing changes on screen.
+- The MCP `pending.body` fences a queued edit `⟦pending <id>⟧…⟦/pending⟧`, not `{{pending <id>}}…{{/pending}}`, so
+  the note's `{{ }}` values (coming) can never mistake it for one.
+
+### Grammar collisions: colours, dividers, `::` and `@name` (PIE-950, PIE-533)
+
+- A `#word` that is a hex colour (`#00e5ff`, `#fff`, `#1a2b3c`) is not a tag: 3, 4, 6 or 8 hex digits, with a digit among
+  them, or 6 or more, or one digit repeated. Short hex-letter words (`#bed`, `#cafe`, `#fade`) stay tags; `#facade` reads as
+  a colour, and `[tag::facade]` says tag. The property parser version is 12, so
+  every outline reparses once.
+- A file whose first line is a `---` divider with a blank line before the next `---` is a divider, not empty front
+  matter (the front-matter block is the first paragraph, as PIE-684 says), so importing it no longer swallows the text
+  between the dividers.
+- Tests pin the other collisions: `---` as a figure fence, a rule or a table row; `std::vec` and `Foo::bar` mid-prose
+  are neither a component nor a property; an `@name` wakes an agent only at a line start and only for a name an agent answers (`@e_p82 said…`, `@tidy.host`, `me@tidy.host` and `ask @tidy` wake nothing).
+
+### One placeholder grammar, `{{ path || default }}` (PIE-950, PIE-533)
+
+The three single-brace templates are one. A rule's label, an `actions` fence's slots and a component's `use` snippet all
+read outline-core's `interpolation.ts`: `{{this.title}}`, `{{match.text}}`, `{{match[1]}}`, `{{props.tag}}`,
+`{{props.week || main}}`. A `{{` in a code span, a fence or a literal region stays as written, and `\{{` is a literal
+`{{` anywhere. A slot is filled per argument value, after the line is split into words, so a value holding `x tile=other`
+or `"; layout.load` is one value and can't become another argument or action. A component's `{…}` attributes and a handler
+line's `--option=value` words read quotes as a shell's words do (`query="a b"`, `'a b'`, `a\ b`).
+Rule placement uses the words every producer will share: `[rule-place::prepend|append|replace|around]` (`above` is now
+`prepend`, `below` is `append`; a rule note still saying them is told so).
+
+**What you must run:** the sweep rewrites your rule notes and scripts (`{title}` becomes `{{this.title}}`, `{slot}` in an
+`actions` fence becomes `{{props.slot}}`, `above` and `below` become `prepend` and `append`). `outliner sweep
+<database.sqlite>` prints the diff and writes nothing; adding `--apply` (host stopped) writes it as one attributed change,
+and a second run changes nothing. The landing runs it for each outline in the install step. An extension's own
+`extension.json` writing `"place": "above"` or `{key}` in a component's `use` is yours to edit. The runbook keeps its own `{{name}}` until it is rebuilt.
+
+### One parser, one scope walk, one path resolver (PIE-950, first slice of PIE-533)
+
+Nothing changes on screen. The property parser (`parsePropertyRecords` and its strip and title helpers), the property
+summary line and the scope walk ("the nearest key") moved into outline-core, so the service, the door and the mod read
+properties with one copy; the door's copies of the `PropertyRecord` type and the summary are gone. A block record's
+`fields` now say the `column` and `offset` of each inline or line property. New in outline-core, not yet used by a
+client: `resolvePath` (`this.key`, `parent.key`, `props.x` and a bare `key` answered from a note's record, with
+did-you-mean for a missing key) and the `Site` and `PropsSpec` types it reads. The comment on `propertyValueLinks` no
+longer says `[blocks::PIE-12, PIE-14]` is two links: a plain value's commas are one value, and a list is written in
+brackets (#604).
+
 ### The Claude mod is called ep0ch (PIE-971)
 
 The mod's plugin name is now `ep0ch` (it was `pi-outliner`): its tools read `mcp__ep0ch__outline_read` and the rest,

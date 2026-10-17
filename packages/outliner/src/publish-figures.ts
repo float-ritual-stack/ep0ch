@@ -325,6 +325,14 @@ export function linksHtml(title: string, groups: readonly LinkGroupHtml[], foot:
   return figureFrame("links", title, body, foot, error);
 }
 
+/** A `::fields` component (S3): one row per occurrence of a key, with the line it is written on; a value that links a shown note is a link. */
+export function fieldsHtml(title: string, rows: readonly { text: string; line: number; href?: string | null }[], foot: string, error = ""): string {
+  const body = rows.length
+    ? `<ul class="fig-list fig-fields">${rows.map(r => `<li>${r.href ? `<a href="${esc(r.href)}">${esc(r.text)}</a>` : esc(r.text)} <span class="dim">line ${r.line + 1}</span></li>`).join("")}</ul>`
+    : `<p class="dim">nothing written yet</p>`;
+  return figureFrame("fields", title, body, foot, error);
+}
+
 /** Dark, quiet, in the page's type; tabs are radios, so `:checked` picks the panel (up to MAX_TABS of them). */
 export const FIGURE_STYLE = `
 .fig{margin:1.25rem 0;padding:.75rem .9rem;border:1px dotted var(--rule);border-radius:.35rem;overflow-wrap:anywhere;font:15px/1.5 ui-sans-serif,system-ui,sans-serif}

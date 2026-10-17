@@ -26,7 +26,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000
 type Rect = { col: number; row: number; cols: number; rows: number };
 
 describe("without a service", () => {
-  const note = (text: string) => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {} });
+  const note = (text: string) => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [] });
   const host = (): SurfaceHost => ({ ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
 
 

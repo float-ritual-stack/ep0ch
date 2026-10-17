@@ -36,6 +36,7 @@ import { C, ellipsize, fg, pad, RESET, selected as lit, width } from "./style";
 
 export { ALL_LINK_GROUPS, blockGroups, isLinkGroup, LINK_BLOCK_KINDS, LINK_GROUPS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkGroupName, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
 import { ALL_LINK_GROUPS, blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
+import { prop } from "./props";
 
 // ── the model ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ export interface ChildLink { block: Msg; facets?: AuthoredTargetFacets }
 export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<BacklinkCollection>; children?: Load<ChildLink[]>; matches?: Load<ChildLink[]> }
 
 /** A comment or its reply is a block under the note too; it lists with Backlinks (kind Comment), never as a child. */
-export const isAnnotationBlock = (m: Msg) => m.props.type === "annotation" || m.props.type === "annotation-reply";
+export const isAnnotationBlock = (m: Msg) => prop(m, "type") === "annotation" || prop(m, "type") === "annotation-reply";
 
 /**
  * The notes under `id` as the Children group lists them: the service's children (comments left out), each with the
@@ -91,7 +92,7 @@ export interface ThreadData {
 /** How far up a thread is followed, so a loop in the data ends. */
 export const THREAD_DEPTH = 12;
 /** The note a post answers (its `replyTo`, which R stamps wherever the reply is kept); a post that answers none is a thread's root. */
-export const replyToOf = (m: Msg): string | null => m.props.replyto ?? m.props.replyTo ?? null;
+export const replyToOf = (m: Msg): string | null => prop(m, "replyto") ?? prop(m, "replyTo") ?? null;
 
 /**
  * The thread `note` is in, as the service answers it: each post's parent is the note its `replyTo` names, and the posts at a level are the replies the
@@ -457,7 +458,7 @@ export type LinkBoard = Pick<SocketBoard, "get" | "resolvePage" | "describeResou
 function unregisteredNote(link: AuthoredResourceLink): Msg {
   const w = resourceWords(link), at = Date.now();
   const text = `${link.label}\n*not registered yet*\n\nThis resource isn't registered in the outline yet, so nothing is stored for it. ⏎ (or a double click) registers it and shows what it holds.`;
-  return { id: `${RESOURCE_NOTE}unregistered:${link.key}`, text: w.problem ? `${link.label}\n\n${w.context}` : text, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "resource", props: {} };
+  return { id: `${RESOURCE_NOTE}unregistered:${link.key}`, text: w.problem ? `${link.label}\n\n${w.context}` : text, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "resource", properties: [] };
 }
 
 /**

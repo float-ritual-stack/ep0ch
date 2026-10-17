@@ -156,10 +156,10 @@ describe('the formatter: one row per tool', () => {
   })
 
   test('the read tools: one quiet line each', () => {
-    const read = toolRowOf(done('outline_read', { ref: NOTE }, { id: NOTE, title: 'Seed swap plan', revision: 3, properties: { page: 'Seed Swap', crop: 'beans' }, children: [{}, {}] }))
+    const read = toolRowOf(done('outline_read', { ref: NOTE }, { id: NOTE, title: 'Seed swap plan', revision: 3, properties: [{ key: 'page', values: ['Seed Swap'] }, { key: 'crop', values: ['beans'] }], children: [{}, {}] }))
     expect(words(read)).toBe('⌕ read Seed swap plan · 2 properties · 2 children · rev 3')
     expect(read!.kind).toBe('read')
-    expect(words(toolRowOf(done('outline_read', { ref: 'PIE-12' }, { title: 'Bare', revision: 1, properties: {}, children: [] })))).toBe('⌕ read PIE-12 · rev 1')
+    expect(words(toolRowOf(done('outline_read', { ref: 'PIE-12' }, { title: 'Bare', revision: 1, properties: [], children: [] })))).toBe('⌕ read PIE-12 · rev 1')
     expect(words(toolRowOf(done('outline_find', { text: 'dropdown menu' }, { blocks: [{ id: NOTE, title: 'Menus' }], complete: false }))))
       .toBe('⌕ find "dropdown menu" · 1 hit+')
     expect(words(toolRowOf(done('outline_find', { property: 'crop=leek', under: 'PIE-12' }, { blocks: [], complete: true }))))
@@ -168,12 +168,13 @@ describe('the formatter: one row per tool', () => {
       .toBe('⌕ changes since 2026-03-01T00:00:00Z by garden-agent · 1 block')
     expect(words(toolRowOf(done('outline_resolve', { ref: '[[Seed Swap]]' }, { id: NOTE, title: 'Seed swap plan' })))).toBe('⌕ resolve Seed Swap · → Seed swap plan')
     expect(words(toolRowOf(done('show', { reference: 'PIE-12' }, 'Shown')))).toBe('⌕ show PIE-12')
+    expect(words(toolRowOf(done('outline_site', { ref: 'PIE-12' }, { values: [{}], paths: [{}, {}], problems: 1 })))).toBe('⌕ site PIE-12 · 3 values, 1 problem')
   })
 
   test('every tool the mod draws has a row for a usual input', () => {
     expect([...WRITE_TOOLS, ...READ_TOOLS].sort()).toEqual([
       'note_section', 'outline_assign_id', 'outline_changes', 'outline_comment', 'outline_create', 'outline_edit', 'outline_find', 'outline_move', 'outline_patch', 'outline_read',
-      'outline_reply', 'outline_resolve', 'outline_resolve_thread', 'outline_restore', 'outline_set_property', 'outline_trash', 'show', 'view_order', 'work_body', 'work_complete', 'work_create',
+      'outline_reply', 'outline_resolve', 'outline_resolve_thread', 'outline_restore', 'outline_set_property', 'outline_site', 'outline_trash', 'show', 'view_order', 'work_body', 'work_complete', 'work_create',
       'work_deliver', 'work_link', 'work_set', 'work_stage',
     ])
   })

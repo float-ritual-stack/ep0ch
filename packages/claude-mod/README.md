@@ -367,13 +367,14 @@ copy from the marker down.
 
 | Tool | Input | Returns |
 |---|---|---|
-| `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500) | full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete` |
+| `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500) | full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete`, and for a note that holds a `{{ }}` its `site`: the service's answer for each placeholder (`values`, or a `problem` with the nearest keys), how it was found (`route`) and the notes it came from (`deps`), while `text` stays what the author wrote |
 | `outline_find` | `text?`, `property?` (`key=value` or `key`), `hasKey?`, `query?`, `under?`, or `view?`; `limit?` | rows: `id`, `title`, `revision`; `complete` |
 | `outline_resolve` | `ref` | `id`, `title`, `revision`, `workId`, `fragmentId` |
 | `outline_edit` | `ref`, `expectedRevision`, one of `text`, `replaceSection {heading, body}`, `append`; `allowStructural?` | the new `revision`, a short `diff`, and with `allowStructural` what it `dropped` |
 | `outline_create` | `parent` (a ref or `root`), `text`, `position?` | `id`, `ref`, `revision` |
 | `outline_comment` | `ref`, `body`, `quote` (with `start`/`prefix`/`suffix` when it repeats) or `whole: true`, `kind?` (the thread's `[kind::…]`: `patch-note`, `question`…; the same as `properties.kind`; one no other thread has is kept and warned about, with the kinds in use), `properties?`, `requestId?` | the `thread` id |
 | `outline_reply` | `thread`, `body`; or `edit` (a posted comment's or reply's id), `observed` (its words as read), `body` | the `reply` id; an edit: the `mark`, its new `revision` and when it was `edited` (it stays its author's, shown as edited by you; a comment changed since you read it is refused) |
+| `outline_site` | `ref`, `paths?` (`this.owner`, `parent.project`, `this.tasks \| status=todo`, `now.date-1d`), `draft?`, `chain?`, `props?`, `line?` | what the note's `{{ }}` placeholders and the paths resolve to by the outline's one resolver: `values` (always lists), or a `problem` with a did-you-mean and an example, each with its `route`; `links`; `deps`; `problems` |
 | `outline_resolve_thread` | `thread`, `resolved` | the thread's `lifecycle` |
 | `outline_components` | `components?` (ids; all when left out) | `ep0ch library --brief` for this session's outline: per component its purpose, where it goes, each property as `key: values (default) — meaning`, a minimal example. Run from the bound folder, so the outline's own styles and types and its extensions' components appear |
 | `outline_bind` | `name`, `machine?` | Binds this session's outline, workboard and mention tools to the outline `name` for the rest of the session (`/outline <name> [machine]` is the same call). It beats `EP0CH_WS` and every folder; an outline that does not exist is refused with the ones that do. Every "not bound" refusal names this call with a real name |
@@ -449,7 +450,7 @@ answer say, and the tree).
 - **Writes** (`outline_edit`, `outline_patch`, `outline_set_property`, `outline_assign_id`, `outline_move`, `outline_trash`, `outline_restore`, `outline_create`, `outline_comment`, `outline_reply`,
   `outline_resolve_thread`, `note_section`, `work_*`, `view_order` with `ids`): a verb glyph, the note (its Work ID,
   page or title; a block id's title is looked up once a session, off the draw) and the change. **Reads**
-  (`outline_read`, `outline_find`, `outline_changes`, `outline_resolve`, `show`) are one dim line.
+  (`outline_read`, `outline_find`, `outline_changes`, `outline_resolve`, `outline_site`, `show`) are one dim line.
 - **The note is a button:** pressed, it opens where a reference in a reply opens ([Where a note opens](#where-a-note-opens)).
 - **`▸` unfolds** what the write wrote, as Markdown: an append's text, a replace's or patch's diff, a new block's or
   item's body, a comment with its quote, a view's new order (a find's hits, a changes listing). `▾` folds it. At most

@@ -1,4 +1,5 @@
 import type { Decoration } from "./extension-rules";
+import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { mayHaveResourceProjections, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { mayHaveHandlerLines } from "./extension-handlers";
 import {presentedSource, projectedBlockReference} from './document-source';
@@ -9,6 +10,8 @@ import {isChecklistView,projectChecklistView} from './checklist-views';
 import { resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING } from "./transclusions";
 import { propertyReferenceOccurrences } from "./reference-occurrences";
+import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, markdownValueWords, pairValues, problemWords, valueWords } from "@ep0ch/outline-core/site-values";
+import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { blockDisplayTitle } from "./references";
 import { propertySummarySegments } from "./property-summary";
 import {
@@ -90,7 +93,12 @@ export interface DetailReadProjection {
   embedRanges: DetailEmbedRange[];
   /** Resource projections shown in this read, for change matching. Absent when none were read. */
   resourceProjections?: readonly ResourceProjection[];
+  /** The note's `{{ }}` as the service read them (PIE-533 S2), for the property inspector's "Values read here". Absent when it holds none. */
+  valueBindings?: readonly DetailValueBinding[];
 }
+
+/** One `{{ }}` of the note read: what it said, what it reads as (or why it doesn't), and where it came from. */
+export interface DetailValueBinding { expression: string; words: string; problem?: string; from?: string; route: string }
 
 interface ProjectedEmbed {
   text: string;
@@ -605,7 +613,7 @@ export async function learnDetailRules(requester: DetailEmbedRequester): Promise
  * the source is never hidden here. It rides the projection slot, so a decoration that lands later redraws the note.
  */
 export function decorationProjection(decoration: Decoration): ResourceProjection {
-  const line = decoration.hit.at === "block" ? 0 : decoration.place === "below" || decoration.place === "around" ? decoration.hit.end - 1 : decoration.hit.line;
+  const line = decoration.hit.at === "block" ? 0 : decoration.place === "append" || decoration.place === "around" ? decoration.hit.end - 1 : decoration.hit.line;
   const shown = decoration.status === "ready" || decoration.status === "stale";
   return {
     anchor: { kind: "directive", line, start: 0, end: 0 },
@@ -738,12 +746,54 @@ async function readProposalsBeside(requester: DetailEmbedRequester, blockId: str
   }
 }
 
+/**
+ * What the sysop console says about a construct the note left open that changes what it draws (PIE-941: a figure whose
+ * props have no `---` lines), as a line after the construct. The door lists every open construct; Detail keeps the
+ * note as written and says only this, in outline-core's words.
+ */
+function noticeRegions(text: string): InsertedRegion[] {
+  return syntaxWarnings(text).filter(warning => warning.kind === "figure").map(warning => ({
+    line: warning.end ?? warning.line, lines: [`⚠ ${warning.message}`], indent: false, reason: "syntax notice", range: () => ({}),
+  }));
+}
+
 function proposalRegions(beside: readonly { afterLine: number; projected: ProjectedEmbed }[]): InsertedRegion[] {
   return beside.map(({ afterLine, projected }) => ({
     line: afterLine, lines: projected.text.split("\n"), indent: false, reason: "proposal beside the note",
     ...(projected.provenance ? { provenance: projected.provenance } : {}),
     range: (startLine: number) => projected.source ? { source: { ...projected.source, contentStartLine: startLine + 1 } } : {},
   }));
+}
+
+/**
+ * The note's `{{ }}` as the preview reads them (PIE-533 S2): each replaced by the service's `site.answer` words, a value
+ * as its words, one with no answer as typed and what the service says (the nearest key). A replaced token is one atomic run
+ * whose origin is the token's source, so a comment on a drawn value anchors on the `{{ }}`. Never adds or removes a line.
+ * The editor shows source: this is the read projection only. The text sent is the one on screen, so the values agree with it.
+ */
+async function withSiteValues(requester: DetailEmbedRequester, hostBlockId: string | undefined, source: MappedDocument): Promise<{ source: MappedDocument; bindings: DetailValueBinding[] }> {
+  const bindings: DetailValueBinding[] = [];
+  if (!hostBlockId || !source.text.includes("{{")) return { source, bindings };
+  let answer: SiteAnswer;
+  try { answer = await requester.request<SiteAnswer>({ action: "site.answer", blockId: hostBlockId, draft: { text: source.text } }); }
+  catch { return { source, bindings }; }
+  const pairs = pairValues(source.text, answer.values.slice(0, MAX_NOTE_VALUES)).filter(pair => pair.value);
+  if (!pairs.length) return { source, bindings };
+  const parts: MappedDocument[] = [];
+  let cursor = 0;
+  for (const pair of pairs) {
+    const v = pair.value!;
+    const raw = source.text.slice(pair.start, pair.end);
+    parts.push(sliceDocument(source, cursor, pair.start));
+    // Literal in the preview's Markdown and in the outline's own grammars: a value never becomes a link, an embed or emphasis.
+    const words = hasWords(v) ? markdownValueWords(valueWords(v) || EMPTY_VALUE, v) : `${raw} (${problemWords(v)})`;
+    bindings.push({ expression: v.expression, words: hasWords(v) ? valueWords(v) || EMPTY_VALUE : "", ...(hasWords(v) ? {} : { problem: problemWords(v) }), ...(v.from ? { from: v.from } : {}), route: v.route.join(" → ") });
+    const slices = sliceDocument(source, pair.start, pair.end).runs.flatMap(run => run.origin.kind === 'source' ? run.origin.slices : []);
+    parts.push(slices.length ? atomicDocument(words, {kind: 'source', slices}) : generatedDocument(words, 'site value'));
+    cursor = pair.end;
+  }
+  parts.push(sliceDocument(source, cursor));
+  return { source: concatDocuments(parts), bindings };
 }
 
 export function detailEmbedIds(text: string): string[] {
@@ -757,8 +807,10 @@ export async function projectDetailRead(
 ): Promise<DetailReadProjection> {
   if (options.source && options.source.text !== text) throw new Error('Projection source must match its input text');
   const host = options.hostBlockId ? observeDocument({kind: 'block', blockId: options.hostBlockId}, text, options.hostRevision) : null;
-  const source = options.source ?? (host ? presentedSource(host) : generatedDocument(stripFragmentAnchors(text), 'host identity unavailable'));
+  const presented = options.source ?? (host ? presentedSource(host) : generatedDocument(stripFragmentAnchors(text), 'host identity unavailable'));
+  const { source, bindings: valueBindings } = await withSiteValues(requester, options.hostBlockId, presented);
   const projectedSource = source.text;
+  const valued = valueBindings.length ? { valueBindings } : {};
   const pendingProjections = options.hostBlockId
     ? readDetailResourceProjections(requester, text, options.hostBlockId, options.hostRevision)
     : Promise.resolve(null);
@@ -788,14 +840,14 @@ export async function projectDetailRead(
       afterLine: proposal.afterLine,
       projected: await projectEmbed(requester, proposal.id, undefined, options.hostBlockId, () => loadTarget(proposal.id), loadTarget, loadPhysicalBlocks),
     })));
-    return { regions: [...resourceRegions(projections ?? []), ...proposalRegions(proposals)], projections };
+    return { regions: [...resourceRegions(projections ?? []), ...noticeRegions(text), ...proposalRegions(proposals)], projections };
   };
   const matches = embedMatches(projectedSource, text);
   if (matches.length === 0 && !isChecklistView(text)) {
     const { regions, projections } = await insertedRegions();
-    if (!regions.length) return { text: projectedSource, provenance: source, embeds: [], embedRanges: [] };
+    if (!regions.length) return { text: projectedSource, provenance: source, embeds: [], embedRanges: [], ...valued };
     const inserted = insertRegions({ text: projectedSource, provenance: source, embedRanges: [] }, [], regions);
-    return { ...inserted, embeds: [], ...(projections?.length ? { resourceProjections: projections } : {}) };
+    return { ...inserted, embeds: [], ...(projections?.length ? { resourceProjections: projections } : {}), ...valued };
   }
 
   const cache = new Map<string, Promise<ProjectedEmbed>>();
@@ -890,5 +942,5 @@ export async function projectDetailRead(
     }catch(error){const failure=`Checklist view unavailable · ${boundedError(error)}`;output+=failure;mappedParts.push(generatedDocument(failure, 'checklist query failure'));}
   }
   return { text: output, provenance: concatDocuments(mappedParts), embeds, embedRanges,
-    ...(projections?.length ? { resourceProjections: projections } : {}) };
+    ...(projections?.length ? { resourceProjections: projections } : {}), ...valued };
 }

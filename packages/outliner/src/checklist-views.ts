@@ -3,7 +3,7 @@ import {presentedSource} from './document-source';
 import {observeDocument, concatDocuments, generatedDocument, withDocumentOccurrence, sliceDocument, type MappedDocument} from './document-provenance';
 import {parsePropertyFilterExpression} from './block-query';
 import {queryChecklistItems} from './checklist-items';
-import {parseProperties,parsePropertyRecords} from './properties';
+import { parseProperties, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type {ChecklistSearchQuery, ChecklistSearchCollection} from './types';
 import type {DetailEmbedRequester, DetailEmbedRange} from './detail-embeds';
 

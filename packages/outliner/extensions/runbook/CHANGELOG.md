@@ -1,5 +1,22 @@
 # Changelog
 
+## 4 (2026-10-17)
+
+- **Breaking.** A step's `{{name}}` is no longer the runbook note's property of that name. It is the outline's one
+  `{{ }}` grammar, filled by the service (`site.answer` with `interpolate`), and the Site names where a value is from:
+  `{{self.name}}` (the runbook note's own; trusted), `{{props.name}}` (what the run is given; checked for the shell),
+  any other head (checked the same way). `ep0ch install --apply` rewrites an old step's `{{name}}` to `{{self.name}}`
+  (the brace sweep, its `runbook-step` form).
+- A step with a placeholder that has no value, or a value outside the runbook note that could build a command, does not
+  run; the record says which and what to write.
+- The extension reads no template syntax of its own: the placeholder scan, the value lookup and the substitution are the
+  service's. A list value is all its values joined with `, `.
+- Running the whole runbook asks, in the door, for the runbook note's `[form-field::name text]` chips (the run's props).
+
+## 3 (2026-10-16)
+
+- Reads the runbook's values and each run's status and exit code from the call's records (`context.block`), not by scanning text. A property written twice or as a list is read as the values it holds.
+
 ## 2 (2026-10-10)
 
 - Ships a demo runbook: three steps (a dry one, one that joins a made-up secrets group, one that fails), written under

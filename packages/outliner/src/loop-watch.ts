@@ -93,7 +93,7 @@ export function loopWatched(): boolean {
  * behind every other request, so a note read, a write or a ping is never queued behind a burst of them.
  */
 export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
-  "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "workspace.snapshot",
+  "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "site.answer", "workspace.snapshot",
   "callouts.types", "headings.styles", "styles.list", "components.schemas", "references.backlinks", "checklist.search", "fragments.candidates",
   "pages.complete", "properties.catalog", "properties.inventory", "query.matches", "activity.recent",
 ]);

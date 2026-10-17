@@ -16,6 +16,7 @@
 import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
+import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
@@ -33,6 +34,11 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
+import { textRecord } from "./block-records";
+import type { SiteAnswer } from "@ep0ch/outline-core/site";
+import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
+import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
+import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { isSystemNote, systemNoteKind } from "./note-placement";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
@@ -45,7 +51,6 @@ import type {
   BlockAuthor,
   BlockEditActivityPage,
   BlockReadCollection,
-  BlockProperty,
   BlockSearchQuery,
   MutationProvenance,
   ProjectedBlock,
@@ -96,16 +101,6 @@ function requireRevision(value: unknown): number {
     throw new WorkToolRefusal("Give expectedRevision: the revision outline_read returned");
   }
   return value;
-}
-
-/** Properties as `{key: value}`, a repeated key as a list of its values. */
-function propertyMap(properties: readonly BlockProperty[]): Record<string, string | string[]> {
-  const map: Record<string, string | string[]> = {};
-  for (const { key, value } of properties) {
-    const had = map[key];
-    map[key] = had === undefined ? value : Array.isArray(had) ? [...had, value] : [had, value];
-  }
-  return map;
 }
 
 function workIdOf(block: Block): string | undefined {
@@ -166,6 +161,34 @@ async function writableBlock(client: AgentToolsClient, ref: string): Promise<Blo
   const { block } = await resolveReference(client, ref);
   if (block.effectiveDeletedRootId) throw new WorkToolRefusal(`${block.id} is in Trash; restore it before writing`);
   return block;
+}
+
+/** `outline_site`: what a note's placeholders and the paths asked resolve to, by the service's one resolver (`site.answer`). */
+export async function siteRead(client: AgentToolsClient, input: { ref: string; paths?: string[]; draft?: string; chain?: unknown[]; props?: Record<string, string[]>; line?: number }): Promise<SiteAnswer & { uses?: UseCallRead[] }> {
+  const { block } = await resolveReference(client, input.ref);
+  const answer = await client.request<SiteAnswer>({
+    action: "site.answer", blockId: block.id,
+    ...(input.paths ? { paths: input.paths } : {}), ...(input.draft !== undefined ? { draft: { text: input.draft } } : {}),
+    ...(input.chain ? { chain: input.chain as never } : {}), ...(input.props ? { props: input.props } : {}), ...(input.line !== undefined ? { line: input.line } : {}),
+  });
+  const uses = await useCallsRead(client, block.id, input.draft ?? block.text);
+  return uses.length ? { ...answer, uses } : answer;
+}
+
+/** One `::use` of a note as the service reads it (`template.use`): the template, the props it gets, and what is wrong with the call. */
+export interface UseCallRead { line: number; of: string | null; template?: { id: string; title: string }; props: Record<string, string[]>; problems: TemplateUseAnswer["problems"]; missing: TemplateUseAnswer["missing"] }
+
+/** The `::use` calls `text` holds (at most 8), each as the service reads it in note `blockId`; none for a note that holds none. */
+export async function useCallsRead(client: AgentToolsClient, blockId: string, text: string): Promise<UseCallRead[]> {
+  if (!text.includes("::use")) return [];
+  const out: UseCallRead[] = [];
+  for (const call of useCallsOf(text).slice(0, 8)) {
+    try {
+      const a = await client.request<TemplateUseAnswer>({ action: "template.use", block: blockId, line: call.line, draft: { text } });
+      out.push({ line: call.line + 1, of: call.of, ...(a.template ? { template: { id: a.template.id, title: a.template.title } } : {}), props: a.props, problems: a.problems, missing: a.missing });
+    } catch { /* a call the service can't read says nothing */ }
+  }
+  return out;
 }
 
 export async function resolveRef(client: AgentToolsClient, ref: string): Promise<ResolvedReference> {
@@ -300,7 +323,10 @@ export interface ReadChild {
 
 export interface ReadResult extends ResolvedReference {
   text: string;
-  properties: Record<string, string | string[]>;
+  /** Block-scope properties as the record holds them (outline-core `block-record.ts`): each key once with its values in order. */
+  properties: BlockRecord["properties"];
+  /** Properties of a line or a spot in it (`key:: value` lines, `[key::value]` mid-sentence), where they start. */
+  fields: BlockRecord["fields"];
   author: BlockAuthor;
   actorId?: string;
   updated: string;
@@ -308,6 +334,12 @@ export interface ReadResult extends ResolvedReference {
   children: ReadChild[];
   /** Every descendant to `depth` is here, and none below it was cut off. */
   complete: boolean;
+  /**
+   * What the note's `{{ }}` read as (`site.answer`): each placeholder with its values, or its problem and the nearest keys,
+   * how it was found (`route`), and the notes it was computed from. What the person sees; `text` is what they wrote.
+   * Only a note holding a `{{ }}` has one.
+   */
+  site?: SiteAnswer;
 }
 
 /** How much children's text one read returns at most (the note's own text is always whole). */
@@ -364,19 +396,34 @@ export async function readBlock(
   let children: ReadChild[] = [];
   if (depth > 0) children = await read(block.id, 1);
   else await markMore([{ id: block.id, text: "", revision: block.revision }]);
+  const record = textRecord(block);
+  const site = await readSiteOf(client, block);
   return {
     ...resolved,
     title: blockDisplayTitle(block),
     revision: block.revision,
     text: block.text,
-    properties: propertyMap(block.properties),
+    properties: record.properties,
+    fields: record.fields,
     author: block.author,
     ...(block.actorId ? { actorId: block.actorId } : {}),
     updated: block.updatedAt,
     parentId: block.parentId,
     children,
     complete,
+    ...(site ? { site } : {}),
   };
+}
+
+/** The note's whole `site.answer` (bounded), for a note that holds a `{{ }}`; nothing when it holds none or the service can't answer. */
+async function readSiteOf(client: AgentToolsClient, block: Block): Promise<SiteAnswer | undefined> {
+  if (!block.text.includes("{{") || !interpolationSpans(block.text).length) return undefined;
+  try {
+    const answer = await client.request<SiteAnswer>({ action: "site.answer", blockId: block.id });
+    return answer.values.length > MAX_NOTE_VALUES ? { ...answer, values: answer.values.slice(0, MAX_NOTE_VALUES) } : answer;
+  } catch {
+    return undefined;
+  }
 }
 
 // ─── Find ──────────────────────────────────────────────────────────────────
@@ -392,6 +439,8 @@ export interface FindInput {
   view?: string;
   /** Only under this block. */
   under?: string;
+  /** The note a `parent:this` / `links:this` in the query stands for (a script's Site supplies it; no tool argument names it). */
+  this?: string;
   limit?: number;
   /** `hide` (the default) leaves out what tools wrote for their own bookkeeping (`[machine::…]`); `only` or `show`. */
   machinery?: string;
@@ -452,6 +501,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     ...(given("text") ? { text: input.text } : {}),
     ...(given("query") ? { where: input.query } : {}),
     ...(given("under") ? { subtreeRootId: (await resolveRef(client, input.under!)).id } : {}),
+    ...(given("this") ? { this: input.this } : {}),
     ...(input.machinery !== undefined ? { machinery: machineryInput(input.machinery) } : {}),
   };
   // An older service ignores `where` and would return unfiltered results.
@@ -510,7 +560,24 @@ export function shortDiff(before: string, after: string, max = 40): string {
  * after the write, never a reason to refuse it. A lookup that fails only drops a suggestion; none at all gives no field.
  */
 export async function referenceWarningsFor(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
-  return [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message)];
+  return [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message), ...await useCallWarnings(client, text, self)];
+}
+
+/**
+ * What each `::use` the text holds gets wrong (PIE-533 S4): a prop the template doesn't declare (with the nearest name), a
+ * value outside a choice's options, a required prop left out, a template that isn't there. The service reads the call
+ * (`template.use`, with this text as the host's, so the lines agree); a call it can't ask about says nothing.
+ */
+export async function useCallWarnings(client: AgentToolsClient, text: string, self?: string): Promise<string[]> {
+  if (!self || !text.includes("::use")) return [];
+  const out: string[] = [];
+  for (const call of useCallsOf(text).filter(c => !c.problem).slice(0, 8)) {
+    try {
+      const answer = await client.request<TemplateUseAnswer>({ action: "template.use", block: self, line: call.line, draft: { text } });
+      for (const problem of answer.problems) out.push(`the ::use on line ${call.line + 1}: ${problem.message}${problem.example ? ` (for example ${problem.example})` : ""}`);
+    } catch { /* an older service, a host that is gone: nothing to say */ }
+  }
+  return out;
 }
 
 async function referenceOnlyWarnings(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
@@ -1260,7 +1327,7 @@ export async function settleProposal(client: AgentToolsClient, input: { ref: str
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["proposal-apply", "proposal-dismiss", "read", "find", "resolve", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1283,6 +1350,7 @@ export function runAgentOperation(
     case "read": return readBlock(client, any);
     case "find": return findBlocks(client, any);
     case "resolve": return resolveRef(client, any.ref);
+    case "site": return siteRead(client, any);
     case "edit": return editBlock(client, any, writer());
     case "create": return createBlock(client, any, writer());
     case "comment": return commentOn(client, any, writer());

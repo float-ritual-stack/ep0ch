@@ -68,7 +68,7 @@ describe("terminal cells, not code points", () => {
       const row = historyRow(w * 2 + 3, cjk + cjk, emoji + emoji)!;
       expect(cells(row.line)).toBeLessThanOrEqual(w * 2 + 3);
     }
-    const m = { id: "b1", text: cjk + cjk, props: {} } as any;
+    const m = { id: "b1", text: cjk + cjk, properties: [] } as any;
     expect(cells(titleOf(m, 9))).toBeLessThanOrEqual(9);
     expect(titleOf(m, 9)).toEndWith("…");
     // ellipsize: cut to cells with …, never padded, never half a wide or joined glyph.
@@ -138,7 +138,7 @@ describe("CP437 on the wire", () => {
   test("every glyph the door draws is in the VGA font or has a lookalike in it", () => {
     // Characters only read, never drawn: keys macOS types with Option, key names, a paste's markers, a
     // terminal tile's zero-width second cell.
-    const INPUT_ONLY = new Set([..."∫∂©˙∆˚øœ®†∑™⌫ ￼​"]);
+    const INPUT_ONLY = new Set([..."∫∂©˙∆˚øœ®†∑™⌫ ￼​⟦⟧"]); // ⟦⟧: the fence an MCP receipt puts round a queued edit (sent to a client, never drawn)
     const files: string[] = [];
     const walk = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) { if (f !== "vendor") walk(p); } else if (p.endsWith(".ts")) files.push(p); } };
     const src = join(import.meta.dir, "../src");

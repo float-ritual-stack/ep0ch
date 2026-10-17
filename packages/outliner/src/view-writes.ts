@@ -19,7 +19,8 @@ import { MACHINE_KEY } from "@ep0ch/outline-core/machinery";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { showQueryAtom } from "@ep0ch/outline-core/query-atoms";
 import { normalizeBlockSearchQuery, compileQueryExpression, type QueryRelations, serializePropertyFilterValue } from "./block-query";
-import { firstLineWithoutPropertyTokens, formatProperty, parsePropertyRecords } from "./properties";
+import { formatProperty } from "./properties";
+import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type {
   Block,
   BlockProperty,

@@ -26,7 +26,8 @@ import {
   serializePropertyFilterValue,
 } from "./block-query";
 import { referencedFilePreview, type FileContents } from "./files";
-import { getProperty, parseProperties } from "./properties";
+import { getProperty } from "./properties";
+import { parseProperties } from "@ep0ch/outline-core/property-parse";
 import {
   firstOutlinerReference,
   outlinerLinkUri, parseOutlinerLinkUri,

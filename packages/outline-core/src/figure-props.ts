@@ -9,9 +9,11 @@
 //   - label: value        its Markdown rows (figure-markdown.ts), each kind saying what it makes of them
 //   ::
 
-import { componentBlocks, type ComponentBlock } from "./component-block";
+import { componentAttrs, componentBlocks, type ComponentBlock } from "./component-block";
 import { expandRuns, figureRow, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
 import { readDate } from "./dates";
+import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
+import type { SiteLink } from "./site";
 
 /** A figure's props, from its YAML (or its Markdown, or the outline). */
 export type Props = Record<string, any>;
@@ -32,12 +34,20 @@ export function graphKind(block: ComponentBlock): string | null {
  */
 export interface FigureSource {
   yaml: string; markdown?: readonly string[]; note?: string; block?: boolean;
+  /** The body had its `---` lines (even around nothing). Absent: not known, so an empty `yaml` means it had none. */
+  ruled?: boolean;
   /** Where `markdown` starts in the lines read: a row's `line` plus this is its line among them. */
   at?: number;
+  /** The `{…}` after the figure's name (`::graph-table{project=lego}`): call-site arguments, read as props under its YAML. */
+  attrs?: string;
+  /** Where the figure is drawn: the invocations that draw its note (a `::use` on a host, an embed), outermost first. Absent: the note itself. */
+  chain?: SiteLink[];
+  /** The props of the call that draws it (a `::use`'s, `props.*` in the figure's Site), under its own call-site args. */
+  props?: Record<string, string[]>;
 }
 
 /** A `::graph-*` block's lines (after its first line, to its `::`) as its YAML and its Markdown. */
-export function figureSource(lines: readonly string[], note?: string, block?: boolean): FigureSource {
+export function figureSource(lines: readonly string[], note?: string, block?: boolean, attrs?: string): FigureSource {
   const yaml: string[] = [], markdown: string[] = [];
   let at = -1;
   const rule = (l: string) => /^\s*---\s*$/.test(l);
@@ -51,7 +61,25 @@ export function figureSource(lines: readonly string[], note?: string, block?: bo
     if (dashes !== 1 && at < 0) at = i;
     (dashes === 1 ? yaml : markdown).push(l);
   }
-  return { yaml: yaml.join("\n"), markdown, at: Math.max(0, at), ...(note ? { note } : {}), ...(block ? { block } : {}) };
+  return { yaml: yaml.join("\n"), markdown, at: Math.max(0, at), ruled: open >= 0 && rule(lines[open]!), ...(note ? { note } : {}), ...(block ? { block } : {}), ...(attrs ? { attrs } : {}) };
+}
+
+/**
+ * The warning for a figure written without its `---` lines (PIE-941): a body of only `key: value` lines (a continuation
+ * indented under one is fine) naming at least one of the kind's own YAML props (its schema's: `query:`, `columns:`) is
+ * read as Markdown rows, so those props never reach the figure. `body` is the lines between the figure's first line
+ * and its `::`. null when it isn't that, or has a `---` rule: a `Note: …` caption on a decision is a caption. One
+ * sentence for every surface that draws or lists the figure (the door, Detail, the web, a save's status).
+ */
+export function propsWithoutRules(kind: string, body: readonly string[]): string | null {
+  const lines = body.filter(l => l.trim());
+  const key = /^([A-Za-z][\w-]*):(?:\s|$)/;
+  if (!lines.length || lines.some(l => /^\s*---\s*$/.test(l)) || !lines.every(l => key.test(l) || /^\s+\S/.test(l)) || !key.test(lines[0]!)) return null;
+  const known = new Set(FIGURE_COMPONENT_SCHEMAS.find(s => s.id === `graph-${kind}`)?.props.filter(p => p.where === "yaml").map(p => p.key));
+  const names = lines.flatMap(l => key.exec(l)?.[1] ?? []);
+  if (!names.some(name => known.has(name))) return null;
+  const shown = names.map(name => `${name}:`);
+  return `the ::graph-${kind} has ${shown.slice(0, 3).join(", ")}${shown.length > 3 ? ` and ${shown.length - 3} more` : ""} but no --- lines: they are read as Markdown rows, not properties; put them between --- lines`;
 }
 
 /**
@@ -77,13 +105,24 @@ export function figureSteps(lines: readonly string[]): { line: number; box: numb
 export type ChildRows = (note: string) => { rows: Row[]; waiting: boolean } | null;
 
 /**
+ * A value that starts with `{{` is YAML's flow map (`title: {{this.title}}` parses as an object, or fails), but it is a
+ * `{{ }}` placeholder: quote such a plain value, so it reaches the figure as the text it was written as.
+ */
+export function quoteBraces(yaml: string): string {
+  return yaml.split("\n").map(line => {
+    const m = /^(\s*(?:-\s+)*(?:[A-Za-z_][\w.-]*:\s+)?)(\{\{.*)$/.exec(line);
+    return m ? `${m[1]}"${m[2]!.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : line;
+  }).join("\n");
+}
+
+/**
  * A figure's props: its YAML over what its Markdown rows and (for a figure block, or `rows: children`) its note's child
  * bullets give. The YAML wins: a field it sets is never taken from the Markdown. `children`: the rows came from child
  * notes; `waiting`: they are still being asked for.
  */
-export function figureProps(kind: string, src: FigureSource, childRows?: ChildRows): { props: Props; children: boolean; waiting: boolean } | { error: string } {
+export function figureProps(kind: string, src: FigureSource, childRows?: ChildRows): { props: Props; children: boolean; waiting: boolean; warning?: string; args?: Record<string, string> } | { error: string } {
   let yaml: Props = {};
-  try { yaml = (Bun.YAML.parse(src.yaml) as Props) ?? {}; }
+  try { yaml = (Bun.YAML.parse(quoteBraces(src.yaml)) as Props) ?? {}; }
   catch (e) { return { error: `bad YAML: ${(e as Error).message}` }; }
   if (typeof yaml !== "object" || Array.isArray(yaml)) return { error: "the YAML between --- lines is a map of props (title: …)" };
   const md: Markdown = parseFigureMarkdown(src.markdown ?? []);
@@ -99,7 +138,11 @@ export function figureProps(kind: string, src: FigureSource, childRows?: ChildRo
   const from = FIGURE_MARKDOWN[kind]?.(md, yaml) ?? {};
   // "child notes" only when a field drawn came from them: rows this kind makes nothing of don't count.
   const children = !!kids?.rows.length && rowFields.some(k => k in (FIGURE_MARKDOWN[kind]!({ rows: kids.rows, paragraphs: [], fences: [] }, yaml)));
-  return { props: { ...from, ...yaml }, children, waiting: !!kids?.waiting };
+  // Props written without their `---` lines are drawn as Markdown; the figure says so (PIE-941).
+  const warning = src.ruled || src.yaml.trim() ? null : propsWithoutRules(kind, src.markdown ?? []);
+  // Call-site arguments (`::graph-table{project=lego}`) sit under the YAML and over the Markdown; they are `props.*` to a `{{ }}` in it.
+  const args = src.attrs ? Object.fromEntries(componentAttrs(src.attrs).pairs.map(p => [p.key, p.value])) : undefined;
+  return { props: { ...from, ...args, ...yaml }, children, waiting: !!kids?.waiting, ...(warning ? { warning } : {}), ...(args && Object.keys(args).length ? { args } : {}) };
 }
 
 // ── shared readings ──────────────────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "gallery",
-  "version": 1,
+  "version": 2,
   "name": "Gallery",
   "description": "Rich component: pictures in a view, drawn as a note's image lines are. gallery:: shows the notes under it as cards with their [cover::] picture; pic:: shows one picture.",
   "run": ["bun", "gallery.ts"],

@@ -10,7 +10,7 @@ import { ANCHOR_LINES, ANCHOR_NOTE, BLANK_LABEL_NOTE, PAINT_ID, PAREN_LABEL, PAR
 import { outliner, Scratch } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
-const note = (text: string): Msg => ({ id: "eeeeeeee-5555-4555-8555-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} });
+const note = (text: string): Msg => ({ id: "eeeeeeee-5555-4555-8555-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] });
 
 test("the reader hides each fragment anchor the service finds, and keeps it as the line's anchor (shared fixture)", () => {
   const { text, anchors } = readableSource(note(ANCHOR_NOTE), null);

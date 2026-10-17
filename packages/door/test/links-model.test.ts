@@ -235,7 +235,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
 
   test("refusals: a resource has no links; a screen without room says so; an agent doesn't fold a river column's groups", async () => {
     // A Resource shown in the reader isn't a block.
-    const res = { id: "resource:made-up", text: "rota.md\n\nnothing", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "resource", props: {} };
+    const res = { id: "resource:made-up", text: "rota.md\n\nnothing", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "resource", properties: [] };
     desk.setCurrent(res as Msg);
     await until(() => reader().msg?.id === res.id, "the resource in the reader");
     await expect(D().dispatch.act({ action: "links", tile: "reader" }, USER)).rejects.toThrow("isn't a block");

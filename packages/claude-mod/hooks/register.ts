@@ -1829,7 +1829,7 @@ async function touchGlobsOf($: EngineInterface, option: PluginOptions): Promise<
   let globs: string[] = touchGlobs?.globs ?? []
   try {
     const out = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'read', '--stdin', '--actor', await actorFor($, {})], JSON.stringify({ ref: '[[recent-files]]' })))
-    globs = fileTouchGlobsOf(typeof out?.text === 'string' ? out.text : '')
+    globs = fileTouchGlobsOf(out)
   } catch { /* the page isn't there yet, or the service didn't answer: the globs from before (none at first) */ }
   // Bound elsewhere while the page was read: those globs are another outline's.
   if (references?.workspace === workspace) touchGlobs = { at: now, globs }

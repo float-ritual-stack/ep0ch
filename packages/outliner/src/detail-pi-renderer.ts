@@ -1,3 +1,4 @@
+import type { DetailValueBinding } from "./detail-embeds";
 import {
   HStack,
   VStack,
@@ -169,6 +170,7 @@ export function renderPropertyInspectorDocument(
       count === 1 ? "record" : "records"
     } · [dedicated Detail](${pane})`;
   if (!expanded) return heading;
+  const bindings = valueBindingLines(state.valueBindings ?? []);
 
   const entries = visiblePropertyInspectorEntries(inspector);
   const filter = inspector.filterDraft ?? inspector.filter;
@@ -195,11 +197,11 @@ export function renderPropertyInspectorDocument(
   }
   if (!model || count === 0) {
     lines.push("_No properties._");
-    return lines.join("\n");
+    return [...lines, ...bindings].join("\n");
   }
   if (entries.length === 0) {
     lines.push("_No properties match the current filter._");
-    return lines.join("\n");
+    return [...lines, ...bindings].join("\n");
   }
   lines.push("");
 
@@ -212,7 +214,18 @@ export function renderPropertyInspectorDocument(
       lines.push(...propertyTableLines(state, group.entries, width));
     }
   }
-  return lines.join("\n");
+  return [...lines, ...bindings].join("\n");
+}
+
+/** "Values read here": the note's `{{ }}` as the service read them (PIE-533 S2): what each says, what it reads as, and from which note. */
+function valueBindingLines(bindings: readonly DetailValueBinding[]): string[] {
+  if (!bindings.length) return [];
+  const cell = (text: string) => escapeInspectorMarkdown(text).replace(/\|/g, "\\|");
+  const lines = ["", `### Values read here · ${bindings.length}`, "| Written | Reads as | From |", "| --- | --- | --- |"];
+  for (const b of bindings) {
+    lines.push(`| {{${cell(b.expression)}}} | ${b.problem ? `⚠ ${cell(b.problem)}` : cell(b.words)} | ${b.from ? b.from.slice(0, 8) : "computed"} |`);
+  }
+  return lines;
 }
 
 

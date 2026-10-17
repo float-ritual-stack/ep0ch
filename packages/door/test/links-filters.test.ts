@@ -180,7 +180,7 @@ describe("the header keeps its controls where they are", () => {
 
 // PIE-693: Children is a group in the one model, narrowed and counted as the others are.
 const child = (title: string, f?: AuthoredTargetFacets): ChildLink => ({
-  block: { id: `c-${title}`, text: title, parentId: "me", childIds: [], createdAt: 0, updatedAt: Date.parse(f?.updatedAt ?? "2026-03-01T00:00:00Z"), author: "ana", props: {} } as Msg,
+  block: { id: `c-${title}`, text: title, parentId: "me", childIds: [], createdAt: 0, updatedAt: Date.parse(f?.updatedAt ?? "2026-03-01T00:00:00Z"), author: "ana", properties: [] } as Msg,
   ...(f ? { facets: f } : {}),
 });
 const withChildren = (): LinkData => ({ ...data(), children: { kind: "ready", value: [
@@ -268,7 +268,7 @@ describe("the service sends what an Outlink's target is", () => {
 
 describe("a links tile with Children alone (PIE-693)", () => {
   // A desk that answers children at once and backlinks never: the tile mustn't wait on (or ask) what it doesn't list.
-  const note = { id: "n1", text: "Swap thread", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "ana", props: {} } as Msg;
+  const note = { id: "n1", text: "Swap thread", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "ana", properties: [] } as Msg;
   const kid = { ...note, id: "k1", text: "Ana: beans", parentId: "n1" } as Msg;
   test("lists its replies without asking for backlinks, and says its groups", async () => {
     const { BacklinksPane } = await import("../src/desk/backlinks-pane");
@@ -293,7 +293,7 @@ describe("a links tile that opens its groups, read again on the way back (PIE-82
   // The welcome screen's tile: every kind group opens on a note's first read. A read cut short (the person moved on to
   // another note before its backlinks came) once left a note opened before with its groups shut on the way back: no
   // backlink rows to pick, the welcome tests' "undefined is not an object" on a loaded runner.
-  const note = (id: string) => ({ id, text: id, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "ana", props: {} }) as Msg;
+  const note = (id: string) => ({ id, text: id, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "ana", properties: [] }) as Msg;
   const kettle = note("kettle"), start = note("start");
   test("going back to a note before the other's backlinks come opens its groups again", async () => {
     const { BacklinksPane } = await import("../src/desk/backlinks-pane");

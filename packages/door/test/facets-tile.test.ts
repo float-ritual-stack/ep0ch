@@ -11,6 +11,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 
@@ -123,8 +124,8 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
     const saved = await act("facets.save", { name: "Garden, not week 5" });
     expect(saved).toMatchObject({ name: "Garden, not week 5", query: "plot=garden/* NOT week=5" });
     const view = await board.get(saved.id);
-    expect(view!.props.type).toBe("virtual-branch");
-    expect(view!.props.query).toBe("plot=garden/* NOT week=5");
+    expect(prop(view!, "type")).toBe("virtual-branch");
+    expect(prop(view!, "query")).toBe("plot=garden/* NOT week=5");
     await expect(act("facets.save")).resolves.toBeTruthy();
     await act("facets.clear");
     await expect(act("facets.save")).rejects.toThrow(/nothing is selected/);

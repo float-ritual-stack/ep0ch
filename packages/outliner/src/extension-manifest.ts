@@ -119,7 +119,7 @@ const Handler = Type.Object(
     options: Type.Optional(Type.Record(Type.String({ pattern: EXTENSION_ID_PATTERN }), OptionSpec, { maxProperties: 16 })),
     /**
      * A resource handler's web page for an entity before its first fetch, relative to its Source's origin, `{key}`
-     * the entity's key (Jira's `browse/{key}`).
+     * the entity's key (Jira's `browse/{{key}}`).
      */
     link: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
     /** A data or resource handler's record fields a projection shows, in order. */
@@ -807,6 +807,10 @@ export interface ScriptSource {
   readonly effects: "read" | "write";
   readonly keys?: readonly string[];
   readonly format?: "actions";
+  /** `[mode::render]`: the script is a handler (`name::` lines) that draws what it returns in place and writes nothing. */
+  readonly render?: true;
+  /** `[deadline::2m]`: how long a run may take (at most five minutes). */
+  readonly deadlineMs?: number;
   readonly code: string;
   readonly blockId?: string;
   readonly file?: string;

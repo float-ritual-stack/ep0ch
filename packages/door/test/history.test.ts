@@ -45,7 +45,7 @@ describe("the keys", () => {
 
 describe("a reader's history, without a service", () => {
   const id = (n: number) => `${n}1111111-2222-4333-8444-555555555555`;
-  const note = (n: number, text: string, parentId: string | null = null) => ({ id: id(n), text, parentId, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} });
+  const note = (n: number, text: string, parentId: string | null = null) => ({ id: id(n), text, parentId, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] });
   // The allotment: a long page with a link far down, the note it links to, and the page's parent.
   const filler = Array.from({ length: 30 }, (_, i) => `Row ${i + 1} of the plot.`).join("\n");
   const notes = [
@@ -214,8 +214,8 @@ describe("an agent's scroll and back, where the view doesn't say the reader isn'
   const id = (n: number) => `${n}2222222-2222-4333-8444-555555555555`;
   const filler = Array.from({ length: 40 }, (_, i) => `Bed ${i + 1} of the plot.`).join("\n");
   const notes = [
-    { id: id(1), text: `Seed tray log\nSee ((${id(2)})) first.\n${filler}`, parentId: id(2), childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} },
-    { id: id(2), text: "Greenhouse", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} },
+    { id: id(1), text: `Seed tray log\nSee ((${id(2)})) first.\n${filler}`, parentId: id(2), childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] },
+    { id: id(2), text: "Greenhouse", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] },
   ];
   const agent = { kind: "agent" as const, id: "test-agent-506" };
   const host = (s: NoteSurface, more: Partial<SurfaceHost> = {}): SurfaceHost => {

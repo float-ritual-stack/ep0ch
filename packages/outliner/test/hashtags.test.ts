@@ -2,13 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  firstLineWithoutPropertyTokens,
-  parseProperties,
-  parsePropertyRecords,
-  patchPropertyText,
-  stripProperties,
-} from "../src/properties";
+import { patchPropertyText } from "../src/properties";
+import { firstLineWithoutPropertyTokens, parseProperties, parsePropertyRecords, stripProperties } from "@ep0ch/outline-core/property-parse";
 import { createPropertyInspectorModel, propertyInspectorAuthoredText } from "../src/property-inspector";
 import { OutlinerStore } from "../src/store";
 
@@ -155,4 +150,10 @@ test("an imported quarter tag is queryable independently of storage dates and us
 test("Detail keeps a metadata line's tags in the text, under the title, when its properties go (PIE-880)", () => {
   expect(propertyInspectorAuthoredText("Fence plan\n[status::draft] #fencing #timber\nThe fence wants posts.").split("\n").map(l => l.trim()))
     .toEqual(["Fence plan", "#fencing #timber", "The fence wants posts."]);
+});
+
+test("a tag edited to a colour-like word stays a tag (a bracket, since #facade reads as a colour)", () => {
+  const edited = patchPropertyText("Title #garden", [{ op: "replace", ordinal: 0, value: "facade" }]);
+  expect(parseProperties(edited).map(p => `${p.key}=${p.value}`)).toEqual(["tag=facade"]);
+  expect(patchPropertyText("Title #garden", [{ op: "replace", ordinal: 0, value: "cafe" }])).toBe("Title #cafe");
 });

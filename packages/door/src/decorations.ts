@@ -68,7 +68,7 @@ export function planDecorations(ds: readonly Decoration[], noteLines: readonly n
   for (const d of ds) {
     const rows = (width: number) => decorationRows(d, width, draw);
     if (d.hit.at === "block") {
-      if (d.place === "below") put(last, rows);
+      if (d.place === "append") put(last, rows);
       else if (d.place === "around" && d.status !== "unavailable") aroundAll.push(d);
       else put(-1, rows);
       continue;
@@ -77,11 +77,11 @@ export function planDecorations(ds: readonly Decoration[], noteLines: readonly n
     if (first < 0) continue;
     // Inside a callout (its frame draws its lines itself): above it, never in its place.
     const callout = callouts.find(c => first > c.line && first < c.end);
-    if (callout && d.place !== "below") { put(callout.line - 1, rows); continue; }
+    if (callout && d.place !== "append") { put(callout.line - 1, rows); continue; }
     // The body line after the last the hit covers (a callout's or a list's lines are consecutive in the body).
     let end = first + 1;
     while (end < noteLines.length && noteLines[end]! < d.hit.end) end++;
-    if (d.place === "below") { put(end - 1, rows); continue; }
+    if (d.place === "append") { put(end - 1, rows); continue; }
     const taken = [...place].some(([at, p]) => first < p.end && at < end);
     if (d.place === "replace" && !taken && d.status !== "not-run" && d.status !== "unavailable") {
       place.set(first, { end, draw: width => ({ rows: rows(width), ...headRowOf(d, width, draw) }) });

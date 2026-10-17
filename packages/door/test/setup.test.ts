@@ -1133,7 +1133,7 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
   test("a bump in the update: back up, update, stop the host, migrate each outline behind, start the host; the plan says so", () => {
     const f = bumped({ "float-hub": 2, "seed-bank": 2 });
     const plan = buildPlan(f, opts());
-    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:do", "plugin:do", "link:do", "schema:do", "host:do", "session:skip"]);
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:do", "plugin:do", "link:do", "schema:do", "sweep:do", "host:do", "session:skip"]);
     const schema = plan.steps.find(s => s.id === "schema")!;
     expect(schema.why).toBe("schema 2 → 3: will migrate 2 outlines (float-hub, seed-bank) with 0003-drop-agent-tables.ts; the host stops while they migrate (each in one transaction) and starts after");
     expect(schema.commands).toEqual(["launchctl bootout gui/$(id -u)/io.ep0ch.outliner-host",
@@ -1160,7 +1160,7 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
       [bumped({ "float-hub": 2 }, { upstream: code(3, {}) }), "no migration script takes schema 2 to 3"]] as const) {
       const plan = buildPlan(f, opts());
       // The managed plugin, refreshed from main, would be the new code too: held back with the checkout.
-      expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:manual", "plugin:manual", "link:do", "schema:manual", "host:skip", "session:skip"]);
+      expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:manual", "plugin:manual", "link:do", "schema:manual", "sweep:do", "host:skip", "session:skip"]);
       const schema = plan.steps.find(s => s.id === "schema")!;
       expect(schema.why).toContain(said);
       const v = f.schema!.outlines[0]!.version;
@@ -1182,13 +1182,13 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     const f = bumped({ "float-hub": 2, "seed-bank": 3 }, { head: 3, f: current() });
     f.schema!.head = code(3);
     const plan = buildPlan(f, opts());
-    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:skip", "plugin:skip", "link:skip", "schema:do", "host:do", "session:skip"]);
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:skip", "plugin:skip", "link:skip", "schema:do", "sweep:do", "host:do", "session:skip"]);
     expect(plan.steps.find(s => s.id === "schema")!.migrate).toMatchObject({ outlines: [{ name: "float-hub" }] });
     expect(plan.steps.find(s => s.id === "schema")!.migrate!.before).toBeUndefined();
   });
 
   test("every outline at the schema, or one newer, migrates nothing; the rest of the plan is as before", () => {
-    expect(statuses(bumped({ "float-hub": 3 }, { head: 3, f: current() }))).toEqual(["backup:skip", "repo:skip", "plugin:skip", "link:skip", "schema:skip", "host:skip", "session:skip"]);
+    expect(statuses(bumped({ "float-hub": 3 }, { head: 3, f: current() }))).toEqual(["backup:skip", "repo:skip", "plugin:skip", "link:skip", "schema:skip", "sweep:do", "host:skip", "session:skip"]);
     const plan = buildPlan(bumped({ "float-hub": 3, "seed-bank": 4 }), opts());
     expect(plan.steps.find(s => s.id === "schema")).toMatchObject({ status: "skip", why: "no outline is behind schema 3; seed-bank is schema 4, newer than this code opens" });
     expect(plan.steps.find(s => s.id === "repo")!.status).toBe("do");
@@ -1250,7 +1250,7 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     f.schema!.outlines.push(empty);
     f.databases = [...f.databases, { name: "pie", path: empty.path }];
     const plan = buildPlan(f, opts());
-    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:do", "plugin:do", "link:do", "schema:do", "host:do", "session:skip"]);
+    expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "repo:do", "plugin:do", "link:do", "schema:do", "sweep:do", "host:do", "session:skip"]);
     const schema = plan.steps.find(s => s.id === "schema")!;
     expect(schema.migrate!.outlines.map(o => o.name)).toEqual(["float-hub"]);
     expect(schema.why).toContain(`pie is an empty file (0 bytes) at ${empty.path}`);

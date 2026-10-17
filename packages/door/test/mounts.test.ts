@@ -16,6 +16,7 @@ import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import type { Seeded } from "../src/showcase/seed";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 describe("a part of a screen (partSpec)", () => {
   test("the board's lanes alone: that container, a place holder until its source fills it, and nothing the spec names outside it", () => {
@@ -114,9 +115,9 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
         patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: "always",
         mutation: { author: "agent", actorId: AS } });
       await expect(act(`proposal.${op}`, { id: proposal.proposalId }, "missing-898")).rejects.toThrow("no tile missing-898");
-      expect((await board.get(proposal.proposalId))!.props["proposal-status"]).toBe("open");
+      expect(prop((await board.get(proposal.proposalId))!, "proposal-status")).toBe("open");
       expect(await act(`proposal.${op}`, { id: proposal.proposalId })).toMatchObject({ outcome: op === "apply" ? "applied" : "dismissed" });
-      expect((await board.get(proposal.proposalId))!.props["proposal-status"]).toBe(op === "apply" ? "applied" : "dismissed");
+      expect(prop((await board.get(proposal.proposalId))!, "proposal-status")).toBe(op === "apply" ? "applied" : "dismissed");
       expect(get().focus).toBe(focus);
     }
     expect(get().tiles.map(t => t.id)).toEqual(before);

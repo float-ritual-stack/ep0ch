@@ -14,7 +14,8 @@ import { answer, resolveLive, setLiveSource } from "../src/live";
 import { metadataLines, setUserSummaryKeys, summaryKeys, summarySegments, type Source } from "../src/props";
 import { invalidateReferences, presentLinks, stripMarks } from "../src/refs";
 import { MainMenu } from "../src/screens";
-import { SocketBoard, type PropertyRecord } from "../src/socket";
+import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
+import { SocketBoard } from "../src/socket";
 import { width } from "../src/style";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { valueTarget } from "../src/surface/props-panel";
@@ -104,7 +105,7 @@ function fakeSource(notes: Record<string, Msg>, redraw = () => {}): Source {
   };
   return { board, redraw };
 }
-const msg = (id: string, text: string, over: Partial<Msg> = {}): Msg => ({ id, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", props: {}, revision: 1, ...over });
+const msg = (id: string, text: string, over: Partial<Msg> = {}): Msg => ({ id, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", properties: [], revision: 1, ...over });
 const A = "aaaaaaaa-1111-4111-8111-111111111111", T = "bbbbbbbb-2222-4222-8222-222222222222", GONE = "cccccccc-3333-4333-8333-333333333333";
 const notes = { [A]: msg(A, "Garden plan\nBeans along the fence.\n## Beds ^beds\nTwo beds."), [T]: msg(T, "Old shed", { deleted: true }) };
 
@@ -158,7 +159,7 @@ describe("the surface: summary, panel and embeds at any width", () => {
     const h: SurfaceHost = { ctx: { board: src.board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false, copy() {} } as any, redraw() {}, navigate() {} };
     Object.assign(src.board, { ancestors: async () => [], comments: async () => [] });
     const text = `Build the compost bin [type::roadmap-item] [priority::high]\n[work-stage::doing] [track::soil]\n[track::tools] [related-to::${A}]\n\n## Outcome\nA bin by ((${A})).\n!((${A}))\n!((${GONE}))`;
-    const m = msg("dddddddd-4444-4444-8444-444444444444", text, { properties: P(["type", "roadmap-item"], ["priority", "high"], ["work-stage", "doing"], ["track", "soil"], ["track", "tools"], ["related-to", A]), props: { type: "roadmap-item", priority: "high" } });
+    const m = msg("dddddddd-4444-4444-8444-444444444444", text, { properties: P(["type", "roadmap-item"], ["priority", "high"], ["work-stage", "doing"], ["track", "soil"], ["track", "tools"], ["related-to", A]) });
     const s = new NoteSurface();
     s.show(m, h);
     s.render(60, 40, h);
@@ -206,31 +207,28 @@ describe("the surface: summary, panel and embeds at any width", () => {
 
 describe("live figures: the query grammar", () => {
   const block = (id: string, title: string) => ({ id, parentId: null, text: title, author: "agent", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", properties: [] });
-  const fake = (seen: any[]): any => ({
-    request: async (_a: string, p: any) => { seen.push(p.query); return { blocks: [block("a", "Rake leaves")], completeness: { kind: "complete" } }; },
-    toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", props: {} })),
+  // A stand-in service: site.answer's figure producer, with the asks it received. The query itself is the service's
+  // (site-produce.test.ts), so the door's part is what it sends: the figure's props, and what it makes of the answer.
+  const fake = (seen: any[], extra: Record<string, unknown> = {}): any => ({
+    request: async (_a: string, p: any) => { seen.push(p.produce); return { produced: { kind: "figure", blocks: [block("a", "Rake leaves")], truncated: false, ...extra } }; },
+    toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", properties: [] })),
   });
 
-  test("OR / NOT / dates go to the service as its where", async () => {
+  test("OR / NOT / dates go to the service as the figure's query, whole", async () => {
     const seen: any[] = [];
     setLiveSource(fake(seen), () => {});
     const p = { query: "type=chore (priority=high OR due) updated > 2026-09-20" };
     answer(p); await until(() => answer(p)?.state === "ready", "the answer");
-    expect(seen[0]).toMatchObject({ where: p.query });
-    expect(seen[0].filters).toBeUndefined();
+    expect(seen[0]).toMatchObject({ kind: "figure", props: { query: p.query } });
   });
 
-  test("done: and now: are the service's answer too (query.matches), OR and all", async () => {
-    const asked: [string, string[]][] = [];
-    const base = fake([]);
-    // A watched query.matches of its own: it changes when the subset does, even if the results don't.
-    const b = { ...base, request: async (a: string, p: any) => { if (a !== "query.matches") return base.request(a, p); asked.push([p.expression, p.blockIds]); return { blockIds: p.blockIds }; } };
-    setLiveSource(b, () => {});
+  test("done: and now: are the service's answer too, OR and all: the rows it names hold", async () => {
+    const seen: any[] = [];
+    setLiveSource(fake(seen, { done: ["a"] }), () => {});
     const p = { query: "type=chore", done: "stage=done OR stage=dropped" };
     resolveLive("check", p);
-    await until(() => answer(p)?.state === "ready" && asked.length > 0, "the answer");
-    await Bun.sleep(5);
-    expect(asked).toEqual([["stage=done OR stage=dropped", ["a"]]]);
+    await until(() => answer(p)?.state === "ready", "the answer");
+    expect(seen[0].props).toMatchObject({ query: "type=chore", done: "stage=done OR stage=dropped" });
     expect(resolveLive("check", p)!.props.items[0].done).toBe(true);
   });
 });
@@ -462,7 +460,7 @@ function panelRig(text: string, tokens: (text: string) => PropertyRecord[] | Pro
   };
   const h: SurfaceHost = { ctx: { board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false, copy: (v: string) => copied.push(v) } as any, redraw() {}, navigate() {} };
   const s = new NoteSurface();
-  const m = msg(ID, text, { revision: 1, properties: P(["priority", "high"], ["track", "soil"]), props: { priority: "high", track: "soil" } });
+  const m = msg(ID, text, { revision: 1, properties: P(["priority", "high"], ["track", "soil"]) });
   s.show(m, h);
   return { s, h, m, patches, copied, ID };
 }
@@ -603,7 +601,7 @@ describe("review: snapshot write scenarios are scratch-only", () => {
 
 describe("the reader's header leads with the title (PIE-657)", () => {
   const text = `Build the compost bin [type::roadmap-item] [priority::high]\n[work-stage::doing] [track::soil]\n[related-to::${A}]\n\n## Outcome\nA bin by ((${A})).`;
-  const m = msg("dddddddd-4444-4444-8444-444444444444", text, { author: "claude-code", properties: P(["type", "roadmap-item"], ["priority", "high"], ["work-stage", "doing"], ["related-to", A]), props: { type: "roadmap-item", priority: "high", "work-id": "HUB-003" } });
+  const m = msg("dddddddd-4444-4444-8444-444444444444", text, { author: "claude-code", properties: P(["type", "roadmap-item"], ["priority", "high"], ["work-stage", "doing"], ["related-to", A], ["work-id", "HUB-003"]) });
   const host = (src: Source, over: object = {}): SurfaceHost => ({ ctx: { board: src.board, flash() {}, t: { cellW: 9, cellH: 16, sized: true }, graphics: true, copy() {} } as any, redraw() {}, navigate() {}, ...over });
   async function shown(over: object = {}, w = 70) {
     const src = fakeSource(notes);
@@ -617,7 +615,7 @@ describe("the reader's header leads with the title (PIE-657)", () => {
     const lines = view.lines.map(strip);
     expect(lines[0]!.trim()).toBe("top level");
     expect(lines[1]!.trim()).toBe("HUB-003 · Build the compost bin");   // its Work ID first (PIE-809), off the meta line
-    expect(lines[2]!).toContain("claude-code · 01-01-70 (00:00) · i 4 properties · stage doing");   // wide enough for one line
+    expect(lines[2]!).toContain("claude-code · 01-01-70 (00:00) · i 5 properties · stage doing");   // wide enough for one line
     expect(lines[3]!.trim()).toBe("");
     expect(lines[4]).toContain("Outcome");
     // The title is bold and bright; the eyebrow and the meta line are dim.

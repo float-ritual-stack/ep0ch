@@ -80,7 +80,7 @@ async function searchOutline(title: string, skip: ReadonlySet<string>, route: Ro
 }
 
 /**
- * The archive's hits: what its command prints, a line each. `{word}` is the request's most telling word, letters,
+ * The archive's hits: what its command prints, a line each. `%word%` (not a `{{ }}`, which is a note's grammar; this is the extension's own argv) is the request's most telling word, letters,
  * digits and `-` only, so it is one argument even where a remote shell reads the command again (ssh); every word, a
  * line each, is on its stdin. Exit 1 with nothing printed is no hits (grep's and rg's way); any other failure is said.
  */
@@ -88,7 +88,7 @@ async function searchArchive(title: string): Promise<string[]> {
   if (!config.archive?.length) return [];
   const all = keywords(title).map((w) => w.replace(/[^a-z0-9-]/g, "")).filter(Boolean);
   if (!all.length) return [];
-  const proc = Bun.spawn(config.archive.map((part) => part.replaceAll("{word}", all[0]!)), { stdin: new Blob([`${all.join("\n")}\n`]), stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(config.archive.map((part) => part.replaceAll("%word%", all[0]!)), { stdin: new Blob([`${all.join("\n")}\n`]), stdout: "pipe", stderr: "pipe" });
   let late = false;
   const timer = setTimeout(() => { late = true; proc.kill(); }, 60_000);
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);

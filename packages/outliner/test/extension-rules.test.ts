@@ -139,12 +139,12 @@ test("a rule note decorates with no code: a heading style is a band in the headi
 
 test("rule notes: a card of the block's properties on a query, a text pattern outside code, and what's wrong said", async () => {
   const { create, decorations, list } = await setup();
-  await create("Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees] [rule-label::{title} at {where}]");
+  await create("Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees] [rule-label::{{this.title}} at {{this.where}}]");
   await create("Shouting [rule-name::shouting] [rule-text::(\\S.*?)!!!$] [rule-decorate::text] [rule-tone::warn]");
   await create("Broken [rule-name::broken] [rule-decorate::sparkle] [rule-kind::list]");
   const meeting = await create("Committee [type::meeting] [when::Sat 10:00] [where::the shed] [attendees::Ann, Bo]");
   const [card] = await decorations(meeting.id);
-  expect(card).toMatchObject({ name: "meetings", place: "above", hit: { at: "block" }, view: { type: "card", title: "Committee at the shed",
+  expect(card).toMatchObject({ name: "meetings", place: "prepend", hit: { at: "block" }, view: { type: "card", title: "Committee at the shed",
     children: [{ type: "row", children: [{ type: "stat", label: "when", value: "Sat 10:00" }, { type: "stat", label: "attendees", value: "Ann, Bo" }] }] } });
   const loud = await create("Plot\nClose the cold frame!!!\n```\nnot this!!!\n```\nnor `this!!!`");
   const shouts = await decorations(loud.id);
@@ -165,7 +165,7 @@ test("meeting-card: a code rule's view is kept, comes when the property does and
   expect(first[0]).toMatchObject({ rule: "ext:meeting-card/card", status: "not-run" });
   await until("extensions.output", () => events.some((event) => event.action === "extensions.output" && event.blockId === meeting.id));
   const [card] = await decorated(meeting.id, (ds) => ds[0]?.status === "ready");
-  expect(card).toMatchObject({ place: "above", title: "Meeting · Seed swap planning", view: { type: "card", title: "Seed swap planning", subtitle: "Sun 11:00", badge: { label: "meeting" } } });
+  expect(card).toMatchObject({ place: "prepend", title: "Meeting · Seed swap planning", view: { type: "card", title: "Seed swap planning", subtitle: "Sun 11:00", badge: { label: "meeting" } } });
   expect(JSON.stringify(card!.view)).toContain("Ann, Bo, Cy");
   expect(card!.markdown).toContain("**Seed swap planning**");
   // A new revision draws it again (the last one shown, stale, meanwhile).
@@ -217,6 +217,24 @@ test("done-stamp: start stamps, stop unstamps, attributed to the extension with 
   expect((await list()).rules.find((entry) => entry.key === "ext:done-stamp/stamp")).toMatchObject({ matching: 1, lastRun: { when: "stop" } });
 });
 
+test("a call sees its block and children as records: repeats and lists as values, a property further down as a field, never a key-to-value map", async () => {
+  const { create, extensionsFolder, client } = await setup();
+  writeExtension(extensionsFolder, "see", {
+    run: ["bun", "main.ts"],
+    actions: [{ id: "look", label: "Look", on: "block", effects: "read" }],
+  }, `const r = await Bun.stdin.json();
+const { block, children } = r.input.context;
+process.stdout.write(JSON.stringify({ ok: true, value: { message: JSON.stringify({ title: block.title, properties: block.properties, fields: block.fields.map((f) => [f.key, f.value, f.scope]), children: children.map((c) => [c.title, c.properties]) }) } }));`);
+  await client.request({ action: "extensions.list", reload: true });
+  const note = await create("Heap [tags::compost] [tags::[leaves, straw]] [mix::2, 1]\n\nTurned it [due::friday].");
+  await create("Bin [size::big]", note.id);
+  const seen = JSON.parse((await client.request<{ message: string }>({ action: "extensions.act", extension: "see", extensionAction: "look", blockId: note.id })).message);
+  expect(seen.title).toBe("Heap");
+  expect(seen.properties).toEqual([{ key: "tags", values: ["compost", "leaves", "straw"] }, { key: "mix", values: ["2, 1"] }]);
+  expect(seen.fields).toEqual([["due", "friday", "inline"]]);
+  expect(seen.children).toEqual([["Bin", [{ key: "size", values: ["big"] }]]]);
+});
+
 test("a trigger never runs for another extension's write, and change runs on a save while it matches", async () => {
   const { create, update, store, extensionsFolder, list } = await setup();
   // `count` appends a line on every save while a block is [watch::on]; `poke` is another extension writing the block.
@@ -255,7 +273,7 @@ test("Detail shows a decoration as text under what it matched; the publisher put
   const { decoratedText } = await import("../src/publish");
   const band: Decoration = { rule: "note:x", name: "garden-h1", source: { kind: "note", blockId: "x" }, place: "replace", status: "ready",
     hit: { at: "construct", line: 1, end: 2, text: "Beds", level: 1, kind: "heading" }, view: { type: "band", text: "Beds", level: 1 }, markdown: "# Beds" };
-  const card: Decoration = { ...band, name: "meetings", place: "above", hit: { at: "block", line: 0, end: 3, text: "Committee" }, markdown: "**Committee**\n\n- **when:** Sat 10:00" };
+  const card: Decoration = { ...band, name: "meetings", place: "prepend", hit: { at: "block", line: 0, end: 3, text: "Committee" }, markdown: "**Committee**\n\n- **when:** Sat 10:00" };
   const shown = decorationProjection(band);
   expect(shown.anchor.line).toBe(1);
   expect(resourceProjectionLayout(shown).lines).toEqual(["- Rule garden-h1 · replace the heading on line 2", "  # Beds"]);

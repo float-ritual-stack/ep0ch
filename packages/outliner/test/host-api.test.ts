@@ -253,7 +253,7 @@ test("a granted script ask keeps the invocation chain while its writes arrive", 
 
 test.each([
   ["js", "throw new Error('No seed tray');", "No seed tray"],
-  ["actions", 'open id="{note}"', "note"],
+  ["actions", 'open id="{{props.note}}"', "note"],
   ["js", "throw new Error('');", ""],
 ])("a failed inline %s script says failed on its ask: %s", async (format, code, message) => {
   const { client, store } = await setup();

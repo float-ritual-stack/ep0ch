@@ -4,10 +4,11 @@
 // what it read (the block, its parsed properties, children, tasks, links, backlinks, resources) and nothing here reads
 // anything. `recordJson` writes it deterministically: sorted keys, one timestamp format (ISO 8601, UTC, milliseconds).
 import { splitPropertyValue } from "./property-grammar";
+import type { PropertyScope } from "./property-parse";
 import { bodyOffset, headerLine, type LiteralRange } from "./header-line";
 
 export type TaskStatus = import("./checklist-marks").ChecklistStatus;
-export type PropertyScope = "block" | "line" | "inline";
+export type { PropertyScope } from "./property-parse";
 
 /** A block as a record. */
 export interface BlockRecord {
@@ -24,8 +25,11 @@ export interface BlockRecord {
   text: string;
   /** Block-scope properties (what queries and views match), each key once with its values in order, keys in order. */
   properties: { key: string; values: string[] }[];
-  /** Properties of a line or a spot in it (`key:: value` lines, `[key::value]` mid-sentence), in order. */
-  fields: { key: string; value: string; scope: "line" | "inline"; line: number }[];
+  /**
+   * Properties of a line or a spot in it (`key:: value` lines, `[key::value]` mid-sentence), in order: `line` and
+   * `column` where the token starts, `offset` its offset in `text`.
+   */
+  fields: { key: string; value: string; scope: "line" | "inline"; line: number; column: number; offset: number }[];
   /** The children's ids, in outline order. */
   children: string[];
   /** The checklist's items, in order. */
@@ -63,7 +67,7 @@ export interface BlockRecordInput {
   };
   title: string;
   /** The service's parse of the text, in order. */
-  properties: readonly { key: string; value: string; scope: PropertyScope; line: number }[];
+  properties: readonly { key: string; value: string; scope: PropertyScope; line: number; column: number; start: number }[];
   /** The text's literal ranges (code spans, fences), so a token in one isn't read as a header chip. */
   literal: readonly LiteralRange[];
   children: readonly string[];
@@ -74,6 +78,35 @@ export interface BlockRecordInput {
   truncated?: readonly string[];
 }
 
+/**
+ * Properties as a record holds them: each key once with its values in order (a repeat adds to the list, a value
+ * is split by the list rule), keys in order of first appearance. The one grouping: the record, a wire block's
+ * `properties` and an extension's `context.block` all read through it.
+ */
+export function recordProperties(properties: Iterable<{ key: string; value: string }>): BlockRecord["properties"] {
+  const out: BlockRecord["properties"] = [];
+  const byKey = new Map<string, string[]>();
+  for (const p of properties) {
+    const values = byKey.get(p.key);
+    if (values) values.push(...splitPropertyValue(p.value));
+    else { const v = splitPropertyValue(p.value); byKey.set(p.key, v); out.push({ key: p.key, values: v }); }
+  }
+  return out;
+}
+
+/**
+ * Every value of `key` a note has at block scope (what queries match), in order; none is `[]`, never undefined. Reads
+ * a record's `properties` (`{ key, values }`) or a wire block's (`{ key, value }`, split by the list rule), so no
+ * client flattens properties into a `key → value` map (a repeat or a list would be lost). Keys compare in lower case.
+ */
+export function valuesOf(source: { properties?: readonly ({ key: string; values: readonly string[] } | { key: string; value: string })[] }, key: string): string[] {
+  const k = key.toLowerCase();
+  return (source.properties ?? []).flatMap(p => (p.key.toLowerCase() === k ? ("values" in p ? p.values : splitPropertyValue(p.value)) : []));
+}
+
+/** The first value of `key` at block scope, or undefined. */
+export const valueOf = (source: Parameters<typeof valuesOf>[0], key: string): string | undefined => valuesOf(source, key)[0];
+
 /** A timestamp in the record's one format: ISO 8601, UTC, milliseconds. */
 export const recordTime = (t: string | number) => new Date(t).toISOString();
 
@@ -81,14 +114,7 @@ export const recordTime = (t: string | number) => new Date(t).toISOString();
 export function blockRecord(input: BlockRecordInput): BlockRecord {
   const { block } = input;
   const h = headerLine(block.text, input.literal);
-  const properties: BlockRecord["properties"] = [];
-  const byKey = new Map<string, string[]>();
-  for (const p of input.properties) {
-    if (p.scope !== "block") continue;
-    const values = byKey.get(p.key);
-    if (values) values.push(...splitPropertyValue(p.value));
-    else { const v = splitPropertyValue(p.value); byKey.set(p.key, v); properties.push({ key: p.key, values: v }); }
-  }
+  const properties = recordProperties(input.properties.filter(p => p.scope === "block"));
   return {
     id: block.id,
     parent: block.parentId,
@@ -97,7 +123,7 @@ export function blockRecord(input: BlockRecordInput): BlockRecord {
     body: h.body,
     text: block.text,
     properties,
-    fields: input.properties.flatMap(p => (p.scope === "block" ? [] : [{ key: p.key, value: p.value, scope: p.scope, line: p.line }])),
+    fields: input.properties.flatMap(p => (p.scope === "block" ? [] : [{ key: p.key, value: p.value, scope: p.scope, line: p.line, column: p.column, offset: p.start }])),
     children: [...input.children],
     tasks: input.tasks,
     links: input.links.map(l => ({

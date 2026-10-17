@@ -116,7 +116,7 @@ source evidence or distinguish authored glyphs from controls.
   Quick Capture and the door).
 - `property-grammar.ts` in outline-core (`@ep0ch/outline-core/property-grammar`)
   owns the property token's grammar: what a property key is, what a `[key::value]`
-  token matches, and the backslash escape. The parser (`properties.ts`), the query
+  token matches, and the backslash escape. The parser (outline-core's `property-parse.ts`), the query
   language (`block-query.ts`) and context resolution build on it, and the door
   imports it to find tokens while it paints; no other file restates the key rule.
   Any change to what it matches bumps `PROTOCOL`. Where a token counts as a
@@ -136,10 +136,14 @@ source evidence or distinguish authored glyphs from controls.
   reason when a patch can't satisfy the query. Clients (the door's lanes,
   agents) ask it instead of porting the query language; `query.matches` answers
   which of given blocks a query holds for.
-- `src/context-resolution.ts` owns context-scoped resolution ("the nearest key"
-  for a line: the line, lines above, the block, ancestors). It is the first
-  slice of PIE-408; resource projections and later soft links use it rather than
-  resolving context themselves.
+- `scope-walk.ts` in outline-core owns the scope walk ("the nearest key" for a line:
+  the line, lines above, the block, ancestors). Resource projections, later soft
+  links and `resolvePath` (`resolve-path.ts`, which answers `{{this.key}}`, `{{parent.key}}`, `{{props.x}}` and a
+  bare `{{key}}`) use it rather than resolving context themselves.
+- `property-parse.ts` in outline-core owns the property parser (`parsePropertyRecords`: every token with its scope,
+  placement, line, column and offset; the strip and title helpers) and the `PropertyRecord` type. The service's
+  save-time parse, `properties.preview`, the door and the mod's readers import it; `src/properties.ts` keeps only
+  what writes and filters (patch, validate, match).
 - `src/extension-records.ts` owns what an extension record is (wave A of the
   extension design, PIE-445): a remote record kept as ordinary blocks, its
   fields as namespaced block properties (`[jira.status::In Review]`), its

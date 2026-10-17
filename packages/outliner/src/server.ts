@@ -22,7 +22,8 @@ import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import {rankSearchWithJev} from './search-ranking';
 import { blockDisplayTitle } from "./references";
-import { parsePropertyRecords, previewPropertyParse } from "./properties";
+import { previewPropertyParse } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -37,6 +38,9 @@ import {
 } from "./attention";
 import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
+import { answerSite } from "./site-answer";
+import { templatePropsOf, templateUse } from "./template-use";
+import { stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
@@ -284,7 +288,7 @@ const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "headings.styles", "callouts.types", "styles.list",
-  "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address",
+  "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer", "template.use", "template.props",
 ]);
 
 /** How long `shares.start` waits for a `cloudflare` share's tunnel to come up before answering without its link. */
@@ -337,7 +341,7 @@ function asAgentSource<T>(input: T): T {
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "agents.held", "blocks.query", "views.read", "query.matches"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "agents.held", "blocks.query", "views.read", "query.matches", "site.answer", "template.use", "template.props"]);
 /**
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
@@ -510,7 +514,7 @@ export class OutlinerServer {
         await this.extensionRegistry.reload();
         const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === blockId);
         if (!extension) throw new Error("The answer's script needs a closed js or ts fence");
-        const run = this.scriptRuns.start(extension, { extension: extension.id, action: "run", blockId, clientId, background: true });
+        const run = this.scriptRuns.start(extension, { extension: extension.id, action: "run", clientId, background: true });
         void this.scriptRuns.finished(run.undo!);
         return run;
       },
@@ -529,6 +533,7 @@ export class OutlinerServer {
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
       script: (extension, request) => this.scriptRuns.start(extension, request),
+      scriptRender: (source, input) => this.scriptRuns.render(source, input),
       // An action's update goes where an @agent's edit goes: draft.patch, the edit policy's guard.
       patch: (input) => this.draftPatches.patch(input),
       // A group that also makes, moves or orders blocks: one transaction, or one proposal while a draft holds a part.
@@ -1857,6 +1862,15 @@ export class OutlinerServer {
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (request.action === "scripts.stop") {
+      try {
+        if (typeof request.run !== "string" || !request.run.trim()) throw new Error("scripts.stop needs run: the id a script run answered with (its undo), for example { action: \"scripts.stop\", run: \"<undo id>\" }");
+        const stopped = this.scriptRuns.stopRun(request.run, declaredRequester(request, "scripts.stop") ?? { author: "user" });
+        return { id: request.id, ok: true, result: { run: request.run, ...stopped }, sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     if (request.action === "scripts.run") {
       try {
         const levels = ["none", "read", "propose", "full"] as const;
@@ -2308,6 +2322,15 @@ export class OutlinerServer {
         case "blocks.facets":
           result = this.store.blockFacets(request.blockIds);
           break;
+        case "site.answer":
+          result = answerSite(this.store, request);
+          break;
+        case "template.use":
+          result = templateUse(this.store, request);
+          break;
+        case "template.props":
+          result = templatePropsOf(this.store, request);
+          break;
         case "mcp.access.status":
           result = this.store.mcpAccessStatus();
           break;
@@ -2524,6 +2547,7 @@ export class OutlinerServer {
           );
           break;
         }
+        case "scripts.stop":
         case "scripts.run":
         case "extensions.list":
         case "extensions.act":
@@ -2796,6 +2820,11 @@ export class OutlinerServer {
         case "notes.create":
           result = this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
           break;
+        case "template.stamp": {
+          const { id: _id, action: _action, ...stamp } = request;
+          result = stampTemplate(this.store, stamp);
+          break;
+        }
         case "mentions.ingest": result=this.mentions.ingest(request.message); break;
         case "mentions.list": result=this.mentions.list(request.scope,request.limit); break;
         case "mentions.message": result=this.mentions.message(request.messageKey); break;
@@ -3404,6 +3433,13 @@ export class OutlinerServer {
         domain = "content";
         blockId = (response.result as NewNoteReceipt).block.id;
         break;
+      case "template.stamp": {
+        const stamped = (response.result as TemplateStampResult).stamped;
+        if (!stamped.length) return null;
+        domain = "content";
+        blockId = stamped[0]!.id;
+        break;
+      }
       case "edit-recovery.commit":
         domain = "content";
         blockId = (response.result as Block).id;
@@ -3729,7 +3765,9 @@ export class OutlinerServer {
 
   private broadcast(event: OutlinerEvent): void {
     // What a write tells subscribers may change a watched answer.
-    if (event.domain === "content" || event.domain === "view" || event.domain === "resource-catalog") this.watches.changed();
+    if (event.domain === "content" || event.domain === "view" || event.domain === "resource-catalog") {
+      this.watches.changed(event.domain === "content" ? event.change : undefined);
+    }
     this.pruneDestroyedSubscribers();
     const envelope: OutlinerEventEnvelope = { event };
     const line = `${JSON.stringify(envelope)}\n`;

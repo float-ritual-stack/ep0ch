@@ -1,15 +1,14 @@
-import { parsePropertyRecords } from "./properties";
-import { isPropertyTokenLine, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
+import { isPropertyTokenLine, PROPERTY_KEY_SOURCE } from "./property-grammar";
+import { parsePropertyRecords } from "./property-parse";
 
 /**
- * Context-scoped resolution: "the nearest X" for a position in a block.
+ * The one scope walk (PIE-533): "the nearest X" for a position in a block. Pure: the caller passes the text of the
+ * block and of its ancestors.
  *
- * This is the first slice of PIE-408, built for PIE-445's resource
- * projections (a Jira ticket under a `jira::` line is the first kind). It
- * knows nothing about providers: a matcher supplies the property key and the
- * key grammar (plus any claim filter, such as "a configured Source owns this
- * project"). PIE-408's soft links reuse this walk rather than adding a second
- * resolver. The walk is local and pure; it reads only the text it is given.
+ * Built for PIE-445's resource projections (a Jira ticket under a
+ * `jira::` line is the first kind) and the walk `resolvePath` (resolve-path.ts) answers a bare `{{key}}` with. It knows
+ * nothing about providers: a matcher supplies the property key and the key grammar (plus any claim filter, such as "a
+ * configured Source owns this project"). PIE-408's soft links reuse this walk rather than adding a second resolver.
  *
  * Order, nearest first. The walk stops at the first step with any key:
  *
@@ -27,8 +26,8 @@ import { isPropertyTokenLine, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/pr
  * Two different keys at the step that matched are ambiguous: the walk reports
  * both and does not guess or skip to a farther step.
  *
- * Current shape, to revisit for PIE-408's soft links: it resolves a line, not
- * an offset, and reads only block-scope properties (not line or inline ones).
+ * Current shape, to revisit for PIE-408's soft links: it resolves a line, not an offset. The block-property steps read
+ * block-scope properties; the line steps read whatever the matcher finds in the text, in any scope.
  */
 
 export interface ContextKeyOccurrence {

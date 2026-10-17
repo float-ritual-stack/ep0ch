@@ -4,13 +4,12 @@
 // The grammar is outline-core's property-grammar.ts, which the service parses with and the door imports
 // to find tokens while it paints. One file, so these tests check the door uses it the way the service does.
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { bodyLinesOf, titleLine } from "../src/board";
 import { metadataLines } from "../src/props";
 import { C, fg, RESET } from "../src/style";
 import { checkValue } from "../src/surface/props-panel";
 import { colourBody } from "../src/text";
-import { outliner } from "./scratch";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 
 // Fictional titles on the edges of the key rule: a key starts with a letter and may hold dots.
 const PROBES = [
@@ -55,9 +54,8 @@ describe("a value holding links is one value (PIE-663)", () => {
   });
 });
 
-describe.skipIf(!outliner)("the property grammar is the service's", () => {
-  test("titles hide exactly the tokens the service parses as properties", async () => {
-    const theirs = await import(join(outliner!, "src/properties.ts"));
-    for (const text of PROBES) expect({ text, title: titleLine(text).text }).toEqual({ text, title: (theirs.firstLineWithoutPropertyTokens(text) ?? "").trim() });
+describe("the property grammar is the service's", () => {
+  test("titles hide exactly the tokens the service parses as properties", () => {
+    for (const text of PROBES) expect({ text, title: titleLine(text).text }).toEqual({ text, title: (firstLineWithoutPropertyTokens(text) ?? "").trim() });
   });
 });

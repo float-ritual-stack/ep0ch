@@ -31,10 +31,12 @@ import { MACHINERY_MODES, type MachineryMode } from "./machinery";
 import type { QuestionGroup } from "./protocol";
 import { referencedBlock } from "./link-syntax";
 import { isChecklistStatus, type ChecklistStatus } from "./checklist-marks";
+import { valueOf, type BlockRecord } from "./block-record";
 import { addCell, dayOf, dayState, decisionState, isoOf, localDay, monthOf, today, uptimeDays, type Cells, type Props } from "./figure-props";
 
 /** One result as a live figure reads it: its note, its title and properties, and when it was made and changed. */
-export interface FigureItem { id: string; title: string; props: Record<string, string>; createdAt: number; updatedAt: number; author: string | null }
+/** A note a live figure draws: `properties` are its block-scope properties as a record holds them (read with `valueOf`, never as a key → value map). */
+export interface FigureItem { id: string; title: string; properties: BlockRecord["properties"]; createdAt: number; updatedAt: number; author: string | null }
 
 /** What the service answered a figure's question: its results, its groups when it grouped, which `done:`/`now:` hold. */
 export interface FigureAnswer {
@@ -104,7 +106,7 @@ const date = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "
 /** A column of a live table, or a row's field (`title`, `updated`, `created`, `author`, or any property). */
 export function itemField(m: FigureItem, key: string): string {
   return key === "title" ? m.title : key === "updated" ? date(m.updatedAt) : key === "created" ? date(m.createdAt)
-    : key === "author" ? m.author ?? "" : m.props[key] ?? "";
+    : key === "author" ? m.author ?? "" : valueOf(m, key) ?? "";
 }
 
 /**
@@ -149,7 +151,7 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
     case "check": {
       // A row's box: done where `done:` holds, else the status its `done:` property names (PIE-864, liveMark).
       const mark = liveMark(p);
-      return { props: { ...p, items: items.map(m => ({ label: m.title, done: isDone(m), status: liveRowStatus(isDone(m), mark, mark ? m.props[mark.key] : undefined), note: p.note ? itemField(m, p.note) || undefined : undefined, block: m.id, ...(mark ? { mark } : {}) })) } };
+      return { props: { ...p, items: items.map(m => ({ label: m.title, done: isDone(m), status: liveRowStatus(isDone(m), mark, mark ? valueOf(m, mark.key) : undefined), note: p.note ? itemField(m, p.note) || undefined : undefined, block: m.id, ...(mark ? { mark } : {}) })) } };
     }
     case "rank":
       // The service's groups, most first; a match without the property is the NONE group.
@@ -182,27 +184,27 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
     case "quadrant": {
       const xk = String(p.x ?? ""), yk = String(p.y ?? "");
       if (!xk || !yk) return { props: p, error: "quadrant: x: and y: name the two properties" };
-      return { props: { ...p, points: items.map(m => ({ x: m.props[xk] ?? NONE, y: m.props[yk] ?? NONE, label: p.label ? itemField(m, String(p.label)) : m.title, block: m.id })) } };
+      return { props: { ...p, points: items.map(m => ({ x: valueOf(m, xk) ?? NONE, y: valueOf(m, yk) ?? NONE, label: p.label ? itemField(m, String(p.label)) : m.title, block: m.id })) } };
     }
     case "matrix": {
       const dk = String(p.down ?? ""), ak = String(p.across ?? ""), vk = p.value ? String(p.value) : null;
       if (!dk || !ak) return { props: p, error: "matrix: down: and across: name the two properties" };
       const cells: Cells = new Map();
-      for (const m of items) addCell(cells, m.props[dk] ?? NONE, m.props[ak] ?? NONE, vk ? Number(m.props[vk]) || 0 : 1);
+      for (const m of items) addCell(cells, valueOf(m, dk) ?? NONE, valueOf(m, ak) ?? NONE, vk ? Number(valueOf(m, vk)) || 0 : 1);
       return { props: { ...p, cells } };
     }
     case "flow": {
       const fk = String(p.from ?? ""), tk = String(p.to ?? "");
       if (!fk || !tk) return { props: p, error: "flow: from: and to: name the two properties" };
       const pairs = new Map<string, { from: string; to: string; value: number }>();
-      for (const m of items) { const from = m.props[fk] ?? NONE, to = m.props[tk] ?? NONE, k = `${from}\0${to}`; const f = pairs.get(k); if (f) f.value++; else pairs.set(k, { from, to, value: 1 }); }
+      for (const m of items) { const from = valueOf(m, fk) ?? NONE, to = valueOf(m, tk) ?? NONE, k = `${from}\0${to}`; const f = pairs.get(k); if (f) f.value++; else pairs.set(k, { from, to, value: 1 }); }
       return { props: { ...p, flows: [...pairs.values()] } };
     }
     case "decision":
-      return { props: { ...p, options: items.map(m => ({ label: m.title, state: decisionState(m.props["decision-state"]), reason: m.props[String(p.reason ?? "reason")] || undefined, block: m.id })) } };
+      return { props: { ...p, options: items.map(m => ({ label: m.title, state: decisionState(valueOf(m, "decision-state")), reason: valueOf(m, String(p.reason ?? "reason")) || undefined, block: m.id })) } };
     case "uptime": {
       const dateKey = String(p.date ?? "date"), stateKey = String(p.state ?? "status");
-      const results = items.flatMap(m => { const day = dayOf(m.props[dateKey]); return day === null ? [] : [{ day, state: dayState(m.props[stateKey]), block: m.id }]; });
+      const results = items.flatMap(m => { const day = dayOf(valueOf(m, dateKey)); return day === null ? [] : [{ day, state: dayState(valueOf(m, stateKey)), block: m.id }]; });
       // `last: 30`: the thirty days to today (or to `to:`).
       const last = Number(p.last) || 0, to = dayOf(p.to) ?? (last ? today() : null), from = dayOf(p.from) ?? (last && to !== null ? to - last + 1 : null);
       return { props: { ...p, ...uptimeDays(results, from, to) } };
@@ -210,17 +212,41 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
     case "activity": {
       const how = String(p.count ?? "created"), counts: Record<string, number> = {};
       for (const m of items) {
-        const day = how === "created" ? localDay(m.createdAt) : how === "updated" ? localDay(m.updatedAt) : dayOf(m.props[how]);
+        const day = how === "created" ? localDay(m.createdAt) : how === "updated" ? localDay(m.updatedAt) : dayOf(valueOf(m, how));
         if (day !== null) counts[isoOf(day)] = (counts[isoOf(day)] ?? 0) + 1;
       }
       return { props: { ...p, counts, to: p.to ?? isoOf(today()), weeks: p.weeks ?? 26 } };
     }
     case "calendar": {
       const { first, last, year, month } = monthOf(p), dateKey = String(p.date ?? "date");
-      const marks = items.flatMap(m => { const d = dayOf(m.props[dateKey]); return d !== null && d >= first && d <= last ? [{ day: d - first + 1, date: isoOf(d), label: m.title, block: m.id }] : []; });
+      const marks = items.flatMap(m => { const d = dayOf(valueOf(m, dateKey)); return d !== null && d >= first && d <= last ? [{ day: d - first + 1, date: isoOf(d), label: m.title, block: m.id }] : []; });
       return { props: { ...p, year, month, marks } };
     }
     default:
       return { props: { ...p }, error: `live data isn't wired for graph-${kind} yet` };
   }
+}
+
+/**
+ * A note's child bullets as a question: its children, with the comments on it and the proposals beside it left out
+ * (the one copy: a figure block's rows, a `::links` Children group and the publisher's rows ask it).
+ */
+export const CHILDREN_QUERY = "parent:this NOT type=annotation NOT type=annotation-reply NOT type=draft-proposal";
+
+/**
+ * A figure's answer cut to the results `kept` (a page shows only some notes): the groups lose the ones it can't
+ * show, and one whose every member is hidden goes, since its value is theirs.
+ */
+export function keepGroups(groups: readonly QuestionGroup[] | undefined, kept: ReadonlySet<string>): QuestionGroup[] | undefined {
+  return groups?.flatMap(g => {
+    const ids = g.ids.filter(id => kept.has(id));
+    return g.ids.length && !ids.length ? [] : [{ ...g, ids, count: Math.max(0, g.count - (g.ids.length - ids.length)) }];
+  });
+}
+
+/** The props a figure's question is read from (`liveAsk`, `figureQuestion`, `done:`/`now:`, a stat's items): what a client sends to be answered. */
+const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value"] as const;
+export function askProps(p: Props): Props {
+  const pick = (from: Props) => Object.fromEntries(ASK_KEYS.flatMap(k => from?.[k] === undefined ? [] : [[k, from[k]]]));
+  return { ...pick(p), ...(Array.isArray(p.items) ? { items: p.items.map(pick) } : {}) };
 }

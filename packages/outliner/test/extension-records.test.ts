@@ -10,7 +10,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { Publisher } from "../src/publish";
-import { parsePropertyRecords } from "../src/properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { createBlockComment } from "../src/block-comments";
 import { readSavedView } from "../src/saved-view-read";
 import type { ResourceProjectionReadResult } from "../src/resource-projection";

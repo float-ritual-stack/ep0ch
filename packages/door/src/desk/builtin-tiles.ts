@@ -27,6 +27,7 @@ import { ANSWER_TILE } from "./answer-tile";
 import { COMMENT_TILE } from "./comment-tile";
 import { WHAT_CHANGED_KIND } from "./what-changed";
 import { recordFacts } from "./program-status";
+import { prop } from "../props";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
 const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe"> = {
@@ -182,7 +183,7 @@ const builtins = (): TileKind[] => [
   {
     kind: "query", about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
     // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
-    keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (m.props.type ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
+    keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
     make: s => { const src = s.source && sourceOf(s.source); return new QueryPane(s.view ?? "", s.query ?? null, src && "tile" in src ? src.tile : null, s.mode === "held"); }, actions: QUERY_ACTIONS,
     save: p => (p as QueryPane).spec(),
     // A #tag's list held (PIE-855): it keeps its tag, and the next tag in its home opens a list of its own. p, as the river's hold.

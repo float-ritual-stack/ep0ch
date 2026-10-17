@@ -103,7 +103,7 @@ describe.skipIf(!outliner)("parity with Detail's layout (pi-herdr-outliner src/d
 
 // ── a reader over a stub service ───────────────────────────────────────────────────────────────────
 
-const note = (text: string, revision = 4): Msg => ({ id: NOTE_ID, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision, props: {} });
+const note = (text: string, revision = 4): Msg => ({ id: NOTE_ID, text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision, properties: [] });
 
 function stub(read: () => ResourceProjectionRead | Promise<ResourceProjectionRead>) {
   const b = {

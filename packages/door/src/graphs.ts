@@ -4,7 +4,7 @@
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
 import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
 import { wrap } from "./text";
-import { childRows, resolveLive, setLiveSource } from "./live";
+import { childRows, resolveLive, setLiveSource, type LiveSite } from "./live";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
 import { ACCENT, DIM, HI, INK, inlineRows, rowLink, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
@@ -303,8 +303,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     }
     const all = [head, ...rows, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));
-    // Nothing to draw: a figure whose props never reached it (written without its `---` lines) says where they go.
-    if (!n) return [fg(DIM) + "no columns or rows · put query:, columns: and rows: between --- lines" + RESET];
+    // Nothing to draw (a figure written without its `---` lines also says so: figureProps' warning, PIE-941).
+    if (!n) return [fg(DIM) + "no columns or rows" + RESET];
     let cw = Array.from({ length: n }, (_, k) => Math.max(...all.map(r => vwidth(r[k] ?? ""))));
     const room = w - (n - 1) * 3;
     while (cw.reduce((a, b) => a + b, 0) > room && Math.max(...cw) > 1) { const k = cw.indexOf(Math.max(...cw)); cw[k]!--; }
@@ -363,6 +363,11 @@ export const GRAPH_KINDS: readonly string[] = Object.keys(KINDS);
 
 export { figureSource, graphKind, type FigureSource } from "@ep0ch/outline-core/figure-props";
 
+/** The figure's Site as the service takes it: where it is drawn (a template's host) and its call-site args. */
+const liveSiteOf = (src: FigureSource, args?: Record<string, string>): LiveSite | undefined =>
+  src.chain?.length || (args && Object.keys(args).length) || (src.props && Object.keys(src.props).length)
+    ? { ...(src.chain?.length ? { chain: src.chain } : {}), ...(args ? { args } : {}), ...(src.props && Object.keys(src.props).length ? { props: src.props } : {}) } : undefined;
+
 /**
  * Render a `::graph-kind` block: `source` is its YAML (between --- lines), or the whole FigureSource (its Markdown and
  * its note too). `link`: rows that stand for a note (a live figure's, a child bullet's) are tagged with it, so the
@@ -372,9 +377,11 @@ export { figureSource, graphKind, type FigureSource } from "@ep0ch/outline-core/
  */
 export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv, rows?: RowInline): string[] {
   const src = typeof source === "string" ? { yaml: source } : source;
-  const read = figureProps(kind, src, childRows);
+  const read = figureProps(kind, src, note => childRows(note, liveSiteOf(src)));
   if ("error" in read) return frame(kind, [fg(C.lred) + read.error + RESET], W);
   let props = read.props;
+  // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
+  const warn = read.warning ? [fg(C.lred) + read.warning + RESET] : [];
   // The figure's name in its reader: where it is in the note, and its title.
   const title = String(props.title ?? kind), count = figures ? (figures.drawn ??= { n: 0, titles: new Map() }) : { n: 0, titles: new Map<string, number>() };
   const n = ++count.n, same = count.titles.get(title) ?? 0;
@@ -383,7 +390,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const chosen = figures?.ui?.(key);
   const ui: FigureUI = { key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "compact"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
   // A block with query:/view: is answered from the outline now, not from copied values.
-  const live = resolveLive(kind, props, src.note);
+  const live = resolveLive(kind, props, src.note, liveSiteOf(src, read.args));
   if (live) {
     if (live.error && !live.status) return frame(title, [fg(C.lred) + live.error + RESET], W, "live");
     if (live.waiting) return frame(title, [fg(DIM) + "asking the outline…" + RESET], W, "live");
@@ -395,13 +402,14 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
     const body = draw ? draw(props, Math.max(10, W - 4), link, { ...ui, ...(tab !== undefined ? { tab } : {}) }) : [];
     if (live.error) body.push(fg(C.lred) + live.error + RESET);
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
+    body.push(...warn);
     return frame(String(props.title ?? ""), body, W, live.status ?? "live", densityControl(kind, ui));
   }
   const draw = KINDS[kind];
   if (!draw) return frame(props.title ?? kind, [fg(DIM) + `graph-${kind} isn't drawn in the terminal yet` + RESET], W);
   if (kind === "table") figures?.seen?.({ key, n, kind, title, density: ui.density });
   const footer = read.waiting ? "asking for its child notes…" : read.children ? "live · child notes" : "";
-  try { return frame(String(props.title ?? ""), draw(props, Math.max(10, W - 4), link, ui), W, footer, kind === "table" ? densityControl(kind, ui) : ""); }
+  try { return frame(String(props.title ?? ""), [...draw(props, Math.max(10, W - 4), link, ui), ...warn], W, footer, kind === "table" ? densityControl(kind, ui) : ""); }
   catch (e) { return frame(kind, [fg(C.lred) + `couldn't draw: ${(e as Error).message}` + RESET], W); }
 }
 

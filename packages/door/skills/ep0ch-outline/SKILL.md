@@ -30,7 +30,7 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 
 ## Tools
 
-In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_edit`,
+In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_site` (what a note's `{{this.key}}`, `parent.key`, a bare `key` up the outline, `((id)).key`, `this.tasks | status=todo` or `now.date-1d` resolve to, with the route and a did-you-mean for a typo), `outline_edit`,
 `outline_patch`, `outline_proposal_apply`/`outline_proposal_dismiss`, `outline_create`, `outline_assign_id`,
 `outline_move`, `outline_trash`/`outline_restore`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
 `outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
@@ -42,6 +42,13 @@ the same operations as `outliner agent <operation> --json '{…}' --actor <id>`;
 tasks, links, backlinks). `ep0ch export … --out <dir>` writes notes as Markdown, the header line's chips in front
 matter. Write header chips with blanks or ` - ` between them (`Seed order [type::errand] - [area::garden]`): both
 belong to the block; text after a chip makes it an inline aside.
+
+- **With only a shell** (no mod): `outliner create --text '<text>' --parent <full id> --author agent --actor <you>` makes a
+  note (`--parent` takes the whole id, not the first 8 characters), `outliner list --subtree <id> --limit 1` reads the text and
+  its `revision`, `outliner update --id <id> --text '<text>' --expected <revision> --author agent --actor <you>` rewrites it,
+  and `outliner agent <operation> --json '{…}' --actor <you>` is every tool above (`set-property` among them). Read what a note
+  draws with `ep0ch show <id>`; it draws values, `::fields`, `::if` and `::use`, but not a script's or an extension's output
+  (see [references/scripts.md](references/scripts.md), "Looking at a script's output").
 
 - **The tools follow the folder Claude runs in.** They (and Recent Mentions and the links in replies) use the
   outline its nearest `.ep0ch/config.toml` names (old `.ep0ch` files are still read) (`ws = "<name>"`, written by `ep0ch init` or the Choose outline popup);
@@ -122,7 +129,9 @@ revision, so concurrent edits rarely collide.
 - **Properties by placement.** `[key::value]` on the title line, or in the first property-only run under it,
   belongs to the whole block (that is what queries and views match). `[key::value]` mid-sentence is an
   inline aside on that spot. `key:: value` at the start of a line annotates that line; a `name::` line in
-  someone's notes is usually a voice or persona, not an instruction to you.
+  someone's notes is usually a voice or persona, not an instruction to you. A `::` mid-sentence (`std::vec`) is prose;
+  a `#fff` or `#00e5ff` (3, 4, 6 or 8 hex digits with a digit, or 6 or more, or one repeated; `#cafe` and `#bed` stay tags) is a colour, not a tag; a `---` is a divider, a figure's
+  settings fence or a table row, and a first-line `---` followed by a blank line is a divider, not front matter.
 - **Indentation scopes context.** Nested lines are a flow of thought, not always strict parent and child.
   Keep their hierarchy when you tidy.
 - **A leading mention is an ask** (PIE-906, #592): a line you write starting with `@name` (after an optional
@@ -153,6 +162,36 @@ revision, so concurrent edits rarely collide.
   ## Next
   - **Felt:** order two rolls ((a1b2c3d4-…|quote from the merchant))
   ```
+
+## Values in prose: `{{ }}`
+
+A note can say what it knows about itself: `Play it at {{this.target}}. Owner: {{this.owner}}.` Every reader draws the
+value, not the braces; the editor, `ep0ch show --source` and the stored text keep what the author typed.
+
+- **Heads:** `this.key` (the note's own header only: it does not inherit), `parent.key`, a bare `key` (the nearest value up the outline: this note's header,
+  then each ancestor's), `((id)).key` or `[[page]].key` (another note), `person.firstName` (through a property whose
+  value is a link), `now.date`, `props.key`. Every key is a list: several values read joined with commas. `{{ path ||
+  fallback }}` fills in when there is nothing.
+- **A typo is never refused.** `{{this.ownr}}` saves as typed; the door and Detail draw it dimmed with the nearest key
+  (`did you mean owner?`) and a write says so as a warning. Fix it and the value redraws.
+- **Read what the person sees:** `outline_read` returns `site` beside `text` (each placeholder's `values`, or its
+  `problem` with `didYouMean`, its `route` and the notes it came `deps` from); `outline_site` answers any path before you
+  write it. Write the placeholder, then check `site.problems` is 0.
+- **On a published page** a value is in the HTML, unless it read a note the page may not show: that one says `hidden
+  here` and names nothing.
+- A selection of a drawn value, a comment on it and a link to it anchor on the whole `{{ }}` token.
+
+## Templates: `::use` and `template.stamp`
+
+A template is a note whose `[form-field::name type …]` chips declare its props and whose `[template-for::meeting]` says
+what it makes. Use it live, `::use{of=[[meeting-template]] date=2026-10-14 with=Jay}` (its body drawn where the line is,
+`this` the page the line is on, so a figure over `{{this.project}}` lists each page's own), or write it out as a new note,
+`ep0ch act template.stamp of='[[daily-template]]' as=new parent='[[Daily notes]]' title='{{now.date}}'` (`props`, `self`
+and `now` become text now; `this`, `parent` and bare keys stay `{{ }}`; `freeze=all` writes those too; `for=<query>` once
+per match). A prop the template doesn't declare is a warning with the nearest name, a required one left out is asked for
+(`use.fill`, an agent names it with `with='{"name":"value"}'`), and a prop's value may be a path
+(`status={{parent.status}}`). `of=type:meeting` finds the template by what it makes. Read
+[references/templates-and-values.md](references/templates-and-values.md).
 
 ## Link, don't direct
 
@@ -417,6 +456,16 @@ Two beds of scaffold boards.
 
 A `> [!quote]` callout's last line `— name, source` is drawn as its byline.
 
+**Fields and conditions** (a note that reads itself). `::fields{key=connectTo}` lists every place the note wrote that
+key (a `[connectTo::…]` chip or a `connectTo:: …` line in its body, after the first blank line), one row per occurrence
+with its line number; a row opens its own line, lit, found again by the text it was written as, and a row appears as soon
+as a line is saved. `of=((id))` lists another note's (the whole id or its first 8 characters; a title in the brackets is not an id, `ep0ch find <words> --ids` prints them), `title=` titles it. Its `¶` anchors that line on request
+(`fields.anchor key=connectTo n=2`), giving a `((note^anchor))` that links to it for good; drawing it never writes. `::if{where="status=active"}`
+… `::` draws its lines only while the note matches the query (the saved views' grammar, `{{this.owner}}` operands bound,
+never pasted in); its body holds Blockdown (its `{{ }}` values are drawn like the rest of the note's) but no other component. A figure copied onto two pages lists each page's own
+(`query: type=ticket project={{this.project}}`), and takes call-site args: `::graph-table{project=lego}` reads
+`{{props.project}}`. The service answers all of these through `site.answer`; `outline_site` is the same read for an agent.
+
 **Links** (`packages/door/src/links.ts`). `::links` lists a note's Outlinks, Resources (`[file::…]`, `jira::`
 tickets; `!` marks one that's unavailable) and Backlinks, answered by the service on every render, the same
 rows as the door's links tile. `::outlinks`, `::resources` and `::backlinks` list one group. One line, the words
@@ -585,7 +634,9 @@ doesn't have the environment variable: the service reads the group when a call s
 - A script is a block with `[script::name]` and a closed `js`, `ts` or `actions` fence, loaded by the extension registry.
 - `tools.*` calls the shared agent tools, such as `tools.outline_comment({ref, whole: true, body})`.
 - `q(query)` calls `outline_find` with the views' query grammar.
-- `read(ref)` calls `outline_read`.
+- `read(ref)` returns the note's record (`outline_read` plus header, tasks, links, backlinks): `properties` is `[{ key, values }]` (each key once, a repeat or a `[a, b]` list as several values) and `fields` the line and inline ones.
+- A script reads its Site with no id in it: `this` (the note it is about: the matched block of a rule, the note in front of a key press, `block=` of an agent's act), `self` (its own note), `caller` and `props` (`week=42` is `props.week[0]`); `resolve("this.owner")` answers as `{{this.owner}}` does and `q("parent:this")` binds `this`. Read [references/scripts.md](references/scripts.md).
+- A returned string shows as plain text. `[mode::render]` makes the script draw in place: a `name:: week=42` line (or a one-line `::= expression`) shows what it returns, live, writing nothing.
 - `act(name, args)` calls the door's existing action dispatcher and needs a connected door; use the power bar or a live draft, since saved asks and rules have no door.
 - Run by name in the power bar or `/`, with `slot=value` arguments for slots in an `actions` fence.
 - `[keys::alt+S]` binds a script key; clashes are reported and typing keeps its keys.
@@ -596,7 +647,7 @@ doesn't have the environment variable: the service reads the group when a call s
 - `extensions.undo` with the returned `undo` receipt undoes the whole run's saved writes, door-action writes and draft patches; conflicts preserve intervening edits, and receipts last for this host process.
 - An agent-written `[script::]` runs as soon as invoked, attributed, with no approval gate.
 - MCP `script_run` takes a script block's `ref` or `uri` and runs as the MCP caller: `propose` makes proposals, `full` applies writes, and `read`/`none` cannot start a run.
-- The person presses `alt+Q` to record a macro and again to save its script block, then edits action values into `{slot}` placeholders.
+- The person presses `alt+Q` to record a macro and again to save its script block, then edits action values into `{{props.slot}}` placeholders (one grammar: `{{ path || default }}`).
 
 One fictional block; run `seed-summary` from the power bar:
 
@@ -643,7 +694,7 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
 sprint check), don't write an extension per form. With the Form extension installed (`outliner ext add form`), write the
 fields on the note itself, one chip each: `[form-field::book text required] [form-field::pages number]
 [form-field::mood choice gripping|slow|abandoned default=slow]` (types `text`, `number`, `choice` with its options split
-by `|`, `property`). Fill in the form (the power bar, or `act ext.form.fill block=<id> with='{"book":"…"}'`) writes an
+by `|`, `property`, `note`, `tag`). Fill in the form (the power bar, or `act ext.form.fill block=<id> with='{"book":"…"}'`) writes an
 entry under the note with the answers as properties. Any action can ask a note's fields: `"fieldsFrom": "block"` in its
 `extension.json`. A chip it can't read is saved and warned on with a did-you-mean.
 
@@ -654,7 +705,7 @@ that links to it is told by netmail, never written (packages/outliner `docs/exte
 
 **Rules** (PIE-600) say "when a block matches this, draw this on it, or run this", without touching its text:
 `match` by a property (`type=meeting`), a saved-view query, a text pattern (line by line, never in code) or a
-construct kind (`heading:1`, `callout`, `list`, `rule`, `image`); then `decorate` (view primitives above, below, in
+construct kind (`heading:1`, `callout`, `list`, `rule`, `image`); then `decorate` (view primitives before (`prepend`), after (`append`), in
 place of or around what matched; `band` and `track` for heading styles and dividers) and `on` (an action when a
 block starts or stops matching, or changes while it matches; an extension's own writes never set one off). The
 no-code tier is a **rule note** you can write for a person in their outline:

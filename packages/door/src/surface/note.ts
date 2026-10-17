@@ -31,8 +31,9 @@ import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resour
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
-import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
+import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
@@ -50,10 +51,13 @@ import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type PropertyRecord, type QuotePlace, type QuoteReceipt } from "../socket";
+import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
+import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
+import { fieldsDrawn } from "../site-blocks";
 import { visible, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -70,6 +74,10 @@ import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
+import { useRegion, type UseSite } from "../template-use";
+import { propQuestion } from "../template-stamp";
+import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
+import type { LiveSite } from "../live";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
 import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
@@ -78,7 +86,7 @@ import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
-import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
+import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
@@ -243,7 +251,7 @@ export interface SavedNav { v: typeof NAV_VERSION; here?: SavedPlace; backs: Sav
 const savedPlace = (p: Place): SavedPlace => ({ id: p.msg.id, title: subject(p.msg), position: structuredClone(p.position), cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
 /** A saved place as a stub the reader reads whole when it goes there (a list row's shape: `partial`). */
 const placeOf = (s: SavedPlace): Place => ({
-  msg: { id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, props: {}, partial: true },
+  msg: { id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [], partial: true },
   position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
@@ -418,10 +426,11 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
+  : e.kind === "control" && e.link?.use ? "ask for what the ::use needs"
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
-  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
+  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.value ? (e.link.value.problem ?? (e.link.at !== undefined ? "show the line it reads" : "say how it is computed")) : e.link?.media || e.link?.url ? "open" : "follow";
 /** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
 function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
   if (x.action === RUN_AGAIN) return "run it again";
@@ -706,7 +715,7 @@ export class NoteSurface {
   /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
   /** The reveal this surface took last (`takeReveal`), so showing the note again doesn't scroll back to it. */
   private revealed: object | null = null;
-  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean } | null = null;
+  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean; says?: string } | null = null;
   private revealMark = false;
   /**
    * Folded headings and list items (their FoldPoint keys): this reader's reading state, never the note's
@@ -891,6 +900,8 @@ export class NoteSurface {
   readonly calloutHistory = new UndoHistory<LineUndo>();
   /** Image layout changes (PIE-532) made here, for image.undo. */
   readonly imageHistory = new UndoHistory<LineUndo>();
+  /** The props a `::use` line was given here (PIE-533 S4, use.fill), for use.undo. */
+  readonly useHistory = new UndoHistory<LineUndo>();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
@@ -1285,7 +1296,7 @@ export class NoteSurface {
     // bold line (brighter in the focused tile, a step down in the others), then one dim line holding everything else.
     // Keep normal cell width: a terminal's sizing probe cannot prove its font will scale instead of spacing the letters.
     // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
-    const named = workIdTitle(subject(m), m.props["work-id"]), focused = host?.focused !== false;
+    const named = workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false;
     const title = named.workId ? `${named.workId} · ${named.title}` : named.title;
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
     // body; the note's top heading is drawn as its headings are.
@@ -1500,7 +1511,7 @@ export class NoteSurface {
       ...(open.length > OPEN_SHOWN ? [dim(`  and ${open.length - OPEN_SHOWN} more left open`)] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
-      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · the line that links here${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
+      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · ${this.focusMark.says ?? "the line that links here"}${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
     if (this.panel?.card) {
       const card = this.panel.card, fields = this.settingFields(m, card.schemas);
@@ -1510,12 +1521,12 @@ export class NoteSurface {
     } else if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
-      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text };
+      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text, values: this.valueRows(m, src) };
       const at = head.length;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
       const popup = this.panel.field && completionOf(this.panel.field.input) ? COMPLETION_ROWS : 0;
-      const ph = Math.min(rows.length + 2 + popup + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4 + popup, Math.floor((h - head.length) * 0.5)));
+      const ph = Math.min(rows.length + 2 + popup + (info.values.length ? Math.min(info.values.length, 6) + 1 : 0) + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4 + popup, Math.floor((h - head.length) * 0.5)));
       head.push(...this.panel.render(rows, w, ph, info));
       panelHits();
     }
@@ -1838,7 +1849,7 @@ export class NoteSurface {
       const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines), bodyText = source.split("\n");
       // A view note's results under its body, drawn as an embedded view (the service's answer).
       const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn) : null;
-      const view = !!results && (m.props.type ?? "").toLowerCase() === "virtual-branch";
+      const view = !!results && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
       const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
       return regions.size || view || plan.after.size || plan.place.size ? {
@@ -1972,7 +1983,7 @@ export class NoteSurface {
     const blocks: LinkBlockInfo[] = [];
     this.linkBlocksDrawn = blocks;
     const { preview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
-    const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
+    const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
       ...env, literal, ...hooks,
       linkBlocks: this.printed ? undefined : {
         ui: key => {
@@ -2057,7 +2068,7 @@ export class NoteSurface {
    */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
-  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false, draftOf?: string): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
     const m = this.msg, src = this.src;
     // `pictures`: its img:: lines drawn as the reader draws them (PIE-846), where the terminal can; else each says what it is.
     const graphics = pictures && !!host?.ctx.graphics;
@@ -2070,7 +2081,10 @@ export class NoteSurface {
       pending ||= embedState(id, fragment, src, m.id).kind === "loading";
       return out;
     } : undefined;
-    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
+    // `draftOf`: the text is that note's unsaved one (an edit's preview): its `{{ }}` are read from the text as typed (PIE-533 S2).
+    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn, undefined, draftOf ? { block: draftOf, draft: true } : undefined), { ...env, ...(embed ? { embed } : {}) });
+    // Its `{{ }}` still being read: drawn again on the redraw the answer brings.
+    if (draftOf && siteAnswerWaiting(draftOf, text, src, true)) pending = true;
     // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
     return { lines: doc.lines, source: doc.source, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [], images: graphics ? doc.images : [] };
   }
@@ -2082,8 +2096,17 @@ export class NoteSurface {
     return stripMarks(stripTags(presentLinks(named, false, this.src, named)));
   }
 
-  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep"> & { preview?: (id: string, width: number) => string[] } {
-    const inner: EmbedBody = (target, part, width, hooks) => {
+  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number) => string[] } {
+    // How many embedded bodies and template bodies are being drawn inside one another: an embed starts a fresh `::use`
+    // depth and a template body a fresh embed one, so a note that embeds a template that embeds it back is stopped here.
+    let nest = 0;
+    const tooDeep = (): string[] => [`${fg(C.dark)}drawn inside itself too many times${RESET}`];
+    const nested = <T>(draw: () => T, stop: () => T): T => {
+      if (nest >= 8) return stop();
+      nest++;
+      try { return draw(); } finally { nest--; }
+    };
+    const inner: EmbedBody = (target, part, width, hooks) => nested(() => {
       let text: string, lines: number[], lit: Set<number>;
       if (part) {
         text = part.text;
@@ -2091,16 +2114,39 @@ export class NoteSurface {
         const inside = target.text.includes("<!--") ? literalLines(target.text).inside : new Set<number>();
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
       } else ({ text, lines, literal: lit } = readableSource(target, src));
-      return renderDoc(presentLinks(text, true, src, target.text, drawn), {
+      return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
+        // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
+        // A `::use` in an embedded note hosts that note: a fresh Site, as an embed starts one.
+        use: isOutlineNote(target) ? useHook(target.id, lines, undefined, 0) : undefined,
         present: presenter(target.text), liveStep,
       }).lines;
+    }, tooDeep);
+    // A template's body (PIE-533 S4), drawn where its `::use` is written: the reader's renderer over the template's text, in the
+    // call's Site (`this` the host, `{{props.x}}` the call's), so values, figures, `::fields` and `::if` read the host.
+    const templateBody = (depth: number) => (target: Msg, site: LiveSite, width: number): string[] => nested(() => {
+      const { text, lines, literal } = readableSource(target, src);
+      const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
+      return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
+        ...env, width, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined,
+        link: (block, t) => tagged(drawn, { block, role: "row" }, t),
+        tag: (to, t) => tagged(drawn, to, t), note: target.id,
+        embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
+        use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
+      }).lines;
+    }, tooDeep);
+    // The `::use` on body line `i`, drawn: `block` is the note whose text holds the line, `lines` its body lines' note lines.
+    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number): DocEnv["use"] => (call, i, width) => {
+      const line = lines[i] ?? -1;
+      if (line < 0) return [];
+      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m.id, width, src, sink: drawn, depth, body: templateBody(depth) });
     };
+    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
     const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
     // A live ::graph-check row's box: a step of its own note, whose mark writes the property its `done:` names.
@@ -2111,7 +2157,7 @@ export class NoteSurface {
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     return {
       present: presenter(m.text), ...(outline ? { liveStep } : {}),
-      ...(outline ? { embed: (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id) } : {}),
+      ...(outline ? { embed: embedHook, use: useHook(m.id, noteLines, undefined, 0) } : {}),
       // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
       ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m.id) } : {}),
       task: (i, box) => {
@@ -2440,7 +2486,7 @@ export class NoteSurface {
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
-      preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links), pick: true, follow: true, ...(away ? { away } : {}),
+      preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links, false, isOutlineNote(m) ? m.id : undefined), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
       ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
       title: `editing · ${subject({ ...m, text: d.text })}`,
@@ -3639,8 +3685,8 @@ export class NoteSurface {
       const at = this.msg?.id ?? "";
       // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
-        .reduce<{ name: "callout.undo" | "image.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
+        .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
       // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
       if (trashedAt !== undefined && trashedAt > last.seq) return false;
@@ -4108,6 +4154,9 @@ export class NoteSurface {
       if (!select) throw new ActionRefused("going into a ::links list is the person's; an agent reads it with links.blocks and opens a row with links.open");
       return this.runKey("links.enter", { block: e.link.linksBlock.key }, host);
     }
+    if (e.link?.anchor) return this.runKey("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, host);
+    // A `::use` that needs a prop: the person is asked for it in the power bar (an agent gives it: use.fill with=).
+    if (e.link?.use) { if (!select) throw new ActionRefused("a ::use's missing props are asked of the person; an agent gives them: use.fill block=" + e.link.use.block + " line=" + (e.link.use.line + 1) + " with='{\"name\":\"value\"}'"); return this.runKey("use.fill", { block: e.link.use.block, line: e.link.use.line + 1 }, host); }
     if (e.kind === "control") return this.useControl(e, host);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
@@ -4229,6 +4278,16 @@ export class NoteSurface {
     const { doc: out, starts } = withRows(doc, all);
     const shown = (i: number) => (i < n || !box.length ? i : i + 1);
     return { doc: out, controls: panels.flatMap((p, i) => p.controls.map(c => ({ ...c, row: starts[shown(i)]! + c.row }))), ...placed(out, starts, n) };
+  }
+
+  /** The note's `{{ }}` as the service read them, for the property panel (the draft's, while one is open). */
+  private valueRows(m: Msg, src: Source | null): ValueRow[] {
+    if (!isOutlineNote(m)) return [];
+    const text = this.draft?.text ?? m.text;
+    const answer = siteAnswerOf(m.id, text, src, !!this.draft && this.draft.text !== m.text);
+    return (answer?.values ?? []).slice(0, MAX_NOTE_VALUES).map(v => hasWords(v)
+      ? { expression: v.expression, words: valueWords(v) || EMPTY_VALUE, ...(v.from ? { from: v.from } : {}) }
+      : { expression: v.expression, words: "", problem: problemWords(v) });
   }
 
   /**
@@ -4904,6 +4963,8 @@ export class NoteSurface {
     }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
     if (l.unsent) { void this.runKey(`unsent.${l.unsent.op}`, { kind: l.unsent.kind }, host); return Promise.resolve(null); }
+    if (l.anchor) { void this.runKey("fields.anchor", { key: l.anchor.key, n: l.anchor.n }, host); return Promise.resolve(null); }
+    if (l.use) { void this.runKey("use.fill", { block: l.use.block, line: l.use.line + 1 }, host); return Promise.resolve(null); }
     if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
     if (l.role === "figure" && l.figure) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
@@ -5002,6 +5063,11 @@ export class NoteSurface {
       if ("web" in to) return this.openOutside("browser", to.web, host);
       return this.followTarget(to.target, host, how);
     }
+    // A `{{ }}` (PIE-533 S2): where its value is written, lit; else what it is (computed, or why it has no value).
+    if (l.value && (!l.block || (l.at === undefined && l.block === this.msg?.id))) {
+      host.ctx.flash(l.value.problem ? `${l.value.expression}: ${l.value.problem}` : `${l.value.expression} → ${printable(l.value.words)} · computed (${l.value.route.split(" → ").at(-1)})`, 8000);
+      return null;
+    }
     let target: Msg | null = null;
     if (l.block) target = await host.ctx.board.get(l.block);
     else if (l.page) {
@@ -5017,7 +5083,7 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}) } : {}) }, host.actor ?? USER);
+    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.atSays ? { says: l.atSays } : l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
     this.track(() => host.navigate(target, how));
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
@@ -5076,7 +5142,7 @@ export class NoteSurface {
     if (this.revealed === r) return;
     this.revealed = r;
     if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
-    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label);
+    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label, r.says);
   }
 
   /** `u`: the note's parent. */
@@ -5446,6 +5512,86 @@ export class NoteSurface {
   }
 
   /**
+   * Give a `::use` the props it needs (PIE-533 S4): the person is asked for each in the power bar, in the picker of its kind
+   * (a choice's options, a note found by its words), and the answers are written onto the call's line through the note's
+   * ordinary save (rewriteLines), recorded as whoever asks; ctrl+z (use.undo) puts the line back. An agent names the props
+   * (`with`); nothing here is asked of it or moves the person's focus.
+   */
+  async fillUse(block: string | undefined, line: number | undefined, given: Record<string, string>, host: SurfaceHost, actor: Actor) {
+    // The note the call is written in: the one shown, or one drawn inside it (an embed, a template that holds a call).
+    const shown = this.requireNote();
+    const whole = block && block !== shown.id ? await host.ctx.board.get(block) : await this.whole();
+    if (!whole) throw new ActionRefused(`that note (${block}) isn't there any more`);
+    const calls = useCallsOf(whole.text);
+    const call = line === undefined ? (calls.length === 1 ? calls[0] : undefined) : calls.find(c => c.line === line - 1);
+    if (!call) throw new ActionRefused(calls.length ? `say which ::use: line= (${calls.map(c => c.line + 1).join(", ")})` : "this note has no ::use line");
+    let answer: Awaited<ReturnType<SurfaceHost["ctx"]["board"]["templateUse"]>>;
+    try { answer = await host.ctx.board.templateUse(whole.id, call.line); }
+    catch (e) { throw new ActionRefused(`couldn't read the ::use on line ${call.line + 1}: ${e instanceof Error ? e.message : String(e)}`); }
+    const need = answer.missing.filter(x => given[x.name] === undefined);
+    const write = (answers: Record<string, string>) => this.inTurn(async () => {
+      const props = Object.fromEntries(Object.entries({ ...given, ...answers }).filter(([, v]) => v !== ""));
+      if (!Object.keys(props).length) throw new ActionRefused("nothing to write: no prop was given");
+      const before = whole.text.split("\n")[call.line] ?? "", after = withUseProps(before, props);
+      if (after === null) throw new ActionRefused(`those values can't be written on line ${call.line + 1}: a ::use line holds a value on one line, without { or } (outside a {{ }}); write it by hand, or give another value`);
+      if (after === before) throw new ActionRefused(`line ${call.line + 1} already says that`);
+      const r = await this.rewriteLines(whole.id, [{ line: call.line, before, after }], this.useHistory, host, actor, USE_STALE);
+      const said = `${answer.template?.title ?? "::use"}: wrote ${Object.entries(props).map(([k, v]) => `${k}=${v}`).join(" ")}`;
+      host.ctx.flash(`${said}${actor.kind === "user" ? " · ctrl+z takes it back" : ""}`);
+      this.noteAgent(actor, said);
+      host.redraw();
+      return { block: whole.id, line: call.line + 1, wrote: props, stillMissing: need.filter(x => props[x.name] === undefined).map(x => x.name), revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+    });
+    if (!need.length && !Object.keys(given).length) return { block: whole.id, line: call.line + 1, missing: [], said: "this ::use needs nothing more" };
+    if (actor.kind !== "user" || !need.length) {
+      if (actor.kind !== "user" && need.length && !Object.keys(given).length) {
+        throw new ActionRefused(`the ::use on line ${call.line + 1} needs ${need.map(x => x.name).join(", ")}: use.fill line=${call.line + 1} with='{${need.map(x => `"${x.name}":"${x.example.replace(/^[^=]+=/, "")}"`).join(",")}}'`);
+      }
+      return write({});
+    }
+    return askInBar(host.ctx as never, `${answer.template?.title ?? "::use"} needs`, need.map(x => propQuestion(x.name, answer.spec[x.name]!)), given, actor, write);
+  }
+
+  async undoUse(host: SurfaceHost, actor: Actor) {
+    const r = await this.inTurn(() => this.undoLines(this.useHistory, "::use", host, actor));
+    return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) };
+  }
+
+  /**
+   * The `¶` on a `::fields` row (S3): the row's line gets an anchor (`fragments.ensure`, attributed), so `((note^anchor))`
+   * links to it for good. The one thing a `::fields` writes, and only when asked: drawing it never does.
+   */
+  async anchorField(key: string | undefined, n: number, host: SurfaceHost, actor: Actor) {
+    const m = this.requireNote();
+    const read = fieldsDrawn(m.id, key);
+    if ("problem" in read) throw new ActionRefused(read.problem);
+    const drawnFields = read.found;
+    // What was drawn may be gone from the note (edited away, drawn by a reader that has since moved on).
+    const now = await this.whole();
+    if (!fieldsBlocksOf(now.text).some(s => s.key.toLowerCase() === drawnFields.key.toLowerCase() && (s.of ?? null) === drawnFields.of)) {
+      throw new ActionRefused(`this note no longer holds a ::fields{key=${drawnFields.key}}`);
+    }
+    const row = drawnFields.rows[n - 1];
+    if (!row) throw new ActionRefused(`::fields{key=${drawnFields.key}} has rows 1 to ${drawnFields.rows.length}`);
+    let anchored: { fragmentId: string; created: boolean };
+    try { anchored = await host.ctx.board.ensureFragment(drawnFields.from, row.line, drawnFields.revision, actor); }
+    catch (e) {
+      const said = e instanceof Error ? e.message : String(e);
+      // The list was drawn from an older text: it is read again (watched), and the row anchors once it is.
+      const why = /changed since/.test(said) ? "not anchored: the note changed since the list was read; it is read again, press ¶ once more" : `not anchored: ${said}`;
+      host.ctx.flash(why);
+      throw new ActionRefused(why);
+    }
+    const link = `((${drawnFields.from}^${anchored.fragmentId}))`;
+    if (actor.kind === "user") host.ctx.copy?.(link);
+    const said = `${anchored.created ? "anchored" : "already anchored"} line ${row.line + 1}: ${link}${actor.kind === "user" ? " · copied" : ""}`;
+    host.ctx.flash(said);
+    this.noteAgent(actor, said);
+    host.redraw();
+    return { block: drawnFields.from, noteLine: row.line + 1, anchor: anchored.fragmentId, created: anchored.created, link, recordedAs: mutationFor(actor) };
+  }
+
+  /**
    * A mark on a live `::graph-check` row (PIE-864): the row's own note gets the property its figure's `done:` names
    * (`x` that query's value, any other mark its status word), one attributed `properties.patch` at the revision its
    * tokens were read at. The figure redraws from the outline; Undo writes back what the property held.
@@ -5676,7 +5822,7 @@ export class NoteSurface {
    * Scroll to the line of this note that holds a reference (a backlinks row opened, PIE-884: `at`, the reference's
    * offset in the text the service read) and mark it, as an anchored link's fragment is. Folds around it open.
    */
-  async revealAt(at: number, host: SurfaceHost, by: Actor = USER, label?: string) {
+  async revealAt(at: number, host: SurfaceHost, by: Actor = USER, label?: string, says?: string) {
     const m = this.msg;
     if (!m) return;
     const from = this.scroll;
@@ -5695,7 +5841,7 @@ export class NoteSurface {
     const { points, lines } = this.foldsIn(now);
     const shown = lines.indexOf(line);
     for (const p of points) if (this.folded.has(p.key) && shown >= 0 && p.line < shown && shown < p.end) this.folded.delete(p.key);
-    this.focusMark = { by, spec: { line: line + 1, to: line + 1 }, label: `line ${line + 1}`, at: Date.now(), line: true };
+    this.focusMark = { by, spec: { line: line + 1, to: line + 1 }, label: `line ${line + 1}`, at: Date.now(), line: true, ...(says ? { says } : {}) };
     this.revealMark = this.scroll === from;
     host.redraw();
   }
@@ -6165,6 +6311,9 @@ export class NoteSurface {
     const start = all.slice(0, lo).reduce((n, l) => n + l.length + 1, 0);
     const span = all.slice(lo, hi + 1).join("\n");
     const seen = s.text(rows);
+    // The `{{ }}` on these lines are drawn as their values (refs.ts presentLinks): a selection of those words is the whole token.
+    const answer = isOutlineNote(m) ? siteAnswerOf(m.id, m.text, this.src) : null;
+    const values = answer ? pairValues(m.text, answer.values).flatMap(p => p.value && p.start >= start && p.end <= start + span.length ? [{ start: p.start - start, end: p.end - start, words: readerWords(m.text.slice(p.start, p.end), p.value) }] : []) : [];
     // Words that are on these lines more than once: the same one as drawn, counted from where the lines start drawing.
     let r0 = s.start.row;
     const lineOfRow = (r: number) => (r >= d.titleRows[0] && r < d.titleRows[1] ? Math.max(0, titleLine(m.text).line) : r >= d.top ? d.lines[d.doc.source[r - d.top] ?? -1] : undefined);
@@ -6176,13 +6325,18 @@ export class NoteSurface {
     for (const t of [seen, seen.replace(/\n/g, " ")]) {
       if (!t.trim()) continue;
       const k = nth(t, before.replace(/\n/g, " ") + t.slice(0, -1));
+      // A value is drawn as its words, not its source: the selection that touches one is read from the drawing (source-map.ts).
+      if (values.length) {
+        const hit = sourceSpanOf(span, t, values, k);
+        if (hit) return { text: span.slice(hit.from, hit.to), exact: true, from: start + hit.from, to: start + hit.to, lines: [lo, hi] };
+      }
       let at = -1;
       for (let i = 0, j = span.indexOf(t); j >= 0; i++, j = span.indexOf(t, j + 1)) if (i === k) { at = j; break; }
       if (at >= 0) return { text: t, exact: true, from: start + at, to: start + at + t.length, lines: [lo, hi] };
     }
     // Drawn words with a link, emphasis or a list mark inside: read the source lines as they're drawn (source-map.ts).
     for (const t of [seen, seen.replace(/^[ \t]*[•◦▪▸‣·○●☐☑✓✗□■-][ \t]+/gm, "")]) {
-      const hit = sourceSpanOf(span, t);
+      const hit = sourceSpanOf(span, t, values);
       if (hit) return { text: span.slice(hit.from, hit.to), exact: true, from: start + hit.from, to: start + hit.to, lines: [lo, hi] };
     }
     const lead = span.length - span.trimStart().length;
@@ -6609,6 +6763,7 @@ const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 
 /** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
 interface Stale { flash: string; refused: string; again: string }
 const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn · nothing was changed · choose again", refused: "that callout changed since it was drawn; nothing was changed (callout.list reads it again)", again: "choose again" };
+const USE_STALE: Stale = { flash: "that ::use line changed since it was drawn · nothing was changed · press again", refused: "that ::use line changed since it was drawn; nothing was changed (use.fill reads it again)", again: "press again" };
 const IMAGE_STALE: Stale = { flash: "that image's line changed since it was drawn · nothing was changed · try again", refused: "that image's line changed since it was drawn; nothing was changed (images reads it again)", again: "try again" };
 /** One line of a note rewritten: its index, its text as it was read, and what it became. */
 interface LineEdit { line: number; before: string; after: string }
@@ -7791,6 +7946,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const r: unknown = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
+      // A `::fields` row's ¶ anchors its line, as whoever asks.
+      if (e.link?.anchor) {
+        const r: unknown = await NOTE_ACTIONS.run("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, on, actor);
+        return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
+      }
+      // A `::use` that needs a prop: an agent names them (use.fill with=); the person is asked.
+      if (e.link?.use && actor.kind === "agent") throw new ActionRefused(`that's a ::use that needs a prop: an agent gives it with use.fill block=${e.link.use.block} line=${e.link.use.line + 1} with='{"name":"value"}'`);
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
       if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : e.control === "untldr" || e.control === "tldr" ? `thread.tldr thread=${e.thread!.slice(0, 8)}${e.control === "untldr" ? " remove=true" : ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
@@ -9179,6 +9341,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {},
     run: (_, { surface, host }, actor) => surface.undoExtension(host, actor),
   }),
+  "script.stop": def({
+    summary: "stop one running script by its run id (run=: the undo a script run answered with, also its run note's [script-run::…]): its remaining calls are refused and the run note says who stopped it. Writes it already made stay; ext.undo takes them back. Says so when the run isn't running",
+    keys: "none: act, or the power bar",
+    touches: "nothing", replay: "ask",
+    args: { run: { type: "string", about: "the run's id (its undo)" } },
+    async run({ run }, { host }, actor) {
+      if (!run?.trim()) throw new ActionRefused("script.stop needs run=<the run's id>: the undo a script run answered with");
+      const r = await host.ctx.board.stopScript(run.trim(), actor);
+      asActor(host.ctx, actor).flash(r.stopped ? "stopped the script" : "that script isn't running");
+      host.redraw();
+      return r;
+    },
+  }),
   "image.undo": def({
     summary: "undo the last image change (size, place, header) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
     keys: "ctrl+z (when an image change was the last change made here)",
@@ -9201,6 +9376,45 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ copy, ...which }, { surface, host }, actor) {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, copy === false ? "address" : "copy-link", host, actor);
+    },
+  }),
+  "use.fill": def({
+    summary: "give a ::use the props its template needs (PIE-533): the person is asked for each in the power bar, in the picker of its kind (a choice's options, a note found by its words), then the answers are written onto the call's line through the note's save, checked against the line as drawn, recorded as whoever asks; ctrl+z (use.undo) takes them back. An agent names them: with='{\"owner\":\"ada\"}' (it is never asked, and its fill never takes the person's focus). line= which ::use (from 1; default: the only one)",
+    keys: "⏎ or a click on a ::use's “needs …” line",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      block: { type: "string", optional: true, about: "the note the ::use is written in, when it is drawn inside this one (an embed, a template): default the note shown" },
+      line: { type: "number", optional: true, about: "the line of the ::use, from 1 (default: the only one the note has)" },
+      with: { type: "string", optional: true, about: "the props to write, as JSON: names to text (an agent's; the person is asked for the rest)" },
+    },
+    async run({ block, line, with: w }, { surface, host }, actor) {
+      let given: Record<string, string> = {};
+      if (w !== undefined) {
+        let v: unknown;
+        try { v = JSON.parse(w); } catch { throw new ActionRefused("with= is JSON: the props to write, names to text; for example with='{\"owner\":\"ada\"}'"); }
+        if (!v || typeof v !== "object" || Array.isArray(v) || Object.values(v).some(x => typeof x !== "string")) throw new ActionRefused("with= maps names to text; for example with='{\"owner\":\"ada\"}'");
+        given = v as Record<string, string>;
+      }
+      return surface.fillUse(block, line, given, host, actor);
+    },
+  }),
+  "use.undo": def({
+    summary: "undo the last use.fill made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the ::use line changed again since",
+    keys: "ctrl+z (when a ::use fill was the last change made here)",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {},
+    run: (_, { surface, host }, actor) => surface.undoUse(host, actor),
+  }),
+  "fields.anchor": def({
+    summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: key= which ::fields (its key; default the only one the note draws), n= its row (from 1)",
+    keys: "⏎ or a click on a ::fields row's ¶",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      key: { type: "string", optional: true, about: "which ::fields: its key (default the only one the note draws)" },
+      n: { type: "number", optional: true, about: "the row, from 1 (default 1)" },
+    },
+    async run({ key, n }, { surface, host }, actor) {
+      return surface.anchorField(key, n ?? 1, host, actor);
     },
   }),
   "task.menu": def({
@@ -9244,7 +9458,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const { of, u, now } = await unsentHere(surface, host, k, false);
       if (actor.kind === "agent") return { of, kind: k, text: u.text, copy: u.copy, at: u.at };
       const base = k === "edit" && now ? await baseTextOf(u, of, now, host.ctx.board) : undefined;
-      const view = copyNote(now ?? ({ id: of, text: "", parentId: null, childIds: [], createdAt: u.at, updatedAt: u.at, author: "unsent", props: {} } as Msg), u, base);
+      const view = copyNote(now ?? ({ id: of, text: "", parentId: null, childIds: [], createdAt: u.at, updatedAt: u.at, author: "unsent", properties: [] } as Msg), u, base);
       host.navigate(view, { fresh: true });
       return { of, opened: view.id, copy: u.copy };
     },

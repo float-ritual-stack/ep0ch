@@ -9,7 +9,9 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
 import { githubWebUrl } from "../extensions/notify/sources";
-import { inert, merged, propsOf } from "../extensions/notify/notification";
+import { valueOf } from "@ep0ch/outline-core/block-record";
+import { parseProperties } from "@ep0ch/outline-core/property-parse";
+import { inert, merged } from "../extensions/notify/notification";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -67,8 +69,9 @@ test("pure parts: the web URL of a subject, imported words kept inert, and read 
   expect(inert("note:: hi")).toBe("note\\:: hi");
   const n = { id: "1", source: "github", kind: "Issue", from: "o/r", title: "T", unread: true, received: "2026-10-09T00:00:00Z" };
   const read = merged(n).replace("[notify.state::unread]", "[notify.state::read]");
-  expect(propsOf(merged(n, read))["notify.state"]).toBe("read");
-  expect(propsOf(merged({ ...n, unread: false }, merged(n)))["notify.state"]).toBe("read");
+  const note = (text: string) => ({ text, properties: parseProperties(text) });
+  expect(valueOf(note(merged(n, note(read))), "notify.state")).toBe("read");
+  expect(valueOf(note(merged({ ...n, unread: false }, note(merged(n)))), "notify.state")).toBe("read");
 });
 
 test("a pull makes one note per notification from all four sources with open properties, the demo's two boards answer them, and a second pull writes nothing", async () => {
@@ -76,8 +79,8 @@ test("a pull makes one note per notification from all four sources with open pro
   expect(await pull()).toBe("notifications: 7 new, 0 changed, 0 unchanged");
   const made = await notes();
   expect(made).toHaveLength(7);
-  const github = made.find((b) => propsOf(b.text)["notify.key"] === "github:101")!;
-  expect(propsOf(github.text)).toMatchObject({ "notify.source": "github", "notify.kind": "PullRequest", "notify.from": "pond/survey", "notify.state": "unread", "notify.url": "https://github.com/pond/survey/pull/12" });
+  const github = made.find((b) => valueOf(b, "notify.key") === "github:101")!;
+  for (const [key, value] of Object.entries({ "notify.source": "github", "notify.kind": "PullRequest", "notify.from": "pond/survey", "notify.state": "unread", "notify.url": "https://github.com/pond/survey/pull/12" })) expect(valueOf(github, key)).toBe(value);
   // Imported words stay words: the title's [mood::calm] is no property, its [[Herons]] no link.
   expect((await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "mood=calm" } })).blocks).toHaveLength(0);
   expect(store.get(github.id)).toMatchObject({ author: "agent", actorId: "ext:notify" });
@@ -86,7 +89,7 @@ test("a pull makes one note per notification from all four sources with open pro
   expect(jira.blocks).toHaveLength(2);
   // The boards: the demo's hubs of views (written when it was installed), lanes by state and by source, answered by the service.
   const hubs = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=virtual-branch", limit: 50 } });
-  expect(hubs.blocks.map((b) => propsOf(b.text)["query"]).filter((q) => q?.startsWith("notify.")).sort()).toEqual(["notify.source=github", "notify.source=gmail", "notify.source=jira", "notify.source=slack", "notify.state=read", "notify.state=unread"]);
+  expect(hubs.blocks.map((b) => valueOf(b, "query")).filter((q) => q?.startsWith("notify.")).sort()).toEqual(["notify.source=github", "notify.source=gmail", "notify.source=jira", "notify.source=slack", "notify.state=read", "notify.state=unread"]);
 
   const before = store.changes.since(0, 1000);
   const count = before.kind === "changes" ? before.changes.length : -1;
@@ -101,10 +104,10 @@ test("a pull makes one note per notification from all four sources with open pro
 test("marking one read in the outline stays read; a notification read at the source becomes read; one failing source doesn't stop the others", async () => {
   const { pull, notes, client, root } = await setup();
   await pull();
-  const target = (await notes()).find((b) => propsOf(b.text)["notify.key"] === "github:102")!;
+  const target = (await notes()).find((b) => valueOf(b, "notify.key") === "github:102")!;
   await client.request({ action: "update", blockId: target.id, expectedRevision: target.revision, text: target.text.replace("[notify.state::unread]", "[notify.state::read]"), mutation: { author: "user" } });
   // A person's own property and paragraph on a note survive a pull.
-  const mine = (await notes()).find((b) => propsOf(b.text)["notify.key"] === "github:101")!;
+  const mine = (await notes()).find((b) => valueOf(b, "notify.key") === "github:101")!;
   await client.request({ action: "update", blockId: mine.id, expectedRevision: mine.revision, text: `${mine.text.split("\n")[0]} [mine::yes]\n\nMy own note.`, mutation: { author: "user" } });
   // GitHub still says 101 changed (title edited, now read there) and 102 unread: 102 stays read here.
   const changed = THREADS.map((t) => (t.id === "101" ? { ...t, unread: false, updated_at: "2026-10-09T11:00:00Z", subject: { ...t.subject, title: "Fix the build" } } : { ...t, updated_at: "2026-10-09T11:00:00Z" }));
@@ -115,9 +118,9 @@ test("marking one read in the outline stays read; a notification read at the sou
   const said = await pull();
   expect(said).toMatch(/^notifications: 0 new, 2 changed, 0 unchanged; gmail: /);
   const now = await notes();
-  const state = (key: string) => propsOf(now.find((b) => propsOf(b.text)["notify.key"] === key)!.text)["notify.state"];
+  const state = (key: string) => valueOf(now.find((b) => valueOf(b, "notify.key") === key)!, "notify.state");
   expect(state("github:101")).toBe("read");
-  const kept = now.find((b) => propsOf(b.text)["notify.key"] === "github:101")!.text;
+  const kept = now.find((b) => valueOf(b, "notify.key") === "github:101")!.text;
   expect(kept).toContain("[mine::yes]");
   expect(kept).toContain("My own note.");
   expect(kept.split("\n")[0]).toStartWith("Fix the build [notify.key");
