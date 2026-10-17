@@ -1074,10 +1074,13 @@ export class App implements Ctx {
     const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
     const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
-    if (this.bar && !w.busy) return { ...w, busy: true, why: "the person has the power bar open (ctrl+k)" };
+    // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)
+    const free = !w.busy || !!w.navHold;
+    if (this.bar && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: "the person has the power bar open (ctrl+k)" }; }
     // An armed edit holds the next key: the person is mid-gesture.
     const a = this.armedNow?.a;
-    return a && !w.busy ? { ...w, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` } : w;
+    if (a && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` }; }
+    return w;
   }
 
   /**

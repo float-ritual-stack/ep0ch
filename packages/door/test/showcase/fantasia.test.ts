@@ -64,6 +64,29 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
     expect(note?.text).toContain("onBehalfOf: user · button by user");
   }, 90_000);
 
+  test("no frame of the dance goes sparse: every frame from the press to the settle holds the tiles (a tile vanishing for a frame would be a flash)", async () => {
+    await openSection();
+    desk().settle();
+    const ink = () => [...desk().render(desk().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")].filter(c => c !== " " && c !== "\n").length;
+    const rest = ink();
+    const b = button();
+    click(b.x, b.y);
+    const seen: number[] = [];
+    const end = Date.now() + 40_000;
+    let started = false;
+    while (Date.now() < end) {
+      seen.push(ink());
+      if (tiles().some(t => t.float)) started = true;
+      if (started && desk().history.openIds().length === 0) break;
+      await Bun.sleep(15);
+    }
+    desk().settle();
+    expect(started).toBe(true);
+    expect(seen.length).toBeGreaterThan(20);
+    const low = Math.min(...seen);
+    expect(low).toBeGreaterThan(rest * 0.5);
+  }, 90_000);
+
   test("a run that leaves the tiles where they danced is one transaction: one undo, the layout as it was", async () => {
     await openSection();
     desk().settle();
@@ -97,16 +120,14 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
     // Without an invitation the tile the person's keys are on is refused, and said.
     expect(text).toContain("stayed put");
     desk().settle();
-    expect(names()).toEqual(start);
-    expect(tiles().every(t => !t.float)).toBe(true);
-    // No layout was asked, so the run took its own changes back: nothing of it is left to undo, and its transaction is closed.
-    // It took its own changes back (layout.undo), or, where the person's section holds the screen, floated each tile back itself.
-    expect(text).toMatch(/the layout as it began|3 of them back in the layout/);
+    // No layout was asked. It took its own changes back (layout.undo) where it may; where the person's section holds the screen
+    // (the showcase), it leaves the tiles where they danced and says so, and one undo puts them back.
+    expect(text).toMatch(/the layout as it began|left where they danced/);
     await untilAsync(() => !desk().history.isOpen(r.undo), "the agent's run's end", 20_000);
-    expect(desk().history.entriesOf(r.undo).length).toBeLessThanOrEqual(1);
     if (desk().history.entriesOf(r.undo).length) await app.dispatch.act({ action: "layout.undo", args: { txn: r.undo } }, USER);   // the person may undo what an agent asked for
     desk().settle();
     expect(names()).toEqual(start);
+    expect(tiles().every(t => !t.float)).toBe(true);
   }, 90_000);
 
   test("stopping mid-dance puts the layout back, the floats gone, one line said", async () => {

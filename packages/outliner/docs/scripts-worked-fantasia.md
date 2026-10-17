@@ -16,7 +16,7 @@ if (before.locked) return 'fantasia: the screen is locked; alt+k unlocks it, the
 const dancers = (before.tiles || []).filter(t => t.shown && t.kind !== 'drawer.own').map(t => ({ id: t.id, name: t.name }));
 const notes = [], floated = [];
 for (const d of dancers) {
-  try { await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push(d); }
+  try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r && r.now && r.now !== d.name ? r.now : d.id, name: d.name }); }
   catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }
 }
 if (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');
@@ -39,11 +39,7 @@ if (!settled) {
   // No layout asked: the run's own changes are taken back, so the screen is as it began.
   try { await act('layout.undo'); settled = 'the layout as it began'; } catch (e) { notes.push('layout.undo: ' + (e && e.message || e)); }
 }
-if (!settled) {
-  let back = 0;
-  for (const d of floated) { try { await act('tile.float', { tile: d.id, on: false, motion: 'settle' }); back++; } catch (e) { notes.push(d.name + ' is still a float: ' + (e && e.message || e)); } }
-  settled = back + ' of them back in the layout';
-}
+if (!settled) settled = 'left where they danced (layout.undo, or ctrl+z, puts them back)';
 return 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\nnotes: ' + notes.join('; ') : '');
 ```
 
@@ -53,7 +49,7 @@ What happens, step by step:
 2. **The press.** A click, or ⏎ on the chip, runs the line through the door's one dispatcher as you. The script is resolved to its `ext.<id>.run`; `motion=` on a press becomes the script's `props.motion`. Because you pressed, the door mints a one-run invitation (shape, screen): the run may move the tile you are in; it never reaches a draft's text.
 3. **The run.** The service starts the run (`requestedBy` you, the button's author recorded on its note). Every `act()` goes back to your door as `script:fantasia` on your behalf, carrying the run's id as `txn=` and the invitation, so the run's layout changes are **one transaction**.
 4. **The dance.** `layout.get` lists the tiles; each shown tile but the drawer's is floated (`tile.float on=true`, so a tile already floating isn't toggled back) and nudged (`float.place`) a few beats with `motion: "fantasia"`. The desk draws each change as movement (`motion.set` caps it: calm is a short plain glide, off snaps). A refusal (a locked screen, the tile somebody types in) is caught per tile and said at the end; a locked screen refuses up front.
-5. **The settle.** `layout=<screen>` loads that screen. With none, the run takes its own changes back (`layout.undo`, which inside a run is the run's transaction), so the screen is as it began; where that is refused it floats each tile back itself (`tile.float on=false`). `stay=1` leaves the tiles where they danced, a scene to undo.
+5. **The settle.** `layout=<screen>` loads that screen. With none, the run takes its own changes back (`layout.undo`, which inside a run is the run's transaction), so the screen is as it began; where that is refused (an uninvited run on a screen the person holds) it leaves the tiles where they danced and says so, and `layout.undo` puts them back. `stay=1` does the same by choice, a scene to undo.
 6. **The close.** The run note ends with `fantasia: 3 tiles danced 3 beats at 450 ms, the layout as it began`, and the status bar says once how many layout changes the run made and that ctrl+z puts them back.
 
 Paths:

@@ -165,7 +165,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * change recorded and not yet laid out (the next paint knows where the tiles are now); `transition` is one running. They
    * are paint only: the layout, `peek`, `viewState` and a snapshot read the settled state, and the first key or click settles it.
    */
-  private pendingMotion: { from: Map<number, Rect>; plan: MotionPlan } | null = null;
+  private pendingMotion: { from: Map<number, Rect>; plan: MotionPlan; floated: Set<number> } | null = null;
   private transition: Transition | null = null;
   /** The clock motion runs on (a test injects its own). */
   clock: () => number = () => Date.now();
@@ -579,7 +579,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
       actor, area: this.area, tile: id => this.facts(id, actor),
-      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, {}), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}), ...(actor.kind === "agent" && INVITES.covers(actor.invitation, "screen", actor.run) ? { invited: true } : {}) },
+      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}), ...(actor.kind === "agent" && INVITES.covers(actor.invitation, "screen", actor.run) ? { invited: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
   }
@@ -644,8 +644,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const now = this.clock();
     const from = this.transition ? this.transition.rectsNow(now, this.area) : new Map(this.hits);
     if (!from.size) return;
+    const floated = new Set<number>([...this.floats.map(f => f.id), ...(this.transition?.floated ?? [])]);
     this.transition = null;
-    this.pendingMotion = { from, plan };
+    this.pendingMotion = { from, plan, floated };
   }
 
   /** Whether a change is drawing its way (a test and the status line ask). */
@@ -687,6 +688,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private undoEntries(entries: LayoutEntry[], actor: Actor): { done: LayoutEntry[]; blocked?: string } {
     const done: LayoutEntry[] = [];
     for (const entry of entries) {
+      // Rebuilding clears what the person is in the middle of (an edit, a terminal): never under their typing.
+      if (this.holdsKeys()) return { done, blocked: "you are typing; ctrl+z (layout.undo) puts it back when you are done" };
       const later = this.history.after(entry).find(e => e.party !== entry.party && e.owner !== entry.owner);
       if (later) return { done, blocked: `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` };
       this.replaying = true;
@@ -2931,7 +2934,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
     // Motion (PIE-958): a change just made begins from where the tiles were; the tiles that move are drawn in flight, on top.
     if (this.pendingMotion) {
-      const t = new Transition(this.pendingMotion.from, new Map(this.hits), this.clock(), this.pendingMotion.plan);
+      const t = new Transition(this.pendingMotion.from, new Map(this.hits), this.clock(), this.pendingMotion.plan, this.pendingMotion.floated);
       this.pendingMotion = null;
       if (t.moves) this.transition = t;
     }
@@ -2970,7 +2973,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // In flight, a tile is drawn as it is, at the rectangle it is in (its contents move with it: nothing goes dark and comes
     // back, so nothing pulses), on top of the rest; its pictures are taken away until it lands, so nothing bright slides over
     // text (src/motion.ts). They land where the layout puts them.
-    for (const [id, r] of ghosts) {
+    // (A tile that was floating, or is, stays above the ones that were not: the floats were over the layout and still are.)
+    const above = (id: number) => (flying?.floated.has(id) || this.isFloat(id) ? 1 : 0);
+    for (const [id, r] of [...ghosts].sort((a, b) => above(a[0]) - above(b[0]))) {
       placements = uncover(placements, r);
       this.drawTile(canvas, id, r, false, this.isFloat(id));
     }
