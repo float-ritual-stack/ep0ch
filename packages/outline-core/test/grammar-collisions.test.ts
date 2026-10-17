@@ -10,8 +10,8 @@ const keys = (text: string) => parseProperties(text).map(p => `${p.key}=${p.valu
 
 describe("a hex colour is not a tag", () => {
   test("3, 4, 6 and 8 hex digits are colours; other lengths and non-hex words stay tags", () => {
-    for (const c of ["fff", "00e5ff", "1a2b3c", "ABCD", "1a2b3c80"]) expect(isHexColour(c)).toBe(true);
-    for (const c of ["622x", "12", "12345", "1234567", "garden", "gg0000"]) expect(isHexColour(c)).toBe(false);
+    for (const c of ["fff", "ccc", "000", "00e5ff", "1a2b3c", "1a2b3c80", "ab12", "facade"]) expect(isHexColour(c)).toBe(true);
+    for (const c of ["622x", "12", "12345", "1234567", "garden", "gg0000", "bed", "add", "fade", "feed", "cafe", "deaf", "bead", "ABCD"]) expect(isHexColour(c)).toBe(false);
   });
 
   test("in prose and in the header run", () => {

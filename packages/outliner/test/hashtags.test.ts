@@ -152,7 +152,8 @@ test("Detail keeps a metadata line's tags in the text, under the title, when its
     .toEqual(["Fence plan", "#fencing #timber", "The fence wants posts."]);
 });
 
-test("a tag edited to a hex-colour word stays a tag (a bracket, since #cafe reads as a colour)", () => {
-  const edited = patchPropertyText("Title #garden", [{ op: "replace", ordinal: 0, value: "cafe" }]);
-  expect(parseProperties(edited).map(p => `${p.key}=${p.value}`)).toEqual(["tag=cafe"]);
+test("a tag edited to a colour-like word stays a tag (a bracket, since #facade reads as a colour)", () => {
+  const edited = patchPropertyText("Title #garden", [{ op: "replace", ordinal: 0, value: "facade" }]);
+  expect(parseProperties(edited).map(p => `${p.key}=${p.value}`)).toEqual(["tag=facade"]);
+  expect(patchPropertyText("Title #garden", [{ op: "replace", ordinal: 0, value: "cafe" }])).toBe("Title #cafe");
 });

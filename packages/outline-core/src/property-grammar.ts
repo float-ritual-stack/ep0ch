@@ -29,10 +29,12 @@ export const PROPERTY_KEY_PATTERN = new RegExp(`^${PROPERTY_KEY_SOURCE}$`);
 export const HASHTAG_VALUE_PATTERN = /[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*(?:\/[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*)*/u;
 
 /**
- * A hex colour written after a `#` (`#fff`, `#00e5ff`, `#1a2b3c80`): exactly 3, 4, 6 or 8 hex digits. It is a colour, not
- * a tag. (Words made only of hex letters, `#bad`, `#cafe`, `#facade`, read as colours too; `#[tag::bad]` or `[tag::bad]` says tag.)
+ * A hex colour written after a `#` (`#fff`, `#00e5ff`, `#1a2b3c80`): exactly 3, 4, 6 or 8 hex digits, and either a digit
+ * among them, 6 or more of them, or one digit repeated (`#ccc`). It is a colour, not a tag. Short words made of hex letters
+ * (`#bed`, `#cafe`, `#fade`) are tags; a 6-letter one (`#facade`) reads as a colour, and `[tag::facade]` says tag.
  */
-export const isHexColour = (value: string) => /^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value);
+export const isHexColour = (value: string) =>
+  /^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) && (value.length >= 6 || /\d/.test(value) || /^(.)\1+$/i.test(value));
 
 /** One `[key::value]` token as written: the key as written, the raw value (untrimmed, never empty), offsets of the whole. */
 export interface RawPropertyToken {
