@@ -154,11 +154,18 @@ if (request.input.request === "describe the beds") {
   notes.scriptsInPlace = await make(notes.root.id, [
     `${SEED.scriptsInPlace} [owner::Sam] [crop::beans]`,
     "A script written with [mode::render] draws where a line asks for it, and again when a note it read changes. It writes nothing: this note stays as you typed it.",
-    "Sam's sowing plan for week 42 is the script's table, drawn as if it were written here:",
     "beds-table:: week=42",
     "A ::= line is the same in one line, with this, props, q, read and resolve:",
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
-    "Both are generated and read like the page around them: the one dim mark in the margin beside each is all that says so. Put the cursor on it, or click it, to see when it ran and to run it again. A script that writes leaves its output in the note, as a region you can edit:",
+  ].join("\n"));
+  // Generated regions in prose (PIE-956): the render script's table, a ::= sentence and a written output region, each read like the page.
+  notes.outputRegions = await make(notes.root.id, [
+    `${SEED.outputRegions} [owner::Sam] [crop::beans]`,
+    "Sam's sowing plan for week 42 is a script's table, drawn as if it were written here:",
+    "beds-table:: week=42",
+    "Below it, one sentence is generated too:",
+    "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
+    "Neither shows who ran it, when, or a button: the one dim mark in the margin beside each is all that says so. Put the cursor on it (the [ ] keys), or click it, to see when it ran and to run it again. A script that writes leaves its output in the note, as a region you can edit:",
     outputRegionText({ label: "last week's rota", producer: notes.scripts.id, anchor: "out-rota-7c2e", body: "- Mon: Sam waters the beans\n- Wed: Robin thins the carrots\n- Fri: Sam picks the first peas" }),
     "Change a word inside it and it is yours: the script's next run waits as a proposal beside it.",
   ].join("\n"));
