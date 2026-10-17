@@ -230,12 +230,17 @@ export type LinkTarget = {
   resource?: AuthoredResourceLink;
   /** A Resource an extension's view links to (PIE-754): `file:/path`, `web:https://…` or `resource:<id>`. */
   resourceRef?: string;
-  block?: string; fragment?: string; at?: number; atLabel?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image" | "picture"; reason?: string;
+  block?: string; fragment?: string; at?: number; atLabel?: string; /** With `at`: what the lit line is (a `::fields` row's: "the line it was written on"). */ atSays?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image" | "picture"; reason?: string;
   /**
    * A live figure's control (role "figure"): one of a tabs figure's tabs, or its density; on a row (role "row"), the
    * figure the row is in (`figure` only), so the figure's keys work while the row is current (src/graphs.ts).
    */
   figure?: FigureControl;
+  /**
+   * The `¶` on a `::fields` row (role "row"): it anchors that row's line when pressed (`fields.anchor`): the `::fields` of
+   * that `key`, its `n`th row.
+   */
+  anchor?: { key: string; n: number };
   /**
    * An agent's open proposal (PIE-501): on its embed's source line, the proposal it shows; with `op`, one of
    * the controls drawn there (role "control"), which runs `proposal.apply` or `proposal.dismiss` on it.

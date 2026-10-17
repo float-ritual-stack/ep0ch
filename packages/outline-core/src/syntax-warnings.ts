@@ -78,8 +78,8 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
   for (const f of codeBlocks(lines).fences) for (let j = f.start; j <= f.end; j++) covered.add(j);
   lines.forEach((raw, i) => {
     const open = COMPONENT_OPEN.exec(raw.replace(/\r$/, ""));
-    // `::links` and its kind alone on a line is that component, unclosed by design (link-blocks.ts).
-    if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!)) return;
+    // `::links` and its kind alone on a line is that component, unclosed by design (link-blocks.ts); so is `::fields` (site-blocks.ts).
+    if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!) || open[1] === "fields") return;
     out.push({ kind: "component", line: i, message: `the ::${open[1]} on line ${i + 1} isn't closed with :: on a line of its own: it's plain text` });
   });
 

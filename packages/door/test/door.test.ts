@@ -189,14 +189,14 @@ import { Watched } from "../src/watched";
 describe("live figures answer from the outline", () => {
   const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
   test("a query-backed check shows current state, and asks again when the service says its answer changed", async () => {
-    let stage = "waiting", watch = "", matchesWatch = "", generation = 0;
+    let stage = "waiting", watch = "", generation = 0;
     const block = (id: string, title: string, props: Record<string, string>) => ({ id, parentId: null, text: title, author: "agent", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
     const fake: any = {
       request: async (a: string, p: any) => {
-        // The service says which results `done:` holds for (query.matches, watched).
-        if (a === "query.matches") { matchesWatch = p.watch; return { generation: p.generation ?? 0, blockIds: p.expression === "outbox=done" && stage === "done" ? p.blockIds : [] }; }
+        // One watched site.answer: the results and which of them `done:` holds for, in the figure's Site.
         watch = p.watch;
-        return { generation, blocks: [block("a", "Nudge Sumit", { type: "outbox-item", outbox: stage, "waiting-on": "Sumit" })].filter(() => p.query.where === "type=outbox-item"), completeness: { kind: "complete" } };
+        const blocks = [block("a", "Nudge Sumit", { type: "outbox-item", outbox: stage, "waiting-on": "Sumit" })].filter(() => p.produce.props.query === "type=outbox-item");
+        return { generation, produced: { kind: "figure", blocks, truncated: false, done: p.produce.props.done === "outbox=done" && stage === "done" ? ["a"] : [] } };
       },
       toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", properties: b.properties })),
     };
@@ -214,8 +214,8 @@ describe("live figures answer from the outline", () => {
     renderGraph("check", yaml, 60); await Bun.sleep(10);
     expect(renderGraph("check", yaml, 60).map(strip).join("\n")).toContain("[~]  Nudge Sumit");
     generation = 1;
-    // Both answers changed: the results' (a property moved) and done:'s.
-    fake.watched.changed([{ key: watch, generation: 1 }, { key: matchesWatch, generation: 1 }]);
+    // The one answer changed (a property moved: the results' and done:'s together).
+    fake.watched.changed([{ key: watch, generation: 1 }]);
     await Bun.sleep(10);
     out = renderGraph("check", yaml, 60).map(strip).join("\n");
     expect(out).toContain("[x]  Nudge Sumit");

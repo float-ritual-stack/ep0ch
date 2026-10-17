@@ -6,21 +6,22 @@
 // not show (locked, outside a share, not public on a public page) is left out, never named.
 import { linkingLineId } from "./publish-anchors";
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
-import { asksPerItem, figureQuestion, liveAsk, liveMark, liveProps, liveStatus, NONE, sortProblem, type FigureAnswer, type FigureItem, type FigureQuestion } from "@ep0ch/outline-core/figure-live";
+import { siteBlockAt, type SiteBlock } from "@ep0ch/outline-core/site-blocks";
+import { askProps, asksPerItem, CHILDREN_QUERY, figureQuestion, keepGroups, liveAsk, liveMark, liveProps, liveStatus, NONE, type FigureAnswer, type FigureItem } from "@ep0ch/outline-core/figure-live";
+import type { SiteAnswer, SiteProduced, SiteProducer } from "@ep0ch/outline-core/site";
 import { figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
 import { figureRow } from "@ep0ch/outline-core/figure-markdown";
 import { recordProperties } from "@ep0ch/outline-core/block-record";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockGroups, LINK_GROUPS, linkBlockAt, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
-import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { AuthoredLinksSnapshot } from "./authored-links";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
-import { componentSourceHtml, figureBodyHtml, figureFrame, linksHtml, viewLaneHtml, type FigureRows, type LinkGroupHtml, type LinkRowHtml, type ViewLane, type ViewRow } from "./publish-figures";
+import { componentSourceHtml, fieldsHtml, figureBodyHtml, figureFrame, linksHtml, viewLaneHtml, type FigureRows, type LinkGroupHtml, type LinkRowHtml, type ViewLane, type ViewRow } from "./publish-figures";
 import { checklistItems } from "./checklist-items";
 import { placeFigureStep, type PublishedStep } from "./publish-steps";
 import { DEFAULT_PROPERTY_SUMMARY_KEYS, parsePropertySummaryKeys, propertySummarySegments } from "./property-summary";
-import type { BacklinkCollection, BlockProperty, ProjectedBlockCollection, SavedViewReadResult, VisibleBlock, VisibleBlockCollection } from "./types";
+import type { BacklinkCollection, BlockProperty, ProjectedBlockCollection, SavedViewReadResult, VisibleBlock } from "./types";
 
 /** What the components on one page ask of the publisher: the service, and what this page may show and link. */
 export interface LiveHost {
@@ -37,7 +38,7 @@ export interface LiveHost {
 export interface DrawnComponent { end: number; markdown: string }
 
 const ms = (iso: string | undefined) => (iso ? Date.parse(iso) || 0 : 0);
-const CHILDREN = "parent:this NOT type=annotation NOT type=annotation-reply";
+const CHILDREN = CHILDREN_QUERY;
 
 /**
  * The built-in components in each note's text, drawn: each `::graph-*` figure and `::links` component's HTML is pushed
@@ -59,11 +60,21 @@ export async function drawNoteComponents(
       if (structure[i] !== -1 && structure[i] !== i) continue;
       const links = linkBlockAt(lines, i, byStart);
       const block = byStart.get(i), kind = block && graphKind(block);
-      if (!links && !kind) continue;
-      const end = links ? links.end : block!.end;
+      const site = !links && !kind ? siteBlockAt(lines, i, byStart) : null;
+      // `::if`: its body stays in the page's Markdown when `this` matches (only its two lines go), else it all goes.
+      if (site?.kind === "if") {
+        const held = await holds(host, note.id, site.spec.where, site.spec.problem);
+        if (held) { drawn.set(i, { end: i + 1, markdown: "" }); drawn.set(site.end, { end: site.end + 1, markdown: "" }); }
+        else drawn.set(i, { end: site.end + 1, markdown: "" });
+        i = site.end;
+        continue;
+      }
+      if (!links && !kind && !site) continue;
+      const end = links ? links.end : site ? site.end : block!.end;
       let html: string;
       try {
-        html = links ? await drawLinks(host, links.spec, note.id)
+        html = site ? await drawFields(host, site as Extract<SiteBlock, { kind: "fields" }>, note.id)
+          : links ? await drawLinks(host, links.spec, note.id)
           : await drawFigure(host, kind!, lines.slice(i + 1, end), note.id, lines.slice(0, i).every(line => !line.trim()), lines.slice(i, end + 1), figureRows(note, i + 1, rows), block!.attrs);
       } catch (error) {
         html = componentSourceHtml(lines.slice(i, end + 1), `couldn't ask the outline: ${(error as Error).message}`);
@@ -76,6 +87,30 @@ export async function drawNoteComponents(
     if (drawn.size) out.set(note.id, drawn);
   }
   return out;
+}
+
+// ── `::fields` and `::if` ──────────────────────────────────────────────────────────────────────────
+
+/** Whether an `::if` draws its body on this page: the service says `this` matches. A query it can't read hides the body. */
+async function holds(host: LiveHost, note: string, where: string, problem: string | undefined): Promise<boolean> {
+  if (problem) return false;
+  try { return (await produced(host, note, { kind: "if", where }) as Extract<SiteProduced, { kind: "if" }>).holds; }
+  catch { return false; }
+}
+
+/** A `::fields`: the occurrences of a key in this note (or in `of:`, when this page shows it). A row is a line of a note the page shows, so a link in it shows only a note the page does. */
+async function drawFields(host: LiveHost, block: Extract<SiteBlock, { kind: "fields" }>, note: string): Promise<string> {
+  const { spec } = block;
+  const title = spec.title ?? spec.key;
+  if (spec.problem) return fieldsHtml(title, [], "", spec.problem);
+  if (spec.of && !(await host.shown([spec.of])).has(spec.of)) return fieldsHtml(title, [], "", "a note not shown here");
+  const a = await produced(host, note, { kind: "fields", key: spec.key, ...(spec.of ? { of: spec.of } : {}) }) as Extract<SiteProduced, { kind: "fields" }>;
+  if (a.problem) return fieldsHtml(title, [], "", a.problem.message);
+  const linked = await host.shown(a.rows.flatMap(row => row.link ? [row.link.id] : []));
+  const rows = a.rows.map(row => row.link
+    ? (linked.has(row.link.id) ? { text: row.link.title, line: row.line, href: host.href(row.link.id) } : { text: "a note not shown here", line: row.line })
+    : { text: row.value, line: row.line });
+  return fieldsHtml(title, rows, `live · ${rows.length} occurrence${rows.length === 1 ? "" : "s"}`);
 }
 
 // ── figures ────────────────────────────────────────────────────────────────────────────────────────────
@@ -113,7 +148,7 @@ async function drawFigure(host: LiveHost, kind: string, body: readonly string[],
   }
   if ("error" in read) return figureFrame(kind, kind, "", "", read.error);
   let props = read.props, foot = read.children ? "live · child notes" : "", error = "";
-  const live = await answerFigure(host, kind, props, note);
+  const live = await answerFigure(host, kind, props, note, read.args);
   if (live) { props = live.props; foot = live.status; error = live.error ?? ""; }
   // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
   if (read.warning) error = [error, read.warning].filter(Boolean).join(" · ");
@@ -133,12 +168,12 @@ export async function liveRowMark(host: Pick<LiveHost, "request">, note: { id: s
   const all: LiveHost = { request: host.request, shown: async ids => new Set(ids), titles: async () => new Map(), href: () => null };
   for (const block of componentBlocks(lines)) {
     if (block.start !== figure || block.end <= block.start || graphKind(block) !== "check") continue;
-    const read = figureProps("check", figureSource(lines.slice(block.start + 1, block.end), note.id));
+    const read = figureProps("check", figureSource(lines.slice(block.start + 1, block.end), note.id, undefined, block.attrs));
     if ("error" in read) continue;
     const mark = liveMark(read.props), asking = liveAsk("check", read.props);
     const question = mark && !asking.error ? figureQuestion(asking.ask, asking.group) : null;
     if (!question || "error" in question) continue;
-    try { if ((await ask(all, question, note.id)).items.some(item => item.id === row)) return mark; }
+    try { if ((await produced(all, note.id, { kind: "figure", figure: "check", props: askProps(read.props) }, read.args) as Extract<SiteProduced, { kind: "figure" }>).blocks.some(item => (item as { id: string }).id === row)) return mark; }
     catch { /* a figure that can't be asked lists nothing */ }
   }
   return null;
@@ -146,64 +181,68 @@ export async function liveRowMark(host: Pick<LiveHost, "request">, note: { id: s
 
 /** A note's child bullets as figure rows (each standing for its note), in the note's order. */
 async function childRows(host: LiveHost, note: string): Promise<Row[]> {
-  const found = await host.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: CHILDREN, this: note, limit: 1000 }, fields: ["text"] });
-  const shown = await host.shown(found.blocks.map(block => block.id));
-  return found.blocks.flatMap(block => {
+  const found = await produced(host, note, { kind: "children" }) as Extract<SiteProduced, { kind: "children" }>;
+  const blocks = found.blocks as { id: string; text?: string }[];
+  const shown = await host.shown(blocks.map(block => block.id));
+  return blocks.flatMap(block => {
     const prose = shown.has(block.id) ? headerLine(block.text ?? "").prose.trim() : "";
     return prose ? [{ ...figureRow(prose), block: block.id }] : [];
   });
 }
 
-/** A live figure's props from the service's answer, or null when it asks nothing. */
-async function answerFigure(host: LiveHost, kind: string, p: Props, note: string): Promise<{ props: Props; status: string; error?: string } | null> {
-  if (asksPerItem(kind, p)) {
-    let error: string | undefined;
-    const items = await Promise.all(p.items.map(async (item: Props) => {
-      const question = figureQuestion(item);
-      if (!question) return item;
-      if ("error" in question) { error = question.error; return item; }
-      try { const a = await ask(host, question, note); return { ...item, value: `${a.items.length}${a.truncated ? "+" : ""}` }; }
-      catch (e) { error = (e as Error).message; return { ...item, value: "?" }; }
-    }));
-    return { props: { ...p, items }, status: "live", ...(error ? { error } : {}) };
+/** What a producer in a note asks of its Site, answered by the service (`site.answer`): the one orchestration, here and in the door. */
+async function produced(host: Pick<LiveHost, "request"> & Partial<Pick<LiveHost, "shown">>, note: string, produce: SiteProducer, args?: Record<string, string>): Promise<SiteProduced> {
+  const props = args && Object.keys(args).length ? Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]])) : undefined;
+  // As a page's `{{ }}` values are read (publish-values.ts): asked again naming the notes the page may not show, when the
+  // answer was computed from any, so a `{{ }}` operand never reads through one.
+  const hidden = new Set<string>();
+  for (let round = 0; round < 4; round++) {
+    const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce, ...(props ? { props } : {}), ...(hidden.size ? { hidden: [...hidden] } : {}) });
+    if (!answer.produced) throw new Error("the service answered no figure");
+    const touched = answer.deps.filter(id => id !== note);
+    const shown = host.shown && touched.length ? await host.shown(touched) : new Set(touched);
+    const fresh = touched.filter(id => !shown.has(id) && !hidden.has(id));
+    if (!fresh.length) return answer.produced;
+    for (const id of fresh) hidden.add(id);
   }
-  const asking = liveAsk(kind, p);
-  if (asking.error) return { props: p, status: "live", error: asking.error };
-  const question = figureQuestion(asking.ask, asking.group);
-  if (!question) return null;
-  if ("error" in question) return { props: p, status: "live", error: question.error };
-  let answer: FigureAnswer;
-  try { answer = await ask(host, question, note); }
-  catch (e) { return { props: p, status: "live", error: (e as Error).message }; }
-  answer = { ...answer, ...await subsets(host, p, answer.items, note) };
-  const drawn = liveProps(kind, asking.props, answer);
-  const error = drawn.error ?? answer.hint;
-  return { props: drawn.props, status: liveStatus(answer), ...(error ? { error } : {}) };
+  throw new Error("this reads a note that isn't shown here");
 }
 
-/** The figure's question asked once: its results this page may show, with titles, and the service's groups. */
-async function ask(host: LiveHost, question: FigureQuestion, note: string): Promise<FigureAnswer> {
-  if (question.kind === "view") {
-    const read = await host.request<SavedViewReadResult>({ action: "views.read", viewId: question.viewId });
-    if (read.status !== "ready") throw new Error(`view ${read.status}: ${read.errors.join("; ")}`);
-    const items = await itemsOf(host, read.blocks);
-    return { items, truncated: read.completeness?.kind === "truncated" || read.nextOffset !== undefined };
+/** A live figure's props from the service's answer, or null when it asks nothing. */
+async function answerFigure(host: LiveHost, kind: string, p: Props, note: string, args?: Record<string, string>): Promise<{ props: Props; status: string; error?: string } | null> {
+  const asking = liveAsk(kind, p);
+  const perItem = asksPerItem(kind, p);
+  if (!perItem && asking.error) return { props: p, status: "live", error: asking.error };
+  const question = figureQuestion(asking.ask, asking.group);
+  if (!perItem && !question) return null;
+  if (!perItem && question && "error" in question) return { props: p, status: "live", error: question.error };
+  let a: Extract<SiteProduced, { kind: "figure" }>;
+  try { a = await produced(host, note, { kind: "figure", figure: kind, props: askProps(p) }, args) as typeof a; }
+  catch (e) { return { props: p, status: "live", error: (e as Error).message }; }
+  if (perItem) {
+    // Each item's count is of the results this page may show.
+    const items = await Promise.all((p.items as Props[]).map(async (item, k) => {
+      const c = a.counts?.[k];
+      if (!c || !(item?.query || item?.view)) return item;
+      if (c.error) return { ...item, value: "?" };
+      const kept = await host.shown(c.ids);
+      return { ...item, value: `${kept.size}${c.truncated ? "+" : ""}` };
+    }));
+    const error = a.counts?.find(c => c.error)?.error;
+    return { props: { ...p, items }, status: "live", ...(error ? { error } : {}) };
   }
-  const { where, limit, sort, direction, group, machinery } = question;
-  // Asked without a projection: the service's groups and hint come with whole blocks.
-  let found: VisibleBlockCollection & { groups?: QuestionGroup[]; hint?: string };
-  try {
-    found = await host.request({ action: "blocks.query", query: { where, this: note, limit, sort: `${sort} ${direction}`, ...(group ? { group } : {}), ...(machinery ? { machinery } : {}) } });
-  } catch (e) { throw new Error(sortProblem((e as Error).message, sort, direction)); }
-  const items = await itemsOf(host, found.blocks);
+  if (a.error && !a.blocks.length) return { props: p, status: "live", error: a.error };
+  const items = await itemsOf(host, a.blocks as never);
   const kept = new Set(items.map(item => item.id));
-  // A group counts every match; the ones this page can't show come off its count.
-  // A group whose every member is hidden goes too: its value is theirs.
-  const groups = found.groups?.flatMap(g => {
-    const ids = g.ids.filter(id => kept.has(id));
-    return g.ids.length && !ids.length ? [] : [{ ...g, ids, count: Math.max(0, g.count - (g.ids.length - ids.length)) }];
-  });
-  return { items, truncated: found.completeness?.kind === "truncated", ...(groups ? { groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
+  // A group counts every match; the ones this page can't show come off its count, and a group whose every member is hidden goes.
+  const groups = keepGroups(a.groups, kept);
+  const answer: FigureAnswer = {
+    items, truncated: a.truncated, ...(groups ? { groups } : {}),
+    ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}),
+  };
+  const drawn = liveProps(kind, asking.props, answer);
+  const error = drawn.error ?? a.error ?? answer.hint;
+  return { props: drawn.props, status: liveStatus(answer), ...(error ? { error } : {}) };
 }
 
 async function itemsOf(host: LiveHost, blocks: readonly { id: string; properties?: BlockProperty[]; createdAt?: string; updatedAt?: string; author?: string }[]): Promise<FigureItem[]> {
@@ -214,17 +253,6 @@ async function itemsOf(host: LiveHost, blocks: readonly { id: string; properties
     id: block.id, title: titles.get(block.id) || "untitled", properties: recordProperties(block.properties ?? []),
     createdAt: ms(block.createdAt), updatedAt: ms(block.updatedAt), author: block.author ?? null,
   }));
-}
-
-/** Which results a figure's `done:` and `now:` queries hold for, as the service says. */
-async function subsets(host: LiveHost, p: Props, items: readonly FigureItem[], note: string): Promise<Pick<FigureAnswer, "done" | "now">> {
-  const out: Pick<FigureAnswer, "done" | "now"> = {};
-  for (const key of ["done", "now"] as const) {
-    if (!p[key] || !items.length) continue;
-    const read = await host.request<{ blockIds: string[] }>({ action: "query.matches", expression: String(p[key]), blockIds: items.map(item => item.id), this: note });
-    out[key] = new Set(read.blockIds);
-  }
-  return out;
 }
 
 // ── `::links` and its kin ──────────────────────────────────────────────────────────────────────────────

@@ -101,7 +101,7 @@ One walk through the door, in the order you meet things. Each step has its own s
    links tile (one opens below the reader, with a preview beside it, where the screen has none); moving onto a
    resource previews what the service stores for it, and `⏎` opens it. In an outline tile `L` shows them under a
    row, in a river column they sit under its replies, and a note can list them inline: `::links`, `::resources`,
-   `::backlinks` ([The desk](#the-desk)). Every list opens the same way (PIE-794): `j k` or a click selects and
+   `::backlinks` ([The desk](#the-desk)). A note can also list where it wrote a key (`::fields{key=connectTo}`: a row per occurrence, each opening its line lit, a `¶` to anchor the line) and draw lines only while it matches a query (`::if{where="status=active"}` … `::`). Every list opens the same way (PIE-794): `j k` or a click selects and
    previews, `⏎` or a double click replaces the note of the list's home reader (the one it was opened beside, or the
    one it's drawn in), `alt+⏎` or an alt-, ctrl- or middle-click opens a new detail beside it, `alt+l` sends its opens
    somewhere else, and a click that gives a tile the keys only selects. The list keeps its note until `b` aims it again.
@@ -2788,6 +2788,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem\|approved\|rejected` | `⏎` or a click on a box, then `x o + - w !`; `space` |
 | `task.undo` | none: the asker's own last step change in this reader, while reading this note | `ctrl+z` |
 | `task.link`, `task.menu` | `n` or `id` (the person's: default the step at their keys). `task.link` gives the step an id if it has none and answers `((note^id))` (yours goes to your clipboard; `copy=false` only makes it addressable); `task.menu` opens the status choice and is the person's only | the choice's `y` and Make addressable; `⏎` on a box |
+| `fields.anchor` | `key` (which `::fields`: its key; the only one the note draws when left out), `n` (its row, from 1); gives the row's line an anchor (`fragments.ensure`, attributed) and answers `((note^anchor))` (yours goes to your clipboard); drawing a `::fields` never writes | `⏎` or a click on a row's `¶` |
 | `props` | `full=true` | `i`, `I` |
 | `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |

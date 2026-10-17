@@ -4,7 +4,7 @@
 // `resolvePath` (resolve-path.ts) reads it, `deriveSite` makes a nested producer's from its parent's, and the service
 // fills it and answers it (`site.answer`: the wire types below). Pure: no I/O.
 import type { BlockRecord } from "./block-record";
-import type { BlockAuthor } from "./protocol";
+import type { BlockAuthor, QuestionGroup } from "./protocol";
 
 /**
  * Where something sits: `((block^anchor))`, with the line's text as a mark to find it again by. A line number is a
@@ -88,7 +88,8 @@ export function deriveSite(parent: Site, link: SiteLink, child: BlockRecord): Si
 
 /** `site.answer`'s question. `blockId` is the note whose text holds the placeholders being read. */
 export interface SiteAnswerRequest {
-  blockId: string;
+  /** Absent only for a figure asked outside any note: it has no `this`. */
+  blockId?: string;
   /** The unsaved text of `blockId` (a draft being typed): values, problems and deps agree with what is on screen. */
   draft?: { text: string };
   /** Where `blockId` is drawn: the invocations from the outermost host in (a `::use` in a host, an embed in a `::use`). */
@@ -103,12 +104,60 @@ export interface SiteAnswerRequest {
   line?: number;
   /** More paths to read besides the note's own `{{ }}` (a script's `resolve`, an agent's question): `this.tasks | status=todo`. */
   paths?: string[];
+  /** A producer in the note (a figure, `::fields`, `::if`) asking its own question over this Site: answered in `produced`. */
+  produce?: SiteProducer;
   /**
    * Notes the reader may not see (a publisher's locked or non-public ones): a path that reads one answers `hidden` and no
    * value, and an ancestor in it supplies no bare key (nor any above it). A reader with no limits sends none.
    */
   hidden?: string[];
 }
+
+/**
+ * What a producer in a note asks of its Site (S3). A figure sends its props as the client read them (its YAML over its
+ * call-site args: `figureProps`); the service answers the question with `this` the Site's note and `{{ }}` operands
+ * bound from the Site, so one figure copied onto two pages, or drawn through a `::use`, lists each host's own.
+ */
+export type SiteProducer =
+  | { kind: "figure"; figure: string; props: Record<string, unknown> }
+  /** A figure block's child bullets (`rows: children`): the note's children, the comments left out. */
+  | { kind: "children" }
+  /** `::fields{key=connectTo}`: one row per occurrence of the key in `of` (default: `this`). */
+  | { kind: "fields"; key: string; of?: string }
+  /** `::if{where="status=active"}`: whether `this` matches (the views' query atoms). */
+  | { kind: "if"; where: string };
+
+/** One occurrence of a key in a note: its value, the line it is written on, and where, to open it lit. */
+export interface FieldRow {
+  value: string;
+  /** The line index and its text: a row finds its line again by this text when the note was edited since. */
+  line: number;
+  mark: string;
+  /** The field as written (`[connectTo::trust the drift]`, or its `key:: value` line): a reader finds it again by this text. */
+  token?: string;
+  /** The field's offset in the note's text. */
+  offset?: number;
+  /** A value that is a link to a note: shown by its title. */
+  link?: { id: string; title: string };
+}
+
+/** What a producer's question answered. Blocks are the service's wire blocks (the questions' own shape). */
+export type SiteProduced =
+  | {
+    kind: "figure";
+    blocks: unknown[];
+    truncated: boolean;
+    groups?: QuestionGroup[];
+    done?: string[];
+    now?: string[];
+    hint?: string;
+    error?: string;
+    /** A `stat`/`kpi` whose items ask for themselves: each item's results (a page counts the ones it shows) or its problem, in the items' order. */
+    counts?: { ids: string[]; truncated: boolean; error?: string }[];
+  }
+  | { kind: "children"; blocks: unknown[] }
+  | { kind: "fields"; key: string; /** The note read (its id) and its revision. */ from: string; revision: number; rows: FieldRow[]; problem?: SiteProblem }
+  | { kind: "if"; holds: boolean; problem?: SiteProblem };
 
 /** A path that has no answer: why, the nearest keys, and a path that works. */
 export interface SiteProblem { message: string; didYouMean: string[]; example?: string }
@@ -128,6 +177,8 @@ export interface SiteValue {
   /** For `.fields.key`: the line each value was written on, and its text. */
   lines?: number[];
   marks?: string[];
+  /** For `.fields.key`: where each value's field starts in the note's text. */
+  offsets?: number[];
   /** The note the values were read from. */
   from?: string;
   /**
@@ -153,6 +204,8 @@ export interface SiteAnswer {
   site: { this?: string; self?: string; caller?: Address; props: Record<string, string[]> };
   values: SiteValue[];
   paths?: SiteValue[];
+  /** The producer's answer (`produce`). */
+  produced?: SiteProduced;
   /** How the Site was bound (the chain, the draft). */
   route: string[];
   deps: string[];
