@@ -291,6 +291,11 @@ describe("the drawer", () => {
       d.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 3 });
       answer(true); await synced;
       expect(d.app.agentsYolo).toBe(false);
+      // A reconnect: the service holds yolo by the connection, so this door's hand-over is over unless the service still has it.
+      await d.app.dispatch.press("agents.yolo", { on: true });
+      (d.A.board as any).mcpAccessStatus = async () => ({});
+      await d.A.syncYolo();
+      expect(d.app.agentsYolo).toBe(false);
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 

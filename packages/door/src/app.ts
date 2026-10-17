@@ -423,10 +423,14 @@ export class App implements Ctx {
   /** Bumped by every change of yolo this door hears or makes: an answer that was asked before the latest one is stale and dropped. */
   private yoloEpoch = 0;
   async syncYolo(): Promise<void> {
-    if (this.yoloHere) { await this.tellYolo(true); return; }
     const epoch = ++this.yoloEpoch;
     const said = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
-    if (epoch === this.yoloEpoch) this.yoloService = said;
+    if (epoch !== this.yoloEpoch) return;
+    // The service holds this door's yolo by its connection: after a reconnect it is gone (a restarted service or a dropped
+    // connection ends it, and another door may have taken it back meanwhile). The person turns it on again.
+    if (this.yoloHere && !said) this.flash("YOLO ended: the connection to the outline dropped. Turn it on again (ctrl+k > agents.yolo) if you still want it", 8000);
+    this.yoloHere = false;
+    this.yoloService = said;
     this.redraw();
   }
   private async tellYolo(on: boolean): Promise<void> {
@@ -435,8 +439,14 @@ export class App implements Ctx {
       const said = await this.board.setAgentsYolo(on);
       if (epoch === this.yoloEpoch) this.yoloService = said;
     } catch (e) {
-      // The service didn't take it (an old one, or it's away): the person is told, and this door's yolo is off.
-      if (on) { this.yoloHere = false; this.flash(`YOLO is off: the outline service didn't take it (${e instanceof Error ? e.message : String(e)})`, 8000); }
+      const why = e instanceof Error ? e.message : String(e);
+      if (on) { this.yoloHere = false; this.flash(`YOLO is off: the outline service didn't take it (${why})`, 8000); }
+      else {
+        // A take-back that didn't reach the service must not look done: what the service says is what shows, and a click tries again.
+        const said = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
+        if (epoch === this.yoloEpoch) this.yoloService = said;
+        if (said) this.flash(`YOLO is still on: the outline service didn't take it back (${why}); click YOLO to try again`, 8000);
+      }
     }
     this.redraw();
   }
