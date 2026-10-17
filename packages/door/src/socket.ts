@@ -407,9 +407,10 @@ export const COMMENT_AUTHOR = "user";
  */
 /**
  * Who acts. `run` and `invitation` (PIE-957) are an agent's that a script run carries: its run id, and the invitation the
- * person's press minted for it (src/surface/invite.ts), which lets the run move the person's tiles.
+ * person's press minted for it (src/surface/invite.ts), which lets the run move the person's tiles; `for` is who asked for
+ * the run (`you`, or `agent:<id>`), who may undo what it did.
  */
-export type Actor = ({ kind: "user" } | { kind: "agent"; id: string; run?: string; invitation?: string }) & { with?: string[] };
+export type Actor = ({ kind: "user" } | { kind: "agent"; id: string; run?: string; invitation?: string; for?: string }) & { with?: string[] };
 export const USER: Actor = { kind: "user" };
 /** A stored author (an actor id, `user`, …) as a byline shows it: the persona first (`actorName`), `none` when there's none. */
 export const authorName = (author: string | null | undefined, none = "?"): string => (author ? actorName(author) || none : none);

@@ -333,9 +333,11 @@ export function connectScriptActions(ctx: ExtOn["ctx"]): void {
     // every action the run asks, and is spent with the run.
     const run = call.actor.sessionId;
     INVITES.bind(call.invitation, run);
+    const asked = call.requestedBy ? (call.requestedBy.author === "user" ? "you" : `agent:${call.requestedBy.actorId ?? call.requestedBy.author}`) : undefined;
     const actor: Actor = call.actor.author === "user" ? { kind: "user" }
-      : { kind: "agent", id: call.actor.actorId ?? call.actor.author, ...(run ? { run } : {}), ...(call.invitation && INVITES.covers(call.invitation, "screen") ? { invitation: call.invitation } : {}) };
-    return ctx.dispatch.act({ action: call.action, args: { ...args, ...(run && args.txn === undefined ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, actor);
+      : { kind: "agent", id: call.actor.actorId ?? call.actor.author, ...(run ? { run } : {}), ...(asked ? { for: asked } : {}), ...(call.invitation && INVITES.covers(call.invitation, "screen", run) ? { invitation: call.invitation } : {}) };
+    // Always the run's own transaction: a script can't name another and so escape its end rule.
+    return ctx.dispatch.act({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, actor);
   };
 }
 

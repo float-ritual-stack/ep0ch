@@ -24,13 +24,16 @@ class Invites {
     return id;
   }
 
-  /** Whether `id` is a live invitation covering `touch`. */
-  covers(id: string | undefined, touch: InviteScope, now = Date.now()): boolean {
+  /**
+   * Whether `id` is a live invitation covering `touch` for the run asking: one run's, never another's (a token a press
+   * minted is bound to the first run that carries it, or to the run its press answered with).
+   */
+  covers(id: string | undefined, touch: InviteScope, run?: string, now = Date.now()): boolean {
     const inv = id ? this.open.get(id) : undefined;
-    return !!inv && inv.until > now && inv.scope.includes(touch);
+    return !!inv && inv.until > now && inv.scope.includes(touch) && (inv.run === undefined || inv.run === run);
   }
 
-  /** The run it was spent on first (the first action it carried): `ended` spends it by that. */
+  /** Bind it to the run it starts (the press's answer, or the first action it carried): `ended` spends it by that. A bound token stays with its run. */
   bind(id: string | undefined, run: string | undefined) {
     const inv = id ? this.open.get(id) : undefined;
     if (inv && run && !inv.run) inv.run = run;

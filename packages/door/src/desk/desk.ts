@@ -608,25 +608,50 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /**
    * `layout.undo` (and ctrl+z with nothing of a reader's to undo, when this is newer than a trash): take back the newest
-   * entry, for the person; an agent takes back its own only, and is refused with who changed it since otherwise. The shape
-   * is rebuilt from the entry (tiles kept by name), checked through the module's `load` so a lock, the tile the person
-   * types in and a container's policy hold.
+   * entry, for the person; an agent takes back its own (or what a script it asked for did) only. With a transaction, all of
+   * its entries, newest first. Each is refused with who changed the layout since ("undo that first"); the shape is rebuilt from
+   * the entry (tiles kept by name), checked through the module's `load` so a lock, the tile the person types in and a
+   * container's policy hold.
    */
-  undoLayout(actor: Actor, txn?: string): { undone: string; what: string; steps: number } {
+  undoLayout(actor: Actor, txn?: string): { undone: string; what: string; steps: number; left?: string } {
     const party = partyOf(actor);
-    const entry = txn ? this.history.forTxn(txn) : actor.kind === "agent" ? this.history.last(party) : this.history.newest();
-    if (!entry && actor.kind === "agent" && !txn && this.history.newest()) throw new ActionRefused(`the newest layout change is ${this.history.newest()!.party === "you" ? "the person's" : this.history.newest()!.party}'s; an agent undoes only its own`);
-    if (!entry) throw new ActionRefused(txn ? `no layout change in transaction ${txn} (it was undone, or this desk restarted)` : "nothing to undo on this screen's layout");
-    const later = this.history.after(entry).find(e => e.party !== entry.party);
-    if (later) throw new ActionRefused(`the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}`);
-    if (actor.kind === "agent" && !txn && entry.party !== party) throw new ActionRefused(`the newest layout change is ${entry.party === "you" ? "the person's" : entry.party}'s; an agent undoes only its own`);
-    this.replaying = true;
-    try { this.apply({ op: "load", name: "the layout before" }, actor); } finally { this.replaying = false; }
-    this.rebuildTo(entry.before);
-    this.history.take(entry);
-    for (const e of this.history.after(entry)) if (e.txn === entry.txn && entry.txn) this.history.take(e);
+    let entries: LayoutEntry[];
+    if (txn) {
+      entries = this.history.entriesOf(txn).reverse();
+      if (!entries.length) throw new ActionRefused(`no layout change in transaction ${txn} (it was undone, or this desk restarted)`);
+      if (actor.kind === "agent" && !entries.every(e => e.party === party || e.owner === party)) throw new ActionRefused(`transaction ${txn} isn't yours: an agent undoes its own (or a script it asked for)`);
+    } else {
+      const mine = actor.kind === "agent" ? this.history.last(party) : this.history.newest();
+      if (!mine) throw new ActionRefused(actor.kind === "agent" && this.history.newest()
+        ? `the newest layout change is ${this.history.newest()!.party === "you" ? "the person's" : this.history.newest()!.party}'s; an agent undoes only its own`
+        : "nothing to undo on this screen's layout");
+      entries = [mine];
+    }
+    const r = this.undoEntries(entries, actor);
+    if (!r.done.length) throw new ActionRefused(r.blocked!);
     this.save(); this.redraw();
-    return { undone: this.title, what: entry.what, steps: entry.steps };
+    return { undone: this.title, what: r.done[0]!.what, steps: r.done.reduce((n, e) => n + e.steps, 0), ...(r.blocked ? { left: r.blocked } : {}) };
+  }
+
+  /**
+   * Take back `entries` (newest first), one at a time: each must be the end of the history as far as other actors go
+   * (nobody undoes over someone else), and the module's `load` check must allow it (a lock, the tile the person types in).
+   * Stops at the first that doesn't, with why; what was undone is done.
+   */
+  private undoEntries(entries: LayoutEntry[], actor: Actor): { done: LayoutEntry[]; blocked?: string } {
+    const done: LayoutEntry[] = [];
+    for (const entry of entries) {
+      const later = this.history.after(entry).find(e => e.party !== entry.party && e.owner !== entry.owner);
+      if (later) return { done, blocked: `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` };
+      this.replaying = true;
+      try { this.apply({ op: "load", name: "the layout before" }, actor); }
+      catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; }
+      finally { this.replaying = false; }
+      this.rebuildTo(entry.before);
+      this.history.take(entry);
+      done.push(entry);
+    }
+    return { done };
   }
 
   /** Rebuild the shape `spec`, keeping the tiles it names (as `layout.load` does), and no new entry. */
@@ -639,20 +664,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * A transaction ends (`layout.txn.end`, the run's end, a minute idle). Normally it is the settled state and says so once; one
    * that ended early (stopped, refused, error, the door lost it, the deadline) rebuilds its start and says that.
    */
-  endTxn(txn: string, reason: "done" | "stopped" | "failed" | "idle", actor: Actor = USER): { txn: string; ended: string; steps: number; putBack: boolean } {
-    const t = this.history.close(txn), start = t?.start;
+  endTxn(txn: string, reason: "done" | "stopped" | "failed" | "idle", actor: Actor = USER): { txn: string; ended: string; steps: number; putBack: boolean; left?: string } {
+    const t = this.history.close(txn);
     if (!t) throw new ActionRefused(`no open transaction ${txn} on this screen (it ended, or never opened here: layout changes carrying txn=${txn} open it)`);
-    const entry = this.history.forTxn(txn);
-    const steps = entry?.steps ?? 0;
+    const entries = this.history.entriesOf(txn), steps = entries.reduce((n, e) => n + e.steps, 0);
     const early = reason === "stopped" || reason === "failed";
-    if (early && start && entry) {
-      this.rebuildTo(start);
-      this.history.take(entry);
+    if (early && entries.length) {
+      // Put back what it changed, newest first, as far as nothing else changed since and the screen allows (it may be locked now).
+      const r = this.undoEntries([...entries].reverse(), USER);
       this.save(); this.redraw();
-      asActor(this.ctx, actor).flash(`${txn} ${reason}; layout put back`);
-      return { txn, ended: reason, steps, putBack: true };
+      asActor(this.ctx, actor).flash(r.blocked ? `${txn} ${reason}; layout only partly put back: ${r.blocked}` : `${txn} ${reason}; layout put back`, r.blocked ? 8000 : undefined);
+      return { txn, ended: reason, steps, putBack: !r.blocked, ...(r.blocked ? { left: r.blocked } : {}) };
     }
-    if (entry && steps) asActor(this.ctx, actor).flash(`${steps === 1 ? "one layout change" : `${steps} layout changes`} · ctrl+z puts ${steps === 1 ? "it" : "them"} back`);
+    if (steps) asActor(this.ctx, actor).flash(`${steps === 1 ? "one layout change" : `${steps} layout changes`} · ctrl+z puts ${steps === 1 ? "it" : "them"} back`);
     return { txn, ended: reason, steps, putBack: false };
   }
 
@@ -3062,7 +3086,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile may say how its frame looks now (a lane a card is dragged over: what dropping it there would do).
     const own = pane.frameLook?.(focused) ?? null;
     // An edit armed in it (e, src/arm.ts) draws it in the edit's colour, frame and title, until ⏎ opens it or a key lets it go.
-    const armed = pane instanceof ReaderPane && !!this.ctx && this.ctx.armed?.()?.of === pane.surface;
+    const armedNow = pane instanceof ReaderPane && this.ctx ? this.ctx.armed?.() : null;
+    const armed = !!armedNow && armedNow.of === (pane as ReaderPane).surface;
     // Tiles picked to gather into a group (tile.select): the person's own in bright cyan, an agent's dimmer, each said in the title.
     const pickedMe = this.selected.get("person")?.has(id) ?? false;
     const pickedBy = [...this.selected].filter(([k, set]) => k !== "person" && set.has(id)).map(([k]) => k.slice(6));
@@ -3115,7 +3140,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lines = lv.border === "none" || joined ? NO_BOX : lv.border !== "auto" && lv.border !== "joined" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
     const glyphs = keys ? FOCUS_BOX : lines;
     const frameInk = (cover === "peek" && !focused ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
-    canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, glyphs);
+    canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}${armedNow!.frame?.title ?? "✎ edit?"} ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}${armedNow!.frame?.hint ?? "⏎ opens it · any other key cancels"}` : hint, glyphs);
     // `edge=bar`: a bar down its left side in the tone (the tile colour for neutral; a state's colour while it has one), over the frame's side.
     if (lv.edge === "bar" && r.rows > 2) for (let y = r.row + 1; y < r.row + r.rows - 1; y++) canvas.text(r.col, y, (edgeC === "tile" || edgeC === toned ? edge(toned ?? "tile") : frameInk) + "▌" + RESET, 1);
     // The focused tile's ⧉, in its frame's top right corner, floats it by mouse (tile.float, as ^W f); a float's own

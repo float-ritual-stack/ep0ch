@@ -63,6 +63,22 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     await untilAsync(async () => (await boardOf()).charAt(6) === "x", "x on 7 by act");
   }, 90_000);
 
+  test("esc cancels a press that asked: the same press afterwards asks again, and nothing was written", async () => {
+    await untilAsync(async () => !!find("9") || !!find("8"), "the board drawn", 15_000);
+    const square = find("8") ? "8" : "9";
+    const before = await boardOf();
+    const sq = find(square)!;
+    click(sq.x, sq.y);
+    await until(() => !!status(), "the press asks");
+    press({ kind: "esc" });
+    await until(() => !status(), "esc let the ask go");
+    click(sq.x, sq.y);
+    await until(() => !!status(), "the press asks again, not runs");
+    expect(await boardOf()).toBe(before);
+    press({ kind: "esc" });
+    await until(() => !status(), "esc let it go again");
+  }, 30_000);
+
   test("a ::button runs a script with its slots, asking first", async () => {
     await at("1").catch(() => null);
     const b = await (async () => { await until(() => screen().includes("[New game]"), "the button drawn", 15_000); const rows = screen().split("\n"); const y = rows.findIndex(r => r.includes("[New game]")); return { x: rows[y]!.indexOf("[New game]") + 1, y }; })();
@@ -75,8 +91,9 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     const extension = extensionList()!.extensions.find(e => e.name === "ttt-move")!;
     await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "3" } }, USER);
     await untilAsync(async () => (await boardOf()) !== ".........", "a move");
-    await until(() => screen().includes("start over") && !screen().includes("(act:"), "the inline press drawn as its words", 15_000);
-    const rows = screen().split("\n"), y = rows.findIndex(r => r.includes("start over"));
+    const proseRow = () => screen().split("\n").findIndex(r => r.includes("In prose it is a link"));
+    await until(() => proseRow() >= 0 && !screen().split("\n")[proseRow()]!.includes("(act:"), "the inline press drawn as its words", 15_000);
+    const rows = screen().split("\n"), y = proseRow();
     click(rows[y]!.indexOf("start over") + 2, y);
     await until(() => !!status(), "the inline press asks");
     expect(status()).toContain("ttt-reset");

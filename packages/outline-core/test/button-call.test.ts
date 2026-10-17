@@ -15,3 +15,9 @@ test("a button inside a code fence is no button, and the schema is registered", 
   expect(buttonCallsOf("a\n```\n::button{act=go}\n```\n::button{act=go}")).toHaveLength(1);
   expect(BUILTIN_COMPONENT_SCHEMAS.some(s => s.id === "button")).toBe(true);
 });
+
+test("a ::button is one line: no unclosed-component warning; one that runs nothing says so", async () => {
+  const { syntaxWarnings } = await import("../src/syntax-warnings");
+  expect(syntaxWarnings('::button{label="Go" act="layout.load name=review"}')).toEqual([]);
+  expect(syntaxWarnings('::button{label="Go"}').map(w => w.message).join()).toContain("runs nothing");
+});

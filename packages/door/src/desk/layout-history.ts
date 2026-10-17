@@ -22,6 +22,8 @@ export interface LayoutEntry {
   /** Who made it, and the party it undoes for (`you`, or `agent:<id>`). */
   by: Actor;
   party: string;
+  /** Who asked for it, when a script run made it for someone (`you` for a press): they may undo it too. */
+  owner: string;
   /** What it was, in words: `resize`, `close`, `laid out review`; a transaction says how many steps it joined. */
   what: string;
   txn?: string;
@@ -37,15 +39,19 @@ export class LayoutHistory {
   private list: LayoutEntry[] = [];
   private open = new Map<string, OpenTxn>();
 
-  /** Record a change that left the shape different: `before` is the shape it started from. A txn's later steps join its entry. */
+  /**
+   * Record a change that left the shape different: `before` is the shape it started from. A transaction's later step joins
+   * its entry only while that entry is still the newest: once another actor's change landed after it, the step is an entry of
+   * its own (the same txn), so undo stays chronological and never reopens what someone else closed in between.
+   */
   record(before: LayoutSpec, by: Actor, what: string, now: number, txn?: string): LayoutEntry {
+    const newest = this.list.at(-1), party = partyOf(by);
     if (txn) {
       const t = this.open.get(txn);
-      if (t?.entry) { t.entry.steps++; t.touched = now; t.entry.what = `${t.entry.steps} steps`; return t.entry; }
+      if (t?.entry && t.entry === newest) { t.entry.steps++; t.touched = now; t.entry.what = `${t.entry.steps} steps`; return t.entry; }
     }
-    const party = partyOf(by), newest = this.list.at(-1);
     if (!txn && what === "resize" && newest && !newest.txn && newest.what === "resize" && newest.party === party && now - newest.at < COALESCE_MS) { newest.at = now; return newest; }
-    const entry: LayoutEntry = { seq: undoStamp(), before, by, party, what, steps: 1, at: now, ...(txn ? { txn } : {}) };
+    const entry: LayoutEntry = { seq: undoStamp(), before, by, party, owner: by.kind === "agent" && by.for ? by.for : party, what, steps: 1, at: now, ...(txn ? { txn } : {}) };
     this.list.push(entry);
     if (this.list.length > KEEP) this.list.shift();
     if (txn) { const t = this.open.get(txn); if (t) { t.entry = entry; t.touched = now; } }
@@ -53,12 +59,20 @@ export class LayoutHistory {
   }
 
   newest(): LayoutEntry | null { return this.list.at(-1) ?? null; }
-  /** The newest entry `party` made, or null. */
-  last(party: string): LayoutEntry | null { return this.list.findLast(e => e.party === party) ?? null; }
+  /** The newest entry `party` made or asked for, or null. */
+  last(party: string): LayoutEntry | null { return this.list.findLast(e => e.party === party || e.owner === party) ?? null; }
   /** Entries made after `e`, by anyone. */
   after(e: LayoutEntry): LayoutEntry[] { return this.list.filter(x => x.seq > e.seq); }
+  /** The newest entry of a transaction, or null. */
   forTxn(txn: string): LayoutEntry | null { return this.list.findLast(e => e.txn === txn) ?? null; }
-  take(e: LayoutEntry) { const i = this.list.indexOf(e); if (i >= 0) this.list.splice(i, 1); }
+  /** Every entry of a transaction, oldest first (one when nothing landed between its steps). */
+  entriesOf(txn: string): LayoutEntry[] { return this.list.filter(e => e.txn === txn); }
+  /** Take an entry out (undone): an open transaction that was adding to it starts a new entry with its next step. */
+  take(e: LayoutEntry) {
+    const i = this.list.indexOf(e);
+    if (i >= 0) this.list.splice(i, 1);
+    for (const t of this.open.values()) if (t.entry === e) t.entry = null;
+  }
   get size() { return this.list.length; }
 
   // ── transactions ─────────────────────────────────────────────────────────────

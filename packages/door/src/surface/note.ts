@@ -3820,9 +3820,6 @@ export class NoteSurface {
     return EXT_ACTIONS.run(action, { block: x.block, line: x.line }, { ctx: host.ctx as Ctx }, actor);
   }
 
-  /** A press the person has been asked to confirm (an action that writes), and until when: a second press of it, or ⏎, runs it. */
-  private pressAsked: { key: string; until: number } | null = null;
-
   /**
    * A press (PIE-957, a `::button` or a view's button, badge, card or row): its action line through the door's one dispatcher,
    * as `actor`. The head is an action the door has, or a script's name (it runs as the script, with the note the press is in
@@ -3846,16 +3843,17 @@ export class NoteSurface {
     if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
     const info = d.list().actions.find(a => a.name === action);
     if (actor.kind === "user" && info?.replay === "ask" && !confirmed && host.ctx.arm) {
-      const key = `${p.block}:${p.line}:${p.act}`, ms = 5000;
-      if (this.pressAsked?.key === key && Date.now() < this.pressAsked.until) this.pressAsked = null;
+      // One owner of "is it confirmed": the shell's arm. The same press again, while that arm stands (Esc or any other key
+      // let it go; a click doesn't), is the confirm.
+      const token = `${p.block}:${p.line}:${p.act}`, armed = host.ctx.armed?.();
+      if (armed?.token === token && armed.of === this) host.ctx.disarm?.();
       else {
-        this.pressAsked = { key, until: Date.now() + ms };
-        host.ctx.arm({ of: this, what: p.act, say: `run ${p.act}? it writes · ⏎ or press again · any other key cancels`, key: { kind: "enter" }, ms, run: () => { this.pressAsked = null; void this.runPress(p, host, actor, true).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e))); } });
+        const ms = 5000;
+        host.ctx.arm({ of: this, what: p.act, token, keepsClicks: true, say: `run ${p.act}? it writes · ⏎ or press again · any other key cancels`, frame: { title: "▶ press?", hint: "⏎ runs it · press again · any other key cancels" }, key: { kind: "enter" }, ms, run: () => { void this.runPress(p, host, actor, true).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e))); } });
         host.redraw();
         return { asking: p.act };
       }
     }
-    this.pressAsked = null;
     // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. The
     // run's note records the button and its author beside who asked.
     if (actor.kind === "user" && scriptActions().some(s => s.action.name === action)) {
@@ -3863,7 +3861,9 @@ export class NoteSurface {
       const home = p.block || this.msg?.id;
       if (home) args.via ??= `${home}:${p.line}`;
     }
-    const result = actor.kind === "user" ? await d.press(action, args, req.tile) : await d.act({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, actor);
+    const result: unknown = actor.kind === "user" ? await d.press(action, args, req.tile) : await d.act({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, actor);
+    // The run it started: the invitation belongs to it from here (and is spent when it ends).
+    if (typeof args.invitation === "string" && result && typeof result === "object" && typeof (result as { undo?: unknown }).undo === "string") INVITES.bind(args.invitation, (result as { undo: string }).undo);
     host.redraw();
     return result;
   }
