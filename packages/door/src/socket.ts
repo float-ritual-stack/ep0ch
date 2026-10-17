@@ -243,7 +243,7 @@ export interface PageResolution { address: string; status: "resolved" | "deleted
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import type { PropsSpec, SiteAnswer } from "@ep0ch/outline-core/site";
+import type { PropsSpec, SiteAnswer, SiteLink } from "@ep0ch/outline-core/site";
 import type { TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
@@ -788,8 +788,8 @@ export class SocketBoard implements Board {
    * What the `{{ }}` of a note read as (PIE-533 `site.answer`): the service resolves, the door draws. `draft` is the note's
    * unsaved text, so values agree with what is on screen. A service without it answers an error (the placeholders stay text).
    */
-  async siteAnswer(blockId: string, draft?: string): Promise<SiteAnswer> {
-    return this.request<SiteAnswer>("site.answer", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}) });
+  async siteAnswer(blockId: string, draft?: string, call?: { chain?: SiteLink[]; props?: Record<string, string[]> }): Promise<SiteAnswer> {
+    return this.request<SiteAnswer>("site.answer", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}), ...(call?.chain?.length ? { chain: call.chain } : {}), ...(call?.props ? { props: call.props } : {}) });
   }
 
   /** Every property token in `text`, as the service parses it (PIE-401). */

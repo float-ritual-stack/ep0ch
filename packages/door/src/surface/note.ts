@@ -32,7 +32,7 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
-import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -74,6 +74,10 @@ import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
+import { useRegion, type UseSite } from "../template-use";
+import { propQuestion } from "../template-stamp";
+import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
+import type { LiveSite } from "../live";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
 import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
@@ -891,6 +895,8 @@ export class NoteSurface {
   readonly calloutHistory = new UndoHistory<LineUndo>();
   /** Image layout changes (PIE-532) made here, for image.undo. */
   readonly imageHistory = new UndoHistory<LineUndo>();
+  /** The props a `::use` line was given here (PIE-533 S4, use.fill), for use.undo. */
+  readonly useHistory = new UndoHistory<LineUndo>();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
@@ -2077,7 +2083,7 @@ export class NoteSurface {
     return stripMarks(stripTags(presentLinks(named, false, this.src, named)));
   }
 
-  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep"> & { preview?: (id: string, width: number) => string[] } {
+  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number) => string[] } {
     const inner: EmbedBody = (target, part, width, hooks) => {
       let text: string, lines: number[], lit: Set<number>;
       if (part) {
@@ -2093,9 +2099,31 @@ export class NoteSurface {
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
+        // A `::use` in an embedded note hosts that note: a fresh Site, as an embed starts one.
+        use: isOutlineNote(target) ? useHook(target.id, lines, undefined, 0) : undefined,
         present: presenter(target.text), liveStep,
       }).lines;
     };
+    // A template's body (PIE-533 S4), drawn where its `::use` is written: the reader's renderer over the template's text, in the
+    // call's Site (`this` the host, `{{props.x}}` the call's), so values, figures, `::fields` and `::if` read the host.
+    const templateBody = (depth: number) => (target: Msg, site: LiveSite, width: number): string[] => {
+      const { text, lines, literal } = readableSource(target, src);
+      const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
+      return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
+        ...env, width, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined,
+        link: (block, t) => tagged(drawn, { block, role: "row" }, t),
+        tag: (to, t) => tagged(drawn, to, t), note: site.chain?.[0]?.block ?? m.id,
+        embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
+        use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
+      }).lines;
+    };
+    // The `::use` on body line `i`, drawn: `block` is the note whose text holds the line, `lines` its body lines' note lines.
+    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number): DocEnv["use"] => (call, i, width) => {
+      const line = lines[i] ?? -1;
+      if (line < 0) return [];
+      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m.id, width, src, sink: drawn, depth, body: templateBody(depth) });
+    };
+    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
     const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
     // A live ::graph-check row's box: a step of its own note, whose mark writes the property its `done:` names.
@@ -2106,7 +2134,7 @@ export class NoteSurface {
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     return {
       present: presenter(m.text), ...(outline ? { liveStep } : {}),
-      ...(outline ? { embed: (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id) } : {}),
+      ...(outline ? { embed: embedHook, use: useHook(m.id, noteLines, undefined, 0) } : {}),
       // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
       ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m.id) } : {}),
       task: (i, box) => {
@@ -3634,8 +3662,8 @@ export class NoteSurface {
       const at = this.msg?.id ?? "";
       // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
-        .reduce<{ name: "callout.undo" | "image.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
+        .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
       // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
       if (trashedAt !== undefined && trashedAt > last.seq) return false;
@@ -4104,6 +4132,8 @@ export class NoteSurface {
       return this.runKey("links.enter", { block: e.link.linksBlock.key }, host);
     }
     if (e.link?.anchor) return this.runKey("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, host);
+    // A `::use` that needs a prop: the person is asked for it in the power bar (an agent gives it: use.fill with=).
+    if (e.link?.use) { if (!select) throw new ActionRefused("a ::use's missing props are asked of the person; an agent gives them: use.fill line=" + (e.link.use.line + 1) + " with='{\"name\":\"value\"}'"); return this.runKey("use.fill", { line: e.link.use.line + 1 }, host); }
     if (e.kind === "control") return this.useControl(e, host);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
@@ -4911,6 +4941,7 @@ export class NoteSurface {
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
     if (l.unsent) { void this.runKey(`unsent.${l.unsent.op}`, { kind: l.unsent.kind }, host); return Promise.resolve(null); }
     if (l.anchor) { void this.runKey("fields.anchor", { key: l.anchor.key, n: l.anchor.n }, host); return Promise.resolve(null); }
+    if (l.use) { void this.runKey("use.fill", { line: l.use.line + 1 }, host); return Promise.resolve(null); }
     if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
     if (l.role === "figure" && l.figure) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
@@ -5455,6 +5486,48 @@ export class NoteSurface {
     this.noteAgent(actor, said);
     host.redraw();
     return { block: ref.block, step: r.item.itemId ?? null, status: r.item.status, from: before, changed: r.changed, revision: r.block.revision ?? null, ...(link ? { link } : {}), recordedAs: mutationFor(actor) };
+  }
+
+  /**
+   * Give a `::use` the props it needs (PIE-533 S4): the person is asked for each in the power bar, in the picker of its kind
+   * (a choice's options, a note found by its words), and the answers are written onto the call's line through the note's
+   * ordinary save (rewriteLines), recorded as whoever asks; ctrl+z (use.undo) puts the line back. An agent names the props
+   * (`with`); nothing here is asked of it or moves the person's focus.
+   */
+  async fillUse(line: number | undefined, given: Record<string, string>, host: SurfaceHost, actor: Actor) {
+    const whole = await this.whole();
+    const calls = useCallsOf(whole.text);
+    const call = line === undefined ? (calls.length === 1 ? calls[0] : undefined) : calls.find(c => c.line === line - 1);
+    if (!call) throw new ActionRefused(calls.length ? `say which ::use: line= (${calls.map(c => c.line + 1).join(", ")})` : "this note has no ::use line");
+    let answer: Awaited<ReturnType<SurfaceHost["ctx"]["board"]["templateUse"]>>;
+    try { answer = await host.ctx.board.templateUse(whole.id, call.line); }
+    catch (e) { throw new ActionRefused(`couldn't read the ::use on line ${call.line + 1}: ${e instanceof Error ? e.message : String(e)}`); }
+    const need = answer.missing.filter(x => given[x.name] === undefined);
+    const write = (answers: Record<string, string>) => this.inTurn(async () => {
+      const props = Object.fromEntries(Object.entries({ ...given, ...answers }).filter(([, v]) => v !== ""));
+      if (!Object.keys(props).length) throw new ActionRefused("nothing to write: no prop was given");
+      const before = whole.text.split("\n")[call.line] ?? "", after = withUseProps(before, props);
+      if (after === null || after === before) throw new ActionRefused(`line ${call.line + 1} isn't a ::use any more`);
+      const r = await this.rewriteLines(whole.id, [{ line: call.line, before, after }], this.useHistory, host, actor, USE_STALE);
+      const said = `${answer.template?.title ?? "::use"}: wrote ${Object.entries(props).map(([k, v]) => `${k}=${v}`).join(" ")}`;
+      host.ctx.flash(`${said}${actor.kind === "user" ? " · ctrl+z takes it back" : ""}`);
+      this.noteAgent(actor, said);
+      host.redraw();
+      return { block: whole.id, line: call.line + 1, wrote: props, stillMissing: need.filter(x => props[x.name] === undefined).map(x => x.name), revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+    });
+    if (!need.length && !Object.keys(given).length) return { block: whole.id, line: call.line + 1, missing: [], said: "this ::use needs nothing more" };
+    if (actor.kind !== "user" || !need.length) {
+      if (actor.kind !== "user" && need.length && !Object.keys(given).length) {
+        throw new ActionRefused(`the ::use on line ${call.line + 1} needs ${need.map(x => x.name).join(", ")}: use.fill line=${call.line + 1} with='{${need.map(x => `"${x.name}":"${x.example.replace(/^[^=]+=/, "")}"`).join(",")}}'`);
+      }
+      return write({});
+    }
+    return askInBar(host.ctx as never, `${answer.template?.title ?? "::use"} needs`, need.map(x => propQuestion(x.name, answer.spec[x.name]!)), given, actor, write);
+  }
+
+  async undoUse(host: SurfaceHost, actor: Actor) {
+    const r = await this.inTurn(() => this.undoLines(this.useHistory, "::use", host, actor));
+    return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) };
   }
 
   /**
@@ -6663,6 +6736,7 @@ const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 
 /** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
 interface Stale { flash: string; refused: string; again: string }
 const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn · nothing was changed · choose again", refused: "that callout changed since it was drawn; nothing was changed (callout.list reads it again)", again: "choose again" };
+const USE_STALE: Stale = { flash: "that ::use line changed since it was drawn · nothing was changed · press again", refused: "that ::use line changed since it was drawn; nothing was changed (use.fill reads it again)", again: "press again" };
 const IMAGE_STALE: Stale = { flash: "that image's line changed since it was drawn · nothing was changed · try again", refused: "that image's line changed since it was drawn; nothing was changed (images reads it again)", again: "try again" };
 /** One line of a note rewritten: its index, its text as it was read, and what it became. */
 interface LineEdit { line: number; before: string; after: string }
@@ -7850,6 +7924,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const r: unknown = await NOTE_ACTIONS.run("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
+      // A `::use` that needs a prop: an agent names them (use.fill with=); the person is asked.
+      if (e.link?.use && actor.kind === "agent") throw new ActionRefused(`that's a ::use that needs a prop: an agent gives it with use.fill line=${e.link.use.line + 1} with='{"name":"value"}'`);
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
       if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : e.control === "untldr" || e.control === "tldr" ? `thread.tldr thread=${e.thread!.slice(0, 8)}${e.control === "untldr" ? " remove=true" : ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
@@ -9274,6 +9350,32 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, copy === false ? "address" : "copy-link", host, actor);
     },
+  }),
+  "use.fill": def({
+    summary: "give a ::use the props its template needs (PIE-533): the person is asked for each in the power bar, in the picker of its kind (a choice's options, a note found by its words), then the answers are written onto the call's line through the note's save, checked against the line as drawn, recorded as whoever asks; ctrl+z (use.undo) takes them back. An agent names them: with='{\"owner\":\"ada\"}' (it is never asked, and its fill never takes the person's focus). line= which ::use (from 1; default: the only one)",
+    keys: "⏎ or a click on a ::use's “needs …” line",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      line: { type: "number", optional: true, about: "the line of the ::use, from 1 (default: the only one the note has)" },
+      with: { type: "string", optional: true, about: "the props to write, as JSON: names to text (an agent's; the person is asked for the rest)" },
+    },
+    async run({ line, with: w }, { surface, host }, actor) {
+      let given: Record<string, string> = {};
+      if (w !== undefined) {
+        let v: unknown;
+        try { v = JSON.parse(w); } catch { throw new ActionRefused("with= is JSON: the props to write, names to text; for example with='{\"owner\":\"ada\"}'"); }
+        if (!v || typeof v !== "object" || Array.isArray(v) || Object.values(v).some(x => typeof x !== "string")) throw new ActionRefused("with= maps names to text; for example with='{\"owner\":\"ada\"}'");
+        given = v as Record<string, string>;
+      }
+      return surface.fillUse(line, given, host, actor);
+    },
+  }),
+  "use.undo": def({
+    summary: "undo the last use.fill made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the ::use line changed again since",
+    keys: "ctrl+z (when a ::use fill was the last change made here)",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {},
+    run: (_, { surface, host }, actor) => surface.undoUse(host, actor),
   }),
   "fields.anchor": def({
     summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: key= which ::fields (its key; default the only one the note draws), n= its row (from 1)",

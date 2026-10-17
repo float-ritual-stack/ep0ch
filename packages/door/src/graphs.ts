@@ -365,7 +365,8 @@ export { figureSource, graphKind, type FigureSource } from "@ep0ch/outline-core/
 
 /** The figure's Site as the service takes it: where it is drawn (a template's host) and its call-site args. */
 const liveSiteOf = (src: FigureSource, args?: Record<string, string>): LiveSite | undefined =>
-  src.chain?.length || (args && Object.keys(args).length) ? { ...(src.chain?.length ? { chain: src.chain } : {}), ...(args ? { args } : {}) } : undefined;
+  src.chain?.length || (args && Object.keys(args).length) || (src.props && Object.keys(src.props).length)
+    ? { ...(src.chain?.length ? { chain: src.chain } : {}), ...(args ? { args } : {}), ...(src.props && Object.keys(src.props).length ? { props: src.props } : {}) } : undefined;
 
 /**
  * Render a `::graph-kind` block: `source` is its YAML (between --- lines), or the whole FigureSource (its Markdown and

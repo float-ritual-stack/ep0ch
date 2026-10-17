@@ -89,6 +89,29 @@ export function propValueSource(value: string): { kind: "text" } | { kind: "temp
   return { kind: "text" };
 }
 
+/** A prop's value as an attribute word: bare when it is one word, else quoted as a shell's words are. */
+export function attrWord(key: string, value: string): string {
+  return /^[^\s"'\\{}]+$/.test(value) || (/^\{\{[^\n]*\}\}$/.test(value) && !/\s/.test(value)) ? `${key}=${value}` : `${key}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * A `::use` line with props added to its call (`owner=ada`): inside the braces, or at the end of the argument form. A prop the
+ * line already has is replaced by the new value. The words of a braced call are written again from what they read as
+ * (so a quote style may change, never a value). Null when the line isn't a `::use`.
+ */
+export function withUseProps(line: string, props: Record<string, string>): string | null {
+  const open = COMPONENT_OPEN.exec(line.replace(/\r$/, ""));
+  if (!open || open[1] !== USE_NAME) return null;
+  const added = Object.entries(props);
+  if (!added.length) return line;
+  if (!open[3]) return `${line.trimEnd()} ${added.map(([key, value]) => attrWord(key, value)).join(" ")}`;
+  const had = new Set(added.map(([key]) => key.toLowerCase()));
+  const { classes, pairs } = componentAttrs(open[3].slice(1, -1));
+  const words = [...classes.map(c => `.${c}`), ...pairs.filter(p => !had.has(p.key.toLowerCase())).map(p => attrWord(p.key, p.value)), ...added.map(([key, value]) => attrWord(key, value))];
+  const at = line.indexOf(open[3]);
+  return `${line.slice(0, at)}{${words.join(" ")}}${line.slice(at + open[3].length)}`;
+}
+
 // ── the wire: `template.use` ──
 
 /** `template.use`'s question: the `::use` written on `line` of note `block`, as drawn. */
