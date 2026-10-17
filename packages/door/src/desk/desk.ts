@@ -635,6 +635,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the pointer is the motion.
    */
   private startMotion(hint: string | undefined, what: string) {
+    // The drawer's desk is ticked by no screen of its own: it snaps (nothing could settle its frames).
+    if (this.ctx?.hostLayer?.isDrawer(this)) return;
     if (what === "resize" || this.dragging || this.floatDrag || inResize()) return;
     const plan = planMotion(hint, motionMode());
     if (!plan) return;
@@ -2964,12 +2966,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       lay(id, r, false, true);
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
-    // In flight: only a frame and a name (the drag ghost's drawing), steady colour; their contents fill when they land, and a
-    // picture under one is taken away so nothing flashes bright through it. Brightness never changes: they only move.
+    // In flight, a tile is drawn as it is, at the rectangle it is in (its contents move with it: nothing goes dark and comes
+    // back, so nothing pulses), on top of the rest; its pictures are taken away until it lands, so nothing bright slides over
+    // text (src/motion.ts). They land where the layout puts them.
     for (const [id, r] of ghosts) {
       placements = uncover(placements, r);
-      canvas.clear(r, bg(C.black));
-      canvas.box(r, fg(C.cyan), this.nameOf(id), "", DOTTED_BOX);
+      this.drawTile(canvas, id, r, false, this.isFloat(id));
     }
     this.drawEmpty(canvas);
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
@@ -3698,7 +3700,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   key(k: Key, ctx: Ctx): void {
     // A key or a click first settles a transition in flight, so it lands where the tile is (PIE-958).
-    if (this.moving) { this.settle(); this.redraw(); }
+    if (this.moving) { this.settle(); this.render(ctx); }
     // The band (the spec's): a press on it is its kind's. Only presses: a release or drag over it is the desk's, so a
     // border or tile drag still ends.
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }

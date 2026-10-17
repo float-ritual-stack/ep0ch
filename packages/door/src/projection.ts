@@ -512,7 +512,8 @@ function readOf(m: Msg, src: Source | null | undefined): ResourceProjectionRead 
   // it hangs on reads as it did (a property changed, a line elsewhere): then what was drawn stays until the new one is ready,
   // and a board a script just wrote to doesn't vanish for a frame (PIE-958).
   const was = now.text?.split("\n"), is = m.text.split("\n");
-  return was && read.projections.every(p => p.anchor.line < was.length && was[p.anchor.line] === is[p.anchor.line]) ? read : null;
+  // (A rule's decoration hangs on lines too, and is not checked here: a read with any waits.)
+  return was && !read.decorations?.length && read.projections.every(p => p.anchor.line < was.length && was[p.anchor.line] === is[p.anchor.line]) ? read : null;
 }
 
 // ── an extension's line (PIE-507: output, component, an @name request, a record not fetched yet) ──

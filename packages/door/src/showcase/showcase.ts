@@ -1263,6 +1263,7 @@ export class Showcase implements Screen {
   }
 
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
+  settle(): boolean { return [...this.stages.values()].map(f => f.settle()).some(Boolean); }
   onEvent(e: OutlineEvent) {
     for (const f of this.stages.values()) f.onEvent(e);
     if (this.reseeding && e.action !== "reconnected" && e.action !== "reset") this.reread();

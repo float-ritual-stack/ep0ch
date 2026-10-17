@@ -1,7 +1,8 @@
 import { blockTags, metadataLines } from "@ep0ch/outline-core/block-tags";
 import { linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { buttonCallAt } from "@ep0ch/outline-core/button-call";
-import { closeOpenFences, noteCodeFences } from "@ep0ch/outline-core/component-block";
+import { closeOpenFences } from "@ep0ch/outline-core/component-block";
+import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
 import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
@@ -2548,16 +2549,20 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   // destination, which Markdown leaves as text. Either stands as its label here. (A line may end in a sentinel a block's
   // address rides on; it is kept.)
   if (body.includes("::button") || body.includes("(act:")) {
-    const lines = body.split("\n"), fenced = new Set<number>();
-    for (const f of noteCodeFences(lines)) for (let j = f.start; j <= f.end; j++) fenced.add(j);
+    const lines = body.split("\n"), protectedAt = protectedCodeRanges(body);
+    const inCode = (at: number) => protectedAt.some(r => at >= r.start && at < r.end);
+    let offset = 0;
     lines.forEach((raw, i) => {
-      if (fenced.has(i)) return;
+      const start = offset;
+      offset += raw.length + 1;
+      if (inCode(start) || (raw.trim() && inCode(start + raw.length - raw.trimStart().length))) return;
       const sentinel = /[\ue000-\uf8ff].*$/s.exec(raw), text = sentinel ? raw.slice(0, sentinel.index) : raw, tail = sentinel?.[0] ?? "";
       const button = text.includes("::button") ? buttonCallAt([text], 0) : null;
       if (button) { lines[i] = `**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }
       if (!text.includes("(act:")) return;
       let out = text;
-      for (const l of linkOccurrences(text, "inline").flatMap(l => (l.kind === "markdown" && /^act:/.test(l.url.trim()) ? [l] : [])).reverse()) out = out.slice(0, l.start) + l.text + out.slice(l.end);
+      const here = (l: { start: number }) => !inCode(start + l.start);
+      for (const l of linkOccurrences(text, "inline").flatMap(l => (l.kind === "markdown" && /^act:/.test(l.url.trim()) && here(l) ? [l] : [])).reverse()) out = out.slice(0, l.start) + l.text + out.slice(l.end);
       lines[i] = out + tail;
     });
     body = lines.join("\n");
