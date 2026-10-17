@@ -18,11 +18,11 @@ const KIND: Record<FormField["type"], PropsSpec[string]["kind"]> = { text: "text
  * call-site words already mean.
  */
 export function propsSpecOf(values: readonly string[]): { spec: PropsSpec; problems: string[] } {
-  const { fields, problems } = formFields(values);
+  // A prop is called by its name on the line, so the call-site words are the names it can't take (not an action request's: `with` is a fine prop).
+  const { fields, problems } = formFields(values, RESERVED);
   const spec: PropsSpec = {};
   const said = problems.map(problem => problem.message);
   for (const field of fields) {
-    if (RESERVED.has(field.name)) { said.push(`[${FORM_FIELD_KEY}::${field.name} …]: ${field.name} is a call-site word (${RESERVED_PROPS.join(", ")}); call the prop something else`); continue; }
     spec[field.name] = {
       kind: KIND[field.type],
       ...(field.options?.length ? { choices: field.options } : {}),

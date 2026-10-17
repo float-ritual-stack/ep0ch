@@ -8,9 +8,9 @@
 // the views' matcher) and binds the Site. A reference is looked up by `OutlinerStore.lookupBlockRef`, the same lookup
 // `resolveBlockRef` throws from. Reads only.
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
-import { interpolationSpans, spanTail } from "@ep0ch/outline-core/interpolation";
+import { interpolationSpans, spanTail, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { resolvePath, type FilterRow, type NoteLookup, type PathScope, type PathWorld } from "@ep0ch/outline-core/resolve-path";
+import { resolvePath, type PathAnswer, type FilterRow, type NoteLookup, type PathScope, type PathWorld } from "@ep0ch/outline-core/resolve-path";
 import { deriveSite, type Site, type SiteAnswer, type SiteAnswerRequest, type SiteLink, type SiteValue } from "@ep0ch/outline-core/site";
 import { BlockQueryError } from "./block-query";
 import { textRecord } from "./block-records";
@@ -281,4 +281,18 @@ export function pathValues(store: SiteStore, thisId: string, path: string, clock
     throw new BlockQueryError(`{{${path}}} in a query: ${read.problem.message}${hint}`);
   }
   return read.values ?? [];
+}
+
+/**
+ * A reader of `{{ }}` for a producer that has no host note (a stamp, PIE-533 S4): `self` the template, `props` the call's,
+ * and the clock (`now`); another note by a reference. The same resolver and lookups `site.answer` uses, so a stamp's
+ * `{{props.for.title}}` and a live `{{props.for.title}}` read the same. A span with no path answers a problem.
+ */
+export function siteReader(store: SiteStore, parts: { self?: Block; props: Record<string, string[]> }, clock: () => number = Date.now): (span: InterpolationSpan) => PathAnswer {
+  const world = new StoreWorld(store, clock);
+  const site: Site = { at: { block: parts.self?.id ?? "" }, ...(parts.self ? { self: world.record(parts.self) } : {}), props: parts.props, actor: { id: "template.stamp", author: "system" } };
+  const scope: PathScope = { ancestors: [], world };
+  return span => span.parsed
+    ? resolvePath(span.parsed, site, scope, spanTail(span))
+    : { ok: false, problem: { message: `\`${span.path}\` isn't a path: write head.key, such as props.owner`, didYouMean: [], example: "{{props.owner}}" }, route: [] };
 }

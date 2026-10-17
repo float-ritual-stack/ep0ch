@@ -2181,6 +2181,8 @@ export type OutlinerRequestAction =
       author?: BlockAuthor;
       provenance?: BlockProvenance;
     }
+  /** A template written out as a new note, props filled (PIE-533 S4, src/template-stamp.ts); `for` stamps once per match. */
+  | ({ id: string; action: "template.stamp" } & import("./template-stamp").TemplateStampRequest)
   | { id:string; action:"mentions.ingest"; message:MentionMessage }
   | { id:string; action:"mentions.list"; scope?:MentionScope; limit?:number }
   | { id:string; action:"mentions.message"; messageKey:string }

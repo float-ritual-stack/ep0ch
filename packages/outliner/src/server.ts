@@ -40,6 +40,7 @@ import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
 import { answerSite } from "./site-answer";
 import { templateUse } from "./template-use";
+import { stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
@@ -2805,6 +2806,11 @@ export class OutlinerServer {
         case "notes.create":
           result = this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
           break;
+        case "template.stamp": {
+          const { id: _id, action: _action, ...stamp } = request;
+          result = stampTemplate(this.store, stamp);
+          break;
+        }
         case "mentions.ingest": result=this.mentions.ingest(request.message); break;
         case "mentions.list": result=this.mentions.list(request.scope,request.limit); break;
         case "mentions.message": result=this.mentions.message(request.messageKey); break;
@@ -3413,6 +3419,13 @@ export class OutlinerServer {
         domain = "content";
         blockId = (response.result as NewNoteReceipt).block.id;
         break;
+      case "template.stamp": {
+        const stamped = (response.result as TemplateStampResult).stamped;
+        if (!stamped.length) return null;
+        domain = "content";
+        blockId = stamped[0]!.id;
+        break;
+      }
       case "edit-recovery.commit":
         domain = "content";
         blockId = (response.result as Block).id;
