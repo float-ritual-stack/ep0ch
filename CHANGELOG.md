@@ -31,6 +31,11 @@ What changes for an agent or an extension author: a property is read from the no
   Markdown rows, so its props never arrived. It now says so, in outline-core's words, in the door (the figure and the
   reader's list of what a note leaves open), in Detail (a line after the figure), on a published page (in the figure)
   and in a save's warnings (PIE-941).
+- **The door** reads a note's properties from its list (`Msg.properties`, with `prop(m, key)` and `propValues(m, key)`),
+  not from `Msg.props`, a map that kept only the last value of a repeated key and left a `[a, b]` list as one string. A
+  repeated key now reads its first value, and a list its first element (`system-view` asks every value).
+- The showcase's seed and tests are split by area (`src/showcase/seed/*.ts`, `test/showcase/*.test.ts`), so a new
+  section is a new file. Nothing changes on screen.
 - The MCP `pending.body` fences a queued edit `⟦pending <id>⟧…⟦/pending⟧`, not `{{pending <id>}}…{{/pending}}`, so
   the note's `{{ }}` values (coming) can never mistake it for one.
 

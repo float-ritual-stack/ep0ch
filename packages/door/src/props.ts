@@ -54,7 +54,7 @@ export function summaryKeys(view?: readonly string[] | null): { keys: string[]; 
 
 /** A saved view's own summary keys (`[summary-properties::work-stage,priority]`), if it names any. */
 export const viewSummaryKeys = (def: Msg | null | undefined): string[] | null =>
-  parsePropertySummaryKeys(def?.properties?.find(p => p.key === "summary-properties")?.value ?? prop(def, "summary-properties")) ?? null;
+  parsePropertySummaryKeys(prop(def, "summary-properties")) ?? null;
 
 // ── the tokens of a text, from the service ─────────────────────────────────────
 

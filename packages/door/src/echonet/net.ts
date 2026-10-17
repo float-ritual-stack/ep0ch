@@ -47,12 +47,12 @@ export function parseFrom(s: string | undefined): { node: string; id: string } |
 
 /** Every value of a key: repeated tokens and comma lists. */
 export function values(m: Msg, key: string): string[] {
-  const raw = m.properties?.filter(p => p.key === key).map(p => p.value) ?? (prop(m, key) !== undefined ? [prop(m, key)!] : []);
+  const raw = m.properties.filter(p => p.key === key).map(p => p.value);
   return [...new Set(raw.flatMap(v => v.split(",")).map(v => v.trim()).filter(Boolean))];
 }
 /** A copy's `from` in EchoNet's shape, whatever other `from` the note holds (`[from::karen]`). */
 export const fromOf = (m: Msg): { node: string; id: string } | null => {
-  for (const v of m.properties?.filter(p => p.key === "from").map(p => p.value) ?? [prop(m, "from") ?? ""]) { const f = parseFrom(v); if (f) return f; }
+  for (const v of m.properties.filter(p => p.key === "from").map(p => p.value)) { const f = parseFrom(v); if (f) return f; }
   return null;
 };
 const has = (m: Msg, key: string) => prop(m, key) !== undefined;
