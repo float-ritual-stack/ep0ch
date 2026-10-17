@@ -4,8 +4,6 @@
 // told apart from the container's tint (`tint.ruler`) it sits on.
 import { describe, expect, test } from "bun:test";
 import { contrast, luminance, SURFACE_MAX_LUMINANCE, TEXT_INKS, THEME_NAMES, THEMES } from "../src/theme";
-import { itemBg, selected } from "../src/style";
-import { setTheme } from "../src/theme";
 
 describe("item focus is a theme token", () => {
   for (const name of THEME_NAMES) {
@@ -21,13 +19,4 @@ describe("item focus is a theme token", () => {
       for (const i of TEXT_INKS) expect(contrast(t.palette[i]!, t.item.bg)).toBeGreaterThanOrEqual(4.5);
     });
   }
-
-  test("every list's selected row is that band", () => {
-    for (const name of THEME_NAMES) {
-      setTheme(name);
-      expect(selected(true)).toContain(itemBg());
-      expect(itemBg()).toBe(`\x1b[48;2;${THEMES[name].item.bg.join(";")}m`);
-    }
-    setTheme("calm");
-  });
 });

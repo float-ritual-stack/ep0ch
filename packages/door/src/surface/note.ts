@@ -396,6 +396,8 @@ export type ThreadControl = "select" | "reply" | "edit" | "seen" | "keep" | "tld
  */
 interface Element {
   key: string; kind: ElementKind; row: number; from: number; to: number; ruler: [number, number]; label: string;
+  /** A row or step: the rows [from, to) of that one item (its own lines, never its figure's), which item focus bands (PIE-969). */
+  item?: [number, number];
   link?: Link; value?: string; fold?: string; thread?: string; control?: ThreadControl;
   /** A checklist step's box (PIE-472): the step as it was read where it's drawn. */
   task?: StepRef;
@@ -1658,7 +1660,7 @@ export class NoteSurface {
     const reading = this.readingRows();
     const readingBand: [number, number] | null = reading && readingRuler() && !this.printed ? [top + reading[0], top + reading[1]] : null;
     // The element the cursor is on, when it is one row of something (a figure's row, a step): its rows are item-focused.
-    const itemRows: [number, number] | null = current && ITEM_KINDS.has(current.kind) && !this.printed ? current.ruler : null;
+    const itemRows: [number, number] | null = current?.item && !this.printed ? current.item : null;
     const rulers = [markRows].filter((r): r is [number, number] => !!r);
     const ruled = (row: number) => rulers.some(([a, b]) => row >= a && row < b);
     const quoted = marks.filter(k => this.expanded.has(k.thread)).map(k => [top + k.rows[0], top + k.rows[1]] as const);
@@ -4374,7 +4376,7 @@ export class NoteSurface {
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}`
         // A view's picture (PIE-827) is named by its file, as a note's image is.
         : l.media && !l.role ? fileName(l.media) : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
-      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
+      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(ITEM_KINDS.has(kind) ? { item: [top + r.line, top + rs.at(-1)!.line + 1] as [number, number] } : {}), ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
     for (const x of doc.media) {
       const image = imageRef?.(x.line) ?? undefined;

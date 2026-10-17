@@ -13,7 +13,7 @@ import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import type { BarQuestion, BarSuggestion } from "../bar/ask";
 import { printable } from "../props";
 import { RowView } from "../scroll";
-import { bg, C, ellipsize, fg, pad, RESET, width } from "../style";
+import { itemBg, bg, C, ellipsize, fg, pad, RESET, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { rule } from "../text";
 
@@ -227,7 +227,7 @@ export class SettingsCard {
       const valW = Math.max(1, w - keyW - 4 - width(f.prop.type) - 1);
       const line = (on ? fg(C.lcyan) + "▸" : " ") + " " + fg(C.brown) + pad(f.prop.key, keyW) + "  " + pad(ellipsize(value, valW), valW) + " " + tag + RESET;
       if (out.length < h) this.at.push({ y: out.length, n: f.n });
-      out.push(on ? bg(C.blue) + pad(line.split(RESET).join(RESET + bg(C.blue)), w) + RESET : pad(line, w));
+      out.push(on ? itemBg() + pad(line.split(RESET).join(RESET + itemBg()), w) + RESET : pad(line, w));
     }
     if (foot) out.push(fg(/not saved|can't|refused|failed|isn't|is one of|is a /.test(this.note) ? C.lred : this.note ? C.yellow : C.dark) + pad(ellipsize(foot, w), w) + RESET);
     return out.slice(0, h);
