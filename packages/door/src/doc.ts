@@ -12,7 +12,7 @@ import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
 import { ifProblemLines, ifState, renderFields } from "./site-blocks";
 import { regionTail, type RegionBook } from "./output-region";
-import { outputHeader, outputRegionAt } from "@ep0ch/outline-core/output-region";
+import { outputHeader, type OutputRegion } from "@ep0ch/outline-core/output-region";
 import { useCallAt, type UseCall } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
@@ -61,6 +61,8 @@ export interface DocEnv {
   use?: (call: UseCall, line: number, width: number) => string[] | AfterRows;
   /** Where generated regions (a `::use`, an `[!output]` callout) keep their mark and whether one is open (src/output-region.ts). */
   regions?: RegionBook;
+  /** The output regions of the note's body by their header line (outline-core output-region.ts, read from the text as written): the producer, hash and anchor the presented lines have lost. */
+  outputs?: ReadonlyMap<number, OutputRegion>;
   /**
    * The Site this body is drawn in when it is a template's (a `::use` draws it): the chain of invocations and the call's
    * props. Its figures, `::fields` and `::if` read `this` through it (the host), and `{{props.x}}` as the call passed it.
@@ -666,12 +668,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const cb = callouts.get(i);
     // An output region (outline-core output-region.ts: a script's or an @name's `> [!output]-` callout): the body is the note's
     // own content, flush, behind one gutter mark (src/output-region.ts). A fold on it is the person's to ask for, not drawn.
-    const og = cb && cb.depth === 1 ? outputHeader(src[i]!) : null;
+    const known = cb && cb.depth === 1 ? env.outputs?.get(i) : undefined;
+    const og = known ?? (cb && cb.depth === 1 ? outputHeader(src[i]!) : null);
     if (cb && og) {
       const off = i + 1, inside = (n: number) => n > i && n < cb.end;
       const body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
       const sub = renderDoc(body.join("\n"), {
-        ...env, nested: true, width: W, keepTags: true, embed: undefined, after: undefined, use: undefined, regions: undefined, task: undefined, decorate: undefined,
+        ...env, nested: true, width: W, keepTags: true, embed: undefined, after: undefined, use: undefined, regions: undefined, outputs: undefined, task: undefined, decorate: undefined,
         literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
         folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
         callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),
@@ -683,10 +686,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       adopt(sub, base, 0, off, undefined, cb.depth);
       const key = `${env.note ?? ""}:#${og.anchor ?? i}`;
       const source0 = og.producer && env.tag ? env.tag({ block: og.producer, role: "control", label: `source of ${og.label || "this output"}` }, "[source]") : "";
-      const edited = og.hash !== undefined && !!outputRegionAt(src.join("\n"), og.anchor ?? "")?.edited;
+      const edited = !!known?.edited;
       // The body is already in `out`; what follows it is what is wrong with it and the row behind the mark.
       out.push(...regionTail({
-        key, label: og.label || "output", ...(og.producer ? { target: { block: og.producer, role: "embed" as const, label: og.label } } : {}), body: sub.lines,
+        key, label: og.label || "output", target: og.producer ? { block: og.producer, role: "embed" as const, label: og.label } : { role: "resource" as const, label: og.label }, body: sub.lines,
         notes: edited ? [fg(C.dark) + "edited here: it is yours now, and the next output waits as a proposal" + RESET] : [],
         facts: [og.label || "output", og.type === "answer" ? "an agent's answer" : "written by a script"], controls: source0 ? [fg(C.lcyan) + source0 + RESET] : [], width: W,
       }, env.regions));

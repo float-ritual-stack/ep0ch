@@ -41,7 +41,7 @@ line: `::= (await resolve('this.owner')).values[0]`.
 `ep0ch show` draws the note and its values but not what a script or other extension line returns: that is drawn by a door's
 Detail screen. To see it as a reader does, run a door of your own on your outline (the `ep0ch` skill, "run your own": a
 tmux pane with `EP0CH_STATE` and `EP0CH_CONTROL` set, `ep0ch --ws <name> --no-daemon --screen detail <full id>`), then `ep0ch peek`: it prints the door's state as JSON and, below the closing brace, the screen as text. To draw the
-lines now after a change, `ep0ch act projection.refresh block=<full id>`. An argument is `key=value` after the `::`
+lines now after a change, `ep0ch act projection.refresh block=<full id>` (add `line=<index>` for one line: with several lines that run and no `line=`, nothing runs and the refusal names them). In a door a generated line draws flush with the note's text, with one dim `≡` mark in the gutter that shows its name, when it ran and its controls. An argument is `key=value` after the `::`
 (`weekly:: week=42`, read as `props.week[0]`); a line with none is `weekly::` and runs with empty `props`.
 
 ## Running, stopping, undoing

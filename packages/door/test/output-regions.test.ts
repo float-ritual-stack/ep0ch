@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { SHADE } from "../src/embeds";
+import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { bindExtensions } from "../src/extensions";
 import { forgetProjectionAnswers } from "../src/projection";
 import { MainMenu } from "../src/screens";
@@ -92,6 +93,33 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       await until(() => !lines().join("\n").includes("run again"), "closed again", 5000);
       await Bun.sleep(50);
       expect(lines()).toHaveLength(before);
+    }, 40_000);
+  });
+
+  describe("a materialized output region (an `[!output]` callout)", () => {
+    const region = (body: string, producer: string) => outputRegionText({ label: "weekly", producer, anchor: "out-weekly-7c2e", body });
+
+    test("draws flush like the note's own words, behind the same mark; the click shows the label and a source link", async () => {
+      const producer = (await board.createBlock(null, "A script note")).id;
+      const text = `Planning\nSome prose before.\n\n${region("| day | done |\n| --- | --- |\n| mon | 2 |", producer)}\n\nProse after the table.`;
+      const { s, lines } = await reader(text, /Prose after the table/);
+      const rows = lines();
+      const table = rows.findIndex(l => l.includes("day")), prose = rows.findIndex(l => l.includes("Some prose before."));
+      expect(rows[table]!.indexOf("day")).toBeGreaterThanOrEqual(rows[prose]!.indexOf("Some prose before."));
+      expect(rows.join("\n")).not.toMatch(/\[!output\]|output-hash|output-of|╭─|╰─/);         // no callout frame, no header chips
+      const mark = rows.findIndex(l => l.startsWith("≡"));
+      expect(mark).toBeGreaterThan(prose);
+      expect(rows.slice(mark, mark + 4).join("\n")).toContain("mon");
+      s.click(0, mark, host);
+      await until(() => lines().join("\n").includes("weekly · written by a script"), "the row behind the mark", 5000);
+      expect(lines().join("\n")).toContain("[source]");
+    }, 40_000);
+
+    test("a region its person edited says so, behind the text they left", async () => {
+      const producer = (await board.createBlock(null, "A script note")).id;
+      const edited = region("one", producer).replace("> one", "> one, and my own words");
+      const { lines } = await reader(`Planning\n${edited}\n\nProse after.`, /my own words/);
+      expect(lines().join("\n")).toContain("edited here: it is yours now");
     }, 40_000);
   });
 

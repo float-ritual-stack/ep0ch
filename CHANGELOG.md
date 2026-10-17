@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Generated output reads as the note's own content; `r` runs one line, never all (PIE-956, S6 of PIE-533, door)
+
+A handler's output, a component's view, an `@name` request, a `::use` and a written `[!output]` callout draw flush with
+the text around them: no box, no indent, no "ran 2 min ago" header and no `[keep] [r run again]` row. One dim `≡` in the
+gutter beside each is the only sign it is generated; the `[ ]` position on it, or a click, shows its name, when it ran and
+its controls as one dim row, and what is wrong with it stays in the text. `r` with no `[ ]` position used to run every
+ticket, handler line and pending `@name` request on a note; with several lines that run it now runs none and says which
+there are. A reference or `[key::value]` inside an output region is the producer's, not the note's: no backlink, no
+property. Detail's drawing is unchanged.
+
 ### `place()`: scripts write output where you say (PIE-956, S6 of PIE-533, service side)
 
 A script with `[effects::write]` calls `place(content, { at: "^week", mode })` and its output lands in the note as an

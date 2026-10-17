@@ -2,6 +2,7 @@
 // where it sits, its scope (block, line or inline) and its placement, in source order. The service's save-time parser
 // and every client or extension that reads a note's properties use this one; nobody copies it. Pure: no I/O.
 import { codeHides, literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "./code-ranges";
+import { maskOutputRegions } from "./output-region";
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, isHexColour, PROPERTY_KEY_SOURCE, propertyTokenMatches, type RawPropertyToken } from "./property-grammar";
 import { frontMatterLines, headerLine } from "./header-line";
 import { isMediaLine } from "./media-line";
@@ -170,7 +171,9 @@ function hashtagCandidates(
   return candidates;
 }
 
-export function parsePropertyRecords(text: string): PropertyRecord[] {
+export function parsePropertyRecords(source: string): PropertyRecord[] {
+  // An output region (a script's or an agent's answer, output-region.ts) is its producer's: its chips aren't the note's properties (PIE-956).
+  const text = maskOutputRegions(source);
   const literalRanges = scanPropertyLiteralRanges(text);
   const matches: PropertyMatch[] = [];
   let literalIndex = 0;

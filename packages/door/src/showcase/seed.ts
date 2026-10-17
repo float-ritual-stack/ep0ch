@@ -11,6 +11,7 @@
 // echonet); this file keeps the order they are written in. A new section's content is a new file there.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { titleLine, type Msg } from "../board";
 import { USER, type Actor, type SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
@@ -153,9 +154,13 @@ if (request.input.request === "describe the beds") {
   notes.scriptsInPlace = await make(notes.root.id, [
     `${SEED.scriptsInPlace} [owner::Sam] [crop::beans]`,
     "A script written with [mode::render] draws where a line asks for it, and again when a note it read changes. It writes nothing: this note stays as you typed it.",
+    "Sam's sowing plan for week 42 is the script's table, drawn as if it were written here:",
     "beds-table:: week=42",
     "A ::= line is the same in one line, with this, props, q, read and resolve:",
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
+    "Both are generated and read like the page around them: the one dim mark in the margin beside each is all that says so. Put the cursor on it, or click it, to see when it ran and to run it again. A script that writes leaves its output in the note, as a region you can edit:",
+    outputRegionText({ label: "last week's rota", producer: notes.scripts.id, anchor: "out-rota-7c2e", body: "- Mon: Sam waters the beans\n- Wed: Robin thins the carrots\n- Fri: Sam picks the first peas" }),
+    "Change a word inside it and it is yours: the script's next run waits as a proposal beside it.",
   ].join("\n"));
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [

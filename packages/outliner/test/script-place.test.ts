@@ -181,3 +181,13 @@ test("a door that declines the patch (its cursor is there) leaves one proposal, 
   expect(findOutputRegions(door.text)).toHaveLength(0);
   expect(store.get(note.id)!.text).toBe(NOTE);
 });
+
+test("a reference inside an output region is machinery: it is no backlink (PIE-956)", async () => {
+  const { outlinerReferenceOccurrences } = await import("../src/reference-occurrences");
+  const text = [
+    "See ((aaaaaaaa-1111-4222-8333-444444444444)).",
+    "> [!output]- weekly [output-of::((bbbbbbbb-1111-4222-8333-444444444444))] [output-hash::3f9a1c] ^out-weekly-7c2e",
+    "> Look at ((cccccccc-1111-4222-8333-444444444444)).",
+  ].join("\n");
+  expect(outlinerReferenceOccurrences(text).map(r => (r.kind === "block" ? r.blockId : r.kind))).toEqual(["aaaaaaaa-1111-4222-8333-444444444444"]);
+});

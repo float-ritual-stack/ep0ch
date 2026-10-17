@@ -20,6 +20,12 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
     const first = (await board.get(id))!;
     // The script's table (Owner/Week columns) and the ::= line's sentence, both under their lines.
     await until(() => screen().includes("Sam sows beans") && /Owner\s.*Week/.test(screen()), "both lines drawn", 15_000);
+    // Three generated regions in prose (PIE-956): the script's table, the ::= sentence and a written region (an `[!output]`
+    // callout) all draw flush with the words around them, each with one mark in the margin; none shows who ran it, when, or a control.
+    const rows = screen().split("\n");
+    expect(rows.filter(r => /^\s*≡/.test(r.replace(/^[^≡]*?(?=≡)/, "")) || r.trimStart().startsWith("≡")).length).toBeGreaterThanOrEqual(3);
+    expect(screen()).toContain("Sam waters the beans");
+    expect(screen()).not.toMatch(/ran (just now|\d+ min ago)|\[keep\]|run again|\[!output\]/);
     // Drawing wrote nothing: the note's text and its children are as seeded.
     const after = (await board.get(id))!;
     expect([after.text, after.revision]).toEqual([first.text, first.revision]);
