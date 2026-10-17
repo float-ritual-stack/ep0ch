@@ -495,6 +495,7 @@ export class OutlinerServer {
         }
         this.knownExtensions = present;
         this.extensionRules?.rebaseline();
+        this.extensionCalls?.registryChanged();
         // Clients read the list again on the event: its resource providers are current by then.
         void this.refreshResourceProviders().finally(() => {
           if (!this.stopping) this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });

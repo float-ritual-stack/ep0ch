@@ -664,4 +664,50 @@ describe("what a reader may not see (PIE-533 S2)", () => {
     expect(shut.paths![0]).toMatchObject({ hidden: true });
     expect(shut.paths![1]!.values).toEqual(["1"]);
   });
+
+  test("a self or chain note the reader may not see supplies no values: the read is refused, naming no content", () => {
+    const { store } = scratch();
+    const template = store.create("Template [secret::4471]");
+    const host = store.create("Host [owner::sam]\n::use template");
+    const note = store.create("Reader");
+    const asked = { blockId: note.id, paths: ["self.secret"] };
+    expect(answerSite(store, { ...asked, self: template.id }).paths![0]!.values).toEqual(["4471"]);
+    expect(() => answerSite(store, { ...asked, self: template.id, hidden: [template.id] })).toThrow("may not see");
+    expect(() => answerSite(store, { blockId: template.id, chain: [{ kind: "use", block: host.id, line: 1 }], paths: ["this.owner"], hidden: [host.id] })).toThrow("may not see");
+  });
+
+  test("an ambiguous prefix is every note it starts a dependency, and names no title the reader may not see", () => {
+    const { store } = scratch();
+    const shown = store.create("Alpha note", null, "user", undefined, { id: "deadbeef-0000-4000-8000-000000000001" });
+    const secret = store.create("Gate codes", null, "user", undefined, { id: "deadbeef-0000-4000-8000-000000000002" });
+    const note = store.create("Reader");
+    const open = answerSite(store, { blockId: note.id, paths: ["((deadbeef)).colour"] });
+    expect(open.deps).toContain(secret.id);
+    const shut = answerSite(store, { blockId: note.id, hidden: [secret.id], paths: ["((deadbeef)).colour"] });
+    expect(JSON.stringify(shut)).not.toContain("Gate codes");
+    expect(shut.paths![0]).toMatchObject({ hidden: true });
+    void shown;
+  });
+
+  test("a figure asked outside any note still leaves out what the reader may not see", () => {
+    const { store } = scratch();
+    store.create("Bean row [type::chore]");
+    const secret = store.create("Compost recipe [type::chore]");
+    const asked = { produce: { kind: "figure" as const, figure: "table", props: { query: "type=chore" } }, paths: ["((" + secret.id + ")).title"] };
+    const shut = answerSite(store, { ...asked, hidden: [secret.id] });
+    expect(shut.paths![0]).toMatchObject({ hidden: true });
+  });
+
+  test("an ::if over a relation says nothing when a note it could consult is one the reader may not see", () => {
+    const { store } = scratch();
+    const plan = store.create("Plan [status::open]");
+    const child = store.create("Quote [status::approved]", plan.id);
+    const ask = (hidden: string[]) => answerSite(store, { blockId: plan.id, produce: { kind: "if", where: "child:status=approved" }, hidden });
+    const open = ask([]);
+    expect(open.produced).toMatchObject({ kind: "if", holds: true });
+    expect(open.deps).toContain(child.id);
+    expect(ask([child.id]).produced).toMatchObject({ kind: "if", holds: false, problem: { message: expect.stringContaining("aren't shown") } });
+    // A clause about the note's own properties reads no other note.
+    expect(answerSite(store, { blockId: plan.id, produce: { kind: "if", where: "status=open" }, hidden: [child.id] }).produced).toMatchObject({ holds: true });
+  });
 });

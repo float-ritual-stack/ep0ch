@@ -3,60 +3,9 @@
 // takes `week=42`, a rule-fired one is told the matched block, render mode draws a line in place and writes nothing,
 // a script that writes into its own note goes on, `wait` is bounded, and one run can be stopped.
 // Scratch services in temp folders; every note and name is made up.
-import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { OutlinerClient } from "../src/client";
+import { expect, test } from "bun:test";
 import type { ExtensionsListResult } from "../src/extension-registry";
-import { OutlinerServer } from "../src/server";
-import { OutlinerStore } from "../src/store";
-
-const cleanups: Array<() => Promise<void> | void> = [];
-afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
-
-async function until<T>(what: string, check: () => T | undefined | null | false | Promise<T | undefined | null | false>, ms = 10_000): Promise<T> {
-  const end = Date.now() + ms;
-  for (;;) {
-    const value = await check();
-    if (value) return value;
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
-    await Bun.sleep(25);
-  }
-}
-
-async function setup() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-script-site-")));
-  const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
-  process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
-  process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-legacy-registry.json");
-  const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: join(root, "outline") });
-  const socket = join(root, "outliner.sock");
-  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80, ruleQuietMs: 20 });
-  await server.start();
-  const client = new OutlinerClient(socket, 15_000);
-  cleanups.push(async () => {
-    await server.close();
-    store.close();
-    for (const [key, value] of [["OUTLINER_EXTENSIONS_DIR", previous.dir], ["OUTLINER_RESOURCE_EXTENSIONS", previous.registry]] as const) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    rmSync(root, { recursive: true, force: true });
-  });
-  const create = (text: string, parent: string | null = null) => store.create(text, parent, "user");
-  const extensionOf = async (name: string) => (await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })).extensions.find(e => e.name === name)!;
-  /** Runs a script by name, as a person would, with the note it is about and its slots. */
-  const run = async (name: string, options: { blockId?: string; args?: Record<string, string>; line?: number } = {}) => {
-    const extension = await extensionOf(name);
-    const started = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", ...options });
-    const note = () => store.get(started.written[0]!)!.text;
-    await until(`${name} to finish`, () => !note().split("\n")[0]!.includes("· working"));
-    return { text: note(), undo: started.undo, extension };
-  };
-  const output = (blockId: string) => store.extensionOutputs(blockId).map(row => (row.result as { markdown?: string } | null)?.markdown ?? row.error);
-  return { store, client, create, extensionOf, run, output };
-}
+import { setup, until } from "./script-harness";
 
 test("a script reads this, self, caller and props, with no id written in it", async () => {
   const { store, create, run } = await setup();
@@ -104,15 +53,14 @@ test("a rule-fired script is told the matched block as this, and its caller", as
 });
 
 test("render mode draws a line in place from its slots, redraws when a note it read changes, and writes nothing", async () => {
-  const { store, client, create, output } = await setup();
+  const { store, client, create, output, draw } = await setup();
   const script = create(`Beds table [script::beds-table] [mode::render]
 \`\`\`js
 const owner = (await resolve("this.owner")).values[0];
 return view.table({ columns: ["Owner", "Week"], rows: [[owner, props.week[0]]] });
 \`\`\``);
   const note = create("Beds [owner::sam]\nbeds-table:: week=42");
-  const draw = () => client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
-  await draw();
+  await draw(note.id);
   const first = await until("the first drawing", () => output(note.id)[0]);
   expect(first).toContain("Owner");
   expect(first).toContain("sam");
@@ -129,20 +77,20 @@ return view.table({ columns: ["Owner", "Week"], rows: [[owner, props.week[0]]] }
 });
 
 test("a script a render line reads another note through is drawn again when that note changes", async () => {
-  const { store, create, client, output } = await setup();
+  const { store, create, output, draw } = await setup();
   const other = create("Weather [sky::grey]");
   create(`Sky [script::sky] [mode::render]\n\`\`\`js\nreturn (await resolve("((${other.id})).sky")).values[0];\n\`\`\``);
   const note = create("Today\nsky::");
-  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await draw(note.id);
   expect(await until("grey", () => output(note.id)[0])).toBe("grey");
   store.update(other.id, "Weather [sky::blue]", store.get(other.id)!.revision, { author: "user" });
   await until("blue", () => output(note.id)[0] === "blue");
 });
 
 test("a ::= line is a one-line render-mode script", async () => {
-  const { create, client, output } = await setup();
+  const { create, output, draw } = await setup();
   const note = create("Pipeline [owner::sam]\n::= (await resolve('this.owner')).values[0].toUpperCase()");
-  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await draw(note.id);
   expect(await until("the line", () => output(note.id)[0])).toBe("SAM");
 });
 
@@ -187,20 +135,20 @@ test("wait is bounded by the script's deadline, and stop ends one run", async ()
 });
 
 test("a read-only render script can't write: its write is refused", async () => {
-  const { create, client, output } = await setup();
+  const { create, output, draw } = await setup();
   const target = create("Target");
   create(`Meddler [script::meddler] [mode::render]\n\`\`\`js\nawait tools.outline_comment({ ref: "${target.id}", whole: true, body: "hi" });\nreturn "wrote";\n\`\`\``);
   const note = create("Draw\nmeddler::");
-  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await draw(note.id);
   expect(await until("the refusal", () => output(note.id)[0])).toContain("read-only");
 });
 
 test("a render line is drawn again when its script's code changes, and when a query it ran finds a new match", async () => {
-  const { store, create, client, output } = await setup();
+  const { store, create, client, output, draw } = await setup();
   const script = create("Count [script::todo-count] [mode::render]\n```js\nconst open = (await q('status=todo')).blocks.length;\nreturn `open: ${open}`;\n```");
   create("Wash the shed [status::todo]");
   const note = create("Chores\ntodo-count::");
-  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await draw(note.id);
   expect(await until("one open", () => output(note.id)[0])).toBe("open: 1");
   // A new match (no row of the old answer changed): drawn again.
   create("Mend the gate [status::todo]");
@@ -208,7 +156,7 @@ test("a render line is drawn again when its script's code changes, and when a qu
   // The code changes: drawn again, though nothing the code read did.
   store.update(script.id, store.get(script.id)!.text.replace("`open: ${open}`", "`todo: ${open}`"), store.get(script.id)!.revision, { author: "user" });
   await client.request({ action: "extensions.list", reload: true });
-  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await draw(note.id);
   await until("new wording", () => output(note.id)[0] === "todo: 2");
 });
 
@@ -230,10 +178,10 @@ test("stop refuses a run's next call, and a script run on its own note has that 
 });
 
 test("keep on a render line writes its output as a note and starts no run", async () => {
-  const { store, client, create, output } = await setup();
+  const { store, client, create, output, draw } = await setup();
   const script = create("Kept words [script::kept-words] [mode::render]\n```js\nreturn 'sow the peas';\n```");
   const note = create("Plan\nkept-words::");
-  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await draw(note.id);
   await until("drawn", () => output(note.id)[0]);
   const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
   const extension = listed.extensions.find(e => e.name === "kept-words")!;
@@ -274,4 +222,13 @@ test("a script that acts on a door with none connected is refused with where to 
   expect(text).toContain("failed");
   expect(text).toMatch(/no door (on|here)/);
   expect(text).toContain("door=<client>");
+});
+
+test("a line written before its script exists is drawn once the script is loaded, without being asked again", async () => {
+  const { create, client, output } = await setup();
+  const note = create("Later\nlate-bloomer::");
+  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  expect(output(note.id)).toEqual([]);
+  create("Late [script::late-bloomer] [mode::render]\n```js\nreturn 'bloomed';\n```");
+  expect(await until("the line drawn by the script's arrival", () => output(note.id)[0])).toBe("bloomed");
 });

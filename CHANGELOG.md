@@ -15,7 +15,7 @@ are its record. The outliner's entries from then are kept below, under
 `::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia}` in a note floats the screen's tiles, dances them with
 `motion=fantasia` and settles them back, as one layout transaction: your press invites it (it may move the tile you are in), an agent's run
 is the same script without the invitation (that tile stays), stopping it puts the layout back, and one `layout.undo` takes the whole run
-back. The showcase has it (`act section name=fantasia`); the worked example is `packages/outliner/docs/scripts-worked-fantasia.md`.
+back. The showcase has it (`act section name=fantasia`); the worked example is `packages/outliner/docs/scripts.md` ("Fantasia").
 **Esc, or a click on "■ stop the dance" in the status bar, stops a dance**: while a script run is rearranging the screen, Esc (or `layout.stop`) stops the run and puts the layout back, and the status bar says so when it starts ("fantasia is rearranging the screen · esc stops it"); with no run Esc is the screen's own, and a draft, an overlay, a ^W command or a drag keep theirs. `motion=` on a button is the script's `props.motion`; alone on any action it is a hint for that one action. The showcase screen forwards
 script ends and undos to the desks it stages.
 
@@ -98,6 +98,39 @@ output region: a folded `> [!output]-` callout it owns, hashed in the text so ow
 `replace` only ever touches an unedited region of its own. A missing anchor is one proposal at the caller with a
 did-you-mean, never the end of the note; a region you edited is yours and the new output waits as a proposal. The
 note's record (fields, tasks) leaves regions out. `ExtensionCalls.materialize` is now `refreshOutput`.
+### Published pages: every relation is cut, in one place (PIE-978, follow-up)
+
+The cut now sits in the store the producers ask, so a figure, an `::if`, a `| filter`, a view lane and a `::links` query are
+all cut by construction, for every relation (`child:`, `links:`, `linkedfrom:`, `under:`, `parent:`), not only `child:`. The
+publisher asks the service (`unknowable`) instead of keeping its own rule. A render script that prints a breadcrumb, or counts
+matches it was not shown, says *hidden here*; a script defined in an unpublished note draws as it should. Old render outputs are
+drawn again once (the script stamp carries the version of what a render records). Nothing to run beyond `ep0ch install --apply`.
+
+### A published page reads only what it may show (PIE-978, permissions)
+
+Closes the ways a page drawn from the Site could tell a reader about a note the page may not show: a render script's
+output (`::= …`, a script line) says *hidden here* when the script read such a note; `::if` over `child:`, `links:` or
+another relation says nothing when a note it could consult is hidden (the body stays out); `self` and `chain` hosts the
+reader may not see are refused; an ambiguous id prefix names no hidden title; a figure asked outside any note obeys
+`hidden` too; a `child:` clause (in a figure, an `::if`, a `| filter`, a script's `q()`) never answers for a note with a child the page may not show. Nothing to run (a protocol bump: update the host and the publisher together); pie's and gurgle's published pages were checked and none drew such a line.
+
+### `::fields` counts front matter, the header and hashtags (PIE-979)
+
+`::fields{key=…}` listed only a note's body lines, so a key written in its front matter (`- connectTo:: v`, a list
+value a row each) or header chip answered "0 occurrences". It now lists every occurrence wherever it is written, each
+with its line, and a row opens that line lit (a front-matter line isn't drawn in the note, so its row says it is in the property panel, and its `¶` anchor is refused). A `#hashtag` is the key `tag` (`::fields{key=tag}`); `key=tags` finds
+only a `tags::` property, and says to try `tag` when it finds none. The showcase's `fields-if` section writes one key
+in every form beside the `::fields` that lists them. `PROTOCOL` moves (what outline-core's record holds changed).
+
+### Scripts in a note: one reference page, and examples you can paste (PIE-982)
+
+What you can now do: learn the whole script surface from one page and copy a working example.
+`packages/outliner/docs/scripts.md` lists the globals (`this`, `self`, `caller`, `props`), the functions (`q`, `read`, `resolve`,
+`act`, `wait`), every `tools.*` and `view.*` with its fields, the modes (action, render, `::=`), effects, access, deadlines,
+run notes, undo and yolo, and the traps (an empty `this.children`, a `q` row with no properties, a handler line that
+`ep0ch show` doesn't draw). Every entry points at its source as `path:line`. Five worked examples (a sentence from
+properties, a table with a computed column, tic-tac-toe in a `[board::]` property, a checklist stamped by a rule, a table from a query) are notes
+you can paste; `ep0ch --showcase` seeds them in a *Script examples* section. Nothing to run.
 
 ### Install rewrites the old brace forms (PIE-533, landing)
 

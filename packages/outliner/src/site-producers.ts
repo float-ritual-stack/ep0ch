@@ -11,13 +11,15 @@ import { asksPerItem, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } fro
 import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/outline-core/site";
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
-import type { ValueBinder } from "./block-query";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { queryRelations, type QueryRelationKind, type ValueBinder } from "./block-query";
 
 type Props = Record<string, any>;
 
 /** What the producers need of the store, beyond the Site read's. */
 export interface ProducerStore {
-  get(id: string): { id: string; revision: number; text: string } | null;
+  get(id: string): { id: string; revision: number; text: string; parentId: string | null } | null;
+  children(parentId: string | null): { id: string }[];
   queryBlocks(input: BlockSearchQuery, binder?: ValueBinder): VisibleBlockCollection & { groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string };
   readSavedView(viewId: string, options: Record<string, never>, format: "tree"): SavedViewReadResult<TreeIndexBlock>;
   matchQuery(expression: unknown, ids: unknown, narrow?: { this?: unknown }, binder?: ValueBinder): { blockIds: string[] };
@@ -25,6 +27,84 @@ export interface ProducerStore {
 
 /** The Site's reads a producer makes: a path's answer, and a query operand's binder. */
 export interface SiteTools { read(path: string): SiteValue; binder: ValueBinder }
+
+/** The most notes whose neighbours are checked for one question; a note past it counts as unknowable. */
+export const MAX_CHECKED = 500;
+
+/**
+ * Which of `ids` a question about other notes (`child:status=approved`, `links:`, `under:`…) can't be answered for by a
+ * reader who may not see every note: whether such a note matches would tell what a neighbour (a child, an ancestor, a
+ * link either way) holds. Every neighbour consulted joins the answer's `deps` (a page asks whether it shows each, then
+ * asks again naming the ones it doesn't). Only for a limited reader (the request carried `hidden`); a note past
+ * `MAX_CHECKED` counts as unknowable.
+ */
+export function unknowable(store: ProducerStore, world: Bound["world"], ids: readonly string[], expression: string | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!world.cut || !expression) return out;
+  const relations = queryRelations(expression);
+  if (!relations.size) return out;
+  // A note the question names (`linkedfrom:((id))`) is one it consults whether or not it matches (a `NOT` answers from it too).
+  const named = [...expression.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)].map(found => found[0].toLowerCase());
+  for (const id of named) world.deps.add(id);
+  const all = named.some(id => world.hidden.has(id));
+  ids.forEach((id, i) => {
+    if (all || i >= MAX_CHECKED) { out.add(id); return; }
+    const near = neighbours(store, id, relations);
+    for (const other of near.ids) {
+      world.deps.add(other);
+      if (world.hidden.has(other)) out.add(id);
+    }
+    if (near.incomplete) out.add(id);
+  });
+  if (out.size) world.hiddenHits += 1;
+  return out;
+}
+
+/** The notes the relations a question reads can consult about `id`; `incomplete` when a list was cut short. */
+function neighbours(store: ProducerStore, id: string, relations: ReadonlySet<QueryRelationKind>): { ids: Set<string>; incomplete: boolean } {
+  const out = new Set<string>();
+  let incomplete = false;
+  const all = relations.has("other");
+  if (all || relations.has("child")) for (const child of store.children(id)) out.add(child.id);
+  if (all || relations.has("parent") || relations.has("under")) {
+    const seen = new Set<string>([id]);
+    for (let at = store.get(id)?.parentId; at && !seen.has(at); at = relations.has("under") || all ? store.get(at)?.parentId : null) { out.add(at); seen.add(at); }
+  }
+  if (all || relations.has("links") || relations.has("linkedfrom")) {
+    const where = [all || relations.has("links") ? "links:this" : "", all || relations.has("linkedfrom") ? "linkedfrom:this" : ""].filter(Boolean).join(" OR ");
+    const linked = store.queryBlocks({ where, this: id, limit: 1000, machinery: "show" } as BlockSearchQuery);
+    for (const block of linked.blocks) out.add(block.id);
+    if (linked.completeness?.kind !== "complete") incomplete = true;
+  }
+  return { ids: out, incomplete };
+}
+
+/**
+ * The store a producer asks, cut for a limited reader: a query's or a view's rows, and the notes a subset holds for, leave
+ * out any note `unknowable` says the question can't be answered for. Every producer asks this store, so none can forget.
+ */
+function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
+  return {
+    get: id => store.get(id),
+    children: id => store.children(id),
+    queryBlocks: (input, binder) => {
+      const found = store.queryBlocks(input, binder);
+      const gone = unknowable(store, world, found.blocks.map(block => block.id), input.where);
+      return gone.size ? { ...found, blocks: found.blocks.filter(block => !gone.has(block.id)) } : found;
+    },
+    readSavedView: (viewId, options, format) => {
+      const read = store.readSavedView(viewId, options, format);
+      if (read.status !== "ready") return read;
+      const gone = unknowable(store, world, read.blocks.map(block => block.id), parsePropertyRecords(store.get(viewId)?.text ?? "").find(r => r.key === "query")?.value);
+      return gone.size ? { ...read, blocks: read.blocks.filter(block => !gone.has(block.id)) } : read;
+    },
+    matchQuery: (expression, ids, narrow, binder) => {
+      const matched = store.matchQuery(expression, ids, narrow, binder);
+      const gone = unknowable(store, world, Array.isArray(ids) ? ids as string[] : [], typeof expression === "string" ? expression : undefined);
+      return gone.size ? { blockIds: matched.blockIds.filter(id => !gone.has(id)) } : matched;
+    },
+  };
+}
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -120,15 +200,23 @@ function fields(store: ProducerStore, tools: SiteTools, key: string, of: string 
   return { kind: "fields", key, from, revision: note?.revision ?? 0, rows };
 }
 
-function holds(store: ProducerStore, tools: SiteTools, thisId: string, where: string): SiteProduced {
-  try { return { kind: "if", holds: store.matchQuery(where, [thisId], { this: thisId }, tools.binder).blockIds.includes(thisId) }; }
+function holds(store: ProducerStore, bound: Bound, tools: SiteTools, thisId: string, where: string): SiteProduced {
+  try {
+    const hits = bound.world.hiddenHits;
+    const held = store.matchQuery(where, [thisId], { this: thisId }, tools.binder).blockIds.includes(thisId);
+    // A clause about other notes answers from them: for a reader who may not see one, it says nothing.
+    if (bound.world.hiddenHits > hits) return { kind: "if", holds: false, problem: { message: "this reads notes that aren't shown here", didYouMean: [] } };
+    return { kind: "if", holds: held };
+  }
   catch (error) { return { kind: "if", holds: false, problem: { message: message(error), didYouMean: [], example: '::if{where="status=active"}' } }; }
 }
 
 /** A producer's question answered over the bound Site; `anyChange`: it depends on notes the answer can't name. */
-export function produce(store: ProducerStore, bound: Bound, producer: SiteProducer, tools: SiteTools): { answer: SiteProduced; anyChange?: true } {
+export function produce(raw: ProducerStore, bound: Bound, producer: SiteProducer, tools: SiteTools): { answer: SiteProduced; anyChange?: true } {
+  // A limited reader's producers ask a store that leaves out what it can't answer for (`cutStore`).
+  const store = bound.world.cut ? cutStore(raw, bound.world) : raw;
   const thisId = bound.site.this?.id;
-  if (!thisId && producer.kind !== "figure") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
+  if (!thisId && producer.kind !== "figure" && producer.kind !== "unknowable") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
   switch (producer.kind) {
     case "figure": {
       if (!producer.figure || typeof producer.figure !== "string" || !producer.props || typeof producer.props !== "object") throw new Error("produce a figure with { kind: \"figure\", figure: \"table\", props: { query: \"type=ticket\" } }");
@@ -144,8 +232,12 @@ export function produce(store: ProducerStore, bound: Bound, producer: SiteProduc
     }
     case "if": {
       if (typeof producer.where !== "string" || !producer.where.trim()) throw new Error("produce an if with { kind: \"if\", where: \"status=active\" }");
-      return { answer: holds(store, tools, thisId!, producer.where), anyChange: true };
+      return { answer: holds(store, bound, tools, thisId!, producer.where), anyChange: true };
     }
-    default: throw new Error("produce is a figure, children, fields or if: { kind: \"fields\", key: \"connectTo\" }");
+    case "unknowable": {
+      if (!Array.isArray(producer.ids) || producer.ids.some(id => typeof id !== "string") || producer.ids.length > 1000) throw new Error("produce unknowable with { kind: \"unknowable\", ids: [\"<note id>\"], where: \"child:status=approved\" }, at most 1000 ids");
+      return { answer: { kind: "unknowable", ids: [...unknowable(raw, bound.world, producer.ids, producer.where)] } };
+    }
+    default: throw new Error("produce is a figure, children, fields, if or unknowable: { kind: \"fields\", key: \"connectTo\" }");
   }
 }

@@ -42,7 +42,7 @@ export function slotProps(words: string | null | undefined): Record<string, stri
 }
 
 /** What a render-mode script drew, and what it read: the notes (with their revision when first read) and the queries (with their rows). */
-export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }
+export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; /** The script's own note: redraws the line, but is not a note the output shows. */ own?: string; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
 
 /** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
@@ -95,7 +95,7 @@ export class ScriptRuns {
       globals, thisId: here.id,
       resolve: async path => {
         const answer = answerSite(this.store, { blockId: here.id, paths: [path], ...(input.line !== undefined ? { line: input.line } : {}), ...(own ? { self: own.id } : {}), ...(caller ? { caller } : {}), props: input.props });
-        onRead?.(answer.deps);
+        onRead?.([...answer.deps, ...(answer.paths![0]!.links ?? []).map(link => link.id)]);
         const read = answer.paths![0]!;
         return { path: read.path, ...(read.values ? { values: read.values } : {}), ...(read.problem ? { problem: read.problem } : {}), ...(read.links ? { links: read.links } : {}), ...(read.lines ? { lines: read.lines } : {}), route: read.route };
       },
@@ -110,20 +110,23 @@ export class ScriptRuns {
   async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }): Promise<ScriptRendered> {
     const reads = new Map<string, number | null>();
     const queries: ScriptRendered["queries"] = [];
+    let untracked = false;
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
     const props = slotProps(input.argument);
+    // The script's own note redraws the line when edited (its code, `self`): a read to watch, not one a reader's view depends on (`own`).
+    if (source.blockId) onRead([source.blockId]);
     const site = this.bind(source, { blockId: input.blockId, line: input.line, props }, onRead);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(input.deadlineMs / 1000)}s)`)), input.deadlineMs);
     const signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal;
     try {
       const api = hostApi(this.client, undefined, {
-        effects: "read", onRead, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+        effects: "read", onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (!result.ok) throw new Error(result.error.message);
       const drew = result.value === undefined ? null : scriptView(result.value);
-      return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
+      return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(source.blockId ? { own: source.blockId } : {}), ...(untracked ? { untracked: true as const } : {}) };
     } finally { clearTimeout(timer); }
   }
 

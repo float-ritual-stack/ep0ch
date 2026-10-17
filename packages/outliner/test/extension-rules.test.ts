@@ -224,7 +224,7 @@ test("a call sees its block and children as records: repeats and lists as values
     actions: [{ id: "look", label: "Look", on: "block", effects: "read" }],
   }, `const r = await Bun.stdin.json();
 const { block, children } = r.input.context;
-process.stdout.write(JSON.stringify({ ok: true, value: { message: JSON.stringify({ title: block.title, properties: block.properties, fields: block.fields.map((f) => [f.key, f.value, f.scope]), children: children.map((c) => [c.title, c.properties]) }) } }));`);
+process.stdout.write(JSON.stringify({ ok: true, value: { message: JSON.stringify({ title: block.title, properties: block.properties, fields: block.fields.filter((f) => f.scope !== "block").map((f) => [f.key, f.value, f.scope]), children: children.map((c) => [c.title, c.properties]) }) } }));`);
   await client.request({ action: "extensions.list", reload: true });
   const note = await create("Heap [tags::compost] [tags::[leaves, straw]] [mix::2, 1]\n\nTurned it [due::friday].");
   await create("Bin [size::big]", note.id);

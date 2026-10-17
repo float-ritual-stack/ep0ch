@@ -75,7 +75,7 @@ export interface ExtensionCallsOptions {
    * A render-mode script drawn for a line (`ScriptRuns.render`): what it returns as Blockdown, and the notes it read with
    * their revisions. The producer path for a script is this handler line's, so it keeps its output where every handler does.
    */
-  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }) => Promise<{ markdown: string; view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }>;
+  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }) => Promise<{ markdown: string; view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; untracked?: true; own?: string }>;
   readonly now?: () => number;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
   readonly changed?: (blockId: string) => void;
@@ -215,6 +215,18 @@ const MAX_CONTEXT_TEXT = 16_000;
 const MAX_CHILD_TEXT = 2_000;
 const MAX_CHILDREN = 50;
 const MAX_MARKDOWN = 64 * 1024;
+/** The notes a render script read to draw its output: what it read by id and the rows of its queries (stored with the output). */
+function scriptReads(request: unknown): { ids: string[]; untracked?: true } | undefined {
+  const stored = request as { reads?: { id?: unknown }[]; queries?: { ids?: unknown }[]; untracked?: unknown; own?: unknown } | null;
+  if (!stored || !Array.isArray(stored.reads)) return undefined;
+  const ids = new Set<string>();
+  for (const read of stored.reads) if (typeof read?.id === "string") ids.add(read.id);
+  for (const query of stored.queries ?? []) for (const id of Array.isArray(query?.ids) ? query.ids : []) if (typeof id === "string") ids.add(id);
+  // The script's own note redraws the line but is not content (its code isn't what the page shows).
+  if (typeof stored.own === "string") ids.delete(stored.own);
+  return { ids: [...ids], ...(stored.untracked === true ? { untracked: true as const } : {}) };
+}
+
 /** A call's record of a block: from the first `max` characters of its text, which is what the call's inputs hash covers, so what an extension reads (properties, fields, title) changes only when that hash does. */
 const recordWithin = (block: Block, max: number, children: readonly string[] = []): BlockRecord => textRecord(block.text.length > max ? { ...block, text: block.text.slice(0, max) } : block, children);
 /**
@@ -470,6 +482,32 @@ export class ExtensionCalls {
       this.saves.delete(blockId);
       void this.refreshOutput(blockId, "save", { byPerson: save?.byPerson ?? false, created: save?.created ?? false }).catch(() => {});
     }, 0);
+  }
+
+  /** The handler keys the registry served last time, with the stamp of the source that served each. */
+  private served = new Map<string, string>();
+
+  /**
+   * The registry loaded or changed a source: a line that names a handler it now serves for the first time, or with new code,
+   * is drawn (it may have been written before its script existed, and nothing else would draw it again).
+   */
+  registryChanged(): void {
+    if (this.stopped) return;
+    const now = new Map<string, string>();
+    for (const extension of this.registry.serving()) {
+      for (const handler of extension.manifest.handlers ?? []) now.set(handler.key, `${extension.id}:${extension.stamp ?? extension.version}`);
+    }
+    const changed = [...now].filter(([key, stamp]) => this.served.get(key) !== stamp).map(([key]) => key);
+    this.served = now;
+    const readers = new Set<string>();
+    for (const key of changed) {
+      for (const row of this.store.queryBlocks({ where: `text~"${key}::"`, limit: 200 }).blocks) readers.add(row.id);
+    }
+    // A pass on open runs only what is out of date or never ran, so lines already drawn cost a look.
+    for (const id of [...readers].slice(0, 500)) {
+      const block = this.store.get(id);
+      if (block && mayHaveHandlerLines(block.text)) void this.refreshOutput(id, "open").catch(() => {});
+    }
   }
 
   /**
@@ -747,6 +785,8 @@ export class ExtensionCalls {
       kind: call.kind as "output" | "component", request: { ...request, inputs }, attemptedAt, blockRevision: block.revision, extensionVersion: extension.version };
     let reads: { id: string; revision: number | null }[] | undefined;
     let queries: { query: string; limit: number; ids: string[] }[] | undefined;
+    let untracked = false;
+    let own: string | undefined;
     try {
       let answer: { value: unknown };
       if (extension.script) {
@@ -756,6 +796,8 @@ export class ExtensionCalls {
           { blockId: block.id, line: call.line, argument: call.handlerKey === PIPELINE ? null : call.argument, deadlineMs: extension.script.deadlineMs ?? this.deadline(extension, call.handlerKey) });
         reads = rendered.reads;
         queries = rendered.queries;
+        untracked = rendered.untracked === true;
+        own = rendered.own;
         answer = { value: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}) } };
       } else answer = await this.runtime.invokeLoaded(extension, "run",
         { handler: call.handlerKey, ...request, context }, this.deadline(extension, call.handlerKey),
@@ -769,7 +811,7 @@ export class ExtensionCalls {
         throw new Error(`${extension.name} returned something the service can't show: ${error instanceof ComponentError || error instanceof Error ? error.message : String(error)}`);
       }
       // A script's output is what its code read: the notes (and their revisions), the queries (and their rows), the code itself.
-      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp } : base.request;
+      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp, ...(own ? { own } : {}), ...(untracked ? { untracked: true } : {}) } : base.request;
       if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result });
       // A note it read changes the line's output: its change comes back here (`inputChanged`).
       for (const read of reads ?? []) this.watching(read.id, block.id);
@@ -945,6 +987,7 @@ export class ExtensionCalls {
       markdown: inertBlockdown(markdown),
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
+      ...(scriptReads(row.request) ? { reads: scriptReads(row.request) } : {}),
       ...(call.kind === "component" || result.view ? { component: { data: result.data ?? null, view: result.view } } : {}),
       ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),

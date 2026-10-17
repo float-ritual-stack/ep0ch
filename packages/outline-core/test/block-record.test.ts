@@ -28,7 +28,9 @@ describe("a block as a record", () => {
   test("properties as ordered lists, the header and body from the header line, one timestamp format", () => {
     const r = blockRecord(input);
     expect(r.properties).toEqual([{ key: "type", values: ["errand"] }, { key: "tag", values: ["seeds", "spring"] }]);
-    expect(r.fields).toEqual([
+    // Every occurrence, block scope too (the header's chips and hashtags), in order: what ::fields lists.
+    expect(r.fields.map(f => `${f.key}=${f.value}:${f.scope}`)).toEqual(["type=errand:block", "tag=seeds:block", "tag=spring:block", "who=Sam:inline", "when=Friday:line"]);
+    expect(r.fields.filter(f => f.scope !== "block")).toEqual([
       { key: "who", value: "Sam", scope: "inline", line: 1, column: 4, offset: 59 },
       { key: "when", value: "Friday", scope: "line", line: 2, column: 0, offset: 77 },
     ]);

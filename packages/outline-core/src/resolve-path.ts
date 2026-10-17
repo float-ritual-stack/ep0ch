@@ -193,7 +193,7 @@ const keysOf = (record: BlockRecord) => [...new Set([...record.properties.map(p 
  */
 export function noteValues(record: BlockRecord, key: string): string[] {
   const k = key.toLowerCase();
-  return [...valuesOf(record, k), ...record.fields.filter(f => f.key === k).flatMap(f => splitPropertyValue(f.value))];
+  return [...valuesOf(record, k), ...record.fields.filter(f => f.key === k && f.scope !== "block").flatMap(f => splitPropertyValue(f.value))];
 }
 
 const titleOf = (r: BlockRecord) => r.title || r.id;

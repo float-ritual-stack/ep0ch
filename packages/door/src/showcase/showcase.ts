@@ -558,7 +558,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "fields-if", need: "see every place a note wrote a key, and draw a paragraph only while the note matches a query", part: "::fields and ::if (PIE-533 S3): outline-core's siteBlockAt reads them, the service answers them through site.answer (produce fields / if: the note's own Site, watched), src/site-blocks.ts draws the answer; a row opens its line lit, found again by the text it was written as (LinkTarget at + atLabel, revealAt), and its ¶ gives the line an anchor on request (fields.anchor, fragments.ensure)", files: "outline-core/src/site-blocks.ts, outliner/src/site-producers.ts, src/site-blocks.ts, src/doc.ts, src/surface/note.ts (fields.anchor)",
-    aside: "the vent rail connections note lists its two connectTo lines with ::fields{key=connectTo}, one row each, and draws one of two ::if bodies: the one for status=active · save a third `[connectTo::…]` line and a row appears, change status to paused and the other body is drawn instead · ⏎ or a click on a row opens its line lit · ⏎ on a row's ¶ (fields.anchor, or act) anchors that line, the only thing the component writes",
+    aside: "one key, connectTo, written every way a note can: in the header, on two front-matter lines (one holding a list, a row per value), inline in a sentence and on a line of its own · ::fields{key=connectTo} lists each occurrence with the line it is on, and a second ::fields{key=tag} lists the #hashtags (a hashtag is the key tag) · save a third `[connectTo::…]` line and a row appears · the note also draws one of two ::if bodies: the one for status=active; change status to paused and the other is drawn · ⏎ or a click on a row opens its line lit · ⏎ on a row's ¶ (fields.anchor, or act) anchors that line, the only thing the component writes",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · fields and if", panes: [r] }, show, [[r, n.fieldsRail]]); },
   },
   {
@@ -1033,6 +1033,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane(), d2 = new ReaderPane();
       return deskOf({ title: "showcase · fantasia", panes: [a, b, c, d2], names: ["notes", "source", "extra", "more"], layout: ([w, x, y, z]) => pair("col", 0.5, row(0.5, w!, x!), row(0.5, y!, z!)) }, show, [[a, n.fantasia], [b, n.scripts], [c, n.shed], [d2, n.heap]]);
+    },
+  },
+  {
+    key: "script-examples", need: "learn the scripts surface from notes you can paste, and see each one run", part: "the scripts reference's worked examples (outliner docs/scripts.md) as notes: render scripts, an action script, a rule that stamps", files: "outliner/docs/scripts.md, outliner/src/script-examples.ts",
+    aside: "Game 1 draws a tic-tac-toe board from its [board::] property · ^K then ttt-play cell=5 plays a cell as X, then O, and the drawing follows; the note's property is the whole state, so ctrl+z takes a move back · Seed order draws a table of its children with a Cost column: edit a [qty::] (e, save) or add a child and it redraws · Bed 4, the stamping rule and the other scripts sit under Script examples · the page prints exactly these notes, and its test runs them",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · script examples", panes: [a, b], names: ["game", "table"], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.exampleGame], [b, n.exampleOrder]]);
     },
   },
   {

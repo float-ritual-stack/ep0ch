@@ -26,10 +26,11 @@ export interface BlockRecord {
   /** Block-scope properties (what queries and views match), each key once with its values in order, keys in order. */
   properties: { key: string; values: string[] }[];
   /**
-   * Properties of a line or a spot in it (`key:: value` lines, `[key::value]` mid-sentence), in order: `line` and
-   * `column` where the token starts, `offset` its offset in `text`.
+   * Every property occurrence in the text, in order, whatever its scope (front matter and header chips and #hashtags
+   * are `block`, `key:: value` lines `line`, `[key::value]` mid-sentence `inline`): `line` and `column` where the
+   * token starts, `offset` its offset in `text`. A hashtag is key `tag`.
    */
-  fields: { key: string; value: string; scope: "line" | "inline"; line: number; column: number; offset: number }[];
+  fields: { key: string; value: string; scope: "block" | "line" | "inline"; line: number; column: number; offset: number }[];
   /** The children's ids, in outline order. */
   children: string[];
   /** The checklist's items, in order. */
@@ -123,7 +124,7 @@ export function blockRecord(input: BlockRecordInput): BlockRecord {
     body: h.body,
     text: block.text,
     properties,
-    fields: input.properties.flatMap(p => (p.scope === "block" ? [] : [{ key: p.key, value: p.value, scope: p.scope, line: p.line, column: p.column, offset: p.start }])),
+    fields: input.properties.map(p => ({ key: p.key, value: p.value, scope: p.scope, line: p.line, column: p.column, offset: p.start })),
     children: [...input.children],
     tasks: input.tasks,
     links: input.links.map(l => ({

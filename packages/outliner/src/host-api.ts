@@ -14,6 +14,7 @@
 import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, toolArgsSpec, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
 import { findBlocks, runAgentOperation, resolveRef, type AgentActor, type AgentToolsClient, type FindInput } from "./agent-tools";
+import { readsOtherNotes } from "./block-query";
 import { applyWrite, type McpWriteTool } from "./mcp-write";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import type { AnnotationRecord, AnnotationThread } from "./types";
@@ -49,6 +50,8 @@ export interface HostApiOptions {
   place?(content: string, options: PlaceOptions): Promise<unknown>;
   /** Ids of the notes this run read (a read, a resolve, a query's rows): what a render-mode script's output depends on. */
   onRead?(ids: readonly string[]): void;
+  /** The run saw more than could be listed (`Reads.untracked`): what it drew depends on notes it can't name. */
+  onUntracked?(): void;
   /** A `q(query)` and the rows it found, so a render can be drawn again when the query's answer changes (a new match, not only an edit of a row). */
   onQuery?(query: { query: string; limit: number; ids: readonly string[] }): void;
   /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
@@ -76,14 +79,45 @@ export interface HostApi {
   resolve(path: string): Promise<unknown>;
 }
 
-/** The notes a read tool's answer came from: a note read, the rows a query found. */
-function readIds(tool: string, result: unknown, onRead: (ids: readonly string[]) => void): void {
-  const found = result as { id?: unknown; blocks?: { id?: unknown }[]; children?: unknown[] } | null;
-  if (!found || typeof found !== "object") return;
-  const ids: string[] = [];
-  if (tool === "outline_read" && typeof found.id === "string") ids.push(found.id);
-  if (tool === "outline_find" && Array.isArray(found.blocks)) for (const row of found.blocks) if (typeof row.id === "string") ids.push(row.id);
-  if (ids.length) onRead(ids);
+const NOTE_ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+/** Text longer than this is a note's words, not a reference to a note: its ids aren't scanned. */
+const MAX_REFERENCE = 200;
+const MAX_NOTE_IDS = 500;
+
+/** The notes a script's answers mention, and whether it saw more than could be listed (or counted notes it was not shown). */
+export interface Reads { ids: Set<string>; untracked: boolean }
+
+/**
+ * Every note a tool's answer mentions: its rows, children, links, backlinks, ancestors and breadcrumbs, each an id (or
+ * `((id))` or a URI holding one) somewhere in the answer. A render script's output depends on all of them, and a reader who
+ * may not see one must not be shown the output. An answer too large to list is `untracked`.
+ */
+export function noteIds(result: unknown, out: Reads = { ids: new Set(), untracked: false }, depth = 0): Reads {
+  if (depth > 64 || out.ids.size >= MAX_NOTE_IDS) { out.untracked = true; return out; }
+  if (typeof result === "string") { if (result.length <= MAX_REFERENCE) for (const found of result.matchAll(NOTE_ID)) out.ids.add(found[0].toLowerCase()); }
+  else if (Array.isArray(result)) for (const item of result) noteIds(item, out, depth + 1);
+  else if (result && typeof result === "object") {
+    for (const [key, value] of Object.entries(result)) {
+      // A bare parent id names a place, not a note's words; a breadcrumb or ancestor list (with titles) is read.
+      if ((key === "parent" || key === "parentId") && typeof value === "string") continue;
+      noteIds(value, out, depth + 1);
+    }
+  }
+  return out;
+}
+
+/** A find that says more notes matched than it listed (a total, an incomplete answer): its count tells of notes it did not list. */
+const countsUnlisted = (result: unknown): boolean => {
+  const found = result as { blocks?: unknown[]; complete?: boolean; total?: number } | null;
+  return !!found && Array.isArray(found.blocks) && (found.complete === false || (typeof found.total === "number" && found.total > found.blocks.length));
+};
+
+/** The rows of a question about other notes read those notes' words: their neighbours, as one more read. */
+async function neighbourReads(client: AgentToolsClient, query: string, result: unknown): Promise<Reads> {
+  const rows = (result as { blocks?: { id?: unknown }[] } | null)?.blocks;
+  if (!Array.isArray(rows) || !rows.length || !readsOtherNotes(query)) return { ids: new Set(), untracked: false };
+  const ids = rows.flatMap(row => typeof row.id === "string" ? [row.id] : []);
+  return ids.length ? noteIds((await client.request<{ records: object[] }>({ action: "blocks.records", ids: ids.slice(0, 200) })).records) : { ids: new Set(), untracked: false };
 }
 
 /** One tool as a function: its arguments checked as every surface checks them, then its agent operation. */
@@ -122,7 +156,16 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
         result = await findBlocks(client, { ...command.input, this: options.thisId } as FindInput);
       } else result = await runAgentOperation(client, command.operation, command.input, actor);
       said("done", { result });
-      if (options.onRead) readIds(definition.name, result, options.onRead);
+      if (options.onRead) {
+        const reads = noteIds(result);
+        if (definition.name === "outline_find") {
+          const near = await neighbourReads(client, String(checked.args.query ?? ""), result);
+          for (const id of near.ids) reads.ids.add(id);
+          if (near.untracked || countsUnlisted(result)) reads.untracked = true;
+        }
+        if (reads.ids.size) options.onRead([...reads.ids]);
+        if (reads.untracked) options.onUntracked?.();
+      }
       return result;
     } catch (e) {
       said("refused", { error: e instanceof Error ? e.message : String(e) });
@@ -169,7 +212,9 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     // outline_read's answer is the record's properties and fields already; the rest of the record (header, tasks, links…) joins it.
     if (typeof read?.id !== "string") return read;
     const { records } = await client.request<{ records: object[] }>({ action: "blocks.records", ids: [read.id] });
-    return { ...(records[0] ?? {}), ...read };
+    const whole = { ...(records[0] ?? {}), ...read };
+    if (options.onRead) { const reads = noteIds(whole); options.onRead([...reads.ids]); if (reads.untracked) options.onUntracked?.(); }
+    return whole;
   };
   const resolve = (path: string) => options.resolve
     ? options.resolve(path)

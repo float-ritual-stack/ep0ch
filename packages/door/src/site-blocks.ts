@@ -54,7 +54,11 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
     const control = tag ? tag(anchor, "¶") : "¶";
     return fg(C.white) + "∙ " + RESET + text + fg(C.dark) + ` · line ${row.line + 1} ` + RESET + control;
   });
-  if (!body.length) body.push(fg(C.dark) + `no ${spec.key} written in ${spec.of ? "that note" : "this note"}'s lines yet` + RESET);
+  if (!body.length) {
+    body.push(fg(C.dark) + `no ${spec.key} written in ${spec.of ? "that note" : "this note"}'s lines yet` + RESET);
+    // A #hashtag is the property `tag` (outline-core's property grammar), so the plural a person types finds none.
+    if (/^(tags|hashtags?)$/i.test(spec.key)) body.push(fg(C.dark) + "a #hashtag is the key tag: try ::fields{key=tag}" + RESET);
+  }
   return frame(title, body, W, `live · ${a.rows.length} occurrence${a.rows.length === 1 ? "" : "s"}`);
 }
 

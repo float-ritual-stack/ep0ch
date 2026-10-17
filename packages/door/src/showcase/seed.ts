@@ -28,6 +28,7 @@ import { CALLOUTS, CALLOUT_TYPE, artifactsText, galleryCards, galleryText, heroT
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, SPACING_LAB } from "./seed/looks";
+import { scriptExamples } from "@ep0ch/outliner/script-examples";
 import { VENT_PERSON, VENT_PROJECT, VENT_RECIPE, ventRailText } from "./seed/values";
 import { DAILY_NOTES, DAILY_TEMPLATE, MEETING_ACTIONS, MEETING_PAGES, MEETING_TEMPLATE } from "./seed/templates";
 
@@ -197,6 +198,18 @@ if (request.input.request === "describe the beds") {
     "Press the button: a script floats the tiles, dances them a few beats with motion=fantasia and settles them back into the layout. Your press invites it, so it may move the tile you are in too; an agent's run (act ext.<id>.run) leaves that one where it is. Nothing you type is touched. esc stops it between beats and the layout is put back; ctrl+z (layout.undo) takes the whole run back in one step.",
     '::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia}',
   ].join("\n"));
+  // The worked examples of the scripts reference (PIE-982), pasted as notes. Read from the page at seed time on purpose: the page is the one source of the example text, and its test runs these same notes, so a copy in the seed could only drift from both.
+  notes.scriptExamples = await make(notes.root.id, `${SEED.scriptExamples}\nThe worked examples of the scripts reference (packages/outliner/docs/scripts.md), pasted as notes beneath this one. ${SEED.exampleOrder} draws a table of its children with a computed column; ${SEED.exampleGame} is tic-tac-toe, played with ttt-play cell=5 from the power bar; Bed 4 reads its properties into a sentence; a rule stamps a checklist under every #shipit note.`);
+  const pasted = new Map<string, Msg>();
+  for (const example of scriptExamples()) {
+    for (const note of example.notes) {
+      pasted.set(note.label, await make(note.parent ? pasted.get(note.parent)!.id : notes.scriptExamples.id, note.text));
+      // A rule or a script is read once the service has loaded it; the note it acts on comes after.
+      if (/\[(?:script|rule-name)::/.test(note.text.split("\n")[0]!)) await Bun.sleep(150);
+    }
+  }
+  notes.exampleOrder = pasted.get("ex2-order")!;
+  notes.exampleGame = pasted.get("ex3-game")!;
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [
     SEED.richEdit, "", "Edit the cells here. Ctrl+O switches the same draft to raw source and back.", "",
@@ -533,6 +546,14 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
     level = (await Promise.all(level.map(m => board.children(m.id)))).flat();
     const hit = level.find(k => titleOf(k) === SEED.threadHere);
     if (hit) notes.threadHere = (await board.get(hit.id)) ?? hit;
+  }
+  // The script examples' two notes the section opens on sit beneath the examples' note.
+  if (notes.scriptExamples) {
+    const under = await board.children(notes.scriptExamples.id);
+    for (const name of ["exampleOrder", "exampleGame"] as const) {
+      const hit = under.find(k => titleOf(k) === SEED[name]);
+      if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
+    }
   }
   // The fixture of "Notes that read themselves" (PIE-533) sits under its project, so its `parent` has a project to read.
   if (notes.ventProject) {

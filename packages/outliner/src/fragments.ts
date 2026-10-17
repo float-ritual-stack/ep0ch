@@ -2,6 +2,7 @@ import { standaloneListItemText, markdownSourceTokens, type MarkdownListItem, ty
 
 import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch } from "@ep0ch/outline-core/link-syntax";
 import { outputHeader } from "@ep0ch/outline-core/output-region";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { FragmentKind } from "@ep0ch/outline-core/protocol";
@@ -446,6 +447,10 @@ export function ensureFragmentAnchor(
     throw new Error(`Fragment target is not a heading, paragraph or list item that can take an anchor: line ${lineIndex + 1}`);
   }
   if (existing) return { text, fragmentId: existing[1]!, created: false };
+  // A front-matter property line (`- re:: why`): an anchor written after its value would become part of the value.
+  if (lineIndex > 0 && parsePropertyRecords(text).some(p => p.line === lineIndex && p.scope === "block" && p.syntax !== "hashtag")) {
+    throw new Error(`line ${lineIndex + 1} is a front-matter property, where an anchor would become part of its value: link the note, or anchor a line of the body`);
+  }
 
   const usedIds = new Set(fragmentAnchors(text).map((anchor) => anchor.id));
   const fragmentId = uniqueFragmentId(heading ? fragmentSlug(heading[2]!) : passageSlug(passage!.label), usedIds);

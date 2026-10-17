@@ -1,15 +1,24 @@
 // The notes that read themselves (PIE-533 S3): one page that lists where it wrote a key and draws a body only while it
 // matches, and two project pages carrying the same figure, each listing its own tickets. Made up for the showcase.
 
-/** A key written on several lines, a `::fields` that lists them, and two `::if` bodies, one that holds and one that doesn't. */
+/**
+ * One key (`connectTo`) written in every form a note has (a header chip, two front-matter lines, one holding a list, an
+ * inline chip, a line of its own), a `::fields` listing each occurrence with its line, a second `::fields` on the
+ * hashtags (key `tag`), and two `::if` bodies, one that holds and one that doesn't.
+ */
 export const VENT_RAIL = [
-  "Vent rail connections [status::active] [owner::sam]",
+  "Where a key is written [status::active] [owner::sam] [connectTo::in the header] #greenhouse",
+  "- connectTo:: in the front matter",
+  "- connectTo:: ['a list', 'is a row each']",
   "",
-  "Notes on the vent rail for the greenhouse.",
-  "- first pass [connectTo::demonstrating by doing]",
-  "- second pass [connectTo::shacks not cathedrals]",
+  "The header chip and the two front-matter lines are in the property panel (i); the rows below list them too. In the body it is written [connectTo::inline in a sentence] and again on a line of its own, with a #spring tag:",
+  "connectTo:: a line of its own",
   "",
-  "::fields{key=connectTo title=\"Said so far\"}",
+  "::fields{key=connectTo title=\"Every connectTo in this note\"}",
+  "",
+  "A hashtag is the key tag:",
+  "",
+  "::fields{key=tag title=\"Hashtags (key tag)\"}",
   "",
   "::if{where=\"status=active\"}",
   "The rail is live: this paragraph is drawn only while the note is active.",
