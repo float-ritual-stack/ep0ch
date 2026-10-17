@@ -275,6 +275,18 @@ stays in it. `tag=` still matches the tags on that line. The reader's scroll no 
 whose tag row stands above a drawn line. Run `ep0ch install --apply` (the protocol is bumped and properties are
 re-read).
 
+### Yolo reaches the service: agents act as you in the outline too (PIE-973)
+
+Yolo used to lift only the door's guards, so the service still refused an agent where it would let you: an agent
+couldn't apply or dismiss another agent's proposal, an outline at `propose` or `read` still held its writes, and the
+guard on dropped `^anchors` and `[page::]` still stopped its edit. Now `agents.yolo` also tells the outline's
+service, and while it's on every agent passes as you would: the MCP access level reads `full`, a proposal of anyone's
+can be applied or dismissed, an `@name` line that waits for a person's `r` is released by an agent's `r`, and the
+dropped-structure guard lets the edit through. The service holds yolo for the door that set it: close, restart or lose
+the door and it's off. A second door on the outline shows the red **YOLO** too, and `ep0ch where` and
+`ep0ch mcp access` say it. Still true in yolo: every write is attributed to the agent, revisions are checked and undo
+works. ADR 0005 says why this is the person's choice and not an outline setting. Protocol bump.
+
 ### Yolo: hand the door to your agents
 
 `agents.yolo` in the power bar (ctrl+k) hands the door to your agents until you take it back. In yolo no guard of

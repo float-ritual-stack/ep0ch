@@ -1970,6 +1970,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "mcp.access.status" }
   /** The `@name` requests an agent or an extension wrote that wait for a person's `r`, with why (PIE-888). Reads only. */
   | { id: string; action: "agents.held" }
+  /** Yolo (PIE-973): the person's door (`clientId`, a connected client) turns the agent gate off for the outline (`on: true`), or any door takes it back (`on: false`). An agent's mutation is refused. */
+  | { id: string; action: "agents.yolo"; clientId: string; on: boolean; mutation?: MutationProvenance }
   | { id: string; action: "mcp.access.configure"; level: McpAccessLevel }
   | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions & WatchFields)
   /** Capability `views.planWrite`: what a move of `blockId` into each view, or a new block with `text`, must change. Reads only. */
@@ -2781,6 +2783,8 @@ export type OutlinerEventDomain =
   | "shares"
   /** The extension registry changed (`extensions.changed`): read `extensions.list` again. */
   | "extensions"
+  /** `agents.yolo`: yolo went on or off for the outline (`yolo`), sent to every client (PIE-973). */
+  | "agents"
   /** `queries.changed`: watched answers that changed, sent only to the connection that watches them (ADR 0004). */
   | "queries";
 
@@ -2797,6 +2801,8 @@ export interface OutlinerEvent {
   contextId?: string;
   command?: OutlinerUiCommand;
   attention?: AttentionClientState;
+  /** On an `agents` event: whether yolo is on now. */
+  yolo?: boolean;
   attentionInstruction?: AttentionInstruction;
   /** On a `draft` event: what the service asks the door holding the draft (PIE-501). */
   draft?: DraftHolderRequest;

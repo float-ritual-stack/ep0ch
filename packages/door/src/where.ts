@@ -48,6 +48,11 @@ export interface Where {
     tile: { id: string | null; name: string | null; found: boolean; shown: boolean | null; focused: boolean | null; descends: boolean | null; drawer?: boolean; agents?: AgentLimit } | null;
     /** What the screen lets an agent do (PIE-639): its default and each tile it limits, so an agent reads its limits before acting. Absent: nothing is limited. */
     agents?: { default: AgentLevel | null; tiles: (AgentLimit & { tile: string; id: string | null })[] };
+    /**
+     * Agents are in yolo (PIE-973): this door's person, or another door's on the same outline (the service's), handed
+     * them the person's permissions, the service's rules included. Absent: they are under the guards.
+     */
+    yolo?: true;
     /** The door that answers isn't the one in the nest: the Herdr agent's pane, now shown by another door. */
     moved: boolean;
     /**
@@ -221,6 +226,7 @@ export async function where(d: WhereDeps): Promise<Where> {
       ...(tile?.drawer ? { drawer: true } : {}),
       ...(tile?.agents && tile.agents !== "free" ? { agents: { level: tile.agents as AgentLevel, by: String(tile.agentsBy ?? "tile") } } : {}),
     } : null,
+    ...(peek?.screen?.person?.yolo === true ? { yolo: true as const } : {}),
     ...(desk && (Array.isArray(desk.agentLimits) || desk.agentsDefault) ? { agents: { default: desk.agentsDefault ?? null, tiles: (desk.agentLimits ?? []).map((l: any) => ({ tile: String(l.tile), id: l.id ?? null, level: l.level, by: String(l.by) })) } } : {}),
   } : null;
 
@@ -339,6 +345,7 @@ export function formatWhere(w: Where): string {
   for (const l of w.layers) out.push(`  ${MARK(l.live)} ${l.kind.padEnd(5)} ${l.label.padEnd(width)}  ${l.why}`);
   if (w.door?.stale) out.push(w.door.stale);
   out.push(`keys: ${w.keys.text}`);
+  if (w.door?.yolo) out.push("YOLO is on: agents act with the person's permissions, in the door and in the service (MCP access acts as full) · agents.yolo on=false takes it back (the person's command)");
   const ag = w.door?.agents;
   if (ag && (ag.default || ag.tiles.length)) {
     const words = { free: "free", edit: "edit only", off: "hands off" } as const;

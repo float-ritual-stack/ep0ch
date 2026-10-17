@@ -30,6 +30,15 @@ land in pie unless pie let every MCP agent write directly. The gateway's netmail
 | **reader** | nobody writes; a reader only sees | what the outline publishes | `[publish::…]`, share links, sign-in |
 
 - **The MCP access level is about agents and nothing else.** EchoNet never reads it, and a share link never reads it.
+- **Yolo is the person lifting that gate, for as long as their door says so** (PIE-973). While a door of the person's
+  has `agents.yolo` on, the service answers an agent as it would the person: the access level reads `full`, any
+  proposal can be applied or dismissed, the guard on dropped structure lets an edit through. It is the agent's gate
+  only: a reader's page writes still read the owner's setting (`configured`), and a node's mail never reads yolo
+  either. It lives in the service's memory, held by the connection that set it, so a door that ends or restarts takes it
+  with it. Only a person's door turns it on (an agent's request is refused); any door can turn it off. What it never
+  lifts is how a change is *recorded*: the write is still `author: agent` with its actor id, revisions still check,
+  undo still works. Yolo is the person's choice, made in a door they are sitting at; it is not a knob an outline
+  keeps.
 - **A node never writes another outline's blocks.** It hands over a packet (copies for the subscriptions that name it,
   netmail, seen-by marks) and picks up its own. The receiving outline's tosser imports the packet, writing as itself,
   and only where its own subscription notes ask. An item no subscription asks for is logged and dropped. That is

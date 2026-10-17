@@ -452,6 +452,25 @@ test("taking an answered line out and putting it back (undo) doesn't ask again (
   expect(store.agentRequests(note.id).map((row) => row.status)).toEqual(["replied"]);
 });
 
+test("yolo: an agent's r releases a line an agent wrote, as a person's r would (PIE-973)", async () => {
+  const { client, create, agentOf, counted } = await setup();
+  const calls = await counted("count");
+  await create("One wake [invoke-from::agents] [invoke-to::count] [cap::1/day]");
+  const spent = await create("Spent\n@count allowance", "agent");
+  await agentOf(spent.id, p => p.agent?.status === "replied");
+  const theirs = await create("Shared\n@count from an agent", "agent");
+  await agentOf(theirs.id, (p) => p.agent?.status === "waiting");
+  const byAgent = { author: "agent" as const, actorId: "loki" };
+  await expect(client.request({ action: "resources.projection.refresh", blockId: theirs.id, line: 1, mutation: byAgent })).rejects.toThrow("it waits for a person's r");
+  const connected = Promise.withResolvers<void>();
+  const watcher = client.watch({ client: { clientId: "door-yolo", role: "observer", contextId: "door-yolo" }, onConnect: connected.resolve, onEvent: () => {} });
+  cleanups.push(() => watcher.stop());
+  await connected.promise;
+  await client.request({ action: "agents.yolo", clientId: "door-yolo", on: true });
+  await client.request({ action: "resources.projection.refresh", blockId: theirs.id, line: 1, mutation: byAgent });
+  expect(calls()).toEqual(["run allowance", "run from an agent"]);
+});
+
 test("r says who asked, an agent's r doesn't release a line an agent wrote, and r on the note asks what isn't answered (C6, E5)", async () => {
   const { store, client, create, agentOf, counted } = await setup();
   const calls = await counted("count");

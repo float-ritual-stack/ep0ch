@@ -336,6 +336,12 @@ export interface McpAccessStatus {
    * host whose owner never set a level; `level` otherwise, and always for another machine's extension (unset: `none`).
    */
   granted?: McpAccessLevel;
+  /**
+   * Yolo is on (PIE-973): the person's door lifted the agent gate, so `level` is `full` and `canRead` true whatever the
+   * owner set. `configured` is that setting. Absent otherwise.
+   */
+  yolo?: true;
+  configured?: McpAccessLevel;
 }
 
 /**

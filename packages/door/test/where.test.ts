@@ -200,6 +200,18 @@ describe("ep0ch where", () => {
     expect(formatWhere(free)).not.toContain("agents may");
   });
 
+  test("yolo (PIE-973): the door says agents act with the person's permissions, the service's rules included", async () => {
+    const env = { EP0CH_NEST: "ssh:pts/5 › door:1388380/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE: "claude", EP0CH_TILE_ID: "t1" };
+    const on = deskPeek({ pid: 1388380, focus: "claude", tiles: [{ id: "t1", name: "claude" }] });
+    on.screen.person = { ...on.screen.person, yolo: true };
+    const w = await where(deps(env, { alive: [1388380], ttys: ["pts/5"], ancestors: [1388380], peek: on }));
+    expect(w.door?.yolo).toBe(true);
+    expect(formatWhere(w)).toContain("YOLO is on: agents act with the person's permissions");
+    const off = await where(deps(env, { alive: [1388380], ttys: ["pts/5"], ancestors: [1388380], peek: deskPeek({ pid: 1388380, focus: "claude", tiles: [{ id: "t1", name: "claude" }] }) }));
+    expect(off.door?.yolo).toBeUndefined();
+    expect(formatWhere(off)).not.toContain("YOLO");
+  });
+
   test("the person is elsewhere: on another tile, focused but not typing, or on another screen", async () => {
     const env = { EP0CH_NEST: "door:10/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock" };
     const tiles = [{ id: "t1", name: "claude" }, { id: "t2", name: "middle" }];

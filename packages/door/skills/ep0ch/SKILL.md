@@ -171,6 +171,10 @@ yourself (path 1): `/exit`, then `claude --continue`.
   says `agents may: …`, `peek` has `agentLimits` and each limited tile's `agents`. A refusal names the policy and the
   person's command (`tile.agent policy=free tile=<tile>`); it is theirs to change: you can only tighten a tile, never
   loosen one. An `open` that names no tile skips limited tiles. Their own keys are never limited.
+- Yolo is the person's hand-over (`agents.yolo`; `ep0ch where` says `YOLO is on`): the door's guards lift, and so do
+  the service's: the outline's MCP access reads `full`, you may apply or dismiss any proposal, your `r` releases a line
+  waiting for a person, and an edit that drops a linked `^anchor` goes through. You're still attributed, revision
+  checks and undo hold, and you can't turn it on (you may turn it off). It ends when their door does.
 - Your `select.copy` (and `copy`, `draft.copy`) returns the text to you and never touches the person's
   clipboard. Their mouse selection is copied when they let go (copy on select; `EP0CH_COPY_ON_SELECT=0`
   turns it off), and their `y` or cmd+c copies too.

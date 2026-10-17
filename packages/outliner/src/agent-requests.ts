@@ -110,6 +110,8 @@ export interface AgentRequestDeps {
   /** How long a person's request line must stay unchanged before it runs (default 1.5 s). */
   readonly quietMs?: number;
   readonly now?: () => number;
+  /** Yolo is on (PIE-973): an agent's `r` is the person's, so it asks the lines that wait for a person too. */
+  yolo?(): boolean;
 }
 
 interface RespondValue {
@@ -575,13 +577,13 @@ export class AgentRequests {
   /**
    * `r`: on a request line (`line`), ask its agent again now; on the note, ask every request in it not answered
    * yet (not asked, waiting, failed). `actor` is who pressed it, recorded as who asked. A line an agent or an
-   * import wrote waits for a person: an agent's `r` on it is refused. Returns whether a request was asked.
+   * import wrote waits for a person: an agent's `r` on it is refused (unless yolo is on). Returns whether a request was asked.
    */
   async refresh(blockId: string, line: number | undefined, actor?: MutationProvenance): Promise<boolean> {
     const block = this.store.get(blockId);
     if (!block) return false;
     const rows = new Map(this.store.agentRequests(blockId).map((row) => [row.requestKey, row]));
-    const byAgent = actor?.author === "agent";
+    const byAgent = actor?.author === "agent" && this.deps.yolo?.() !== true;
     const held = (candidate: RequestLine) => {
       const row = rows.get(candidate.requestKey);
       return row?.status === "waiting" && row.requestedBy !== "user";

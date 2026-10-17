@@ -501,6 +501,27 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(restore.text).toContain("needs full access");
   });
 
+  test("yolo (PIE-973): a propose-level outline takes an agent's patch applied while a door says so, and proposes again once it is off", async () => {
+    const uri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.frogs! });
+    const door = new SocketBoard(here.sock, 30_000, "pond-notes");
+    boards.push(door);
+    door.subscribe(() => {});
+    const patchTo = async (replacement: string) => {
+      const now = await textOf(here, "pond-notes", HERE, ids.frogs!);
+      return tool("outline_patch", { uri, revision: now.revision, patches: [{ observed: now.text.includes("Nine") ? "Nine" : "Twelve", replacement }] });
+    };
+    expect((await tool("outline_patch", { uri, revision: (await textOf(here, "pond-notes", HERE, ids.frogs!)).revision, patches: [{ observed: "Twelve", replacement: "Nine" }] })).json.outcome).toBe("proposed");
+    await door.setAgentsYolo(true);
+    try {
+      expect((await patchTo("Nine")).json).toMatchObject({ outcome: "applied" });
+      expect((await textOf(here, "pond-notes", HERE, ids.frogs!)).text).toContain("Nine at dusk");
+      // Still the agent's, as before: the edit is attributed to the remote client.
+      expect((await editsBy(here, "pond-notes", ids.frogs!)).length).toBeGreaterThan(0);
+    } finally { await door.setAgentsYolo(false); }
+    expect((await patchTo("Ten")).json.outcome).toBe("proposed");
+    await boardOn(here, "pond-notes", HERE).request("update", { blockId: ids.frogs!, text: "Frog count [page::Frog Count]\nTwelve at dusk by the reeds.", expectedRevision: (await textOf(here, "pond-notes", HERE, ids.frogs!)).revision, mutation: { author: "user" } });
+  });
+
   test("propose: a patch and a property are proposals; a new block is a comment on its parent; read takes no writes", async () => {
     const uri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.frogs! });
     const before = await textOf(here, "pond-notes", HERE, ids.frogs!);

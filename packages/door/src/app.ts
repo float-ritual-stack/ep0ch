@@ -405,8 +405,35 @@ export class App implements Ctx {
   reconnects = 0;
   /** Whether "what changed" (the +N count, newscan) includes what tools wrote for their own bookkeeping: `changes.machinery`. */
   machineryChanges = false;
-  /** Agents are in yolo (`agents.yolo`): the person handed them the door. Off by default; a restarted door starts off. */
-  agentsYolo = false;
+  /** This door's person turned yolo on (`agents.yolo`): the door's guards lift, and the service is told (PIE-973). Off when the door starts. */
+  private yoloHere = false;
+  /** The service says yolo is on for the outline: this door's, or another door's (`agents` events, `mcp.access.status`). */
+  private yoloService = false;
+  /**
+   * Agents are in yolo: the person handed them the door, and (PIE-973) the service's own rules too, as long as a door
+   * of theirs says so. On when this door turned it on or the service says another did; setting it tells the service,
+   * which drops it when this door's connection does.
+   */
+  get agentsYolo(): boolean { return this.yoloHere || this.yoloService; }
+  set agentsYolo(on: boolean) {
+    this.yoloHere = on;
+    if (!on) this.yoloService = false;
+    void this.tellYolo(on);
+  }
+  async syncYolo(): Promise<void> {
+    if (this.yoloHere) { await this.tellYolo(true); return; }
+    this.yoloService = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
+    this.redraw();
+  }
+  private async tellYolo(on: boolean): Promise<void> {
+    try {
+      this.yoloService = await this.board.setAgentsYolo(on);
+    } catch (e) {
+      // The service didn't take it (an old one, or it's away): the person is told, and this door's yolo is off.
+      if (on) { this.yoloHere = false; this.flash(`YOLO is off: the outline service didn't take it (${e instanceof Error ? e.message : String(e)})`, 8000); }
+    }
+    this.redraw();
+  }
   /** Where the status bar's YOLO sits, for a click (agents.yolo on=false). */
   private yoloAt: { from: number; to: number; row: number } | null = null;
   /** Where the status bar's `+N machine` sits, for a click. */
@@ -827,6 +854,10 @@ export class App implements Ctx {
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
+    // Yolo went on or off in the service (PIE-973): this door's chip and the guards it lifts follow.
+    if (e.domain === "agents") { this.yoloService = (e as { yolo?: boolean }).yolo === true; this.redraw(); return; }
+    // A reconnected service forgot a yolo this door handed over: say it again (a restarted service starts with it off).
+    if (e.action === "reconnected" || e.action === "reset") void this.syncYolo();
     // A Resource registered or refreshed (PIE-445): only readers showing a projection of it redraw, and
     // those read it again. It isn't an outline change, so nothing else is asked again. An extension's line that
     // ran (`extensions.output`) or an agent that answered (`extensions.agent`) names its note.
