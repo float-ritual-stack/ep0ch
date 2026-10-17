@@ -2327,11 +2327,11 @@ export class Publisher {
       const shown = new Map<number, string>();
       // A script's output is what its code read (the output's `reads`): it says nothing when any of those notes isn't shown
       // here, as a `{{ }}` value that read one says nothing (publish-values.ts).
-      const readIds = [...new Set(projections.flatMap((projection) => (hasResult(projection) ? projection.output?.reads ?? [] : [])))];
+      const readIds = [...new Set(projections.flatMap((projection) => (hasResult(projection) ? projection.output?.reads?.ids ?? [] : [])))];
       const open = readIds.length ? await host.shown(readIds) : new Set<string>();
       for (const projection of projections) {
         const line = projection.anchor.line, output = hasResult(projection) ? projection.output : undefined;
-        if (output?.reads?.some((id) => !open.has(id))) { shown.set(line, "*hidden here*"); continue; }
+        if (output?.reads?.untracked || output?.reads?.ids.some((id) => !open.has(id))) { shown.set(line, placeholder("hidden here")); continue; }
         const body = projection.kind === "component" ? html.find((result) => result.line === line)?.rendered.body : undefined;
         if (body !== undefined && components.length < MAX_PUBLISHED_COMPONENTS) {
           // Its pictures as the page's own images (PIE-827): served from here when the file may leave the machine.

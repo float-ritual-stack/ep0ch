@@ -988,6 +988,11 @@ export type ValueBinder = (path: string) => string[];
 /** No clause matches: an `or` of nothing. */
 const NO_MATCH: QueryExpression = { kind: "or", operands: [] };
 
+/** Whether a query (its text) has a clause about other notes (`child:`, `links:`, `under:`…); one that can't be read says no. */
+export function readsOtherNotes(query: string): boolean {
+  try { return queryReach(parseSearchExpression(query).where).open; } catch { return false; }
+}
+
 /**
  * What a query expression asks about: the property keys it names, whether any clause is about other notes (`links:`,
  * `under:`, `child:`…), which makes its answer depend on notes the subject doesn't name, and whether one reads the

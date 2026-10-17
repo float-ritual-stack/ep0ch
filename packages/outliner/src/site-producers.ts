@@ -12,13 +12,13 @@ import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/out
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { parseSearchExpression, queryReach, type ValueBinder } from "./block-query";
+import { readsOtherNotes, type ValueBinder } from "./block-query";
 
 type Props = Record<string, any>;
 
 /** What the producers need of the store, beyond the Site read's. */
 export interface ProducerStore {
-  get(id: string): { id: string; revision: number; text: string } | null;
+  get(id: string): { id: string; revision: number; text: string; parentId: string | null } | null;
   children(parentId: string | null): { id: string }[];
   queryBlocks(input: BlockSearchQuery, binder?: ValueBinder): VisibleBlockCollection & { groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string };
   readSavedView(viewId: string, options: Record<string, never>, format: "tree"): SavedViewReadResult<TreeIndexBlock>;
@@ -26,37 +26,67 @@ export interface ProducerStore {
 }
 
 /** The Site's reads a producer makes: a path's answer, and a query operand's binder. */
-export interface SiteTools {
-  read(path: string): SiteValue;
-  binder: ValueBinder;
-  /** Which of `ids` a question can't be answered for, for a reader who may not see every note (`unknowable`). */
-  shield?(ids: readonly string[], expression: string | undefined): Set<string>;
-}
+export interface SiteTools { read(path: string): SiteValue; binder: ValueBinder }
 
-/** The most notes whose children are checked for one question; past it the question says nothing. */
-const MAX_SHIELDED = 500;
+/** The most notes whose neighbours are checked for one question; a note past it counts as unknowable. */
+export const MAX_CHECKED = 500;
 
 /**
- * Which of `ids` have a child the reader may not see, when the question reads children's words (`child:status=approved`):
- * whether such a note matches would tell what that child holds. Every child consulted joins the answer's `deps` (a page
- * asks whether it shows each, then asks again naming the ones it doesn't). Only for a reader who may not see every note
- * (the request carried `hidden`); more notes than are checked count as unknowable.
+ * Which of `ids` a question about other notes (`child:status=approved`, `links:`, `under:`…) can't be answered for by a
+ * reader who may not see every note: whether such a note matches would tell what a neighbour (a child, an ancestor, a
+ * link either way) holds. Every neighbour consulted joins the answer's `deps` (a page asks whether it shows each, then
+ * asks again naming the ones it doesn't). Only for a limited reader (the request carried `hidden`); a note past
+ * `MAX_CHECKED` counts as unknowable.
  */
 export function unknowable(store: ProducerStore, world: Bound["world"], ids: readonly string[], expression: string | undefined): Set<string> {
   const out = new Set<string>();
-  if (!world.cut || !expression) return out;
-  let reach: ReturnType<typeof queryReach>;
-  try { reach = queryReach(parseSearchExpression(expression).where); } catch { return out; }
-  if (!reach.children) return out;
+  if (!world.cut || !expression || !readsOtherNotes(expression)) return out;
   ids.forEach((id, i) => {
-    if (i >= MAX_SHIELDED) { out.add(id); return; }
-    for (const child of store.children(id)) {
-      world.deps.add(child.id);
-      if (world.hidden.has(child.id)) out.add(id);
+    if (i >= MAX_CHECKED) { out.add(id); return; }
+    for (const near of neighbours(store, id)) {
+      world.deps.add(near);
+      if (world.hidden.has(near)) out.add(id);
     }
   });
   if (out.size) world.hiddenHits += 1;
   return out;
+}
+
+/** The notes a relation clause can consult about `id`: its children, its ancestors, the notes linking to it and the ones it links to. */
+function neighbours(store: ProducerStore, id: string): string[] {
+  const out = new Set<string>(store.children(id).map(child => child.id));
+  const seen = new Set<string>([id]);
+  for (let at = store.get(id)?.parentId; at && !seen.has(at); at = store.get(at)?.parentId) { out.add(at); seen.add(at); }
+  const linked = store.queryBlocks({ where: "links:this OR linkedfrom:this", this: id, limit: 1000, machinery: "show" } as BlockSearchQuery);
+  for (const block of linked.blocks) out.add(block.id);
+  return [...out];
+}
+
+/**
+ * The store a producer asks, cut for a limited reader: a query's or a view's rows, and the notes a subset holds for, leave
+ * out any note `unknowable` says the question can't be answered for. Every producer asks this store, so none can forget.
+ */
+function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
+  return {
+    get: id => store.get(id),
+    children: id => store.children(id),
+    queryBlocks: (input, binder) => {
+      const found = store.queryBlocks(input, binder);
+      const gone = unknowable(store, world, found.blocks.map(block => block.id), input.where);
+      return gone.size ? { ...found, blocks: found.blocks.filter(block => !gone.has(block.id)) } : found;
+    },
+    readSavedView: (viewId, options, format) => {
+      const read = store.readSavedView(viewId, options, format);
+      if (read.status !== "ready") return read;
+      const gone = unknowable(store, world, read.blocks.map(block => block.id), parsePropertyRecords(store.get(viewId)?.text ?? "").find(r => r.key === "query")?.value);
+      return gone.size ? { ...read, blocks: read.blocks.filter(block => !gone.has(block.id)) } : read;
+    },
+    matchQuery: (expression, ids, narrow, binder) => {
+      const matched = store.matchQuery(expression, ids, narrow, binder);
+      const gone = unknowable(store, world, Array.isArray(ids) ? ids as string[] : [], typeof expression === "string" ? expression : undefined);
+      return gone.size ? { blockIds: matched.blockIds.filter(id => !gone.has(id)) } : matched;
+    },
+  };
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -73,10 +103,8 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
     try { read = store.readSavedView(question.viewId, {}, "tree"); } catch (error) { return { blocks: [], truncated: false, error: message(error) }; }
     if (read.status !== "ready") return { blocks: [], truncated: false, error: `view ${read.status}: ${read.errors.join("; ")}` };
     const hidden = read.machineryHidden;
-    const viewQuery = parsePropertyRecords(store.get(question.viewId)?.text ?? "").find(r => r.key === "query")?.value;
-    const gone = tools.shield?.(read.blocks.map(b => b.id), viewQuery);
     return {
-      blocks: gone?.size ? read.blocks.filter(b => !gone.has(b.id)) : read.blocks,
+      blocks: read.blocks,
       truncated: read.completeness?.kind === "truncated" || read.nextOffset !== undefined,
       ...(hidden ? { hint: `${hidden > 50 ? "50+" : hidden} machinery note${hidden === 1 ? "" : "s"} hidden · machinery=show` } : {}),
     };
@@ -84,9 +112,7 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
   const { where, limit, sort, direction, machinery } = question;
   try {
     const found = store.queryBlocks({ where, ...(thisId ? { this: thisId } : {}), limit, sort: `${sort} ${direction}`, ...(question.group ? { group: question.group } : {}), machinery: machinery ?? DEFAULT_MACHINERY } as BlockSearchQuery, tools.binder);
-    const gone = tools.shield?.(found.blocks.map(b => b.id), where);
-    const blocks = gone?.size ? found.blocks.filter(b => !gone.has(b.id)) : found.blocks;
-    return { blocks, truncated: found.completeness?.kind === "truncated", ...(found.groups ? { groups: found.groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
+    return { blocks: found.blocks, truncated: found.completeness?.kind === "truncated", ...(found.groups ? { groups: found.groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
   } catch (error) {
     return { blocks: [], truncated: false, error: sortProblem(message(error), sort, direction) };
   }
@@ -95,11 +121,7 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
 /** Which of `ids` a figure's `done:` or `now:` query holds for. */
 function subset(store: ProducerStore, tools: SiteTools, thisId: string | undefined, expression: string, ids: readonly string[]): { ids?: string[]; error?: string } {
   if (!ids.length) return { ids: [] };
-  try {
-    const matched = store.matchQuery(expression, ids, thisId ? { this: thisId } : {}, tools.binder).blockIds;
-    const gone = tools.shield?.(ids, expression);
-    return { ids: gone?.size ? matched.filter(id => !gone.has(id)) : matched };
-  }
+  try { return { ids: store.matchQuery(expression, ids, thisId ? { this: thisId } : {}, tools.binder).blockIds }; }
   catch (error) { return { error: message(error) }; }
 }
 
@@ -161,20 +183,23 @@ function fields(store: ProducerStore, tools: SiteTools, key: string, of: string 
   return { kind: "fields", key, from, revision: note?.revision ?? 0, rows };
 }
 
-function holds(store: ProducerStore, tools: SiteTools, thisId: string, where: string): SiteProduced {
+function holds(store: ProducerStore, bound: Bound, tools: SiteTools, thisId: string, where: string): SiteProduced {
   try {
-    // A clause about the children's words answers from them: for a reader who may not see one, it says nothing.
-    if (tools.shield?.([thisId], where).size) return { kind: "if", holds: false, problem: { message: "this reads notes that aren't shown here", didYouMean: [] } };
-    return { kind: "if", holds: store.matchQuery(where, [thisId], { this: thisId }, tools.binder).blockIds.includes(thisId) };
+    const hits = bound.world.hiddenHits;
+    const held = store.matchQuery(where, [thisId], { this: thisId }, tools.binder).blockIds.includes(thisId);
+    // A clause about other notes answers from them: for a reader who may not see one, it says nothing.
+    if (bound.world.hiddenHits > hits) return { kind: "if", holds: false, problem: { message: "this reads notes that aren't shown here", didYouMean: [] } };
+    return { kind: "if", holds: held };
   }
   catch (error) { return { kind: "if", holds: false, problem: { message: message(error), didYouMean: [], example: '::if{where="status=active"}' } }; }
 }
 
 /** A producer's question answered over the bound Site; `anyChange`: it depends on notes the answer can't name. */
-export function produce(store: ProducerStore, bound: Bound, producer: SiteProducer, given: SiteTools): { answer: SiteProduced; anyChange?: true } {
-  const tools: SiteTools = { ...given, shield: (ids, expression) => unknowable(store, bound.world, ids, expression) };
+export function produce(raw: ProducerStore, bound: Bound, producer: SiteProducer, tools: SiteTools): { answer: SiteProduced; anyChange?: true } {
+  // A limited reader's producers ask a store that leaves out what it can't answer for (`cutStore`).
+  const store = bound.world.cut ? cutStore(raw, bound.world) : raw;
   const thisId = bound.site.this?.id;
-  if (!thisId && producer.kind !== "figure") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
+  if (!thisId && producer.kind !== "figure" && producer.kind !== "unknowable") return { answer: { kind: "if", holds: false, problem: { message: "this run has no note to read", didYouMean: [] } } };
   switch (producer.kind) {
     case "figure": {
       if (!producer.figure || typeof producer.figure !== "string" || !producer.props || typeof producer.props !== "object") throw new Error("produce a figure with { kind: \"figure\", figure: \"table\", props: { query: \"type=ticket\" } }");
@@ -190,8 +215,12 @@ export function produce(store: ProducerStore, bound: Bound, producer: SiteProduc
     }
     case "if": {
       if (typeof producer.where !== "string" || !producer.where.trim()) throw new Error("produce an if with { kind: \"if\", where: \"status=active\" }");
-      return { answer: holds(store, tools, thisId!, producer.where), anyChange: true };
+      return { answer: holds(store, bound, tools, thisId!, producer.where), anyChange: true };
     }
-    default: throw new Error("produce is a figure, children, fields or if: { kind: \"fields\", key: \"connectTo\" }");
+    case "unknowable": {
+      if (!Array.isArray(producer.ids) || producer.ids.some(id => typeof id !== "string") || producer.ids.length > 1000) throw new Error("produce unknowable with { kind: \"unknowable\", ids: [\"<note id>\"], where: \"child:status=approved\" }, at most 1000 ids");
+      return { answer: { kind: "unknowable", ids: [...unknowable(raw, bound.world, producer.ids, producer.where)] } };
+    }
+    default: throw new Error("produce is a figure, children, fields, if or unknowable: { kind: \"fields\", key: \"connectTo\" }");
   }
 }
