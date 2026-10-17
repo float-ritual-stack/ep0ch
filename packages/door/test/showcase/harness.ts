@@ -62,6 +62,8 @@ export function useShowcaseScreen(): ShowcaseScreen {
     h.sc = new Showcase();
     h.app.push(new MainMenu()); h.app.push(h.sc);
     await until(() => !!h.S().notes, "the showcase outline", 8000);
+    // A first frame, as the door draws one before anyone presses a key.
+    h.screen();
   }, 30_000);
   afterAll(async () => { h.board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; process.env.EP0CH_EDIT_ARM = "off"; });
   return h;

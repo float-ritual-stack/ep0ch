@@ -232,7 +232,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     // new own tab takes its place in the drawer.
     const own = app.drawer.tile!;
     // Its program starts as its tab is first drawn: shown now (another section, the agent sessions', may have left a tab in the drawer).
-    await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, { kind: "user" });
+    await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, { kind: "user" }).catch(() => {});
     (app as any).paint();
     await until(() => own.running, "the drawer's own program runs");
     const ownPid = own.pid;

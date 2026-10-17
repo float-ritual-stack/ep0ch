@@ -55,7 +55,8 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");
-    // A note action runs in the section's reader, attributed to the agent.
+    // A note action runs in the section's reader, attributed to the agent (the door has drawn a frame since: the section's reader is entered).
+    screen();
     const sel = await app.act({ action: "select", args: { text: "red lentils" }, as: "test-agent" }) as any;
     expect(JSON.stringify(sel)).toContain("red lentils");
     expect(app.describe()).toMatchObject({ screen: "showcase", state: { kind: "showcase", section: { key: "selection" }, focus: "index" } });
