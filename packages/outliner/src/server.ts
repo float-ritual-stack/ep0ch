@@ -1886,8 +1886,9 @@ export class OutlinerServer {
       try {
         return await this.handleAsyncOnce(request, subscribedClient, connection);
       } catch (error) {
-        // A request may contain several commits; replay only when none of its content landed.
-        if (isSqliteBusy(error) && attempt === 0 && this.store.sequence === sequence) {
+        // A request may contain several commits; replay only when none of its content landed. A provider command has
+        // already run outside the store by the time a busy read can fail, so it is never replayed.
+        if (isSqliteBusy(error) && attempt === 0 && this.store.sequence === sequence && request.action !== "resources.command.execute") {
           await Bun.sleep(50);
           continue;
         }

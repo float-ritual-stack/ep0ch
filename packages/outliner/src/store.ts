@@ -1,3 +1,4 @@
+import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -3195,6 +3196,7 @@ export class OutlinerStore {
         try {
           return this.resolveBlockRef(target).id;
         } catch (error) {
+          if (isSqliteBusy(error)) throw error;
           throw new BlockQueryError(`${atom}:${target} names no block (${error instanceof Error ? error.message : String(error)}). Name a page, a block id or a Work ID that exists, like ${atom}:[[projects]]`);
         }
       },
@@ -4099,6 +4101,7 @@ export class OutlinerStore {
         selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
         if (matches.machineryHidden) Object.assign(result, { machineryHidden: matches.machineryHidden });
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         return fail("failed", [{ code: "query-failed", message: error instanceof Error ? error.message : String(error) }]);
       }
       const blocks = format === "tree"
