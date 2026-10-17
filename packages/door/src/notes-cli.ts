@@ -13,8 +13,11 @@
 // connects them), folded callouts unfolded (no key works in what it prints), a view note followed by its results as
 // the reader draws them (viewResults), never a second renderer. `--ansi` keeps its colours;
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
-// grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
+// grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep. `--site` prints
+// the text and the service's whole `site.answer` for its `{{ }}` (PIE-533 S2), as a JSON line a program reads.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
+import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
+import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
@@ -63,7 +66,7 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    --json each note as a block record (outline-core's block-record.ts: title,
                                    header, properties as lists, children, tasks, links, backlinks, resources,
                                    created, updated, author) plus its canonical ep0ch:// URI, keys sorted; with --tree, the rows
-  ep0ch show <id>… [--source | --ansi | --cells] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
+  ep0ch show <id>… [--source | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
                                    each note drawn as a reader draws it, at that width (default the terminal's,
                                    else 80), live figures, ::links and a view's results answered by the
                                    outline, folded callouts open, a blank line between notes; --source prints each note's text exactly as written
@@ -72,7 +75,10 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    as a line of JSON {id, columns, rows, cells, replaced}: cells row-major,
                                    base64 of u32 LE [codePoint, fg, bg] (0x00RRGGBB, 0x01000000 the
                                    terminal's own), one width-1 BMP glyph a cell, U+FFFD for a wider one
-                                   (counted in replaced); --rows keeps the first n rows
+                                   (counted in replaced); --rows keeps the first n rows; --site prints each note as a
+                                   line of JSON {id, uri, text, site}: its text as written and, when it holds a {{ }},
+                                   the service's whole answer for it (outline_read's site: each placeholder's values,
+                                   or problem and nearest keys, how it was found, and the notes it came from)
   ep0ch revisions <id> [<n> [--restore]] [--json] [--ws <name>] [--machine <ssh-name>]
                                    a note's revisions (PIE-621): the current one, then the earlier texts the
                                    outline keeps (the newest 100, from the first save after schema version 4),
@@ -495,12 +501,12 @@ export async function revisionsCommand(argsIn: string[], io: Out = { out: consol
 export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns, tty: !!process.stdout.isTTY }): Promise<number> {
   const args = argsIn.slice(1);
   for (const f of ["--ws", "--machine", "--width", "--rows"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
-  const ansi = args.includes("--ansi"), cells = args.includes("--cells"), source = args.includes("--source");
-  if (Number(ansi) + Number(cells) + Number(source) > 1) { io.err("ep0ch: show prints the drawing, --ansi, --cells or --source: one of them"); return 2; }
+  const ansi = args.includes("--ansi"), cells = args.includes("--cells"), source = args.includes("--source"), site = args.includes("--site");
+  if (Number(ansi) + Number(cells) + Number(source) + Number(site) > 1) { io.err("ep0ch: show prints the drawing, --ansi, --cells, --source or --site: one of them"); return 2; }
   const rowsArg = flag(args, "--rows") as string | undefined;
   const rows = rowsArg === undefined ? Infinity : Number(rowsArg);
   if (rowsArg !== undefined && (!Number.isInteger(rows) || rows < 1)) { io.err("ep0ch: --rows takes a number of rows, 1 or more"); return 2; }
-  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells", "--source", "--here"]);
+  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells", "--source", "--site", "--here"]);
   if (!ids.length || ids.some(id => id.startsWith("--"))) { io.err(`ep0ch: show takes notes' ids (${ids.find(id => id.startsWith("--")) ?? "none given"})\n${NOTES_USAGE}`); return 2; }
   const wArg = flag(args, "--width") as string | undefined;
   const width = wArg !== undefined ? Number(wArg) : io.columns || 80;
@@ -516,6 +522,15 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       const found = named[at]!;
       if ("error" in found) { io.err(`ep0ch: ${found.error}`); code = 1; continue; }
       const noteId = found.id;
+      // --site: the text as written and the service's whole answer for its `{{ }}`, as outline_read returns them.
+      if (site) {
+        const note = await board.get(noteId);
+        if (!note) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
+        const answer = note.text.includes("{{") && interpolationSpans(note.text).length ? await board.siteAnswer(noteId).catch(() => undefined) : undefined;
+        const values = answer && answer.values.length > MAX_NOTE_VALUES ? { ...answer, values: answer.values.slice(0, MAX_NOTE_VALUES) } : answer;
+        io.out(JSON.stringify({ id: noteId, uri: blockUri(board, noteId), text: note.text, ...(values ? { site: values } : {}) }));
+        continue;
+      }
       // --source: the note's text as written; else the drawing (a JSON object a line with --cells).
       const text = source ? (await board.get(noteId))?.text : undefined;
       const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, noteId, width);

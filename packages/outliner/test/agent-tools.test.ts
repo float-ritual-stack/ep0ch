@@ -52,6 +52,19 @@ async function setup() {
 
 const LONG_NOTE = "Seed swap plan [page::Seed Swap] [kind::plan]\n\n## Beans\n\nBorlotti and runner beans. ^beans\n\n## Squash\n\nButternut only.";
 
+test("read carries what a note's {{ }} read as (site), bounded to a note that holds one; text stays as written (PIE-533 S2)", async () => {
+  const { store, agent } = await setup();
+  const note = store.create("Vent rail [owner::sam]\nOwner {{this.owner}}, typo {{this.ownr}}.");
+  const read = await agent("read", { ref: `((${note.id}))` });
+  expect(read.json.text).toContain("{{this.owner}}");
+  expect(read.json.site.values.map((v: any) => [v.expression, v.values ?? null])).toEqual([["this.owner", ["sam"]], ["this.ownr", null]]);
+  expect(read.json.site.values[1].problem.didYouMean).toContain("owner");
+  expect(read.json.site.problems).toBe(1);
+  expect(read.json.site.route.length).toBeGreaterThan(0);
+  const plain = store.create("Nothing to read");
+  expect((await agent("read", { ref: `((${plain.id}))` })).json.site).toBeUndefined();
+});
+
 test("read keeps a repeated key and a list as values, and a property further down as a field", async () => {
   const { store, agent } = await setup();
   const note = store.create("Seed swap [tags::beans] [tags::[squash, leeks]] [note::a, b]\n\nBring them [due::friday].");

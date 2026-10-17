@@ -156,6 +156,24 @@ revision, so concurrent edits rarely collide.
   - **Felt:** order two rolls ((a1b2c3d4-…|quote from the merchant))
   ```
 
+## Values in prose: `{{ }}`
+
+A note can say what it knows about itself: `Play it at {{this.target}}. Owner: {{this.owner}}.` Every reader draws the
+value, not the braces; the editor, `ep0ch show --source` and the stored text keep what the author typed.
+
+- **Heads:** `this.key` (the note), `parent.key`, a bare `key` (the nearest value up the outline: this note's header,
+  then each ancestor's), `((id)).key` or `[[page]].key` (another note), `person.firstName` (through a property whose
+  value is a link), `now.date`, `props.key`. Every key is a list: several values read joined with commas. `{{ path ||
+  fallback }}` fills in when there is nothing.
+- **A typo is never refused.** `{{this.ownr}}` saves as typed; the door and Detail draw it dimmed with the nearest key
+  (`did you mean owner?`) and a write says so as a warning. Fix it and the value redraws.
+- **Read what the person sees:** `outline_read` returns `site` beside `text` (each placeholder's `values`, or its
+  `problem` with `didYouMean`, its `route` and the notes it came `deps` from); `outline_site` answers any path before you
+  write it. Write the placeholder, then check `site.problems` is 0.
+- **On a published page** a value is in the HTML, unless it read a note the page may not show: that one says `hidden
+  here` and names nothing.
+- A selection of a drawn value, a comment on it and a link to it anchor on the whole `{{ }}` token.
+
 ## Link, don't direct
 
 Point at a block with its link: `((id|short label))`, or `((id^anchor|label))` for a passage. Never write

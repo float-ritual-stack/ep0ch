@@ -9,6 +9,7 @@
 // `resolveBlockRef` throws from. Reads only.
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { interpolationSpans, spanTail } from "@ep0ch/outline-core/interpolation";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { resolvePath, type FilterRow, type NoteLookup, type PathScope, type PathWorld } from "@ep0ch/outline-core/resolve-path";
 import { deriveSite, type Site, type SiteAnswer, type SiteAnswerRequest, type SiteLink, type SiteValue } from "@ep0ch/outline-core/site";
 import { BlockQueryError } from "./block-query";
@@ -39,8 +40,10 @@ class StoreWorld implements PathWorld {
 
   /** The note a filter's `this` stands for; set once the Site is bound. */
   thisId?: string;
+  /** How many times a read met a note the reader may not see (a value that did is left out whole). */
+  hiddenHits = 0;
 
-  constructor(private readonly store: SiteStore, private readonly clock: () => number) {}
+  constructor(private readonly store: SiteStore, private readonly clock: () => number, readonly hidden: ReadonlySet<string> = new Set()) {}
 
   now() { return this.clock(); }
 
@@ -52,9 +55,15 @@ class StoreWorld implements PathWorld {
     return record;
   }
 
+  /** The text a note was read with (the saved one). */
+  textOf(id: string): string | undefined { return this.records.get(id)?.text; }
+
   children(id: string): BlockRecord[] {
     // One past the most a path reads, so the resolver can say there are more.
-    return this.store.children(id).slice(0, 1001).map(child => this.record(child));
+    const kids = this.store.children(id).slice(0, 1001);
+    const shown = kids.filter(child => !this.hidden.has(child.id));
+    if (shown.length < kids.length) this.hiddenHits += 1;
+    return shown.map(child => this.record(child));
   }
 
   note(ref: string, as: "reference" | "value"): NoteLookup {
@@ -62,6 +71,7 @@ class StoreWorld implements PathWorld {
     try { found = this.store.lookupBlockRef(ref); } catch (error) { return { kind: "missing", message: error instanceof Error ? error.message : String(error), didYouMean: [] }; }
     switch (found.kind) {
       case "found":
+        if (this.hidden.has(found.block.id)) { this.hiddenHits += 1; return { kind: "hidden", message: "that note isn't shown here" }; }
         // An id prefix is a link while it names one note; a later note with the same prefix would make it ambiguous.
         if (found.how === "block id prefix") this.unresolved = true;
         return { kind: "found", record: this.record(found.block), how: found.how };
@@ -82,7 +92,11 @@ class StoreWorld implements PathWorld {
   filter(rows: readonly FilterRow[], filter: string) {
     const kept = this.store.filterRows(rows, filter, this.thisId);
     // A filter that reads other notes (links:, child:, under:…) depends on notes the answer can't name.
-    if (kept.ok && kept.open) this.unresolved = true;
+    if (kept.ok && kept.open) {
+      this.unresolved = true;
+      // …so for a reader who may not see some notes, it says nothing: it could answer from one of them.
+      if (this.hidden.size) { this.hiddenHits += 1; return { ok: false as const, message: "this filter reads other notes, and some aren't shown here" }; }
+    }
     return kept;
   }
 }
@@ -130,7 +144,13 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
   const target = store.resolveBlockRef(request.blockId);
   const exact = target.id === request.blockId.trim().toLowerCase();
   const text = request.draft?.text ?? target.text;
-  const world = new StoreWorld(store, clock);
+  const hidden = new Set<string>();
+  if (request.hidden !== undefined) {
+    if (!Array.isArray(request.hidden) || request.hidden.some(id => typeof id !== "string")) throw new Error("hidden is a list of note ids the reader may not see");
+    for (const id of request.hidden) hidden.add(id);
+  }
+  if (hidden.has(target.id)) throw new Error(`((${target.id})) is a note the reader may not see; it has no values to read`);
+  const world = new StoreWorld(store, clock, hidden);
   const deps = new Set<string>([target.id]);
 
   // The note read: its saved text, or the draft being typed (the record is built from that text, so values agree with the screen).
@@ -172,29 +192,41 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
   world.thisId = here.id;
   const ancestors: { id: string; text: string }[] = [];
   let parentBlock: Block | undefined;
+  const parentHidden = !!here.parent && hidden.has(here.parent);
   for (let at = here.parent, depth = 0; at && depth < MAX_DEPTH; depth += 1) {
     const block = store.get(at);
-    if (!block) break;
+    // Nothing above a note the reader may not see supplies a value: the walk stops there.
+    if (!block || hidden.has(block.id)) break;
     deps.add(block.id);
     ancestors.push({ id: block.id, text: block.text });
     if (depth === 0) parentBlock = block;
     at = block.parentId;
   }
-  const scope: PathScope = { ...(line !== undefined ? { line } : {}), ancestors, ...(parentBlock ? { parent: () => world.record(parentBlock!) } : {}), world };
+  const scope: PathScope = { ...(line !== undefined ? { line } : {}), ancestors, ...(parentBlock ? { parent: () => world.record(parentBlock!) } : parentHidden ? { parent: () => { world.hiddenHits += 1; return undefined; } } : {}), world };
   return { site, scope, world, route, deps, blockId: target.id, revision: target.revision, text };
 }
 
 function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof interpolationSpans>[number], start?: number, end?: number): SiteValue {
+  const hitsBefore = bound.world.hiddenHits;
+  const read = valueRead(bound, expression, parsed, start, end);
+  // A read that met a note the reader may not see says nothing of it: no value, not even a partial list.
+  if (bound.world.hiddenHits === hitsBefore) return read;
+  const { values: _values, links: _links, from: _from, lines: _lines, marks: _marks, usedDefault: _used, ...rest } = read;
+  return { ...rest, hidden: true, problem: { message: "this reads a note that isn't shown here", didYouMean: [] } };
+}
+
+function valueRead(bound: Bound, expression: string, parsed: ReturnType<typeof interpolationSpans>[number], start?: number, end?: number): SiteValue {
   const answer = parsed.parsed
     ? resolvePath(parsed.parsed, bound.site, bound.scope, spanTail(parsed))
     : { ok: false as const, problem: { message: `\`${parsed.path}\` isn't a path: write head.key, such as this.owner`, didYouMean: [], example: "{{this.owner}}" }, route: [] };
   const base = { ...(start !== undefined ? { start, end } : {}), expression, path: parsed.path };
   if (answer.ok) {
     const empty = answer.values.length === 0 && parsed.default !== undefined;
+    const source = parsed.parsed ? sourceOfValue(bound, parsed.parsed, answer) : undefined;
     return {
       ...base, values: empty ? [parsed.default!] : answer.values, ...(empty ? { usedDefault: true as const } : {}),
       ...(answer.lines ? { lines: answer.lines } : {}), ...(answer.marks ? { marks: answer.marks } : {}),
-      ...(answer.from ? { from: answer.from } : {}), ...(answer.links ? { links: answer.links } : {}), ...(answer.clock ? { clock: answer.clock } : {}),
+      ...(answer.from ? { from: answer.from } : {}), ...(source ? { source } : {}), ...(answer.links ? { links: answer.links } : {}), ...(answer.clock ? { clock: answer.clock } : {}),
       route: empty ? [...answer.route, `no value: the \`|| ${parsed.default}\` default`] : answer.route,
     };
   }
@@ -202,6 +234,22 @@ function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof int
     return { ...base, values: [parsed.default], usedDefault: true, problem: answer.problem, route: [...answer.route, `\`|| ${parsed.default}\` default used`] };
   }
   return { ...base, problem: answer.problem, route: answer.route };
+}
+
+/**
+ * Where a value is written, for a reader that opens its source line: the property the path ends in (`this.owner`, a bare
+ * `owner`, `person.firstName`), its first record in the note the value was read from. Absent for a computed value
+ * (`now.date`, `this.title`, a filter's count) and for one the note doesn't write as a property.
+ */
+function sourceOfValue(bound: Bound, parsed: NonNullable<ReturnType<typeof interpolationSpans>[number]["parsed"]>, answer: Extract<ReturnType<typeof resolvePath>, { ok: true }>): SiteValue["source"] {
+  if (!answer.from || answer.lines) return undefined;
+  const last = parsed.steps.at(-1);
+  const key = (last ? ("key" in last ? last.key : undefined) : parsed.head)?.toLowerCase();
+  const text = answer.from === bound.blockId ? bound.text : bound.world.textOf(answer.from);
+  if (!key || text === undefined) return undefined;
+  const record = parsePropertyRecords(text).find(r => r.key === key && r.syntax !== "hashtag");
+  if (!record) return undefined;
+  return { block: answer.from, start: record.start, line: record.line, mark: text.slice(record.start, record.end) };
 }
 
 /** A path as asked (`this.tasks | status=todo .count`), read as a span would be. */

@@ -103,6 +103,11 @@ export interface SiteAnswerRequest {
   line?: number;
   /** More paths to read besides the note's own `{{ }}` (a script's `resolve`, an agent's question): `this.tasks | status=todo`. */
   paths?: string[];
+  /**
+   * Notes the reader may not see (a publisher's locked or non-public ones): a path that reads one answers `hidden` and no
+   * value, and an ancestor in it supplies no bare key (nor any above it). A reader with no limits sends none.
+   */
+  hidden?: string[];
 }
 
 /** A path that has no answer: why, the nearest keys, and a path that works. */
@@ -125,10 +130,17 @@ export interface SiteValue {
   marks?: string[];
   /** The note the values were read from. */
   from?: string;
+  /**
+   * Where the first value is written: the note, the offset and line of its property token, and the token's text (to find it
+   * again by when the note has been edited). Absent for a computed value.
+   */
+  source?: { block: string; start: number; line: number; mark: string };
   /** Values that are links to a note (shown by its title). */
   links?: { text: string; id: string; title: string; how: string }[];
   /** The value changes within the day by the clock alone (`now.time`). */
   clock?: "minute";
+  /** It read a note the request said the reader may not see: no value, and nothing of it is to be drawn (`problem` says so). */
+  hidden?: true;
   /** How: which head, which resolver answered, which fallback was taken. */
   route: string[];
 }

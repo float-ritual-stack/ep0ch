@@ -54,7 +54,7 @@ import {
   detailEditorVisualRowForSourceLine,
   layoutDetailEditor,
 } from "./detail-editor-layout";
-import type { DetailEmbedRange, DetailEmbedState, DetailReadProjection } from "./detail-embeds";
+import type { DetailEmbedRange, DetailEmbedState, DetailReadProjection, DetailValueBinding } from "./detail-embeds";
 import type { ResourceProjection } from "./resource-projection";
 import {concatDocuments, generatedDocument, documentProvenanceKey, observeDocument, sourceDocument, type MappedDocument} from './document-provenance';
 import {resourceContentDocument} from './document-resources';
@@ -554,6 +554,8 @@ export interface DetailState {
   embedRanges: DetailEmbedRange[];
   /** Resource projections in the current read; catalog changes to them repaint the note. */
   resourceProjections?: readonly ResourceProjection[];
+  /** The note's `{{ }}` as the service read them (PIE-533 S2): the property inspector's "Values read here". */
+  valueBindings?: readonly DetailValueBinding[];
   embedBackgroundEnabled: boolean;
   workIdPrefix: string | null;
   /** Every prefix a ticket key may have here (the service's `ticketPrefixes`): what Detail links, with `workIdPrefix`. */
@@ -1094,6 +1096,7 @@ export function createDetailController(
     embedStates: [],
     embedRanges: [],
     resourceProjections: [],
+    valueBindings: [],
     embedBackgroundEnabled: true,
     workIdPrefix: null,
     resolvedBreadcrumb: "",
@@ -1263,6 +1266,7 @@ export function createDetailController(
     state.embedStates = projection.embeds;
     state.embedRanges = projection.embedRanges;
     state.resourceProjections = projection.resourceProjections ?? [];
+    state.valueBindings = projection.valueBindings ?? [];
     applyResolvedReferences(resolved,projection.provenance);
   };
 
@@ -1504,6 +1508,7 @@ export function createDetailController(
     state.embedStates = [];
     state.embedRanges = [];
     state.resourceProjections = [];
+    state.valueBindings = [];
     state.workIdPrefix = null;
     state.ticketPrefixes = [];
     state.resolvedBreadcrumb = "";
@@ -1918,6 +1923,7 @@ export function createDetailController(
       state.embedStates = read?.projection.embeds ?? [];
       state.embedRanges = read?.projection.embedRanges ?? [];
       state.resourceProjections = read?.projection.resourceProjections ?? [];
+      state.valueBindings = read?.projection.valueBindings ?? [];
       if (read) applyResolvedReferences(read.resolved,read.projection.provenance);
       else {
         state.resolvedSelectedText = next.selected.text;
