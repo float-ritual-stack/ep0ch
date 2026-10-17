@@ -293,11 +293,11 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:144` |
-| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:961` |
+| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:714` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1917` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:135` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4171` |
-| `viaYolo` | `packages/outliner/src/server.ts:4194` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4174` |
+| `viaYolo` | `packages/outliner/src/server.ts:4197` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:262` |
 
 ## Lifecycle
