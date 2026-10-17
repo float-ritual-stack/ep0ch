@@ -207,7 +207,9 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
       const target = join(host.root, "kettles.sqlite");
       const saved = await run(host.root, "outline", "snapshot", "bob", "--out", target, "--json");
       expect(saved.code, saved.err).toBe(0);
-      expect(JSON.parse(saved.out)).toMatchObject({ path: target, schema: 5 });
+      // The schema it reports is the copy's own (whatever the current version is).
+      const copyVersion = Number(Bun.spawnSync(["sqlite3", "-readonly", target, "pragma user_version;"]).stdout.toString().trim());
+      expect(JSON.parse(saved.out)).toMatchObject({ path: target, schema: copyVersion });
       const query = Bun.spawn(["sqlite3", "-readonly", target, "select text from blocks where text like 'Kettle inventory%';"], { stdout: "pipe", stderr: "pipe" });
       expect(await new Response(query.stdout).text()).toContain("Two blue kettles.");
       expect(await query.exited).toBe(0);

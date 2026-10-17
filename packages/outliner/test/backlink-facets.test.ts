@@ -134,13 +134,25 @@ describe("backlink source facets", () => {
     expect(facetsOf(collection, elsewhere)?.placement).toBe("other");
   });
 
-  test("comments report whether their thread is resolved; a reply follows its thread", () => {
+  test.each(["store", "service"])("a reply follows a resolved thread that does not link to the note (%s)", async (path) => {
     const workspace = store();
+    let client: OutlinerClient | undefined;
+    if (path === "service") {
+      const directory = mkdtempSync(join(tmpdir(), "backlink-thread-"));
+      const socket = join(directory, "outliner.sock");
+      const server = new OutlinerServer(workspace, socket);
+      cleanups.push(async () => {
+        await server.close();
+        rmSync(directory, { recursive: true, force: true });
+      });
+      await server.start();
+      client = new OutlinerClient(socket);
+    }
     const target = workspace.create("Seed swap [page::Seed Swap]");
     const host = workspace.create("Volunteer rota");
     const open = comment(workspace, host, "Who brings [[Seed Swap]] labels?", "open-comment");
     const hostAfter = workspace.get(host.id)!;
-    const resolved = comment(workspace, hostAfter, "[[Seed Swap]] table booked", "resolved-comment");
+    const resolved = comment(workspace, hostAfter, "Table booked", "resolved-comment");
     const reply = workspace.replyToAnnotation("reply", {
       annotationId: resolved.id, body: "Confirmed for [[Seed Swap]]", source: "user",
     }).annotations[0]!.block;
@@ -148,9 +160,14 @@ describe("backlink source facets", () => {
       { annotationId: resolved.id, lifecycle: "resolved" },
       { author: "user", actorId: "test" },
     );
-    const collection = workspace.queryBacklinks({ targetBlockId: target.id, limit: 10 });
+    // A reply can be filed elsewhere; its thread is still parent-annotation, not its tree parent.
+    workspace.move(reply.id, host.id);
+    const query = { targetBlockId: target.id, limit: 10 };
+    const collection = client
+      ? await client.request<BacklinkCollection>({ action: "references.backlinks", query })
+      : workspace.queryBacklinks(query);
     expect(facetsOf(collection, open)).toMatchObject({ kind: "comment", kindLabel: "Comment", comment: { resolved: false } });
-    expect(facetsOf(collection, resolved)).toMatchObject({ kind: "comment", comment: { resolved: true } });
+    expect(collection.sources.some((source) => source.blockId === resolved.id)).toBe(false);
     // The reply's own status stays open; the thread decides.
     expect(facetsOf(collection, reply)).toMatchObject({ kind: "comment", comment: { resolved: true } });
   });

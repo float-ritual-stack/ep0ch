@@ -1,3 +1,4 @@
+import { replaceReferenceIndex } from "./reference-index";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
@@ -27,7 +28,7 @@ import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } fr
 import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
 import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
-import { facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
+import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
@@ -65,11 +66,11 @@ import type { FilterRow } from "@ep0ch/outline-core/resolve-path";
 import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { ReadMarks } from "./read-marks";
-import { formatProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
+import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
-import { blockDisplayTitle, blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
+import { blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import {
   ResourceCatalog,
@@ -358,6 +359,7 @@ interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
   deletedMode?: "active" | "roots" | "all";
   /** Notes a tool stamped `[machine::…]` (PIE-867): `hide` skips them, `only` keeps just them, whatever the property scope. */
   machinery?: MachineryMode;
+  display?: "source" | "resolved";
 }
 
 function normalizeCreatorProvenance(
@@ -710,26 +712,28 @@ function treeIndexOf(snapshot: WorkspaceSnapshot, labels: ReadonlyMap<string, Tr
 const UNBOUNDED_VIEW_MATCHES = 1_000_000_000;
 
 type TreeLabel = Pick<TreeIndexBlock, "preview" | "previewReferences" | "textDigest">;
-/** Tree labels by what they are made of (PIE-625): a tree read asks for every note's after every change. */
-const treeLabels = new Map<string, TreeLabel>();
-const TREE_LABEL_LIMIT = 8_192;
+/** Per-outline labels retain their source and dependencies, so reads check source text and targets before parsing bodies. */
+type TreeLabels = Map<string, { text: string; hasProperties: boolean; dependencies: Map<string, Block | null>; label: TreeLabel }>;
 
 function compactTreeBlock(
   { text, displayText: _displayText, propertyMatches: _matches, ...metadata }: VisibleBlock,
   lookup: (blockId: string) => Block | null,
+  labels: TreeLabels,
 ): TreeIndexBlock {
-  const resolved = resolveBlockReferencesWithStatus(text, lookup);
-  // The label is a function of the text, what its references resolve to (in `resolved.text`: titles and statuses),
-  // whether it has properties, and the id (an empty title falls back to it).
-  const key = `${metadata.id}\u0000${metadata.properties.length ? 1 : 0}\u0000${text}\u0000${resolved.text}`;
-  let label = treeLabels.get(key);
-  if (label) {
-    treeLabels.delete(key);
-  } else {
-    label = treeLabel(text, resolved, metadata);
-    if (treeLabels.size >= TREE_LABEL_LIMIT) treeLabels.delete(treeLabels.keys().next().value!);
-  }
-  treeLabels.set(key, label);
+  const cached = labels.get(metadata.id);
+  const hasProperties = metadata.properties.length > 0;
+  if (cached && cached.text === text && cached.hasProperties === hasProperties && [...cached.dependencies].every(([id, before]) => {
+    const now = lookup(id);
+    return before?.text === now?.text && before?.effectiveDeletedRootId === now?.effectiveDeletedRootId;
+  })) return { ...metadata, ...cached.label };
+  const dependencies = new Map<string, Block | null>();
+  const resolved = resolveBlockReferencesWithStatus(text, id => {
+    const block = lookup(id);
+    dependencies.set(id, block);
+    return block;
+  });
+  const label = treeLabel(text, resolved, metadata);
+  labels.set(metadata.id, { text, hasProperties, dependencies, label });
   return { ...metadata, ...label };
 }
 
@@ -850,6 +854,7 @@ export class OutlinerStore {
   readonly outlineInstanceId: string;
   private readonly instance: OutlineInstance;
   private closed = false;
+  private readonly treeLabels: TreeLabels = new Map();
   /** The last graph `loadGraph` read, and the counts it is current for. */
   private graph: { key: string; graph: LoadedGraph } | undefined;
 
@@ -3423,7 +3428,7 @@ export class OutlinerStore {
   queryBacklinks(input: BacklinkQuery): BacklinkCollection {
     return this.database.transaction(() => {
       const query = { ...input, targetBlockId: input.targetBlockId.trim() };
-      const context = this.backlinkContextFromCurrentRead();
+      const context = this.backlinkContextFromCurrentRead(query.targetBlockId);
       const target = context.blocksById.get(query.targetBlockId);
       if (!target) throw new Error(`Block not found: ${query.targetBlockId}`);
       return resolveBacklinkRelation({ query, target, ...context });
@@ -3435,16 +3440,8 @@ export class OutlinerStore {
     return this.database.transaction(() => backlinkSourceIds(this.backlinkContextFromCurrentRead(), new Set(ids)))();
   }
 
-  /** What the backlink relation reads: every block in outline order, page addresses and ticket keys, the Work-ID prefix. */
-  private backlinkContextFromCurrentRead() {
-    const graph = this.loadGraph();
-    const orderedBlocks: Block[] = [];
-    const visit = (block: Block): void => {
-      orderedBlocks.push(block);
-      for (const child of graph.byParent.get(block.id) ?? []) visit(child);
-    };
-    for (const root of graph.byParent.get(null) ?? []) visit(root);
-
+  /** A target reads indexed candidates and their ancestors; whole-outline relation queries share the graph. */
+  private backlinkContextFromCurrentRead(targetId?: string) {
     const addressRows = this.database.query(
       "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
     ).all() as Array<{ normalized_address: string; block_id: string }>;
@@ -3456,9 +3453,53 @@ export class OutlinerStore {
       const normalized = tryNormalizePageAddress(key)?.normalizedAddress;
       if (normalized && !addressTargets.has(normalized)) addressTargets.set(normalized, blockId);
     }
+    const blocksById = new Map<string, Block>();
+    let orderedBlocks: Block[];
+    if (targetId !== undefined) {
+      const addresses = [targetId, ...[...addressTargets].filter(([, id]) => id === targetId).map(([address]) => address)];
+      const rows = this.database.query(`SELECT DISTINCT block_id FROM block_reference_candidates
+        WHERE address IN (${addresses.map(() => "?").join(", ")})`).all(...addresses) as { block_id: string }[];
+      const load = (id: string): Block | null => {
+        const cached = blocksById.get(id);
+        if (cached) return cached;
+        const block = this.getFromCurrentRead(id);
+        if (block) {
+          blocksById.set(id, block);
+          if (block.parentId) load(block.parentId);
+        }
+        return block;
+      };
+      load(targetId);
+      orderedBlocks = rows.map(row => load(row.block_id)!);
+      // A reply's lifecycle follows its thread even when it is filed outside that thread's tree.
+      for (const block of orderedBlocks) {
+        const parentAnnotationId = getProperty(block.properties, "parent-annotation")?.trim();
+        if (parentAnnotationId) load(parentAnnotationId);
+      }
+      const path = (block: Block): Block[] => block.parentId
+        ? [...path(blocksById.get(block.parentId)!), block] : [block];
+      const paths = new Map(orderedBlocks.map(block => [block.id, path(block)]));
+      orderedBlocks.sort((left, right) => {
+        const a = paths.get(left.id)!, b = paths.get(right.id)!;
+        for (let i = 0; i < Math.min(a.length, b.length); i++) {
+          if (a[i]!.id === b[i]!.id) continue;
+          return a[i]!.position - b[i]!.position || a[i]!.createdAt.localeCompare(b[i]!.createdAt);
+        }
+        return a.length - b.length;
+      });
+    } else {
+      const graph = this.loadGraph();
+      orderedBlocks = [];
+      const visit = (block: Block): void => {
+        orderedBlocks.push(block);
+        for (const child of graph.byParent.get(block.id) ?? []) visit(child);
+      };
+      for (const root of graph.byParent.get(null) ?? []) visit(root);
+      for (const [id, block] of graph.byId) blocksById.set(id, block);
+    }
     return {
       orderedBlocks,
-      blocksById: graph.byId,
+      blocksById,
       addressTargets,
       workIdPrefix: this.workIdAllocatorFromCurrentRead()?.prefix ?? null,
       ticketPrefixes: this.workIdAllocatorStatusFromCurrentRead(),
@@ -3474,7 +3515,8 @@ export class OutlinerStore {
   facetRules(): BacklinkFacetRules {
     const key = this.graphKey();
     if (this.facetRulesCache?.key === key) return this.facetRulesCache.rules;
-    const rules = facetRulesFromBlocks(this.loadGraph().byId.values()).rules;
+    const rows = this.database.query("SELECT DISTINCT block_id FROM block_properties WHERE key = ? AND scope = 'block'").all(STATUS_FAMILY_PROPERTY) as { block_id: string }[];
+    const rules = facetRulesFromBlocks(rows.map(row => this.getFromCurrentRead(row.block_id)!)).rules;
     this.facetRulesCache = { key, rules };
     return rules;
   }
@@ -4044,7 +4086,7 @@ export class OutlinerStore {
         return fail("failed", [{ code: "query-failed", message: error instanceof Error ? error.message : String(error) }]);
       }
       const blocks = format === "tree"
-        ? selected.members.map(block => compactTreeBlock(block, id => this.loadGraph().byId.get(id) ?? null))
+        ? selected.members.map(block => compactTreeBlock(block, id => this.loadGraph().byId.get(id) ?? null, this.treeLabels))
         : selected.members;
       return {
         ...result, status: "ready", blocks, total: selected.eligible,
@@ -4254,6 +4296,10 @@ export class OutlinerStore {
   }
 
   readWorkspaceSnapshot(view: WorkspaceSnapshotView = {}): WorkspaceSnapshot {
+    return this.workspaceSnapshot(view, "resolved");
+  }
+
+  private workspaceSnapshot(view: WorkspaceSnapshotView, display: "source" | "resolved"): WorkspaceSnapshot {
     return this.database.transaction((): WorkspaceSnapshot => {
       const graph = this.loadGraph();
       const query = view.query ? normalizeBlockSearchQuery(view.query) : null;
@@ -4262,6 +4308,7 @@ export class OutlinerStore {
         throw new Error(`Block not found: ${query.subtreeRootId}`);
       }
       const matched = this.traverseLoadedGraph(graph, {
+        display,
         filters: query?.filters,
         where: query?.predicate,
         machinery: query?.machinery,
@@ -4278,7 +4325,7 @@ export class OutlinerStore {
             completeness: { kind: "truncated", limit: query.limit },
           }
         : { blocks: matched, completeness: { kind: "complete" } };
-      const physical = this.traverseLoadedGraph(graph, {});
+      const physical = query ? this.traverseLoadedGraph(graph, { display }) : matched;
 
       const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
       const ticketPrefixes = this.workIdAllocatorStatusFromCurrentRead().prefixesInUse;
@@ -4327,15 +4374,15 @@ export class OutlinerStore {
   queryTree(query: BlockSearchQuery): TreeIndexCollection {
     return this.database.transaction(() => {
       const result = this.queryBlocks(query);
-      return { ...result, blocks: result.blocks.map(block => compactTreeBlock(block, id => this.getFromCurrentRead(id))) };
+      return { ...result, blocks: result.blocks.map(block => compactTreeBlock(block, id => this.getFromCurrentRead(id), this.treeLabels)) };
     })();
   }
 
   readTreeIndex(view: WorkspaceSnapshotView = {}): TreeIndexSnapshot {
     return this.database.transaction(() => {
-      const snapshot = this.readWorkspaceSnapshot(view);
+      const snapshot = this.workspaceSnapshot(view, "source");
       const graph = this.loadGraph();
-      const labels = new Map(treeIndexMembers(snapshot).map(block => [block.id, compactTreeBlock(block, id => graph.byId.get(id) ?? null)]));
+      const labels = new Map(treeIndexMembers(snapshot).map(block => [block.id, compactTreeBlock(block, id => graph.byId.get(id) ?? null, this.treeLabels)]));
       return treeIndexOf(snapshot, labels);
     })();
   }
@@ -4347,12 +4394,9 @@ export class OutlinerStore {
    * it, which nothing changes.
    */
   async readTreeIndexInSlices(view: WorkspaceSnapshotView, pause: () => Promise<void>): Promise<TreeIndexSnapshot> {
-    // Titles first (the snapshot's display text uses every referenced note's), outside any transaction: only a warm-up.
-    const notes = [...this.database.transaction(() => this.loadGraph())().byId.values()];
-    await inSlices(notes, block => { blockDisplayTitle(block); }, pause);
-    const { snapshot, graph } = this.database.transaction(() => ({ snapshot: this.readWorkspaceSnapshot(view), graph: this.loadGraph() }))();
+    const { snapshot, graph } = this.database.transaction(() => ({ snapshot: this.workspaceSnapshot(view, "source"), graph: this.loadGraph() }))();
     const labels = new Map<string, TreeIndexBlock>();
-    await inSlices(treeIndexMembers(snapshot), block => { labels.set(block.id, compactTreeBlock(block, id => graph.byId.get(id) ?? null)); }, pause);
+    await inSlices(treeIndexMembers(snapshot), block => { labels.set(block.id, compactTreeBlock(block, id => graph.byId.get(id) ?? null, this.treeLabels)); }, pause);
     return treeIndexOf(snapshot, labels);
   }
 
@@ -4680,6 +4724,7 @@ export class OutlinerStore {
     if (this.graph?.key === key) return this.graph.graph;
     const graph = this.readGraph();
     this.graph = { key, graph };
+    for (const id of this.treeLabels.keys()) if (!graph.byId.has(id)) this.treeLabels.delete(id);
     return graph;
   }
 
@@ -4812,7 +4857,7 @@ export class OutlinerStore {
                   graph.deletedDescendantCountByRoot.get(block.id) ?? 0,
               }
             : {}),
-          displayText: resolveBlockReferenceText(
+          displayText: options.display === "source" ? block.text : resolveBlockReferenceText(
             block.text,
             (blockId) => graph.byId.get(blockId) ?? null,
           ),
@@ -5630,6 +5675,8 @@ export class OutlinerStore {
     blockId: string,
     properties: readonly PropertyRecord[],
   ): void {
+    const source = this.database.query("SELECT text FROM blocks WHERE id = ?").get(blockId) as { text: string };
+    replaceReferenceIndex(this.database, blockId, source.text);
     this.database.query("DELETE FROM block_properties WHERE block_id = ?").run(blockId);
     const insert = this.database.query(
       "INSERT INTO block_properties (block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

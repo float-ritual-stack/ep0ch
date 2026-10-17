@@ -47,6 +47,7 @@ export interface ImportReport {
 
 const SKIPPED_TABLES: Readonly<Record<string, string>> = {
   block_properties: "derived from block text; parsed again",
+  block_reference_candidates: "derived from block text; indexed again",
   selection: "the person's place in the old outline",
   navigation_history: "the person's place in the old outline",
   working_selections: "a client's temporary selection",

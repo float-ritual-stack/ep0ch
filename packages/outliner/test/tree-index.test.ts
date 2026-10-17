@@ -234,6 +234,25 @@ test("compact previews retain resolved fragment links and the exact authored-tex
     expect(authored.kind).toBe("ready");
     if (authored.kind === "ready") expect(entry.textDigest).toBe(authored.ownerTextDigest);
     expect(JSON.stringify(entry)).not.toContain("Unshown body");
+    const changed = store.update(target.id, "Renamed target\nParagraph without its anchor", target.revision);
+    const stale = store.readTreeIndex().blocks.find(block => block.id === source.id)!;
+    expect(stale.preview).toContain("Missing fragment");
+    expect(stale.previewReferences[0]!.target).toBeNull();
+    store.update(target.id, "Renamed target\nAnchored paragraph ^anchor", changed.revision);
+    store.update(source.id, `Open ((${target.id}^anchor))`, source.revision);
+    expect(store.readTreeIndex().blocks.find(block => block.id === source.id)!.preview).toBe("Open ((Renamed target^anchor))");
+    store.delete(target.id);
+    expect(store.readTreeIndex().blocks.find(block => block.id === source.id)!.preview).toContain("Trash");
+    store.restore(target.id);
+    expect(store.readTreeIndex().blocks.find(block => block.id === source.id)!.preview).toBe("Open ((Renamed target^anchor))");
+    expect(() => store.database.transaction(() => {
+      const before = store.get(target.id)!;
+      store.update(target.id, "Rolled back", before.revision);
+      store.readTreeIndex();
+      throw new Error("abort");
+    })()).toThrow("abort");
+    expect(store.readTreeIndex().blocks.find(block => block.id === source.id)!.preview).toBe("Open ((Renamed target^anchor))");
+
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });

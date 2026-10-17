@@ -25,7 +25,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (workflows, agent mentions), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -92,6 +92,15 @@ export const READ_MARKS_SQL = `
   ) WITHOUT ROWID;
 `;
 
+export const REFERENCE_INDEX_SQL = `
+  CREATE TABLE block_reference_candidates (
+    address TEXT NOT NULL,
+    block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+    PRIMARY KEY (address, block_id)
+  ) WITHOUT ROWID;
+  CREATE INDEX block_reference_candidates_source ON block_reference_candidates(block_id);
+`;
+
 export const SCHEMA_SQL = `
   -- The outline: blocks, their derived properties, selection and history, views, work ids, page addresses, capture, extensions and agent requests (store.ts).
   CREATE TABLE IF NOT EXISTS blocks (
@@ -110,6 +119,7 @@ export const SCHEMA_SQL = `
     effective_deleted_root_id TEXT
   );
   CREATE INDEX IF NOT EXISTS blocks_parent_position ON blocks(parent_id, position);
+  ${REFERENCE_INDEX_SQL}
   CREATE TABLE IF NOT EXISTS block_properties (
     block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
     key TEXT NOT NULL,
@@ -814,8 +824,8 @@ const userVersion = (database: Database) => (database.query("PRAGMA user_version
 
 export const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
 
-/** The one-off script for schema 4 → 5, which also repairs a version-5 database without an outline instance id. */
-const REPAIR_SCRIPT = join(import.meta.dir, "../scripts/migrations/0005-extension-providers.ts");
+/** The current offline migration also repairs an outline instance id. */
+const REPAIR_SCRIPT = join(import.meta.dir, "../scripts/migrations/0006-reference-index.ts");
 
 export function readOutlineInstanceId(database: Database, path: string): string {
   const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null;
