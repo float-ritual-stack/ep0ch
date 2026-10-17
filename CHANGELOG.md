@@ -249,9 +249,11 @@ brackets (#604).
 
 The mod's plugin name is now `ep0ch` (it was `pi-outliner`): its tools read `mcp__ep0ch__outline_read` and the rest,
 its message command is `/ep0ch:msg`, and a tool row reads `ep0ch - outline_edit`. `ep0ch install --apply` moves the
-old name in `~/.claude/settings.json`, `settings.local.json` and `plugins/installed_plugins.json` (permission rules
-such as `mcp__pi-outliner__*`, `enabledPlugins` and `pluginConfigs` keys such as `pi-outliner@inline`), leaving one
-name. A running Claude session keeps the old tool names until you restart it (`/reload-plugins` is not enough:
+old name in `~/.claude/settings.json`, `settings.local.json` and `plugins/installed_plugins.json`, and in the
+`.claude/settings*.json` of `~/projects/ep0ch`, `~/float-hub` and any folder given with `--project` (permission rules
+such as `mcp__pi-outliner` and `mcp__pi-outliner__*`, hook matchers, `enabledPlugins` and `pluginConfigs` keys such as
+`pi-outliner@inline`), leaving one name. Nothing else in those files is touched. A malformed file stops the whole
+step, naming the file and the command to run again. A running Claude session keeps the old tool names until you restart it (`/reload-plugins` is not enough:
 permissions and tool names are read at start). The mod's saved choices (the Mentions pane's preferences, the session
 binding) were stored under the old name and start fresh. The Herdr plugin id `float.pi-outliner` is unchanged.
 
