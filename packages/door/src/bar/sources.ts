@@ -247,7 +247,7 @@ function actionLine(q: string, host: BarHost): BarRow | null {
   // An argument it doesn't take, one of the wrong type or one it needs: the row says which, as `ep0ch act` would.
   let refused: string | undefined;
   if (req.as !== undefined) refused = "the power bar runs it as you: leave out as=";
-  else try { coerceActionArgs(req.action, info.args, req.args ?? {}); } catch (e) { refused = e instanceof Error ? e.message : String(e); }
+  else try { req.args = coerceActionArgs(req.action, info.args, req.args ?? {}); } catch (e) { refused = e instanceof Error ? e.message : String(e); }
   const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
   const shown = [scripts.length === 1 ? scripts[0]!.extension.name! : req.action, ...Object.entries(req.args ?? {}).map(([k, v]) => `${k}=${said(String(v))}`), ...(req.tile !== undefined ? [`tile=${said(req.tile)}`] : [])].join(" ");
   return {

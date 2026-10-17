@@ -213,6 +213,21 @@ describe.skipIf(!outliner)("the power bar", () => {
     await until(() => theme().name !== was, "the theme turned", 3000);
   });
 
+  test("boolean action arguments in the power bar set yolo rather than toggle it (PIE-1004)", async () => {
+    try {
+      for (const on of [true, true, false, false]) {
+        key(ctrlK); type(`> agents.yolo on=${on}`);
+        expect(peek().bar.rows[0].refused).toBeUndefined();
+        key({ kind: "enter" });
+        await until(() => peek().bar === undefined, "the action picked", 3000);
+        expect(app.agentsYolo).toBe(on);
+        expect((await board.mcpAccessStatus()).yolo === true).toBe(on);
+      }
+    } finally {
+      await app.dispatch.press("agents.yolo", { on: false });
+    }
+  });
+
   test("a paste lands whole in the bar's line, and an action line pasted with its arguments is the lit row that ⏎ runs (PIE-856)", async () => {
     key(ctrlK);
     // As a terminal sends it (bracketed paste), copied from a chat with its line break.
