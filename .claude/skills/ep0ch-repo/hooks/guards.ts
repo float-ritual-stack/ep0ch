@@ -4,14 +4,13 @@
  * the builder's "Never git stash"). Pure: register.ts asks this, and the PROTOCOL lookup, per call.
  */
 
+import { type GuardContext, SHARED_MACHINE, bunTest, wholeSuiteRefusal } from './whole-suite'
 import { baseName, simpleCommands } from './shell'
 
-/** The machine where whole suites never run (AGENTS.md "Tests on a shared machine"). */
-export const SHARED_MACHINE = 'float-2'
-/** The test machine: whole suites run there through scripts/box-test, which caps and cleans them (PIE-998). */
-export const BOX_MACHINE = 'float-box'
+export { wholeSuiteRefusal }
 
-export type GuardContext = { hostname: string }
+
+export type { GuardContext }
 
 const MERGE = 'gh pr merge <n> --merge'
 
@@ -60,58 +59,6 @@ export function repoNamed(args: readonly string[]): string | null {
   return null
 }
 
-/** `bun test`'s options that take the next word as a value (it is not a file). */
-const TEST_VALUED = new Set(['-t', '--test-name-pattern', '--timeout', '--rerun-each', '--preload', '--bail', '--coverage-reporter', '--coverage-dir', '--reporter', '--reporter-outfile', '--max-concurrency', '--shard', '--only-failures', '-r'])
-
-/** bun's own options that take the next word (`bun --cwd packages/door test`, `bun run --cwd … test`). */
-const BUN_VALUED = new Set(['--cwd', '--filter', '--config', '-c', '--env-file', '--elide-lines', '--shell', '--install'])
-
-/** The index of the first word from `from` that is not an option (or the value of a valued one), or -1. */
-function firstWord(words: readonly string[], from: number): number {
-  for (let i = from; i < words.length; i++) {
-    const w = words[i]!
-    if (BUN_VALUED.has(w)) { i++; continue }
-    if (!w.startsWith('-')) return i
-  }
-  return -1
-}
-
-/** Whether these words run a whole suite: `bun test` naming no test file, or a package's `bun run test…` script. */
-export function runsWholeSuite(words: readonly string[]): boolean {
-  if (baseName(words[0] ?? '') !== 'bun') return false
-  const sub = firstWord(words, 1)
-  if (sub < 0) return false
-  if (words[sub] === 'run' || words[sub] === 'x') {
-    const at = firstWord(words, sub + 1)
-    const script = at < 0 ? undefined : words[at]
-    return script === 'test' || (script?.startsWith('test:') ?? false)
-  }
-  if (words[sub] !== 'test') return false
-  for (let i = sub + 1; i < words.length; i++) {
-    const w = words[i]!
-    if (TEST_VALUED.has(w)) { i++; continue }
-    if (w.startsWith('-')) continue
-    // A named file (or a name that selects one) is a focused run; a folder, or nothing, is the suite.
-    if (/\.(?:[cm]?[jt]sx?)$/.test(w) || /\.test\b|\.spec\b/.test(w)) return false
-  }
-  return true
-}
-
-/**
- * Why a whole-suite `bun test` straight on float-box or float-2 is refused, or null. A run under `scripts/agent-env`
- * (the focused, capped way) and `scripts/box-test` itself are not `bun` commands to this rule, so they pass.
- * Pure: the Claude mod asks it per call, and the Codex hook (`.codex/hooks/box-test-only.ts`) asks it too.
- */
-export function wholeSuiteRefusal(command: string, ctx: GuardContext): string | null {
-  if (ctx.hostname !== SHARED_MACHINE && ctx.hostname !== BOX_MACHINE) return null
-  for (const words of simpleCommands(command, { keepAgentEnv: true })) {
-    if (!runsWholeSuite(words)) continue
-    return `A whole-suite \`${words.join(' ')}\` is refused on ${ctx.hostname}: suites run only through scripts/box-test, which takes at most 2 runs at once, one per worktree, and kills everything a run started (a hand-started suite froze float-box at load 22 and left hundreds of orphans: PIE-998). ` +
-      'Run `scripts/box-test <package>` (`scripts/box-test all --each` for a series) from your worktree; for a few test files, `scripts/agent-env <your name> --test -- timeout 900 bun test <files>`.'
-  }
-  return null
-}
-
 /** Why one simple command is refused here, or null. */
 function refusalOf(words: readonly string[], ctx: GuardContext): string | null {
   const name = baseName(words[0] ?? '')
@@ -135,8 +82,8 @@ function refusalOf(words: readonly string[], ctx: GuardContext): string | null {
       `and GitHub already deletes the remote branch. Run \`${pr ? MERGE.replace('<n>', pr) : MERGE}\`.`
   }
   if (name === 'bun' && ctx.hostname === SHARED_MACHINE) {
-    const test = words[1] === 'test' || (words[1] === 'run' && words[2] === 'test')
-    if (test && words.some(w => w === '--parallel' || w.startsWith('--parallel='))) {
+    const test = bunTest(words)
+    if (test && test.args.some(w => w === '--parallel' || w.startsWith('--parallel='))) {
       return `bun test --parallel is refused on ${SHARED_MACHINE}: several agents testing at once froze it (4 cores). ` +
         'Run a focused test as `scripts/agent-env <your name> --test -- timeout 900 bun test <files>`, and a whole suite on float-box: `scripts/box-test <package>` (`scripts/box-test all --each` for a series).'
     }

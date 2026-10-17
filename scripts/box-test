@@ -94,10 +94,10 @@ if [ $target = float-box ]; then
     [ -n "$tmpref" ] && git -C "$repo" update-ref -d "$tmpref" 2>/dev/null
     [ $rpid != 0 ] && kill "$rpid" 2>/dev/null
     [ $keep = 1 ] && [ $guarded = 1 ] && exit $code
-    if [ $keep = 1 ]; then say "kept $box_host:$dir/ep0ch · remove it: ssh $box_host rm -rf $dir"
+    if [ $keep = 1 ]; then say "kept $box_host:$dir/ep0ch (the next run's sweep removes it once it is older than a run may last)"
     else
       rssh "d=$dir; case \$d in /tmp/ep0ch-box-*) ;; *) exit 1;; esac; p=\$(cat \$d/pid 2>/dev/null); case \$p in \"\"|*[!0-9]*|0|1) p=;; esac; r=\$(cat \$d/runpid 2>/dev/null); case \$r in \"\"|*[!0-9]*|0|1) r=;; esac; if [ -n \"\$p\" ]; then kill -TERM -- -\$p 2>/dev/null; for i in \$(seq 1 40); do kill -0 -- -\$p 2>/dev/null || break; sleep 1; done; kill -KILL -- -\$p 2>/dev/null; [ -n \"\$r\" ] && kill -KILL -- -\$r 2>/dev/null; fi; rm -rf -- \$d" </dev/null >/dev/null 2>&1 \
-        && say "removed $box_host:$dir" || say "couldn't remove $box_host:$dir: ssh $box_host rm -rf $dir"
+        && say "removed $box_host:$dir" || say "couldn't remove $box_host:$dir; the next run's sweep removes it once it is older than a run may last"
     fi
     exit $code
   }
