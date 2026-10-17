@@ -69,6 +69,51 @@ For people who run things: no `PROTOCOL` bump in this slice (the wave bumps it o
 takes `produce` and answers `produced`; `blockId` may be left out for a figure asked outside any note; a
 `.fields.` path answers `offsets` too; `blocks.query`/`query.matches` are unchanged.
 
+### Scripts in their Site (PIE-955, S5 of PIE-533)
+
+What changes for a script: it knows which note asked, takes slots, draws in place, and can be stopped.
+
+- **The Site's globals.** A script reads `this` (the note it is about: a rule's matched block, the note in front of a key
+  press, `block=` of an agent's act), `self` (its own note), `caller` and `props` (`week=42` is `props.week[0]`; the
+  power bar offers every `props.x` the code reads). No id is written in the script: the Showcase's seed report no longer
+  looks itself up.
+- **Reads.** `read()` returns the note's record (header, body, properties, fields, tasks, links, backlinks) with its
+  children. `resolve("this.owner")` answers as `{{this.owner}}` does, with a did-you-mean for a typo. `q("parent:this")`
+  binds `this`. A returned string shows as plain text; one `view.table(…)` is drawn without wrapping it.
+- **Render mode.** `[mode::render]` makes a script a handler: a `name:: week=42` line draws what it returns under the
+  line, live, redrawn when a note it read changes. It writes no run note and refuses `[effects::write]`. A `::= expression`
+  line is a one-line render-mode script. The kitchen sink has a "Scripts in place" section.
+- **Running.** A script that writes into its own note keeps running (only an edit of its code ends a run). `wait(ms)` is
+  bounded by the script's deadline (`[deadline::2m]`, five minutes at most). `script.stop run=<id>` (`scripts.stop`)
+  ends one run. A run note is machinery (`[machine::script]`): lists, queries and what-changed leave it out by default, and
+  it counts for no backlink. The backlink relation now leaves out every note stamped `[machine::…]` as a source
+  (deliveries, tosses, receipts too); `links:` and `linkedfrom:` are unchanged. An action run now stops at five
+  minutes unless the script says `[deadline::…]` (it was unbounded).
+- Wire: `site.answer` takes `self` and `caller`; new service action `scripts.stop`. No `PROTOCOL` bump of its own.
+
+### Notes that read themselves: `::fields`, `::if` and one figure orchestrator (PIE-953, fourth slice of PIE-533)
+
+What you can now write in a note, and what it does:
+
+- **`::fields{key=connectTo}`** lists every place the note wrote that key, one row per occurrence with its line. A row
+  opens its own line, lit, found again by the text it was written as, so it still works after edits above it; a row
+  appears as soon as a line is saved. `of=((id))` lists another note's. A row's `¶` anchors its line when you ask
+  (`fields.anchor`, by click, `⏎` or `act`) and gives you `((note^anchor))`; drawing it never writes.
+- **`::if{where="status=active"}` … `::`** draws its lines only while the note matches the query (the views' grammar,
+  `{{this.owner}}` operands bound). A query it can't read hides the body and says why. Its body holds Blockdown but no
+  other component (components don't nest yet).
+- **A figure copied onto two pages lists each page's own** (`query: type=ticket project={{this.project}}`), including
+  drawn inside another note (`site.answer` takes the `chain`), and takes call-site args: `::graph-table{project=lego}`
+  reads `{{props.project}}`.
+- **One orchestrator.** A figure's question (view or query, groups, `done:`/`now:`, a stat's per-item counts) and a
+  figure block's child bullets are asked of the service once, in the figure's Site (`site.answer` with `produce`); the
+  door and the published pages both draw that answer, and a page cuts it to the notes it may show. The child-bullets
+  query now leaves out proposals as well as comments.
+
+For people who run things: no `PROTOCOL` bump in this slice (the wave bumps it once at landing). Wire: `site.answer`
+takes `produce` and answers `produced`; `blockId` may be left out for a figure asked outside any note; a
+`.fields.` path answers `offsets` too; `blocks.query`/`query.matches` are unchanged.
+
 ### Notes that read themselves: values in every reader (PIE-952, fourth slice of PIE-533)
 
 What you can now do: write `Play it at {{this.target}}. Owner: {{this.owner}}.` in a note and see the value, not the
@@ -92,28 +137,6 @@ shows what you typed.
 - **Kitchen sink:** the section "Notes that read themselves" (`ep0ch --showcase`, `act section name=values`).
 - Wire: `site.answer` takes `hidden` (notes the reader may not see), answers `hidden` and `source` (the property token a
   value is written in) per value; `outline_read` has `site`. No `PROTOCOL` change in this slice.
-
-### Scripts in their Site (PIE-955, S5 of PIE-533)
-
-What changes for a script: it knows which note asked, takes slots, draws in place, and can be stopped.
-
-- **The Site's globals.** A script reads `this` (the note it is about: a rule's matched block, the note in front of a key
-  press, `block=` of an agent's act), `self` (its own note), `caller` and `props` (`week=42` is `props.week[0]`; the
-  power bar offers every `props.x` the code reads). No id is written in the script: the Showcase's seed report no longer
-  looks itself up.
-- **Reads.** `read()` returns the note's record (header, body, properties, fields, tasks, links, backlinks) with its
-  children. `resolve("this.owner")` answers as `{{this.owner}}` does, with a did-you-mean for a typo. `q("parent:this")`
-  binds `this`. A returned string shows as plain text; one `view.table(…)` is drawn without wrapping it.
-- **Render mode.** `[mode::render]` makes a script a handler: a `name:: week=42` line draws what it returns under the
-  line, live, redrawn when a note it read changes. It writes no run note and refuses `[effects::write]`. A `::= expression`
-  line is a one-line render-mode script. The kitchen sink has a "Scripts in place" section.
-- **Running.** A script that writes into its own note keeps running (only an edit of its code ends a run). `wait(ms)` is
-  bounded by the script's deadline (`[deadline::2m]`, five minutes at most). `script.stop run=<id>` (`scripts.stop`)
-  ends one run. A run note is machinery (`[machine::script]`): lists, queries and what-changed leave it out by default, and
-  it counts for no backlink. The backlink relation now leaves out every note stamped `[machine::…]` as a source
-  (deliveries, tosses, receipts too); `links:` and `linkedfrom:` are unchanged. An action run now stops at five
-  minutes unless the script says `[deadline::…]` (it was unbounded).
-- Wire: `site.answer` takes `self` and `caller`; new service action `scripts.stop`. No `PROTOCOL` bump of its own.
 
 ### The Site: one read for what a note says about itself (PIE-951, third slice of PIE-533)
 
