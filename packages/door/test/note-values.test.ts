@@ -84,6 +84,21 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
     expect(text).toContain("none");
   });
 
+  test("the property panel lists the values the note reads, with where each came from or why it has none", async () => {
+    const note = await create("Vent rail [owner::sam]\nOwner {{this.owner}}; typo {{this.ownr}}; today {{now.date}}.");
+    const host: SurfaceHost = { ctx: desk().ctx as any, redraw() {}, navigate() {} };
+    const surface = new NoteSurface();
+    surface.show((await board.get(note.id))!, host);
+    surface.render(100, 1000, host);
+    surface.openPanel(true);
+    let panel = "";
+    for (let i = 0; i < 40 && !panel.includes("Values read here"); i++) { await Bun.sleep(50); panel = surface.render(100, 40, host).lines.map(l => visible(l).trimEnd()).join("\n"); }
+    expect(panel).toContain("Values read here · 3");
+    expect(panel).toMatch(/\{\{this\.owner\}\}\s+sam\s+\w{8}…?/);
+    expect(panel).toMatch(/\{\{this\.ownr\}\}\s+no `ownr` on this note; did you mean `owner`\?/);
+    expect(panel).toMatch(/\{\{now\.date\}\}\s+\d{4}-\d\d-\d\d\s+computed/);
+  });
+
   test("a click or ⏎ on a value lights the line it is written on; selecting its words and commenting anchors on its token", async () => {
     const note = await create("Vent rail demo [owner::evan]\nOwner: {{this.owner}}, evan again.");
     const m = (await board.get(note.id))!;

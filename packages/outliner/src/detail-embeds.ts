@@ -10,6 +10,8 @@ import {isChecklistView,projectChecklistView} from './checklist-views';
 import { resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING } from "./transclusions";
 import { propertyReferenceOccurrences } from "./reference-occurrences";
+import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, valueWords } from "@ep0ch/outline-core/site-values";
+import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { blockDisplayTitle } from "./references";
 import { propertySummarySegments } from "./property-summary";
 import {
@@ -91,7 +93,12 @@ export interface DetailReadProjection {
   embedRanges: DetailEmbedRange[];
   /** Resource projections shown in this read, for change matching. Absent when none were read. */
   resourceProjections?: readonly ResourceProjection[];
+  /** The note's `{{ }}` as the service read them (PIE-533 S2), for the property inspector's "Values read here". Absent when it holds none. */
+  valueBindings?: readonly DetailValueBinding[];
 }
+
+/** One `{{ }}` of the note read: what it said, what it reads as (or why it doesn't), and where it came from. */
+export interface DetailValueBinding { expression: string; words: string; problem?: string; from?: string; route: string }
 
 interface ProjectedEmbed {
   text: string;
@@ -758,6 +765,36 @@ function proposalRegions(beside: readonly { afterLine: number; projected: Projec
   }));
 }
 
+/**
+ * The note's `{{ }}` as the preview reads them (PIE-533 S2): each replaced by the service's `site.answer` words, a value
+ * as its words, one with no answer as typed and what the service says (the nearest key). A replaced token is one atomic run
+ * whose origin is the token's source, so a comment on a drawn value anchors on the `{{ }}`. Never adds or removes a line.
+ * The editor shows source: this is the read projection only. The text sent is the one on screen, so the values agree with it.
+ */
+async function withSiteValues(requester: DetailEmbedRequester, hostBlockId: string | undefined, source: MappedDocument): Promise<{ source: MappedDocument; bindings: DetailValueBinding[] }> {
+  const bindings: DetailValueBinding[] = [];
+  if (!hostBlockId || !source.text.includes("{{")) return { source, bindings };
+  let answer: SiteAnswer;
+  try { answer = await requester.request<SiteAnswer>({ action: "site.answer", blockId: hostBlockId, draft: { text: source.text } }); }
+  catch { return { source, bindings }; }
+  const pairs = pairValues(source.text, answer.values.slice(0, MAX_NOTE_VALUES)).filter(pair => pair.value);
+  if (!pairs.length) return { source, bindings };
+  const parts: MappedDocument[] = [];
+  let cursor = 0;
+  for (const pair of pairs) {
+    const v = pair.value!;
+    const raw = source.text.slice(pair.start, pair.end);
+    parts.push(sliceDocument(source, cursor, pair.start));
+    const words = hasWords(v) ? valueWords(v).replace(/\n/g, " ") || EMPTY_VALUE : `${raw} (${problemWords(v)})`;
+    bindings.push({ expression: v.expression, words: hasWords(v) ? words : "", ...(hasWords(v) ? {} : { problem: problemWords(v) }), ...(v.from ? { from: v.from } : {}), route: v.route.join(" → ") });
+    const slices = sliceDocument(source, pair.start, pair.end).runs.flatMap(run => run.origin.kind === 'source' ? run.origin.slices : []);
+    parts.push(slices.length ? atomicDocument(words, {kind: 'source', slices}) : generatedDocument(words, 'site value'));
+    cursor = pair.end;
+  }
+  parts.push(sliceDocument(source, cursor));
+  return { source: concatDocuments(parts), bindings };
+}
+
 export function detailEmbedIds(text: string): string[] {
   return embedMatches(text).map((match) => match[1]!);
 }
@@ -769,8 +806,10 @@ export async function projectDetailRead(
 ): Promise<DetailReadProjection> {
   if (options.source && options.source.text !== text) throw new Error('Projection source must match its input text');
   const host = options.hostBlockId ? observeDocument({kind: 'block', blockId: options.hostBlockId}, text, options.hostRevision) : null;
-  const source = options.source ?? (host ? presentedSource(host) : generatedDocument(stripFragmentAnchors(text), 'host identity unavailable'));
+  const presented = options.source ?? (host ? presentedSource(host) : generatedDocument(stripFragmentAnchors(text), 'host identity unavailable'));
+  const { source, bindings: valueBindings } = await withSiteValues(requester, options.hostBlockId, presented);
   const projectedSource = source.text;
+  const valued = valueBindings.length ? { valueBindings } : {};
   const pendingProjections = options.hostBlockId
     ? readDetailResourceProjections(requester, text, options.hostBlockId, options.hostRevision)
     : Promise.resolve(null);
@@ -805,9 +844,9 @@ export async function projectDetailRead(
   const matches = embedMatches(projectedSource, text);
   if (matches.length === 0 && !isChecklistView(text)) {
     const { regions, projections } = await insertedRegions();
-    if (!regions.length) return { text: projectedSource, provenance: source, embeds: [], embedRanges: [] };
+    if (!regions.length) return { text: projectedSource, provenance: source, embeds: [], embedRanges: [], ...valued };
     const inserted = insertRegions({ text: projectedSource, provenance: source, embedRanges: [] }, [], regions);
-    return { ...inserted, embeds: [], ...(projections?.length ? { resourceProjections: projections } : {}) };
+    return { ...inserted, embeds: [], ...(projections?.length ? { resourceProjections: projections } : {}), ...valued };
   }
 
   const cache = new Map<string, Promise<ProjectedEmbed>>();
@@ -902,5 +941,5 @@ export async function projectDetailRead(
     }catch(error){const failure=`Checklist view unavailable · ${boundedError(error)}`;output+=failure;mappedParts.push(generatedDocument(failure, 'checklist query failure'));}
   }
   return { text: output, provenance: concatDocuments(mappedParts), embeds, embedRanges,
-    ...(projections?.length ? { resourceProjections: projections } : {}) };
+    ...(projections?.length ? { resourceProjections: projections } : {}), ...valued };
 }

@@ -33,7 +33,7 @@ import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../exte
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, workIdPrefix, shortId, type LinkTarget } from "../refs";
-import { pairValues, readerWords } from "@ep0ch/outline-core/site-values";
+import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
@@ -80,7 +80,7 @@ import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
-import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
+import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
@@ -704,7 +704,7 @@ export class NoteSurface {
   /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
   /** The reveal this surface took last (`takeReveal`), so showing the note again doesn't scroll back to it. */
   private revealed: object | null = null;
-  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean } | null = null;
+  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean; says?: string } | null = null;
   private revealMark = false;
   /**
    * Folded headings and list items (their FoldPoint keys): this reader's reading state, never the note's
@@ -1498,7 +1498,7 @@ export class NoteSurface {
       ...(open.length > OPEN_SHOWN ? [dim(`  and ${open.length - OPEN_SHOWN} more left open`)] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
-      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · the line that links here${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
+      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · ${this.focusMark.says ?? "the line that links here"}${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
     if (this.panel?.card) {
       const card = this.panel.card, fields = this.settingFields(m, card.schemas);
@@ -1508,7 +1508,7 @@ export class NoteSurface {
     } else if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
-      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text };
+      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text, values: this.valueRows(m, src) };
       const at = head.length;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
@@ -4221,6 +4221,16 @@ export class NoteSurface {
     return { doc: out, controls: panels.flatMap((p, i) => p.controls.map(c => ({ ...c, row: starts[shown(i)]! + c.row }))), ...placed(out, starts, n) };
   }
 
+  /** The note's `{{ }}` as the service read them, for the property panel (the draft's, while one is open). */
+  private valueRows(m: Msg, src: Source | null): ValueRow[] {
+    if (!isOutlineNote(m)) return [];
+    const text = this.draft?.text ?? m.text;
+    const answer = siteAnswerOf(m.id, text, src, !!this.draft && this.draft.text !== m.text);
+    return (answer?.values ?? []).slice(0, MAX_NOTE_VALUES).map(v => hasWords(v)
+      ? { expression: v.expression, words: valueWords(v) || EMPTY_VALUE, ...(v.from ? { from: v.from } : {}) }
+      : { expression: v.expression, words: "", problem: problemWords(v) });
+  }
+
   /**
    * An expanded thread's control, by ⏎ or a click, through the comment code the thread list uses: Select
    * selects its passage (the reader's text selection, PIE-419); Reply opens the thread list as the person's
@@ -5012,7 +5022,7 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}) } : {}) }, host.actor ?? USER);
+    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
     this.track(() => host.navigate(target, how));
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
@@ -5071,7 +5081,7 @@ export class NoteSurface {
     if (this.revealed === r) return;
     this.revealed = r;
     if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
-    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label);
+    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label, r.says);
   }
 
   /** `u`: the note's parent. */
@@ -5671,7 +5681,7 @@ export class NoteSurface {
    * Scroll to the line of this note that holds a reference (a backlinks row opened, PIE-884: `at`, the reference's
    * offset in the text the service read) and mark it, as an anchored link's fragment is. Folds around it open.
    */
-  async revealAt(at: number, host: SurfaceHost, by: Actor = USER, label?: string) {
+  async revealAt(at: number, host: SurfaceHost, by: Actor = USER, label?: string, says?: string) {
     const m = this.msg;
     if (!m) return;
     const from = this.scroll;
@@ -5690,7 +5700,7 @@ export class NoteSurface {
     const { points, lines } = this.foldsIn(now);
     const shown = lines.indexOf(line);
     for (const p of points) if (this.folded.has(p.key) && shown >= 0 && p.line < shown && shown < p.end) this.folded.delete(p.key);
-    this.focusMark = { by, spec: { line: line + 1, to: line + 1 }, label: `line ${line + 1}`, at: Date.now(), line: true };
+    this.focusMark = { by, spec: { line: line + 1, to: line + 1 }, label: `line ${line + 1}`, at: Date.now(), line: true, ...(says ? { says } : {}) };
     this.revealMark = this.scroll === from;
     host.redraw();
   }

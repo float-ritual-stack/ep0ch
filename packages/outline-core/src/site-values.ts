@@ -40,8 +40,9 @@ export function valueWords(v: SiteValue): string {
 export function problemWords(v: SiteValue): string {
   const p = v.problem;
   if (!p) return "";
+  // The service's message usually says the nearest keys already; add them when it doesn't.
   const near = p.didYouMean.slice(0, 3).map(k => `\`${k}\``);
-  return oneLine(`${p.message}${near.length ? `; did you mean ${near.join(" or ")}?` : ""}`);
+  return oneLine(/did you mean/i.test(p.message) || !near.length ? p.message : `${p.message}; did you mean ${near.join(" or ")}?`);
 }
 
 /**

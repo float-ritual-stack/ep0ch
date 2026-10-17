@@ -641,3 +641,39 @@ test("a proposal beside the note is drawn as an embed of it after its mark line;
   const stale = await projectDetailRead(requester, host.text, { hostBlockId: host.id, hostRevision: 2 });
   expect(stale.text).toBe(host.text);
 });
+
+// PIE-533 S2: the preview reads a note's {{ }} as values; the editor's text is untouched.
+test("Detail's read preview shows a note's {{ }} as the service reads them, line for line, with a token's source as the origin of its value", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { OutlinerClient } = await import("../src/client");
+  const { OutlinerServer } = await import("../src/server");
+  const { OutlinerStore } = await import("../src/store");
+  const directory = mkdtempSync(join(tmpdir(), "detail-values-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const socket = join(directory, "o.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  try {
+    const note = store.create("Vent rail [owner::sam] [target::https://example.test/vent]\nOwner {{this.owner}}; typo {{this.ownr}}; nobody {{this.crew}}.\nLast line");
+    const projection = await projectDetailRead(new OutlinerClient(socket), note.text, { hostBlockId: note.id, hostRevision: note.revision });
+    const lines = projection.text.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toBe("Owner sam; typo {{this.ownr}} (no `ownr` on this note; did you mean `owner`?); nobody {{this.crew}} (no `crew` on this note).");
+    // The drawn value's run maps back to the token, whole.
+    const at = projection.text.indexOf("sam;");
+    const run = projection.provenance.runs.find(r => r.start <= at && at < r.end)!;
+    expect(run.mapping).toBe("atomic");
+    expect(run.origin.kind).toBe("source");
+    const slice = (run.origin as unknown as { slices: { start: number; end: number; document: { text: string } }[] }).slices[0]!;
+    expect(slice.document.text.slice(slice.start, slice.end)).toBe("{{this.owner}}");
+    // A note with no placeholder is left alone, and a service that can't answer leaves them as typed.
+    expect((await projectDetailRead(new OutlinerClient(socket), "Plain", { hostBlockId: note.id, hostRevision: 1 })).text).toBe("Plain");
+    expect((await projectDetailRead(new FakeRequester(new Map(), new Map()), "A {{this.owner}}", { hostBlockId: note.id })).text).toBe("A {{this.owner}}");
+  } finally {
+    await server.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
