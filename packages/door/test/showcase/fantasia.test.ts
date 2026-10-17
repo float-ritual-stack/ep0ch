@@ -159,7 +159,8 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
     await untilAsync(() => tiles().filter(t => t.float).length >= 3, "the tiles floated", 20_000);
     const run = (desk().runningScripts() as string[])[0]!;
     expect(run).toBeTruthy();
-    expect(screen()).toContain("esc stops it");
+    app.flush();
+    expect(h.painted.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).join("\n")).toMatch(/esc stops it|stop the dance/);
     press({ kind: "esc" });
     await untilAsync(() => !desk().history.isOpen(run), "the stopped run's transaction closed", 20_000);
     desk().settle();
@@ -167,6 +168,27 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
     expect(names()).toEqual(start);
     expect(desk().history.entriesOf(run).length).toBe(0);
     expect(desk().runningScripts().length).toBe(0);
+  }, 90_000);
+
+  test("the status bar offers the stop to the mouse: a click on \"■ stop the dance\" runs layout.stop, as Esc does", async () => {
+    await openSection();
+    desk().settle();
+    const start = names();
+    (app as any).lastInput = Date.now();
+    const b = button();
+    click(b.x, b.y);
+    await untilAsync(() => tiles().filter(t => t.float).length >= 3, "the tiles floated", 20_000);
+    const run = (desk().runningScripts() as string[])[0]!;
+    const at = () => { app.flush(); const rows = h.painted.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")); const y = rows.findIndex(r => r.includes("■ stop the dance")); return y < 0 ? null : { x: rows[y]!.indexOf("■ stop the dance") + 2, y }; };
+    await untilAsync(() => !!at(), "the stop control on the status bar", 10_000);
+    const c = at()!;
+    click(c.x, c.y);
+    await untilAsync(() => !desk().history.isOpen(run), "the stopped run's transaction closed", 20_000);
+    desk().settle();
+    expect(tiles().every(t => !t.float)).toBe(true);
+    expect(names()).toEqual(start);
+    app.flush();
+    expect(h.painted.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).some(r => r.includes("■ stop the dance"))).toBe(false);
   }, 90_000);
 
   test("a locked screen refuses the dance and says so; nothing moved", async () => {

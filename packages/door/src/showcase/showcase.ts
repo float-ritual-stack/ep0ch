@@ -1271,6 +1271,7 @@ export class Showcase implements Screen {
   }
 
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
+  dancing(): boolean { return [...this.stages.values()].some(f => f.dancing()); }
   settle(): boolean { return [...this.stages.values()].map(f => f.settle()).some(Boolean); }
   scriptEnded(run: string, reason: "done" | "stopped" | "failed") { for (const f of this.stages.values()) f.scriptEnded(run, reason); }
   scriptUndone(run: string) { for (const f of this.stages.values()) f.scriptUndone(run); }

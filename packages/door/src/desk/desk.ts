@@ -654,6 +654,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   runningScripts(): string[] {
     return this.history.openIds().filter(id => { const by = this.history.openTxn(id)?.by; return by?.kind === "agent" && by.id.startsWith("script:"); });
   }
+  /** A script run is rearranging this screen: the status bar offers to stop it. */
+  dancing(): boolean { return this.runningScripts().length > 0; }
   /** The runs already announced ("esc stops it"), once each. */
   private announced = new Set<string>();
 
