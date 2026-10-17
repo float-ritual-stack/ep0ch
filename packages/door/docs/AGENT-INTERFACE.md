@@ -593,6 +593,7 @@ at, and what it does while they're typing:
 | `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row (folding away the rows it is in is refused); an open lands where the tree's opens go | allowed |
 | `projection.refresh` | no | allowed |
 | `ext.*` | no | allowed: the service runs it, attributed to the extension |
+| `agents.yolo` | no | `on=true` refused (the person hands the door over); `on=false` allowed. While it's on, every row of this table says allowed: no person guard holds an agent back, and revisions and the layout's shape still do |
 | `changes.machinery` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent`: both take `machinery`) |
 | `tile.herdr` | no | allowed |
 | `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |

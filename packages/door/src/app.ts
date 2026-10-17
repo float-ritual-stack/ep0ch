@@ -117,6 +117,8 @@ export interface Ctx {
   readonly hostLayer?: HostLayer;
   /** "What changed" includes machinery (`changes.machinery`); off by default. */
   machineryChanges?: boolean;
+  /** Agents are in yolo (`agents.yolo`): no person guard holds one back. Off by default, for this door's run. */
+  agentsYolo?: boolean;
   /** What others changed since the person last looked (PIE-647), from the change feed. */
   whatChanged?: WhatChanged;
   /** Requests an agent or an extension wrote that wait for the person's `r` (PIE-888): the status bar's count and the waiting-on-you list. */
@@ -402,6 +404,10 @@ export class App implements Ctx {
   reconnects = 0;
   /** Whether "what changed" (the +N count, newscan) includes what tools wrote for their own bookkeeping: `changes.machinery`. */
   machineryChanges = false;
+  /** Agents are in yolo (`agents.yolo`): the person handed them the door. Off by default; a restarted door starts off. */
+  agentsYolo = false;
+  /** Where the status bar's YOLO sits, for a click (agents.yolo on=false). */
+  private yoloAt: { from: number; to: number; row: number } | null = null;
   /** Where the status bar's `+N machine` sits, for a click. */
   private extAt: { from: number; to: number; row: number } | null = null;
   /** Where the status bar's backup mark sits, for a click (backups.alert). */
@@ -981,7 +987,8 @@ export class App implements Ctx {
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    const w = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
+    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
+    const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
     if (this.bar && !w.busy) return { ...w, busy: true, why: "the person has the power bar open (ctrl+k)" };
     // An armed edit holds the next key: the person is mid-gesture.
@@ -1086,6 +1093,12 @@ export class App implements Ctx {
     if (this.bar) {
       if (!this.bar.ended()) this.bar.key(k, this);
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
+      return;
+    }
+    // A click on the status bar's YOLO takes agents out of yolo (agents.yolo on=false).
+    const yolo = this.yoloAt;
+    if (yolo && k.kind === "mouse" && k.y === yolo.row && k.x >= yolo.from && k.x < yolo.to) {
+      if (k.action === "down") void this.dispatch.press("agents.yolo", { on: false });
       return;
     }
     // A click on the status bar's `+N machine` shows (or hides) what tools wrote for their own bookkeeping, as `changes.machinery` does.
@@ -1340,16 +1353,20 @@ export class App implements Ctx {
     // What the terminals' programs say waits on the person (OSC 7501): a click opens the list in the drawer (host.waiting).
     const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count() });
     const waitPart = waiting.plain ? `${waiting.styled} ${fg(C.lcyan)}│ ` : "";
-    const right = `${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
+    // Yolo is loud: agents act with no person guard while it shows.
+    const yoloPart = this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD} ${fg(C.lcyan)}│ ` : "";
+    const right = `${yoloPart}${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
     const from = cols - width(right);
     const backupFrom = cols - width(backupPart + newPart + extPart + tail);
     this.backupAt = backup && backupFrom >= 0 ? { from: backupFrom, to: backupFrom + width(backup.text), row: this.term.info.rows - 1 } : null;
     const extFrom = cols - width(extPart + tail);
     this.extAt = ext && extFrom >= 0 ? { from: extFrom, to: extFrom + width(ext), row: this.term.info.rows - 1 } : null;
     const tailFrom = cols - width(tail), row = this.term.info.rows - 1;
+    this.yoloAt = yoloPart && from >= 0 ? { from, to: from + 4, row } : null;
     this.videoAt = tailFrom >= 0 ? { from: tailFrom, to: tailFrom + width(this.video), row } : null;
     this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
-    this.drawer.chipAt = chip && from >= 0 ? { from, to: from + width(this.drawer.chipText()), row: this.term.info.rows - 1 } : null;
+    const chipFrom = from + width(yoloPart);
+    this.drawer.chipAt = chip && from >= 0 ? { from: chipFrom, to: chipFrom + width(this.drawer.chipText()), row: this.term.info.rows - 1 } : null;
     const waitFrom = cols - width(waitPart + (this.offline ? "offline │ " : "") + backupPart + newPart + extPart + tail);
     const changedFrom = cols - width(newPart + extPart + tail);
     this.changedAt = newCount && changedFrom >= 0 ? { from: changedFrom, to: changedFrom + width(`+${newCount} new`), row: this.term.info.rows - 1 } : null;

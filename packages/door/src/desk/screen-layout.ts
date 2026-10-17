@@ -140,6 +140,8 @@ export interface Person<I = number> {
    * busy, away, or at the keys in the last 2s), or null. Left out, being busy is the rule.
    */
   held?: string | null;
+  /** Agents are in yolo (Whereabouts.yolo): an agent acts here as the person would. */
+  yolo?: boolean;
 }
 
 /** What an operation is applied with: who acts, where the person is, what each tile is, the screen's room. */
@@ -499,7 +501,7 @@ const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
 
 class Step<I> {
   constructor(private readonly d: Draft<I>, private readonly ctx: Ctx<I>) {}
-  private get agent() { return this.ctx.actor.kind === "agent"; }
+  private get agent() { return this.ctx.actor.kind === "agent" && !this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
   private isFloat(id: I) { return this.d.floats.some(f => f.id === id); }

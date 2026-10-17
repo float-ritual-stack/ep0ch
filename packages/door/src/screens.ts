@@ -466,6 +466,20 @@ const SCREEN_NAMES: Record<string, string[]> = {
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q on every BBS screen, run these, as `act` does. */
 export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
+  "agents.yolo": def({
+    summary: "hand the door to your agents (on=true) or take it back (on=false); left out, it toggles. In yolo no person guard holds an agent back: not your typing, focus or idle, not a tile's limit or a lock, not the drawer. What keeps state valid (revisions, the layout's shape) still holds, and every agent action is still attributed and said. Loud on the status bar (YOLO; a click takes it back). Off when the door starts. Turning it on is the person's; an agent may turn it off",
+    keys: "> agents.yolo in the power bar (ctrl+k); a click on the status bar's YOLO turns it off",
+    touches: "nothing", replay: "ask",
+    args: { on: { type: "boolean", optional: true, about: "true hands the door to agents, false takes it back; default: toggle" } },
+    run({ on }, { ctx }, actor) {
+      const want = on ?? !ctx.agentsYolo;
+      if (want && actor.kind === "agent") throw new ActionRefused("yolo is the person's to hand over: they turn it on (ctrl+k > agents.yolo); ask them to");
+      ctx.agentsYolo = want;
+      ctx.flash(want ? "YOLO: agents act with no person guard until you take it back (click YOLO, or agents.yolo on=false)" : "agents are back under the person guards", 8000);
+      ctx.redraw();
+      return { on: want };
+    },
+  }),
   "changes.machinery": def({
     summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes machinery: what tools wrote for their own bookkeeping (notes stamped [machine::…], tosses, file touches, deliveries) and extensions' writes (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
     keys: "a click on the status bar's +N machine",

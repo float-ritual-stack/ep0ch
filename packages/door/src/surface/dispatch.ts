@@ -173,6 +173,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   invited?: boolean;
 }): string | null {
   if (actor.kind !== "agent") return null;
+  // Yolo: the person handed the door to their agents, so none of the rules below (theirs) holds an agent back.
+  if (where.yolo) return null;
   if (def.person) return def.person;
   // What the tile lets an agent do (PIE-639): `edit` allows reads and the note's own edits (a `draft` action), `off` only reads.
   const g = at.gate;
