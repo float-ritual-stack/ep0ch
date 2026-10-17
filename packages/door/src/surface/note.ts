@@ -5844,7 +5844,7 @@ export class NoteSurface {
     for (const p of points) if (this.folded.has(p.key) && shown >= 0 && p.line < shown && shown < p.end) this.folded.delete(p.key);
     this.focusMark = { by, spec: { line: line + 1, to: line + 1 }, label: `line ${line + 1}`, at: Date.now(), line: true, ...(says ? { says } : {}) };
     // A front-matter property line isn't drawn in the note (the property panel, `i`, holds it): said, rather than a mark nobody can see.
-    if (line > 0 && parsePropertyRecords(now.text).some(p => p.line === line && p.scope === "block" && p.syntax === "bare")) host.ctx.flash(`line ${line + 1} is a front-matter property: it's in the property panel (i)`);
+    if (line > 0 && parsePropertyRecords(now.text).some(p => p.line === line && p.scope === "block" && p.syntax !== "hashtag")) host.ctx.flash(`line ${line + 1} is a front-matter property: it's in the property panel (i)`);
     this.revealMark = this.scroll === from;
     host.redraw();
   }

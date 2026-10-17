@@ -22,7 +22,7 @@ reader may not see are refused; an ambiguous id prefix names no hidden title; a 
 
 `::fields{key=…}` listed only a note's body lines, so a key written in its front matter (`- connectTo:: v`, a list
 value a row each) or header chip answered "0 occurrences". It now lists every occurrence wherever it is written, each
-with its line, and a row opens that line lit. A `#hashtag` is the key `tag` (`::fields{key=tag}`); `key=tags` finds
+with its line, and a row opens that line lit (a front-matter line isn't drawn in the note, so its row says it is in the property panel, and its `¶` anchor is refused). A `#hashtag` is the key `tag` (`::fields{key=tag}`); `key=tags` finds
 only a `tags::` property, and says to try `tag` when it finds none. The showcase's `fields-if` section writes one key
 in every form beside the `::fields` that lists them. `PROTOCOL` moves (what outline-core's record holds changed).
 

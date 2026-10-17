@@ -446,7 +446,7 @@ export function ensureFragmentAnchor(
   }
   if (existing) return { text, fragmentId: existing[1]!, created: false };
   // A front-matter property line (`- re:: why`): an anchor written after its value would become part of the value.
-  if (lineIndex > 0 && parsePropertyRecords(text).some(p => p.line === lineIndex && p.scope === "block" && p.syntax === "bare")) {
+  if (lineIndex > 0 && parsePropertyRecords(text).some(p => p.line === lineIndex && p.scope === "block" && p.syntax !== "hashtag")) {
     throw new Error(`line ${lineIndex + 1} is a front-matter property, where an anchor would become part of its value: link the note, or anchor a line of the body`);
   }
 
