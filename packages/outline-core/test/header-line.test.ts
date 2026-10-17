@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  fieldChips, frontMatter, headerFields, headerLine, joinHeaderLine, bodyOffset, noteFile, readFrontMatter, readNoteFile, textFromHeader, withoutHeaderDashes,
+  fieldChips, frontMatter, frontMatterLines, headerFields, headerLine, joinHeaderLine, bodyOffset, noteFile, readFrontMatter, readNoteFile, textFromHeader, withoutHeaderDashes,
 } from "../src/header-line";
 
 // Fictional notes.
@@ -139,5 +139,25 @@ describe("front matter and back", () => {
     const back = readNoteFile(file)!;
     expect(back.identity.author).toBe("agent");
     expect(headerLine(back.text).chips.map(c => [c.key, c.value])).toEqual([["author", "Robin"], ["type", "log"]]);
+  });
+});
+
+describe("front matter ends at a rule or a list item that isn't a property line (PIE-970)", () => {
+  const head = "Plan [type::plan]";
+  const lines = (text: string) => [...frontMatterLines(text)];
+  test("a rule line ends it, with or without a blank line after", () => {
+    expect(lines(`${head}\n---\n- #a - #b`)).toEqual([0]);
+    expect(lines(`${head}\n[x::y]\n***\n#a`)).toEqual([0, 1]);
+    expect(lines(`${head}\n---\n\n- #a - #b`)).toEqual([0]);
+    expect(lines(`${head}\r\n---\r\n- #a`)).toEqual([0]);
+  });
+  test("a list item that isn't a property line ends it; a bulleted property line stays", () => {
+    expect(lines(`${head}\n- #a\nbody`)).toEqual([0]);
+    expect(lines(`${head}\n[x::y]\n- one\n- two`)).toEqual([0, 1]);
+    expect(lines(`${head}\n- [x::y] - [z::w]\n- re:: why\nbody`)).toEqual([0, 1, 2, 3]);
+  });
+  test("the first paragraph without either still runs to the first blank line", () => {
+    expect(lines(`${head}\n[x::y]\n#a #b\n\nbody`)).toEqual([0, 1, 2]);
+    expect(lines(`\n${head}\nprose\n\nbody`)).toEqual([1, 2]);
   });
 });

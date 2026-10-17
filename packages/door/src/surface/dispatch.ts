@@ -162,7 +162,7 @@ export interface DraftAt { board?: object | null; blockId?: string | null; sessi
 type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
-export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
+export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate" | "host"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
   /** The tile it runs in (by name, and how a refusal says it). */
   tile?: { name: string; label?: string } | null;
   /** The action's name and what the tile it acts on lets an agent do (PIE-639): checked before anything else of the tile. */
@@ -173,6 +173,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   invited?: boolean;
 }): string | null {
   if (actor.kind !== "agent") return null;
+  // Yolo: the person handed the door to their agents, so none of the rules below (theirs) holds an agent back.
+  if (where.yolo) return null;
   if (def.person) return def.person;
   // What the tile lets an agent do (PIE-639): `edit` allows reads and the note's own edits (a `draft` action), `off` only reads.
   const g = at.gate;
@@ -203,6 +205,11 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
     }
     case "screen": {
       if (where.away) return `${where.away}; not moved`;
+      // Typing in the drawer (the host layer) is never in the way of a screen change: the drawer stays over every
+      // screen, so the person's text and keys stay where they are (Evan, Oct 17: "typing in the chat door shouldn't be
+      // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself
+      // (`host`, putting it away) still waits for them.
+      if (where.keys === "host" && !def.host) return null;
       if (where.busy) return `${where.why ?? "the person is typing"}; not moved`;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
@@ -394,7 +401,7 @@ export class Dispatcher {
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.
-    if (actor.kind === "agent" && def.person) throw new ActionRefused(def.person);
+    if (actor.kind === "agent" && def.person && !this.where().yolo) throw new ActionRefused(def.person);
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
     const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);

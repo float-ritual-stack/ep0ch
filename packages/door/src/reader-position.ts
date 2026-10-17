@@ -7,7 +7,10 @@ export class ReaderPosition {
 
 /** Each renderer supplies its source map and the screen row where its body starts. */
 export class PositionRows {
-  source: number[] = [];
+  /** Per row, the source line it comes from (-1 for none). Kept non-decreasing: a row that stands for a later line (the tag row, PIE-970) must not send a place near it back above its neighbours. */
+  private lines: number[] = [];
+  get source(): number[] { return this.lines; }
+  set source(rows: number[]) { let high = -1; this.lines = rows.map(l => (l < 0 ? l : (high = Math.max(high, l)))); }
   origin = 0;
   /** A reader header image shrinks by one row for each row scrolled. */
   leading = 0;

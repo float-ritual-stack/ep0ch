@@ -246,6 +246,8 @@ describe("agents never take the person's place (C3, C4)", () => {
     no(s, { op: "shares", split: "s1", shares: [1, 1, 1] }, /where the person is typing/, AGENT, typing);
     no(s, { op: "grow", tile: 1, axis: "row", by: 2 }, /where the person is typing/, AGENT, typing);
     no(s, { op: "even" }, /where the person is typing/, AGENT, typing);
+    // In yolo (the person handed the door to agents) the agent may: the layout's own shape rules still hold.
+    expect(ok(s, { op: "even" }, AGENT, { ...typing, yolo: true }).state).toBeTruthy();
     // A border that leaves their tile's size alone (thread over activity), the agent may move; the person may move any.
     expect(ok(s, { op: "resize", path: "2", border: 0, share: 0.3 }, AGENT, typing).state).toBeTruthy();
     expect(ok(s, { op: "resize", path: "", border: 0, share: 0.4 }, PERSON, typing).state).toBeTruthy();
@@ -260,6 +262,10 @@ describe("agents never take the person's place (C3, C4)", () => {
   test("C4: an agent undoes only a lock it set; the person's are theirs, by lock, by policy, by loading a layout", () => {
     let s = ok(fresh(), { op: "lock", on: true }).state;
     no(s, { op: "lock", on: false }, /the screen was locked by the person; an agent doesn't unlock it/, AGENT);
+    // In yolo the person's lock doesn't hold an agent: it evens the screen out as it is, or unlocks it.
+    no(s, { op: "even" }, /the screen is locked/, AGENT);
+    expect(ok(s, { op: "even" }, AGENT, { yolo: true }).state).toBeTruthy();
+    expect(ok(s, { op: "lock", on: false }, AGENT, { yolo: true }).state.policy.locked).toBeFalsy();
     no(s, { op: "policy", node: "screen", set: { locked: false }, clear: [] }, /locked by the person/, AGENT);
     no(s, { op: "policy", node: "screen", set: {}, clear: ["locked"] }, /locked by the person/, AGENT);
     s = ok(s, { op: "lock", on: false }).state;

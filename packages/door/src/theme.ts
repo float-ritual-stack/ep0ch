@@ -35,7 +35,10 @@ export interface Theme {
     select: Rgb;
     /** An agent's selection: tinted in the agents' colour. */
     agent: Rgb;
-    /** The reading ruler under the current block (PIE-441). */
+    /**
+     * The reading ruler under the current block (PIE-441): the container-focus tint (PIE-969), the figure, table or block
+     * the cursor is in. The row the cursor is on inside it is `item`.
+     */
     ruler: Rgb;
     /** A comment thread's quoted passage while the thread is open (PIE-420). */
     thread: Rgb;
@@ -46,6 +49,12 @@ export interface Theme {
     /** A search or backlinks row selected while its tile doesn't have the keys. */
     idleRow: Rgb;
   };
+  /**
+   * Item focus (PIE-969): the row the cursor is on inside the tile, figure or table that has the keys (whose own tint is
+   * `tint.ruler`). `bg` is the row's band, and every text colour reads on it at 4.5:1 or better (test/theme-contrast.test.ts);
+   * `bar` is the marker at the row's left edge. Dark-capped: no bright fill.
+   */
+  item: { bg: Rgb; bar: Rgb };
   /**
    * The look's surfaces (PIE-675: a tile's or a box's `bg`, a header's `header.bg`, a list's zebra), as roles: `raised`
    * and `sunken` at their full strength, and `tone`, how much of a tone's colour (the callouts' families) is mixed into
@@ -85,6 +94,7 @@ const CLASSIC: Theme = {
     select: [46, 72, 132], agent: [78, 40, 88], ruler: [58, 50, 26], thread: [40, 52, 30], embed: [18, 24, 44],
     idle: [22, 30, 58], idleRow: VGA_RGB[8]!,
   },
+  item: { bg: VGA_RGB[1]!, bar: VGA_RGB[11]! },
   surface: { raised: [28, 28, 48], sunken: [0, 0, 0], tone: 0.16 },
   edge: { tile: [112, 112, 136], focus: [232, 148, 48] },
   external: [140, 140, 255],
@@ -121,6 +131,7 @@ const CALM: Theme = {
     select: [34, 50, 82], agent: [66, 40, 78], ruler: [56, 50, 30], thread: [36, 50, 34], embed: [20, 26, 38],
     idle: [30, 38, 54], idleRow: [30, 38, 54],
   },
+  item: { bg: [30, 52, 92], bar: [128, 206, 214] },
   surface: { raised: [40, 46, 61], sunken: [6, 8, 12], tone: 0.2 },
   edge: { tile: [98, 112, 136], focus: [236, 152, 72] },
   external: [156, 150, 226],
@@ -156,6 +167,7 @@ const NIGHT: Theme = {
     select: [26, 36, 58], agent: [50, 30, 58], ruler: [40, 36, 22], thread: [28, 40, 28], embed: [16, 20, 28],
     idle: [24, 28, 38], idleRow: [24, 28, 38],
   },
+  item: { bg: [22, 36, 64], bar: [110, 176, 184] },
   surface: { raised: [31, 35, 45], sunken: [4, 5, 7], tone: 0.16 },
   edge: { tile: [86, 96, 114], focus: [206, 134, 66] },
   external: [140, 134, 200],

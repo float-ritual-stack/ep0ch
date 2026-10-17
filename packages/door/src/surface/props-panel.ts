@@ -10,7 +10,7 @@ import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
 import { MISSING_MARK, pageOf, refView, referencesIn, shortId } from "../refs";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { ellipsize, bg, C, fg, pad, RESET, width } from "../style";
+import { itemBg, ellipsize, bg, C, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rule } from "../text";
 import { RowView } from "../scroll";
@@ -169,7 +169,7 @@ export class PropertyPanel {
       const shown = pad(value, valW);
       const line = mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + (scope && !f ? value + RESET + " " + fg(C.dark) + scope : shown) + RESET;
       if (out.length < h) this.at.push({ y: out.length, n: r.n, from: keyW + 4, target: !!r.target });
-      out.push(on ? bg(C.blue) + pad(line.split(RESET).join(RESET + bg(C.blue)), w) + RESET : pad(line, w));
+      out.push(on ? itemBg() + pad(line.split(RESET).join(RESET + itemBg()), w) + RESET : pad(line, w));
       // The value being typed completes as a draft does: the popup opens under it, and a click on a candidate chooses it.
       if (f) {
         const c = completerOf(f.input), pop = completionOf(f.input);

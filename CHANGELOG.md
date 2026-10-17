@@ -245,6 +245,35 @@ did-you-mean for a missing key) and the `Site` and `PropsSpec` types it reads. T
 longer says `[blocks::PIE-12, PIE-14]` is two links: a plain value's commas are one value, and a list is written in
 brackets (#604).
 
+### Two focus levels: which figure has the keys, which row the cursor is on (PIE-969)
+
+A figure, table or list with the cursor keeps its amber tint (the container has the keys). The row the cursor is on
+inside it is now a blue band with a bar at its left edge, so the bullet changing colour is no longer the only sign.
+Every selectable list draws its cursor row in the same band: the outline, the links and query tiles, the river, the
+board's cards, the thread and step panels. The band is a theme value (`item` in `src/theme.ts`) in calm, night and
+classic, dark (no bright fill), and every text colour reads on it at 4.5:1 or better (checked from the theme's own
+values). `ep0ch --showcase` has a "focus" section.
+
+### A rule under a note's header ends its front matter
+
+A note whose header line is followed by `---` and a list line of tags (`- #a - #b`), with no blank line between,
+draws the rule and then the tags as a body line, as it does with a blank line. A `---` line, or a list item with no
+property in it, now ends front matter like a blank line; a bulleted line with properties (`- [a::b]`, `- re:: why`)
+stays in it. `tag=` still matches the tags on that line. The reader's scroll no longer snaps back to the top on a note
+whose tag row stands above a drawn line. Run `ep0ch install --apply` (the protocol is bumped and properties are
+re-read).
+
+### Yolo: hand the door to your agents
+
+`agents.yolo` in the power bar (ctrl+k) hands the door to your agents until you take it back. In yolo no guard of
+yours holds an agent back: not your typing (in the drawer or on the screen), your focus, the two idle seconds, a
+tile's agent limit, a lock or an action that is otherwise yours alone. Use it when a screen is in a state you want an
+agent to just fix. One thing stays: an agent never types into the draft you're typing in (`draft.patch` lands in it),
+so what you write always lands. What keeps state valid
+(revisions, the layout's own shape) still holds, and every agent action is still attributed and said. The status bar
+shows a red **YOLO** while it's on; a click on it (or `agents.yolo on=false`) takes it back. It's off whenever the door
+starts. Turning it on is yours; an agent may turn it off.
+
 ### The thread panel is a tree, and a click only selects (PIE-944)
 
 `t` in a reader opens the thread as a phpBB-style tree: the root post, the chain of parents down to the note you're
