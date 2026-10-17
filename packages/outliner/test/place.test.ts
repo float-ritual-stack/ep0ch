@@ -74,7 +74,7 @@ describe("planPlace", () => {
     const plan = planPlace(note, { producer, at: "^weak", content: "x", here: 4 });
     if (plan.ok || plan.kind !== "proposal") throw new Error("expected a proposal");
     expect(plan.reason).toBe("^weak isn't in this note; did you mean ^week?");
-    expect(plan.mark).toBe("my own paragraph");
+    expect(plan.mark).toBe("- an item ^item1");
     expect(planPlace(note, { producer, at: "^weak", content: "x" })).toMatchObject({ kind: "refused" });
   });
   test("an edited region is the person's: the new output becomes a proposal and their text stays", () => {
@@ -101,5 +101,16 @@ describe("planPlace", () => {
     const again = planPlace(moved, { producer, here: 4, mode: "upsert", content: "v2" });
     if (!again.ok) throw new Error("no");
     expect(again.created).toBe(false);
+  });
+});
+
+describe("the record leaves output regions out", () => {
+  test("a chip or a task inside a region is the producer's, never the note's field", async () => {
+    const { textRecord } = await import("../src/block-records");
+    const body = `Weekly [status::open]\n\n${outputRegionText({ label: "w", producer: "p1", anchor: "out-w-1", body: "| a |\n[status::done] [ ] a task" })}`;
+    const record = textRecord({ id: "abcdefgh1", text: body, parentId: null, revision: 1, createdAt: 1, updatedAt: 1 } as never);
+    expect(JSON.stringify(record.properties)).toContain("open");
+    expect(JSON.stringify(record.properties)).not.toContain("done");
+    expect(record.tasks).toEqual([]);
   });
 });

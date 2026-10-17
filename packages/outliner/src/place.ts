@@ -86,6 +86,19 @@ function insertion(lines: readonly string[], line: number, region: string, where
   return { observed, range, replacement: `${prev !== undefined && prev.trim() ? "\n" : ""}${region}\n\n${observed}` };
 }
 
+/**
+ * The mark a patch is sent with: the first line below the span that is unique in the note. `draft.patch` changes only text
+ * above its mark and draws a proposal there, so the edit sits at its address and a proposal is drawn just under it. Empty
+ * when the span reaches the note's end.
+ */
+export function markBelow(lines: readonly string[], lastLine: number): string {
+  for (let i = lastLine + 1; i < lines.length; i++) {
+    const t = lines[i]!.trim();
+    if (t && lines.filter(l => l.trim() === t).length === 1) return lines[i]!;
+  }
+  return "";
+}
+
 const regionOfProducer = (r: OutputRegion, producer: string) => r.producer === producer;
 
 /** Plans one `place()` of `req` in `text`. */
@@ -97,7 +110,7 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
   const regions = findOutputRegions(text);
   const anchors = fragmentAnchors(text);
   const here = req.here !== undefined && req.here >= 0 && req.here < lines.length ? req.here : undefined;
-  const callerMark = here !== undefined ? lines[here]! : (lines.find(l => l.trim()) ?? "");
+  
   const region = (target: string, anchor?: string) => {
     const a = anchor ?? outputAnchor(req.producer.id, target, label);
     return { anchor: a, text: outputRegionText({ label, producer: req.producer.id, anchor: a, body: req.content, ...(req.interpolate ? { interpolate: true } : {}) }) };
@@ -106,7 +119,7 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
   const proposeAtCaller = (reason: string, target: string): PlacePlan => {
     if (here === undefined) return { ok: false, kind: "refused", reason: `${reason}; and there is no caller line to draw a proposal at, so nothing was written` };
     const r = region(target);
-    return { ok: false, kind: "proposal", reason, spans: [insertion(lines, here, r.text, "after")], anchor: r.anchor, mark: callerMark };
+    return { ok: false, kind: "proposal", reason, spans: [insertion(lines, here, r.text, "after")], anchor: r.anchor, mark: markBelow(lines, here) };
   };
 
   // The address.
@@ -159,10 +172,10 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
     const next = outputRegionText({ label, producer: req.producer.id, anchor: r.anchor!, body: req.content, ...(req.interpolate ? { interpolate: true } : {}) });
     const span: DraftPatchSpan = { observed: text.slice(r.start, r.end), range: { start: r.start, end: r.end }, replacement: next };
     if (r.edited || r.hash === undefined) {
-      return { ok: false, kind: "proposal", anchor: r.anchor!, spans: [span], mark: callerMark,
+      return { ok: false, kind: "proposal", anchor: r.anchor!, spans: [span], mark: markBelow(lines, r.endLine),
         reason: `${label}'s new output is proposed: the region was edited, so it is yours; apply it or dismiss it` };
     }
-    return { ok: true, spans: [span], anchor: r.anchor!, created: false, mark: callerMark, summary: `replaced ${label}'s region ^${r.anchor}` };
+    return { ok: true, spans: [span], anchor: r.anchor!, created: false, mark: markBelow(lines, r.endLine), summary: `replaced ${label}'s region ^${r.anchor}` };
   }
 
   function placeAt(target: string, first: number, last: number, where: "after" | "before", at: FragmentAnchor | undefined): PlacePlan {
@@ -187,7 +200,7 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
     let anchorId = r.anchor, n = 1;
     while (regions.some(x => x.anchor === anchorId) || anchors.some(a => a.id === anchorId)) anchorId = `${r.anchor}-${++n}`;
     const text2 = anchorId === r.anchor ? r.text : outputRegionText({ label, producer: req.producer.id, anchor: anchorId, body: req.content, ...(req.interpolate ? { interpolate: true } : {}) });
-    return { ok: true, spans: [insertion(lines, line, text2, where)], anchor: anchorId, created: true, mark: callerMark,
+    return { ok: true, spans: [insertion(lines, line, text2, where)], anchor: anchorId, created: true, mark: markBelow(lines, line),
       summary: `created ${label}'s region ^${anchorId} ${where === "before" ? "before" : "after"} ${target.startsWith("here") ? "the line that ran it" : target}` };
   }
 }

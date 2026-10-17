@@ -14,6 +14,7 @@ same Site a `{{ }}` is read in: it knows which note asked, takes slots, and read
 | `resolve(path)` | What `{{ path }}` shows: `{ values, links?, route }` or `{ problem: { message, didYouMean, example } }`. `resolve("this.owner")`, `resolve("parent.project")`, `resolve("((id)).status")`, `resolve("this.tasks | status=todo .count")`. |
 | `q(query)` | The views' query grammar; `this` is bound: `q("parent:this")`, `q("links:this")`. Twenty rows unless `{limit}`. |
 | `tools.*`, `act(name, args)` | As before: the agent tools, and the connected door's actions. |
+| `place(content, { at, mode, label })` | Writes `content` into the run's note as an output region the script owns (a folded `> [!output]-` callout carrying `[output-of::((script))]` and `[output-hash::…]`), as one attributed edit. `at: "^anchor"` (default: right after the line that ran it); `mode`: `append` (default), `prepend`, `replace` (only this script's own unedited region; refused for a heading or paragraph anchor), `upsert` (replace or create). A missing anchor is one proposal at the caller with a did-you-mean, never the note's end; a region a person edited is theirs and the new output waits as a proposal. `{{` in the output is written as `\{{` unless `interpolate: true`. Needs `[effects::write]`. |
 | `wait(ms)` | Sleeps. Ends with the run: the deadline (`[deadline::2m]`, five minutes at most) or a stop. |
 
 ```js
