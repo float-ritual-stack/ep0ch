@@ -203,6 +203,10 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
     }
     case "screen": {
       if (where.away) return `${where.away}; not moved`;
+      // Typing in the drawer (the host layer) is never in the way of a screen change: the drawer stays over every
+      // screen, so the person's text and keys stay where they are (Evan, Oct 17: "typing in the chat door shouldn't be
+      // a hard block on being able to move other parts of the screen").
+      if (where.keys === "host") return null;
       if (where.busy) return `${where.why ?? "the person is typing"}; not moved`;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
