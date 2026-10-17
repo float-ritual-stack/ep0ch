@@ -5,6 +5,7 @@ import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema"
 import { unsent } from "../src/draft-session";
 import { osc52 } from "../src/surface/selection";
 import { surfaceBg } from "../src/style";
+import { THEMES } from "../src/theme";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5101,6 +5102,38 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the child bullet's note opened by a click", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+  test("focus (PIE-969): the figure with the keys keeps its tint and the row under the cursor is a band with a bar, in every theme", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "focus" }, as: "test-agent" })).toMatchObject({ key: "focus" });
+    const els = async () => { screen(); return ((await app.act({ action: "elements", tile: "reader", as: "test-agent" })) as any).elements as { kind: string; label: string; current?: boolean }[]; };
+    for (let end = Date.now() + 8000; !(await els()).some(e => e.kind === "row" && e.label.includes("plant out")); await Bun.sleep(50))
+      if (Date.now() > end) throw new Error("timed out waiting for the figure block's child rows");
+    // The agent switches the theme through act (from the index: the showcase holds an agent off while the person is in a
+    // section); the person walks into the stage and [ ] to a row of the figure. Each theme draws both levels from its tokens.
+    for (const name of ["calm", "night", "classic"] as const) {
+      (app as any).lastInput = 0;
+      expect(await app.act({ action: "theme.set", args: { name }, as: "test-agent" })).toMatchObject({ theme: name });
+      press({ kind: "enter" });
+      expect(S().focus).toBe("stage");
+      for (let i = 0; i < 80 && !(await els()).find(e => e.current && e.kind === "row" && e.label === "sow under glass"); i++) ch("]");
+      expect((await els()).find(e => e.current)?.label).toBe("sow under glass");
+      const t = THEMES[name], rgb = (c: readonly number[]) => `48;2;${c.join(";")}m`;
+      const rows = sc.render(app).lines as string[];
+      const cursor = rows.find(l => plain(l).includes("sow under glass") && plain(l).includes("┊"))!;
+      // The row above it is the figure's own padding: the container's tint, none of the item band.
+      const other = rows[rows.indexOf(cursor) - 1]!;
+      expect(cursor, name).toBeDefined();
+      // Item focus: the row's band and its bar; the figure's other rows wear the container's tint only.
+      expect(cursor).toContain(rgb(t.item.bg));
+      expect(cursor).toContain(`38;2;${t.item.bar.join(";")}m▌`);
+      expect(other).not.toContain(rgb(t.item.bg));
+      expect(other).toContain(rgb(t.tint.ruler));
+      for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    }
+    (app as any).lastInput = 0;
+    await app.act({ action: "theme.set", args: { name: "calm" }, as: "test-agent" });
   }, 40_000);
 
   test("spine: the board's lanes are ordered by hand: card.reorder through act, alt+↓ and a drag", async () => {

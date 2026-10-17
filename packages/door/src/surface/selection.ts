@@ -13,7 +13,7 @@
 // `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
 // over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
 import { ch, isUp, isDown, type Key } from "../term";
-import { bgRgb, glyphWidth, RESET, surfaceBg, tint } from "../style";
+import { bgRgb, glyphWidth, itemBg, RESET, surfaceBg, tint } from "../style";
 import { theme, themed } from "../theme";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 
@@ -62,11 +62,17 @@ export const readingRuler = () => ruler;
 export const useReadingRuler = (on: boolean | undefined) => { ruler = on !== false; };
 /** A comment thread's quoted passage while the thread is expanded under it (PIE-420): a quiet olive. */
 export let THREAD_BG = "";
+/**
+ * Item focus (PIE-969): the row the cursor is on inside a reader's figure, list or table, one band over the container's
+ * ruler tint; `ITEM_IDLE_BG` while the reader doesn't have the keys. The same band every list's `selected()` draws.
+ */
+export let ITEM_BG = "";
+export let ITEM_IDLE_BG = "";
 /** Every other list item with the look's `list.zebra` on (PIE-673): just off the ground, at the built-in surface and strength. */
 export let ZEBRA_BG = "";
 /** The zebra stripe for a look (PIE-675): its `list.zebra.bg` surface at `list.zebra.strength`, capped dark. */
 export const zebraBg = (v?: Pick<StyleValues, "list.zebra.bg" | "list.zebra.strength">) => surfaceBg(v?.["list.zebra.bg"] ?? "raised", v?.["list.zebra.strength"] ?? 2);
-themed(() => { SELECT_BG = tint("select"); AGENT_BG = tint("agent"); RULER_BG = tint("ruler"); RULER_IDLE_BG = bgRgb(theme().tint.ruler.map(c => Math.round(c * 0.55)) as [number, number, number]); THREAD_BG = tint("thread"); ZEBRA_BG = zebraBg(); });
+themed(() => { SELECT_BG = tint("select"); AGENT_BG = tint("agent"); RULER_BG = tint("ruler"); RULER_IDLE_BG = bgRgb(theme().tint.ruler.map(c => Math.round(c * 0.55)) as [number, number, number]); THREAD_BG = tint("thread"); ITEM_BG = itemBg(); ITEM_IDLE_BG = tint("idleRow"); ZEBRA_BG = zebraBg(); });
 
 const SGR = /(\x1b\[[\d;]*m)/;
 const TAG = /[\u{100000}-\u{10FFFD}]/u;

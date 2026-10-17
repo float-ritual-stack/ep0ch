@@ -2645,6 +2645,13 @@ The tints under text (a selection, an agent's selection, the reading ruler, an o
 selected row) are theme entries too (`tint` in `src/style.ts`); in calm and night grey, dark and every light accent
 read at 4.5:1 or more on each of them.
 
+**Two focus levels (PIE-969).** The container with the keys (a tile's frame, the ruler's tint over the figure, table or
+block the cursor is in: `tint.ruler`, `edge.focus`) and the row the cursor is on inside it (`item` in `src/theme.ts`: a
+dark band and a bar at the left edge, white text on it). Every list draws its cursor row through `selected()`
+(`src/style.ts`), and a reader draws a figure row or step through `ITEM_BG` (`src/surface/selection.ts`), so a theme
+overrides the one value. `test/theme-item-focus.test.ts` computes 4.5:1 for every text colour on the band from the
+theme's values.
+
 ## Letting an agent see what you see, and do what you do
 
 The whole interface (every command, the socket protocol, the live feed, nvim tiles, attention marks) is in
