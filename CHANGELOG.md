@@ -32,7 +32,7 @@ What you can now do: learn the whole script surface from one page and copy a wor
 `packages/outliner/docs/scripts.md` lists the globals (`this`, `self`, `caller`, `props`), the functions (`q`, `read`, `resolve`,
 `act`, `wait`), every `tools.*` and `view.*` with its fields, the modes (action, render, `::=`), effects, access, deadlines,
 run notes, undo and yolo, and the traps (an empty `this.children`, a `q` row with no properties, a handler line that
-`ep0ch show` doesn't draw). Every entry points at its source as `path:line`. Four worked examples (a sentence from
+`ep0ch show` doesn't draw). Every entry points at its source as `path:line`. Five worked examples (a sentence from
 properties, a table with a computed column, tic-tac-toe in a `[board::]` property, a checklist stamped by a rule) are notes
 you can paste; `ep0ch --showcase` seeds them in a *Script examples* section. Nothing to run.
 

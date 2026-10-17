@@ -59,6 +59,8 @@ test("a read-only script's write is refused, a render can't act, and an arrow fu
   const host = create("Host");
   create("Reader [script::reader-only]\n```js\nawait tools.outline_create({ parent: this.id, text: 'x' });\n```");
   expect((await run("reader-only", { blockId: host.id })).text).toContain("This script is read-only; declare effects=write to write");
+  create("Nope [script::nope]\n```js\ntry { await tools.nope({}); } catch (e) { return e.name; }\n```");
+  expect((await run("nope", { blockId: host.id })).text.split("\n").pop()).toBe("TypeError");
   create("Arrows [script::arrows]\n```js\nconst ok = [1].map(() => this.title)[0];\nconst lost = [1].map(function () { return this?.title; })[0];\nreturn JSON.stringify({ ok, lost: lost ?? null });\n```");
   expect(JSON.parse((await run("arrows", { blockId: host.id })).text.split("\n").pop()!)).toEqual({ ok: "Host", lost: null });
 });
@@ -87,7 +89,7 @@ async function paste(example: ScriptExample) {
 }
 
 test("the examples the page promises are all there", () => {
-  expect(examples.map(e => e.example)).toEqual([1, 2, 3, 4]);
+  expect(examples.map(e => e.example)).toEqual([1, 2, 3, 4, 5]);
   for (const example of examples) {
     expect(example.notes.length, `example ${example.example} has notes to paste`).toBeGreaterThan(0);
     expect(example.shows.trim(), `example ${example.example} says what it shows`).not.toBe("");
@@ -145,6 +147,12 @@ test("example 3: the board is a property; a move changes it and the drawing foll
   const playing = store.get(game.id)!;
   store.update(game.id, playing.text.replace("O...X...X", "XO..X...X"), playing.revision, { author: "user" });
   expect(await drawn("ex3-game", out => out.includes("wins"))).toContain("X wins");
+});
+
+test("example 5: the same table by query and read, sorted", async () => {
+  const example = examples.find(e => e.example === 5)!;
+  const { drawn } = await paste(example);
+  expect(await drawn("ex5-host")).toBe(example.shows.trim());
 });
 
 test("example 4: the rule stamps the template under every match", async () => {

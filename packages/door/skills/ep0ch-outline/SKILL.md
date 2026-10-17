@@ -635,7 +635,7 @@ doesn't have the environment variable: the service reads the group when a call s
 **When to reach for one:** a small thing that belongs to one note or one outline and needs no disk, network or secret: a
 computed column over a note's children, a sentence built from its properties, a checklist stamped on every match, a move
 you keep repeating. Needing a file, the web, a key or another language makes it an extension (below). **The whole surface**
-(globals, `q`/`read`/`resolve`/`act`/`wait`, every `tools.*` and `view.*`, modes, effects, lifecycle, the traps, four worked
+(globals, `q`/`read`/`resolve`/`act`/`wait`, every `tools.*` and `view.*`, modes, effects, lifecycle, the traps, five worked
 examples) is one page with a `path:line` pointer per entry: `packages/outliner/docs/scripts.md` in the repository. Read it
 before writing a script that isn't a copy of the example below.
 
