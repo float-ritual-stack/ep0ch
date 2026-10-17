@@ -60,12 +60,12 @@ async function setup() {
 }
 
 test("a script reads this, self, caller and props, with no id written in it", async () => {
-  const { create, run } = await setup();
+  const { store, create, run } = await setup();
   const garden = create("Garden [owner::sam] [status::open]");
   create("Seed bed", garden.id);
   create("Water butt", garden.id);
   create("Elsewhere");
-  create(`Site reader [script::site-reader]
+  const reader = create(`Site reader [script::site-reader]
 \`\`\`js
 const kids = (await q("parent:this")).blocks.map(b => b.title).sort();
 const owner = await resolve("this.owner");
@@ -75,6 +75,10 @@ return JSON.stringify({ here: this.title, mine: self.title, week: props.week, ki
 \`\`\``);
   const ran = await run("site-reader", { blockId: garden.id, args: { week: "42" } });
   const answer = JSON.parse(ran.text.split("\n").pop()!);
+  // The run note quotes ((ids)) it read: bookkeeping, so it's no backlink on the script's note or the garden.
+  expect(ran.text.split("\n")[0]).toContain("[machine::script]");
+  expect(store.queryBacklinks({ targetBlockId: reader.id, limit: 50 }).sources).toEqual([]);
+  expect(store.queryBacklinks({ targetBlockId: garden.id, limit: 50 }).sources).toEqual([]);
   expect(answer).toEqual({ here: "Garden", mine: "Site reader", week: ["42"], kids: ["Seed bed", "Water butt"], owner: ["sam"], problem: true, header: true, tasks: true, caller: null });
 });
 
@@ -111,8 +115,10 @@ return view.table({ columns: ["Owner", "Week"], rows: [[owner, props.week[0]]] }
   const draw = () => client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
   await draw();
   const first = await until("the first drawing", () => output(note.id)[0]);
+  expect(first).toContain("Owner");
   expect(first).toContain("sam");
   expect(first).toContain("42");
+  expect(first).not.toContain('"columns"');
   // Drawing again and again leaves the outline exactly as it was: no block, no revision.
   const before = JSON.stringify([store.queryBlocks({ where: "" }).blocks.length, store.get(note.id)!.revision, store.get(script.id)!.revision, store.children(script.id).length]);
   for (let i = 0; i < 3; i++) await client.request({ action: "resources.projection.refresh", blockId: note.id });

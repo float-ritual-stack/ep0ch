@@ -6,7 +6,7 @@ import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
 import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
-import { renderComponent, validateComponent } from "./component-primitives";
+import { PRIMITIVE_TYPES, renderComponent, validateComponent } from "./component-primitives";
 import { readBlockRecords } from "./block-records";
 import { answerSite } from "./site-answer";
 import { scriptFence } from "./script-sources";
@@ -15,10 +15,14 @@ import type { Address } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
-/** What a script returned, as the text a run note or a drawn line shows: a string as it is, a view as Blockdown, the rest as JSON. */
+/** What a script returned, as the text a run note or a drawn line shows: a string as it is, a view (`{ view }`, or one `view.table(…)` itself) as Blockdown, the rest as JSON. */
 export function scriptText(value: unknown): string {
   if (typeof value === "string") return value;
-  if (value && typeof value === "object" && "view" in value) return renderComponent(validateComponent(value), "blockdown").body;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    // A component carries the data its view shows (`data`); a script that draws a view and has no data says none.
+    if ("view" in value) return renderComponent(validateComponent({ data: null, ...value }), "blockdown").body;
+    if ((PRIMITIVE_TYPES as readonly unknown[]).includes((value as { type?: unknown }).type)) return renderComponent(validateComponent({ data: null, view: value }), "blockdown").body;
+  }
   return JSON.stringify(value);
 }
 
@@ -128,7 +132,7 @@ export class ScriptRuns {
     const old = this.previous.get(extension.id);
     this.previous.set(extension.id, source.code);
     const lines = [
-      `${extension.name} · working [script-run::${undo}]`,
+      `${extension.name} · working [script-run::${undo}] [machine::script]`,
       `Author: ${actor.actorId ?? actor.author} · revision ${source.revision} · onBehalfOf: ${requestedBy.actorId ?? requestedBy.author}`,
       ...(old !== undefined && old !== source.code ? ["", "```diff", createPatch(extension.name, old, source.code), "```"] : []),
     ];
@@ -193,14 +197,14 @@ export class ScriptRuns {
         const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined, site.globals);
         const current = this.registry.extension(extension.id);
         if (!current || current.stamp !== extension.stamp) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
-        lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}]`;
+        lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}] [machine::script]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) {
           if (result.value !== undefined) lines.push(scriptText(result.value));
         }
         else { failure = result.error.message; lines.push(failure); }
       } catch (error) {
-        lines[0] = `${extension.name} · failed [script-run::${undo}]`;
+        lines[0] = `${extension.name} · failed [script-run::${undo}] [machine::script]`;
         failure = error instanceof Error ? error.message : String(error);
         lines.push(failure);
       } finally {

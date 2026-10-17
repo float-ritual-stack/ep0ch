@@ -4,6 +4,7 @@ import {
   type BacklinkFacetRules,
 } from "./backlink-facets";
 import { normalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import { MACHINE_KEY } from "@ep0ch/outline-core/machinery";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import {
   outlinerReferenceOccurrences,
@@ -194,6 +195,8 @@ function sourceOccurrences(
   ticketPrefixes: TicketPrefixes = workIdPrefix,
 ): (BacklinkRelationOccurrence & { target: string | undefined })[] {
   const propertyRecords = parsePropertyRecords(source.text);
+  // Machinery (a script's run note, a toss, a receipt) is what a tool wrote for its own bookkeeping, not a link anyone chose.
+  if (propertyRecords.some((record) => record.scope === "block" && record.key === MACHINE_KEY && record.value.trim() !== "")) return [];
   return [
     ...outlinerReferenceOccurrences(source.text, ticketPrefixes, propertyRecords),
     ...propertyReferenceOccurrences(source.text, propertyRecords),

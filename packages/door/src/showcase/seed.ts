@@ -139,14 +139,21 @@ if (request.input.request === "describe the beds") {
     "The Seed count example below runs from @seed-count in a note, or [rule-on::script:seed-count] on a rule. Agent-written asks run by default; loop guards can hold them for r.",
     "Record a layout with alt+Q (or the status bar's ⇧⌥Q), do your actions, then alt+Q or REC stop. The saved script is editable action lines. Replace an argument value with {tag}; the power bar asks for it when you run the script.",
     "```ts",
-    "const source = (await q('script=seed-report')).blocks[0];",
     "const dispatcher = await act('layout.get');",
     "await act('task.status', { n: 1, to: 'done' });",
-    "await tools.outline_create({ parent: source.id, text: 'Labels for planting' });",
+    "await tools.outline_create({ parent: self.id, text: 'Labels for planting' });",
     "return { message: 'Ready for planting', dispatcher };",
     "```", '::links{preview=below title="Runs"}',
   ].join("\n"));
   await make(notes.scripts.id, "Seed count [script::seed-count]\n```js\nreturn (await q('script')).blocks.length;\n```");
+  await make(notes.scripts.id, "Beds table [script::beds-table] [mode::render]\n```js\nconst owner = (await resolve('this.owner')).values[0];\nreturn view.table({ columns: ['Owner', 'Week', 'Crop'], rows: [[owner, props.week[0], this.title]] });\n```");
+  notes.scriptsInPlace = await make(notes.root.id, [
+    `${SEED.scriptsInPlace} [owner::Sam] [crop::beans]`,
+    "A script written with [mode::render] draws where a line asks for it, and again when a note it read changes. It writes nothing: this note stays as you typed it.",
+    "beds-table:: week=42",
+    "A ::= line is the same in one line, with this, props, q, read and resolve:",
+    "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
+  ].join("\n"));
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [
     SEED.richEdit, "", "Edit the cells here. Ctrl+O switches the same draft to raw source and back.", "",
