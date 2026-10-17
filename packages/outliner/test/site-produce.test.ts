@@ -86,6 +86,14 @@ describe("a figure over this", () => {
     expect(figure(store, lego.id, { query: "type=ticket", direction: "sideways" }).error).toMatch(/^direction: sideways/);
   });
 
+  test("a clock read in a question (now.time) makes the answer a minute-clock one", () => {
+    const store = scratch();
+    const { lego } = projects(store);
+    const answer = answerSite(store, { blockId: lego.id, produce: { kind: "figure", figure: "table", props: { query: "type=ticket project={{now.time}}" } } });
+    expect(answer.clock).toBe("minute");
+    expect(answerSite(store, { blockId: lego.id, produce: { kind: "figure", figure: "table", props: { query: "type=ticket project={{this.project}}" } } }).clock).toBeUndefined();
+  });
+
   test("a figure's answer can't name its notes: it is evaluated after any change (a new match elsewhere redraws it)", async () => {
     const directory = mkdtempSync(join(tmpdir(), "site-produce-wire-"));
     const store = new OutlinerStore(join(directory, "outliner.sqlite"));
@@ -153,6 +161,16 @@ describe("::fields", () => {
     expect(rows.map(r => r.value)).toEqual(["demonstrating by doing", "shacks not cathedrals", "trust the drift"]);
     const draft = (answerSite(store, { blockId: note.id, draft: { text: "Typed\n\n- only [connectTo::typed, not saved]" }, produce: { kind: "fields", key: "connectTo" } }).produced as Extract<SiteProduced, { kind: "fields" }>).rows;
     expect(draft.map(r => r.value)).toEqual(["typed, not saved"]);
+  });
+
+  test("a draft's fields come with the draft's own offsets, tokens and no saved revision to anchor against", () => {
+    const store = scratch();
+    const note = fixture(store);
+    const draft = "Typed\n\n- moved up [connectTo::now first]\n- first pass [connectTo::demonstrating by doing]";
+    const produced = answerSite(store, { blockId: note.id, draft: { text: draft }, produce: { kind: "fields", key: "connectTo" } }).produced as Extract<SiteProduced, { kind: "fields" }>;
+    expect(produced.rows.map(r => draft.slice(r.offset!, r.offset! + r.token!.length))).toEqual(produced.rows.map(r => r.token));
+    expect(produced.rows[0]!.token).toBe("[connectTo::now first]");
+    expect(produced.revision).toBe(0);
   });
 
   test("of another note, a key nobody wrote, and the values that are links", () => {

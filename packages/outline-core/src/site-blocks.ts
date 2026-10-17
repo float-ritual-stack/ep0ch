@@ -10,7 +10,7 @@
 //     ::if{where="status=active"}            the lines to its `::` are drawn only when `this` matches the query
 //     … body …                               (the views' query atoms; `{{this.key}}` operands are bound, never pasted)
 //     ::
-import { COMPONENT_OPEN, componentAttrs, componentBlocks, type ComponentBlock } from "./component-block";
+import { COMPONENT_OPEN, componentAttrs, componentBlocks, noteCodeFences, type ComponentBlock } from "./component-block";
 import { referencedBlock } from "./link-syntax";
 
 /** The names this module reads. */
@@ -71,4 +71,20 @@ export function siteBlockAt(lines: readonly string[], i: number, blocks: Readonl
   if (!spec.where) spec.problem = "::if needs a query: ::if{where=\"status=active\"}";
   else for (const p of pairs) if (!["where", "query"].includes(p.key.toLowerCase())) spec.problem = `${p.key} isn't one of ::if's keys (where)`;
   return { kind: "if", spec, start: i, end: found.end };
+}
+
+/** Every `::fields` a note's text holds, in order (outside code fences): what a client checks a drawn component against before acting on it. */
+export function fieldsBlocksOf(text: string): FieldsSpec[] {
+  const lines = text.split("\n");
+  const blocks = new Map(componentBlocks(lines).map(c => [c.start, c]));
+  const fences = new Set<number>();
+  for (const f of noteCodeFences(lines)) for (let j = f.start; j <= f.end; j++) fences.add(j);
+  const out: FieldsSpec[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (fences.has(i)) continue;
+    const found = siteBlockAt(lines, i, blocks);
+    if (found?.kind === "fields") { out.push(found.spec); i = found.end; }
+    else if (found) i = found.end;
+  }
+  return out;
 }

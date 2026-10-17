@@ -198,10 +198,10 @@ export type LinkTarget = {
    */
   figure?: FigureControl;
   /**
-   * The `⚓` on a `::fields` row (role "row"): it anchors that row's line when pressed (`fields.anchor`), the `block`th
-   * `::fields` of the note as drawn, its `n`th row.
+   * The `⚓` on a `::fields` row (role "row"): it anchors that row's line when pressed (`fields.anchor`): the `::fields` of
+   * that `key`, its `n`th row.
    */
-  anchor?: { block: number; n: number };
+  anchor?: { key: string; n: number };
   /**
    * An agent's open proposal (PIE-501): on its embed's source line, the proposal it shows; with `op`, one of
    * the controls drawn there (role "control"), which runs `proposal.apply` or `proposal.dismiss` on it.

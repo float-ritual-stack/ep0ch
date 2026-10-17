@@ -100,12 +100,14 @@ function tokenAt(text: string, offset: number, line: string): string {
   return line.trim();
 }
 
-function fields(store: ProducerStore, tools: SiteTools, key: string, of: string | undefined): SiteProduced {
+function fields(store: ProducerStore, tools: SiteTools, key: string, of: string | undefined, draft?: { id: string; text: string }): SiteProduced {
   const path = `${of ? `((${of}))` : "this"}.fields.${key}`;
   const read = tools.read(path);
   if (read.problem) return { kind: "fields", key, from: of ?? "", revision: 0, rows: [], problem: read.problem };
   const from = read.from ?? of ?? "";
-  const note = store.get(from);
+  const saved = store.get(from);
+  // The note as read: a draft being typed (its fields, text and offsets agree), else the saved text at its revision.
+  const note = draft && draft.id === from ? { text: draft.text, revision: 0 } : saved;
   const rows: FieldRow[] = (read.values ?? []).map((value, i) => {
     const link = read.links?.find(l => l.text === value);
     const offset = read.offsets?.[i], mark = read.marks?.[i] ?? "";
@@ -138,7 +140,7 @@ export function produce(store: ProducerStore, bound: Bound, producer: SiteProduc
     }
     case "fields": {
       if (typeof producer.key !== "string" || !producer.key.trim()) throw new Error("produce fields with { kind: \"fields\", key: \"connectTo\" }");
-      return { answer: fields(store, tools, producer.key.trim(), producer.of) };
+      return { answer: fields(store, tools, producer.key.trim(), producer.of, bound.draft) };
     }
     case "if": {
       if (typeof producer.where !== "string" || !producer.where.trim()) throw new Error("produce an if with { kind: \"if\", where: \"status=active\" }");

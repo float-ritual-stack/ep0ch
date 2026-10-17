@@ -98,6 +98,10 @@ export interface Bound {
   blockId: string;
   revision: number;
   text: string;
+  /** A value a producer's question read changes within the day by the clock alone (`{{now.time}}` in a query). */
+  clock?: true;
+  /** The unsaved text of the note read, when a draft was given. */
+  draft?: { id: string; text: string };
 }
 
 const NEW_SITE_ACTOR = { id: "site.answer", author: "system" as const };
@@ -177,7 +181,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
     at = block.parentId;
   }
   const scope: PathScope = { ...(line !== undefined ? { line } : {}), ancestors, ...(parentBlock ? { parent: () => world.record(parentBlock!) } : {}), world };
-  return { site, scope, world, route, deps, blockId: target.id, revision: target.revision, text };
+  return { site, scope, world, route, deps, blockId: target.id, revision: target.revision, text, ...(request.draft ? { draft: { id: target.id, text } } : {}) };
 }
 
 export function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof interpolationSpans>[number], start?: number, end?: number): SiteValue {
@@ -211,6 +215,7 @@ export function pathSpan(path: string) {
 export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: () => number = Date.now): SiteAnswer {
   const bound = bind(store, request, clock);
   // A producer's question (a figure, `::fields`, `::if`): asked of the bound Site, so `this` and its `{{ }}` operands are its host's.
+  if (request.produce && request.draft && request.produce.kind !== "fields") bound.route.push("draft not read: this producer asks the saved note and the outline (a draft is read for `{{ }}` values and ::fields)");
   const produced = request.produce ? produce(store, bound, request.produce, { read: path => valueOf(bound, path, pathSpan(path)), binder: boundBinder(bound) }) : undefined;
   // With a producer asking, only its question is answered: the note's own `{{ }}` are the client's other watch.
   const values = request.produce ? [] : interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
@@ -228,7 +233,7 @@ export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: 
     deps: [...bound.deps].sort(),
     // A question about the outline at large (a figure's query, an `::if` over links:) depends on notes the answer can't name.
     ...(bound.world.unresolved || produced?.anyChange ? { anyChange: true as const } : {}),
-    ...([...values, ...paths].some(v => v.clock) ? { clock: "minute" as const } : {}),
+    ...([...values, ...paths].some(v => v.clock) || bound.clock ? { clock: "minute" as const } : {}),
     problems: [...values, ...paths].filter(v => v.problem && !v.usedDefault).length,
   };
 }
@@ -240,6 +245,7 @@ export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: 
 export function boundBinder(bound: Bound): ValueBinder {
   return path => {
     const read = valueOf(bound, path, pathSpan(path));
+    if (read.clock) bound.clock = true;
     if (read.problem) {
       const hint = read.problem.example ? ` (for example ${read.problem.example})` : "";
       throw new BlockQueryError(`{{${path}}} in a query: ${read.problem.message}${hint}`);

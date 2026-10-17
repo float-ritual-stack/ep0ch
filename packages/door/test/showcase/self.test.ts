@@ -41,16 +41,20 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     // The anchor is explicit: drawing wrote nothing, then the ⚓ on the second row gives that line an anchor.
     const before = (await board.get(rail.id))!;
     expect(before.text).not.toMatch(/\^[a-z0-9-]+\s*$/m);
-    const anchored = await app.act({ action: "fields.anchor", tile: "reader", args: { n: 2 }, ...agent }) as any;
+    const anchored = await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 2 }, ...agent }) as any;
     expect(anchored.created).toBe(true);
     expect(typeof anchored.noteLine).toBe("number");
     expect(anchored.link).toBe(`((${rail.id}^${anchored.anchor}))`);
     const after = (await board.get(rail.id))!;
+    // The second row's own line (not the first's), found by what it says.
+    const anchoredLine = after.text.split("\n").find(l => l.includes(`^${anchored.anchor}`))!;
+    expect(anchoredLine).toContain("second pass");
+    expect(after.text.split("\n").filter(l => /\^[a-z0-9-]+$/.test(l))).toHaveLength(1);
     expect(after.text.split("\n")[anchored.noteLine - 1]).toContain(`^${anchored.anchor}`);
     // Again, once the list has been read from the anchored text: already anchored, nothing more written.
-    await until(() => { screen(); return fieldsDrawn(rail.id)?.revision === after.revision; }, "the list read again", 8000);
-    expect(await app.act({ action: "fields.anchor", tile: "reader", args: { n: 2 }, ...agent })).toMatchObject({ created: false, anchor: anchored.anchor });
-    await expect(app.act({ action: "fields.anchor", tile: "reader", args: { n: 9 }, ...agent })).rejects.toThrow(/rows 1 to/);
+    await until(() => { screen(); const d = fieldsDrawn(rail.id, "connectTo"); return "found" in d && d.found.revision === after.revision; }, "the list read again", 8000);
+    expect(await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 2 }, ...agent })).toMatchObject({ created: false, anchor: anchored.anchor });
+    await expect(app.act({ action: "fields.anchor", tile: "reader", args: { n: 9 }, ...agent })).rejects.toThrow(/has rows 1 to/);
 
     // The other body: the note paused.
     const now = (await board.get(rail.id))!;

@@ -148,7 +148,7 @@ async function drawFigure(host: LiveHost, kind: string, body: readonly string[],
   }
   if ("error" in read) return figureFrame(kind, kind, "", "", read.error);
   let props = read.props, foot = read.children ? "live · child notes" : "", error = "";
-  const live = await answerFigure(host, kind, props, note);
+  const live = await answerFigure(host, kind, props, note, read.args);
   if (live) { props = live.props; foot = live.status; error = live.error ?? ""; }
   // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
   if (read.warning) error = [error, read.warning].filter(Boolean).join(" · ");
@@ -168,12 +168,12 @@ export async function liveRowMark(host: Pick<LiveHost, "request">, note: { id: s
   const all: LiveHost = { request: host.request, shown: async ids => new Set(ids), titles: async () => new Map(), href: () => null };
   for (const block of componentBlocks(lines)) {
     if (block.start !== figure || block.end <= block.start || graphKind(block) !== "check") continue;
-    const read = figureProps("check", figureSource(lines.slice(block.start + 1, block.end), note.id));
+    const read = figureProps("check", figureSource(lines.slice(block.start + 1, block.end), note.id, undefined, block.attrs));
     if ("error" in read) continue;
     const mark = liveMark(read.props), asking = liveAsk("check", read.props);
     const question = mark && !asking.error ? figureQuestion(asking.ask, asking.group) : null;
     if (!question || "error" in question) continue;
-    try { if ((await produced(all, note.id, { kind: "figure", figure: "check", props: askProps(read.props) }) as Extract<SiteProduced, { kind: "figure" }>).blocks.some(item => (item as { id: string }).id === row)) return mark; }
+    try { if ((await produced(all, note.id, { kind: "figure", figure: "check", props: askProps(read.props) }, read.args) as Extract<SiteProduced, { kind: "figure" }>).blocks.some(item => (item as { id: string }).id === row)) return mark; }
     catch { /* a figure that can't be asked lists nothing */ }
   }
   return null;
@@ -191,14 +191,15 @@ async function childRows(host: LiveHost, note: string): Promise<Row[]> {
 }
 
 /** What a producer in a note asks of its Site, answered by the service (`site.answer`): the one orchestration, here and in the door. */
-async function produced(host: Pick<LiveHost, "request">, note: string, produce: SiteProducer): Promise<SiteProduced> {
-  const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce });
+async function produced(host: Pick<LiveHost, "request">, note: string, produce: SiteProducer, args?: Record<string, string>): Promise<SiteProduced> {
+  const props = args && Object.keys(args).length ? Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]])) : undefined;
+  const answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: note, produce, ...(props ? { props } : {}) });
   if (!answer.produced) throw new Error("the service answered no figure");
   return answer.produced;
 }
 
 /** A live figure's props from the service's answer, or null when it asks nothing. */
-async function answerFigure(host: LiveHost, kind: string, p: Props, note: string): Promise<{ props: Props; status: string; error?: string } | null> {
+async function answerFigure(host: LiveHost, kind: string, p: Props, note: string, args?: Record<string, string>): Promise<{ props: Props; status: string; error?: string } | null> {
   const asking = liveAsk(kind, p);
   const perItem = asksPerItem(kind, p);
   if (!perItem && asking.error) return { props: p, status: "live", error: asking.error };
@@ -206,7 +207,7 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
   if (!perItem && !question) return null;
   if (!perItem && question && "error" in question) return { props: p, status: "live", error: question.error };
   let a: Extract<SiteProduced, { kind: "figure" }>;
-  try { a = await produced(host, note, { kind: "figure", figure: kind, props: askProps(p) }) as typeof a; }
+  try { a = await produced(host, note, { kind: "figure", figure: kind, props: askProps(p) }, args) as typeof a; }
   catch (e) { return { props: p, status: "live", error: (e as Error).message }; }
   if (perItem) {
     // Each item's count is of the results this page may show.

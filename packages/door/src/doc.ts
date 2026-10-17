@@ -394,8 +394,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const own = listLayers(src, first).map(l => (look!.lists ? { ...l, fields: look!.lists(l.line!, l.fields) } : l));
     return own.some(l => Object.keys(l.fields).length) ? resolveStyle([...look!.layers, ...own], look!.width).values : look!.values;
   };
-  // `::fields` drawn so far (the nth is what `fields.anchor` names), and the closing lines of the `::if` bodies drawn (not text).
-  let fieldsDrawn = 0;
+  // The closing lines of the `::if` bodies drawn (not text).
   const ifCloses = new Set<number>();
   for (let i = 0; i < src.length; i++) {
     mark();
@@ -549,7 +548,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // answer. An `::if` whose query holds draws its body in place of its two lines; any other state draws nothing.
     const sb = siteBlockAt(src, i, componentAt);
     if (sb?.kind === "fields") {
-      out.push(...renderFields(sb.spec, env.note, W, ++fieldsDrawn, env.tag));
+      out.push(...renderFields(sb.spec, env.note, W, env.tag));
       i = sb.end;
       continue;
     }

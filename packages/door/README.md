@@ -2788,7 +2788,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem\|approved\|rejected` | `⏎` or a click on a box, then `x o + - w !`; `space` |
 | `task.undo` | none: the asker's own last step change in this reader, while reading this note | `ctrl+z` |
 | `task.link`, `task.menu` | `n` or `id` (the person's: default the step at their keys). `task.link` gives the step an id if it has none and answers `((note^id))` (yours goes to your clipboard; `copy=false` only makes it addressable); `task.menu` opens the status choice and is the person's only | the choice's `y` and Make addressable; `⏎` on a box |
-| `fields.anchor` | `block` (which `::fields` of the note, from 1 in the order drawn), `n` (its row, from 1); gives the row's line an anchor (`fragments.ensure`, attributed) and answers `((note^anchor))` (yours goes to your clipboard); drawing a `::fields` never writes | `⏎` or a click on a row's `⚓` |
+| `fields.anchor` | `key` (which `::fields`: its key; the only one the note draws when left out), `n` (its row, from 1); gives the row's line an anchor (`fragments.ensure`, attributed) and answers `((note^anchor))` (yours goes to your clipboard); drawing a `::fields` never writes | `⏎` or a click on a row's `⚓` |
 | `props` | `full=true` | `i`, `I` |
 | `props.copy`, `props.follow` | `n` (from `props`) or `key` | `Tab`, `y`, `o` |
 | `props.edit` | `n` or `key`, `value`, `revision` (refused if the note is past it) | `Enter`/`e`, typing, `Enter` |

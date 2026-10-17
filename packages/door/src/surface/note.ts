@@ -55,6 +55,7 @@ import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline
 import { lastTrashed } from "../note-trash";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
+import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn } from "../site-blocks";
 import { visible, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -4098,7 +4099,7 @@ export class NoteSurface {
       if (!select) throw new ActionRefused("going into a ::links list is the person's; an agent reads it with links.blocks and opens a row with links.open");
       return this.runKey("links.enter", { block: e.link.linksBlock.key }, host);
     }
-    if (e.link?.anchor) return this.runKey("fields.anchor", { block: e.link.anchor.block, n: e.link.anchor.n }, host);
+    if (e.link?.anchor) return this.runKey("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, host);
     if (e.kind === "control") return this.useControl(e, host);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
@@ -4895,7 +4896,7 @@ export class NoteSurface {
     }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
     if (l.unsent) { void this.runKey(`unsent.${l.unsent.op}`, { kind: l.unsent.kind }, host); return Promise.resolve(null); }
-    if (l.anchor) { void this.runKey("fields.anchor", { block: l.anchor.block, n: l.anchor.n }, host); return Promise.resolve(null); }
+    if (l.anchor) { void this.runKey("fields.anchor", { key: l.anchor.key, n: l.anchor.n }, host); return Promise.resolve(null); }
     if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
     if (l.role === "figure" && l.figure) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
@@ -5441,12 +5442,18 @@ export class NoteSurface {
    * The `⚓` on a `::fields` row (S3): the row's line gets an anchor (`fragments.ensure`, attributed), so `((note^anchor))`
    * links to it for good. The one thing a `::fields` writes, and only when asked: drawing it never does.
    */
-  async anchorField(block: number, n: number, host: SurfaceHost, actor: Actor) {
+  async anchorField(key: string | undefined, n: number, host: SurfaceHost, actor: Actor) {
     const m = this.requireNote();
-    const drawnFields = fieldsDrawn(m.id, block);
-    if (!drawnFields) throw new ActionRefused(`this note draws no ::fields ${block}${block === 1 ? "" : " (they are numbered from 1, in the order drawn)"}`);
+    const read = fieldsDrawn(m.id, key);
+    if ("problem" in read) throw new ActionRefused(read.problem);
+    const drawnFields = read.found;
+    // What was drawn may be gone from the note (edited away, drawn by a reader that has since moved on).
+    const now = await this.whole();
+    if (!fieldsBlocksOf(now.text).some(s => s.key.toLowerCase() === drawnFields.key.toLowerCase() && (s.of ?? null) === drawnFields.of)) {
+      throw new ActionRefused(`this note no longer holds a ::fields{key=${drawnFields.key}}`);
+    }
     const row = drawnFields.rows[n - 1];
-    if (!row) throw new ActionRefused(`::fields ${block} has rows 1 to ${drawnFields.rows.length}`);
+    if (!row) throw new ActionRefused(`::fields{key=${drawnFields.key}} has rows 1 to ${drawnFields.rows.length}`);
     let anchored: { fragmentId: string; created: boolean };
     try { anchored = await host.ctx.board.ensureFragment(drawnFields.from, row.line, drawnFields.revision, actor); }
     catch (e) {
@@ -7813,7 +7820,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       // A `::fields` row's ⚓ anchors its line, as whoever asks.
       if (e.link?.anchor) {
-        const r: unknown = await NOTE_ACTIONS.run("fields.anchor", { block: e.link.anchor.block, n: e.link.anchor.n }, on, actor);
+        const r: unknown = await NOTE_ACTIONS.run("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
@@ -9229,15 +9236,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "fields.anchor": def({
-    summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: block= which ::fields of the note (from 1, in the order drawn), n= its row (from 1)",
+    summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: key= which ::fields (its key; default the only one the note draws), n= its row (from 1)",
     keys: "⏎ or a click on a ::fields row's ⚓",
     touches: "draft", draft: "write", replay: "ask",
     args: {
-      block: { type: "number", optional: true, about: "which ::fields of the note, from 1 in the order drawn (default 1)" },
+      key: { type: "string", optional: true, about: "which ::fields: its key (default the only one the note draws)" },
       n: { type: "number", optional: true, about: "the row, from 1 (default 1)" },
     },
-    async run({ block, n }, { surface, host }, actor) {
-      return surface.anchorField(block ?? 1, n ?? 1, host, actor);
+    async run({ key, n }, { surface, host }, actor) {
+      return surface.anchorField(key, n ?? 1, host, actor);
     },
   }),
   "task.menu": def({

@@ -10,22 +10,29 @@ import { siteProduced, type LiveSite } from "./live";
 import type { LinkTarget } from "./refs";
 import { C, ellipsize, fg, RESET } from "./style";
 
-/** What the reader last drew for the note's `::fields` components, by note: `fields.anchor` acts on these rows, by number. */
-const drawn = new Map<string, { block: number; from: string; revision: number; key: string; rows: FieldRow[] }[]>();
+/** One `::fields` as the reader last drew it: the note it read, that note's revision, and its rows. */
+export interface DrawnFields { from: string; revision: number; key: string; of: string | null; rows: FieldRow[] }
 
-/** The rows of the `block`th (from 1) `::fields` the reader last drew for `note`, or null. */
-export function fieldsDrawn(note: string, block = 1) {
-  return drawn.get(note)?.[block - 1] ?? null;
+/** What the reader last drew for a note's `::fields` components, by note: `fields.anchor` acts on these rows, by key. */
+const drawn = new Map<string, Map<string, DrawnFields>>();
+
+/** The `::fields` of `note` the reader last drew for `key` (or its only one), or why not: nothing drawn, or several to choose from. */
+export function fieldsDrawn(note: string, key?: string): { found: DrawnFields } | { problem: string } {
+  const all = [...(drawn.get(note)?.values() ?? [])];
+  if (!all.length) return { problem: "this note draws no ::fields" };
+  const named = key === undefined ? all : all.filter(d => d.key.toLowerCase() === key.toLowerCase());
+  if (!named.length) return { problem: `this note draws no ::fields{key=${key}} (it draws ${all.map(d => d.key).join(", ")})` };
+  if (named.length > 1) return { problem: `this note draws ${named.length} ::fields${key === undefined ? `: say key= (${named.map(d => d.key).join(", ")})` : ` for ${key}: ${named.map(d => `of ${d.of ?? "this note"}`).join(", ")}`}` };
+  return { found: named[0]! };
 }
 
 const problemLines = (message: string, didYouMean: readonly string[]) =>
   [fg(C.lred) + message + RESET, ...(didYouMean.length ? [fg(C.dark) + `did you mean ${didYouMean.join(", ")}?` + RESET] : [])];
 
 /**
- * A `::fields` drawn `W` wide. `ordinal`: it is the nth `::fields` of the note as drawn (1-based), which `fields.anchor`
- * names it by. `tag`: how the reader makes a row an element it can step to and open (without one the rows are text).
+ * A `::fields` drawn `W` wide. `tag`: how the reader makes a row an element it can step to and open (without one the rows are text).
  */
-export function renderFields(spec: FieldsSpec, note: string | undefined, W: number, ordinal: number, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite): string[] {
+export function renderFields(spec: FieldsSpec, note: string | undefined, W: number, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite): string[] {
   const title = spec.title ?? spec.key ?? "fields";
   if (spec.problem) return frame(title, [fg(C.lred) + spec.problem + RESET], W);
   if (!note) return frame(title, [fg(C.dark) + "a note's fields: this one is drawn outside a note" + RESET], W);
@@ -35,15 +42,14 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
   if (read.state === "error" && !read.value) return frame(title, [fg(C.lred) + read.error + RESET], W, "live");
   const a = read.value as Extract<SiteProduced, { kind: "fields" }>;
   if (a.problem) return frame(title, problemLines(a.problem.message, a.problem.didYouMean), W, "live");
-  const list = drawn.get(note) ?? [];
-  list[ordinal - 1] = { block: ordinal, from: a.from, revision: a.revision, key: spec.key, rows: a.rows };
-  list.length = Math.max(list.length, ordinal);
+  const list = drawn.get(note) ?? new Map();
+  list.set(`${spec.key.toLowerCase()}\0${spec.of ?? ""}`, { from: a.from, revision: a.revision, key: spec.key, of: spec.of, rows: a.rows });
   drawn.set(note, list);
   const inner = Math.max(10, W - 4);
   const body = a.rows.map((row, n) => {
     const words = ellipsize(row.link ? row.link.title : row.value, Math.max(6, inner - 14));
     const to: LinkTarget = { block: a.from, role: "row", ...(row.offset !== undefined ? { at: row.offset, ...(row.token ? { atLabel: row.token } : {}), atWhy: "the line it was written on" } : {}) };
-    const anchor: LinkTarget = { block: a.from, role: "row", anchor: { block: ordinal, n: n + 1 } };
+    const anchor: LinkTarget = { block: a.from, role: "row", anchor: { key: spec.key, n: n + 1 } };
     const text = (tag ? tag(to, words) : words);
     const control = tag ? tag(anchor, "⚓") : "⚓";
     return fg(C.white) + "∙ " + RESET + text + fg(C.dark) + ` · line ${row.line + 1} ` + RESET + control;
@@ -60,6 +66,8 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
 export function ifState(where: string, note: string | undefined, site?: LiveSite): { state: "holds" | "hidden" } | { state: "problem"; message: string; didYouMean: string[] } {
   if (!note) return { state: "holds" };
   const read = siteProduced(note, { kind: "if", where }, site);
+  // A failed read is said where the body would be, and the last answer is not left standing as if it were current.
+  if (read?.state === "error") return { state: "problem", message: read.error, didYouMean: [] };
   const a = read?.value as Extract<SiteProduced, { kind: "if" }> | undefined;
   if (!a) return { state: "hidden" };
   if (a.problem) return { state: "problem", message: a.problem.message, didYouMean: a.problem.didYouMean };
