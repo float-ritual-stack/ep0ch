@@ -276,6 +276,24 @@ describe("the drawer", () => {
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
+  test("yolo: another door taking it back takes it back here too, and an answer older than that event doesn't bring it back (PIE-973)", async () => {
+    const d = door();
+    try {
+      d.app.push(d.screen("main menu") as any);
+      await d.app.dispatch.press("agents.yolo", { on: true });
+      expect(d.app.agentsYolo).toBe(true);
+      d.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 2 });
+      expect(d.app.agentsYolo).toBe(false);
+      // A reconnect asks the service; the answer that says yes was read before another door's no arrived.
+      let answer = (_: boolean) => {};
+      (d.A.board as any).mcpAccessStatus = () => new Promise(resolve => { answer = () => resolve({ yolo: true }); });
+      const synced = d.A.syncYolo();
+      d.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 3 });
+      answer(true); await synced;
+      expect(d.app.agentsYolo).toBe(false);
+    } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
+  });
+
   test("open and height are saved in drawer.json and come back in the next door, put up but not entered", () => {
     let d = door();
     d.app.push(d.screen("main menu") as any);

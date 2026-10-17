@@ -420,18 +420,31 @@ export class App implements Ctx {
     if (!on) this.yoloService = false;
     void this.tellYolo(on);
   }
+  /** Bumped by every change of yolo this door hears or makes: an answer that was asked before the latest one is stale and dropped. */
+  private yoloEpoch = 0;
   async syncYolo(): Promise<void> {
     if (this.yoloHere) { await this.tellYolo(true); return; }
-    this.yoloService = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
+    const epoch = ++this.yoloEpoch;
+    const said = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
+    if (epoch === this.yoloEpoch) this.yoloService = said;
     this.redraw();
   }
   private async tellYolo(on: boolean): Promise<void> {
+    const epoch = ++this.yoloEpoch;
     try {
-      this.yoloService = await this.board.setAgentsYolo(on);
+      const said = await this.board.setAgentsYolo(on);
+      if (epoch === this.yoloEpoch) this.yoloService = said;
     } catch (e) {
       // The service didn't take it (an old one, or it's away): the person is told, and this door's yolo is off.
       if (on) { this.yoloHere = false; this.flash(`YOLO is off: the outline service didn't take it (${e instanceof Error ? e.message : String(e)})`, 8000); }
     }
+    this.redraw();
+  }
+  /** The service says yolo changed (an `agents` event): off is off for every door, this one's own hand-over included. */
+  private heardYolo(on: boolean): void {
+    this.yoloEpoch++;
+    this.yoloService = on;
+    if (!on) this.yoloHere = false;
     this.redraw();
   }
   /** Where the status bar's YOLO sits, for a click (agents.yolo on=false). */
@@ -855,7 +868,7 @@ export class App implements Ctx {
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
     // Yolo went on or off in the service (PIE-973): this door's chip and the guards it lifts follow.
-    if (e.domain === "agents") { this.yoloService = (e as { yolo?: boolean }).yolo === true; this.redraw(); return; }
+    if (e.domain === "agents") { this.heardYolo(e.yolo === true); return; }
     // A reconnected service forgot a yolo this door handed over: say it again (a restarted service starts with it off).
     if (e.action === "reconnected" || e.action === "reset") void this.syncYolo();
     // A Resource registered or refreshed (PIE-445): only readers showing a projection of it redraw, and

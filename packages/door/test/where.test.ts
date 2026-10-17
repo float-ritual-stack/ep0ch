@@ -203,7 +203,7 @@ describe("ep0ch where", () => {
   test("yolo (PIE-973): the door says agents act with the person's permissions, the service's rules included", async () => {
     const env = { EP0CH_NEST: "ssh:pts/5 › door:1388380/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE: "claude", EP0CH_TILE_ID: "t1" };
     const on = deskPeek({ pid: 1388380, focus: "claude", tiles: [{ id: "t1", name: "claude" }] });
-    on.screen.person = { ...on.screen.person, yolo: true };
+    (on.screen as any).person = { yolo: true };
     const w = await where(deps(env, { alive: [1388380], ttys: ["pts/5"], ancestors: [1388380], peek: on }));
     expect(w.door?.yolo).toBe(true);
     expect(formatWhere(w)).toContain("YOLO is on: agents act with the person's permissions");
