@@ -86,7 +86,7 @@ describe('guardrails refuse with the reason and the command to run', () => {
 
   test('a whole-suite bun test on float-box is refused, naming scripts/box-test; focused runs and box-test itself go through', async ($, on) => {
     const s = sessionIn(on, { hostname: 'float-box' })
-    for (const command of ['bun test', 'cd packages/door && bun test --timeout 60000', 'bun run test', 'cd packages/door && bun run test:each', 'bun test test/']) {
+    for (const command of ['bun test', 'cd packages/door && bun test --timeout 60000', 'bun run test', 'cd packages/door && bun run test:each', 'bun test test/', 'bun --cwd packages/door test', 'bun run --cwd packages/door test']) {
       const { deny } = await bash($, command)
       expect(deny).toContain('is refused on float-box')
       expect(deny).toContain('scripts/box-test <package>')

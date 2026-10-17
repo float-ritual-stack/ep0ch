@@ -63,15 +63,31 @@ export function repoNamed(args: readonly string[]): string | null {
 /** `bun test`'s options that take the next word as a value (it is not a file). */
 const TEST_VALUED = new Set(['-t', '--test-name-pattern', '--timeout', '--rerun-each', '--preload', '--bail', '--coverage-reporter', '--coverage-dir', '--reporter', '--reporter-outfile', '--max-concurrency', '--shard', '--only-failures', '-r'])
 
+/** bun's own options that take the next word (`bun --cwd packages/door test`, `bun run --cwd … test`). */
+const BUN_VALUED = new Set(['--cwd', '--filter', '--config', '-c', '--env-file', '--elide-lines', '--shell', '--install'])
+
+/** The index of the first word from `from` that is not an option (or the value of a valued one), or -1. */
+function firstWord(words: readonly string[], from: number): number {
+  for (let i = from; i < words.length; i++) {
+    const w = words[i]!
+    if (BUN_VALUED.has(w)) { i++; continue }
+    if (!w.startsWith('-')) return i
+  }
+  return -1
+}
+
 /** Whether these words run a whole suite: `bun test` naming no test file, or a package's `bun run test…` script. */
 export function runsWholeSuite(words: readonly string[]): boolean {
   if (baseName(words[0] ?? '') !== 'bun') return false
-  if (words[1] === 'run' || words[1] === 'x') {
-    const script = words.slice(2).find(w => !w.startsWith('-'))
+  const sub = firstWord(words, 1)
+  if (sub < 0) return false
+  if (words[sub] === 'run' || words[sub] === 'x') {
+    const at = firstWord(words, sub + 1)
+    const script = at < 0 ? undefined : words[at]
     return script === 'test' || (script?.startsWith('test:') ?? false)
   }
-  if (words[1] !== 'test') return false
-  for (let i = 2; i < words.length; i++) {
+  if (words[sub] !== 'test') return false
+  for (let i = sub + 1; i < words.length; i++) {
     const w = words[i]!
     if (TEST_VALUED.has(w)) { i++; continue }
     if (w.startsWith('-')) continue
