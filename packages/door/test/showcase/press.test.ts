@@ -78,6 +78,21 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     const pressed = await app.act({ action: "button.press", args: { label: "New game" }, as: "test-agent" }) as { ok?: boolean; result?: { act?: string } };
     expect(JSON.stringify(pressed)).toContain("ttt-reset");
     await untilAsync(async () => (await boardOf()) === ".........", "a new game by an agent's button.press");
+    // By note=, for a note open nowhere: the door reads its text, and nothing takes the person's focus; tile= names another reader.
+    await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "2" } }, USER);
+    await untilAsync(async () => (await boardOf()) !== ".........", "a move before the note= press");
+    const focusBefore = ((await app.act({ action: "layout.get", as: "test-agent" })) as { focus: string }).focus;
+    const byNote = JSON.stringify(await app.act({ action: "button.press", args: { note: seeded.notes.press.id, label: "New game" }, as: "test-agent" }));
+    expect(byNote).toContain("ttt-reset");
+    await untilAsync(async () => (await boardOf()) === ".........", "a new game by button.press note=");
+    expect(((await app.act({ action: "layout.get", as: "test-agent" })) as { focus: string }).focus).toBe(focusBefore);
+    const noNote = await app.act({ action: "button.press", args: { note: seeded.notes.press.id, label: "nothing like it" }, as: "test-agent" }).then(() => "", (e: Error) => e.message);
+    expect(noNote).toContain("no button says");
+    await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "3" } }, USER);
+    await untilAsync(async () => (await boardOf()) !== ".........", "a move before the tile= press");
+    await app.act({ action: "button.press", args: { label: "New game" }, tile: "notes", as: "test-agent" });
+    await untilAsync(async () => (await boardOf()) === ".........", "a new game by button.press tile=");
+    expect(((await app.act({ action: "layout.get", as: "test-agent" })) as { focus: string }).focus).toBe(focusBefore);
     const refused = await app.act({ action: "button.press", args: { label: "no such button" }, as: "test-agent" }).then(() => "", (e: Error) => e.message);
     expect(refused).toContain("no button says");
     expect(refused).toContain('Example: button.press label="');

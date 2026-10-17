@@ -692,7 +692,10 @@ export const SECTIONS: Section[] = [
         render: async req => {
           const l = extensionList();
           const rows = !l ? [`${fg(C.yellow)}this service lists no extensions (it lacks extensions.list, or none are installed)${RESET}`]
-            : l.extensions.flatMap(e => [
+            : l.extensions.flatMap(e => e.id.startsWith("script-")
+            // A script is one line (its notes are in the sections that use them; four lines each would push the programs off a screen).
+            ? [`${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}script · ${e.state}${RESET}`]
+            : [
               `${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}${e.id} · ${e.state}${RESET}`,
               ...e.handlers.map(h => `  ${fg(C.grey)}${h.key}:: ${fg(C.dark)}${h.kind}${RESET}`),
               ...(e.agents ?? []).map(a => `  ${fg(C.grey)}@${a.name} ${fg(C.dark)}agent${RESET}`),

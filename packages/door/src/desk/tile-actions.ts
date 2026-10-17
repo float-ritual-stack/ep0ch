@@ -156,6 +156,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       source: { type: "string", optional: true, about: "preview: tile:<name> or file:<path>" },
       mode: { type: "string", optional: true, about: "reader: held (it keeps note=, the current note never moves it) or pinned (to page=); left out it follows the current note. kind=detail is kind=reader mode=held" },
       note: { type: "string", optional: true, about: "reader, held: the note it keeps" },
+      id: { type: "string", optional: true, about: "reader, held: the same as note=" },
       page: { type: "string", optional: true, about: "reader, pinned: the page it's pinned to, as in [[name]]" },
       cwd: { type: "string", optional: true, about: "pty: the folder it runs in" },
       view: { type: "string", optional: true, about: "query: the saved view (virtual branch) whose cards it lists" },
@@ -167,7 +168,8 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       to: { type: "string", optional: true, tile: true, about: "the tile it opens beside (default the focused one; tile= also names it)" },
       where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
     },
-    async run({ kind, to, where, mode, ...t }, { d, reader }, actor) {
+    async run({ kind, to, where, mode, id, ...t }, { d, reader }, actor) {
+      if (id !== undefined && t.note === undefined) t.note = id;
       return await d.openTile({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "held" | "pinned" } : {}), ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
     },
   }),

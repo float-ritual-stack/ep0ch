@@ -126,7 +126,7 @@ export async function sessionCommand(args: string[]): Promise<number> {
     const o = { clients: flag("--clients"), handoff: cmd === "restart" };
     if (all) {
       const rs = await upgradeAll(o);
-      if (!rs.length) { console.log(`ep0ch: no session runs on ${stateDir()}`); return 0; }
+      if (!rs.length) { console.log(`ep0ch: no session runs on ${stateDir()} (a door started with --no-daemon is not a session: it ends with its terminal or tmux pane)`); return 0; }
       for (const r of rs) (r.ok ? console.log : console.error)(`ep0ch: ${r.message}`);
       return rs.every(r => r.ok) ? 0 : 1;
     }

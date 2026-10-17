@@ -76,7 +76,7 @@ import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, threadAgents } from "../extensions";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
-import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
+import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import { componentsOf, componentsReady } from "../component-schemas";
 import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
@@ -8383,13 +8383,30 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "button.press": def({
-    summary: "press a button or a pressable square of a view in this note by its label (or n from elements): its action line runs through the door's dispatcher as whoever asks, attributed and undoable. It opens nothing and moves nothing the person is reading, so it works on the reader they hold",
+    summary: "press a button or a pressable square of a view in this note by its label (or n from elements): its action line runs through the door's dispatcher as whoever asks, attributed and undoable. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button or an [label](act: …) link written in a note that is open nowhere (the door reads the note's text), with no focus moved",
     keys: "a click on a button, or ⏎ on it (element.open does the same)", touches: "nothing", replay: "ask",
     args: {
       label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
+      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters); the button's script acts on that note" },
     },
-    async run({ label, n }, { surface, host }, actor) {
+    async run({ label, n, note }, { surface, host }, actor) {
+      if (note !== undefined) {
+        if (label === undefined) throw new ActionRefused("note= needs label= (the button's words); open the note in a reader and use elements for n=");
+        const m = await host.ctx.board.get(note);
+        if (!m) throw new ActionRefused(`no note ${note}: button.press note=<id> takes a note's id`);
+        const found: { label: string; act: string; line: number }[] = [];
+        for (const c of buttonCallsOf(m.text)) if (c.act) found.push({ label: c.label, act: c.act, line: c.line });
+        m.text.split("\n").forEach((l, line) => { if (!l.includes("](act:")) return; for (const o of linkOccurrences(l)) if (o.kind === "markdown") { const act = /^act:\s*(\S.*)$/.exec(o.url.trim())?.[1]?.trim(); if (act) found.push({ label: o.text, act, line }); } });
+        const want = label.toLowerCase();
+        const hits = found.filter(f => f.label.toLowerCase().includes(want));
+        if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
+        if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
+        const hit = hits[0]!;
+        const r = await surface.runPress({ act: hit.act, block: m.id, line: hit.line }, host, actor);
+        surface.noteAgent(actor, `pressed ${hit.label.slice(0, 40)} (${hit.act.slice(0, 60)})`);
+        return { note: m.id, kind: "control", act: hit.act, ...(r && typeof r === "object" ? r : {}) };
+      }
       await surface.whole();
       surface.requireDrawn();
       if ((label === undefined) === (n === undefined)) throw new ActionRefused("say label= (the button's words) or n= (its number in elements)");
