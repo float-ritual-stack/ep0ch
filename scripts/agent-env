@@ -62,7 +62,12 @@ private_dir() {
 }
 mkdir -p "${EP0CH_AGENT_TMP:-/tmp}"
 private_dir "$tmpbase"
-if [ "$mode" = clean ]; then rm -rf -- "$dir" "$tmp"; echo "agent-env: removed $dir and $tmp"; exit 0; fi
+if [ "$mode" = clean ]; then
+  bun "$here/scripts/fake-ssh-check.ts" --clean "$dir" "$tmp"
+  rm -rf -- "$dir" "$tmp"
+  echo "agent-env: removed $dir and $tmp"
+  exit 0
+fi
 private_dir "$tmp"
 
 umask 077

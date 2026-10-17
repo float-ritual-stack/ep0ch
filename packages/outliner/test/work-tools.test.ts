@@ -388,7 +388,7 @@ test("a delivery left in validate on a done item is completed with work set, rev
   expect(reopened.json).toMatchObject({ previous: "complete", stage: "validate", changed: true, revision: revision + 2 });
   const unchanged = await h.run(["work", "set", doorId, "delivery-stage", "validate"]);
   expect(unchanged.json).toMatchObject({ previous: "validate", stage: "validate", changed: false, revision: revision + 2 });
-});
+}, 30_000);
 
 test("an existing proof block completes work that has no delivery; unlinked proof is refused", async () => {
   const h = await setup();

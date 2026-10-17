@@ -28,6 +28,11 @@ say() { printf 'box-test[%s]: %s\n' "$host" "$*" >&2; }
 now() { date +%s; }
 age() { local s=$(( $(now) - $1 )); if [ $s -ge 120 ]; then echo "$((s / 60)) min"; else echo "${s} s"; fi; }
 dir_re='(/tmp/ep0ch-box-[A-Za-z0-9_.-]+-[A-Za-z0-9]{8})([^A-Za-z0-9]|$)'
+run_prefix=${dir%-????????}
+# Uploading runs arrive marked kept; only a guard holding this lock may expose them to the stale-dir sweep.
+exec {dirfd}>"$dir/guard.lock"
+flock "$dirfd" || exit 1
+if [ "$keep" = 1 ]; then touch "$dir/kept"; else rm -f "$dir/kept"; fi
 
 # The run dir a process is tied to: its environment (BOX_TEST_RUN_DIR), its working folder and, unless $2 is "strict", its
 # command line; empty if none. A survivor check is strict: a command line that merely names the dir is not a process of the
@@ -63,13 +68,37 @@ stop_group() {
   return 0
 }
 
-# ── sweep: orphans of runs whose dir no longer exists ──
+# A pre-PIE-994 guard holds only its worktree lock, so respect that too while those runs finish.
+held_by_guard() {
+  local info fd
+  for info in "$locks"/wt-*.info; do
+    [ "$(get "$info" dir)" = "$1" ] || continue
+    exec {fd}>"${info%.info}.lock"
+    if ! flock -n "$fd"; then exec {fd}>&-; return 0; fi
+    exec {fd}>&-
+  done
+  return 1
+}
+
+# ── sweep: unlocked, unkept directories, then orphans of runs whose dir no longer exists ──
 sweep() {
   local p pid d killed=0 victims=()
+  for d in "$run_prefix"-????????; do
+    [ "$d" = "$dir" ] && continue
+    [ -d "$d" ] && [ -O "$d" ] && [ ! -L "$d" ] && [ ! -e "$d/kept" ] || continue
+    (
+      exec 9>"$d/guard.lock" || exit 0
+      flock -n 9 || exit 0
+      [ ! -e "$d/kept" ] && ! held_by_guard "$d" || exit 0
+      rm -rf -- "$d"
+      say "sweep: removed finished run dir $d"
+    )
+  done
   for p in /proc/[0-9]*; do
     pid=${p#/proc/}
     [ "$pid" = $$ ] && continue
     d=$(run_dir_of "$pid"); [ -n "$d" ] || continue
+    [[ $d == "$run_prefix"-???????? ]] || continue
     if [ ! -d "$d" ] && orphan "$pid"; then victims+=("$pid"); fi
   done
   if [ ${#victims[@]} -gt 0 ]; then
@@ -138,7 +167,7 @@ reap() {
       [ $code = 0 ] && code=97
     fi
   fi
-  if [ "$keep" = 1 ]; then say "kept $host:$dir (--keep: it stays until you remove it on $host)"; else rm -rf -- "$dir"; fi
+  if [ "$keep" = 1 ]; then touch "$dir/kept"; say "kept $host:$dir (--keep: it stays until you remove it on $host)"; else rm -rf -- "$dir"; fi
   [ -n "$mine_info" ] && rm -f "$mine_info"
   rm -f "$wtinfo" 2>/dev/null
 }
@@ -151,7 +180,7 @@ trap 'code=143; exit 143' INT TERM HUP PIPE
 gp=$PPID
 while [ "$gp" -gt 1 ] && ! [[ $(cat "/proc/$gp/comm" 2>/dev/null) == sshd* ]]; do gp=$(ppid_of "$gp") || { gp=0; break; }; done
 if [ "$gp" -gt 1 ]; then
-  ( while kill -0 "$gp" 2>/dev/null; do sleep 5; done; kill -TERM $$ 2>/dev/null ) </dev/null >/dev/null 2>&1 {wtfd}>&- &
+  ( while kill -0 "$gp" 2>/dev/null; do sleep 5; done; kill -TERM $$ 2>/dev/null ) </dev/null >/dev/null 2>&1 {wtfd}>&- {dirfd}>&- &
   watcher=$!
 fi
 
@@ -183,7 +212,7 @@ put "$wtinfo" pid=$$ dir="$dir" sha="$sha" start="$(now)" state=running run=0
 [ $told = 1 ] && say "got slot $got/$slots"
 
 # ── the run: a session of its own, under the timeout, with the lock fds closed so a survivor never holds a slot ──
-setsid timeout -k 30 "$max" bash "$dir/run.sh" </dev/null {wtfd}>&- {sfd}>&- &
+setsid timeout -k 30 "$max" bash "$dir/run.sh" </dev/null {wtfd}>&- {sfd}>&- {dirfd}>&- &
 runpid=$!
 put "$wtinfo" pid=$$ dir="$dir" sha="$sha" start="$(now)" state=running run="$runpid"; echo "$runpid" > "$dir/runpid"
 wait "$runpid"; c=$?

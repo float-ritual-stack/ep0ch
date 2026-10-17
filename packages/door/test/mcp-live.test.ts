@@ -97,11 +97,11 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     for (const f of ["bin/ssh", "bin/ep0ch", "bin-far/ep0ch"]) chmodSync(join(dir, f), 0o755);
     Object.assign(pullEnv, {
       PATH: process.env.PATH!, HOME: join(dir, "far-home"), EP0CH_SSH: join(dir, "bin", "ssh"),
-      FAKE_SSH_HOME: join(dir, "hub-home"), FAKE_SSH_OUTLINES: join(dir, "hub-outlines"), FAKE_SSH_BIN: join(dir, "bin"),
+      FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(dir, "hub-home"), FAKE_SSH_OUTLINES: join(dir, "hub-outlines"), FAKE_SSH_BIN: join(dir, "bin"),
     });
     Object.assign(forwardEnv, {
       PATH: process.env.PATH!, HOME: join(dir, "gw-home"), EP0CH_SSH: join(dir, "bin", "ssh"),
-      FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin-far"), FAKE_SSH_LOG: join(dir, "ssh.log"),
+      FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin-far"), FAKE_SSH_LOG: join(dir, "ssh.log"),
     });
 
     live = new LiveMachines({

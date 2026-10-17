@@ -54,6 +54,12 @@ if (argv[0] === "--serve") {
   const quit = () => { server.close(); rmSync(local, { force: true }); rmSync(ctl, { force: true }); process.exit(0); };
   process.on("SIGTERM", quit);
   process.on("SIGINT", quit);
+  const ownerFile = process.env.FAKE_SSH_OWNER_FILE;
+  const owner = ownerFile ? pidIn(ownerFile) : 0;
+  // The launching ssh exits immediately; the runner and this fixture's control file own the forward instead.
+  server.once("listening", () => setInterval(() => {
+    if (!existsSync(ctl) || (ownerFile && (!owner || pidIn(ownerFile) !== owner || !alive(owner)))) quit();
+  }, 100).unref());
 } else if (argv.includes("-O")) {
   const ctl = opt("-S")!, op = opt("-O"), pid = pidIn(ctl);
   if (!pid || !alive(pid)) { console.error(`Control socket connect(${ctl}): No such file or directory`); process.exit(255); }
@@ -64,6 +70,7 @@ if (argv[0] === "--serve") {
   console.error(`ssh: connect to host ${machine} port 22: Connection refused`);
   process.exit(255);
 } else if (argv.includes("-L")) {
+  if (!process.env.FAKE_SSH_OWNER_FILE) throw new Error("fake ssh: load the test preload so the forward belongs to its runner");
   const [local, remote] = opt("-L")!.split(":") as [string, string];
   if (!scratch(remote)) { console.error(`fake ssh: refusing to forward ${remote}, which isn't under the temp dir`); process.exit(255); }
   const ctl = opt("-S")!;
@@ -78,6 +85,7 @@ if (argv[0] === "--serve") {
   const env: Record<string, string> = {
     PATH: `${process.env.FAKE_SSH_BIN}:${process.env.PATH}`, HOME: process.env.FAKE_SSH_HOME!, SHELL: "/bin/sh",
     EP0CH_OUTLINES: process.env.FAKE_SSH_OUTLINES!, TERM: process.env.TERM ?? "dumb",
+    ...(process.env.FAKE_SSH_OWNER_FILE ? { FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE } : {}),
     ...(process.env.FAKE_SSH_STATE ? { EP0CH_STATE: process.env.FAKE_SSH_STATE } : {}),
   };
   const p = Bun.spawn(["sh", "-c", command], { env, stdio: ["inherit", "inherit", "inherit"] });

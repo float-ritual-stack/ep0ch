@@ -37,7 +37,7 @@ afterAll(async () => {
 async function underAgentEnv(args: string[], extra: Record<string, string> = {}) {
   const env: Record<string, string> = {
     PATH: `${join(here, "bin")}:${process.env.PATH}`, HOME: process.env.HOME!, EP0CH_AGENT_ROOT: join(here, "agents"), EP0CH_AGENT_TMP: join(here, "agent-tmp"),
-    FAKE_SSH_LOG: join(here, "ssh.log"), FAKE_SSH_HOME: join(here, "far-home"), FAKE_SSH_OUTLINES: host.outlines, FAKE_SSH_BIN: join(here, "bin"), ...extra,
+    FAKE_SSH_LOG: join(here, "ssh.log"), FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(here, "far-home"), FAKE_SSH_OUTLINES: host.outlines, FAKE_SSH_BIN: join(here, "bin"), ...extra,
   };
   const p = Bun.spawn([AGENT_ENV, "tester", "--", "env", `EP0CH_OUTLINES=${local.outlines}`, "ep0ch", ...args], { cwd: join(here, "repo"), env, stdout: "pipe", stderr: "pipe" });
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);

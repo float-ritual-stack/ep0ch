@@ -33,7 +33,7 @@ const sock = join(outlines, ".host", "host.sock");
 const env: Record<string, string> = {
   HOME: home, PATH: [bin, dirname(bun), "/usr/bin", "/bin"].join(":"), EP0CH_OUTLINES: outlines, EP0CH_STATE: state,
   EP0CH_WS: "allotment", EP0CH_AGENT: "wren", CLAUDE_CODE_SESSION_ID: "garden-session", EP0CH_MACHINE_NAME: "garden-host",
-  EP0CH_SSH: join(bin, "ssh"), FAKE_SSH_HOME: clientHome, FAKE_SSH_OUTLINES: clientOutlines,
+  EP0CH_SSH: join(bin, "ssh"), FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: clientHome, FAKE_SSH_OUTLINES: clientOutlines,
   FAKE_SSH_STATE: join(root, "client-state"), FAKE_SSH_BIN: clientBin, FAKE_SSH_LOG: sshLog, FAKE_SSH_REFUSE: "away",
   XDG_CONFIG_HOME: join(home, ".config"), XDG_STATE_HOME: join(home, ".local/state"), TMPDIR: tmpdir(), LANG: "C.UTF-8",
   GIT_AUTHOR_NAME: "Wren", GIT_AUTHOR_EMAIL: "wren@example.com", GIT_COMMITTER_NAME: "Wren", GIT_COMMITTER_EMAIL: "wren@example.com",

@@ -3,5 +3,6 @@
 // OUTLINER_EXTENSIONS_DIR itself.
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import "../../../scripts/fake-ssh-owner";
 
 process.env.OUTLINER_EXTENSIONS_DIR ??= join(tmpdir(), `outliner-test-no-user-extensions-${process.pid}`);

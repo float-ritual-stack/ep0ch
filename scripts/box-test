@@ -80,7 +80,7 @@ if [ $target = float-box ]; then
   rssh() { "$ssh_bin" "${ssh_opts[@]}" "$box_host" "$@"; }
   start=$(date +%s)
   # mktemp -d makes it mode 700; the name carries the user and a random id. Nothing else on the machine is named below.
-  dir=$(rssh 'umask 077; mktemp -d "/tmp/ep0ch-box-$(id -un)-XXXXXXXX"' </dev/null 2>/dev/null) \
+  dir=$(rssh 'umask 077; d=$(mktemp -d "/tmp/ep0ch-box-$(id -un)-XXXXXXXX") && touch "$d/kept" && echo "$d"' </dev/null 2>/dev/null) \
     && { [[ $dir =~ ^/tmp/ep0ch-box-[A-Za-z0-9_.-]+-[A-Za-z0-9]{8}$ ]] || dir=; }
   [ -n "$dir" ] || { echo "box-test: couldn't make a run dir on $box_host (ssh $box_host true); try --on boxd" >&2; exit 1; }
   rpid=0

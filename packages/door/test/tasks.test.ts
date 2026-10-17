@@ -419,7 +419,11 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     s.show(await board.get(plan.id), host);
     await settle(draw, t => t.includes("Paint the gate") && t.includes("oil the hinge"), "the figures");
     const agent = { kind: "agent" as const, id: AGENT };
-    const steps = async () => ((await s.act("tasks", {}, host, agent)) as any).steps as { n: number; text: string; status: string }[];
+    const steps = async () => {
+      // This standalone surface has no App to paint after its asynchronous figure read completes.
+      draw();
+      return ((await s.act("tasks", {}, host, agent)) as any).steps as { n: number; text: string; status: string }[];
+    };
     await untilAsync(async () => (await steps()).length === 3, "the rows as steps");
     const nOf = async (t: string) => (await steps()).find(x => x.text === t)!.n;
     await s.act("task.status", { n: await nOf("lift the latch"), to: "done" }, host, agent);

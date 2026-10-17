@@ -45,7 +45,7 @@ class Home {
       PATH: process.env.PATH!, TERM: "xterm-256color", LANG: "C.UTF-8", HOME: join(dir, "home"),
       EP0CH_OUTLINES: here.outlines, EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: join(dir, "state", "door.sock"),
       EP0CH_DAEMON: "0", EP0CH_KITTY: "0", EP0CH_PACKS: join(dir, "no-packs"), EP0CH_DAILY_AGENT: "sh",
-      EP0CH_SSH: join(dir, "bin/ssh"), FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin"),
+      EP0CH_SSH: join(dir, "bin/ssh"), FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin"),
       XDG_STATE_HOME: join(dir, "xs"), XDG_CACHE_HOME: join(dir, "xc"),
     };
     const pty = new Bun.Terminal({ cols: 120, rows: 40, data: (_t, d) => { this.out += Buffer.from(d).toString("latin1"); } });
