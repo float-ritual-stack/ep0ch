@@ -16,7 +16,7 @@ import { HASHTAG_VALUE_PATTERN } from "@ep0ch/outline-core/property-grammar";
 import { tagMatches } from "@ep0ch/outline-core/query-atoms";
 import { completionTargetAtCursor, hashtagAtCursor, pageAddressCompletion, pageCompletionLookupQuery } from "./completion";
 import { stripFragmentAnchors } from "./fragments";
-import { parsePropertyRecords, stripPropertyTokens } from "./properties";
+import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { plainBody } from "./publish-marginalia";
 import type { GotoSearchCollection, PageAddressMatch, PropertyCatalogItem } from "./types";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";

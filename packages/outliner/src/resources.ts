@@ -1,5 +1,5 @@
 import type { ExtensionRecordData } from "./extension-records";
-import {firstLineWithoutPropertyTokens} from "./properties";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { Type, type Static } from "typebox";
 import { Parse } from "typebox/value";
 

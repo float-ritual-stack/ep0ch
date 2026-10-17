@@ -1,5 +1,5 @@
 import type {OutlinerRequester} from "./client-target";
-import {parsePropertyRecords} from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type {Block, PageAddressResolution, VirtualBranchOrder, VirtualBranchPlacement, WorkingSelection, WorkingSelectionRecovery, WorkingSelectionTarget} from "./types";
 
 /** A collected set is separate from cursor focus and never protects a reader. */

@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One parser, one scope walk, one path resolver (PIE-950, first slice of PIE-533)
+
+Nothing changes on screen. The property parser (`parsePropertyRecords` and its strip and title helpers), the property
+summary line and the scope walk ("the nearest key") moved into outline-core, so the service, the door and the mod read
+properties with one copy; the door's copies of the `PropertyRecord` type and the summary are gone. A block record's
+`fields` now say the `column` and `offset` of each inline or line property. New in outline-core, not yet used by a
+client: `resolvePath` (`this.key`, `parent.key`, `props.x` and a bare `key` answered from a note's record, with
+did-you-mean for a missing key) and the `Site` and `PropsSpec` types it reads. The comment on `propertyValueLinks` no
+longer says `[blocks::PIE-12, PIE-14]` is two links: a plain value's commas are one value, and a list is written in
+brackets (#604).
+
 ### The thread panel is a tree, and a click only selects (PIE-944)
 
 `t` in a reader opens the thread as a phpBB-style tree: the root post, the chain of parents down to the note you're

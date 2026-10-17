@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parsePropertyRecords, PROPERTY_PARSER_VERSION } from "../src/properties";
+import { parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { outlinerReferenceOccurrences } from "../src/reference-occurrences";
 import { OutlinerStore } from "../src/store";
 

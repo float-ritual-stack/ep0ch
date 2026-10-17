@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { createAnnotationAnchor } from "./annotations";
 import { normalizeBlockSearchQuery } from "./block-query";
 import { parseDetailCallouts } from "./detail-callouts";
-import { firstLineWithoutPropertyTokens } from "./properties";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import type { OutlinerStore } from "./store";
 import type {
   Block,

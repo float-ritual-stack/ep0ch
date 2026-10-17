@@ -1136,8 +1136,8 @@ A **resource projection** is a Resource's stored details shown where a note
 names it: under a provider line, or at the top of a block whose own provider
 property names it. A Jira ticket under a `jira::` line is the first kind.
 
-[`context-resolution.ts`](../src/context-resolution.ts) is the first slice of
-PIE-408's context-scoped resolution: "the nearest key" for a line of a block.
+outline-core's [`scope-walk.ts`](../../outline-core/src/scope-walk.ts) is the one
+scope walk, the first slice of PIE-408's context-scoped resolution: "the nearest key" for a line of a block.
 It walks nearest first (explicit key, the line, the nearest earlier line at the
 same or a shallower indent, the block's own property, its subject line, then
 ancestors) and stops at the first level with a key; two different keys at that
@@ -1149,13 +1149,13 @@ It is provider-agnostic: a matcher supplies the property key, the key grammar
 and the claim filter. A resolver parses its block once per read and reads each
 ancestor only through its subject line and preamble. Resource projections are
 its first caller; PIE-408's soft links must reuse it rather than add a second
-resolver. Its current shape is narrower than soft links will need: it resolves
-a **line, not an offset**, and reads **only block-scope properties**, not line or
-inline ones. Reshape it (offsets, line/inline properties) when soft links arrive.
+resolver, and so does `resolvePath` (outline-core's `resolve-path.ts`) for a bare
+`{{key}}`. Its current shape is narrower than soft links will need: it resolves
+a **line, not an offset**. Reshape it (offsets) when soft links arrive.
 
 Provider lines (`jira::`, `jira:: --comments`, floatty's `- jira:: --comments`,
 `jira:: KEY --full`) are recognized by `parsePropertyDirectiveLines` in
-[`properties.ts`](../src/properties.ts) for provider keys only, from
+outline-core's [`property-parse.ts`](../../outline-core/src/property-parse.ts) for provider keys only, from
 `RESOURCE_DIRECTIVE_PROVIDERS` in
 [`resource-references.ts`](../src/resource-references.ts). Each entry supplies
 the property key, a reader label, the key grammar, a Source claim function and
@@ -1813,7 +1813,7 @@ src/tree-renderer.ts          Tree ANSI rendering
 src/virtual-branches.ts       projection configuration and rows
 src/detail-pi.ts              Detail terminal process
 src/outliner-links.ts          private URI codec and safe Tree/Markdown link generation
-src/context-resolution.ts     context-scoped "nearest key" resolution (PIE-408, first slice)
+../outline-core/src/scope-walk.ts   the scope walk: "nearest key" resolution (PIE-408, first slice)
 src/resource-projection.ts    resource projections: stored details for provider lines (`resources.projection.read`)
 src/herdr-link-open.ts         Herdr link-handler action using shared goto/reveal
 src/herdr-comment-selection.ts native rendered-selection validation and exact-Detail dispatch

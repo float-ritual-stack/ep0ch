@@ -4,7 +4,7 @@ import {linkOutlinerMarkdown, parseOutlinerLinkUri} from "./outliner-links";
 import type { DetailState } from "./detail-controller";
 import type { PreviewRegion } from "./detail-preview-regions";
 import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";

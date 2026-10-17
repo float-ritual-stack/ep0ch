@@ -9,7 +9,8 @@ import {
   parseSearchExpression,
   sortFieldProblem,
 } from "./block-query";
-import { matchesFilters, parsePropertyRecords, patchPropertyText } from "./properties";
+import { matchesFilters, patchPropertyText } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { parsePropertySummaryKeys } from "./property-summary";
 import type {
   BlockQuerySort,

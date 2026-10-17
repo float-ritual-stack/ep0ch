@@ -9,7 +9,7 @@ import { isWritablePropertyValue, splitPropertyValue } from "@ep0ch/outline-core
 import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
 import { MISSING_MARK, pageOf, refView, referencesIn, shortId } from "../refs";
-import type { PropertyRecord } from "../socket";
+import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { ellipsize, bg, C, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rule } from "../text";

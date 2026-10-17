@@ -1,4 +1,4 @@
-import { firstLineWithoutPropertyTokens } from "./properties";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { resolveFragment, stripFragmentAnchors } from "./fragments";
 import { textMemo } from "./text-memo";

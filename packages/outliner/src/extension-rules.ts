@@ -29,7 +29,7 @@ import { DEFAULT_DEADLINE_MS, durationMs, type ExtensionRule, type LoadedExtensi
 import { cleanExtensionText, contextAncestors, inertBlockdown } from "./extension-records";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import type { ExtensionRegistry } from "./extension-registry";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { ExtensionOutputRow, OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";

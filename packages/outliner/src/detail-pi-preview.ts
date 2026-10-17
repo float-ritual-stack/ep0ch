@@ -11,7 +11,7 @@ import {concatDocuments, documentProvenanceKey, generatedDocument, observeDocume
 import type {ChromeLevel, PaneBarButton} from "./reader-chrome";
 import type {OutlinerActionHint} from "./outliner-actions";
 import {checklistFoldIdentities, checklistControls, embeddedChecklistControls, type ChecklistControl} from "./checklist-controls";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import {documentFolds, revealFoldedLine, type DocumentFold} from './document-folds';
 import type {Block} from "./types";
 import {authoredResourceReferenceOccurrences} from "./resource-references";

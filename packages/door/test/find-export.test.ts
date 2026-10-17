@@ -48,7 +48,7 @@ describe("exported files, from records", () => {
   const order = blockRecord({
     block: { id: "bbbbbbbb-2", parentId: "aaaaaaaa-1", text: orderText, revision: 1, author: "user", createdAt: "2026-03-09T09:00:00.000Z", updatedAt: "2026-03-09T09:30:00.000Z" },
     title: "Seed order", literal: [], children: ["dddddddd-4"], tasks: [], backlinks: [], resources: [],
-    properties: [{ key: "tag", value: "seeds", scope: "block", line: 0 }, { key: "tag", value: "spring", scope: "block", line: 0 }],
+    properties: [{ key: "tag", value: "seeds", scope: "block", line: 0, column: 11, start: 11 }, { key: "tag", value: "spring", scope: "block", line: 0, column: 24, start: 24 }],
     links: [
       { kind: "block", text: "((aaaaaaaa-1|the plot))", label: "the plot", target: "aaaaaaaa-1", status: "ready", spans: [span("((aaaaaaaa-1|the plot))"), span("((aaaaaaaa-1))")] },
       { kind: "page", text: "[[Seed list]]", label: "Seed list", target: "cccccccc-3", status: "ready", spans: [span("[[Seed list]]")] },

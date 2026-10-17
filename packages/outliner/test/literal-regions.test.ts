@@ -7,14 +7,8 @@ import { OutlinerClient } from "../src/client";
 import { renderDetailReadPreviewLines } from "../src/detail-pi-preview";
 import { hideLiteralMarkers, presentReaderHeadings } from "../src/document-presentation";
 import { concatDocuments, generatedDocument, observeDocument, sliceDocument, sourceDocument } from "../src/document-provenance";
-import {
-  firstLineWithoutPropertyTokens,
-  parseProperties,
-  parsePropertyRecords,
-  patchPropertyText,
-  PROPERTY_PARSER_VERSION,
-  stripPropertyTokens,
-} from "../src/properties";
+import { patchPropertyText } from "../src/properties";
+import { firstLineWithoutPropertyTokens, parseProperties, parsePropertyRecords, PROPERTY_PARSER_VERSION, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
 import { LIST_FENCE_NOTE, LIST_FENCE_PROPERTIES, LONG_FENCE_NOTE, LONG_FENCE_PROPERTIES, TILDE_FENCE_NOTE, TILDE_FENCE_PROPERTIES } from "../../outline-core/test/fixtures/code-notes";
 import { blockDisplayTitle } from "../src/references";

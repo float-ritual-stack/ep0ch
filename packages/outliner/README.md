@@ -1980,8 +1980,8 @@ the preview with the block it read and warn before a save drops a property.
 CLI: `bun run cli properties-preview --text '<draft>'` or `--stdin`.
 
 The property token grammar lives in one place, outline-core's
-`property-grammar.ts`, which the parser, the query language, context resolution
-and the door share. The header line (the run of `[key::value]` chips that ends a note's
+`property-grammar.ts`, which the parser (`property-parse.ts`, also outline-core's), the query language, the scope
+walk (`scope-walk.ts`) and the door share. The header line (the run of `[key::value]` chips that ends a note's
 first line, blanks or ` - ` between them) is outline-core's `header-line.ts`: the
 parser gives those chips block scope, titles leave them and their separators out,
 Detail's property table says `header` for them, and `ep0ch export` moves them into

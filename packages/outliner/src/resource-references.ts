@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { parsePropertyDirectiveLines, parsePropertyRecords } from "./properties";
+import { parsePropertyDirectiveLines, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import type { ExtensionProvider, ResourceSource } from "./resources";
 

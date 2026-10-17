@@ -3,7 +3,7 @@ import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import type { RequestInput } from "../src/client";
 import { projectDetailRead, resourceProjectionLines } from "../src/detail-embeds";
 import { projectedSourceLine, renderDetailReadPreviewLines } from "../src/detail-pi-preview";
-import { parsePropertyRecords } from "../src/properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { ResourceProjection } from "../src/resource-projection";
 import { sanitizeDynamicText } from "../src/terminal";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";

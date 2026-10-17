@@ -1,4 +1,4 @@
-import {parsePropertyRecords} from './properties';
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type {Block} from './types';
 import {stripFragmentAnchors} from './fragments';
 import {atomicDocument, concatDocuments, observeDocument, sliceDocument, sourceDocument, type MappedDocument, type ObservedDocument} from './document-provenance';

@@ -24,7 +24,7 @@ import {
 } from "./navigation-routes";
 import { isWorkIdAddress, type TicketPrefixes } from "./work-ids";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type {
   Block,
   BlockReferenceResolution,

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ExtensionHandler, ExtensionOptionSpec } from "./extension-manifest";
 import type { BoundHandler } from "./extension-registry";
-import { parsePropertyDirectiveLines } from "./properties";
+import { parsePropertyDirectiveLines } from "@ep0ch/outline-core/property-parse";
 
 /**
  * Handler lines: `key:: [argument] [--option[=value]]` for a key an

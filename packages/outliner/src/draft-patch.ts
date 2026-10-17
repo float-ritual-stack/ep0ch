@@ -23,7 +23,7 @@
  */
 import { fragmentAnchors } from "./fragments";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { MutationProvenance } from "./types";

@@ -6,7 +6,7 @@
 
 import { metadataLines } from "@ep0ch/outline-core/block-tags";
 import { quoteDepth } from "@ep0ch/outline-core/callouts";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences, pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { codeLineSet, ensureFragmentAnchor, fragmentCandidates, resolveFragmentSlice } from "./fragments";
 
