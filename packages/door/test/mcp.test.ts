@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { canonicalLocalMachineName } from "../src/notes-cli";
+import { usageShape } from "../src/mcp-usage";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { answerMcp, mcpCommand } from "../src/mcp";
 import { machineOutlines } from "../src/mcp-gateway";
@@ -98,6 +99,12 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     const last = readdirSync(join(state, "mcp-usage")).flatMap(f => readFileSync(join(state, "mcp-usage", f), "utf8").trim().split("\n").map(l => JSON.parse(l))).at(-1);
     expect(last.shape.where).toBe('garden.zone=? AND child>=?:garden.zone=? AND links:? AND text~?');
   }, 30_000);
+
+  test("a recorded query shape keeps keys and never a value, parentheses inside a value included", () => {
+    const shape = (where: string) => String(usageShape("outline_query", { where }).where);
+    expect(shape("text~fern(private)")).not.toContain("private");
+    expect(shape("(stage=doing OR stage=review) AND owner=wren")).toBe("(stage=? OR stage=?) AND owner=?");
+  });
 
   test("the SQL census measures live blocks by latest actor and top-level branch", async () => {
     const root = await board.request<{ id: string }>("create", { parentId: null, text: "éé", author: "agent", provenance: { actorId: "census-gardener" } });

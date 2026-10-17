@@ -23,15 +23,18 @@ function queryShape(text: string): string {
   for (const ranges of [blockReferenceEnvelopeRanges, pageLinkRanges]) {
     for (const range of ranges(text).reverse()) text = text.slice(0, range.start) + "?" + text.slice(range.end);
   }
-  const value = String.raw`[^\s()]+`;
+  // A value runs to the next blank, parentheses and all (`text~secret(private)` is one value): what's cut off is a
+  // group's closing parentheses, which the shape keeps. Over-redacting a shape is fine; leaking a value isn't.
+  const value = String.raw`\S+`;
+  const closers = (v: string) => /\)*$/.exec(v)![0];
   const child = String.raw`child(?:>=\d+)?:${PROPERTY_KEY_SOURCE}(?:\s*(?:::|>=|<=|=|>|<)\s*${value})?`;
-  const clause = new RegExp(`(${child})|(${PROPERTY_KEY_SOURCE})\\s*(::|:|>=|<=|!=|=|>|<|~)\\s*${value}|#[^\\s()]+`, "g");
-  return text.replace(clause, (all, childClause: string | undefined, key: string | undefined, op: string | undefined) => {
+  const clause = new RegExp(`(${child})|(${PROPERTY_KEY_SOURCE})\\s*(::|:|>=|<=|!=|=|>|<|~)\\s*(${value})|#\\S+`, "g");
+  return text.replace(clause, (all, childClause: string | undefined, key: string | undefined, op: string | undefined, literal: string | undefined) => {
     if (childClause) {
       const colon = childClause.indexOf(":");
       return childClause.slice(0, colon).replace(/\d+/g, "?") + ":" + queryShape(childClause.slice(colon + 1));
     }
-    return key ? `${key}${op}?` : "#?";
+    return key ? `${key}${op}?${closers(literal ?? "")}` : `#?${closers(all)}`;
   }).replace(/\s+/g, " ").trim();
 }
 
@@ -48,8 +51,15 @@ export function recordUsage(row: Usage): void {
   const dir = usageDir();
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   appendFileSync(join(dir, `${row.time.slice(0, 10)}.jsonl`), JSON.stringify(row) + "\n", { mode: 0o600 });
-  const oldest = new Date(Date.parse(row.time) - 29 * DAY).toISOString().slice(0, 10);
-  for (const file of readdirSync(dir)) if (/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file) && file.slice(0, 10) < oldest) {
+  pruneUsage(dir, Date.parse(row.time));
+}
+
+/** Days older than 30 go, on every record and every read (a quiet machine still forgets). */
+function pruneUsage(dir: string, now: number): void {
+  const oldest = new Date(now - 29 * DAY).toISOString().slice(0, 10);
+  let files: string[];
+  try { files = readdirSync(dir); } catch { return; }
+  for (const file of files) if (/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file) && file.slice(0, 10) < oldest) {
     try { unlinkSync(join(dir, file)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
   }
 }
@@ -67,6 +77,7 @@ function summarize(rows: Usage[]) {
 
 export async function usageCommand(args: string[], io: { write?: (s: string) => void; err?: (s: string) => void }): Promise<number> {
   const out = io.write ?? console.log, err = io.err ?? console.error;
+  pruneUsage(usageDir(), Date.now());
   let since = 24 * 3_600_000, by: "tool" | "actor" | "outline" = "tool", json = false, census = false;
   const boardArgs: string[] = [];
   try {
