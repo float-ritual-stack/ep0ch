@@ -52,6 +52,11 @@ export async function setup() {
     return { text: note(), undo: started.undo, extension };
   };
   const output = (blockId: string) => store.extensionOutputs(blockId).map(row => (row.result as { markdown?: string } | null)?.markdown ?? row.error);
-  return { store, client, create, extensionOf, run, output };
+  /** Draws a note's lines: the script sources are loaded first, so a line is never asked before its script exists (a load-dependent race otherwise). */
+  const draw = async (blockId: string) => {
+    await client.request({ action: "extensions.list", reload: true });
+    await client.request({ action: "resources.projection.read", blockId, materialize: true });
+  };
+  return { store, client, create, extensionOf, run, output, draw };
 }
 
