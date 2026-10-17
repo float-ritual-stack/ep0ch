@@ -10,6 +10,41 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Templates: `::use`, `template.stamp`, and the runbook on the shared grammar (PIE-954, S4 of PIE-533)
+
+What you can now do: write a template once and use it two ways. Draw it live where a page says
+`::use{of=[[meeting-template]] date=2026-10-14 with=Jay}`, or write it out as a note of its own to edit.
+
+- **`::use` draws a template live.** Its body is drawn in place with `this` the page the line is on, so `{{this.title}}`
+  in the template is that page's title, also inside a figure, `::fields` or `::if` in its body; `{{props.with}}` is what
+  the line passed. Edit the template and every page that uses it redraws.
+- **A template declares its props** with `[form-field::with text required]`, `[form-field::mood choice good|meh
+  default=good]` chips (text, number, choice, note, tag; `required`, `default=`; a default may be a path:
+  `default={{parent.owner}}`). A prop written on the line that the template doesn't declare is a warning with the nearest
+  name (`stauts` → did you mean `status`?); a value outside a choice's options says the nearest option; a required one
+  left out is asked for by a press (the picker of its kind), or refused with the call that works.
+- **A prop can be a path.** `status={{parent.status}}`, or `owner="[[evan schultz]].firstName"` / `ref=((id)).status`
+  written as a person writes them, are read in the page's own Site before the template is drawn.
+- **`template.stamp` writes the filled text as a new note.** `ep0ch act template.stamp of='[[daily-template]]' as=new
+  parent='[[Daily notes]]' title='{{now.date}}'` makes today's daily note: `props.*`, `self.*` and `now.*` become text now;
+  `this.*`, `parent.*`, a bare key and a reference stay as `{{ }}` and read where the note lands (`freeze=all` writes those
+  too). `for=<query>` stamps once per match (each is `props.for`, `{{props.for.title}}`) and skips a match already stamped
+  from the template. The template's own chips are not stamped; `[template-for::meeting]` becomes the new note's
+  `[type::meeting]`, and `[from-template::((id))]` says where it came from. The person is asked, in the power bar, for the
+  template and for what it needs; an agent names it (`with='{"who":"Jay"}'`).
+- **Templates are found by what they make, too.** `of=type:meeting` is the one note that says `[template-for::meeting]`.
+- **The runbook runs on the shared grammar** (breaking for runbooks: see its CHANGELOG). A step's `{{self.env}}` is the
+  runbook note's own value, `{{props.env}}` a value the run is given; the service fills them. A placeholder with no value,
+  or a value from anywhere but the runbook note that could build a command, stops the step. `ep0ch install --apply` rewrites
+  an old step's `{{env}}` to `{{self.env}}`.
+- **The last single-brace expanders are gone from the grammar's neighbourhood:** an extension's resource link
+  `browse/{{key}}` reads `{{ }}`; intake's archive command takes `%word%` (an extension's own argv, not a note's text).
+- **Kitchen sink:** the section "Templates" (`ep0ch --showcase`, `act section name=templates`).
+- Wire: new service reads `template.use` (watched) and `template.props`, and write `template.stamp`; `site.answer` takes
+  `interpolate` (a text filled in the Site; the runbook's step) and answers `interpolated` and each value's `head`.
+  `form-field` types `note` and `tag`; a template's fields may be named `with` and `color`, the names an action's
+  request reserves. No `PROTOCOL` change in this slice.
+
 ### Notes that read themselves: values in every reader (PIE-952, fourth slice of PIE-533)
 
 What you can now do: write `Play it at {{this.target}}. Owner: {{this.owner}}.` in a note and see the value, not the
