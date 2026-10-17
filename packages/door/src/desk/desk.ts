@@ -585,9 +585,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (r.base !== this.state) throw new Error("a layout answer was committed over a newer layout; ask again");
     const was = this.layout.collapsed;
     // The shape it leaves, against the shape it began from: a change of shape is a history entry (a focus move is none).
-    const by = this.asked.get(r), shape = this.shapeNow(), before = this.replaying ? null : this.layoutSpec();
+    // (An operation that has already swapped a tile's pane for the new state can't serialize the old one: it records nothing.)
+    const by = this.asked.get(r), snap = this.replaying ? null : this.snapshotShape();
     this.state = r.state;
-    if (before && this.shapeNow() !== shape) this.recordChange(before, by?.actor ?? USER, by?.op ?? "change");
+    if (snap && this.snapshotShape()?.shape !== snap.shape) this.recordChange(snap.before, by?.actor ?? USER, by?.op ?? "change");
     this.focus = r.focus;
     this.noteFocus();
     // A tile folded or opened is told (it keeps what it holds exactly).
@@ -598,6 +599,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private apply(op: Op<number>, actor: Actor = USER): Extract<Result<number>, { ok: true }> { return this.commit(this.ask(op, actor)); }
 
   // ── the layout's one history, undo and transactions (PIE-957, design §4.9) ────────
+
+  /** The screen's shape now, as text and as a spec to rebuild from; null when a pane the layout names is already gone (mid-operation). */
+  private snapshotShape(): { shape: string; before: LayoutSpec } | null {
+    try { return { shape: this.shapeNow(), before: this.layoutSpec() }; } catch { return null; }
+  }
 
   /** A change of shape `by` made, recorded with the transaction its action named (src/surface/txn.ts), which it opens or joins. */
   private recordChange(before: LayoutSpec, by: Actor, what: string) {
