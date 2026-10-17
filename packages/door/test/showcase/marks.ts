@@ -70,6 +70,7 @@ export const marks: Record<string, string[]> = {
   tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
   // The build log: its two open calls under Needs you, the decided ones drawn as their marks.
   steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
+  values: ["Vent rail demo", "Owner: Ada", "did you mean owner?", "Spring sowing jobs"],
   "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
   "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "shown (M)"],
   // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
