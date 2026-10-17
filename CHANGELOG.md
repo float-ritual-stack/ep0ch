@@ -19,6 +19,15 @@ board's cards, the thread and step panels. The band is a theme value (`item` in 
 classic, dark (no bright fill), and every text colour reads on it at 4.5:1 or better (checked from the theme's own
 values). `ep0ch --showcase` has a "focus" section.
 
+### A rule under a note's header ends its front matter
+
+A note whose header line is followed by `---` and a list line of tags (`- #a - #b`), with no blank line between,
+draws the rule and then the tags as a body line, as it does with a blank line. A `---` line, or a list item with no
+property in it, now ends front matter like a blank line; a bulleted line with properties (`- [a::b]`, `- re:: why`)
+stays in it. `tag=` still matches the tags on that line. The reader's scroll no longer snaps back to the top on a note
+whose tag row stands above a drawn line. Run `ep0ch install --apply` (the protocol is bumped and properties are
+re-read).
+
 ### Yolo: hand the door to your agents
 
 `agents.yolo` in the power bar (ctrl+k) hands the door to your agents until you take it back. In yolo no guard of

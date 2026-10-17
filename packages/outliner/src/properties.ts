@@ -17,7 +17,7 @@ import type {
 const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*(?:[-*+][ \t]+)?)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
 const DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
 
-export const PROPERTY_PARSER_VERSION = 11;
+export const PROPERTY_PARSER_VERSION = 12;
 
 interface PropertyMatch {
   match: RawPropertyToken;

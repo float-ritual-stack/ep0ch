@@ -2,7 +2,7 @@
 // headerLine finds only the trailing chips and tags a displayed title leaves out. Mid-title tags stay prose.
 // Exports retain tags in the body and move header chips into YAML, without changing the stored source.
 // Changes here bump PROTOCOL and the outliner's PROPERTY_PARSER_VERSION.
-import { HASHTAG_VALUE_PATTERN, isEscapedAt, propertyTokensInLine } from "./property-grammar";
+import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokensInLine } from "./property-grammar";
 
 /** One header chip: its key as written, its value (trimmed, otherwise verbatim), where it sits in the text. */
 export interface HeaderChip {
@@ -84,12 +84,27 @@ export function headerLine(text: string, literal: readonly LiteralRange[] = []):
   return { line, offset, end: offset + source.length, kept: before.length, prose: before, dashes, chips, tags, body: [bodyTitle, ...lines.slice(line + 1)].join("\n") };
 }
 
-/** The title and its first paragraph, bounded by the first blank line. */
+/** A thematic break: `---`, `***` or `___` (three or more) alone on a line. */
+const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
+const LIST_LINE = /^[ \t]*[-*+][ \t]+/;
+const BARE_PROPERTY = new RegExp(String.raw`^(?:${PROPERTY_KEY_SOURCE})::`);
+/** A list item that carries properties (`- [a::b] - [c::d]`, `- re:: why`), as floatty wrote its front matter. */
+const listProperty = (line: string) => { const rest = line.replace(LIST_LINE, ""); return propertyTokensInLine(rest).length > 0 || BARE_PROPERTY.test(rest); };
+
+/**
+ * The title and its first paragraph, bounded by the first blank line (PIE-684), a rule line (`---`) or a list item
+ * that carries no property (`- #a - #b`, `- one`): those begin the body, so tags written under a rule are body text
+ * (PIE-970). A bulleted line with properties (`- [a::b]`, `- re:: why`) stays in front matter.
+ */
 export function frontMatterLines(text: string): Set<number> {
   const lines = text.split("\n");
   const start = lines.findIndex(line => line.trim() !== "");
   const found = new Set<number>();
-  for (let i = start; i >= 0 && i < lines.length && lines[i]!.trim(); i++) found.add(i);
+  for (let i = start; i >= 0 && i < lines.length && lines[i]!.trim(); i++) {
+    const line = lines[i]!;
+    if (i > start && (RULE_LINE.test(line) || (LIST_LINE.test(line) && !listProperty(line)))) break;
+    found.add(i);
+  }
   return found;
 }
 
