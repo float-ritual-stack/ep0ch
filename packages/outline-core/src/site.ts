@@ -95,6 +95,10 @@ export interface SiteAnswerRequest {
   chain?: SiteLink[];
   /** The call's arguments (`{k=v}` of the `::use` line), as `props.k`. */
   props?: Record<string, string[]>;
+  /** The producer's own definition (a script's note), as `self.*`. */
+  self?: string;
+  /** Where the producer was invoked (a rule's matched line, a key's note), as `caller.*`. */
+  caller?: Address;
   /** The line of the note the scope walk starts at (default: the first). A `use` in the chain sets it to its own line. */
   line?: number;
   /** More paths to read besides the note's own `{{ }}` (a script's `resolve`, an agent's question): `this.tasks | status=todo`. */
