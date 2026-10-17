@@ -2184,6 +2184,8 @@ The buttons above the table do the same. **Ctrl+Z** undoes and **Ctrl+S** saves.
 Markdown tables and static `::graph-table` flow-array rows work, including tables an agent streams into
 the draft. Query tables and other component formats keep raw editing as the escape hatch.
 Try `ep0ch --showcase`, `act section name=rich-edit`.
+
+A script's drawing can be pressed (PIE-981). A view a render script returns can put `action: { action, args }` on a text, badge, card or table row; a click, or ⏎ on the element, runs that action (an `ext.<id>.<action>` or a script's name) as you, on the note the line is in, and the same action runs by `act`. While you edit a note, raw or rich, each handler line's last drawing stays under it, read-only, without its controls. Try `act section name=press` in the showcase: a noughts-and-crosses board whose squares you click.
 The [adapter contract](docs/UI-GRAMMAR.md#rich-component-editing-pie-593) explains the door-side extension seam.
 
 ### Extensions in a note

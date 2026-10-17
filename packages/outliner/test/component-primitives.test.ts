@@ -186,3 +186,22 @@ test("Detail lays a row side by side when each child gets its minWidth, stacks i
   const authored = sourceDocument(observeDocument({ kind: "block", blockId: "00000000-0000-4000-8000-000000000001" }, markdown));
   expect(AttributedMarkdown.compile(authored, theme, false)!.render(80).map((line) => line.trim())).toContain("```ep0ch-row 24");
 });
+
+test("a badge, text, card or table row can carry an action to press; every other target ignores it (PIE-981)", () => {
+  const press = { action: "ttt-move", args: { at: 5, side: "x" } };
+  const view = validatePrimitive({ type: "stack", children: [
+    { type: "badge", label: "5", action: press },
+    { type: "text", text: "Play", action: { action: "ext.script:ttt-move.run" } },
+    { type: "card", title: "Square", action: press },
+    { type: "table", columns: ["Square"], rows: [["1"], ["2"]], actions: [press, null] },
+  ] });
+  expect(JSON.stringify(view)).toContain('"action":"ttt-move"');
+  const body = renderComponent({ data: null, view } as ComponentOutput, "html").body;
+  expect(body).not.toContain("ttt-move");
+  expect(renderComponent({ data: null, view } as ComponentOutput, "markdown").body).not.toContain("ttt-move");
+  // Refused with a path: a link and an action on one card, an action that is no name, args that are not plain.
+  expect(() => validatePrimitive({ type: "card", title: "x", link: "file:/a.md", action: press })).toThrow("view.action");
+  expect(() => validatePrimitive({ type: "badge", label: "x", action: { action: "rm -rf /" } })).toThrow("view.action.action");
+  expect(() => validatePrimitive({ type: "badge", label: "x", action: { action: "go", args: { at: { deep: 1 } } } })).toThrow("view.action.args.at");
+  expect(() => validatePrimitive({ type: "table", columns: ["a"], rows: [["1"]], actions: [] })).toThrow("view.actions");
+});

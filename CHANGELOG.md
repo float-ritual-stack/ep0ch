@@ -10,6 +10,26 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A script's drawing can be pressed, and edit keeps it (PIE-981)
+
+What you can now do: a render script draws a button, and a click runs it. Kitty's noughts and crosses is the example:
+`ttt-board::` draws the board, each free square runs `ttt-move at=5`, and the board redraws with the move.
+
+- **A view carries an action.** A `text`, `badge` or `card` takes `action: { action, args? }`, and a `table` takes
+  `actions` (one per row, in place of `links`). `action` is an extension's action (`ext.<id>.run`) or a script's name;
+  `args` are its slots (`{ at: 5 }` is `at=5`). In the door a click, or ⏎ on the element, runs it as you, through the
+  same dispatcher a `[w ward]` chip uses, and `act element.open` or `act ext.<id>.run block=<note> at=5` runs the same
+  action. A page, an export, Detail and every other target draw the primitive as it was: nothing a page didn't allow
+  gains a write.
+- **A render script's view reaches the door as a view.** It used to arrive as Blockdown only; the stored output now
+  carries the view too, so the door draws it as primitives (and a press works) while every other client keeps the
+  Blockdown. `PROTOCOL` moves.
+- **A script's write redraws the render line that reads it.** The move script writes the note whose `ttt-board::` line
+  reads it; that line is drawn again at once. (A script's writes did not redraw a reader before; an extension's own
+  writes still don't.)
+- **Edit and rich edit keep a handler line's last drawing under it**, read-only and without its controls, while you edit
+  the lines around it. A line typed above it moves it with the line.
+
 ### Install rewrites the old brace forms (PIE-533, landing)
 
 `ep0ch install --apply` runs the brace sweep on every outline, after the schema step and before the host starts: rule

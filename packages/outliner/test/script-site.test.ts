@@ -241,3 +241,27 @@ test("keep on a render line writes its output as a note and starts no run", asyn
   expect(store.children(note.id).map(c => c.text).join("\n")).toContain("sow the peas");
   expect(store.children(script.id)).toHaveLength(0);
 });
+
+test("a render script's view reaches a client as a view, its squares carrying the action they press; the text form carries none (PIE-981)", async () => {
+  const { client, create } = await setup();
+  create(`Move [script::ttt-move]\n\`\`\`js\nreturn "moved " + props.at[0];\n\`\`\``);
+  create(`Board [script::ttt-board] [mode::render]\n\`\`\`js\nreturn view.stack({ children: [view.badge({ label: "5", action: { action: "ttt-move", args: { at: 5 } } })] });\n\`\`\``);
+  const note = create("Game\nttt-board::");
+  const projections = async () => (await client.request<{ projections: { kind?: string; output?: { markdown: string; component?: { view: unknown } } }[] }>({ action: "resources.projection.read", blockId: note.id, materialize: true })).projections;
+  const drawn = await until("the board", async () => (await projections()).find(p => p.output)?.output);
+  expect(JSON.stringify(drawn.component?.view)).toContain('"action":{"action":"ttt-move","args":{"at":5}}');
+  expect(drawn.markdown).toContain("5");
+  expect(drawn.markdown).not.toContain("ttt-move");
+});
+
+test("a script's write to a note a render line reads draws the line again, and the render line itself writes nothing (PIE-981)", async () => {
+  const { store, client, create, output, run } = await setup();
+  create(`Mark [script::mark-it] [effects::write]\n\`\`\`js\nawait tools.outline_set_property({ ref: this.id, key: "mark", value: "x", revision: this.revision });\nreturn "marked";\n\`\`\``);
+  create(`Show [script::show-mark] [mode::render]\n\`\`\`js\nreturn "mark: " + ((await resolve("this.mark")).values?.[0] ?? "none");\n\`\`\``);
+  const note = create("Square\nshow-mark::");
+  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await until("the first drawing", () => output(note.id)[0]?.includes("none"));
+  await run("mark-it", { blockId: note.id });
+  await until("the line drawn again after the script's write", () => output(note.id)[0]?.includes("mark: x"));
+  expect(store.get(note.id)!.text).toContain("[mark::x]");
+});

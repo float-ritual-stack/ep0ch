@@ -3725,10 +3725,10 @@ export class OutlinerServer {
       }
       // A handler line reads its block's children and the blocks it names: a person's or agent's change to one
       // (an edit, a child added, moved, trashed or restored) may redraw the line. An extension's own writes don't, so
-      // nothing loops.
+      // nothing loops; a script's do (a render line only reads: PIE-981).
       if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(event.change?.kind ?? "")
-        && !isExtensionActor(event.change!.actor?.actorId) && !event.change!.actor?.taskId?.startsWith("trigger:script:")) {
-        this.extensionCalls.inputChanged(event.blockId, [event.change!.parentId, event.change!.previousParentId]);
+        && !isExtensionActor(event.change!.actor?.actorId)) {
+        this.extensionCalls.inputChanged(event.blockId, [event.change!.parentId, event.change!.previousParentId], !!event.change!.actor?.taskId?.startsWith("trigger:script:"));
       }
       // Rules (PIE-600) see every save, a move, a restore and a trash too (a block moved under another may start matching;
       // one in the Trash stops); an extension's own only moves what a trigger remembers. A comment, a reply or a

@@ -4,8 +4,10 @@ import {
   ComponentError,
   renderComponent,
   renderMarkdownOutput,
+  validatePrimitive,
   validateComponent,
   type ComponentOutput,
+  type Primitive,
   type RenderTarget,
   type RenderedComponent,
 } from "./component-primitives";
@@ -73,7 +75,7 @@ export interface ExtensionCallsOptions {
    * A render-mode script drawn for a line (`ScriptRuns.render`): what it returns as Blockdown, and the notes it read with
    * their revisions. The producer path for a script is this handler line's, so it keeps its output where every handler does.
    */
-  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }) => Promise<{ markdown: string; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }>;
+  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }) => Promise<{ markdown: string; view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }>;
   readonly now?: () => number;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
   readonly changed?: (blockId: string) => void;
@@ -256,13 +258,14 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/** An output handler's result: `{ markdown, title? }`. */
-function validateOutput(value: unknown): { markdown: string; title?: string } {
+/** An output handler's result: `{ markdown, title? }`, and the view a render-mode script drew (PIE-981), which a client that draws views draws instead. */
+function validateOutput(value: unknown): { markdown: string; title?: string; view?: Primitive } {
   if (!isObject(value) || typeof value.markdown !== "string") throw new Error("an output handler returns { markdown }");
   if (Buffer.byteLength(value.markdown) > MAX_MARKDOWN) throw new Error("markdown is larger than 64 KiB");
   if (value.title !== undefined && (typeof value.title !== "string" || value.title.length > 300)) throw new Error("title must be text up to 300 characters");
   // Kept clean: no terminal escapes or control characters reach a reader or the outliner CLI.
-  return { markdown: cleanExtensionText(value.markdown, true), ...(typeof value.title === "string" ? { title: cleanExtensionText(value.title) } : {}) };
+  return { markdown: cleanExtensionText(value.markdown, true), ...(typeof value.title === "string" ? { title: cleanExtensionText(value.title) } : {}),
+    ...(value.view !== undefined ? { view: validatePrimitive(value.view) } : {}) };
 }
 
 /** One record's `{ title, fields, body }`, checked and cleaned; `where` names it in an error. */
@@ -468,13 +471,15 @@ export class ExtensionCalls {
   /**
    * A block changed that handler lines read: its parent's lines read it as a child, and a line that names it
    * reads it too. Those lines run again if what they read is different (`inputs`), as on open; an extension's own
-   * writes don't come here, so nothing loops.
+   * writes don't come here, so nothing loops. A script's write does (`byScript`, PIE-981): a render line only reads, so
+   * redrawing it can't write again, and the note a script writes is often the one whose line draws it (a board's move
+   * changes the property the board reads), which a person's save reaches through `blockChanged` and a script's does not.
    */
-  inputChanged(blockId: string, parentIds: readonly (string | null | undefined)[]): void {
+  inputChanged(blockId: string, parentIds: readonly (string | null | undefined)[], byScript = false): void {
     if (this.stopped) return;
-    const readers = new Set([...parentIds.filter((id): id is string => !!id), ...(this.named.get(blockId) ?? []), ...this.queryReaders]);
+    const readers = new Set([...parentIds.filter((id): id is string => !!id), ...(this.named.get(blockId) ?? []), ...(byScript ? [blockId] : []), ...this.queryReaders]);
     for (const reader of readers) {
-      const block = reader === blockId ? null : this.store.get(reader);
+      const block = reader === blockId && !byScript ? null : this.store.get(reader);
       if (!block || !mayHaveHandlerLines(block.text)) { if (block === null && reader !== blockId) this.queryReaders.delete(reader); continue; }
       void this.materialize(reader, "open").catch(() => {});
     }
@@ -747,7 +752,7 @@ export class ExtensionCalls {
           { blockId: block.id, line: call.line, argument: call.handlerKey === PIPELINE ? null : call.argument, deadlineMs: extension.script.deadlineMs ?? this.deadline(extension, call.handlerKey) });
         reads = rendered.reads;
         queries = rendered.queries;
-        answer = { value: { markdown: rendered.markdown } };
+        answer = { value: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}) } };
       } else answer = await this.runtime.invokeLoaded(extension, "run",
         { handler: call.handlerKey, ...request, context }, this.deadline(extension, call.handlerKey),
         { label: `ext.${extension.id}.${call.handlerKey}`, writes: call.effects === "write" });
@@ -936,7 +941,7 @@ export class ExtensionCalls {
       markdown: inertBlockdown(markdown),
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
-      ...(call.kind === "component" ? { component: { data: result.data, view: result.view } } : {}),
+      ...(call.kind === "component" || result.view ? { component: { data: result.data ?? null, view: result.view } } : {}),
       ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),
     };

@@ -143,6 +143,7 @@ export const marks: Record<string, string[]> = {
   asks: ["Keep writing while the answer arrives"],
   scripts: ["Seed report", "Press alt+S"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
+  press: ["Noughts and crosses", "ttt-board"],
   "one-place": ["The long row of runner beans", "Bike shed"],
   "reading-line": ["The long row of runner beans", "Allotment notebook"],
   replies: ["Replies at the orchard", "Orchard row 1"],

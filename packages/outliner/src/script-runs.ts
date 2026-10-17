@@ -6,7 +6,7 @@ import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
 import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
-import { PRIMITIVE_TYPES, renderComponent, validateComponent } from "./component-primitives";
+import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
 import { textRecord } from "./block-records";
 import { answerSite } from "./site-answer";
 import { scriptFence } from "./script-sources";
@@ -15,15 +15,22 @@ import type { Address } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
-/** What a script returned, as the text a run note or a drawn line shows: a string as it is, a view (`{ view }`, or one `view.table(…)` itself) as Blockdown, the rest as JSON. */
+/**
+ * The view a script returned (`{ view }`, or one `view.table(…)` itself), checked against the catalogue; null for anything
+ * else. A component carries the data its view shows (`data`); a script that draws a view and has no data says none.
+ */
+export function scriptView(value: unknown): ComponentOutput | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if ("view" in value) return validateComponent({ data: null, ...value });
+  if ((PRIMITIVE_TYPES as readonly unknown[]).includes((value as { type?: unknown }).type)) return validateComponent({ data: null, view: value });
+  return null;
+}
+
+/** What a script returned, as the text a run note or a drawn line shows: a string as it is, a view as Blockdown, the rest as JSON. */
 export function scriptText(value: unknown): string {
   if (typeof value === "string") return value;
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    // A component carries the data its view shows (`data`); a script that draws a view and has no data says none.
-    if ("view" in value) return renderComponent(validateComponent({ data: null, ...value }), "blockdown").body;
-    if ((PRIMITIVE_TYPES as readonly unknown[]).includes((value as { type?: unknown }).type)) return renderComponent(validateComponent({ data: null, view: value }), "blockdown").body;
-  }
-  return JSON.stringify(value);
+  const view = scriptView(value);
+  return view ? renderComponent(view, "blockdown").body : JSON.stringify(value);
 }
 
 /** `week=42 tag="a b"` as props: each word `name=value` (a repeat adds a value). Words that aren't one are left out. */
@@ -34,7 +41,7 @@ export function slotProps(words: string | null | undefined): Record<string, stri
 }
 
 /** What a render-mode script drew, and what it read: the notes (with their revision when first read) and the queries (with their rows). */
-export interface ScriptRendered { markdown: string; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }
+export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }
 
 /** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
@@ -112,7 +119,8 @@ export class ScriptRuns {
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (!result.ok) throw new Error(result.error.message);
-      return { markdown: result.value === undefined ? "" : scriptText(result.value), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
+      const drew = result.value === undefined ? null : scriptView(result.value);
+      return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
     } finally { clearTimeout(timer); }
   }
 

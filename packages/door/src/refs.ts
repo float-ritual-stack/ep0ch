@@ -265,9 +265,10 @@ export type LinkTarget = {
   /**
    * An extension's line (PIE-512): its head and its controls (role "control") run `action` on it, an
    * `ext.<id>.<action>` or `projection.refresh` (r: run it again, ask the agent again). `extension` and
-   * `handler` say whose line it is, so the reader finds the keys its actions answer to.
+   * `handler` say whose line it is, so the reader finds the keys its actions answer to. `args`: the slots a view's press
+   * passes (PIE-981: a square's `at=5`).
    */
-  ext?: { block: string; line: number; action: string; extension: string; handler: string };
+  ext?: { block: string; line: number; action: string; extension: string; handler: string; args?: Record<string, string> };
   /** A ticket's age (PIE-445): following it refreshes the tickets this block shows (`projection.refresh`). */
   refresh?: string;
   /** With `refresh`: only the ticket under this line of that block (its index in the note's text). */

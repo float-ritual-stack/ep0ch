@@ -35,6 +35,20 @@ under the line, again when a note it read changes (and not on every keystroke). 
 script that also declares `[effects::write]` isn't served (`ext ls` says why). A `::= expression` line is the same for one
 line: `::= (await resolve('this.owner')).values[0]`.
 
+### A button in a view
+
+A badge, text, card or table row in the view can press another script: `action: { action: "<script name>", args: { at: 5 } }`
+(`actions` per row on a table). In the door a click or ⏎ on it runs that script as the person, on the note the line is in.
+The move script is `[effects::write]`; the render script only draws, and is drawn again when the move writes the note it
+read.
+
+```js
+// board:: draws the squares of a game kept in this note's [board::.........] property
+const b = (await resolve("this.board")).values[0];
+const square = i => b[i] === "." ? view.badge({ label: String(i + 1), action: { action: "ttt-move", args: { at: i + 1 } } }) : view.badge({ label: b[i] });
+return view.stack({ children: [0, 3, 6].map(r => view.row({ minWidth: 4, children: [square(r), square(r + 1), square(r + 2)] })) });
+```
+
 ## Looking at a script's output
 
 `ep0ch show` draws the note and its values but not what a script or other extension line returns: that is drawn by a door's

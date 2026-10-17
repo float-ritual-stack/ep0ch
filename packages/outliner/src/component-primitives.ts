@@ -30,21 +30,31 @@ export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;
 export type Tone = typeof TONES[number];
 
+/**
+ * What a press runs (PIE-981): an extension's action (`ext.<id>.<action>`) or a script's name, with the slots it takes
+ * (`{ at: 5 }` is `at=5`). The door runs it through its one dispatcher as the person; every other client draws the
+ * primitive as it is without it, so a page or an export never gains a write.
+ */
+export interface ViewAction { action: string; args?: Record<string, string | number> }
+
 export type Primitive =
-  | { type: "text"; text: string; tone?: Tone; strong?: boolean }
+  | { type: "text"; text: string; tone?: Tone; strong?: boolean; action?: ViewAction }
   /**
    * Blockdown a client draws with its own reader (the door's note surface, Detail's, the publisher's HTML), so its
    * headings, lists, links and properties read as they do in a note. A text target gets the source as written.
    */
   | { type: "blockdown"; text: string }
-  | { type: "badge"; label: string; tone?: Tone }
+  | { type: "badge"; label: string; tone?: Tone; action?: ViewAction }
   | { type: "stat"; label: string; value: string | number; unit?: string; tone?: Tone }
   | { type: "bar"; label: string; value: number; max: number; tone?: Tone }
-  /** `links`: a block id or a Resource ref (`file:`, `web:`, `resource:`) per row (or null) that a client opens on Enter or a click. */
-  | { type: "table"; columns: string[]; rows: (string | number)[][]; links?: (string | null)[] }
+  /**
+   * `links`: a block id or a Resource ref (`file:`, `web:`, `resource:`) per row (or null) that a client opens on Enter or a click.
+   * `actions`: an action to press per row (or null), in place of its link.
+   */
+  | { type: "table"; columns: string[]; rows: (string | number)[][]; links?: (string | null)[]; actions?: (ViewAction | null)[] }
   | { type: "checklist"; items: { label: string; done: boolean }[] }
   | { type: "sparkline"; label?: string; values: number[] }
-  | { type: "card"; title: string; subtitle?: string; badge?: { label: string; tone?: Tone }; link?: string; children?: Primitive[] }
+  | { type: "card"; title: string; subtitle?: string; badge?: { label: string; tone?: Tone }; link?: string; action?: ViewAction; children?: Primitive[] }
   | { type: "box"; title?: string; children: Primitive[] }
   | { type: "stack"; children: Primitive[] }
   /**
@@ -134,6 +144,28 @@ function tone(value: unknown, path: string): Tone | undefined {
   return value as Tone;
 }
 
+const ACTION_NAME = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
+const ARG_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,39}$/;
+const MAX_ACTION_ARGS = 8;
+
+/** A press: an action's name and its plain slots, checked; a clean copy. */
+function viewAction(value: unknown, path: string): ViewAction {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "must be { action, args? }");
+  const raw = value as Record<string, unknown>;
+  only(raw, ["action", "args"], path);
+  if (typeof raw.action !== "string" || !ACTION_NAME.test(raw.action)) fail(`${path}.action`, "must be an action's name (ext.<id>.<action>) or a script's name");
+  if (raw.args === undefined) return { action: raw.action };
+  if (!raw.args || typeof raw.args !== "object" || Array.isArray(raw.args)) fail(`${path}.args`, "must map a slot's name to text or a number");
+  const entries = Object.entries(raw.args as Record<string, unknown>);
+  if (entries.length > MAX_ACTION_ARGS) fail(`${path}.args`, `has more than ${MAX_ACTION_ARGS} slots`);
+  const args: Record<string, string | number> = {};
+  for (const [name, arg] of entries) {
+    if (!ARG_NAME.test(name)) fail(`${path}.args.${name}`, "is not a slot's name");
+    args[name] = typeof arg === "number" ? finite(arg, `${path}.args.${name}`) : text(arg, `${path}.args.${name}`, false, 200)!;
+  }
+  return { action: raw.action, ...(entries.length ? { args } : {}) };
+}
+
 function only(object: Record<string, unknown>, keys: readonly string[], path: string): void {
   for (const key of Object.keys(object)) if (!keys.includes(key)) fail(path, `has a field it doesn't know: ${key}`);
 }
@@ -152,15 +184,17 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
   };
   switch (node.type) {
     case "text":
-      only(node, ["type", "text", "tone", "strong"], path);
+      only(node, ["type", "text", "tone", "strong", "action"], path);
       if (node.strong !== undefined && typeof node.strong !== "boolean") fail(`${path}.strong`, "must be true or false");
-      return { type: "text", text: text(node.text, `${path}.text`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}), ...(node.strong ? { strong: true } : {}) };
+      return { type: "text", text: text(node.text, `${path}.text`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}), ...(node.strong ? { strong: true } : {}),
+        ...(node.action !== undefined ? { action: viewAction(node.action, `${path}.action`) } : {}) };
     case "blockdown":
       only(node, ["type", "text"], path);
       return { type: "blockdown", text: text(node.text, `${path}.text`, false, MAX_BLOCKDOWN)! };
     case "badge":
-      only(node, ["type", "label", "tone"], path);
-      return { type: "badge", label: text(node.label, `${path}.label`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
+      only(node, ["type", "label", "tone", "action"], path);
+      return { type: "badge", label: text(node.label, `${path}.label`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}),
+        ...(node.action !== undefined ? { action: viewAction(node.action, `${path}.action`) } : {}) };
     case "stat": {
       only(node, ["type", "label", "value", "unit", "tone"], path);
       const statValue = typeof node.value === "number" ? finite(node.value, `${path}.value`) : text(node.value, `${path}.value`)!;
@@ -176,7 +210,7 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     }
     case "table": {
-      only(node, ["type", "columns", "rows", "links"], path);
+      only(node, ["type", "columns", "rows", "links", "actions"], path);
       if (!Array.isArray(node.columns) || node.columns.length === 0 || node.columns.length > MAX_COLUMNS) fail(`${path}.columns`, `must list 1 to ${MAX_COLUMNS} columns`);
       const columns = node.columns.map((column, index) => text(column, `${path}.columns[${index}]`)!);
       if (!Array.isArray(node.rows) || node.rows.length > MAX_ROWS) fail(`${path}.rows`, `must be a list of at most ${MAX_ROWS} rows`);
@@ -193,7 +227,13 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
           return link;
         });
       }
-      return { type: "table", columns, rows, ...(links ? { links } : {}) };
+      let actions: (ViewAction | null)[] | undefined;
+      if (node.actions !== undefined) {
+        if (!Array.isArray(node.actions) || node.actions.length !== rows.length) fail(`${path}.actions`, "must have one entry per row");
+        actions = node.actions.map((action, index) => (action === null ? null : viewAction(action, `${path}.actions[${index}]`)));
+        if (links?.some((link, index) => link !== null && actions![index])) fail(`${path}.actions`, "can't press a row that also links");
+      }
+      return { type: "table", columns, rows, ...(links ? { links } : {}), ...(actions ? { actions } : {}) };
     }
     case "checklist": {
       only(node, ["type", "items"], path);
@@ -213,7 +253,7 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         values: node.values.map((entry, index) => finite(entry, `${path}.values[${index}]`)) };
     }
     case "card": {
-      only(node, ["type", "title", "subtitle", "badge", "link", "children"], path);
+      only(node, ["type", "title", "subtitle", "badge", "link", "action", "children"], path);
       let badge: { label: string; tone?: Tone } | undefined;
       if (node.badge !== undefined) {
         if (!node.badge || typeof node.badge !== "object") fail(`${path}.badge`, "must be { label, tone? }");
@@ -222,10 +262,12 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         badge = { label: text(raw.label, `${path}.badge.label`)!, ...(tone(raw.tone, `${path}.badge.tone`) ? { tone: raw.tone as Tone } : {}) };
       }
       if (node.link !== undefined && (typeof node.link !== "string" || !linkable(node.link))) fail(`${path}.link`, "must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
+      if (node.action !== undefined && node.link !== undefined) fail(`${path}.action`, "can't press a card that also links");
       return { type: "card", title: text(node.title, `${path}.title`)!,
         ...(node.subtitle !== undefined ? { subtitle: text(node.subtitle, `${path}.subtitle`)! } : {}),
         ...(badge ? { badge } : {}),
         ...(node.link !== undefined ? { link: node.link as string } : {}),
+        ...(node.action !== undefined ? { action: viewAction(node.action, `${path}.action`) } : {}),
         ...(node.children !== undefined ? { children: children() } : {}) };
     }
     case "box":

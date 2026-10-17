@@ -2482,7 +2482,36 @@ export class NoteSurface {
     return true;
   }
 
+  /**
+   * What each handler line last drew (an extension's output or a script's view), kept under its line while the note is
+   * edited, read-only (PIE-981): `Draft.kept` for the raw edit and the rich one. The note as it was read says which line
+   * drew what; a line that moved since (a line typed above it) still gets its drawing, found by its text.
+   */
+  private keptDrawings(d: Draft, m: Msg): Draft["kept"] {
+    if (!isOutlineNote(m)) return null;
+    const drawn = projectionsOf(m, this.src).filter(p => (p.kind === "output" || p.kind === "component") && !p.record && p.output && (p.status === "ready" || p.status === "stale"));
+    if (!drawn.length) return null;
+    const was = m.text.split("\n"), at = new Map<number, ResourceProjection[]>();
+    for (const p of drawn) {
+      const line = p.anchor.line, text = was[line];
+      let to = d.lines[line] === text ? line : -1;
+      for (let k = 1; to < 0 && k <= d.lines.length; k++) to = d.lines[line - k] === text ? line - k : d.lines[line + k] === text ? line + k : -1;
+      if (to >= 0) at.set(to, [...(at.get(to) ?? []), p]);
+    }
+    const now = Date.now(), memo = new Map<string, string[]>();
+    const doc = (text: string, width: number) => this.snippetDoc(text, width).lines;
+    return (line, width) => {
+      const ps = at.get(line);
+      if (!ps) return [];
+      const key = `${line}|${width}`;
+      let rows = memo.get(key);
+      if (!rows) memo.set(key, (rows = ps.flatMap(p => extensionRegion(p, width, 0, now, undefined, { note: m.id, markdown: doc, blockdown: doc, bare: true }))));
+      return rows;
+    };
+  }
+
   private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false): string[] {
+    d.kept = this.keptDrawings(d, m);
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
@@ -3768,13 +3797,13 @@ export class NoteSurface {
   pressExt(action: string, x: NonNullable<Link["ext"]>, host: SurfaceHost): Promise<unknown> {
     if (action === RUN_AGAIN) return this.runKey("projection.refresh", { block: x.block, line: x.line }, host, true);
     if (!EXT_ACTIONS.has(action)) { host.ctx.flash(`${action} isn't here any more: its extension was removed or reloaded`); return Promise.resolve(null); }
-    return Dispatcher.of(EXT_ACTIONS, { ctx: host.ctx as Ctx }, () => host.ctx).press(action, { block: x.block, line: x.line });
+    return Dispatcher.of(EXT_ACTIONS, { ctx: host.ctx as Ctx }, () => host.ctx).press(action, { block: x.block, line: x.line, ...x.args });
   }
   /** The same, inside an action already running for `actor` (element.open on a line's head): run as that actor. */
   runExt(action: string, x: NonNullable<Link["ext"]>, host: SurfaceHost, actor: Actor): Promise<unknown> {
     if (action === RUN_AGAIN) return NOTE_ACTIONS.run("projection.refresh", { block: x.block, line: x.line }, { surface: this, host }, actor);
     if (!EXT_ACTIONS.has(action)) { host.ctx.flash(`${action} isn't here any more: its extension was removed or reloaded`); return Promise.resolve(null); }
-    return EXT_ACTIONS.run(action, { block: x.block, line: x.line }, { ctx: host.ctx as Ctx }, actor);
+    return EXT_ACTIONS.run(action, { block: x.block, line: x.line, ...x.args }, { ctx: host.ctx as Ctx }, actor);
   }
 
   /** The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note. */

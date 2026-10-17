@@ -1004,6 +1004,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "press", need: "press a square a script's view draws: a click or ⏎ runs the action it carries, as you", part: "a view primitive's `action` (the service's ViewAction), drawn as a control of the handler line (extensionRegion's press), run through EXT_ACTIONS as the person; edit and rich edit keep the line's last drawing under it", files: "outliner/src/component-primitives.ts, src/components.ts, src/projection.ts, src/edit.ts",
+    aside: "Click a number, or [ ] to it and ⏎: x goes there and the script answers with o · act: element.open n=<its element>, or ext.<id>.run block=<the note> at=5 (ext ls names the script's id) · e (then ⏎) to edit: the drawn board stays under its ttt-board:: line, read-only · the board is a [board::] property on the note, so the move is a revision you can ctrl+z",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · pressable views", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.press], [b, n.scripts]]);
+    },
+  },
+  {
     key: "one-place", need: "keep your place when reading, editing and returning to a held edit", part: "NoteSurface and Draft share source positions through Doc.source; DraftSession keeps the edit in the ReaderMode stack; PaneView.scroll draws its bar", files: "src/reader-position.ts, src/surface/note.ts, src/edit.ts, src/draft-session.ts",
     aside: "Scroll halfway, then e and Enter: the same line stays put. Click the shed, wheel the held edit, click back once to focus, again to place the cursor. Wheel away and type to return to the cursor. The scroll bar stays visible in both edits. Esc returns to reading at the same source line.",
     stage(n, show) {

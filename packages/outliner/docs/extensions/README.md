@@ -644,15 +644,15 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 
 | Primitive | Fields |
 |---|---|
-| `text` | `text`, `tone?`, `strong?` |
+| `text` | `text`, `tone?`, `strong?`, `action?` (a [press](#pressing-a-view)) |
 | `blockdown` | `text` (16 000 characters at most): Blockdown each client draws with its own reader, as it draws a note (the door's note surface, Detail's, the publisher's HTML), so headings, lists, links and properties read as written |
-| `badge` | `label`, `tone?` |
+| `badge` | `label`, `tone?`, `action?` (a [press](#pressing-a-view)) |
 | `stat` | `label`, `value` (number or text), `unit?`, `tone?` |
 | `bar` | `label`, `value`, `max`, `tone?` |
-| `table` | `columns`, `rows` (cells: text or numbers), `links?` (a block id or a [Resource ref](#opening-a-resource) per row, or null: Enter or a click opens it) |
+| `table` | `columns`, `rows` (cells: text or numbers), `links?` (a block id or a [Resource ref](#opening-a-resource) per row, or null: Enter or a click opens it), `actions?` (a [press](#pressing-a-view) per row or null, in place of its link) |
 | `checklist` | `items: [{ label, done }]` |
 | `sparkline` | `label?`, `values` |
-| `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id or a [Resource ref](#opening-a-resource)), `children?` |
+| `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id or a [Resource ref](#opening-a-resource)) or `action?` (a [press](#pressing-a-view); not both), `children?` |
 | `box` | `title?`, `children` |
 | `stack` | `children`, top to bottom |
 | `row` | `children` side by side; `minWidth?` (4–200, default 12): the narrowest a child may be, in characters (terminal cells; `ch` on the web). Where a reader can't give each child that much, it stacks them: the door, Detail and the web alike |
@@ -663,6 +663,23 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 `tone` is `default`, `good`, `warn`, `bad`, `dim` or `accent`. Limits: depth 8, 400 primitives, 200
 rows, 12 columns, 2 000 characters of text each, 256 KiB of data. A view that breaks one is refused
 with a path to the problem (`view.children[0].max must be more than 0`), and the line shows it.
+
+#### Pressing a view
+
+A `text`, `badge`, `card` or table row (`actions`) can carry `action: { action, args? }` (PIE-981): a button in a view.
+`action` is an extension's action (`ext.<id>.<action>`) or a script's name; `args` map a slot's name to text or a number
+(`{ at: 5 }` is `at=5`, read as `props.at[0]` in a script). A press and a link are exclusive on one card or row.
+
+- **The door** draws a pressable primitive as a control of its handler line: `[ ]` stops on it, a click or ⏎ runs the
+  action on the note the line is in (`this`), as the person, through the one dispatcher (`ext.*` in `EXT_ACTIONS`), so
+  the run is attributed like a `[w ward]` chip's. `act element.open n=…` presses it as an agent (said on the status bar);
+  `act ext.<id>.run block=<note> at=5` runs the same action. A name nothing here answers to is drawn as the primitive
+  alone.
+- **Every other client** (a page, an export, Detail, MCP) draws the primitive as it was, with no button: a page gains no
+  write it didn't already allow.
+- A render-mode script returns its view with `view.badge({ label: "5", action: { action: "ttt-move", args: { at: 5 } } })`
+  and the like; the stored output keeps the view beside its Blockdown. A script's write to the note a render line reads
+  draws that line again.
 
 #### Pictures in a view
 
