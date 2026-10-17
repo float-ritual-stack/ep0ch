@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### MCP calls have measured costs (PIE-1003)
+
+Local and gateway MCP tool calls record bytes, estimated tokens, duration and query
+shape with values elided, in daily state-directory logs retained for 30 days.
+`ep0ch mcp usage` reports totals, median and p90 by tool, actor or outline;
+`--census --ws <name>` asks the service for block-size statistics by latest
+actor, top-level branch and outline. Both reports accept `--json`.
+New wire request: `blocks.census` (protocol 207).
+
 ### YOLO survives a session update (PIE-980)
 
 When an update hands your door session to new code, its YOLO stays on in the door and the outline service.

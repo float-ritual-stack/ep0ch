@@ -595,3 +595,16 @@ tsc -p packages/claude-mod/tsconfig.json
 ```
 
 The hooks module can't import application code: it runs the outliner's installed CLI (found through Herdr).
+
+### Measuring MCP reads
+
+`ep0ch mcp usage --since 24h --by tool` shows totals, median and p90 for call bytes,
+estimated tokens (bytes / 4), and duration. Use `--by actor` or `--by outline`, and
+`--json` for an agent. Run this on the MCP-serving machine: stdio and HTTP calls are
+recorded in the door state directory's `mcp-usage/YYYY-MM-DD.jsonl`, rotated daily
+with 30 days retained. Query values are elided; property keys remain visible.
+
+`ep0ch mcp usage --census --ws <name> --json` asks the service for current live block
+sizes by latest actor, top-level branch and whole outline, calculated in SQL.
+These figures help tune the [MCP orient recipe](../door/README.md) against measured
+cost. MCP usage covers MCP tool calls, not the mod's direct CLI calls.

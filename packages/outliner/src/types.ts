@@ -1967,6 +1967,7 @@ export type OutlinerRequestAction =
   | ({ id: string; action: "site.sources" } & import("@ep0ch/outline-core/sources").SourcesRequest)
   /** The props a template declares, for asking for them before a stamp or a use. Reads only. */
   | { id: string; action: "template.props"; of: string }
+  | { id: string; action: "blocks.census" }
   /** Each block's link facets (kind, stage, dates), as an Outlink's target carries them: the links model's children and query rows (PIE-693). Reads only. */
   | { id: string; action: "blocks.facets"; blockIds: string[] }
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */

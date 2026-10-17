@@ -524,3 +524,11 @@ export interface ExtensionBarResult {
 
 /** Progress for an ask in a held draft; the line stays authored text. */
 export interface AskProgress { line: string; state: string; blocks?: number; beside?: boolean; warning?: string }
+
+/** Current non-deleted blocks, measured in Unicode characters; p90 uses nearest rank. */
+export interface BlockSizeSummary { blocks: number; characters: number; median: number; p90: number }
+export interface BlockSizeCensus {
+  outline: BlockSizeSummary;
+  actors: (BlockSizeSummary & { key: string })[];
+  branches: (BlockSizeSummary & { key: string })[];
+}

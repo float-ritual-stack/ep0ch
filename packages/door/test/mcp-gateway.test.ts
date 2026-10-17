@@ -2,7 +2,7 @@
 // are signed here with a test key set and a fake Clerk issuer; outlines are a scratch host's, with fictional notes.
 // Real HTTP throughout: a hand-rolled client against the gateway on a loopback port.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWTPayload } from "jose";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -63,7 +63,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: "test-key", alg: "RS256" }] });
 
     const sock = await scratch.start();
-    for (const [k, v] of Object.entries(scratch.env)) { oldEnv[k] = process.env[k]; process.env[k] = v; }
+    for (const [k, v] of Object.entries({ ...scratch.env, EP0CH_STATE: join(scratch.root, "door") })) { oldEnv[k] = process.env[k]; process.env[k] = v; }
     machine = canonicalLocalMachineName();
     board = new SocketBoard(sock);
     await board.info();
@@ -196,6 +196,26 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const res = await call({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { at: capture });
     expect(res.status).toBe(403);
     expect(logs.join("\n")).toContain(`EP0CH_MCP_ALLOWED_SUBJECTS=${PERSON}`);
+  });
+
+  test("HTTP tool calls record their token actor and URI outline once, including refusals", async () => {
+    const requests = [
+      { jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name: "outline_read", arguments: { uri: note.uri } } },
+      { jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name: "outline_read", arguments: { uri: quiet.uri } } },
+    ];
+    const res = await call(requests);
+    expect(res.status).toBe(200);
+    const replies = await res.json() as { result: { isError?: boolean } }[];
+    expect(replies[0]!.result.isError).not.toBe(true);
+    expect(replies[1]!.result.isError).toBe(true);
+    const dir = join(scratch.root, "door", "mcp-usage");
+    const rows = readdirSync(dir).flatMap(f => readFileSync(join(dir, f), "utf8").trim().split("\n").map(l => JSON.parse(l))).slice(-2);
+    expect(rows).toHaveLength(2);
+    for (const [i, outline] of [scratch.name, "quiet-pond"].entries()) {
+      expect(rows[i]).toMatchObject({ tool: "outline_read", outline,
+        requestBytes: Buffer.byteLength(JSON.stringify(requests[i])), responseBytes: Buffer.byteLength(JSON.stringify(replies[i])) });
+      expect(rows[i].actor).toContain("client_fictional");
+    }
   });
 
   test("an allowed token speaks MCP: initialize, a notification (202), tools/list; GET is 405", async () => {

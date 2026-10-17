@@ -345,7 +345,7 @@ function asAgentSource<T>(input: T): T {
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "agents.held", "blocks.query", "views.read", "query.matches", "site.answer", "site.sources", "template.use", "template.props"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "blocks.census", "annotations.list", "mcp.access.status", "agents.held", "blocks.query", "views.read", "query.matches", "site.answer", "site.sources", "template.use", "template.props"]);
 /**
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
@@ -2378,6 +2378,9 @@ export class OutlinerServer {
           break;
         case "blocks.records":
           result = readBlockRecords(this.store, request.ids);
+          break;
+        case "blocks.census":
+          result = this.store.blockSizeCensus();
           break;
         case "blocks.facets":
           result = this.store.blockFacets(request.blockIds);
