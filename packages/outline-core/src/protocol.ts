@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the checklist box grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms, the date reader), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 206;
+export const PROTOCOL = 207;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -524,3 +524,11 @@ export interface ExtensionBarResult {
 
 /** Progress for an ask in a held draft; the line stays authored text. */
 export interface AskProgress { line: string; state: string; blocks?: number; beside?: boolean; warning?: string }
+
+/** Current non-deleted blocks, measured in Unicode characters; p90 uses nearest rank. */
+export interface BlockSizeSummary { blocks: number; characters: number; median: number; p90: number }
+export interface BlockSizeCensus {
+  outline: BlockSizeSummary;
+  actors: (BlockSizeSummary & { key: string })[];
+  branches: (BlockSizeSummary & { key: string })[];
+}

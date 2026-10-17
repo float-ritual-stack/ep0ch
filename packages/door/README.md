@@ -838,8 +838,24 @@ A write to an outline whose home is another machine answers `queued` with a `que
   one, claude.ai opens a session per chat and the id alone is enough; if the same id spans chats, tell the chats apart with
   `call`. The echo rule judges a block by its latest change only, not by everything since a time: a block you wrote
   and someone else changed earlier in the window is omitted too.
+- **Measure orient reads (PIE-1003).** `ep0ch mcp usage --since 24h --by tool` reports call counts and
+  totals, median and p90 for request/response bytes, estimated tokens and duration; `--by actor` or `--by outline`
+  groups the same measurements, and `--json` is the agent-readable form. Run it on the machine serving MCP.
+  Both stdio and HTTP record each tool call, including refusals, in `$EP0CH_STATE/mcp-usage/YYYY-MM-DD.jsonl`
+  (normally `$XDG_STATE_HOME/ep0ch-door/mcp-usage`, or `~/.local/state/ep0ch-door/mcp-usage`). Files rotate daily;
+  writing removes days older than the 30-day retention window. Records hold time, actor, tool, outline,
+  query shape (property keys and operators retained, literals elided), fields, limit, sort, bytes and duration.
+  Bytes are UTF-8 sizes of compact individual JSON-RPC messages, including the response envelope, excluding
+  HTTP/stdio framing and batch brackets. Tokens are estimates at bytes / 4; median averages the two middle
+  samples and p90 uses nearest rank. No note bodies or query values are logged.
+  `ep0ch mcp usage --census --ws <name> [--machine <ssh-name>] [--json]` asks the service's `blocks.census`
+  for current live blocks: count, total characters, median and p90 characters per block, by latest actor,
+  top-level branch id, and whole outline. Missing actor ids group under the author (`user`, `agent`, `system`).
+  Deleted subtrees are excluded; branch sizes include the branch root. SQL counts Unicode characters, not UTF-8
+  bytes. The census is a current snapshot, independent of `--since`; it never stores measurements in the outline.
 - **Orient (PIE-674).** An agent arriving cold reads the outline's recent changes, not a separate context store. The
-  recipe, per outline: (1) run the orient query,
+  recipe, per outline: compare `ep0ch mcp usage --by tool` and `ep0ch mcp usage --census --ws <name>`
+  before and after tuning reads. (1) Run the orient query,
   `outline_query {query: "updated >= -1d", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true}` (or a
   saved view's id: its own `[sort::]` orders it); a busy outline answers a few KB of titles. (2) `outline_read` the rows that
   are new to you, by `ref`. (3) Pass `seen: ["<id>@<revision>", …]` (the id and revision of what you hold) on every later

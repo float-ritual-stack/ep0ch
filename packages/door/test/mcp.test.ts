@@ -1,7 +1,10 @@
 // PIE-520: the local stdio MCP server is bound to the outline the CLI can open, and serves canonical
 // ep0ch:// block resources plus read/find/links tools. Scratch service only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { canonicalLocalMachineName } from "../src/notes-cli";
+import { usageShape } from "../src/mcp-usage";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { answerMcp, mcpCommand } from "../src/mcp";
 import { machineOutlines } from "../src/mcp-gateway";
@@ -41,6 +44,84 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     await scratch.dispose();
     for (const [k, v] of Object.entries(oldEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }, 20_000);
+
+  test("MCP usage survives the server and reports bytes, redacted shapes and percentiles", async () => {
+    await board.request("mcp.access.configure", { level: "read" });
+    const state = join(scratch.root, "usage-state");
+    const env = { ...process.env, ...scratch.env, EP0CH_STATE: state };
+    const run = async (args: string[], input?: string) => {
+      const p = Bun.spawn(["bun", resolve(import.meta.dir, "../src/main.ts"), "mcp", ...args], {
+        env, stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe",
+      });
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect(code, err || out).toBe(0);
+      return out;
+    };
+    mkdirSync(join(state, "mcp-usage"), { recursive: true });
+    writeFileSync(join(state, "mcp-usage", "2000-01-01.jsonl"), "old measurements\n");
+    await board.request("create", { parentId: null, text: "Rose beds [garden.zone::secret églantine]" });
+    const req = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_query", arguments: {
+      query: 'garden.zone="secret églantine" OR garden.zone=hidden', fields: "id,title", limit: 3, sort: "updated",
+    } } };
+    const hello = { jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "census-bot" } } };
+    const output = (await run([], JSON.stringify(hello) + "\n" + JSON.stringify(req) + "\n")).trim().split("\n");
+    await board.request("mcp.access.configure", { level: "none" });
+    expect(JSON.parse(output[1]!).result.isError).not.toBe(true);
+    // A separate process must see what the MCP server recorded before it exited.
+    const report = JSON.parse(await run(["usage", "--since", "24h", "--by", "actor", "--json"]));
+    expect(report.total.calls).toBe(1);
+    const rows = readdirSync(join(state, "mcp-usage")).flatMap(f => readFileSync(join(state, "mcp-usage", f), "utf8").trim().split("\n").map(l => JSON.parse(l)));
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row).toMatchObject({ tool: "outline_query", outline: scratch.name, actor: `mcp:census-bot@${machine}`,
+      requestBytes: Buffer.byteLength(JSON.stringify(req)), responseBytes: Buffer.byteLength(output[1]!),
+      shape: { query: 'garden.zone=? OR garden.zone=?', fields: "id,title", limit: 3, sort: "updated" },
+    });
+    expect(JSON.stringify(row)).not.toContain("secret églantine");
+    expect(JSON.stringify(row)).not.toContain("hidden");
+    expect(row.requestTokens).toBe(row.requestBytes / 4);
+    expect(row.responseTokens).toBe(row.responseBytes / 4);
+    expect(row.durationMs).toBeGreaterThanOrEqual(0);
+    expect(report.total.responseBytes).toEqual({ total: row.responseBytes, median: row.responseBytes, p90: row.responseBytes });
+    expect(report.groups[0].key).toBe(row.actor);
+    expect(await run(["usage", "--by", "tool"])).toContain("outline_query");
+    expect(existsSync(join(state, "mcp-usage", "2000-01-01.jsonl"))).toBe(false);
+    const batch = [
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "outline_read", arguments: { uri: target.uri } } },
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "missing_tool", arguments: { where: '[garden.zone::hidden] AND child>=2:garden.zone=other AND links:[[secret [[nested]]]] AND text~"private words"' } } },
+    ];
+    const replies = JSON.parse((await run([], JSON.stringify(batch) + "\n")).trim());
+    const sizes = [row.responseBytes, ...replies.map((r: unknown) => Buffer.byteLength(JSON.stringify(r)))].sort((a, b) => a - b);
+    const all = JSON.parse(await run(["usage", "--by", "outline", "--json"]));
+    expect(all.total.calls).toBe(3);
+    expect(all.total.responseBytes).toEqual({ total: sizes[0] + sizes[1] + sizes[2], median: sizes[1], p90: sizes[2] });
+    expect(all.groups[0].key).toBe(scratch.name);
+    const last = readdirSync(join(state, "mcp-usage")).flatMap(f => readFileSync(join(state, "mcp-usage", f), "utf8").trim().split("\n").map(l => JSON.parse(l))).at(-1);
+    expect(last.shape.where).toBe('garden.zone=? AND child>=?:garden.zone=? AND links:? AND text~?');
+  }, 30_000);
+
+  test("a recorded query shape keeps keys and never a value, parentheses inside a value included", () => {
+    const shape = (where: string) => String(usageShape("outline_query", { where }).where);
+    expect(shape("text~fern(private)")).not.toContain("private");
+    expect(shape("(stage=doing OR stage=review) AND owner=wren")).toBe("(stage=? OR stage=?) AND owner=?");
+  });
+
+  test("the SQL census measures live blocks by latest actor and top-level branch", async () => {
+    const root = await board.request<{ id: string }>("create", { parentId: null, text: "éé", author: "agent", provenance: { actorId: "census-gardener" } });
+    await board.request("create", { parentId: root.id, text: "123456", author: "agent", provenance: { actorId: "census-gardener" } });
+    const gone = await board.request<{ id: string }>("create", { parentId: root.id, text: "x".repeat(100), author: "agent", provenance: { actorId: "census-gardener" } });
+    await board.request("delete", { blockId: gone.id });
+    const result = await board.request<any>("blocks.census");
+    expect(result.actors.find((a: any) => a.key === "census-gardener")).toMatchObject({ blocks: 2, characters: 8, median: 4, p90: 6 });
+    expect(result.branches.find((a: any) => a.key === root.id)).toMatchObject({ blocks: 2, characters: 8, median: 4, p90: 6 });
+    expect(result.outline.blocks).toBeGreaterThanOrEqual(2);
+    const p = Bun.spawn(["bun", resolve(import.meta.dir, "../src/main.ts"), "mcp", "usage", "--census", "--ws", scratch.name, "--json"], {
+      env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    expect(code, err).toBe(0);
+    expect(JSON.parse(out).census).toEqual(result);
+  }, 30_000);
 
   test("requires an explicit outline MCP grant, then reads private blocks through the same envelope until revoked", async () => {
     const hiddenChild = await board.request<{ id: string }>("create", { parentId: target.id, text: "Private child\nVisible to local MCP after grant.", author: "agent" });

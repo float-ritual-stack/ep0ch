@@ -22,10 +22,14 @@ import { listShares, readerLine, readerView, revokeShares, shareLine, startShare
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
+import { recordUsage, usageShape, usageCommand } from "./mcp-usage";
 import { callRegistry, callShown } from "./mcp-calls";
 import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
-export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
+export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outline] [--json]
+  ep0ch mcp usage --census [--ws <name>] [--machine <ssh-name>] [--json]
+                                   measured MCP calls on this machine, or the service’s current block size census
+  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
                                    tools list_outlines, outline_read, outline_threads, outline_find, outline_query, outline_links, outline_components; resources/read with envelope,
                                    and the outline's components as resources (resources/list). At \`propose\` and \`full\` it offers the
@@ -1143,11 +1147,36 @@ async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: M
   if ("invalidRequest" in req) return responseError(req.id, -32600, req.invalidRequest);
   if (req.id === undefined) return null;
   if (scope) scope.rpc = req.id;
-  try { return { jsonrpc: "2.0", id: req.id, result: await resultFor(outlines, req, caller, scope) }; }
+  const started = performance.now(), time = new Date().toISOString();
+  const measuring = req.method === "tools/call";
+  const params = objectFields(req.params) ?? {}, args = objectFields(params.arguments) ?? {};
+  const tool = String(params.name ?? "(missing)");
+  const named = namedOutline(args.outline);
+  let outline = named && !("error" in named) ? named.outline : outlines.defaultOutline ?? null;
+  if (tool === "list_outlines") outline = null;
+  if ((tool === "outline_new" || tool === "outline_archive") && typeof args.name === "string") outline = args.name;
+  // Take the address from the same resolution the tool uses, including URI refs and aliases.
+  const measuredOutlines: McpOutlines = measuring ? { ...outlines, async board(named) {
+    if (named) outline = named.outline;
+    const target = await outlines.board(named);
+    if (!("error" in target)) outline = target.board.address.outline;
+    return target;
+  } } : outlines;
+  let response: unknown;
+  try { response = { jsonrpc: "2.0", id: req.id, result: await resultFor(measuredOutlines, req, caller, scope) }; }
   catch (e) {
-    if (e instanceof RpcError) return responseError(req.id, e.code, e.message);
-    return responseError(req.id, -32603, outlines.internalError?.(e as Error) ?? (e as Error).message);
+    response = e instanceof RpcError ? responseError(req.id, e.code, e.message)
+      : responseError(req.id, -32603, outlines.internalError?.(e as Error) ?? (e as Error).message);
   }
+  if (measuring) {
+    const requestBytes = Buffer.byteLength(JSON.stringify(req)), responseBytes = Buffer.byteLength(JSON.stringify(response));
+    try {
+      recordUsage({ time, actor: caller ? actorOf(caller).actorId : "mcp", tool, outline,
+        shape: usageShape(tool, args), requestBytes, responseBytes, requestTokens: requestBytes / 4, responseTokens: responseBytes / 4,
+        durationMs: performance.now() - started });
+    } catch (e) { (outlines.log ?? console.error)(`MCP usage could not be recorded: ${(e as Error).message}`); }
+  }
+  return response;
 }
 
 /** The most messages one batch may carry. */
@@ -1257,6 +1286,7 @@ async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
 
 
 export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<number> {
+  if (argsIn[1] === "usage") return usageCommand(argsIn.slice(2), io);
   if (argsIn[1] === "access") return mcpAccessCommand(argsIn, io);
   if (argsIn[1] === "serve") { const { mcpServeCommand } = await import("./mcp-gateway"); return mcpServeCommand(argsIn.slice(2), io); }
   if (argsIn[1] === "queue" || argsIn[1] === "pull") {
