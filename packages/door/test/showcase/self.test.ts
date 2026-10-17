@@ -1,0 +1,75 @@
+// PIE-533 S3: the showcase's notes that read themselves: `::fields` and `::if` on the vent rail, and one figure on two
+// project pages. Driven through act, as an agent drives a door; the harness (harness.ts) seeds a scratch outline.
+import { beforeAll, describe, expect, test } from "bun:test";
+import { App } from "../../src/app";
+import type { Seeded } from "../../src/showcase/seed";
+import { SECTIONS, Showcase } from "../../src/showcase/showcase";
+import { SocketBoard } from "../../src/socket";
+import { outliner, until } from "../scratch";
+import { fieldsDrawn } from "../../src/site-blocks";
+import { useShowcaseScreen } from "./harness";
+
+describe.skipIf(!outliner)("the showcase screen: notes that read themselves", () => {
+  const h = useShowcaseScreen();
+  const { screen, S } = h;
+  let board!: SocketBoard, app!: App, seeded!: Seeded;
+  beforeAll(() => { ({ board, app, seeded } = h); void (null as unknown as Showcase); });
+  const agent = { as: "test-agent" } as const;
+  const stage = (key: string) => { screen(); return S().stage(SECTIONS.findIndex((s: { key: string }) => s.key === key)).top; };
+
+  test("fields-if: ::fields lists the connectTo lines and gains a row on save, ::if draws the body that matches, the row's ¶ anchors its line", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "fields-if" }, ...agent })).toMatchObject({ key: "fields-if" });
+    const text = () => { screen(); return stage("fields-if").pane("reader")?.render(150, 40, false, stage("fields-if")).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "") ?? ""; };
+    await until(() => text().includes("live · 2 occurrences"), "the fields rows", 8000);
+    expect(text()).toContain("SAID SO FAR");
+    expect(text()).toContain("live · 2 occurrences");
+    expect(text()).toContain("drawn only while the note is active");
+    expect(text()).not.toContain("drawn only while the note is paused");
+    expect(text()).not.toContain("::if");
+
+    // Each row is an element the reader steps to and opens (its line, lit), with its ¶ beside it.
+    const elements = async () => ((await app.act({ action: "elements", tile: "reader", ...agent })) as any).elements as { n: number; kind: string; label: string }[];
+    const rows = (await elements()).filter(e => e.kind === "row");
+    expect(rows.map(r => r.label)).toEqual(expect.arrayContaining(["demonstrating by doing", "shacks not cathedrals"]));
+
+    // A third line saved: a row appears, on its own.
+    const rail = (await board.get(seeded.notes.fieldsRail.id))!;
+    await board.update(rail.id, rail.text.replace("\n::fields", "\n- third pass [connectTo::trust the drift]\n::fields"), rail.revision!);
+    await until(() => text().includes("trust the drift") && text().includes("live · 3 occurrences"), "the third row", 8000);
+
+    // The anchor is explicit: drawing wrote nothing, then the ¶ on the second row gives that line an anchor.
+    const before = (await board.get(rail.id))!;
+    expect(before.text).not.toMatch(/\^[a-z0-9-]+\s*$/m);
+    const anchored = await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 2 }, ...agent }) as any;
+    expect(anchored.created).toBe(true);
+    expect(typeof anchored.noteLine).toBe("number");
+    expect(anchored.link).toBe(`((${rail.id}^${anchored.anchor}))`);
+    const after = (await board.get(rail.id))!;
+    // The second row's own line (not the first's), found by what it says.
+    const anchoredLine = after.text.split("\n").find(l => l.includes(`^${anchored.anchor}`))!;
+    expect(anchoredLine).toContain("second pass");
+    expect(after.text.split("\n").filter(l => /\^[a-z0-9-]+$/.test(l))).toHaveLength(1);
+    expect(after.text.split("\n")[anchored.noteLine - 1]).toContain(`^${anchored.anchor}`);
+    // Again, once the list has been read from the anchored text: already anchored, nothing more written.
+    await until(() => { screen(); const d = fieldsDrawn(rail.id, "connectTo"); return "found" in d && d.found.revision === after.revision; }, "the list read again", 8000);
+    expect(await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 2 }, ...agent })).toMatchObject({ created: false, anchor: anchored.anchor });
+    await expect(app.act({ action: "fields.anchor", tile: "reader", args: { n: 9 }, ...agent })).rejects.toThrow(/has rows 1 to/);
+
+    // The other body: the note paused.
+    const now = (await board.get(rail.id))!;
+    await board.update(rail.id, now.text.replace("[status::active]", "[status::paused]"), now.revision!);
+    await until(() => text().includes("drawn only while the note is paused") && !text().includes("drawn only while the note is active"), "the paused body", 8000);
+  }, 40_000);
+
+  test("page-figure: the same figure on two project pages lists each page's own tickets", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "page-figure" }, ...agent })).toMatchObject({ key: "page-figure" });
+    const drawn = (name: string) => { screen(); const t = stage("page-figure"); return (t.pane(name)?.render(100, 40, false, t).lines.join("\n") ?? "").replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""); };
+    await until(() => drawn("lego").includes("Sort the bricks") && drawn("garden").includes("Water the beans"), "both pages' tickets", 8000);
+    expect(drawn("lego")).toContain("Build the tower");
+    expect(drawn("lego")).not.toContain("Water the beans");
+    expect(drawn("garden")).toContain("Order the seed potatoes");
+    expect(drawn("garden")).not.toContain("Sort the bricks");
+  }, 30_000);
+});

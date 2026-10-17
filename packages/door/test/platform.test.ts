@@ -293,7 +293,8 @@ describe.skipIf(!outliner)("the board on this service's platform", () => {
     answer(p);
     await until(() => answer(p)?.state === "ready", "the live answer");
     expect(answer(p)!.items.map(m => m.id)).toEqual([cards.gate.id]);
-    expect(board.sent.slice(before).includes("views.read")).toBe(true);
+    // The figure's question is asked of the service in its Site (site.answer), which reads the view.
+    expect(board.sent.slice(before).includes("site.answer")).toBe(true);
   });
 
   test("an unrelated edit asks no lane again", async () => {

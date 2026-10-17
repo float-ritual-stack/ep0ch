@@ -226,3 +226,27 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
       return { props: { ...p }, error: `live data isn't wired for graph-${kind} yet` };
   }
 }
+
+/**
+ * A note's child bullets as a question: its children, with the comments on it and the proposals beside it left out
+ * (the one copy: a figure block's rows, a `::links` Children group and the publisher's rows ask it).
+ */
+export const CHILDREN_QUERY = "parent:this NOT type=annotation NOT type=annotation-reply NOT type=draft-proposal";
+
+/**
+ * A figure's answer cut to the results `kept` (a page shows only some notes): the groups lose the ones it can't
+ * show, and one whose every member is hidden goes, since its value is theirs.
+ */
+export function keepGroups(groups: readonly QuestionGroup[] | undefined, kept: ReadonlySet<string>): QuestionGroup[] | undefined {
+  return groups?.flatMap(g => {
+    const ids = g.ids.filter(id => kept.has(id));
+    return g.ids.length && !ids.length ? [] : [{ ...g, ids, count: Math.max(0, g.count - (g.ids.length - ids.length)) }];
+  });
+}
+
+/** The props a figure's question is read from (`liveAsk`, `figureQuestion`, `done:`/`now:`, a stat's items): what a client sends to be answered. */
+const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value"] as const;
+export function askProps(p: Props): Props {
+  const pick = (from: Props) => Object.fromEntries(ASK_KEYS.flatMap(k => from?.[k] === undefined ? [] : [[k, from[k]]]));
+  return { ...pick(p), ...(Array.isArray(p.items) ? { items: p.items.map(pick) } : {}) };
+}

@@ -166,15 +166,15 @@ describe("ep0ch export's ASCII twin", () => {
 });
 
 describe("a figure block's child bullets", () => {
-  // A stand-in outline: the note's children (the service leaves comments out: the question says so), and a query
-  // that never answers. A fresh one per test: its reads are kept per connection.
+  // A stand-in outline: the note's children (the service leaves comments out: site.answer's children producer), and a
+  // query that never answers. A fresh one per test: its reads are kept per connection.
   const kids = [{ id: "k1", text: "Apr: sow [type::row] - [n::1]", properties: [] }, { id: "k2", text: "**May: plant**", properties: [] }];
   let asked = 0, wheres: string[] = [];
   const outline = () => ({
     request: (_a: string, p: any) => {
-      if (!String(p.query?.where).startsWith("parent:this")) return new Promise(() => {});
-      asked++; wheres.push(p.query.where);
-      return Promise.resolve({ blocks: p.query.this === "note" ? kids : [] });
+      if (p.produce?.kind !== "children") return new Promise(() => {});
+      asked++; wheres.push(`${p.produce.kind} of ${p.blockId}`);
+      return Promise.resolve({ produced: { kind: "children", blocks: p.blockId === "note" ? kids : [] } });
     },
     toMsgs: (b: any) => b,
   } as any);
@@ -190,7 +190,7 @@ describe("a figure block's child bullets", () => {
     expect(out.join("\n")).not.toContain(" - ");
     expect(out.join("\n")).not.toContain("a comment");
     expect(out.at(-1)).toContain("live · child notes");
-    expect(wheres[0]).toContain("NOT type=annotation");
+    expect(wheres[0]).toBe("children of note");
     // The YAML gives the events: no child rows drawn, no footer, and the children aren't asked for.
     const before = asked; setLiveSource(fake = outline(), () => {});
     const yaml = renderGraph("timeline", figureSource(["---", "title: rows", "events: [{ date: x, label: y }]", "---"], "note", true), 60).map(plain);

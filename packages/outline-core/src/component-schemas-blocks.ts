@@ -155,5 +155,31 @@ const TABLE: ComponentSchema = {
   source: { use: "| item | cost |\n| --- | {{props.align}} |\n| bolts | 12 |\n| boards | 140 |" }, example: { align: "---:" }, sweep: ["align"], grids: [], space: ["align"],
 };
 
-/** The links components, the box, pictures, references, fences and tables. */
-export const BLOCK_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [...LINK_GROUPS.map(linksComponent), BOX, IMAGE, HERO, ARTIFACT, EMBED, FENCE, TABLE];
+// ── the components that read their note (S3) ──────────────────────────────────
+
+const FIELDS: ComponentSchema = {
+  id: "fields",
+  title: "Fields (::fields)",
+  intro: "Every place a note writes a key, listed: one row per occurrence of `connectTo` (a `[connectTo::…]` chip in a line, a `connectTo:: …` line), each row opening its own line with the line lit, found again by the text it was written as, so it still works after edits above it. A row appears as soon as a line is saved. A row's `¶` anchors its line (`fields.anchor`), so `((note^anchor))` links to it for good; drawing the component never writes. The service answers it (`site.answer`) and every reader draws the answer.",
+  where: "a `::fields{key=connectTo}` line in a note, alone or closed by `::`",
+  props: [
+    { key: "key", where: "yaml", type: "text", meaning: "the property to list, case-insensitive (`connectTo`, `storyTime`)", samples: ["connectTo", "storyTime", "decision"] },
+    { key: "of", where: "yaml", type: "ref", meaning: "whose fields: a ((block)) or a block id (the note it is written in when left out)" },
+    { key: "title", where: "yaml", type: "text", meaning: "a title over the list (the key when left out)", samples: ["Connections", "Said so far"] },
+  ],
+  source: { use: "::fields{key={{props.key}}}" }, example: { key: "connectTo" },
+  sweep: ["key"], grids: [], space: ["key"],
+};
+
+const IF: ComponentSchema = {
+  id: "if",
+  title: "Only when (::if)",
+  intro: "Its lines are drawn only while the note it sits in matches a query (the saved views' grammar: `status=active`, `owner={{this.owner}}`, `NOT type=template`). Otherwise they are not drawn at all. `{{ }}` operands in the query are bound from the note, never pasted into it. A query the service can't read hides the body and says why. Like every component, it closes with `::`, so its body holds Blockdown but no other component.",
+  where: "a `::if{where=\"status=active\"}` line, the lines to show, and a closing `::`",
+  props: [{ key: "where", where: "yaml", type: "query", meaning: "the query the note must match to draw the body", samples: ["status=active", "owner={{this.owner}}", "NOT type=template"] }],
+  source: { use: "::if{where=\"{{props.where}}\"}\nShown only while the note matches.\n::" }, example: { where: "status=active" },
+  sweep: ["where"], grids: [], space: ["where"],
+};
+
+/** The links components, the box, pictures, references, fences and tables, and the two that read their note's Site. */
+export const BLOCK_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [...LINK_GROUPS.map(linksComponent), BOX, IMAGE, HERO, ARTIFACT, EMBED, FENCE, TABLE, FIELDS, IF];
