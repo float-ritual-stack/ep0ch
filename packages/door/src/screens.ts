@@ -1,3 +1,4 @@
+import { MOTION_MODES, motionMode, motionOf, useMotion } from "./motion";
 import { readingRuler, useReadingRuler } from "./surface/selection";
 import { readReplies } from "./links";
 // Every screen of the board. Outline data arrives async; screens render "loading" until it lands.
@@ -787,6 +788,21 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       ctx.flash(want === "none" ? "readers and drafts stop at their last line" : want === "half" ? "readers and drafts scroll past their end to the middle" : `readers and drafts scroll ${want} rows past their end`);
       ctx.redraw();
       return { rows: overscroll() };
+    },
+  }),
+  "motion.set": def({
+    summary: "how a layout change moves (PIE-958): full (tiles glide from where they were to where they are, and a script's motion=fantasia wanders), calm (a short plain glide, 200 ms, whatever was asked) or off (they snap). It caps every actor's hint, an agent's and a script's included. Movement only: nothing flashes or changes brightness. EP0CH_MOTION over it; kept for the next start. A key or a click always snaps what is in flight first",
+    keys: "`ep0ch act motion.set mode=calm`, the power bar's actions scope (>)",
+    touches: "screen", replay: "ask", says: out => `· motion is ${out.mode}`,
+    args: { mode: { type: "string", about: MOTION_MODES.join(", ") } },
+    run({ mode }, { ctx }) {
+      const want = motionOf(mode);
+      if (!want) throw new ActionRefused(`mode is ${MOTION_MODES.join(", ")}, not ${JSON.stringify(mode)}`);
+      useMotion(want);
+      writeState("motion.json", { mode: want });
+      ctx.flash(want === "off" ? "layout changes snap" : want === "calm" ? "layout changes glide briefly" : "layout changes glide");
+      ctx.redraw();
+      return { mode: motionMode() };
     },
   }),
   "composer.place": def({

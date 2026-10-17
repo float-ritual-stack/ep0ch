@@ -1,3 +1,4 @@
+import { useMotion } from "./motion";
 import { useReadingRuler } from "./surface/selection";
 // Opening the door on a terminal: the App over a service connection, its control socket, its first screens. The
 // door's own terminal (`ep0ch --no-daemon`, src/main.ts) and a door session (src/session/daemon.ts, every client
@@ -67,6 +68,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   useHeroHeader(readState<{ on?: boolean; mode?: string }>("reader-hero.json"));
   useReadingRuler(readState<{ on?: boolean }>("reader-ruler.json")?.on);
   useOverscroll(readState<{ rows?: unknown }>("reader-overscroll.json")?.rows);
+  useMotion(readState<{ mode?: unknown }>("motion.json")?.mode);
   // Where a comment is written (PIE-770): composer.place keeps it; inline when nothing was chosen.
   useComposerPlace(readState<{ place?: unknown }>("composer-place.json")?.place);
   const app: App = new App(o.term, o.board, lastCall, () => o.done(app));

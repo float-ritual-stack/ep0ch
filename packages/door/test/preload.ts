@@ -25,6 +25,8 @@ process.env.EP0CH_PICKER = "true";
 // e opens an edit at once, as before arming (src/arm.ts): a test that presses e means the edit. The arm itself is tested
 // where it's turned on (test/edit-arm.test.ts, the showcase's edit section, the parity probes).
 process.env.EP0CH_EDIT_ARM = "off";
+// Layout changes snap in tests: a frame is the settled screen (the motion tests set the mode and a clock of their own).
+process.env.EP0CH_MOTION = "off";
 
 // The art the menus draw is the repo's own few pieces (test/fixtures/packs, PIE-596), never the person's packs folder,
 // so the suite draws the same art on every machine, a fresh clone included.
