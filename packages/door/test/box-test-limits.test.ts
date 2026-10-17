@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
+import { codexPreToolUse } from "../../../.claude/skills/ep0ch-repo/hooks/whole-suite";
 
 const real = join(import.meta.dir, "../../../scripts");
 const root = mkdtempSync(join(tmpdir(), "box-limits-"));
@@ -153,4 +154,27 @@ describe("scripts/box-test limits", () => {
       await until("the orphan to die", () => !alive(orphan!), 5000);
     } else process.kill(orphan!, "SIGKILL");
   }, 90_000);
+});
+
+describe("the Codex hook", () => {
+  const event = (command: string) => JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } });
+
+  test("refuses a whole-suite bun test on the test machines with a Codex deny, and lets focused runs, other machines and junk through", () => {
+    const deny = JSON.parse(codexPreToolUse(event("cd packages/door && bun --cwd . test --bail"), { hostname: "float-box" })!);
+    expect(deny.hookSpecificOutput).toMatchObject({ hookEventName: "PreToolUse", permissionDecision: "deny" });
+    expect(deny.hookSpecificOutput.permissionDecisionReason).toContain("scripts/box-test <package>");
+    expect(codexPreToolUse(event("bun test --bail test/a.test.ts"), { hostname: "float-box" })).toBeNull();
+    expect(codexPreToolUse(event("scripts/agent-env x --test -- bun test"), { hostname: "float-2" })).toBeNull();
+    expect(codexPreToolUse(event("bun test"), { hostname: "laptop" })).toBeNull();
+    expect(codexPreToolUse("not json", { hostname: "float-box" })).toBeNull();
+  });
+
+  test("the hook script itself prints the deny for the machine it runs on", async () => {
+    const hook = join(import.meta.dir, "../../../.codex/hooks/box-test-only.ts");
+    const p = Bun.spawn(["bun", hook], { stdin: new TextEncoder().encode(event("bun test")), stdout: "pipe" });
+    const text = await new Response(p.stdout).text();
+    expect(await p.exited).toBe(0);
+    const shared = ["float-box", "float-2"].includes(require("node:os").hostname());
+    expect(text.includes("permissionDecision")).toBe(shared);
+  });
 });
