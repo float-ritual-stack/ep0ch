@@ -11,14 +11,15 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { interpolationSpans, spanTail } from "@ep0ch/outline-core/interpolation";
 import { resolvePath, type FilterRow, type NoteLookup, type PathScope, type PathWorld } from "@ep0ch/outline-core/resolve-path";
 import { deriveSite, type Site, type SiteAnswer, type SiteAnswerRequest, type SiteLink, type SiteValue } from "@ep0ch/outline-core/site";
-import { BlockQueryError } from "./block-query";
+import { BlockQueryError, type ValueBinder } from "./block-query";
 import { textRecord } from "./block-records";
 import { blockDisplayTitle } from "./references";
 import type { BlockRefLookup } from "./store";
+import { produce, type ProducerStore } from "./site-producers";
 import type { Block } from "./types";
 
 /** What the Site read needs of the store. */
-export interface SiteStore {
+export interface SiteStore extends ProducerStore {
   get(id: string): Block | null;
   children(parentId: string | null): Block[];
   lookupBlockRef(ref: string): BlockRefLookup;
@@ -88,7 +89,7 @@ class StoreWorld implements PathWorld {
 }
 
 /** A bound Site: what `resolvePath` reads, and the notes it came from. */
-interface Bound {
+export interface Bound {
   site: Site;
   scope: PathScope;
   world: StoreWorld;
@@ -101,7 +102,7 @@ interface Bound {
 
 const NEW_SITE_ACTOR = { id: "site.answer", author: "system" as const };
 
-function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number): Bound {
+export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number): Bound {
   if (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId.trim()) {
     throw new Error("site.answer needs blockId: the note to read (an id, ((id)), a Work ID or a [[page]]); for example { blockId: \"PIE-12\", paths: [\"this.owner\"] }");
   }
@@ -173,7 +174,7 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
   return { site, scope, world, route, deps, blockId: target.id, revision: target.revision, text };
 }
 
-function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof interpolationSpans>[number], start?: number, end?: number): SiteValue {
+export function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof interpolationSpans>[number], start?: number, end?: number): SiteValue {
   const answer = parsed.parsed
     ? resolvePath(parsed.parsed, bound.site, bound.scope, spanTail(parsed))
     : { ok: false as const, problem: { message: `\`${parsed.path}\` isn't a path: write head.key, such as this.owner`, didYouMean: [], example: "{{this.owner}}" }, route: [] };
@@ -182,7 +183,7 @@ function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof int
     const empty = answer.values.length === 0 && parsed.default !== undefined;
     return {
       ...base, values: empty ? [parsed.default!] : answer.values, ...(empty ? { usedDefault: true as const } : {}),
-      ...(answer.lines ? { lines: answer.lines } : {}), ...(answer.marks ? { marks: answer.marks } : {}),
+      ...(answer.lines ? { lines: answer.lines } : {}), ...(answer.marks ? { marks: answer.marks } : {}), ...(answer.offsets ? { offsets: answer.offsets } : {}),
       ...(answer.from ? { from: answer.from } : {}), ...(answer.links ? { links: answer.links } : {}), ...(answer.clock ? { clock: answer.clock } : {}),
       route: empty ? [...answer.route, `no value: the \`|| ${parsed.default}\` default`] : answer.route,
     };
@@ -194,7 +195,7 @@ function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof int
 }
 
 /** A path as asked (`this.tasks | status=todo .count`), read as a span would be. */
-function pathSpan(path: string) {
+export function pathSpan(path: string) {
   const span = interpolationSpans(`{{${path}}}`, { fences: "template" })[0];
   if (!span) throw new Error(`\`${path}\` isn't a path: write head.key, such as this.owner or this.tasks | status=todo`);
   return span;
@@ -203,7 +204,10 @@ function pathSpan(path: string) {
 /** `site.answer`: every `{{ }}` of the note (or its draft), and any `paths` asked, answered with how and from what. */
 export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: () => number = Date.now): SiteAnswer {
   const bound = bind(store, request, clock);
-  const values = interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
+  // A producer's question (a figure, `::fields`, `::if`): asked of the bound Site, so `this` and its `{{ }}` operands are its host's.
+  const produced = request.produce ? produce(store, bound, request.produce, { read: path => valueOf(bound, path, pathSpan(path)), binder: boundBinder(bound) }) : undefined;
+  // With a producer asking, only its question is answered: the note's own `{{ }}` are the client's other watch.
+  const values = request.produce ? [] : interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
   const paths = (request.paths ?? []).map(path => valueOf(bound, path, pathSpan(path)));
   for (const id of bound.world.deps) bound.deps.add(id);
   const { site } = bound;
@@ -213,11 +217,28 @@ export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: 
     site: { ...(site.this ? { this: site.this.id } : {}), ...(site.self ? { self: site.self.id } : {}), ...(site.caller ? { caller: site.caller } : {}), props: site.props },
     values,
     ...(request.paths ? { paths } : {}),
+    ...(produced ? { produced: produced.answer } : {}),
     route: bound.route,
     deps: [...bound.deps].sort(),
-    ...(bound.world.unresolved ? { anyChange: true as const } : {}),
+    // A question about the outline at large (a figure's query, an `::if` over links:) depends on notes the answer can't name.
+    ...(bound.world.unresolved || produced?.anyChange ? { anyChange: true as const } : {}),
     ...([...values, ...paths].some(v => v.clock) ? { clock: "minute" as const } : {}),
     problems: [...values, ...paths].filter(v => v.problem && !v.usedDefault).length,
+  };
+}
+
+/**
+ * What a `{{path}}` operand of a question reads, in the Site already bound for it (the figure's host, its props): the
+ * path's values, or a corrective error, never an empty list for a typo.
+ */
+export function boundBinder(bound: Bound): ValueBinder {
+  return path => {
+    const read = valueOf(bound, path, pathSpan(path));
+    if (read.problem) {
+      const hint = read.problem.example ? ` (for example ${read.problem.example})` : "";
+      throw new BlockQueryError(`{{${path}}} in a query: ${read.problem.message}${hint}`);
+    }
+    return read.values ?? [];
   };
 }
 
@@ -226,11 +247,5 @@ export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: 
  * with no answer throws a corrective error, never an empty list: a typo can't silently match nothing.
  */
 export function pathValues(store: SiteStore, thisId: string, path: string, clock: () => number = Date.now): string[] {
-  const bound = bind(store, { blockId: thisId }, clock);
-  const read = valueOf(bound, path, pathSpan(path));
-  if (read.problem) {
-    const hint = read.problem.example ? ` (for example ${read.problem.example})` : "";
-    throw new BlockQueryError(`{{${path}}} in a query: ${read.problem.message}${hint}`);
-  }
-  return read.values ?? [];
+  return boundBinder(bind(store, { blockId: thisId }, clock))(path);
 }
