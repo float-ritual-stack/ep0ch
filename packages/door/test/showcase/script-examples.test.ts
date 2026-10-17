@@ -25,7 +25,7 @@ describe.skipIf(!outliner)("the showcase screen: script examples", () => {
     screen();
     await until(() => screen().includes("X to play") && screen().includes("Total"), "both examples drawn", 15_000);
     // The seed table: Beans 5 x 2, Peas 3 x 4, a total of 22.
-    expect(screen()).toMatch(/Beans\s+│\s+5\s+│\s+2\s+│\s+10/);
+    expect(screen()).toMatch(/Beans[\s│]+5[\s│]+2[\s│]+10/);   // a table primitive (the script's view) or its Blockdown table
     // A move through the script's own run (as ^K ttt-play cell=5 would), attributed to the script; the property is the state.
     const game = seeded.notes.exampleGame.id;
     const play = extensionList()!.extensions.find(e => e.name === "ttt-play")!;
