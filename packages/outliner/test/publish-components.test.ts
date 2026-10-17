@@ -268,3 +268,16 @@ test("on a public page a figure's {{ }} operand never reads through a note the p
   expect(html).not.toContain("Sort the bricks");
   expect(html).not.toContain("secret-plan");
 });
+
+test("a button is its label on a page and runs nothing: ::button{…} and [label](act: …) never show the line they would run (PIE-957)", async () => {
+  const { store, page } = await setup();
+  const note = store.create('Beds\n::button{label="Review the beds" act="layout.load name=review"}\nOr in prose: [start over](act: ttt-reset) and done.\n```\n::button{label="In code" act="x"}\n```');
+  const html = await page(`/p/${note.id}`);
+  expect(html).toContain("Review the beds");
+  expect(html).not.toContain("layout.load");
+  expect(html).not.toContain("::button{label=&quot;Review");
+  expect(html).toContain("start over");
+  expect(html).not.toContain("ttt-reset");
+  // A button written in a code fence is code, as every component is.
+  expect(html).toContain("In code");
+});

@@ -1,5 +1,7 @@
 import { blockTags, metadataLines } from "@ep0ch/outline-core/block-tags";
-import { closeOpenFences } from "@ep0ch/outline-core/component-block";
+import { linkOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { buttonCallAt } from "@ep0ch/outline-core/button-call";
+import { closeOpenFences, noteCodeFences } from "@ep0ch/outline-core/component-block";
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
 import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
@@ -2540,6 +2542,25 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     // Every tag on a metadata line goes from it; the row holds the ones no hand-made first line already shows.
     const hidden = metadataLines(body, records);
     for (const record of records.filter((r) => r.syntax === "hashtag" && hidden.has(r.line)).reverse()) body = body.slice(0, record.start) + body.slice(record.end);
+  }
+  // A button (PIE-957) is inert on a page (ADR 0005, readers read): its label, never the line it would run. A `::button{…}` is
+  // one line with no closing `::`, which the component reader leaves as plain text; and `[label](act: …)` has a space in its
+  // destination, which Markdown leaves as text. Either stands as its label here. (A line may end in a sentinel a block's
+  // address rides on; it is kept.)
+  if (body.includes("::button") || body.includes("(act:")) {
+    const lines = body.split("\n"), fenced = new Set<number>();
+    for (const f of noteCodeFences(lines)) for (let j = f.start; j <= f.end; j++) fenced.add(j);
+    lines.forEach((raw, i) => {
+      if (fenced.has(i)) return;
+      const sentinel = /[\ue000-\uf8ff].*$/s.exec(raw), text = sentinel ? raw.slice(0, sentinel.index) : raw, tail = sentinel?.[0] ?? "";
+      const button = text.includes("::button") ? buttonCallAt([text], 0) : null;
+      if (button) { lines[i] = `**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }
+      if (!text.includes("(act:")) return;
+      let out = text;
+      for (const l of linkOccurrences(text, "inline").flatMap(l => (l.kind === "markdown" && /^act:/.test(l.url.trim()) ? [l] : [])).reverse()) out = out.slice(0, l.start) + l.text + out.slice(l.end);
+      lines[i] = out + tail;
+    });
+    body = lines.join("\n");
   }
   // A media line no component drew (in an embed, or past a page's limit) is its alt text and its file's name, never an
   // empty bullet and never its path.
