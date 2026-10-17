@@ -917,7 +917,7 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | `f` / `p` / `a` while dragging a tile's title | float it (`tile.float`), dock it to an edge (`tile.dock`), put it in your drawer (`tile.drawer`): the `^W f`, `^W p`, `^W a` actions on the dragged tile, and the drag ends | none: a drag took no keys but `Esc` (not moved). A float's title drag moves the float, so it takes no keys: its `⧉` puts it back first | new |
 | `alt+A` | the drawer's height: 40, 50, 60, 75% (`host.size`) | none | new, with `alt+a` |
 | `alt+R`, a click on the chip's `⟳` | restart the agent so it picks up the door's variables and the installed Claude mod, keeping the conversation (`agent.restart`); the chip shows `⟳` when it started before an update | none on any screen, the surface, a draft or the desk (alt keys in use: `alt+a alt+A`, `alt+b alt+f`, `alt+c`, `alt+l alt+d alt+n alt+p alt+m alt+x`); `R` alone is free of alt. Inside the drawer it's the agent's, as every key but `ctrl+]`, `alt+a`, `alt+A` | new; only outside the drawer, so a restart is never one stray chord while typing to the agent |
-| `]` `[` `R` `q` `{` `}` (the EchoNet reader) | `]` `[` the next and previous message of the area (`echo.step`), `R` reply (the reader's reply key everywhere; it was `r` until PIE-957) and `q` quote-reply in the shared composer (`echo.reply`, `echo.quote`), `{` `}` the surface's element stepping | in every other reader `[` `]` step elements, `r` refreshes a projection and `q` is back: the echo reader takes them (its `ownKeys`) only while it shows a message of its list, so `{` `}` step elements there, esc goes back to the areas, and an empty one leaves `q` to the desk; the menu's `A` (Areas) was free | new, EchoNet (PIE-779) |
+| `]` `[` `r` `q` `{` `}` (the EchoNet reader) | `]` `[` the next and previous message of the area (`echo.step`), `r` reply and `q` quote-reply in the shared composer (`echo.reply`, `echo.quote`), `{` `}` the surface's element stepping | in every other reader `[` `]` step elements, `r` refreshes a projection and `q` is back: the echo reader takes them (its `ownKeys`) only while it shows a message of its list, so `{` `}` step elements there, esc goes back to the areas, and an empty one leaves `q` to the desk; the menu's `A` (Areas) was free | new, EchoNet (PIE-779) |
 | `R`, `"`, `t`, `~` (in a reader) | reply, quote into a reply, open the thread drawer, toggle raw decoration (`note.reply`, `note.quote`, `note.thread`, `decor.raw`, PIE-707) | `R` previously toggled raw decoration; lowercase `r` refreshes a projection, `alt+r` reveals in the tree and `alt+R` restarts the drawer agent | raw moves to `~`; the saved screen key map can rebind these actions; other screens retain their bindings (see Replies key audit below) |
 | `alt+v`, a click on the status bar's video mode | the next video mode (`video.cycle`): Kitty+CRT, Kitty, cells, on every screen; `V` stays on the menu (and the screens that had it) | none on any screen, the surface, a draft, the desk, the board, the river or the drawer (alt keys in use: `alt+a alt+A alt+R`, `alt+b alt+f`, `alt+c`, `alt+l alt+d alt+n alt+p alt+m alt+x alt+k`); `V` and `v` can't be global (`v` selects in a reader, `V` is the art viewer's and a terminal's), `alt+v` is free everywhere; the status bar's video mode took no click | new; the App's, before the screen, like `alt+a`; inside a terminal tile or the drawer the program's, as every key there |
 | `alt+t`, a click on the status bar's theme | the next theme (`theme.cycle`): calm, night, classic, on every screen; `theme.set name=` picks one (src/theme.ts) | none on any screen, the surface, a draft, the desk, the board, the river or the drawer (the same alt keys as `alt+v`; `t` alone is the board's outline dock and a list's thread, untouched); the status bar had no theme | new, with `alt+v`; inside a terminal tile or the drawer the program's. A Mac typing Option as characters: `†` and `√` read as `alt+t` and `alt+v` only where nobody is typing text (`OPTION_KEYS`); in a draft they stay the typed letter |
@@ -1116,15 +1116,15 @@ More sections (running agents, switching outlines from a sidebar) are tiles a la
 
 ### Run-again key audit (PIE-957)
 
-One key for "run it again, read it again" on every door screen: bare **`r`**. It already was in a reader (`projection.refresh`: tickets,
-files, a handler line, a pending `@ask`), the query, facets, activity, Who and Welcome lists (`*.reload`), the board (`board.reload`)
-and a comment session; the ones that clashed with it moved:
+One key for "run it again, read it again" on every door screen: bare **`r`**. It is that already in a reader (`projection.refresh`:
+tickets, files, a handler line, a pending `@ask`), the query, facets, activity, Who and Welcome lists (`*.reload`), the board
+(`board.reload`) and a comment session. The three places it means something else, and what S7 decided:
 
-| Where | `r` was | Now |
+| Where | `r` is | Decision |
 |---|---|---|
-| the EchoNet reader | reply (`echo.reply`) | **`R`**, the reader's reply key everywhere (`q` quote stays) |
-| a blank tile's chooser | picks "reader" | unchanged: it is a letter in a menu of kinds, not a command (a chooser takes its letters first) |
-| the Herdr Tree (the outliner's console) | reveal in the outline | unchanged here; the door's reveal is `alt+r`. The Tree is the outliner's own client; its `r` is the one place the key means reveal (flagged for the sysop-console pass) |
+| the EchoNet message reader | reply (`echo.reply`) | stays: an EchoNet copy isn't an outline note (the reader's `R` reply refuses it), and it has no projection to run again; its `ownKeys` already keeps `r` from extensions. Settle with the EchoNet screen when it takes `R` |
+| a blank tile's chooser | picks "reader" | stays: a letter in a menu of kinds, not a command (a chooser takes its letters first) |
+| the Herdr Tree (the outliner's console) | reveal in the outline | stays here; the door's reveal is `alt+r`. The Tree is the outliner's own client: the move to `alt+r` is its pass (finding below) |
 
 Bare `r` in a reader with no `[ ]` position on something it can run refuses and lists the candidates (S6 binds that refusal to `RUN_AGAIN_KEY`
 in `src/projection.ts`); the gutter mark beside a generated region offers "run again" as the same action, `projection.refresh {block, line}`,
@@ -1134,7 +1134,7 @@ by click. `alt+r` stays reveal, `R` reply, `ctrl+z` the undo chain (PIE-957: lay
 
 On every NoteSurface reader (desk reader, preview, river column, BBS message and EchoNet reader),
 `R` opens a reply; raw decoration moves from `R` to `~`. Lowercase `r` keeps its existing refresh
-behavior; the EchoNet reader's reply moved from `r` to `R` (PIE-957: see the run-again audit below). `alt+r` still reveals in the tree;
+behavior; the EchoNet reader keeps its existing `r` reply action (see the run-again audit below). `alt+r` still reveals in the tree;
 `alt+R` still opens the restart drawer. Reader `t` opens the thread drawer, while the board's `t`
 opens the tree only outside a reader. `T` opens the full thread list from the drawer.
 
