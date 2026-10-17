@@ -2,7 +2,7 @@
 // headerLine finds only the trailing chips and tags a displayed title leaves out. Mid-title tags stay prose.
 // Exports retain tags in the body and move header chips into YAML, without changing the stored source.
 // Changes here bump PROTOCOL and the outliner's PROPERTY_PARSER_VERSION.
-import { HASHTAG_VALUE_PATTERN, isEscapedAt, propertyTokensInLine } from "./property-grammar";
+import { HASHTAG_VALUE_PATTERN, isEscapedAt, isHexColour, propertyTokensInLine } from "./property-grammar";
 
 /** One header chip: its key as written, its value (trimmed, otherwise verbatim), where it sits in the text. */
 export interface HeaderChip {
@@ -60,7 +60,7 @@ export function headerLine(text: string, literal: readonly LiteralRange[] = []):
   const inLiteral = (at: number) => literal.some(r => r.start <= at && at < r.end);
   const tokens = propertyTokensInLine(source).filter(t => !inLiteral(offset + t.start));
   const tagged = [...source.matchAll(HASHTAG)]
-    .filter(m => !inLiteral(offset + m.index) && !isEscapedAt(source, m.index) && !tokens.some(t => t.start <= m.index && m.index < t.end))
+    .filter(m => !isHexColour(m[0].slice(1)) && !inLiteral(offset + m.index) && !isEscapedAt(source, m.index) && !tokens.some(t => t.start <= m.index && m.index < t.end))
     .map(m => ({ start: m.index, end: m.index + m[0].length }));
   const pieces = [...tokens, ...tagged].sort((a, b) => a.start - b.start);
   let end = source.trimEnd().length;
@@ -171,8 +171,11 @@ const yamlString = (v: string) => JSON.stringify(v).replace(/\u2028/g, "\\u2028"
 export function readFrontMatter(file: string): { fields: FrontMatterField[]; rest: string } | null {
   const lines = file.split("\n");
   if (lines[0] !== "---") return null;
+  // The block is the note's first paragraph (PIE-684: everything before the first blank line). A `---` divider with a
+  // blank line after it is a divider; a later `---` is another divider, never this one's close.
   const close = lines.indexOf("---", 1);
-  if (close < 0) return null;
+  const blank = lines.findIndex(l => l.trim() === "");
+  if (close < 0 || (blank >= 0 && blank < close)) return null;
   const fields: FrontMatterField[] = [];
   for (const l of lines.slice(1, close)) {
     const item = /^\s+-\s+(.*)$/.exec(l);

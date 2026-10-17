@@ -122,7 +122,9 @@ revision, so concurrent edits rarely collide.
 - **Properties by placement.** `[key::value]` on the title line, or in the first property-only run under it,
   belongs to the whole block (that is what queries and views match). `[key::value]` mid-sentence is an
   inline aside on that spot. `key:: value` at the start of a line annotates that line; a `name::` line in
-  someone's notes is usually a voice or persona, not an instruction to you.
+  someone's notes is usually a voice or persona, not an instruction to you. A `::` mid-sentence (`std::vec`) is prose;
+  a `#fff` or `#00e5ff` (exactly 3, 4, 6 or 8 hex digits) is a colour, not a tag; a `---` is a divider, a figure's
+  settings fence or a table row, and a first-line `---` followed by a blank line is a divider, not front matter.
 - **Indentation scopes context.** Nested lines are a flow of thought, not always strict parent and child.
   Keep their hierarchy when you tidy.
 - **A leading mention is an ask** (PIE-906, #592): a line you write starting with `@name` (after an optional

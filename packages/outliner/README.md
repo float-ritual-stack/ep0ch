@@ -1923,7 +1923,7 @@ A block stores canonical text plus structural fields. Properties are written dir
 Investigate page navigation [type::roadmap-item] [work-stage::queued]
 ```
 
-Every deliberate non-literal property is indexed in `block_properties`; canonical `Block.text` remains the source of truth. The first contiguous property-only run after an optional subject line is block metadata, as is the trailing bracket-property run on the subject. Bare `key:: value` properties later in the body have `line` scope; later bracket tokens have `inline` scope. Literal examples inside inline/fenced code and escaped bracket syntax are not indexed.
+Every deliberate non-literal property is indexed in `block_properties`; canonical `Block.text` remains the source of truth. The first contiguous property-only run after an optional subject line is block metadata, as is the trailing bracket-property run on the subject. A `#word` of exactly 3, 4, 6 or 8 hex digits (`#fff`, `#00e5ff`) is a colour, not a tag (`outline-core`'s `isHexColour`); `#622` is not a tag either, having no letter. Bare `key:: value` properties later in the body have `line` scope; later bracket tokens have `inline` scope. Literal examples inside inline/fenced code and escaped bracket syntax are not indexed.
 
 To show outline syntax as ordinary text without backticking each token, wrap it
 in a literal region. Each marker is an HTML comment alone on its line (up to
