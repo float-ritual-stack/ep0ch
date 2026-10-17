@@ -9827,12 +9827,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.enter": def({
     summary: "⏎ in the inspector: open the selected source; on a row of one, fold or unfold it, edit the parameter (the person is asked), jump to the transform's note, or copy", keys: "⏎, a click on a row",
-    touches: "shape", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",
+    touches: "draft", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",
     args: { n: { type: "number", optional: true, about: "the row, from 1 (default: the selected one)" } },
     run: ({ n }, { surface, host }, actor) => surface.enterSource(host, actor, n),
   }),
   "sources.item": def({
-    summary: "a click on a row of an open source: it is the focused row, and does what ⏎ does there", keys: "a click on a row", touches: "shape", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",
+    summary: "a click on a row of an open source: it is the focused row, and does what ⏎ does there", keys: "a click on a row", touches: "draft", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",
     args: { n: { type: "number", about: "the row, from 1" } },
     run: ({ n }, { surface, host }, actor) => surface.enterSource(host, actor, n),
   }),

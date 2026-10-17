@@ -38,6 +38,8 @@ export interface RegionDraw {
   facts: readonly string[];
   controls: readonly string[];
   width: number;
+  /** What is wrong goes above the body, where an offer to fix it is seen first (a `::use` that needs a prop). */
+  notesFirst?: boolean;
 }
 
 const dim = (text: string) => fg(C.dark) + text + RESET;
@@ -72,7 +74,8 @@ export function regionTail(d: RegionDraw, book: RegionBook | undefined): string[
 
 /** The rows a region draws, and where it is (the reader's gutter mark goes on its first row). */
 export function regionRows(d: RegionDraw, book: RegionBook | undefined): AfterRows {
-  const rows = [...d.body, ...regionTail(d, book)];
+  const tail = regionTail(d, book), notes = d.notes?.length ?? 0;
+  const rows = d.notesFirst && notes ? [...tail.slice(0, notes), ...d.body, ...tail.slice(notes)] : [...d.body, ...tail];
   return { rows, regions: [{ key: d.key, at: 0, rows: rows.length }] };
 }
 
