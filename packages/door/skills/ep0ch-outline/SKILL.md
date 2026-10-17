@@ -30,7 +30,7 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 
 ## Tools
 
-In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_edit`,
+In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_site` (what a note's `{{this.key}}`, `parent.key`, a bare `key` up the outline, `((id)).key`, `this.tasks | status=todo` or `now.date-1d` resolve to, with the route and a did-you-mean for a typo), `outline_edit`,
 `outline_patch`, `outline_proposal_apply`/`outline_proposal_dismiss`, `outline_create`, `outline_assign_id`,
 `outline_move`, `outline_trash`/`outline_restore`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
 `outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,

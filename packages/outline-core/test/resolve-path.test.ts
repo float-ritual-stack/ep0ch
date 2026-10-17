@@ -50,7 +50,7 @@ test("this.block.key is block scope alone; this.fields.key has the line each val
   expect(values("this.block.storyTime")).toEqual([]);
   expect(values("this.block.status")).toEqual(["active"]);
   const a = resolvePath("this.fields.connectTo", site());
-  expect(a).toEqual({ ok: true, values: ["demonstrating by doing", "shacks not cathedrals"], lines: [3, 4] });
+  expect(a).toMatchObject({ ok: true, values: ["demonstrating by doing", "shacks not cathedrals"], lines: [3, 4], from: "vent" });
 });
 
 test("a plain value's commas are one value; an explicit bracket list is several (#604)", () => {
@@ -60,7 +60,7 @@ test("a plain value's commas are one value; an explicit bracket list is several 
 });
 
 test("a missing key is a problem that names the nearest key, never an empty string", () => {
-  expect(values("this.ownr")).toEqual({ message: "no `ownr` on this note; did you mean `owner`?", didYouMean: ["owner"] });
+  expect(values("this.ownr")).toEqual({ message: "no `ownr` on this note; did you mean `owner`?", didYouMean: ["owner"], example: "{{this.owner}}" });
   expect(values("this.zzzzzz")).toEqual({ message: "no `zzzzzz` on this note", didYouMean: [] });
 });
 
@@ -101,4 +101,27 @@ test("a bare key walks the line, then the note, then each ancestor, nearest firs
 test("a head that needs the service says so, and a run with no note says that", () => {
   expect(values("now.date")).toMatchObject({ message: expect.stringContaining("service") });
   expect(values("this.owner", site({ this: undefined }))).toMatchObject({ message: expect.stringContaining("no note") });
+});
+
+test("a quoted key is one step, with its dots; a filter's trailing steps are split off", async () => {
+  const { splitTail } = await import("../src/resolve-path");
+  expect(parsePath('this["echo.node"].x')).toEqual({ head: "this", steps: [{ key: "echo.node" }, { key: "x" }] });
+  expect(parsePath("this['a b']")).toEqual({ head: "this", steps: [{ key: "a b" }] });
+  expect(parsePath("this.$created")).toEqual({ head: "this", steps: [{ key: "$created" }] });
+  expect(parsePath("now.date+7d")).toEqual({ head: "now", steps: [{ key: "date+7d" }] });
+  expect(splitTail("status=todo .count")).toEqual({ filter: "status=todo", then: [{ key: "count" }] });
+  expect(splitTail("status=todo")).toEqual({ filter: "status=todo" });
+  expect(splitTail(".count")).toEqual({ then: [{ key: "count" }] });
+  expect(splitTail('title~"a.b" .owner[0]')).toEqual({ filter: 'title~"a.b"', then: [{ key: "owner" }, { index: 0 }] });
+});
+
+test("without a world, the heads that need the service say so; the rest answer", () => {
+  expect(resolvePath("((9db884d1)).query", site()).ok).toBe(false);
+  const clock = resolvePath("now.date", site());
+  expect(clock.ok).toBe(false);
+  expect(!clock.ok && clock.problem.message).toContain("service's clock");
+  // Everything the Site itself holds still reads: no lookup needed.
+  const nested = { ...site(), caller: { block: "host", line: 4, mark: "::use" }, props: { week: ["42"] } };
+  expect(resolvePath("caller.line", nested)).toMatchObject({ ok: true, values: ["4"], from: "host" });
+  expect(resolvePath("props.week", nested)).toMatchObject({ ok: true, values: ["42"] });
 });

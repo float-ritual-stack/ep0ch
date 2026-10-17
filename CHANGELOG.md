@@ -10,6 +10,36 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Site: one read for what a note says about itself (PIE-951, third slice of PIE-533)
+
+What changes for an agent, a script or a figure: a note's own values, its parent's, its ancestors', another note's and
+the clock are read through one resolver, with a route that says how each was found. (The door, Detail and the web draw
+`{{this.target}}` in the next slice; this one is the service and the tool.)
+
+- **`site.answer`** (new, watched) answers a note's `{{ }}` placeholders and any `paths` asked: `this.owner`,
+  `parent.project`, a bare `project` (the nearest value up the outline), `((id)).query` (a unique id prefix works; an
+  ambiguous one lists its matches), `[[page]].title`, `person.firstName` through a link value, `this.tasks | status=todo
+  .count`, `this.children | type=task`, `now.date-1d`, `props.week`, `caller.line`. Every key is a list. A missing key is
+  a problem with a did-you-mean and an example, never an empty string. `draft` reads unsaved text; `chain` reads a note as
+  drawn inside another (a `::use` in a host keeps the host as `this`; an embed starts fresh).
+- **`outline_site`** (the Claude mod; `outliner agent site`) is the same read for an agent.
+- **Properties win over record fields.** A note that writes `[created::…]` or `[actor::…]` (hundreds do) gets its
+  property from `this.created`; `this.$created` is always the record's. A key with a dot is `this.echo.node` or
+  `this["echo.node"]`.
+- **Links in values.** A value that is a `((id))`, a `[[page]]`, a Work ID or an id of 8 or more hex characters is tried
+  as a note: exactly one match is a link (shown by its title), anything else is plain text, silently. No key is special
+  (a `commit::` value is text unless it names one note).
+- **Tasks take open or done from the checkbox**, not a chip: `status` (the chip, else the box), `box` and `state`
+  (`open` or `done`) on `this.tasks`.
+- **A question can take a value from the note:** `where: project={{this.project}}` binds the note's values as an
+  operand (any of a list, nothing for none); a value holding `OR` or a quote cannot change the query. One figure copied
+  onto two pages lists each page's own.
+- **Watches name their notes.** A watched `site.answer` is evaluated again only when a change touched a note it was
+  computed from.
+- A figure takes call-site arguments (`::graph-table{project=lego}`) as props under its YAML, and a YAML value that starts
+  with `{{` stays text instead of parsing as a map.
+- Wire: `site.answer`, `outline_site` and the new `Site` types; nothing to run on a machine.
+
 ### One property shape for clients and extensions (PIE-950, second slice of PIE-533)
 
 What changes for an agent or an extension author: a property is read from the note's record, never from a flattened

@@ -9,7 +9,7 @@
 //   - label: value        its Markdown rows (figure-markdown.ts), each kind saying what it makes of them
 //   ::
 
-import { componentBlocks, type ComponentBlock } from "./component-block";
+import { componentAttrs, componentBlocks, type ComponentBlock } from "./component-block";
 import { expandRuns, figureRow, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
 import { readDate } from "./dates";
 import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
@@ -37,10 +37,12 @@ export interface FigureSource {
   ruled?: boolean;
   /** Where `markdown` starts in the lines read: a row's `line` plus this is its line among them. */
   at?: number;
+  /** The `{…}` after the figure's name (`::graph-table{project=lego}`): call-site arguments, read as props under its YAML. */
+  attrs?: string;
 }
 
 /** A `::graph-*` block's lines (after its first line, to its `::`) as its YAML and its Markdown. */
-export function figureSource(lines: readonly string[], note?: string, block?: boolean): FigureSource {
+export function figureSource(lines: readonly string[], note?: string, block?: boolean, attrs?: string): FigureSource {
   const yaml: string[] = [], markdown: string[] = [];
   let at = -1;
   const rule = (l: string) => /^\s*---\s*$/.test(l);
@@ -54,7 +56,7 @@ export function figureSource(lines: readonly string[], note?: string, block?: bo
     if (dashes !== 1 && at < 0) at = i;
     (dashes === 1 ? yaml : markdown).push(l);
   }
-  return { yaml: yaml.join("\n"), markdown, at: Math.max(0, at), ruled: open >= 0 && rule(lines[open]!), ...(note ? { note } : {}), ...(block ? { block } : {}) };
+  return { yaml: yaml.join("\n"), markdown, at: Math.max(0, at), ruled: open >= 0 && rule(lines[open]!), ...(note ? { note } : {}), ...(block ? { block } : {}), ...(attrs ? { attrs } : {}) };
 }
 
 /**
@@ -98,13 +100,24 @@ export function figureSteps(lines: readonly string[]): { line: number; box: numb
 export type ChildRows = (note: string) => { rows: Row[]; waiting: boolean } | null;
 
 /**
+ * A value that starts with `{{` is YAML's flow map (`title: {{this.title}}` parses as an object, or fails), but it is a
+ * `{{ }}` placeholder: quote such a plain value, so it reaches the figure as the text it was written as.
+ */
+export function quoteBraces(yaml: string): string {
+  return yaml.split("\n").map(line => {
+    const m = /^(\s*(?:-\s+)*(?:[A-Za-z_][\w.-]*:\s+)?)(\{\{.*)$/.exec(line);
+    return m ? `${m[1]}"${m[2]!.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : line;
+  }).join("\n");
+}
+
+/**
  * A figure's props: its YAML over what its Markdown rows and (for a figure block, or `rows: children`) its note's child
  * bullets give. The YAML wins: a field it sets is never taken from the Markdown. `children`: the rows came from child
  * notes; `waiting`: they are still being asked for.
  */
-export function figureProps(kind: string, src: FigureSource, childRows?: ChildRows): { props: Props; children: boolean; waiting: boolean; warning?: string } | { error: string } {
+export function figureProps(kind: string, src: FigureSource, childRows?: ChildRows): { props: Props; children: boolean; waiting: boolean; warning?: string; args?: Record<string, string> } | { error: string } {
   let yaml: Props = {};
-  try { yaml = (Bun.YAML.parse(src.yaml) as Props) ?? {}; }
+  try { yaml = (Bun.YAML.parse(quoteBraces(src.yaml)) as Props) ?? {}; }
   catch (e) { return { error: `bad YAML: ${(e as Error).message}` }; }
   if (typeof yaml !== "object" || Array.isArray(yaml)) return { error: "the YAML between --- lines is a map of props (title: …)" };
   const md: Markdown = parseFigureMarkdown(src.markdown ?? []);
@@ -122,7 +135,9 @@ export function figureProps(kind: string, src: FigureSource, childRows?: ChildRo
   const children = !!kids?.rows.length && rowFields.some(k => k in (FIGURE_MARKDOWN[kind]!({ rows: kids.rows, paragraphs: [], fences: [] }, yaml)));
   // Props written without their `---` lines are drawn as Markdown; the figure says so (PIE-941).
   const warning = src.ruled || src.yaml.trim() ? null : propsWithoutRules(kind, src.markdown ?? []);
-  return { props: { ...from, ...yaml }, children, waiting: !!kids?.waiting, ...(warning ? { warning } : {}) };
+  // Call-site arguments (`::graph-table{project=lego}`) sit under the YAML and over the Markdown; they are `props.*` to a `{{ }}` in it.
+  const args = src.attrs ? Object.fromEntries(componentAttrs(src.attrs).pairs.map(p => [p.key, p.value])) : undefined;
+  return { props: { ...from, ...args, ...yaml }, children, waiting: !!kids?.waiting, ...(warning ? { warning } : {}), ...(args && Object.keys(args).length ? { args } : {}) };
 }
 
 // ── shared readings ──────────────────────────────────────────────────────────────────────────────────

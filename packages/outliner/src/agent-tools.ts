@@ -34,6 +34,7 @@ import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarge
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
 import { textRecord } from "./block-records";
+import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { isSystemNote, systemNoteKind } from "./note-placement";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -157,6 +158,16 @@ async function writableBlock(client: AgentToolsClient, ref: string): Promise<Blo
   const { block } = await resolveReference(client, ref);
   if (block.effectiveDeletedRootId) throw new WorkToolRefusal(`${block.id} is in Trash; restore it before writing`);
   return block;
+}
+
+/** `outline_site`: what a note's placeholders and the paths asked resolve to, by the service's one resolver (`site.answer`). */
+export async function siteRead(client: AgentToolsClient, input: { ref: string; paths?: string[]; draft?: string; chain?: unknown[]; props?: Record<string, string[]>; line?: number }): Promise<SiteAnswer> {
+  const { block } = await resolveReference(client, input.ref);
+  return client.request<SiteAnswer>({
+    action: "site.answer", blockId: block.id,
+    ...(input.paths ? { paths: input.paths } : {}), ...(input.draft !== undefined ? { draft: { text: input.draft } } : {}),
+    ...(input.chain ? { chain: input.chain as never } : {}), ...(input.props ? { props: input.props } : {}), ...(input.line !== undefined ? { line: input.line } : {}),
+  });
 }
 
 export async function resolveRef(client: AgentToolsClient, ref: string): Promise<ResolvedReference> {
@@ -1256,7 +1267,7 @@ export async function settleProposal(client: AgentToolsClient, input: { ref: str
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["proposal-apply", "proposal-dismiss", "read", "find", "resolve", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1279,6 +1290,7 @@ export function runAgentOperation(
     case "read": return readBlock(client, any);
     case "find": return findBlocks(client, any);
     case "resolve": return resolveRef(client, any.ref);
+    case "site": return siteRead(client, any);
     case "edit": return editBlock(client, any, writer());
     case "create": return createBlock(client, any, writer());
     case "comment": return commentOn(client, any, writer());

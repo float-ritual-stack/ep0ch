@@ -545,7 +545,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // Its YAML and its Markdown rows; the note's figure block (the first line of a note's own body) takes its child
       // bullets as rows too.
       const block = !env.nested && src.slice(0, i).every(l => !l.trim());
-      const source = figureSource(src.slice(i + 1, figure.end), env.note, block), at = i + 1 + (source.at ?? 0);
+      const source = figureSource(src.slice(i + 1, figure.end), env.note, block, figure.attrs), at = i + 1 + (source.at ?? 0);
       // Its rows' words drawn as the note's are, and a check row's box a step (PIE-864): a written row's by its body
       // line (the service reads it as a step), a live row's by its note and what its `done:` names.
       const rows: RowInline | undefined = env.present && {

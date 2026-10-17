@@ -53,11 +53,15 @@ import {
   compileQueryExpression,
   bindThis,
   normalizeBlockSearchQuery,
+  type ValueBinder,
   type QueryRelations,
   parseSearchExpression,
   positivePropertyFilters,
   sortQueriedBlocks,
 } from "./block-query";
+import { pathValues } from "./site-answer";
+import type { FilterRow } from "@ep0ch/outline-core/resolve-path";
+import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { ReadMarks } from "./read-marks";
 import { formatProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
@@ -236,6 +240,13 @@ interface WorkIdAllocatorRow {
   prefix: string;
   next_number: number;
 }
+
+/** `lookupBlockRef`'s answer: the note and which resolver found it, or why none (the sentence `resolveBlockRef` throws is `message`). */
+export type BlockRefLookup =
+  | { kind: "found"; block: Block; how: string }
+  | { kind: "ambiguous"; ids: string[]; message: string }
+  | { kind: "trashed"; message: string }
+  | { kind: "missing"; message: string; didYouMean?: string };
 
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
 // and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
@@ -3236,27 +3247,40 @@ export class OutlinerStore {
    * tried, calling the thing `noun` (a CLI says "note").
    */
   resolveBlockRef(ref: string, noun = "block"): Block {
+    const found = this.lookupBlockRef(ref, noun);
+    if (found.kind === "found") return found.block;
+    throw new Error(found.message);
+  }
+
+  /**
+   * `resolveBlockRef` as data: the note a reference names and which resolver found it, or why none does (several by that
+   * id prefix, in Trash, nothing), so a caller that can act on the reason (the Site read lists the matches, a link value
+   * stays text) doesn't parse an error message. `message` is the sentence `resolveBlockRef` throws. Throws only for
+   * an empty reference.
+   */
+  lookupBlockRef(ref: string, noun = "block"): BlockRefLookup {
     // ((id)) and ((id|label)) name the id; [[page]] the page.
     const text = typeof ref === "string" ? referencedBlock(ref)?.blockId ?? ref.trim().replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
     if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
+    const trashed = (): BlockRefLookup => ({ kind: "trashed", message: `${ref} is in Trash` });
     const exact = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id = ?").get(text.toLowerCase()) as { id: string; trashed: string | null } | null;
-    if (exact?.trashed) throw new Error(`${ref} is in Trash`);
-    if (exact) return this.getFromCurrentRead(exact.id)!;
+    if (exact?.trashed) return trashed();
+    if (exact) return { kind: "found", block: this.getFromCurrentRead(exact.id)!, how: "block id" };
     if (/^[0-9a-f-]{8,}$/i.test(text)) {
       const low = text.toLowerCase();
-      const rows = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id >= ? AND id < ? ORDER BY trashed IS NOT NULL LIMIT 3")
+      const rows = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id >= ? AND id < ? ORDER BY trashed IS NOT NULL, id LIMIT 6")
         .all(low, `${low}\uffff`) as { id: string; trashed: string | null }[];
       const active = rows.filter(row => !row.trashed);
-      if (active.length === 1) return this.getFromCurrentRead(active[0]!.id)!;
-      if (active.length > 1) throw new Error(`${text} starts more than one block's id; give more of it`);
-      if (rows.length) throw new Error(`${ref} is in Trash`);
+      if (active.length === 1) return { kind: "found", block: this.getFromCurrentRead(active[0]!.id)!, how: "block id prefix" };
+      if (active.length > 1) return { kind: "ambiguous", ids: active.map(row => row.id), message: `${text} starts more than one block's id; give more of it` };
+      if (rows.length) return trashed();
     }
     let page: PageAddressResolution | null = null;
     try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(text)); } catch { /* not an address: said below */ }
-    if (page?.status === "resolved" && page.block) return page.block;
-    if (page?.status === "deleted") throw new Error(`${ref} is in Trash`);
+    if (page?.status === "resolved" && page.block) return { kind: "found", block: page.block, how: parseWorkId(text) ? "Work ID" : "page address" };
+    if (page?.status === "deleted") return trashed();
     const mean = this.workIdDidYouMeanFromCurrentRead(text);
-    throw new Error(`No ${noun} ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`);
+    return { kind: "missing", message: `No ${noun} ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`, ...(mean ? { didYouMean: mean } : {}) };
   }
 
   /**
@@ -3845,8 +3869,13 @@ export class OutlinerStore {
     return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active" }))();
   }
 
+  /** What a `{{path}}` in a question reads: the Site's values for the note the question sits in (`this`). */
+  private valueBinder(thisId: string | undefined): ValueBinder | undefined {
+    return thisId ? path => pathValues(this, thisId, path) : undefined;
+  }
+
   queryBlocks(input: BlockSearchQuery): VisibleBlockCollection {
-    const query = normalizeBlockSearchQuery(input);
+    const query = normalizeBlockSearchQuery(input, this.valueBinder(input?.this?.trim() || undefined));
     return this.database.transaction(() => this.queryNormalizedBlocksFromCurrentRead(query))();
   }
 
@@ -4062,7 +4091,7 @@ export class OutlinerStore {
     if (!(typeof expression === "string" && expression.trim()) && !narrowed) throw new Error("Query match needs a query expression");
     if (!Array.isArray(ids) || ids.length > 1000 || ids.some(id => typeof id !== "string")) throw new Error("Query match needs blockIds: an array of at most 1000 block IDs");
     const parsed = typeof expression === "string" && expression.trim() ? parseSearchExpression(expression) : { filters: [], where: undefined };
-    const filters = parsed.filters, where = parsed.where && bindThis(parsed.where, thisId as string | undefined);
+    const filters = parsed.filters, where = parsed.where && bindThis(parsed.where, thisId as string | undefined, this.valueBinder(thisId as string | undefined));
     if (filters.some(filter => filter.key === "deleted")) throw new Error("deleted=true selects Trash; it isn't a property to match");
     const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph())) : null;
     const terms = typeof text === "string" ? searchTextTerms(text) : [];
@@ -4086,6 +4115,58 @@ export class OutlinerStore {
         }),
       };
     })();
+  }
+
+  /**
+   * Which of `rows` (notes, or the checkbox lines of one) a query holds for, as saved views read it (`site.answer`'s
+   * `| filter`). A row is its text and its properties; a note's `id` lets `links:`, `parent:` and the other relation atoms
+   * read it. A key no row has is said, with the nearest ones ("{rows}" in the message stands for the rows' kind).
+   */
+  filterRows(rows: readonly FilterRow[], filter: string, thisId?: string): { ok: true; keep: boolean[]; open?: true } | { ok: false; message: string; didYouMean?: string[] } {
+    try {
+      const parsed = parseSearchExpression(filter);
+      const where = parsed.where && bindThis(parsed.where, thisId, this.valueBinder(thisId));
+      const present = [...new Set(rows.flatMap(row => row.properties.map(p => p.key)))];
+      // A clause about other notes (links:, under:, child:…) makes the answer depend on notes the rows don't name.
+      let open = false;
+      const asked: string[] = parsed.filters.map(f => f.key);
+      const walk = (e: QueryExpression | undefined): void => {
+        if (!e) return;
+        switch (e.kind) {
+          case "property": if (e.relation) open = true; else asked.push(e.key); return;
+          case "compare": asked.push(e.key); return;
+          case "not": walk(e.operand); return;
+          case "and": case "or": e.operands.forEach(walk); return;
+          case "time": case "tag": case "title": case "text": return;
+          default: open = true;
+        }
+      };
+      walk(where);
+      if (rows.length) {
+        for (const key of asked) {
+          if (key === "tag" || key === "deleted" || key === "revision" || present.includes(key)) continue;
+          const near = closest(key, present);
+          return { ok: false, message: `no {rows} have \`${key}\`${near ? `; did you mean \`${near}\`?` : present.length ? ` (they have ${present.slice(0, 8).join(", ")})` : ""}`, ...(near ? { didYouMean: [near] } : {}) };
+        }
+      }
+      const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph())) : null;
+      return {
+        ok: true,
+        ...(open ? { open: true as const } : {}),
+        keep: rows.map(row => {
+          const properties = row.properties.map(p => ({ key: p.key, value: p.value }));
+          const id = row.id && !row.id.includes("^") ? row.id : undefined;
+          // A note's own times, revision and author are the block's; a checkbox line has none (those clauses don't hold for it).
+          const block = id ? this.getFromCurrentRead(id) : null;
+          const subject = block
+            ? { ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map(child => child.properties) }
+            : { text: row.text, createdAt: "", updatedAt: "" };
+          return matchesFilters(properties, parsed.filters) && (!test || test(subject, properties));
+        }),
+      };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /**

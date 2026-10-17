@@ -1987,7 +1987,20 @@ parser gives those chips block scope, titles leave them and their separators out
 Detail's property table says `header` for them, and `ep0ch export` moves them into
 front matter. `blocks.records` answers blocks as records (outline-core's
 `block-record.ts`: header, properties as lists, fields, children, tasks, links,
-backlinks, resources), at most 200 ids a request. To place a block into a saved view, ask
+backlinks, resources), at most 200 ids a request. `site.answer` (PIE-533) answers what a
+note's `{{ }}` placeholders, and any `paths` asked (`this.owner`, `parent.project`, a bare
+`project`, `((id)).query`, `[[page]].title`, `person.firstName` through a link value,
+`this.tasks | status=todo`, `now.date-1d`), resolve to: one resolver, outline-core's
+`resolvePath` (`resolve-path.ts`), over a Site (`site.ts`) the service binds
+(`src/site-answer.ts`). Each answer is `values` (always lists) or a `problem` with a
+did-you-mean and an example, with its `route` (which resolver answered, which fallback was
+taken), the `links` among its values and the notes it was computed from (`deps`). `draft` reads
+unsaved text, `chain` reads a note as drawn inside another (a `::use` in a host, an embed), and
+`props` are the call's arguments. A note's property wins over its record's field of the same
+name (`[created::…]`); `this.$created` is the field. A value is a link when it is a `((id))`, a
+`[[page]]`, a Work ID, or an id (8 or more hex characters) that names exactly one note; any
+other value stays text, silently. Watched with `watch`, it is evaluated again only when a change
+touched one of its `deps`. `outliner agent site` and the Claude mod's `outline_site` run it. To place a block into a saved view, ask
 `views.planWrite` for the property patch each view
 needs, or why no patch can satisfy its query; `query.matches` says which of given
 blocks a query holds for. See [ARCHITECTURE](docs/ARCHITECTURE.md#saved-view-write-plans-viewsplanwrite).
@@ -2076,6 +2089,11 @@ rating > 3
   `this` (a `::links` block's note, a figure's note, a tile's aim). `links:this NOT linkedfrom:this` is what links to a
   note that the note doesn't link back. A question that says `this` with none given is refused: `this is the note the
   query sits in; this query has none (pass this=<block id>)`. `query.matches` takes `this` too.
+- **A value from the note** (PIE-533): `key={{this.project}}` takes the clause's value from a Site path (`site.answer`'s
+  resolver) for the `this` note, as an operand, never as query text: a list of values means any of them, none matches
+  nothing, and a value holding `OR`, a quote or a space cannot change the query. A path with no answer (`{{this.projct}}`)
+  is refused with its did-you-mean, never an empty list. Only a whole value (`key={{…}}`, `[key::{{…}}]`) is an operand;
+  quoted, it is text.
 - **Ranges:** `created` or `updated`, then `<`, `<=`, `>` or `>=`, then a time,
   with or without spaces. A `YYYY-MM-DD` date is a whole UTC day:
   `> 2026-09-20` starts on the 21st and `<= 2026-09-20` includes all of the
@@ -2148,12 +2166,14 @@ Property filters and catalogs default to `block` scope, so body examples and lin
   properties and tags with them, PIE-881.
 - `hint`: when a key the question names (a clause, the group, the sort, a facet) is carried by no block in the
   outline: `no notes have <key>; nearest: <keys>`. A known key with no matches is just an empty answer.
-- **Watched:** `blocks.query`, `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` take `watch: <key>`.
+- **Watched:** `blocks.query`, `views.read`, `blocks.authored-links`, `references.backlinks`, `query.matches` and `site.answer` take `watch: <key>`.
   The question stays on the connection (`src/query-watches.ts`); the answer that registers it is `generation` 0. After
   changes the service evaluates every watch at most every 250 ms and at least once a second under steady writes, and
   sends that connection `{ event: { domain: "queries", action: "queries.changed", changes: [{ key, generation }] } }`
   for the answers whose hash changed. Asked again with `generation`, a watch is answered from the newest kept answer,
-  never evaluated again. 64 watches per connection and 512 per service; past them the oldest is dropped
+  never evaluated again. An answer that lists the notes it was computed from (`site.answer`'s `deps`) is evaluated again
+  only after a change that touched one of them (or its parent); one that says `anyChange` (a reference it looked for isn't
+  there yet) after every change. 64 watches per connection and 512 per service; past them the oldest is dropped
   (`dropped: true`) and the client asks again to register it. A connection's watches end with it.
 
 ### Reading many blocks

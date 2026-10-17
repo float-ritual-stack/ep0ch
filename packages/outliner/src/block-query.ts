@@ -248,6 +248,11 @@ function tokenizeFilterExpression(input: string): FilterToken[] {
       const close = closingBracket(input, index);
       if (close >= 0 && PROPERTY_TOKEN_START.test(input.slice(index + 1, close))) { index = close; continue; }
     }
+    // `key={{this.project}}`: a `{{ }}` value operand keeps the spaces inside its braces.
+    if (character === "{" && input[index + 1] === "{") {
+      const close = input.indexOf("}}", index + 2);
+      if (close >= 0 && !input.slice(index, close).includes("\n")) { index = close + 1; continue; }
+    }
     // `links:[[a page]]` and the other relations' `[[a page]]` keep a page name's spaces.
     if (character === "[" && input[index + 1] === "[" && /^\(*(?:links|linkedfrom|under|parent):$/i.test(input.slice(start, index))) {
       const close = input.indexOf("]]", index + 2);
@@ -304,7 +309,7 @@ function foldClauseTokens(tokens: FilterToken[]): FilterToken[] {
     const token$ = PROPERTY_TOKEN.exec(token.text);
     if (token$) {
       const value = token$[3]!;
-      const quoted = /\s/.test(value) && !value.startsWith('"') ? `"${value.replace(/[\\"]/g, "\\$&")}"` : value;
+      const quoted = /\s/.test(value) && !value.startsWith('"') && !/^\{\{.*\}\}$/s.test(value) ? `"${value.replace(/[\\"]/g, "\\$&")}"` : value;
       token = { ...token, text: `${token$[1]}${token$[2]}=${quoted}${token$[4]}` };
     }
     const previous = out[out.length - 1];
@@ -438,6 +443,8 @@ function lexQueryExpression(input: string): { tokens: ExpressionToken[]; simple:
         simple = false;
       } else {
         tokens.push({ kind: "word", text, start });
+        // A value operand (`project={{this.project}}`) is bound by the service: the expression's, not a plain filter's.
+        if (VALUE_OPERAND.test(text)) simple = false;
         // A clause whose value is a date (`due=today`, `due="Oct 20"`) is the evaluator's: it holds for that day.
         if (isQueryAtomWord(text) || datedClause(text)) simple = false;
       }
@@ -449,6 +456,9 @@ function lexQueryExpression(input: string): { tokens: ExpressionToken[]; simple:
   }
   return { tokens, simple };
 }
+
+/** `key={{path}}`: a property clause whose value is read from the Site (the whole value, unquoted). */
+const VALUE_OPERAND = new RegExp(`^\\(*(${PROPERTY_KEY_SOURCE})(?:=|::)(\\{\\{[^\\n]*?\\}\\})\\)*$`, "s");
 
 const KEY_VALUE = new RegExp(`^(?:${PROPERTY_KEY_SOURCE})(?:=|::)(.+)$`, "s");
 
@@ -650,6 +660,9 @@ class ExpressionParser {
         throw error;
       }
     }
+    // `project={{this.project}}`: the value is an operand the service binds (`bindThis`); the text never reaches the query.
+    const operand = VALUE_OPERAND.exec(token.text);
+    if (operand) return { kind: "property", key: normalizePropertyKey(operand[1]!), from: operand[2]! };
     // `child:key=value` holds when a direct child has the property. `:` was never
     // valid in a key, so no query that parsed before changes meaning.
     // `child>=2:key=value`: at least that many direct children have it (a hub: `child>=2:type=virtual-branch`).
@@ -691,6 +704,10 @@ function normalizeQueryExpression(expression: QueryExpression, depth = 0, leaves
   switch (expression.kind) {
     case "property": {
       if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
+      if (expression.from !== undefined) {
+        if (typeof expression.from !== "string" || !/^\{\{[^\n]*\}\}$/.test(expression.from)) throw new BlockQueryError("A property's from is a {{path}}, such as {{this.project}}");
+        return { kind: "property", key: normalizePropertyKey(String(expression.key)), from: expression.from };
+      }
       const filter = normalizePropertyFilter({ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) });
       if (filter.key === "deleted") throw new BlockQueryError("deleted=true cannot appear inside a query expression; use filters or includeDeleted");
       if (expression.relation !== undefined && expression.relation !== "child") throw new BlockQueryError(`Unknown query relation: ${String(expression.relation)}`);
@@ -965,11 +982,18 @@ function titleOf(text: string): string {
 /** Why a question that says `this` can't be answered without one (ADR 0004). */
 export const THIS_MISSING = "this is the note the query sits in; this query has none (pass this=<block id>)";
 
+/** What `{{path}}` in a query reads: the values of a Site path for the note the question sits in; throws a corrective error. */
+export type ValueBinder = (path: string) => string[];
+
+/** No clause matches: an `or` of nothing. */
+const NO_MATCH: QueryExpression = { kind: "or", operands: [] };
+
 /**
- * `expression` with every `this` target bound to block `thisId` (`links:this` → `links:((id))`). With no `thisId`, a
- * `this` is refused with what to pass.
+ * `expression` with every `this` target bound to block `thisId` (`links:this` → `links:((id))`) and every value operand
+ * (`project={{this.project}}`) bound to the values `values` reads for its path: one clause per value (any of them), none
+ * matching nothing. A value is an operand, never query text. With no `thisId`, a `this` is refused with what to pass.
  */
-export function bindThis(expression: QueryExpression, thisId: string | undefined): QueryExpression {
+export function bindThis(expression: QueryExpression, thisId: string | undefined, values?: ValueBinder): QueryExpression {
   switch (expression.kind) {
     case "links":
     case "linkedfrom":
@@ -978,11 +1002,19 @@ export function bindThis(expression: QueryExpression, thisId: string | undefined
       if (expression.target !== THIS_TARGET) return expression;
       if (!thisId) throw new BlockQueryError(THIS_MISSING);
       return { ...expression, target: `((${thisId}))` };
+    case "property": {
+      if (expression.from === undefined) return expression;
+      if (!thisId || !values) throw new BlockQueryError(`${expression.from} reads the note this query sits in; this query has none (pass this=<block id>)`);
+      const { from, ...rest } = expression;
+      const got = [...new Set(values(from.slice(2, -2).trim()))];
+      const clauses = got.map((value): QueryExpression => ({ ...rest, value }));
+      return clauses.length === 0 ? NO_MATCH : clauses.length === 1 ? clauses[0]! : { kind: "or", operands: clauses };
+    }
     case "not":
-      return { kind: "not", operand: bindThis(expression.operand, thisId) };
+      return { kind: "not", operand: bindThis(expression.operand, thisId, values) };
     case "and":
     case "or":
-      return { kind: expression.kind, operands: expression.operands.map(operand => bindThis(operand, thisId)) };
+      return { kind: expression.kind, operands: expression.operands.map(operand => bindThis(operand, thisId, values)) };
     default:
       return expression;
   }
@@ -1053,6 +1085,7 @@ function normalizeSort(sort: unknown): BlockQuerySort {
 
 export function normalizeBlockSearchQuery(
   query: BlockSearchQuery,
+  values?: ValueBinder,
 ): NormalizedBlockSearchQuery {
   if (!query || typeof query !== "object")
     throw new Error("Block search query is required");
@@ -1111,8 +1144,8 @@ export function normalizeBlockSearchQuery(
     if (error instanceof BlockQuerySyntaxError) error.field = "where";
     throw error;
   }
-  if (parsedExpression?.where) parts.push(bindThis(parsedExpression.where, thisId));
-  if (query.predicate !== undefined) parts.push(bindThis(normalizeQueryExpression(query.predicate), thisId));
+  if (parsedExpression?.where) parts.push(bindThis(parsedExpression.where, thisId, values));
+  if (query.predicate !== undefined) parts.push(bindThis(normalizeQueryExpression(query.predicate), thisId, values));
   const predicate = parts.length === 0 ? undefined
     : parts.length === 1 ? parts[0]! : { kind: "and" as const, operands: parts };
 

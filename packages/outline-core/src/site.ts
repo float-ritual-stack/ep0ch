@@ -1,7 +1,8 @@
 // The Site (PIE-533): the one execution context for everything that runs in a note (a `{{ }}` value, a figure, a
 // script, a template, an extension component, `::fields`). Where am I, what note contains me, what can I read, what can
 // I reference, where can I render, what makes my output update: one shape, with the same answers for every kind.
-// Types only (S0a); `resolvePath` (resolve-path.ts) reads it, and the service fills it (S1). Pure: no I/O.
+// `resolvePath` (resolve-path.ts) reads it, `deriveSite` makes a nested producer's from its parent's, and the service
+// fills it and answers it (`site.answer`: the wire types below). Pure: no I/O.
 import type { BlockRecord } from "./block-record";
 import type { BlockAuthor } from "./protocol";
 
@@ -60,3 +61,90 @@ export interface PropsSpec {
 
 /** Call-site arguments every producer reads as its own settings, never as props. */
 export const RESERVED_PROPS = ["of", "act", "at", "mode", "as", "label", "txn", "motion", "create", "freeze", "for"] as const;
+
+/**
+ * One nesting step, outermost first: where a producer is drawn inside another. `use`: a `::use` line (the template is
+ * drawn with the host as `this`); `embed`: an embedded note (a fresh Site, the embedded note is `this`); `box`: a box
+ * or callout (the Site passes through). `block` is the note the invocation is written in, `line`/`mark` where.
+ */
+export interface SiteLink { kind: "use" | "embed" | "box"; block: string; line?: number; mark?: string }
+
+/**
+ * The Site of a producer drawn inside `parent`'s: passed down, never looked up. `child` is the note the invocation names
+ * (the template of a `use`, the embedded note of an `embed`).
+ */
+export function deriveSite(parent: Site, link: SiteLink, child: BlockRecord): Site {
+  const at: Address = { block: child.id };
+  const caller: Address = { block: link.block, ...(link.line !== undefined ? { line: link.line } : {}), ...(link.mark !== undefined ? { mark: link.mark } : {}) };
+  switch (link.kind) {
+    // The host stays `this`; the template is `self`; the scope walk starts at the `::use` line in the host.
+    case "use": return { at, ...(parent.this ? { this: parent.this } : {}), self: child, caller, props: {}, actor: parent.actor, parent };
+    case "embed": return { at, this: child, caller, props: {}, actor: parent.actor, parent };
+    case "box": return { ...parent, at };
+  }
+}
+
+// --- the wire: `site.answer` ---
+
+/** `site.answer`'s question. `blockId` is the note whose text holds the placeholders being read. */
+export interface SiteAnswerRequest {
+  blockId: string;
+  /** The unsaved text of `blockId` (a draft being typed): values, problems and deps agree with what is on screen. */
+  draft?: { text: string };
+  /** Where `blockId` is drawn: the invocations from the outermost host in (a `::use` in a host, an embed in a `::use`). */
+  chain?: SiteLink[];
+  /** The call's arguments (`{k=v}` of the `::use` line), as `props.k`. */
+  props?: Record<string, string[]>;
+  /** The line of the note the scope walk starts at (default: the first). A `use` in the chain sets it to its own line. */
+  line?: number;
+  /** More paths to read besides the note's own `{{ }}` (a script's `resolve`, an agent's question): `this.tasks | status=todo`. */
+  paths?: string[];
+}
+
+/** A path that has no answer: why, the nearest keys, and a path that works. */
+export interface SiteProblem { message: string; didYouMean: string[]; example?: string }
+
+/** One read: a `{{ }}` of the note (with its place in the text), or a path that was asked. */
+export interface SiteValue {
+  /** The whole `{{ … }}` in the note's text (absent for an asked path). */
+  start?: number;
+  end?: number;
+  /** The expression as written, and its path. */
+  expression: string;
+  path: string;
+  /** The values (always a list); absent with a `problem`. A `|| default` fills in for a problem and says so. */
+  values?: string[];
+  problem?: SiteProblem;
+  usedDefault?: true;
+  /** For `.fields.key`: the line each value was written on, and its text. */
+  lines?: number[];
+  marks?: string[];
+  /** The note the values were read from. */
+  from?: string;
+  /** Values that are links to a note (shown by its title). */
+  links?: { text: string; id: string; title: string; how: string }[];
+  /** The value changes within the day by the clock alone (`now.time`). */
+  clock?: "minute";
+  /** How: which head, which resolver answered, which fallback was taken. */
+  route: string[];
+}
+
+/** `site.answer`'s answer. `deps` are the notes it was computed from: it changes only when one of them does. */
+export interface SiteAnswer {
+  blockId: string;
+  revision: number;
+  /** The Site, in ids: `this` is the host in a `use`. */
+  site: { this?: string; self?: string; caller?: Address; props: Record<string, string[]> };
+  values: SiteValue[];
+  paths?: SiteValue[];
+  /** How the Site was bound (the chain, the draft). */
+  route: string[];
+  deps: string[];
+  /** Something it looked for isn't there yet (a `[[page]]` to be): any change may fill it, so `deps` can't be trusted to name every change. */
+  anyChange?: true;
+  /** Some value changes within the day by the clock alone (`now.time`): a watch of this answer is evaluated again each minute. */
+  clock?: "minute";
+  /** The `{{ }}` placeholders and paths that have a problem (and no default). */
+  problems: number;
+  generation?: number;
+}
