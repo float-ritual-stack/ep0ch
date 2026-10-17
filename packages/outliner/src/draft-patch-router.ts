@@ -1,3 +1,4 @@
+import { isSqliteBusy } from "./sqlite-busy";
 import { wholeTextSpan } from "./extension-writes";
 /**
  * Where a `draft.patch` goes (PIE-501). Routing is the service's job, not the
@@ -403,6 +404,7 @@ export class DraftPatchRouter {
         this.deps.store.update(proposalId, withProposalStatus(current.text, status), current.revision, who);
         return undefined;
       } catch (error) {
+        if (isSqliteBusy(error)) throw error;
         failure = error instanceof Error ? error.message : String(error);
       }
     }
@@ -472,6 +474,7 @@ export class DraftPatchRouter {
     try {
       prepared = this.deps.groups(proposal.group!, who);
     } catch (error) {
+      if (isSqliteBusy(error)) throw error;
       throw new Error(`Couldn't apply it: ${error instanceof Error ? error.message : String(error)}`);
     }
     const edits = proposal.edits.length ? normalizeDraftPatchEdits({ edits: proposal.edits }) : [];
@@ -556,6 +559,7 @@ export class DraftPatchRouter {
         })();
       } catch (error) {
         await revert?.();
+        if (isSqliteBusy(error)) throw error;
         throw new Error(`Couldn't dismiss it: ${error instanceof Error ? error.message : String(error)}`);
       }
       if (scriptRun && scriptPatch) this.rememberScriptPatch(scriptRun, scriptPatch);
@@ -706,6 +710,7 @@ export class DraftPatchRouter {
       for (const { block, rebased } of written) applied.push({ blockId: block.id, route: "saved", revision: block.revision, ...(rebased ? { rebasedFrom: rebased } : {}) });
     } catch (error) {
       await undo();
+      if (isSqliteBusy(error)) throw error;
       // What a write group makes, moves or orders failing is its refusal, never a proposal of it.
       if (error instanceof AlongsideFailure) throw error.cause;
       return { ok: false, reason: error instanceof Error ? error.message : String(error) };
@@ -734,7 +739,8 @@ export class DraftPatchRouter {
     let base: string | null = null;
     try {
       base = edit.revision < block.revision ? this.deps.store.revisionText(edit.blockId, edit.revision).text : null;
-    } catch {
+    } catch (error) {
+      if (isSqliteBusy(error)) throw error;
       base = null;
     }
     if (base === null) return () => ({ ok: false, index: 0, reason: `${saved}, and that revision isn't kept to rebase from` });

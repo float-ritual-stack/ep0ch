@@ -25,8 +25,85 @@ async function service() {
   const server = new OutlinerServer(store, socket);
   await server.start();
   cleanups.push(async () => { await server.close(); store.close(); });
-  return { store, server, client: new OutlinerClient(socket, 10_000), socket };
+  return { store, server, client: new OutlinerClient(socket, 10_000), socket, databasePath: join(directory, "outliner.sqlite") };
 }
+
+// The lock must be released by another process while SQLite blocks this one's event loop.
+async function competingWriter(databasePath: string) {
+  let locked = Promise.withResolvers<void>();
+  let released = Promise.withResolvers<void>();
+  const process = Bun.spawn(["bun", "--eval", `
+    const { Database } = require("bun:sqlite");
+    const db = new Database(process.argv[1]);
+    db.exec("PRAGMA busy_timeout = 5000");
+    process.on("message", async () => {
+      db.exec("BEGIN IMMEDIATE");
+      process.send("locked");
+      await Bun.sleep(30);
+      db.exec("COMMIT");
+      process.send("released");
+    });
+  `, databasePath], {
+    env: { ...Bun.env }, stdout: "ignore", stderr: "inherit",
+    ipc(message) {
+      if (message === "locked") locked.resolve();
+      if (message === "released") released.resolve();
+    },
+  });
+  cleanups.push(async () => { process.kill(); await process.exited; });
+  return async (write: () => Promise<void>) => {
+    locked = Promise.withResolvers<void>();
+    released = Promise.withResolvers<void>();
+    process.send("lock");
+    await locked.promise;
+    try { await write(); } finally { await released.promise; }
+  };
+}
+
+for (const action of ["draft.patch", "update"] as const) {
+  test(`${action}: 200 writes survive a competing SQLite writer without proposals`, async () => {
+    const { store, client, databasePath } = await service();
+    const contend = await competingWriter(databasePath);
+    const note = store.create("Garden 0");
+    const failures: string[] = [];
+    for (let index = 1; index <= 200; index++) {
+      const before = store.require(note.id);
+      const text = `Garden ${index}`;
+      await contend(async () => {
+        try {
+          if (action === "draft.patch") {
+            const result = await client.request<DraftPatchResult>({ action, blockId: note.id, revision: before.revision,
+              patches: [{ observed: before.text, replacement: text }], mutation: { author: "agent", actorId: "gardener" } });
+            if (result.outcome !== "applied") failures.push(JSON.stringify(result));
+          } else {
+            await client.request({ action, blockId: note.id, text, expectedRevision: before.revision, mutation: { author: "user" } });
+          }
+          if (store.require(note.id).text !== text) failures.push(`write ${index} did not land`);
+        } catch (error) { failures.push(String(error)); }
+      });
+    }
+    expect([...new Set(failures)]).toEqual([]);
+    expect(store.require(note.id).text).toBe("Garden 200");
+    expect(store.children(note.id)).toEqual([]);
+  }, 30_000);
+}
+
+test("a busy wait that expires is retried once without proposing or duplicating the write", async () => {
+  const { store, client, databasePath } = await service();
+  const contend = await competingWriter(databasePath);
+  const note = store.create("Garden");
+  store.database.exec("PRAGMA busy_timeout = 1");
+  await contend(async () => {
+    const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision,
+      patches: [{ observed: "Garden", replacement: "Garden planted" }], mutation: { author: "agent", actorId: "gardener" } });
+    expect(result.outcome).toBe("applied");
+  });
+  await contend(async () => {
+    await client.request({ action: "update", blockId: note.id, text: "Garden watered", expectedRevision: note.revision + 1, mutation: { author: "user" } });
+  });
+  expect(store.require(note.id)).toMatchObject({ text: "Garden watered", revision: note.revision + 2 });
+  expect(store.children(note.id)).toEqual([]);
+});
 
 const TIDY = { author: "agent" as const, actorId: "tidy" };
 

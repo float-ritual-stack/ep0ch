@@ -1035,17 +1035,17 @@ export class ResourceCatalog {
       (this.database.query(
         "SELECT id, name, provider, boundary_json, policy_json, root_binding, version, created_at, updated_at FROM resource_sources ORDER BY name, id",
       ).all() as SourceRow[]).map(sourceFromRow)
-    )();
+    ).deferred();
   }
 
   getSource(sourceId: string): ResourceSource | null {
     const normalized = normalizeResourceId(sourceId, "Resource source ID");
-    return this.database.transaction(() => this.getSourceFromCurrentRead(normalized))();
+    return this.database.transaction(() => this.getSourceFromCurrentRead(normalized)).deferred();
   }
 
   requireSource(sourceId: string): ResourceSource {
     const normalized = normalizeResourceId(sourceId, "Resource source ID");
-    return this.database.transaction(() => this.requireSourceFromCurrentRead(normalized))();
+    return this.database.transaction(() => this.requireSourceFromCurrentRead(normalized)).deferred();
   }
 
   createComputedInvocation(value: CreateComputedInvocationInput): ComputedInvocation {
@@ -1596,12 +1596,12 @@ export class ResourceCatalog {
 
   get(resourceId: string): Resource | null {
     const normalized = normalizeResourceId(resourceId);
-    return this.database.transaction(() => this.getFromCurrentRead(normalized))();
+    return this.database.transaction(() => this.getFromCurrentRead(normalized)).deferred();
   }
 
   require(resourceId: string): Resource {
     const normalized = normalizeResourceId(resourceId);
-    return this.database.transaction(() => this.requireFromCurrentRead(normalized))();
+    return this.database.transaction(() => this.requireFromCurrentRead(normalized)).deferred();
   }
 
   find(sourceId: string, address: unknown): Resource | null {
@@ -1613,7 +1613,7 @@ export class ResourceCatalog {
       this.assertConfinement(source, sourceRow.root_binding, normalized.address);
       const row = this.resourceRowByKeyFromCurrentRead(source.id, normalized.canonicalKey);
       return row ? resourceFromRow(row, source) : null;
-    })();
+    }).deferred();
   }
 
   relocate(value: unknown): Resource {
@@ -2198,7 +2198,7 @@ export class ResourceCatalog {
             ? remoteEntity?.commandDescriptors ?? []
             : [],
       };
-    })();
+    }).deferred();
     if (description.filesystemNotice) this.rebound.delete(description.source.id);
     return description;
   }
@@ -2287,7 +2287,7 @@ export class ResourceCatalog {
         resource,
         source: this.requireSourceFromCurrentRead(resource.sourceId),
       };
-    })();
+    }).deferred();
     if (
       source.policy.deniedCapabilities.includes("read") ||
       source.policy.deniedCapabilities.includes("refresh")
@@ -2386,7 +2386,7 @@ export class ResourceCatalog {
         source,
         commands: document?.commandDescriptors ?? [],
       };
-    })();
+    }).deferred();
     if (
       !commands.some((descriptor) =>
         descriptor.provider === input.provider &&
@@ -2455,7 +2455,7 @@ export class ResourceCatalog {
         encoding: "base64",
         data: Buffer.from(row.bytes).toString("base64"),
       };
-    })();
+    }).deferred();
   }
 
 
@@ -2834,7 +2834,7 @@ export class ResourceCatalog {
         this.pdfActiveRepresentationAvailable(snapshot.id)
       ) return null;
       return { resource, snapshot };
-    })();
+    }).deferred();
     if (!retained) return null;
     const generation = this.database.transaction(() =>
       this.beginPdfRefresh(retained.resource, retained.snapshot, false)
@@ -3247,7 +3247,7 @@ export class ResourceCatalog {
     ) {
       const sourceRow = this.database.transaction(() =>
         this.requireSourceRowFromCurrentRead(initial.source.id)
-      )();
+      ).deferred();
       this.assertConfinement(initial.source, sourceRow.root_binding, initial.resource.address);
       const absolutePath = resolve(
         initial.source.boundary.root,
@@ -4195,7 +4195,7 @@ export class ResourceCatalog {
             FROM computed_representations
             WHERE cache_key = ?
           `).get(cacheKey) as ComputedRepresentationRow | null
-        )();
+        ).deferred();
         if (cached) {
           return this.completeComputedSuccess(
             initial,

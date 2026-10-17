@@ -125,6 +125,7 @@ function importClaimed(source: string, target: string): ImportReport {
     const writer = new Database(target, { create: true });
     created = true;
     try {
+      writer.exec("PRAGMA busy_timeout = 5000");
       openSchema(writer, `The new outline ${target}`);
       const targetTables = tableNames(writer);
       for (const table of sourceTables) {
@@ -155,7 +156,7 @@ function importClaimed(source: string, target: string): ImportReport {
           const tables = [...new Set(violations.map(violation => violation.table))].join(", ");
           throw new Error(`${source} has ${violations.length} rows whose references don't resolve (in ${tables}); nothing was imported`);
         }
-      })();
+      }).immediate();
     } finally {
       writer.close();
     }

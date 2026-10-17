@@ -238,7 +238,7 @@ export class ResourceRetentionRepository {
   }
 
   policy(): ResourceRetentionPolicy {
-    return this.database.transaction(() => this.policyFromCurrentRead())();
+    return this.database.transaction(() => this.policyFromCurrentRead()).deferred();
   }
 
   configure(value: unknown): ResourceRetentionPolicy {
@@ -360,7 +360,7 @@ export class ResourceRetentionRepository {
     const normalized = resourceId === undefined ? null : normalizeResourceId(resourceId);
     return this.database.transaction(() =>
       this.reportFromCurrentRead(normalized, activeRevisions)
-    )();
+    ).deferred();
   }
 
   collect(
