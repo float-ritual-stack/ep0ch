@@ -103,7 +103,7 @@ const NOT_IN_HERDR = { HERDR_PANE_ID: '', HERDR_TAB_ID: '', HERDR_WORKSPACE_ID: 
 
 /** A reply drawn with its references as links. */
 function mountReply($: { ui: { mount: (init: any) => Promise<any> } }, text: string) {
-  return $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  return $.ui.mount({ plugin: 'ep0ch', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
 }
 
 /** The Outliner's Herdr opens the mod ran (`src/herdr-open.ts`), by mode: the one Detail finder. */
@@ -239,13 +239,13 @@ describe('register', () => {
     {
       const cwd = WORKSPACE
       const session = sessionIn(on, cwd, succeeding, `${WORKSPACE}-listed`)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start({ ...START, cwd }))
       await $.turn.complete(ANSWER)
       await session.clock.settle()
       expect(JSON.stringify(session.runs)).not.toContain('ingest')
       expect(session.toasts.join(' ')).not.toContain('PI_OUTLINER_MENTIONS_MODE')
-      const called = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+      const called = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' })
       expect(String((called as { deny?: string }).deny ?? '')).not.toContain('No Outliner outline')
     }
   })
@@ -357,7 +357,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
 
     const drawn = await $.ui.mount({
-      plugin: 'pi-outliner',
+      plugin: 'ep0ch',
       surface: 'terminal',
       component: 'AssistantMessage',
       props: { text: 'Filed PIE-356 and OLD-2 beside `PIE-1`.', isFirstOfReply: true },
@@ -373,7 +373,7 @@ describe('register', () => {
     ])
 
     const plain = await $.ui.mount({
-      plugin: 'pi-outliner',
+      plugin: 'ep0ch',
       surface: 'terminal',
       component: 'AssistantMessage',
       props: { text: 'Nothing to link here.', isFirstOfReply: true },
@@ -463,13 +463,13 @@ describe('register', () => {
       opened = true
       return result(0, answer, '')
     })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
     await Promise.all([
       drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } }),
-      $.tool.call({ tool: 'mcp__pi-outliner__show', reference: 'PIE-8' }),
+      $.tool.call({ tool: 'mcp__ep0ch__show', reference: 'PIE-8' }),
     ])
     await session.clock.settle()
 
@@ -479,14 +479,14 @@ describe('register', () => {
 
   test('the show tool puts a reference in the Outliner Detail beside Claude and reports it', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
 
-    const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+    const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
     expect(shown).toMatchObject({ result: 'Showing Daily notes in the Outliner Detail beside you.' })
     expect(session.runs.find(run => run.argv.includes('link'))?.argv).toContain('admin-detail')
 
-    const empty = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: ' ' })
+    const empty = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: ' ' })
     expect(empty.deny).toContain('Give the ref')
   })
 
@@ -508,11 +508,11 @@ describe('register', () => {
     test('the door tools are offered, and act on the door `ep0ch where` found, in the session\'s folder', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering(FOLDER), '', STALE)
       const registered: string[] = []
-      on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__pi-outliner__${e.name}` } } })
+      on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__ep0ch__${e.name}` } } })
       await session.begin(() => $.session.start(START))
       expect(registered).toEqual(expect.arrayContaining(['door_where', 'door_peek', 'door_act', 'door_open']))
 
-      const peeked = await $.tool.call({ tool: 'mcp__pi-outliner__door_peek' })
+      const peeked = await $.tool.call({ tool: 'mcp__ep0ch__door_peek' })
       expect(peeked.deny).toBeUndefined()
       const run = session.runs.find(r => r.argv[1] === 'peek')!
       expect(run.init?.env?.EP0CH_CONTROL).toBe(SOCK)
@@ -522,10 +522,10 @@ describe('register', () => {
     test('with no door running the tools are not offered, and a call says why with the command that starts one', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering(NONE), '', STALE)
       const registered: string[] = []
-      on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__pi-outliner__${e.name}` } } })
+      on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__ep0ch__${e.name}` } } })
       await session.begin(() => $.session.start(START))
       expect(registered.some(name => name.startsWith('door_'))).toBe(false)
-      const called = await $.tool.call({ tool: 'mcp__pi-outliner__door_peek' })
+      const called = await $.tool.call({ tool: 'mcp__ep0ch__door_peek' })
       expect(called.deny).toContain('`ep0ch --ws garden` starts one')
     })
   })
@@ -585,14 +585,14 @@ describe('register', () => {
       return opened
     }
     const detail = ($: any, surface: 'terminal' | 'desktop' | 'vscode') =>
-      $.ui.mount({ plugin: 'pi-outliner', surface, component: 'Pane', requestId: DETAIL, props: { title: 'Mentions', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { top: 0, bodyRows: 30, rows: 0 }, view: {} } })
+      $.ui.mount({ plugin: 'ep0ch', surface, component: 'Pane', requestId: DETAIL, props: { title: 'Mentions', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { top: 0, bodyRows: 30, rows: 0 }, view: {} } })
     const titleOf = async (pane: any) => (await pane.find({ type: 'Text', text: /^(Daily notes|Other page)$/ }))?.text
 
     test('desktop: a click opens the note in the pane as Markdown (heading, list, links); a link navigates there, back, forward, back to the list', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering(), '', NOT_IN_HERDR)
       const opened = panesIn(on)
       await session.begin(() => $.session.start({ ...START, surface: 'desktop' }))
-      const reply = await $.ui.mount({ plugin: 'pi-outliner', surface: 'desktop', component: 'AssistantMessage', props: { text: 'See [[Daily notes]].', isFirstOfReply: true } })
+      const reply = await $.ui.mount({ plugin: 'ep0ch', surface: 'desktop', component: 'AssistantMessage', props: { text: 'See [[Daily notes]].', isFirstOfReply: true } })
 
       await reply.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/page/Daily%20notes' } })
       await session.clock.settle()
@@ -649,9 +649,9 @@ describe('register', () => {
       panesIn(on)
       const copied: string[] = []
       on('ui.copy', ($, e) => { copied.push(e.text); return { value: { isCopied: true } } })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
-      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       expect(shown).toMatchObject({ result: 'Showing Daily notes in the mentions pane beside this conversation.' })
       // The agent's show copies nothing.
       expect(copied).toEqual([])
@@ -698,9 +698,9 @@ describe('register', () => {
     test("no ep0ch with export: the outliner's read, laid out the same way, its links still links", async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering({ export: false }), '', NOT_IN_HERDR)
       panesIn(on)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
-      await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: `((${BLOCK}))` })
+      await $.tool.call({ tool: 'mcp__ep0ch__show', reference: `((${BLOCK}))` })
       await session.clock.settle()
       expect(session.runs.some(run => run.argv[1] === 'export')).toBe(false)
       const read = session.runs.find(run => run.argv.includes('--subtree'))!
@@ -716,18 +716,18 @@ describe('register', () => {
     test('show opened unasked on a narrow terminal: the pane waits, and show says so', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering(), '', NOT_IN_HERDR)
       panesIn(on, false)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
-      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       expect(shown).toMatchObject({ result: 'Showing Daily notes in the mentions pane beside this conversation (the pane is not on screen yet: opened unasked under 144 columns (120 now)).' })
     })
 
     test("a folder bound to no outline: nothing to read it in, so show says so with the command and the ((id)) to copy", async ($, on) => {
       const session = sessionIn(on, '/elsewhere', answering(), '', NOT_IN_HERDR)
       const opened = panesIn(on)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
-      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: `((${BLOCK}))` })
+      const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: `((${BLOCK}))` })
       expect(shown.deny).toBe(`Can't open ${BLOCK} here: this session is not in an ep0ch-door tile, nor in Herdr. Read it with \`ep0ch show ${BLOCK}\`, or copy ((${BLOCK})) to open it in the Outliner.`)
       expect(opened).toEqual([])
     })
@@ -742,10 +742,10 @@ describe('register', () => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(0, '{"reader":"centre","id":"x"}\n', '') : succeeding(run),
       '', DOOR)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
-      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       expect(shown).toMatchObject({ result: "Showing Daily notes in the door's centre reader." })
       const opened = doorOpenOf(session.runs)!
       // From its own tile, never a reader by name (door-control asks again naming none when the door lacks the tile).
@@ -766,10 +766,10 @@ describe('register', () => {
           ? run.argv.includes('--reader') ? result(1, '', "error: middle has the person's keys; an agent doesn't open there\n") : result(0, '{"reader":"side","id":"x"}\n', '')
           : succeeding(run),
       '', { ...DOOR, EP0CH_TILE: 'claude-gone' })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
-      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       expect(shown).toMatchObject({ result: "Showing Daily notes in the door's side reader." })
       const opened = doorOpenOf(session.runs)!
       expect(opened.argv.slice(-2)).toEqual(['--from', 'claude-gone'])
@@ -781,9 +781,9 @@ describe('register', () => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(0, '{"reader":"centre","id":"x"}\n', '') : succeeding(run),
       '', { ...DOOR, OUTLINER_ACTOR: 'garden-agent', EP0CH_AGENT: 'loki' })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
-      await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       const opened = doorOpenOf(session.runs)!
       // The door acts as the same actor id the outline writes carry: one agent, one id.
       expect(opened.argv[opened.argv.indexOf('--actor') + 1]).toBe('garden-agent/claude-code@garden-host')
@@ -793,10 +793,10 @@ describe('register', () => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(3, '', 'error: no door at /state/x (ECONNREFUSED)\n') : succeeding(run),
       '', DOOR)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
-      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       expect(shown).toMatchObject({ result: 'Showing Daily notes in the Outliner Detail beside you.' })
       expect(doorOpenOf(session.runs)).toBeDefined()
       expect(session.runs.find(run => run.argv.includes('link'))?.argv).toContain('admin-detail')
@@ -808,10 +808,10 @@ describe('register', () => {
           ? result(1, '', "error: the menu screen can't open blocks; open the board or desk first\n")
           : succeeding(run),
       '', DOOR)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
-      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       expect(shown.deny).toContain("the menu screen can't open blocks")
       expect(herdrOpens(session.runs, 'ensure-detail')).toEqual([])
       expect(session.runs.some(run => run.argv.includes('link'))).toBe(false)
@@ -872,10 +872,10 @@ describe('register', () => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(0, '{}\n', '') : succeeding(run),
       '', { ...DOOR, EP0CH_AGENT: 'door-claude' })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
-      await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: `((${BLOCK}))` })
+      await $.tool.call({ tool: 'mcp__ep0ch__show', reference: `((${BLOCK}))` })
       const opened = doorOpenOf(session.runs)!
       expect(opened.argv).toContain('door-claude/claude-code@garden-host')
       expect(session.toasts).toEqual([])
@@ -888,9 +888,9 @@ describe('register', () => {
       run.argv[0] === 'ep0ch' && run.argv[1] === 'where' ? result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '')
         : run.argv.includes('work') ? result(0, '{"workId":"PIE-008","workStage":"review","revision":4}\n', '') : succeeding(run),
     )
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
-    await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'review', expectedRevision: 3 })
+    await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'review', expectedRevision: 3 })
     const run = session.runs.find(candidate => candidate.argv.includes('work'))!
     expect(run.argv[run.argv.indexOf('--actor') + 1]).toBe('testbot/claude-code@garden-host')
   })
@@ -899,10 +899,10 @@ describe('register', () => {
     const session = sessionIn(on, `${WORKSPACE}/projects/mod`, run =>
       run.argv.includes('work') ? result(0, '{"workId":"PIE-008","workStage":"review","revision":4}\n', '') : succeeding(run),
     )
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: `${WORKSPACE}/projects/mod` }))
 
-    const staged = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'review', expectedRevision: 3 })
+    const staged = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'review', expectedRevision: 3 })
     expect(staged).toMatchObject({ result: '{"workId":"PIE-008","workStage":"review","revision":4}' })
     const run = session.runs.find(candidate => candidate.argv.includes('work'))!
     expect(run.argv).toEqual([
@@ -913,28 +913,28 @@ describe('register', () => {
     expect(run.init?.cwd).toBe(WORKSPACE)
     expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden', EP0CH_MACHINE: '' })
 
-    await $.tool.call({ tool: 'mcp__pi-outliner__work_complete', item: 'PIE-8', deliveries: ['d-1', 'PIE-8/door'], proof: 'Proof\n\nChecked.' })
+    await $.tool.call({ tool: 'mcp__ep0ch__work_complete', item: 'PIE-8', deliveries: ['d-1', 'PIE-8/door'], proof: 'Proof\n\nChecked.' })
     const completed = session.runs.findLast(candidate => candidate.argv.includes('complete'))!
     expect(completed.argv.slice(3, 8)).toEqual(['work', 'complete', '--delivery=d-1', '--delivery=PIE-8/door', '--stdin'])
     expect(completed.argv.slice(-2)).toEqual(['--', 'PIE-8'])
     expect(completed.init?.stdin).toBe('Proof\n\nChecked.')
 
-    await $.tool.call({ tool: 'mcp__pi-outliner__work_complete', item: 'PIE-8', allMerged: true, proofBlock: 'p-1' })
+    await $.tool.call({ tool: 'mcp__ep0ch__work_complete', item: 'PIE-8', allMerged: true, proofBlock: 'p-1' })
     const allMerged = session.runs.findLast(candidate => candidate.argv.includes('complete'))!
     expect(allMerged.argv.slice(3, 7)).toEqual(['work', 'complete', '--all-merged', '--proof-block=p-1'])
     expect(allMerged.argv.slice(-2)).toEqual(['--', 'PIE-8'])
 
-    await $.tool.call({ tool: 'mcp__pi-outliner__work_deliver', item: 'PIE-8', repo: 'example-org/example-door', pr: 16, key: 'door' })
+    await $.tool.call({ tool: 'mcp__ep0ch__work_deliver', item: 'PIE-8', repo: 'example-org/example-door', pr: 16, key: 'door' })
     const delivered = session.runs.findLast(candidate => candidate.argv.includes('deliver'))!
     expect(delivered.argv.slice(3, 8)).toEqual(['work', 'deliver', '--repo=example-org/example-door', '--pr=16', '--key=door'])
     expect(delivered.argv.slice(-2)).toEqual(['--', 'PIE-8'])
 
-    await $.tool.call({ tool: 'mcp__pi-outliner__work_set', item: 'PIE-8/door', key: 'delivery-stage', value: 'complete', expectedRevision: 2 })
+    await $.tool.call({ tool: 'mcp__ep0ch__work_set', item: 'PIE-8/door', key: 'delivery-stage', value: 'complete', expectedRevision: 2 })
     const set = session.runs.findLast(candidate => candidate.argv.includes('set'))!
     expect(set.argv.slice(3, 7)).toEqual(['work', 'set', '--expected', '2'])
     expect(set.argv.slice(-4)).toEqual(['--', 'PIE-8/door', 'delivery-stage', 'complete'])
 
-    await $.tool.call({ tool: 'mcp__pi-outliner__note_section', block: 'PIE-8', heading: '## Now', body: 'Updated.', expectedRevision: 3 })
+    await $.tool.call({ tool: 'mcp__ep0ch__note_section', block: 'PIE-8', heading: '## Now', body: 'Updated.', expectedRevision: 3 })
     const section = session.runs.findLast(candidate => candidate.argv.includes('section'))!
     expect(section.argv.slice(3, 8)).toEqual(['note', 'section', '--stdin', '--expected', '3'])
     expect(section.argv.slice(-3)).toEqual(['--', 'PIE-8', '## Now'])
@@ -947,25 +947,25 @@ describe('register', () => {
         ? result(1, '', 'error: Unknown work stage "shipping"; use one of queued, doing\n')
         : succeeding(run),
     )
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
 
-    const refused = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'shipping' })
+    const refused = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'shipping' })
     expect(refused.deny).toBe('Unknown work stage "shipping"; use one of queued, doing')
 
     const runs = session.runs.length
-    const both = await $.tool.call({ tool: 'mcp__pi-outliner__work_complete', item: 'PIE-8', proof: 'x', proofBlock: 'y' })
+    const both = await $.tool.call({ tool: 'mcp__ep0ch__work_complete', item: 'PIE-8', proof: 'x', proofBlock: 'y' })
     expect(both.deny).toContain('either proof text or an existing proofBlock')
-    const named = await $.tool.call({ tool: 'mcp__pi-outliner__work_complete', item: 'PIE-8', proof: 'x', deliveries: ['d-1'], allMerged: true })
+    const named = await $.tool.call({ tool: 'mcp__ep0ch__work_complete', item: 'PIE-8', proof: 'x', deliveries: ['d-1'], allMerged: true })
     expect(named.deny).toContain('not both')
     expect(session.runs.length).toBe(runs)
   })
 
   test('in a folder bound to no outline, workboard tools change nothing', async ($, on) => {
     const session = sessionIn(on, '/elsewhere', succeeding)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
-    const denied = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+    const denied = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' })
     expect(denied.deny).toContain('not bound to an Outliner outline')
     // Nothing reached an outline: only the CLI's discovery ran, and `ep0ch outline list` for the call the refusal names.
     expect(session.runs.filter(run => run.argv[1] !== 'outline').map(run => run.argv[0])).toEqual(['herdr'])
@@ -975,25 +975,25 @@ describe('register', () => {
     let bound = false
     const session = sessionIn(on, '/elsewhere', succeeding, '', {}, folder =>
       bound ? result(0, JSON.stringify({ bound: true, folder: '/elsewhere', outline: 'garden' }), '') : result(0, boundToWorkspace(folder), ''))
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
-    const denied = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+    const denied = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' })
     expect(denied.deny).toContain('not bound to an Outliner outline')
     bound = true
-    const allowed = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+    const allowed = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' })
     expect(allowed.deny).toBeUndefined()
   })
 
   test('a shell cd elsewhere does not unbind the tools: the lookup stays on the starting folder (PIE-755)', async ($, on) => {
     let cwd = WORKSPACE
     const session = sessionIn(on, () => cwd, succeeding)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
     cwd = '/opt/boards'
     // The binding read again (/outline, a turn now and then) while the shell is elsewhere.
     await $.command.run({ command: 'outline', args: '' } as any)
     await session.clock.settle()
-    const again = await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
+    const again = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' })
     expect(again.deny).toBeUndefined()
     expect(session.bindings.every(run => run.argv.at(-1) === WORKSPACE)).toBe(true)
   })
@@ -1002,7 +1002,7 @@ describe('register', () => {
     const session = sessionIn(on, '/elsewhere', succeeding)
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
     const drawn = await $.ui.mount({
-      plugin: 'pi-outliner',
+      plugin: 'ep0ch',
       surface: 'terminal',
       component: 'AssistantMessage',
       props: { text: 'See PIE-7.', isFirstOfReply: true },
@@ -1017,13 +1017,13 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
   const listing = (run: Run): ProcessRunResult | null =>
     run.argv[0] === 'ep0ch' && run.argv[1] === 'outline' ? result(0, 'gurgle\t\t\ngarden\tfar-box\t\n', '') : null
   const answering = (run: Run) => listing(run) ?? succeeding(run)
-  const stage = { tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' }
+  const stage = { tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' }
   const stageRuns = (runs: readonly Run[]) => runs.filter(run => run.argv.includes('work'))
 
   test('with EP0CH_WS set and the shell in /tmp, the session stays bound: no folder lookup, the run lands on that outline', async ($, on) => {
     let cwd = '/tmp'
     const session = sessionIn(on, () => cwd, answering, '', { EP0CH_WS: 'gurgle', EP0CH_CONTROL: '/run/door.sock' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
     cwd = '/opt/elsewhere'
     const allowed = await $.tool.call(stage)
@@ -1037,7 +1037,7 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
 
   test('EP0CH_MACHINE goes with EP0CH_WS; a name that is not one is said, with the call that fixes it', async ($, on) => {
     const session = sessionIn(on, '/tmp', answering, '', { EP0CH_WS: 'garden', EP0CH_MACHINE: 'far-box' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
     await $.tool.call(stage)
     expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'garden', EP0CH_MACHINE: 'far-box' })
@@ -1046,19 +1046,19 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
   test('after a lost binding every refusal names the call, and outline_bind brings it back (a shell cd does not matter)', async ($, on) => {
     let cwd = '/elsewhere'
     const session = sessionIn(on, () => cwd, answering)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
     const denied = await $.tool.call(stage)
     expect(denied.deny).toContain('not bound to an Outliner outline')
     expect(denied.deny).toContain('outline_bind {"name":"gurgle"}')
     expect(denied.deny).toContain('/outline gurgle')
 
-    const typo = await $.tool.call({ tool: 'mcp__pi-outliner__outline_bind', name: 'gurgel' })
+    const typo = await $.tool.call({ tool: 'mcp__ep0ch__outline_bind', name: 'gurgel' })
     expect(typo.deny).toContain('there is no outline "gurgel"')
     expect(typo.deny).toContain('outline_bind {"name":"gurgle"}')
     expect((await $.tool.call(stage)).deny).toContain('not bound')
 
-    const bound = await $.tool.call({ tool: 'mcp__pi-outliner__outline_bind', name: 'gurgle' })
+    const bound = await $.tool.call({ tool: 'mcp__ep0ch__outline_bind', name: 'gurgle' })
     expect(bound.deny).toBeUndefined()
     cwd = '/tmp'
     const allowed = await $.tool.call(stage)
@@ -1066,16 +1066,16 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
     expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'gurgle', EP0CH_MACHINE: '' })
 
     // An outline on another machine is bound with its machine, and only if it is there.
-    const wrong = await $.tool.call({ tool: 'mcp__pi-outliner__outline_bind', name: 'garden' })
+    const wrong = await $.tool.call({ tool: 'mcp__ep0ch__outline_bind', name: 'garden' })
     expect(wrong.deny).toContain('outline_bind {"name":"garden","machine":"far-box"}')
-    expect((await $.tool.call({ tool: 'mcp__pi-outliner__outline_bind', name: 'garden', machine: 'far-box' })).deny).toBeUndefined()
+    expect((await $.tool.call({ tool: 'mcp__ep0ch__outline_bind', name: 'garden', machine: 'far-box' })).deny).toBeUndefined()
     await $.tool.call(stage)
     expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'garden', EP0CH_MACHINE: 'far-box' })
   })
 
   test('/outline <name> is the same call and beats EP0CH_WS, which itself beats an opted-out folder', async ($, on) => {
     const session = sessionIn(on, '/tmp', answering, '/tmp', { EP0CH_WS: 'garden', PI_OUTLINER_MENTIONS_MODE: 'folder' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
     expect((await $.tool.call(stage)).deny).toBeUndefined()
     expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
@@ -1089,7 +1089,7 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
 
   test('an EP0CH_WS that is not a name is refused saying so, with the call that fixes it', async ($, on) => {
     const session = sessionIn(on, '/tmp', answering, '', { EP0CH_WS: 'Not A Name' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
     const denied = await $.tool.call(stage)
     expect(denied.deny).toContain("isn't an outline name")

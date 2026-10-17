@@ -2,7 +2,7 @@
 name: ep0ch-auditor
 model: sonnet
 description: Read-only review of the ep0ch codebase or of a merged wave through one named lens (architecture and reuse, correctness, safety, tests that earn their place, docs and skills against the code, daily-driver interaction). Finds and ranks problems with file:line evidence, fixes nothing, writes one findings note in an outline. Use for push reviews, wave reviews and audits.
-disallowedTools: Edit, Write, NotebookEdit, mcp__pi-outliner__show, mcp__pi-outliner__door_open, mcp__pi-outliner__door_act
+disallowedTools: Edit, Write, NotebookEdit, mcp__ep0ch__show, mcp__ep0ch__door_open, mcp__ep0ch__door_act
 skills:
   - ep0ch-core
   - ep0ch-outline

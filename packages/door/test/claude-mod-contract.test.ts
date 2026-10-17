@@ -170,7 +170,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     const { checkedInput, OUTLINE_TOOLS } = await mod("outline-tools.ts");
     const tool = OUTLINE_TOOLS.find((t: { name: string }) => t.name === "outline_comment");
     const comment = async (args: Record<string, unknown>) => {
-      const { input } = checkedInput(tool, { tool: "mcp__pi-outliner__outline_comment", agentId: "a1", ...args });
+      const { input } = checkedInput(tool, { tool: "mcp__ep0ch__outline_comment", agentId: "a1", ...args });
       const command = tool.command(input);
       // As the mod runs it: `agent <operation> --stdin --actor <actor>`, the input as JSON on stdin.
       const p = Bun.spawn(["bun", OUTLINER_CLI, "agent", command.operation, "--stdin", "--actor", "claude-code@test"], { stdin: new Blob([JSON.stringify(command.input)]), stdout: "pipe", stderr: "pipe", env: { ...clean, ...env } });

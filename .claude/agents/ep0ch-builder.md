@@ -6,9 +6,9 @@ skills:
   - ep0ch-core
   - diagnosing-bugs
 disallowedTools:
-  - mcp__pi-outliner__show
-  - mcp__pi-outliner__door_open
-  - mcp__pi-outliner__door_act
+  - mcp__ep0ch__show
+  - mcp__ep0ch__door_open
+  - mcp__ep0ch__door_act
 ---
 
 You build in the ep0ch repository for loki, the deployer, who launched you. Your brief is the task: the ticket(s), the

@@ -1,5 +1,5 @@
 /**
- * The pi-outliner mod's session state: what its Recent mentions band and pane
+ * The ep0ch mod's session state: what its Recent mentions band and pane
  * draw (hooks/mentions-view.ts) and the BlockView drawings they show
  * (hooks/block-view.ts). Each value is the mod's own; any plugin may read it.
  */
@@ -138,7 +138,7 @@ export type BindingCard = { shown: boolean; facts: BindingFacts | null }
 
 declare module 'claude-code' {
   interface PluginState {
-    'pi-outliner': {
+    'ep0ch': {
       mentionsPrefs: MentionsPrefs
       mentions: MentionsList
       /** BlockView drawings, by block id: the latest one each. */

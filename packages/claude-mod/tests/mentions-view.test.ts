@@ -64,7 +64,7 @@ function sessionIn(on: On, env: Record<string, string>, stored: Record<string, u
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: WORKSPACE }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   // The engine's record of the open panes, as `$.ui.panes()` reads it: placed, or waiting on a narrow terminal.
   const panes = new Map<string, boolean>()
@@ -115,10 +115,10 @@ function sessionIn(on: On, env: Record<string, string>, stored: Record<string, u
 }
 
 const band = ($: any, columns = 100) =>
-  $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: columns, scroll: { top: 0, bodyRows: 20, rows: 0 }, view: {} } })
+  $.ui.mount({ plugin: 'ep0ch', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: columns, scroll: { top: 0, bodyRows: 20, rows: 0 }, view: {} } })
 
 const pane = ($: any, surface: 'terminal' | 'desktop' = 'terminal', columns = 60) =>
-  $.ui.mount({ plugin: 'pi-outliner', surface, component: 'Pane', requestId: PANE, props: { title: 'Mentions', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { top: 0, bodyRows: 30, rows: 0 }, view: {} } })
+  $.ui.mount({ plugin: 'ep0ch', surface, component: 'Pane', requestId: PANE, props: { title: 'Mentions', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { top: 0, bodyRows: 30, rows: 0 }, view: {} } })
 
 describe('Recent mentions in Claude Code', () => {
   test('the band (the default): the mentions this conversation made, as buttons with hotkeys, read as Tree reads them', async ($, on) => {

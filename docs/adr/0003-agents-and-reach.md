@@ -8,7 +8,7 @@ transport is "always" anything.
 The outline is reached by agents through two paths that grew up apart:
 
 - **The Claude Code mod** (`packages/claude-mod`, from the pi-outliner repository) registers its own tools
-  (`mcp__pi-outliner__outline_*`, `work_*`, `door_*`, `show`) and runs the outliner's CLI for each call. It reaches
+  (`mcp__ep0ch__outline_*`, `work_*`, `door_*`, `show`) and runs the outliner's CLI for each call. It reaches
   one outline: the one the session's folder names.
 - **The ep0ch MCP server** (`packages/door/src/mcp*.ts`) offers `mcp__ep0ch__*` over stdio (`ep0ch mcp`, bound to one
   outline) and over HTTP (the gateway claude.ai uses, which serves every outline on its machine, mirrors of the
