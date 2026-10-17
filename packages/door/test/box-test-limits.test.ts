@@ -24,6 +24,11 @@ const until = async (what: string, ok: () => boolean, ms = 120_000) => {
 const lines = (file: string) => existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
 const pids = (file: string) => lines(file).map(Number);
 
+// Inside a box-test run (its guard exports BOX_TEST_RUN_DIR) these would be runs nested in a run: each starts a clone, a
+// `bun install` and a /proc sweep at nice 19 beside the door's other 200 files, and starved past two minutes on a busy float-box.
+// They run in a focused run (agent-env) and in CI, which is where a change to the scripts is checked.
+const nested = !!process.env.BOX_TEST_RUN_DIR;
+
 let origin = "";
 const worktrees: string[] = [];
 const runs: ReturnType<typeof Bun.spawn>[] = [];
@@ -59,6 +64,7 @@ function box(dir: string, tag: string, flags: string[] = [], env: Record<string,
 }
 
 beforeAll(() => {
+  if (nested) return;
   mkdirSync(out, { recursive: true });
   // The stand-in for ssh: skip its options and the host, run the command here (stdin and stderr pass through).
   writeFileSync(join(root, "ssh"), `#!/usr/bin/env bash\nwhile [ $# -gt 0 ]; do case $1 in -o) shift 2;; -*) shift;; *) break;; esac; done\nshift\nexec setsid -w "$FAKE_SSHD" -c "$*; exit \\$?"\n`);
@@ -91,7 +97,7 @@ afterAll(() => {
   Bun.spawnSync(["sh", "-c", `for f in ${out}/*.daemons; do [ -e "$f" ] && kill $(cat "$f") 2>/dev/null; done; true`]);
 });
 
-describe("scripts/box-test limits", () => {
+describe.skipIf(nested)("scripts/box-test limits", () => {
   test("a second run from one worktree is refused with the running pid and how to stop it; --replace stops the first and takes over", async () => {
     const wt = worktree("wt-a");
     const first = box(wt, "a1");
