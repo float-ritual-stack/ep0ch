@@ -155,6 +155,17 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
     }
     site = { ...site, props };
   }
+  if (request.self !== undefined) {
+    const own = typeof request.self === "string" ? store.get(request.self) ?? (() => { try { return store.resolveBlockRef(request.self!); } catch { return null; } })() : null;
+    if (!own) throw new Error(`self is the note that defines the producer (a script's note); ${String(request.self)} is no note`);
+    site = { ...site, self: world.record(own) };
+    route.push(`self is ((${own.id.slice(0, 8)}))`);
+  }
+  if (request.caller !== undefined) {
+    if (!request.caller || typeof request.caller !== "object" || typeof request.caller.block !== "string") throw new Error("caller is where the producer was invoked: { block: \"<id>\", line?: number }");
+    site = { ...site, caller: request.caller };
+    route.push(`caller is ((${request.caller.block.slice(0, 8)}))`);
+  }
 
   // Its place in the outline: ancestors (the scope walk's), and the parent as a record.
   const here = site.this!;

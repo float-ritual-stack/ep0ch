@@ -1,18 +1,42 @@
 import { createPatch } from "diff";
 import type { AgentToolsClient } from "./agent-tools";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
-import type { LoadedExtension } from "./extension-manifest";
+import type { LoadedExtension, ScriptSource } from "./extension-manifest";
 import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
-import { hostApi, type HostStep } from "./host-api";
-import { runScript } from "./script-runtime";
+import { hostApi, type HostApi, type HostStep } from "./host-api";
+import { runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { renderComponent, validateComponent } from "./component-primitives";
+import { readBlockRecords } from "./block-records";
+import { answerSite } from "./site-answer";
+import { scriptFence } from "./script-sources";
+import { MAX_DEADLINE_MS } from "./extension-manifest";
+import type { Address } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
+
+/** What a script returned, as the text a run note or a drawn line shows: a string as it is, a view as Blockdown, the rest as JSON. */
+export function scriptText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "view" in value) return renderComponent(validateComponent(value), "blockdown").body;
+  return JSON.stringify(value);
+}
+
+/** `week=42 tag="a b"` as props: each word `name=value` (a repeat adds a value). Words that aren't one are left out. */
+export function slotProps(words: string | null | undefined): Record<string, string[]> {
+  const props: Record<string, string[]> = {};
+  for (const m of (words ?? "").matchAll(/([A-Za-z_][\w-]*)=(?:"((?:[^"\\]|\\.)*)"|(\S*))/g)) (props[m[1]!] ??= []).push(m[2] !== undefined ? m[2].replace(/\\(.)/g, "$1") : m[3]!);
+  return props;
+}
+
+/** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
+interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
 
 /** Runs outlive the action that starts them; progress is ordinary outline content beside the source. */
 export class ScriptRuns {
   private readonly running = new Set<AbortController>();
+  /** The runs that are going, by their undo id (a run note's `script-run::`): what `stop(run)` ends. */
+  private readonly runs = new Map<string, AbortController>();
   private readonly tasks = new Map<string, Promise<string | undefined>>();
 
   async finished(run: string): Promise<string | undefined> {
@@ -34,6 +58,63 @@ export class ScriptRuns {
     private readonly inverse: (run: string) => Promise<import("./draft-patch").DraftPatchEdit[]>,
     private readonly act: (clientId: string, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal) => Promise<unknown>) {}
 
+  /**
+   * The Site a run reads (`this`, `self`, `caller`, `props`) and answers `resolve` from: `this` is the note the run is
+   * about (a rule's matched block, the note a key was pressed in), `self` the script's own note. Read through the
+   * service's one resolver (`answerSite`), so a path means what it means in `{{ }}`.
+   */
+  private bind(source: ScriptSource, input: { blockId?: string; line?: number; trigger?: boolean; props: Record<string, string[]> }, onRead?: (ids: readonly string[]) => void): SiteBinding {
+    const record = (id: string | undefined) => {
+      const block = id ? this.store.get(id) : null;
+      return block && !block.effectiveDeletedRootId ? readBlockRecords(this.store, [block.id]).records[0] : undefined;
+    };
+    const here = record(input.blockId);
+    const own = record(source.blockId);
+    const caller: Address | undefined = here && (input.line !== undefined || input.trigger) ? { block: here.id, ...(input.line !== undefined ? { line: input.line } : {}) } : undefined;
+    const globals: ScriptSiteGlobals = { ...(here ? { this: here } : {}), ...(own ? { self: own } : {}), ...(caller ? { caller } : {}), props: input.props };
+    if (!here) return { globals };
+    return {
+      globals, thisId: here.id,
+      resolve: async path => {
+        const answer = answerSite(this.store, { blockId: here.id, paths: [path], ...(own ? { self: own.id } : {}), ...(caller ? { caller } : {}), props: input.props });
+        onRead?.(answer.deps);
+        const read = answer.paths![0]!;
+        return { path: read.path, ...(read.values ? { values: read.values } : {}), ...(read.problem ? { problem: read.problem } : {}), ...(read.links ? { links: read.links } : {}), ...(read.lines ? { lines: read.lines } : {}), route: read.route };
+      },
+    };
+  }
+
+  /**
+   * Draws a render-mode script (`[mode::render]`, or a `::=` line) for the line that asks: its result as text, with the
+   * notes it read and their revisions then (what it must be drawn again for). No run note, no undo step, and nothing
+   * written: the API is read-only, and a refused write says so. Called by ExtensionCalls' one producer path.
+   */
+  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }): Promise<{ markdown: string; reads: { id: string; revision: number | null }[] }> {
+    const reads = new Map<string, number | null>();
+    const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
+    const props = slotProps(input.argument);
+    const site = this.bind(source, { blockId: input.blockId, line: input.line, props }, onRead);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(input.deadlineMs / 1000)}s)`)), input.deadlineMs);
+    const signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal;
+    try {
+      const api = hostApi(this.client, undefined, {
+        effects: "read", onRead, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+      });
+      const result = await runScript(source.code, api, signal, undefined, site.globals);
+      if (!result.ok) throw new Error(result.error.message);
+      return { markdown: result.value === undefined ? "" : scriptText(result.value), reads: [...reads].map(([id, revision]) => ({ id, revision })) };
+    } finally { clearTimeout(timer); }
+  }
+
+  /** Ends one run (`script.stop`): its remaining calls are refused, and its note says it was stopped and by whom. */
+  stopRun(run: string, by: MutationProvenance): { stopped: boolean } {
+    const controller = this.runs.get(run);
+    if (!controller) return { stopped: false };
+    controller.abort(new Error(`Stopped by ${by.actorId ?? by.author}`));
+    return { stopped: true };
+  }
+
   start(extension: LoadedExtension, request: ExtensionActRequest): ExtensionActResult {
     const source = extension.script!;
     const undo = this.writes.beginRun(`script:${extension.name}`);
@@ -41,6 +122,9 @@ export class ScriptRuns {
     const requestedBy = request.requestedBy ?? { author: "user" as const };
     const controller = new AbortController();
     this.running.add(controller);
+    this.runs.set(undo, controller);
+    const deadlineMs = source.deadlineMs ?? MAX_DEADLINE_MS;
+    const deadline = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(deadlineMs / 1000)}s)`)), deadlineMs);
     const old = this.previous.get(extension.id);
     this.previous.set(extension.id, source.code);
     const lines = [
@@ -83,8 +167,9 @@ export class ScriptRuns {
     const client: AgentToolsClient = {
       requireCompatibleService: () => this.client.requireCompatibleService(),
       request: async input => {
+        // The script is its code: a run that writes into its own note (its output, a log) goes on; an edit of the code ends it.
         const changed = source.blockId
-          ? this.store.get(source.blockId)?.revision !== source.revision
+          ? scriptFence(this.store.get(source.blockId)?.text ?? "").code !== source.code
           : await Bun.file(source.file!).text() !== source.code;
         if (changed) {
           controller.abort();
@@ -93,8 +178,11 @@ export class ScriptRuns {
         return captured(() => this.client.request(input));
       },
     };
+    const site = this.bind(source, { blockId: request.blockId === source.blockId ? undefined : request.blockId, line: request.line, trigger: !!request.trigger, props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])) });
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
+      ...(site.thisId ? { thisId: site.thisId } : {}),
+      ...(site.resolve ? { resolve: site.resolve } : {}),
       effects: source.effects,
       mcpAccess: request.mcpAccess,
       ...(request.clientId ? { act: (name: string, args: Record<string, unknown>) => this.act(request.clientId!, name, args, actor, controller.signal) } : {}),
@@ -102,18 +190,13 @@ export class ScriptRuns {
     const task = (async () => {
       let failure: string | undefined;
       try {
-        const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined);
+        const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined, site.globals);
         const current = this.registry.extension(extension.id);
         if (!current || current.stamp !== extension.stamp) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) {
-          if (result.value !== undefined) {
-            const value = result.value;
-            lines.push(value && typeof value === "object" && "view" in value
-              ? renderComponent(validateComponent(value), "blockdown").body
-              : JSON.stringify(value));
-          }
+          if (result.value !== undefined) lines.push(scriptText(result.value));
         }
         else { failure = result.error.message; lines.push(failure); }
       } catch (error) {
@@ -122,6 +205,7 @@ export class ScriptRuns {
         lines.push(failure);
       } finally {
         if (progress) clearTimeout(progress);
+        clearTimeout(deadline);
         controller.abort();
         try {
           const drafts = await this.inverse(undo);
@@ -134,6 +218,7 @@ export class ScriptRuns {
         try { update(); } finally {
           this.captures.delete(undo);
           this.running.delete(controller);
+          this.runs.delete(undo);
         }
       }
       return failure;

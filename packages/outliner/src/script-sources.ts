@@ -3,10 +3,28 @@ import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { ManifestSource, ScriptSource } from "./extension-manifest";
+import { durationMs, MAX_DEADLINE_MS, type ManifestSource, type ScriptSource } from "./extension-manifest";
 import type { OutlinerStore } from "./store";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+
+const FENCES = ["js", "javascript", "ts", "typescript", "actions"];
+
+/** The script a note holds: the code of its first closed js, ts or actions fence (empty when there is none). */
+export function scriptFence(text: string): { code: string; format?: "actions" } {
+  const lines = text.split("\n");
+  const fence = codeBlocks(lines).fences.find(f => FENCES.includes(f.fence.info));
+  const code = fence?.closed ? lines.slice(fence.start + 1, fence.end).map(line => line.slice(Math.min(fence.fence.indent, line.length))).join("\n") : "";
+  return { code, ...(fence?.fence.info === "actions" ? { format: "actions" as const } : {}) };
+}
+
+/** The names a js script reads from `props` (`props.week`, `props["week"]`): the slots it takes (`week=42`). */
+export function propsUsed(code: string): string[] {
+  return [...new Set([...code.matchAll(/\bprops(?:\.([A-Za-z_][\w-]*)|\[\s*["']([^"'\]]+)["']\s*\])/g)].map(m => (m[1] ?? m[2])!))];
+}
+
+/** What identifies a script's source: its code and settings, never its note's revision (a script may write into its own note). */
+const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, revision: undefined, author: undefined }));
 
 /** Sources stay authored text; a malformed fence is reported by the loader, never by saving the block. */
 export async function scriptSources(store: OutlinerStore): Promise<ManifestSource[]> {
@@ -15,8 +33,12 @@ export async function scriptSources(store: OutlinerStore): Promise<ManifestSourc
     const id = `script-${hash(identity).slice(0, 24)}`;
     sources.push({
       ...(error ? { error } : {}), expectedId: id, idFrom: identity, origin: "outline", directory: store.workspaceRoot ?? "",
-      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, ...(/^[a-z][a-z0-9-]{0,31}$/.test(name) ? { agents: [{ name, effects: script.effects }] } : {}), actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; progress goes into a run note`, on: "outline", effects: script.effects, ...(script.format === "actions" ? { args: actionSlots(script.code).map(slot => ({ name: slot.name, type: "text", ...(slot.required ? { required: true } : {}) })) } : {}) }] }),
-      configRaw: "{}", script, stamp: hash(JSON.stringify(script)),
+      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, ...(/^[a-z][a-z0-9-]{0,31}$/.test(name) ? { agents: [{ name, effects: script.effects }] } : {}),
+        // Render mode: the script is a handler, its line (`name::`) draws what it returns under the line.
+        ...(script.render ? { handlers: [{ key: name, kind: "output", effects: "read", description: `Draws what ${name} returns, in place`, argument: { name: "slots", description: "name=value words the script reads as props" } }] } : {}),
+        actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; progress goes into a run note`, on: "outline", effects: script.effects,
+          args: (script.format === "actions" ? actionSlots(script.code).map(slot => ({ name: slot.name, type: "text", ...(slot.required ? { required: true } : {}) })) : propsUsed(script.code).map(name => ({ name, type: "text" }))) }] }),
+      configRaw: "{}", script, stamp: scriptStamp(script),
     });
   };
   const found = store.queryBlocks({ where: "script", limit: 1000 });
@@ -24,12 +46,16 @@ export async function scriptSources(store: OutlinerStore): Promise<ManifestSourc
     const block = store.get(row.id)!;
     const name = block.properties.find(p => p.key === "script")?.value;
     if (!name) continue;
-    const lines = block.text.split("\n");
-    const fence = codeBlocks(lines).fences.find(f => ["js", "javascript", "ts", "typescript", "actions"].includes(f.fence.info));
-    const code = fence?.closed ? lines.slice(fence.start + 1, fence.end).map(line => line.slice(Math.min(fence.fence.indent, line.length))).join("\n") : "";
+    const { code, format } = scriptFence(block.text);
     const revision = store.revisions(block.id).revisions[0]!;
-    add(block.id, name, { code, keys: block.properties.filter(p => p.key === "keys").flatMap(p => p.value.split(",").map(k => k.trim()).filter(Boolean)), ...(fence?.fence.info === "actions" ? { format: "actions" as const } : {}), blockId: block.id, revision: block.revision,
-      effects: block.properties.some(p => p.key === "effects" && p.value === "write") ? "write" : "read", author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } });
+    const effects = block.properties.some(p => p.key === "effects" && p.value === "write") ? "write" as const : "read" as const;
+    const render = block.properties.some(p => p.key === "mode" && p.value === "render");
+    const deadline = durationMs(block.properties.find(p => p.key === "deadline")?.value);
+    // Render mode draws a view; a view never writes. Said at load, so the script is listed with why it isn't served.
+    const problem = render && effects === "write" ? `Script ${name} is [mode::render], which draws a view and never writes: remove [effects::write], or remove [mode::render] to run it as an action` : undefined;
+    add(block.id, name, { code, keys: block.properties.filter(p => p.key === "keys").flatMap(p => p.value.split(",").map(k => k.trim()).filter(Boolean)), ...(format ? { format } : {}), blockId: block.id, revision: block.revision,
+      ...(render ? { render: true as const } : {}), ...(deadline ? { deadlineMs: Math.min(deadline, MAX_DEADLINE_MS) } : {}),
+      effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem);
   }
   if (store.workspaceRoot) {
     for (const dotted of [false, true]) {
