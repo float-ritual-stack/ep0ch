@@ -911,7 +911,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
       }
       expect(arrived).toBe(true);
       expect(capture()).not.toContain("Water the beds.");
-      expect(capture()).toContain("working · 1 block");
+      await until(() => capture().includes("working · 1 block"), "the working status");
       tmux("send-keys", "-t", "asks", "-l", " and more");
       await until(() => capture().includes("and more"), "typing between chunks");
       writeFileSync(gate, "finish");
