@@ -32,6 +32,8 @@ export interface Checkpoint {
   v: 2; at: number; size?: { cols: number; rows: number };
   /** Somebody had logged on (the main menu at the bottom); else the next daemon starts at the logon. */
   menu: boolean;
+  /** A one-use grant to the successor, written only by an intentional handover. */
+  yolo?: boolean;
   screens: Step[];
   reopen: Step[];
 }
@@ -44,7 +46,13 @@ export function forgetSession(dir = outlineState()): void { rmSync(checkpointPat
 
 /** The checkpoint a session left, if one did (a handoff, or a daemon that died). */
 export function readCheckpoint(dir = outlineState()): Checkpoint | null {
-  try { const c = JSON.parse(readFileSync(checkpointPath(dir), "utf8")) as Checkpoint; return c?.v === 2 ? c : null; } catch { return null; }
+  try {
+    const c = JSON.parse(readFileSync(checkpointPath(dir), "utf8")) as Checkpoint;
+    if (c?.v !== 2) return null;
+    // Consume before restoring: a successor that crashes must not pass the grant on again.
+    if (c.yolo) writeState("session-state.json", { ...c, yolo: false }, dir);
+    return c;
+  } catch { return null; }
 }
 
 /** The screens open as the steps that open them again: a named screen (a spec's, the showcase), the background's kept so. */
@@ -72,6 +80,7 @@ export class Checkpoints {
     const stack = this.app.screens(), top = stack.at(-1);
     const c: Checkpoint = {
       v: 2, at: Date.now(), size: this.size(), menu: stack[0] instanceof MainMenu,
+      ...(reopen && this.app.ownsYolo ? { yolo: true } : {}),
       screens: screenSteps(stack, this.app.background),
       // The screen on top's edits, and the drawer's (on every screen: its tiles come back from drawer-tiles.json, by name).
       reopen: reopen ? [
@@ -93,7 +102,7 @@ export class Checkpoints {
 }
 
 export interface Restored {
-  screens: number; held: string[]; reopened: number;
+  screens: number; held: string[]; reopened: number; yolo?: boolean;
   /** Comments back as they were; `partly`: back with their words, but a step after (their place, size, cursor) refused. */
   comments?: number; partly?: number;
   /** Comments opened again whose words didn't come back (they stay put aside: the reader's ■ unsent line). */
@@ -113,6 +122,10 @@ export async function restore(app: App, c: Checkpoint): Promise<Restored> {
   const out: Restored = { screens: 0, held: [], reopened: 0, errors: [] };
   // Nobody had logged on: the logon, as a new door starts (openDoor pushes it).
   if (!c.menu) return out;
+  if (c.yolo) {
+    await app.setAgentsYolo(true);
+    out.yolo = app.ownsYolo;
+  }
   app.push(new MainMenu());
   for (const s of c.screens) {
     const replay = replayOf(app, s.action);
@@ -170,6 +183,7 @@ export async function reopen(steps: readonly Step[], via: (s: Step) => Pick<App[
 export function restoredSaying(r: Restored, how: "upgrade" | "crash", adopted: number): string {
   return [
     how === "upgrade" ? "the session was handed over to a new daemon" : "the session came back after its daemon stopped",
+    r.yolo ? "YOLO kept across the update" : "",
     // First after what happened: the person was typing it.
     r.comments ? `your comment${r.comments === 1 ? " is" : "s are"} as you left ${r.comments === 1 ? "it" : "them"} (ctrl+s sends)` : "",
     r.partly ? `your comment${r.partly === 1 ? " is" : "s are"} back with ${r.partly === 1 ? "its" : "their"} words, not where ${r.partly === 1 ? "it" : "they"} sat (ctrl+o, ctrl+g move ${r.partly === 1 ? "it" : "them"})` : "",

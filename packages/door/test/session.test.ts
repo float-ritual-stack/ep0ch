@@ -950,6 +950,44 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     await scratch.dispose();
   }, 30_000);
 
+  test("YOLO survives a handover, but ends with the door (PIE-980)", async () => {
+    const board = new SocketBoard(hostSock);
+    await board.info();
+    let client = await HandoffClient.attach(sessionSocket(dir), 200, 40);
+    const yolo = async () => (await control({ cmd: "peek" })).screen.person.yolo === true;
+    const turnOn = async () => {
+      await until(() => client.screen().includes("outline"), "the desk", 10_000);
+      client.type("\x0b");
+      client.type("> agents.yolo");
+      client.type("\r");
+      for (let i = 0; i < 100 && !(await board.mcpAccessStatus()).yolo; i++) await Bun.sleep(50);
+      expect((await board.mcpAccessStatus()).yolo).toBe(true);
+      expect(await yolo()).toBe(true);
+    };
+    try {
+      await turnOn();
+      expect(await request({ t: "upgrade" })).toMatchObject({ message: "handed over" });
+      await until(() => client.closed, "the old daemon to let go", 5000);
+      client = await HandoffClient.attach(sessionSocket(dir), 200, 40);
+      expect(await yolo()).toBe(true);
+      expect((await board.mcpAccessStatus()).yolo).toBe(true);
+      await until(() => client.screen().includes("YOLO kept across the update"), "the YOLO handover notice", 5000);
+
+      for (const how of ["end", "crash"] as const) {
+        if (how === "crash") await turnOn();
+        if (how === "end") await request({ t: "end", force: true });
+        else process.kill(daemonPid(), "SIGKILL");
+        await until(() => client.closed, "the door to end", 5000);
+        for (let i = 0; i < 100 && (await board.mcpAccessStatus()).yolo; i++) await Bun.sleep(50);
+        expect((await board.mcpAccessStatus()).yolo === true).toBe(false);
+        expect(await startSession(dir, ["--screen", "desk"])).toEqual({ ok: true });
+        client = await HandoffClient.attach(sessionSocket(dir), 200, 40);
+        expect(await yolo()).toBe(false);
+        expect((await board.mcpAccessStatus()).yolo === true).toBe(false);
+      }
+    } finally { client.close(); board.close(); }
+  }, 60_000);
+
   test("a handover keeps a reader's way back: three notes, then back in order with the scroll kept, the zoom and the focus too, and the same after another handover (PIE-643)", async () => {
     // A trail of three: the shed links the tools, the tools link the rake. The shed is long, its link far down.
     const b = new SocketBoard(hostSock);
