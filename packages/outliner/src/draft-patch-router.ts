@@ -489,18 +489,14 @@ export class DraftPatchRouter {
   /**
    * Dismiss a proposal without applying it: an older proposal's embed line comes out of the note it was proposed under (its
    * live draft when a door holds one), it is marked `dismissed` and goes to the Trash, all as `mutation`. The
-   * embed's removal and the status are one step: if the line can't come out, nothing changes. An agent
-   * dismisses only its own proposals; the person, any.
+   * embed's removal and the status are one step: if the line can't come out, nothing changes. Anyone dismisses any
+   * proposal, an agent another agent's too: the one nearest the work resolves it (Evan, Oct 17: "this security check of
+   * only the one who proposed is the one who can resolve never matched how i work"). The record says who dismissed
+   * whose, and the Trash takes it back.
    */
   async dismissProposal(proposalId: string, mutation: MutationProvenance): Promise<{ outcome: "dismissed"; embedRemoved: DraftPatchRoute | null } & ProposalSettled> {
     const who = normalizeMutation(mutation);
-    const { proposal } = this.openProposal(proposalId);
-    if (who.author === "agent" && !this.yolo()) {
-      const owner = proposal.actor?.actorId;
-      if (owner !== who.actorId) {
-        throw new Error(`That proposal is ${owner ? `@${owner}'s` : "someone else's"}; an agent dismisses only its own (the person can dismiss any)`);
-      }
-    }
+    this.openProposal(proposalId);
     return this.settle(proposalId, async () => {
       const { store } = this.deps;
       const { block } = this.openProposal(proposalId);

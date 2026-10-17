@@ -59,7 +59,7 @@ describe("yolo in the service", () => {
     expect(await client.request<{ yolo: boolean }>({ action: "agents.yolo", clientId: mine.clientId, on: true })).toEqual({ yolo: true });
   });
 
-  test("an agent dismisses another agent's proposal while it is on, and is refused once it is off or the door is gone", async () => {
+  test("an agent dismisses another agent's proposal with or without yolo; while it is on, the record says so", async () => {
     const { store, client, door, activity } = await service();
     const dismiss = (proposalId: string) => client.request({ action: "draft.proposal.dismiss", proposalId, mutation: OTHER });
     const propose = async (text: string) => {
@@ -68,28 +68,23 @@ describe("yolo in the service", () => {
       if (result.outcome !== "proposed") throw new Error("expected a proposal");
       return result.proposalId;
     };
+    // No yolo: the agent nearest the work settles another agent's proposal (Evan, Oct 17), recorded as itself.
     const first = await propose("beans   here");
-    await expect(dismiss(first)).rejects.toThrow("an agent dismisses only its own");
+    expect(await dismiss(first)).toMatchObject({ outcome: "dismissed" });
+    expect(await activity(first)).toEqual(expect.arrayContaining([expect.objectContaining({ actorId: "other-agent" })]));
+    expect(await activity(first)).not.toEqual(expect.arrayContaining([expect.objectContaining({ taskId: "via:yolo" })]));
 
+    // Yolo on: the same dismiss, and the record says whose permission it used.
     const mine = await door("door-a");
     await client.request({ action: "agents.yolo", clientId: mine.clientId, on: true });
-    expect(await dismiss(first)).toMatchObject({ outcome: "dismissed" });
-    // Still the agent's, and the record says whose permission it used.
-    expect(await activity(first)).toEqual(expect.arrayContaining([expect.objectContaining({ actorId: "other-agent", taskId: "via:yolo" })]));
-
-    // The person takes it back: refused again.
     const second = await propose("beans    there");
-    await client.request({ action: "agents.yolo", clientId: mine.clientId, on: false });
-    await expect(dismiss(second)).rejects.toThrow("an agent dismisses only its own");
+    expect(await dismiss(second)).toMatchObject({ outcome: "dismissed" });
+    expect(await activity(second)).toEqual(expect.arrayContaining([expect.objectContaining({ actorId: "other-agent", taskId: "via:yolo" })]));
 
     // The door goes: yolo goes with it, with no word from the door.
-    await client.request({ action: "agents.yolo", clientId: mine.clientId, on: true });
-    expect(await dismiss(await propose("beans     again"))).toMatchObject({ outcome: "dismissed" });
-    const third = await propose("beans      once more");
     mine.leave();
     await eventually(async () => (await status(client)).yolo === undefined);
     expect((await status(client)).yolo).toBeUndefined();
-    await expect(dismiss(third)).rejects.toThrow("an agent dismisses only its own");
   });
 
   test("a propose-level outline acts as full (and says so, with the owner's setting beside it); read-only too", async () => {

@@ -117,7 +117,7 @@ revision, so concurrent edits rarely collide.
   or when `prose` refuses.
 - **Settle a proposal by id:** `outline_proposal_apply {ref: "<proposal id>"}` or
   `outline_proposal_dismiss {ref: "<proposal id>"}` needs no reader. Apply keeps the normal patch comparison;
-  an agent can dismiss only its own proposal. MCP settlement requires full access.
+  any agent may dismiss any proposal (recorded as the one who did; the Trash takes it back). MCP settlement requires full access.
 - A refusal is an answer: read again and retry, or leave it. Never route around it.
 - A write's `warnings` are answers too: a `((` that leads nowhere (with a did-you-mean), and each construct you
   left open (an unclosed fence, `[[`, `[key::`, `::component` or `<!-- literal -->`, on its line, with how to close

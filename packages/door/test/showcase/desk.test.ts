@@ -90,9 +90,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       patches: [{ ...RACE_PATCH.loser, range: { start: at, end: at + RACE_PATCH.loser.observed.length }, unit: "utf16" }] });
     expect(again).toMatchObject({ outcome: "proposed", proposalId: seeded.race.proposal, deduped: true, beside: guide.id });
     expect((await board.get(guide.id))!.revision).toBe(guide.revision);
-    // Through act, in the guide's reader: another agent can't dismiss it; @moss can, and it's gone from beside the guide.
-    await expect(app.act({ action: "proposal.dismiss", args: { id: seeded.race.proposal }, tile: "guide", as: RACE_AGENTS.winner })).rejects.toThrow("an agent dismisses only its own");
-    expect(await app.act({ action: "proposal.dismiss", args: { id: seeded.race.proposal }, tile: "guide", as: RACE_AGENTS.loser })).toMatchObject({ outcome: "dismissed", embedRemoved: null });
+    // Through act, in the guide's reader: @fern dismisses @moss's proposal (any agent may), and it's gone from beside the guide.
+    expect(await app.act({ action: "proposal.dismiss", args: { id: seeded.race.proposal }, tile: "guide", as: RACE_AGENTS.winner })).toMatchObject({ outcome: "dismissed", embedRemoved: null });
     await until(() => !screen().includes("proposed edit from @moss"), "the proposal gone from beside the guide");
     expect((await board.get(guide.id))!).toMatchObject({ text: guide.text, revision: guide.revision });
   }, 30_000);

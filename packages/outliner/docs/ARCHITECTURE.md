@@ -1676,8 +1676,8 @@ second one. Its payload is in a hidden, capped `[draft-patch::…]` property
 person, the same compare as a patch for an agent, and only what the proposal's
 text shows. Writes are `author: agent` with the agent's actor id.
 `draft.proposal.dismiss` marks it `[proposal-status::dismissed]` and trashes it
-(and takes an older proposal's embed line out of the note, or the live draft); an agent
-dismisses only its own. A proposal is applied or dismissed once (a claim), and
+(and takes an older proposal's embed line out of the note, or the live draft); anyone,
+an agent included, may dismiss any proposal, recorded as the one who did. A proposal is applied or dismissed once (a claim), and
 one whose passage was already gone or sits at or below the mark carries
 `[proposal-applies::no]`, so clients offer only dismiss. An `@name` request's
 row follows its proposal to `applied` or `dismissed`.
