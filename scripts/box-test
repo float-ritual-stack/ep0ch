@@ -151,9 +151,11 @@ if [ $target = float-box ]; then
   slots=${EP0CH_BOX_SLOTS:-2}
   case $slots in ""|*[!0-9]*|0) echo 'box-test: EP0CH_BOX_SLOTS is a whole number, at least 1' >&2; exit 2;; esac
   cat "$repo/scripts/box-test-guard" | rssh "cat > $dir/guard.sh" || { echo "box-test: couldn't write the guard on $box_host" >&2; exit 1; }
-  envs="BOX_DIR=$dir BOX_WT=$wt_key BOX_WT_LABEL=$(printf '%q' "$wt_label") BOX_SHA=$sha BOX_REPLACE=$replace BOX_SLOTS=$slots BOX_MAX=$max BOX_KEEP=$keep BOX_HOST=$(printf '%q' "$box_host")"
+  envs="BOX_TEST_RUN_DIR=$dir BOX_DIR=$dir BOX_WT=$wt_key BOX_WT_LABEL=$(printf '%q' "$wt_label") BOX_SHA=$sha BOX_REPLACE=$replace BOX_SLOTS=$slots BOX_MAX=$max BOX_KEEP=$keep BOX_HOST=$(printf '%q' "$box_host")"
   [ -n "${EP0CH_BOX_LOCKS:-}" ] && envs+=" BOX_LOCKS=$(printf '%q' "$EP0CH_BOX_LOCKS")"
   status working "testing ${pkgs[*]} at ${sha:0:12} on $box_host"
+  # BOX_TEST_RUN_DIR is in the guard's own starting environment (a later export doesn't show in /proc/<pid>/environ), so a
+  # process of this run is found by it even inside another run's environment.
   guarded=1
   rssh "env $envs setsid -w bash $dir/guard.sh" </dev/null &
   rpid=$!
