@@ -166,3 +166,19 @@ test("example 4: the rule stamps the template under every match", async () => {
   expect(store.children(match.id)).toHaveLength(1);
   expect(made.get("ex4-script")).toBeTruthy();
 });
+
+test("a render line doesn't redraw for an edit of the script note's other properties, but does for the host's text", async () => {
+  const { create, client, output, store } = await setup();
+  const script = create("Snap [script::snap] [mode::render] [greeting::hi]\n```js\nreturn self.properties.find(p => p.key === 'greeting').values[0] + ' ' + this.title;\n```");
+  const host = create("Host\nsnap::");
+  const draw = () => client.request({ action: "resources.projection.read", blockId: host.id, materialize: true });
+  await draw();
+  expect(await until("first drawing", () => output(host.id)[0])).toBe("hi Host");
+  store.update(script.id, store.get(script.id)!.text.replace("[greeting::hi]", "[greeting::yo]"), store.get(script.id)!.revision, { author: "user" });
+  await client.request({ action: "extensions.list", reload: true });
+  await draw();
+  await Bun.sleep(300);
+  expect(output(host.id)[0]).toBe("hi Host");
+  store.update(host.id, "Host2\nsnap::", store.get(host.id)!.revision, { author: "user" });
+  expect(await until("redraw", () => output(host.id)[0] === "yo Host2" && "yo Host2")).toBe("yo Host2");
+});

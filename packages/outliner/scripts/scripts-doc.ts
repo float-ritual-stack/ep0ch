@@ -67,32 +67,33 @@ export function withGenerated(page: string): string {
   return out;
 }
 
-/** What a pointer in the page must still show: the entry's name, within a few lines of the one it points at. */
-const LINES_NEAR_A_POINTER = 4;
+/** A pointer sits beside the entry it names: the entry's own word must be within this many lines of the one it points at. */
+const LINES_AROUND_A_POINTER = 2;
 const POINTER = /`((?:packages|scripts|docs)\/[\w./-]+):(\d+)`/g;
+const IS_PATH = /^(?:packages|scripts|docs)\//;
 
 /**
  * Every `path:line` pointer in the page that no longer lands on the entry it sits beside: the file is gone, the line is
- * past its end, or the entry's own name (the first code span on the pointer's line of the page, or its last word) isn't
- * within a few lines of it. Each problem says which pointer and how to find the new line.
+ * past its end, the line of the page names no entry (its first code span that isn't a path), or the entry's last word
+ * isn't within two lines of the one pointed at. Each problem says which pointer and how to find the new line.
  */
 export function stalePointers(page: string): string[] {
   const problems: string[] = [];
   for (const line of page.split("\n")) {
-    for (const match of line.matchAll(POINTER)) {
-      const [, file, number] = match as unknown as [string, string, string];
+    for (const [, file, number] of line.matchAll(POINTER) as Iterable<[string, string, string]>) {
       const at = Number(number);
       let source: string[];
       try { source = lines(file); } catch { problems.push(`${file}:${at}: the file isn't there`); continue; }
       if (at < 1 || at > source.length) { problems.push(`${file}:${at}: the file has ${source.length} lines`); continue; }
-      const entry = [...line.matchAll(/`([^`]+)`/g)].map(m => m[1]!).find(span => !/^(?:packages|scripts|docs)\//.test(span));
-      if (!entry) continue;
+      const entry = [...line.matchAll(/`([^`]+)`/g)].map(m => m[1]!).find(span => !IS_PATH.test(span));
+      if (!entry) { problems.push(`${file}:${at}: no entry named on its line: put the name in a code span before the pointer`); continue; }
       const word = entry.replace(/\(.*$/, "").split(/[^\w$]+/).filter(Boolean).at(-1);
-      if (!word) continue;
-      const near = source.slice(at - 1, at - 1 + LINES_NEAR_A_POINTER).join("\n");
+      if (!word) { problems.push(`${file}:${at}: \`${entry}\` has no word to look for`); continue; }
+      const near = source.slice(Math.max(0, at - 1 - LINES_AROUND_A_POINTER), at + LINES_AROUND_A_POINTER).join("\n");
       // `outline_proposal_${op}` is one template for two tools: its stem on the line is enough.
       const templatedStem = word.includes("_") ? word.slice(0, word.lastIndexOf("_") + 1) : "";
-      if (!(templatedStem.length > 6 && near.includes(templatedStem)) && !new RegExp(`(?<![\\w$])${word.replace(/[$]/g, "\\$&")}(?![\\w$])`).test(near)) problems.push(`${file}:${at}: \`${entry}\` isn't there any more; search the file for "${word}" and write the line it is on`);
+      const named = new RegExp(`(?<![\\w$])${word.replace(/[$]/g, "\\$&")}(?![\\w$])`).test(near);
+      if (!named && !(templatedStem.length > 6 && near.includes(templatedStem))) problems.push(`${file}:${at}: \`${entry}\` isn't there any more; search the file for "${word}" and write the line it is on`);
     }
   }
   return problems;

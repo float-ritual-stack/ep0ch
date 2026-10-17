@@ -235,18 +235,21 @@ examples lean on:
 |---|---|---|---|---|
 | action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:127` |
 | render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:100` |
-| `::=` line | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:150` |
+| `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:150` |
 
 **Render mode in detail.**
 
 - A render script is read-only whatever else it says, and `[mode::render] [effects::write]` isn't served (the script is
   listed with why). It is drawn with a 15-second deadline unless `[deadline::]` says otherwise.
 - The line's `week=42` words are `props`; two lines with different words are two drawings.
-- What a drawing depends on, and nothing else: the host note's own text (that is `this`), the script's code and settings,
-  every note it read through `read()`, `resolve()` or a `q()` row, and the rows of every `q()` (so a new match redraws
-  it). Edit the host, or add or change one of its children, and it redraws; edit the script note's *other* properties
-  (`self.properties`) and it doesn't. A change made by another script or an extension doesn't redraw it either, and
-  the service remembers at most 5,000 watched queries and notes (the oldest are dropped).
+- **What a drawing depends on, and nothing else** (`ExtensionCalls.inputs`, and the reads the run records): the host
+  note's text (first 16,000 characters), its direct children's ids and text (first 50 children, 2,000 characters each),
+  any note named by `((id))` on the line itself (first 8), the script's code and settings, every note the run read
+  through `read()`, `resolve()` or a `q()` row (by revision), and the rows of every unscoped `q()` (so a new match
+  redraws it; `q(..., { under })` registers only the rows it returned). Edit any of those and it redraws. Edit the
+  script note's *other* properties (`self.properties`), or change a note the script never read, and it doesn't. A
+  change made by another script or an extension doesn't redraw it either, and the service remembers at most 5,000
+  watched queries and notes (the oldest are dropped).
 - Drawing the same line again leaves every block and revision as it was.
 - A `::=` line is the argument of the call, so its expression is at most 500 characters.
 
@@ -303,9 +306,9 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:127` |
-| deadline timer | `packages/outliner/src/script-runs.ts:136` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:136` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:120` |
-| source changed during a run | `packages/outliner/src/script-runs.ts:186` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:186` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1874` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2455` |
 
@@ -319,11 +322,11 @@ Each of these cost someone an hour.
 - **Properties are `[{ key, values }]`, not an object**, and `props.x` is a list: `props.week[0]`, not `props.week`.
 - **`line` counts from 0**, in `fields[].line`, `tasks[].line`, `caller.line` and a handler line's index. The first line of a
   note is line 0, the header chips' line.
-- **A render script redraws for what it read, not for what it could have.** It reads through `read()`, `resolve()` and
-  `q()`; the host note's text and the script's code count too. A script that listed children with `this.children`
-  (always empty) redraws but shows nothing; use `q("parent:this")` or `read(this.id)`. `self.properties` is read when
-  the line is drawn, but editing it doesn't cause a redraw: the line stays as it was until the host or the code changes.
-- **`ep0ch show` doesn't draw a handler line.** A note with `hello::` prints `hello::` and nothing under it (checked);
+- **A render script redraws for what it read, not for what it could have** (the list under *Render mode*). `this`
+  and `self` are snapshots taken when the line is drawn; `this.children` is always empty, so use `q("parent:this")` or
+  `read(this.id)`. Editing `self.properties` doesn't redraw the line: it stays as it was until the host, the code or
+  something the script read changes.
+- **`ep0ch show` doesn't draw a handler line.** A note with `hello::` prints `hello::` and nothing under it (a test checks it);
   the door opens the note and asks for the drawing, and so do Detail and the publisher. To see what a line drew from a
   test, ask the service (`resources.projection.read` with `materialize: true`) and read the output store, as the tests here do.
 - **`ext.<id>.run` on a render script runs it as an action** (with a run note), instead of refreshing its line. To draw a

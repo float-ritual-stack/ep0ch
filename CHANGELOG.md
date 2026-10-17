@@ -33,7 +33,7 @@ What you can now do: learn the whole script surface from one page and copy a wor
 `act`, `wait`), every `tools.*` and `view.*` with its fields, the modes (action, render, `::=`), effects, access, deadlines,
 run notes, undo and yolo, and the traps (an empty `this.children`, a `q` row with no properties, a handler line that
 `ep0ch show` doesn't draw). Every entry points at its source as `path:line`. Five worked examples (a sentence from
-properties, a table with a computed column, tic-tac-toe in a `[board::]` property, a checklist stamped by a rule) are notes
+properties, a table with a computed column, tic-tac-toe in a `[board::]` property, a checklist stamped by a rule, a table from a query) are notes
 you can paste; `ep0ch --showcase` seeds them in a *Script examples* section. Nothing to run.
 
 ### Install rewrites the old brace forms (PIE-533, landing)
