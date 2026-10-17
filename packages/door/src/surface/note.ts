@@ -32,7 +32,7 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
-import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -2062,6 +2062,8 @@ export class NoteSurface {
     } : undefined;
     // `draftOf`: the text is that note's unsaved one (an edit's preview): its `{{ }}` are read from the text as typed (PIE-533 S2).
     const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn, undefined, draftOf ? { block: draftOf, draft: true } : undefined), { ...env, ...(embed ? { embed } : {}) });
+    // Its `{{ }}` still being read: drawn again on the redraw the answer brings.
+    if (draftOf && siteAnswerWaiting(draftOf, text, src, true)) pending = true;
     // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
     return { lines: doc.lines, source: doc.source, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [], images: graphics ? doc.images : [] };
   }

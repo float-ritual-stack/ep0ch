@@ -155,8 +155,8 @@ export function pageOf(address: string, src: Source | null | undefined): PageRes
  * Asked again when a note it was computed from changes, any change when it looked for a page that isn't there, and each
  * minute for a value that reads the clock.
  */
-export function siteAnswerOf(blockId: string, text: string, src: Source | null | undefined, draft = false): SiteAnswer | null {
-  if (!text.includes("{{") || !interpolationSpans(text).length) return null;
+function siteRead(blockId: string, text: string, src: Source | null | undefined, draft: boolean): { answer: SiteAnswer | null; current: boolean } {
+  if (!text.includes("{{") || !interpolationSpans(text).length) return { answer: null, current: true };
   // A draft is asked for under its note's own key, so one read is in flight at a time as the person types (the answer of the
   // text before is drawn meanwhile): asked again only when the draft is no longer the text that was read.
   const entry = ask(siteBy, src, draft ? `${blockId}\0draft` : blockId, async b => {
@@ -168,8 +168,16 @@ export function siteAnswerOf(blockId: string, text: string, src: Source | null |
       : !c.value.answer ? anyChangeSince(c.at)
       : changedSince(c.at, c.value.answer.deps) || (!!c.value.answer.anyChange && anyChangeSince(c.at))
         || (c.value.answer.clock === "minute" && Math.floor(c.value.ms / 60000) !== Math.floor(Date.now() / 60000)));
-  return entry?.value?.answer ?? null;
+  const answer = entry?.value?.answer ?? null;
+  return { answer, current: !!entry && !entry.asking && !!entry.value && (!draft || entry.value.text === text) };
 }
+
+export const siteAnswerOf = (blockId: string, text: string, src: Source | null | undefined, draft = false): SiteAnswer | null => siteRead(blockId, text, src, draft).answer;
+
+
+/** The text has a `{{ }}` whose answer isn't read yet for this very text (being read, or the draft has moved on): a drawing of it is not final. */
+export const siteAnswerWaiting = (blockId: string, text: string, src: Source | null | undefined, draft = false): boolean =>
+  !!src && !siteRead(blockId, text, src, draft).current;
 
 /**
  * Only a cheap guard, so a note without a bracketed resource-shaped property costs no request: the keys
