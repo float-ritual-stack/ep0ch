@@ -27,7 +27,8 @@ import type { Step } from "../session/restore";
 import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
-import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, REGION_MARK, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
+import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
@@ -374,7 +375,7 @@ const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number } | { region: string });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -386,7 +387,7 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
 function withBeside(hooks: Partial<DocEnv>, beside: Map<number, ((width: number) => string[])[]>): Partial<DocEnv> {
   if (!beside.size) return hooks;
   const after = hooks.after;
-  return { ...hooks, after: (line, width) => [...(after?.(line, width) ?? []), ...(beside.get(line) ?? []).flatMap(draw => draw(width))] };
+  return { ...hooks, after: (line, width) => joinRows([after?.(line, width) ?? [], ...(beside.get(line) ?? []).map(draw => draw(width))]) };
 }
 
 /** The elements that are one row inside a container (a figure's row, a step): the reader item-focuses them (PIE-969). */
@@ -407,6 +408,8 @@ interface Element {
   /** A row or step: the rows [from, to) of that one item (its own lines, never its figure's), which item focus bands (PIE-969). */
   item?: [number, number];
   link?: Link; value?: string; fold?: string; thread?: string; control?: ThreadControl;
+  /** A generated region's mark in the gutter (src/output-region.ts): the region's key. `[ ]` on it opens what is behind it. */
+  region?: string;
   /** A checklist step's box (PIE-472): the step as it was read where it's drawn. */
   task?: StepRef;
   /** A callout's icon and type (PIE-538): the callout as it was read where it's drawn. */
@@ -1762,6 +1765,13 @@ export class NoteSurface {
         this.hits.push({ row, from: col, to: col + 1, fold: n + 1 });
       }
     }
+    // A generated region's one dim mark (src/output-region.ts), on its first row, with a click target.
+    for (const r of this.printed || host?.externalGutter === 0 ? [] : doc.regions ?? []) {
+      const row = top + r.row - this.scroll;
+      if (row < top || row >= top + room || !this.regionInfo.has(r.key)) continue;
+      gutterRows.set(row, pad(gutterRows.get(row) ?? "", 0) + fg(C.dark) + REGION_MARK + RESET);
+      this.hits.push({ row, from: this.gutterStart, to: this.gutterStart + 1, region: r.key });
+    }
     for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
       if (row < (whole.has(k.thread) ? 0 : top) || row >= top + room) continue;
@@ -1808,9 +1818,12 @@ export class NoteSurface {
 
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
     const writing = this.composing(host);
+    // Generated regions (src/output-region.ts): each draws flush, behind one gutter mark; the one the `[ ]` position is in shows what is behind it.
+    const openKey = this.openRegionKey(), regionInfo = new Map<string, { label: string; target: LinkTarget }>();
+    const book: RegionBook = { isOpen: k => k === openKey, add: r => regionInfo.set(r.key, { label: r.label, target: r.target }) };
     // A host's own rows after the note (EchoNet's tear line, origin and SEEN-BY): drawn after the body, never elements.
     const footRows = host?.footer?.(m, Math.max(1, w - this.bx - this.bxRight)) ?? [];
-    const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}`;
+    const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}|${openKey ?? ""}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
     // The header image is drawn above the title (render), so its line here is only its caption.
     const bw = Math.max(1, w - this.bx - this.bxRight - mcols);
@@ -1818,7 +1831,7 @@ export class NoteSurface {
     // A list's own look (PIE-675): its lead-in or heading line's fields, with this connection's tuning over them, by the note's line.
     const noteLine = this.foldsIn(m).lines;
     const lists = (n: number, f: Readonly<Record<string, string>>) => (noteLine[n] === undefined ? { ...f } : listFieldsTuned(this.src, m.id, noteLine[n]!, f));
-    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
+    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, regions: book, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -1828,16 +1841,16 @@ export class NoteSurface {
     // Resource tokens (`[file::…]`, `[jira::KEY]`) as the service names them: links that show the Resource.
     const tokens = resourceTokensOf(m, src);
     // An extension's output (PIE-512) is drawn as this reader draws a note's body: its Markdown, inert (no
-    // links to follow, no properties), each row then shaded into the line's region.
+    // links to follow, no properties), flush with the note's text.
     const extDraw = {
       note: m.id,
       markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
-        ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, keepTags: false,
+        ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, keepTags: false, regions: undefined,
       }).lines,
       // A view's Blockdown (a section a component lays out) is drawn as the body is: its links are links here.
       blockdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, src, text, drawn), {
         ...env, width, nested: true, keepTags: true, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined,
-        task: undefined, link: undefined, literal: undefined, decorate: undefined, callout: undefined,
+        task: undefined, link: undefined, literal: undefined, decorate: undefined, callout: undefined, regions: undefined,
       }).lines,
       // A view's picture (PIE-827), laid out as the body's image lines are.
       image: (node: ImagePrimitive, width: number) => pictureRows(node, width, env, drawn),
@@ -1863,17 +1876,18 @@ export class NoteSurface {
           const decor = (plan.after.get(line) ?? []).flatMap(f => f(width));
           const ps = regions.get(line);
           const tail = view && line === last ? ["", ...(results!(width) ?? [])] : [];
-          if (!ps) return [...decor, ...(tail.length > 1 ? tail : [])];
+          if (!ps) return joinRows([decor, tail.length > 1 ? tail : []]);
           const indent = line >= 0 ? /^[ \t]*/.exec(bodyText[line] ?? "")![0].length : 0;
           const tag = (to: LinkTarget, text: string) => tagged(drawn, to, text);
           // A ticket kept as a block (PIE-445), and an extension's record (PIE-507), is drawn from that block:
           // on a page, all of it under its line; on the ticket block itself, its header on top and its
           // comments after the body. An extension's other lines (an output, a component, an @name request)
           // draw their result with their actions (PIE-512).
-          return [...decor, ...ps.flatMap(({ p, part }) => p.record
+          // Generated lines (an output, a component, a request) are drawn flush, behind one gutter mark (src/output-region.ts).
+          return joinRows([decor, ...ps.map(({ p, part }) => p.record
             ? ticketRegion(p, ticketBlocksOf(p, src), part, width, indent, now, tag)
-            : p.kind ? extensionRegion(p, width, indent, now, tag, extDraw)
-            : projectionRegion([p], width, indent, now, tag)), ...(tail.length > 1 ? tail : [])];
+            : p.kind ? extensionRegion(p, width, now, tag, extDraw, book)
+            : projectionRegion([p], width, indent, now, tag)), tail.length > 1 ? tail : []]);
         },
       } : {};
     });
@@ -1918,6 +1932,7 @@ export class NoteSurface {
     const marks = this.commentMarks(m, doc, noteLines);
     if (this.printed) for (const row of new Set(marks.map(k => k.row))) if (body[row])
       body[row] = fg(marks.some(k => k.row === row && k.open) ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
+    this.regionInfo = regionInfo;
     const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
     // Both placements use the same card and controls; width alone chooses beside or below the passage.
     const cards = mcols ? placeCards(cardThreads.flatMap(c => {
@@ -2115,7 +2130,7 @@ export class NoteSurface {
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
       } else ({ text, lines, literal: lit } = readableSource(target, src));
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
-        ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
+        ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined, regions: undefined,
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
@@ -2133,7 +2148,7 @@ export class NoteSurface {
       const { text, lines, literal } = readableSource(target, src);
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
-        ...env, width, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined,
+        ...env, width, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined,
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
@@ -2141,10 +2156,10 @@ export class NoteSurface {
       }).lines;
     }, tooDeep);
     // The `::use` on body line `i`, drawn: `block` is the note whose text holds the line, `lines` its body lines' note lines.
-    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number): DocEnv["use"] => (call, i, width) => {
+    const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number, book?: RegionBook): DocEnv["use"] => (call, i, width) => {
       const line = lines[i] ?? -1;
       if (line < 0) return [];
-      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m.id, width, src, sink: drawn, depth, body: templateBody(depth) });
+      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m.id, width, src, sink: drawn, depth, body: templateBody(depth), ...(book ? { book } : {}) });
     };
     const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
@@ -2157,7 +2172,7 @@ export class NoteSurface {
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     return {
       present: presenter(m.text), ...(outline ? { liveStep } : {}),
-      ...(outline ? { embed: embedHook, use: useHook(m.id, noteLines, undefined, 0) } : {}),
+      ...(outline ? { embed: embedHook, use: useHook(m.id, noteLines, undefined, 0, env.regions) } : {}),
       // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
       ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m.id) } : {}),
       task: (i, box) => {
@@ -4092,6 +4107,19 @@ export class NoteSurface {
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
   letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; }
+  /** The generated regions the last layout drew (src/output-region.ts): what `[ ]` stops on at each one's gutter mark. */
+  private regionInfo = new Map<string, { label: string; target: LinkTarget }>();
+  /**
+   * The region whose mark's row (name, when it ran, its controls) is shown: the one the `[ ]` position is in, its mark or a
+   * control of it. Hovering would do it too, but the door asks the terminal for button tracking, not motion.
+   */
+  private openRegionKey(): string | null {
+    const e = this.cur ? this.elems.find(x => x.key === this.cur) : undefined;
+    if (!e) return null;
+    if (e.region) return e.region;
+    const x = e.kind === "control" ? e.link?.ext : undefined;
+    return x ? `${x.block}:${x.line}` : null;
+  }
 
   private setElem(e: Element) {
     const d = this.drawn;
@@ -4450,6 +4478,13 @@ export class NoteSurface {
         // A view's picture (PIE-827) is named by its file, as a note's image is.
         : l.media && !l.role ? fileName(l.media) : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(ITEM_KINDS.has(kind) ? { item: [top + r.line, top + rs.at(-1)!.line + 1] as [number, number] } : {}), ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
+    }
+    // A generated region's mark (src/output-region.ts): one `[ ]` stop in the gutter beside its first row, over its rows.
+    for (const r of doc.regions ?? []) {
+      const info = this.regionInfo.get(r.key);
+      if (!info) continue;
+      const kind = (info.target.role ?? "link") as ElementKind;
+      out.push({ key: keyOf(kind, info.target), kind, row: top + r.row, from: this.gutterStart, to: this.gutterStart + 1, ruler: [top + r.row, top + r.row + r.rows], label: info.label, link: info.target, region: r.key });
     }
     for (const x of doc.media) {
       const image = imageRef?.(x.line) ?? undefined;
@@ -4886,6 +4921,8 @@ export class NoteSurface {
     this.use(host);
     // The note's rows are under its header image (PIE-532).
     y -= this.drawn?.heroRows ?? 0;
+    // The `[ ]` position as the click found it: a click's own reading.place lets go of it first.
+    const was = this.cur;
     // An open mode first (in its precedence): the edit's or comment's own click, a status choice's row, a panel row.
     if (!this.editing) { const line = this.sourceLineAt(y + (this.drawn?.heroRows ?? 0)); if (line !== null) void this.runKey("reading.place", { line: line + 1 }, host); }
     const taken = this.modes.click(x, y, host);
@@ -4895,6 +4932,14 @@ export class NoteSurface {
     const h = this.hitAt(x, y);
     // Each click is the action its key is (PIE-506): copy, back and forward, select.clear, element.open, …
     if (h && "fold" in h) { void this.runKey("fold.toggle", { n: h.fold }, host); return true; }
+    // A generated region's mark (src/output-region.ts): the `[ ]` position goes to it, which shows what is behind it; a second click lets go.
+    if (h && "region" in h) {
+      const e = this.elems.find(x => x.region === h.region);
+      if (!e) return false;
+      if (e.key === was) { this.letGo(); host.redraw(); }
+      else void this.runKey("element.select", { n: this.elems.indexOf(e) + 1 }, host);
+      return true;
+    }
     if (h && "copy" in h) { void this.runKey("select.copy", h.copy === "source" ? { source: true } : {}, host); return true; }
     // The copy control on a code block, a quote or a callout (PIE-638): block.copy, as y on it.
     if (h && "block" in h) {
@@ -6958,6 +7003,7 @@ function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly stri
       images: [...doc.images.map(im => ({ ...im, line: mv(im.line) })), ...inserts.flatMap((p, i) => (p.images ?? []).map(im => ({ ...im, line: starts[i]! + im.line })))],
       media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
       heads: doc.heads.map(h => ({ ...h, row: mv(h.row) })),
+      ...(doc.regions ? { regions: doc.regions.map(r => ({ ...r, row: mv(r.row), rows: mv(r.row + r.rows - 1) + 1 - mv(r.row) })) } : {}),
       trims: new Map([...doc.trims].map(([r, t]) => [mv(r), t])),
       // A block that rows were put inside (a thread under a quote's passage) grows with them.
       blocks: doc.blocks.map(b => ({ ...b, row: mv(b.row), rows: mv(b.row + b.rows - 1) + 1 - mv(b.row), col: b.col })),

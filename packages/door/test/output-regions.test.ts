@@ -6,6 +6,7 @@ import { cpSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
+import { SHADE } from "../src/embeds";
 import { bindExtensions } from "../src/extensions";
 import { forgetProjectionAnswers } from "../src/projection";
 import { MainMenu } from "../src/screens";
@@ -60,6 +61,38 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
     app?.quit();
     board?.close();
     await scratch.dispose();
+  });
+
+  describe("a region draws as the note's own content (PIE-956)", () => {
+    test("flush with the text around it: no tint, no head row, no controls; one dim mark in the gutter holds the rest", async () => {
+      const { s, lines } = await reader("Omens\nSome prose before.\n\nhoroscope:: virgo\n\nProse after the output.", /Virgo, \d{4}/);
+      const rows = lines();
+      const out = rows.findIndex(l => l.includes("Virgo, ")), prose = rows.findIndex(l => l.includes("Some prose before."));
+      expect(rows[out]!.indexOf("Virgo, ")).toBe(rows[prose]!.indexOf("Some prose before."));
+      expect(rows[out]!.startsWith("≡")).toBe(true);                             // the mark: the first row's gutter cell
+      const text = rows.join("\n");
+      expect(text).not.toMatch(/ran (just now|\d+ min ago)/);
+      expect(text).not.toContain("run again");
+      expect(text).not.toContain("[keep]");
+      expect(s.render(120, 80, host).lines.some(l => l.includes(SHADE))).toBe(false);   // no tint under the region
+    }, 40_000);
+
+    test("a click on the mark shows what is behind it (name, when it ran, keep, run again) as one dim row; a second click closes it", async () => {
+      const { s, lines } = await reader("Omens\nhoroscope:: virgo\n\nProse after the output.", /Virgo, \d{4}/);
+      const row = lines().findIndex(l => l.startsWith("≡"));
+      expect(row).toBeGreaterThan(0);
+      const before = lines().length;
+      s.click(0, row, host);
+      await until(() => /Horoscope virgo · ran (just now|\d+ min ago)/.test(lines().join("\n")), "the row behind the mark", 5000);
+      const open = lines().find(l => l.includes("Horoscope virgo · ran"))!;
+      expect(open).toContain("[keep]");
+      expect(open).toContain("[r run again]");
+      expect(s.describe().elements!.current!.label).toBe("Horoscope virgo");     // the mark is the [ ] position
+      s.click(0, row, host);
+      await until(() => !lines().join("\n").includes("run again"), "closed again", 5000);
+      await Bun.sleep(50);
+      expect(lines()).toHaveLength(before);
+    }, 40_000);
   });
 
   describe("r with no position (PIE-956)", () => {

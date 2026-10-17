@@ -20,6 +20,8 @@ import { isPropertyTokenLine, withoutPropertyTokens } from "@ep0ch/outline-core/
 import { resourceProviderKeys } from "./resource-providers";
 import { decoratingRules, handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines, type PrimitiveDraw } from "./components";
+import type { AfterRows } from "./doc";
+import { regionRows, type RegionBook } from "./output-region";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
 
@@ -520,8 +522,6 @@ export const RUN_AGAIN = "projection.refresh";
 
 /** The key that runs a line again, as the controls and the refusals name it: one place to change when the key audit (PIE-957) moves it. */
 export const RUN_AGAIN_KEY = "r";
-/** The glyph of the one dim mark a generated region carries in the reader's gutter (PIE-956). */
-export const REGION_MARK = "≡";
 
 /** The words `r` says on a line of this kind: an agent is asked again, a record fetched, the rest run again. */
 export const againWords = (p: ResourceProjection) => (p.kind === "agent" ? "ask again" : p.kind === "data" ? "fetch" : "run again");
@@ -541,51 +541,46 @@ function componentBody(p: ResourceProjection, width: number, d: ExtDraw): { line
 }
 
 /**
- * The shaded region for an extension's line, `w` wide, indented like the line: a head (its title the line's
- * primary action), the result (an output's markdown, a component's view, an agent's reply), why it's stale
- * or not run, and a row of controls, one per action on the line and `r`, each a place `[ ]` stops and a
- * click runs. Without `link` (a draft's preview) it is text.
+ * An extension's line as it draws (PIE-956's one output-region rule, src/output-region.ts): its result flush with the
+ * note's text (an output's markdown, a component's view, a record's fields), with what is wrong with it said in dim rows
+ * and the rest (its name, when it ran, its actions and run again) behind the mark in the gutter. Without `link` (a
+ * draft's preview) the controls are text.
  */
-export function extensionRegion(p: ResourceProjection, w: number, indent: number, now: number, link: ((to: LinkTarget, text: string) => string) | undefined, d: ExtDraw): string[] {
-  const out: string[] = [];
-  const lead = " ".repeat(Math.max(0, Math.min(indent, Math.floor(w / 3))));
-  const inner = Math.max(8, w - 1 - lead.length);
-  const row = (line: string) => out.push(shade(lead + "  " + line, w));
-  const said = (text: string, colour: number) => { for (const r of wrap(text, inner - 2)) row(fg(colour) + r + RESET); };
+export function extensionRegion(p: ResourceProjection, w: number, now: number, link: ((to: LinkTarget, text: string) => string) | undefined, d: ExtDraw, book?: RegionBook): AfterRows {
+  const inner = Math.max(8, w);
   const l = projectionLayout(p);
   const extension = p.extension?.id ?? p.provider, handler = p.extension?.handler ?? p.propertyKey ?? p.provider;
   const at = (action: string) => ({ ext: { block: d.note, line: p.anchor.line, action, extension, handler }, refresh: d.note, refreshLine: p.anchor.line });
   const primary = primaryAction(p);
   const ready = (p.status === "ready" || p.status === "stale") && (p.output || p.summary !== undefined);
   const bad = !ready && p.status !== "not-run" && p.status !== "not-fetched";
-  // The head: the title (the primary action), then what it is now.
-  const title = link ? link({ role: "resource", label: l.title, ...at(primary.name) }, l.title) : l.title;
   const when = p.output?.ranAt ?? p.fetchedAt;
   const age = when ? relativeAge(when, now) : "";
   const status = p.kind === "agent"
     ? [p.agent?.status ? drawnInline(p.agent.status) : "", p.summary && p.summary !== p.agent?.status ? drawnInline(p.summary) : ""].filter(Boolean).join(" · ")
     : ready ? (p.output ? `ran ${age || localTime(p.output.ranAt)}` : drawnInline(p.summary ?? "")) : (STATUS_LABELS[p.status] ?? drawnInline(String(p.status)));
   const running = p.fetching ? (p.kind === "agent" ? "working…" : "running…") : "";
-  const head = [title, status, running].filter(Boolean).join(" · ");
-  wrap(head, inner - 2).forEach((r, k) => {
-    const body = k ? r : r.replace(title, fg(C.lcyan) + BOLD + title + UNBOLD + fg(bad ? C.yellow : C.white));
-    out.push(shade(lead + (k ? "  " : fg(C.lcyan) + "∙ ") + fg(bad ? C.yellow : C.white) + body + RESET, w));
-  });
-  // The result.
-  if (ready && p.kind === "component") for (const line of componentBody(p, inner - 2, d).lines) row(line);
-  else if (ready && p.output?.markdown.trim()) for (const line of d.markdown(p.output.markdown, inner - 2)) row(line);
-  else if (ready && p.kind === "data" && p.fields.length) said(p.fields.map(f => `${drawnInline(f.label)}: ${drawnInline(f.value)}`).join(" · "), C.brown);
+  // The result: flush.
+  const body: string[] = [];
+  if (ready && p.kind === "component") body.push(...componentBody(p, inner, d).lines);
+  else if (ready && p.output?.markdown.trim()) body.push(...d.markdown(p.output.markdown, inner));
+  else if (ready && p.kind === "data" && p.fields.length) body.push(...wrap(p.fields.map(f => `${drawnInline(f.label)}: ${drawnInline(f.value)}`).join(" · "), inner).map(r => fg(C.brown) + r + RESET));
+  // What is wrong, or all there is to say when there is no result (a request's state, a line not run yet): in the flow, dim or yellow.
+  const notes: string[] = [];
+  const said = (text: string, colour: number) => { for (const r of wrap(text, inner)) notes.push(fg(colour) + r + RESET); };
+  if (p.kind === "agent") said([l.title, status, running].filter(Boolean).join(" · "), bad ? C.yellow : C.dark);
+  else if (!body.length) said([status, running].filter(Boolean).join(" · "), bad ? C.yellow : C.dark);
   if (p.kind === "agent" && ready && when) said(`answered ${age}${p.agent?.requestedBy ? ` · asked by ${askedBy(p.agent.requestedBy)}` : ""}`, C.dark);
   if (p.reason && (!ready || p.status === "stale")) said(drawnInline(p.reason), bad || p.status === "stale" ? C.yellow : C.dark);
-  if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · r runs it again`, C.dark);
+  if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · ${RUN_AGAIN_KEY} runs it again`, C.dark);
   for (const option of p.options.unknown) said(`unknown option ${drawnInline(option)}`, C.yellow);
-  // The controls: the line's actions (their key, if the reader leaves it to them), then r.
+  // Behind the mark: the line's actions (their key, if the reader leaves it to them), then run again.
   const acts = p.extension && p.kind !== "agent" ? handlerActions(p.extension.id, p.extension.handler) : [];
   const control = (action: string, text: string) => fg(C.lcyan) + (link ? link({ role: "control", label: text, ...at(action) }, `[${text}]`) : `[${text}]`) + RESET;
   const controls = [
     ...acts.map(a => control(a.name, a.key && handlerKeyAction(extension, handler, a.key, d.hostKeys) === a ? `${a.key} ${a.id}` : a.id)),
-    control(RUN_AGAIN, `r ${againWords(p)}`),
+    control(RUN_AGAIN, `${RUN_AGAIN_KEY} ${againWords(p)}`),
   ];
-  row(controls.join(" "));
-  return out;
+  const facts = [l.title, ...(p.kind === "agent" ? [] : [[status, running].filter(Boolean).join(" · ")])].filter(Boolean);
+  return regionRows({ key: `${d.note}:${p.anchor.line}`, label: l.title, target: { role: "resource", label: l.title, ...at(primary.name) }, body, notes, facts, controls, width: inner }, book);
 }
