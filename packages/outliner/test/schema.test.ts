@@ -8,6 +8,7 @@ import { readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION, schemaRefusal } from
 import { OutlinerStore } from "../src/store";
 import { ownerLockOf } from "../src/workspace-ownership";
 import { freshSchemaShape, schemaDifferences, schemaShape, stamp } from "../scripts/migrations/0001-stamp";
+import { migrateReferenceIndex as migrate6 } from "../scripts/migrations/0006-reference-index";
 import { migrate as migrate5, REBUILT_TABLES, SCHEMA_SQL_4 } from "../scripts/migrations/0005-extension-providers";
 
 const directories: string[] = [];
@@ -105,7 +106,7 @@ function version4(path: string, change?: (database: Database) => void): { noteId
   const database = new Database(path);
   const v4 = new Database(":memory:");
   v4.exec(SCHEMA_SQL_4);
-  database.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON; DROP TABLE read_marks;");
+  database.exec("PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON; DROP TABLE read_marks; DROP TABLE block_reference_candidates;");
   for (const table of REBUILT_TABLES) {
     const rows = v4.query("SELECT type, sql FROM sqlite_master WHERE tbl_name = ? AND sql IS NOT NULL").all(table) as Array<{ type: string; sql: string }>;
     database.exec(`ALTER TABLE ${table} RENAME TO ${table}__v5; ${rows.find(row => row.type === "table")!.sql}; INSERT INTO ${table} SELECT * FROM ${table}__v5; DROP TABLE ${table}__v5;`);
@@ -126,22 +127,22 @@ function version4(path: string, change?: (database: Database) => void): { noteId
   return { noteId, resourceId };
 }
 
-test("a version 5 database missing its instance id is refused with the exact repair command, and 0005 repairs it", () => {
+test("a current database missing its instance id is refused with the exact repair command, and 0006 repairs it", () => {
   const path = join(directory(), "outliner.sqlite");
   new OutlinerStore(path).close();
   const database = new Database(path);
   database.query("DELETE FROM metadata WHERE key = 'outline_instance_id'").run();
   database.close();
-  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id\\. Repair it with:\n\n  .+\n  bun \\S+/scripts/migrations/0005-extension-providers\\.ts ${path}\n`));
+  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id\\. Repair it with:\n\n  .+\n  bun \\S+/scripts/migrations/0006-reference-index\\.ts ${path}\n`));
   // Not while a store (a service) has it open.
   const held = new Database(ownerLockOf(path).path);
   held.exec("BEGIN IMMEDIATE");
-  expect(() => migrate5(path)).toThrow("already owned");
+  expect(() => migrate6(path)).toThrow("already owned");
   held.close();
-  const repaired = migrate5(path);
+  const repaired = migrate6(path);
   expect(repaired).toMatchObject({ migrated: false, repaired: true });
   expect(outlineInstanceId(path)).toBe(repaired.outlineInstanceId);
-  expect(migrate5(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
+  expect(migrate6(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
   new OutlinerStore(path).close();
 });
 
@@ -159,6 +160,7 @@ test("the version 5 migration moves Jira onto the extension providers as ext:jir
     expect(JSON.parse(snapshot.revision)).toEqual({ kind: "ext:jira", updated: "2026-10-01T09:00:00.000Z" });
     expect(snapshot.payload).toBe(CAPTURED);
   }
+  migrate6(path);
   const store = new OutlinerStore(path);
   expect(store.get(noteId)?.text).toBe("Kept through the migration");
   expect(store.readMarks.mark("user", [noteId])).toBe(1);
@@ -362,7 +364,7 @@ test("two imports to one name: the one that finds it claimed is refused and touc
 });
 
 describe("the refusal says the exact commands for this machine (PIE-617)", () => {
-  const SCRIPT = join(import.meta.dir, "../scripts/migrations/0005-extension-providers.ts");
+  const SCRIPT = join(import.meta.dir, "../scripts/migrations/0006-reference-index.ts");
   const at = (folder: string, name: string, version: number) => {
     const path = join(folder, `${name}.sqlite`);
     const database = new Database(path);
@@ -418,4 +420,41 @@ describe("the refusal says the exact commands for this machine (PIE-617)", () =>
     expect(said).toContain("\n  ep0ch install --apply\n");
     expect(said).toContain(`\n  bun ${SCRIPT} '${path}'\n`);
   });
+});
+
+
+test("schema 6 indexes existing references and keeps them current through edits and reopen", () => {
+  const path = join(directory(), "outliner.sqlite");
+  let store = new OutlinerStore(path);
+  const target = store.create("Destination [page::Garden]");
+  const other = store.create("Other destination");
+  const source = store.create(`Source ((${target.id})) [[Garden]]`);
+  store.close();
+  const previous = new Database(path);
+  previous.exec("DROP TABLE block_reference_candidates; PRAGMA user_version = 5");
+  previous.close();
+  migrate6(path);
+  store = new OutlinerStore(path);
+  try {
+    const links = (id: string) => store.queryBacklinks({ targetBlockId: id, limit: 10 });
+    expect(links(target.id).sources).toMatchObject([{ blockId: source.id, occurrenceCount: 2 }]);
+    expect(store.get(source.id)).toMatchObject({ text: source.text, revision: source.revision });
+    expect(() => store.database.transaction(() => {
+      store.update(source.id, `Changed ((${other.id}))`, source.revision);
+      throw new Error("aborted edit");
+    })()).toThrow("aborted edit");
+    expect(links(target.id).sources).toMatchObject([{ blockId: source.id, occurrenceCount: 2 }]);
+    store.update(source.id, `Changed ((${other.id})) [[Future garden]]`, source.revision);
+    expect(links(target.id).sources).toEqual([]);
+    const page = store.create("Later page [page::Future garden]");
+    expect(links(page.id).sources).toMatchObject([{ blockId: source.id }]);
+    store.close();
+    store = new OutlinerStore(path);
+    expect(links(other.id).sources).toMatchObject([{ blockId: source.id }]);
+    expect(links(page.id).sources).toMatchObject([{ blockId: source.id }]);
+    store.delete(source.id);
+    expect(links(other.id).sources).toEqual([]);
+    store.restore(source.id);
+    expect(links(other.id).sources).toMatchObject([{ blockId: source.id }]);
+  } finally { store.close(); }
 });
