@@ -63,7 +63,7 @@ export function invalidateReferences() { outlineChanged(null, true); }
 interface Cached<T> { value: T | null; error?: string; at: number; asking: boolean }
 const refsBy = new WeakMap<object, Map<string, Cached<Map<string, ReferenceResolution>>>>();
 const pagesBy = new WeakMap<object, Map<string, Cached<PageResolution>>>();
-const siteBy = new WeakMap<object, Map<string, Cached<{ answer: SiteAnswer; ms: number }>>>();
+const siteBy = new WeakMap<object, Map<string, Cached<{ answer: SiteAnswer; ms: number; text: string }>>>();
 
 function ask<T>(by: WeakMap<object, Map<string, Cached<T>>>, src: Source | null | undefined, key: string, fetch: (b: SocketBoard) => Promise<T>, stale: (c: Cached<T>) => boolean): Cached<T> | null {
   if (!src) return null;
@@ -157,9 +157,11 @@ export function pageOf(address: string, src: Source | null | undefined): PageRes
  */
 export function siteAnswerOf(blockId: string, text: string, src: Source | null | undefined, draft = false): SiteAnswer | null {
   if (!text.includes("{{") || !interpolationSpans(text).length) return null;
-  const entry = ask(siteBy, src, draft ? `${blockId}\0${text}` : blockId, async b => ({ answer: await b.siteAnswer(blockId, draft ? text : undefined), ms: Date.now() }),
+  // A draft is asked for under its note's own key, so one read is in flight at a time as the person types (the answer of the
+  // text before is drawn meanwhile): asked again only when the draft is no longer the text that was read.
+  const entry = ask(siteBy, src, draft ? `${blockId}\0draft` : blockId, async b => ({ answer: await b.siteAnswer(blockId, draft ? text : undefined), ms: Date.now(), text }),
     c => !c.value ? !!c.error && anyChangeSince(c.at)
-      : changedSince(c.at, c.value.answer.deps) || (!!c.value.answer.anyChange && anyChangeSince(c.at))
+      : (draft && c.value.text !== text) || changedSince(c.at, c.value.answer.deps) || (!!c.value.answer.anyChange && anyChangeSince(c.at))
         || (c.value.answer.clock === "minute" && Math.floor(c.value.ms / 60000) !== Math.floor(Date.now() / 60000)));
   return entry?.value?.answer ?? null;
 }

@@ -84,6 +84,23 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
     expect(text).toContain("none");
   });
 
+  test("an edit's preview reads the draft as typed, before it is saved; the editor itself is source", async () => {
+    const note = await create("Vent rail [owner::sam]\nSaved line.");
+    const host: SurfaceHost = { ctx: desk().ctx as any, redraw() {}, navigate() {} };
+    const surface = new NoteSurface();
+    surface.show((await board.get(note.id))!, host);
+    const draft = "Vent rail [owner::kim]\nNow {{this.owner}} and {{this.ownr}}.";
+    let shown = "";
+    for (let i = 0; i < 40 && !shown.includes("Now kim"); i++) { shown = surface.snippetDoc(draft, 80, host, [], false, note.id).lines.map(l => visible(l)).join("\n"); await Bun.sleep(50); }
+    expect(shown).toContain("Now kim and {{this.ownr}} · did you mean owner?.");
+    // Typing on: the answer of the text before is drawn until the new one arrives, then it follows the text.
+    const more = draft.replace("kim", "lee");
+    for (let i = 0; i < 40 && !shown.includes("Now lee"); i++) { shown = surface.snippetDoc(more, 80, host, [], false, note.id).lines.map(l => visible(l)).join("\n"); await Bun.sleep(50); }
+    expect(shown).toContain("Now lee");
+    // The saved note is untouched.
+    expect((await board.get(note.id))!.text).toBe("Vent rail [owner::sam]\nSaved line.");
+  });
+
   test("the property panel lists the values the note reads, with where each came from or why it has none", async () => {
     const note = await create("Vent rail [owner::sam]\nOwner {{this.owner}}; typo {{this.ownr}}; today {{now.date}}.");
     const host: SurfaceHost = { ctx: desk().ctx as any, redraw() {}, navigate() {} };
