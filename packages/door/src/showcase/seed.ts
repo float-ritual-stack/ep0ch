@@ -26,6 +26,7 @@ import { CALLOUTS, CALLOUT_TYPE, artifactsText, galleryCards, galleryText, heroT
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, SPACING_LAB } from "./seed/looks";
+import { VENT_PERSON, VENT_PROJECT, VENT_RECIPE, ventRailText } from "./seed/values";
 
 // The seed's notes and fixtures live beside it, by area (seed/*.ts); the tests and the screen import them from here.
 export * from "./seed/names";
@@ -280,6 +281,11 @@ if (request.input.request === "describe the beds") {
   notes.buildLog = await make(notes.root.id, BUILD_LOG);
   notes.testPlan = await make(notes.root.id, TEST_PLAN);
   for (const job of TEST_PLAN_JOBS) await make(notes.testPlan.id, job);
+  // Notes that read themselves (PIE-533 S2): the fixture under a project, with the notes its placeholders read from.
+  notes.ventProject = await make(notes.root.id, VENT_PROJECT);
+  notes.ventPerson = await make(notes.root.id, VENT_PERSON);
+  notes.ventRecipe = await make(notes.root.id, VENT_RECIPE);
+  notes.ventRail = await make(notes.ventProject.id, ventRailText(notes.ventRecipe.id));
   const race = await seedRace(board, await make(notes.root.id, RACE));
   notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.
