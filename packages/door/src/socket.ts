@@ -243,7 +243,8 @@ export interface PageResolution { address: string; status: "resolved" | "deleted
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import type { SiteAnswer } from "@ep0ch/outline-core/site";
+import type { PropsSpec, SiteAnswer } from "@ep0ch/outline-core/site";
+import type { TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
 /**
@@ -762,6 +763,25 @@ export class SocketBoard implements Board {
   async resolvePage(address: string): Promise<PageResolution> {
     const r = await this.request<{ address: string; status: PageResolution["status"]; block?: WireBlock }>("pages.resolve", { address });
     return { address: r.address, status: r.status, ...(r.block ? { block: toMsg(r.block) } : {}) };
+  }
+
+  /**
+   * A template written out as a new note (PIE-533 S4, `template.stamp`): the service fills the stamp's own values and makes
+   * the note (or one per `for` match), recorded as `actor`'s. Never retried blindly.
+   */
+  async templateStamp(req: { of: string; parent?: string; title?: string; props?: Record<string, string>; for?: string; freeze?: string; as?: string; into?: string }, actor: Actor = USER): Promise<{ template: { id: string; title: string }; stamped: { id: string; title: string; parentId: string | null; blocks: number; frozen: number; for?: string }[]; skipped: { for: string; stamped: string }[]; warnings: string[]; said: string }> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    return this.request("template.stamp", { ...req, ...who });
+  }
+
+  /** The props a template declares (`template.props`): what a person is asked before it is stamped. */
+  templateProps(of: string): Promise<{ template: { id: string; title: string; how: string }; spec: PropsSpec; problems: string[] }> {
+    return this.request("template.props", { of });
+  }
+
+  /** The call a `::use` line makes (`template.use`), once; a drawing asks it watched (src/template-use.ts). */
+  templateUse(block: string, line: number): Promise<TemplateUseAnswer> {
+    return this.request("template.use", { block, line });
   }
 
   /**

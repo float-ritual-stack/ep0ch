@@ -7,7 +7,7 @@
 // `site.answer` with that chain and those props; nothing here resolves them. Reads only.
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { checkProps } from "@ep0ch/outline-core/props-spec";
-import type { SiteAnswer, SiteLink } from "@ep0ch/outline-core/site";
+import type { PropsSpec, SiteAnswer, SiteLink } from "@ep0ch/outline-core/site";
 import { propValueSource, useCallAt, type TemplateUseAnswer, type TemplateUseRequest, type UseProblem } from "@ep0ch/outline-core/template-use";
 import { blockDisplayTitle } from "./references";
 import { answerSite, type SiteStore } from "./site-answer";
@@ -138,4 +138,13 @@ export function templateUse(store: TemplateUseStore, request: TemplateUseRequest
   const checked = checkProps(spec, resolved, title, call.of);
   for (const problem of checked.problems) problems.push(problem);
   return answer({ template: info, props: checked.values, spec: declared.spec, missing: checked.missing });
+}
+
+/** `template.props`: the props a template declares (what a person is asked for when they stamp or use it), and how it was found. */
+export function templatePropsOf(store: TemplateUseStore, request: { of: string }): { template: { id: string; title: string; how: string }; spec: PropsSpec; problems: string[] } {
+  if (!request || typeof request.of !== "string" || !request.of.trim()) throw new Error("template.props needs of: the template ([[page]], ((id)), a Work ID, or type:meeting)");
+  const found = findTemplate(store, request.of);
+  if (!found.ok) throw new Error(`${found.message}${found.didYouMean.length ? `; did you mean ${found.didYouMean.join(" or ")}?` : ""}`);
+  const declared = templateProps(found.block);
+  return { template: { id: found.block.id, title: blockDisplayTitle(found.block), how: found.how }, spec: declared.spec, problems: declared.problems };
 }
