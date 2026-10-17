@@ -502,6 +502,8 @@ const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
 class Step<I> {
   constructor(private readonly d: Draft<I>, private readonly ctx: Ctx<I>) {}
   private get agent() { return this.ctx.actor.kind === "agent" && !this.ctx.person.yolo; }
+  /** An agent in yolo: the person handed it the door, so their locks don't hold it either. */
+  private get yolo() { return this.ctx.actor.kind === "agent" && !!this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
   private isFloat(id: I) { return this.d.floats.some(f => f.id === id); }
@@ -526,7 +528,7 @@ class Step<I> {
     return key ? `the ${key} container` : by;
   }
   /** The shape can't change around tile `id`: it, or a container over it, is locked. */
-  private shape(id: I, what: string) { const e = this.policyAt(id); refuse(e.locked ? this.lockedWhy(e, what) : null); }
+  private shape(id: I, what: string) { const e = this.policyAt(id); refuse(e.locked && !this.yolo ? this.lockedWhy(e, what) : null); }
   /** A float has no place in the tree: whatever needs one waits until it's back in the layout. */
   private notFloat(id: I, what: string) {
     refuse(this.isFloat(id) ? `${this.name(id)} is a float: ${what} needs a tile in the layout · ^W f (o on the board) or a click on its ⧉ puts it back first` : null);
@@ -557,7 +559,7 @@ class Step<I> {
   /** Tile `id` can't leave where it is: locked, or its container keeps its tiles (draggable off). */
   private drag(id: I) {
     const e = this.policyAt(id);
-    if (e.locked) refuse(this.lockedWhy(e, `moving ${this.name(id)}`));
+    if (e.locked && !this.yolo) refuse(this.lockedWhy(e, `moving ${this.name(id)}`));
     if (!e.draggable) refuse(this.kept(id, e.by.draggable, `${this.name(id)} stays where it is: ${this.whose(e.by.draggable)} keeps its tiles in place · ^W P there turns draggable on`));
   }
   /**
@@ -591,7 +593,7 @@ class Step<I> {
       e = to.near !== undefined && has(this.d.tree, to.near) ? this.policyAt(to.near) : effective([{ by: "screen", policy: this.d.policy }]);
       there = "a float";
     }
-    if (e.locked) refuse(this.lockedWhy(e, `putting ${label} by ${there}`));
+    if (e.locked && !this.yolo) refuse(this.lockedWhy(e, `putting ${label} by ${there}`));
     if (to.kind === "float") return;
     if (!e.droppable) refuse(`${this.whose(e.by.droppable)} takes no drops: ${label} can't go by ${there} · ^W P there turns droppable on`);
     if (e.accepts && !e.accepts.includes(kind)) refuse(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not ${label} (${kind})`);
@@ -601,7 +603,7 @@ class Step<I> {
   /** A border of container `n` can't move: locked, not resizable, a kid beside it with a fixed size, or a flow. */
   private resizeWhy(n: Container<I>, border?: number): string | null {
     const e = this.ofNode(n);
-    if (e.locked) return this.lockedWhy(e, "resizing");
+    if (e.locked && !this.yolo) return this.lockedWhy(e, "resizing");
     if (!e.resizable) return `${this.whose(e.by.resizable)} keeps its sizes · ^W P there turns resizable on`;
     if (n.t === "flow") return `${n.id ?? "the flow"} sizes its columns itself: ^W W (tile.widen) gives one the wide place`;
     if (isLine(n) && border !== undefined) for (const k of [n.kids[border], n.kids[border + 1]]) if (k && k.t !== "leaf" && k.policy?.resizable === false) return `${k.id ?? k.t} keeps its size · ^W P there turns resizable on`;
@@ -1072,12 +1074,12 @@ class Step<I> {
   private land(id: I, at?: At<I>) {
     this.guard(id, "float");
     const e = effective([{ by: "screen", policy: this.d.policy }]);
-    if (e.locked) refuse(this.lockedWhy(e, `putting ${this.name(id)} back`));
+    if (e.locked && !this.yolo) refuse(this.lockedWhy(e, `putting ${this.name(id)} back`));
     const kind = this.facts(id).kind, name = this.name(id);
     const why = (next: LNode<I>): string | null => {
       if (!has(next, id)) return `there's no place for ${name} in the layout`;
       const e = effective([{ by: "screen", policy: this.d.policy }, ...chainOf(next, id).map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
-      if (e.locked) return this.lockedWhy(e, `putting ${name} back`);
+      if (e.locked && !this.yolo) return this.lockedWhy(e, `putting ${name} back`);
       if (!e.droppable) return `${this.whose(e.by.droppable)} takes no drops: ${name} doesn't land there · ^W P there turns droppable on`;
       if (e.accepts && !e.accepts.includes(kind)) return `${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not ${name} (${kind})`;
       return null;
@@ -1323,7 +1325,7 @@ class Step<I> {
   }
 
   private even() {
-    if (this.d.policy.locked) refuse(`the screen is locked: evening it out is refused · ${UNLOCK}`);
+    if (this.d.policy.locked && !this.yolo) refuse(`the screen is locked: evening it out is refused · ${UNLOCK}`);
     // A split that keeps its sizes (locked, resizable off) keeps them.
     even(this.d.tree, n => !!this.resizeWhy(n));
   }
@@ -1351,7 +1353,7 @@ class Step<I> {
     const name = c === "screen" ? "screen" : c!.id ?? c!.t;
     const before: Policy = c === "screen" ? this.d.policy : c!.policy ?? {};
     const e = c === "screen" ? effective([{ by: "screen", policy: this.d.policy }]) : this.ofNode(c!);
-    if (e.locked && [...Object.keys(op.set), ...op.clear].some(k => k !== "locked")) refuse(this.lockedWhy(e, `changing ${name}'s policy`));
+    if (e.locked && !this.yolo && [...Object.keys(op.set), ...op.clear].some(k => k !== "locked")) refuse(this.lockedWhy(e, `changing ${name}'s policy`));
     if (op.set.opensInto !== undefined) {
       const to = named(this.d, op.set.opensInto);
       if (to === undefined && !node(this.d.tree, op.set.opensInto)) refuse(`no tile or container ${op.set.opensInto} for opens to land in`);
@@ -1536,7 +1538,7 @@ class Step<I> {
   private widen(id: I) {
     const f = this.flowOf(id);
     const e = this.ofNode(f.flow);
-    if (e.locked) refuse(this.lockedWhy(e, "widening"));
+    if (e.locked && !this.yolo) refuse(this.lockedWhy(e, "widening"));
     // The column the person is typing in never squeezes under them for an agent's shift.
     const typing = this.ctx.person.typingIn;
     if (this.agent && typing !== null && typing !== id && columnOf(f.flow, typing) >= 0) refuse(`the person is typing in ${this.name(typing)}, a column of this flow; an agent's widen would squeeze it (block.mark gets their attention)`);
@@ -1564,7 +1566,7 @@ class Step<I> {
   private holdColumn(id: I, on: boolean | undefined) {
     const f = this.flowOf(id);
     const e = this.ofNode(f.flow);
-    if (e.locked) refuse(this.lockedWhy(e, "holding a column"));
+    if (e.locked && !this.yolo) refuse(this.lockedWhy(e, "holding a column"));
     const was = (f.flow.held ?? []).some(t => columnOf(f.flow, t) === f.ci);
     const want = on ?? !was;
     if (want === was) this.d.changed = false;

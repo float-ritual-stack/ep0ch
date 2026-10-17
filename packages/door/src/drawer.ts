@@ -1602,7 +1602,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       const p = drawer.tile;
       // The agent's own window: the person who typed into it lately may be about to again.
       const idle = Date.now() - (p?.personKeyAt ?? 0);
-      if (actor.kind === "agent" && p && idle < RESTART_IDLE_MS) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
+      if (actor.kind === "agent" && p && idle < RESTART_IDLE_MS && !ctx.agentsYolo) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
       ctx.flash(`restarting ${drawer.name}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
       return drawer.restart().then(r => ({ ...r, name: drawer.name }));
     },

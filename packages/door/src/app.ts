@@ -1362,7 +1362,8 @@ export class App implements Ctx {
     const extFrom = cols - width(extPart + tail);
     this.extAt = ext && extFrom >= 0 ? { from: extFrom, to: extFrom + width(ext), row: this.term.info.rows - 1 } : null;
     const tailFrom = cols - width(tail), row = this.term.info.rows - 1;
-    this.yoloAt = yoloPart && from >= 0 ? { from, to: from + 4, row } : null;
+    // statusLine keeps " │ " ahead of the right part, so it starts at 3 at the least.
+    this.yoloAt = yoloPart ? { from: Math.max(3, from), to: Math.max(3, from) + 4, row } : null;
     this.videoAt = tailFrom >= 0 ? { from: tailFrom, to: tailFrom + width(this.video), row } : null;
     this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
     const chipFrom = from + width(yoloPart);

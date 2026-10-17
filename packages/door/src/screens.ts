@@ -1160,7 +1160,7 @@ export class MessageReader implements Screen {
       navigate: (m, how) => {
         // An agent never takes the person's keys: while they're in an edit, a comment or the panel here,
         // what it followed is named, not opened over them.
-        if (how?.by?.kind === "agent" && this.surface.holdsKeys) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m).slice(0, 50)}`); return; }
+        if (how?.by?.kind === "agent" && this.surface.holdsKeys && !ctx.agentsYolo) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m).slice(0, 50)}`); return; }
         ctx.push(new MessageReader([m], 0));
       },
       header: (m, w, info) => this.header(m, w, info),

@@ -401,7 +401,7 @@ export class Dispatcher {
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.
-    if (actor.kind === "agent" && def.person) throw new ActionRefused(def.person);
+    if (actor.kind === "agent" && def.person && !this.where().yolo) throw new ActionRefused(def.person);
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
     const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);

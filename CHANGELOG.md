@@ -14,7 +14,9 @@ are its record. The outliner's entries from then are kept below, under
 
 `agents.yolo` in the power bar (ctrl+k) hands the door to your agents until you take it back. In yolo no guard of
 yours holds an agent back: not your typing (in the drawer or on the screen), your focus, the two idle seconds, a
-tile's agent limit or a lock. Use it when a screen is in a state you want an agent to just fix. What keeps state valid
+tile's agent limit, a lock or an action that is otherwise yours alone. Use it when a screen is in a state you want an
+agent to just fix. One thing stays: an agent never types into the draft you're typing in (`draft.patch` lands in it),
+so what you write always lands. What keeps state valid
 (revisions, the layout's own shape) still holds, and every agent action is still attributed and said. The status bar
 shows a red **YOLO** while it's on; a click on it (or `agents.yolo on=false`) takes it back. It's off whenever the door
 starts. Turning it on is yours; an agent may turn it off.

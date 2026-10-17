@@ -262,6 +262,10 @@ describe("agents never take the person's place (C3, C4)", () => {
   test("C4: an agent undoes only a lock it set; the person's are theirs, by lock, by policy, by loading a layout", () => {
     let s = ok(fresh(), { op: "lock", on: true }).state;
     no(s, { op: "lock", on: false }, /the screen was locked by the person; an agent doesn't unlock it/, AGENT);
+    // In yolo the person's lock doesn't hold an agent: it evens the screen out as it is, or unlocks it.
+    no(s, { op: "even" }, /the screen is locked/, AGENT);
+    expect(ok(s, { op: "even" }, AGENT, { yolo: true }).state).toBeTruthy();
+    expect(ok(s, { op: "lock", on: false }, AGENT, { yolo: true }).state.policy.locked).toBeFalsy();
     no(s, { op: "policy", node: "screen", set: { locked: false }, clear: [] }, /locked by the person/, AGENT);
     no(s, { op: "policy", node: "screen", set: {}, clear: ["locked"] }, /locked by the person/, AGENT);
     s = ok(s, { op: "lock", on: false }).state;
