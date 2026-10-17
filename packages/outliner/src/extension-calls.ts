@@ -477,6 +477,32 @@ export class ExtensionCalls {
     }, 0);
   }
 
+  /** The handler keys the registry served last time, with the stamp of the source that served each. */
+  private served = new Map<string, string>();
+
+  /**
+   * The registry loaded or changed a source: a line that names a handler it now serves for the first time, or with new code,
+   * is drawn (it may have been written before its script existed, and nothing else would draw it again).
+   */
+  registryChanged(): void {
+    if (this.stopped) return;
+    const now = new Map<string, string>();
+    for (const extension of this.registry.serving()) {
+      for (const handler of extension.manifest.handlers ?? []) now.set(handler.key, `${extension.id}:${extension.stamp ?? extension.version}`);
+    }
+    const changed = [...now].filter(([key, stamp]) => this.served.get(key) !== stamp).map(([key]) => key);
+    this.served = now;
+    const readers = new Set<string>();
+    for (const key of changed) {
+      for (const row of this.store.queryBlocks({ where: `text~"${key}::"`, limit: 200 }).blocks) readers.add(row.id);
+    }
+    // A pass on open runs only what is out of date or never ran, so lines already drawn cost a look.
+    for (const id of [...readers].slice(0, 500)) {
+      const block = this.store.get(id);
+      if (block && mayHaveHandlerLines(block.text)) void this.materialize(id, "open").catch(() => {});
+    }
+  }
+
   /**
    * A block changed that handler lines read: its parent's lines read it as a child, and a line that names it
    * reads it too. Those lines run again if what they read is different (`inputs`), as on open; an extension's own
