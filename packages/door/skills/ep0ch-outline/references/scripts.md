@@ -56,6 +56,13 @@ A script started by a press may move the person's tiles (their press invited the
 transaction (undone with `ext.undo`, or put back if the run is stopped). An agent passes `txn=<id>` to any action to join one
 and closes it with `layout.txn.end txn=<id>`; `layout.undo` takes the newest change back (its own, for an agent).
 
+### Fantasia, the whole chain in one button
+
+`::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia}` runs a script that floats the screen's tiles, dances them
+with `motion=fantasia` and settles them back, as one layout transaction a press invited. The script, step by step and for an agent, a
+stop and an undo, is `packages/outliner/docs/scripts-worked-fantasia.md` (the worked example), and `ep0ch --showcase` has it live
+(`act section name=fantasia`).
+
 ## Looking at a script's output
 
 `ep0ch show` draws the note and its values but not what a script or other extension line returns: that is drawn by a door's

@@ -1028,6 +1028,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "fantasia", need: "press one button and watch the screen dance, then settle: the whole self-reference wave in one click", part: "a `::button` (outline-core button-call.ts) runs the fantasia script as you with a one-run invitation; the script's `act()` calls are one layout transaction (txn=<run id>, motion=fantasia) that the desk draws as movement, closes when scripts.ended says the run did, puts back if it stops early, and layout.undo / ext.undo take back in one step", files: "src/surface/note.ts (runPress), src/surface/invite.ts, src/surface/txn.ts, src/desk/layout-history.ts, src/motion.ts, outliner/src/script-runs.ts",
+    aside: "click ✦ Fantasia (or ⏎ on it): the tiles float, wander and settle back; your press invited the run, so it may move the tile you are in too · act ext.<id>.run block=<this note> beats=3 as an agent runs the same script attributed to it: no invitation, so the tile you are in stays · script.stop run=<id> (or esc on the run) stops it between beats and puts the layout back · ctrl+z (layout.undo) or ext.undo takes the whole run back in one step · motion.set mode=calm or off caps the dance · a locked screen refuses, a tile you type in is never moved",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane(), d2 = new ReaderPane();
+      return deskOf({ title: "showcase · fantasia", panes: [a, b, c, d2], names: ["notes", "source", "extra", "more"], layout: ([w, x, y, z]) => pair("col", 0.5, row(0.5, w!, x!), row(0.5, y!, z!)) }, show, [[a, n.fantasia], [b, n.scripts], [c, n.shed], [d2, n.heap]]);
+    },
+  },
+  {
     key: "one-place", need: "keep your place when reading, editing and returning to a held edit", part: "NoteSurface and Draft share source positions through Doc.source; DraftSession keeps the edit in the ReaderMode stack; PaneView.scroll draws its bar", files: "src/reader-position.ts, src/surface/note.ts, src/edit.ts, src/draft-session.ts",
     aside: "Scroll halfway, then e and Enter: the same line stays put. Click the shed, wheel the held edit, click back once to focus, again to place the cursor. Wheel away and type to return to the cursor. The scroll bar stays visible in both edits. Esc returns to reading at the same source line.",
     stage(n, show) {
@@ -1264,6 +1272,9 @@ export class Showcase implements Screen {
 
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
   settle(): boolean { return [...this.stages.values()].map(f => f.settle()).some(Boolean); }
+  scriptEnded(run: string, reason: "done" | "stopped" | "failed") { for (const f of this.stages.values()) f.scriptEnded(run, reason); }
+  scriptUndone(run: string) { for (const f of this.stages.values()) f.scriptUndone(run); }
+  scriptsLost() { for (const f of this.stages.values()) f.scriptsLost(); }
   onEvent(e: OutlineEvent) {
     for (const f of this.stages.values()) f.onEvent(e);
     if (this.reseeding && e.action !== "reconnected" && e.action !== "reset") this.reread();

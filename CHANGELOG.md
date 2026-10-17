@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Fantasia: one button, the whole chain (PIE-959, S9 of the self-reference wave)
+
+`::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia}` in a note floats the screen's tiles, dances them with
+`motion=fantasia` and settles them back, as one layout transaction: your press invites it (it may move the tile you are in), an agent's run
+is the same script without the invitation (that tile stays), stopping it puts the layout back, and one `layout.undo` takes the whole run
+back. The showcase has it (`act section name=fantasia`); the worked example is `packages/outliner/docs/scripts-worked-fantasia.md`.
+`motion=` on a button is the script's `props.motion`; alone on any action it is a hint for that one action. The showcase screen forwards
+script ends and undos to the desks it stages.
+
 ### Layout changes move (PIE-958, S8 of the self-reference wave)
 
 What you can now do: a layout change shows itself. Close a tile, load a layout, press a script's button, undo: the tiles that

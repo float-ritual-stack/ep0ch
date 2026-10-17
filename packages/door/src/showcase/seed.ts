@@ -74,6 +74,9 @@ export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: M
   return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.proposalId ?? "", ...(retry.deduped ? { deduped: true } : {}) } } };
 }
 
+/** The Fantasia script's code (PIE-959). */
+export const FANTASIA = "const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));\nconst tempo = Math.max(150, Math.min(3000, Number(props.tempo && props.tempo[0]) || 500));\nconst style = (props.motion && props.motion[0]) || 'fantasia';\nconst home = (props.layout && props.layout[0]) || '';\nconst before = await act('layout.get');\nif (before.locked) return 'fantasia: the screen is locked; alt+k unlocks it, then run again';\nconst dancers = (before.tiles || []).filter(t => t.shown && t.kind !== 'drawer.own').map(t => ({ id: t.id, name: t.name }));\nconst notes = [], floated = [];\nfor (const d of dancers) {\n  try { await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push(d); }\n  catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }\n}\nif (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');\nconst drift = [[7, -2], [-5, 3], [6, 2], [-8, -3], [4, 4], [-4, -4], [9, 1], [-6, 2]];\nfor (let beat = 0; beat < beats; beat++) {\n  for (let i = 0; i < floated.length; i++) {\n    const [dx, dy] = drift[(beat + i * 3) % drift.length];\n    try { await act('float.place', { tile: floated[i].id, dx: i % 2 ? -dx : dx, dy, motion: style }); }\n    catch (e) { notes.push('beat ' + (beat + 1) + ', ' + floated[i].name + ': ' + (e && e.message || e)); }\n  }\n  await wait(tempo);\n}\nlet settled = '';\nif (home) {\n  try { await act('layout.load', { name: home, motion: 'settle' }); settled = 'into the screen ' + home; }\n  catch (e) { notes.push('layout.load ' + home + ': ' + (e && e.message || e)); }\n}\nif (!settled) {\n  let back = 0;\n  for (const d of floated) { try { await act('tile.float', { tile: d.id, on: false, motion: 'settle' }); back++; } catch (e) { notes.push(d.name + ' is still a float: ' + (e && e.message || e)); } }\n  settled = back + ' of them back in the layout';\n}\nreturn 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\\nnotes: ' + notes.join('; ') : '');";
+
 export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string; outliner?: string; rulesFrom?: string } = {}): Promise<Seeded> {
   if (await findShowcase(board)) throw new Error("this outline already has a showcase; reset it (scripts/try-it.sh --showcase --reset) rather than seeding twice");
   const make = (parentId: string | null, text: string, actor: Actor = { kind: "user" }) => board.createBlock(parentId, text, actor);
@@ -186,6 +189,13 @@ if (request.input.request === "describe the beds") {
     `${SEED.motion}`,
     "Press the button: its script floats the two tiles beside this one, moves them, and settles them back. Each change glides from where the tile was to where it is (a script asks for motion=fantasia; the setting caps it: motion.set mode=calm or off). Nothing flashes or changes brightness, and any key or click snaps it. ctrl+z puts the whole run's layout back.",
     '::button{label="✦ Shuffle the tiles" of=shuffle-tiles}',
+  ].join("\n"));
+  // Fantasia (PIE-959): the acceptance script. A press floats every tile it may, dances them with motion=fantasia and settles them.
+  await make(notes.scripts.id, "Fantasia [script::fantasia] [effects::write]\n```js\n"+FANTASIA+"\n```");
+  notes.fantasia = await make(notes.root.id, [
+    SEED.fantasia,
+    "Press the button: a script floats the tiles, dances them a few beats with motion=fantasia and settles them back into the layout. Your press invites it, so it may move the tile you are in too; an agent's run (act ext.<id>.run) leaves that one where it is. Nothing you type is touched. esc stops it between beats and the layout is put back; ctrl+z (layout.undo) takes the whole run back in one step.",
+    '::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia}',
   ].join("\n"));
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [

@@ -74,6 +74,10 @@ export class FramedScreen {
   tick() { return this.stack.some(s => s.tick?.(this.ctx) ?? false); }
   /** Snap any motion in the screens in this frame (a peek or snapshot reads the settled screen). */
   settle() { return this.stack.map(s => s.settle?.() ?? false).some(Boolean); }
+  /** A script run's end, undo or loss (PIE-957): the screens in this frame close, take back or end the layout transactions they hold. */
+  scriptEnded(run: string, reason: "done" | "stopped" | "failed") { for (const s of this.stack) s.scriptEnded?.(run, reason); }
+  scriptUndone(run: string) { for (const s of this.stack) s.scriptUndone?.(run); }
+  scriptsLost() { for (const s of this.stack) s.scriptsLost?.(); }
   onEvent(e: import("../socket").OutlineEvent) { for (const s of this.stack) s.onEvent?.(e, this.ctx); }
   unsaved() { return this.stack.some(s => s.unsaved?.() ?? false); }
   keepDrafts() { return this.stack.flatMap(s => s.keepDrafts?.() ?? []); }

@@ -119,7 +119,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
   test("txn=<id> and motion=<style> are open to every action; motion needs a txn; a bad id is refused with the shape", async () => {
     await act("tile.focus", { txn: "t-open" }, names()[0]);
     await act("tile.focus", { txn: "t-open", motion: "fantasia" }, names()[0]);
-    await expect(act("tile.focus", { motion: "fantasia" }, names()[0])).rejects.toThrow("motion= is part of a transaction");
+    await act("tile.focus", { motion: "fantasia" }, names()[0]);   // alone it is a hint for that one action
     await expect(act("tile.focus", { txn: "bad id!" }, names()[0])).rejects.toThrow("txn= is an id");
   });
 

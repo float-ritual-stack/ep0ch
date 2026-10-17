@@ -624,9 +624,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private recordChange(before: LayoutSpec, by: Actor, what: string) {
     if (this.replaying) return;
     const scope = TXN.getStore(), now = Date.now();
-    if (scope) this.history.join(scope.txn, by, before, now, scope.motion);
+    if (scope?.txn) this.history.join(scope.txn, by, before, now, scope.motion);
     this.history.record(before, by, what, now, scope?.txn);
-    this.startMotion(scope?.motion ?? (scope ? this.history.openTxn(scope.txn)?.motion : undefined), what);
+    this.startMotion(scope?.motion ?? (scope?.txn ? this.history.openTxn(scope.txn)?.motion : undefined), what);
   }
 
   /**
