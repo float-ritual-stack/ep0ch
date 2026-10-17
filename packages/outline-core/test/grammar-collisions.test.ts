@@ -27,6 +27,8 @@ describe("--- has four jobs", () => {
   test("a first-line divider with no keys is a divider, not empty front matter", () => {
     expect(readFrontMatter("---\n\nA paragraph.\n\n---\nTail\n")).toBeNull();
     expect(readNoteFile("---\n\nA paragraph.\n---\n")).toBeNull();
+    expect(readFrontMatter("---\nA paragraph.\n---\nTail")).toBeNull();
+    expect(readFrontMatter("---\n---\nTail")).toEqual({ fields: [], rest: "Tail" });
     // A real block still reads, and everything before the first blank line is the note's.
     expect(readFrontMatter("---\ntype: job\n---\nBody")?.fields).toEqual([["type", "job"]]);
     // The divider is the note's whole first paragraph: a key under it is a line's, not the note's.

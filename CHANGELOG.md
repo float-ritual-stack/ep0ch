@@ -19,7 +19,7 @@ are its record. The outliner's entries from then are kept below, under
   matter (the front-matter block is the first paragraph, as PIE-684 says), so importing it no longer swallows the text
   between the dividers.
 - Tests pin the other collisions: `---` as a figure fence, a rule or a table row; `std::vec` and `Foo::bar` mid-prose
-  are neither a component nor a property; a pasted `@handle said…`, an address or `@name.host` wakes no agent.
+  are neither a component nor a property; an `@name` wakes an agent only at a line start and only for a name an agent answers (`@e_p82 said…`, `@tidy.host`, `me@tidy.host` and `ask @tidy` wake nothing).
 
 ### One placeholder grammar, `{{ path || default }}` (PIE-950, PIE-533)
 

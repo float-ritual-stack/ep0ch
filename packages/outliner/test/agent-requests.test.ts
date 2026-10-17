@@ -125,7 +125,7 @@ test("request lines: an answered @name at a line's start, outside code; unknown 
   expect(lines[0]!.requestKey).not.toBe(lines[1]!.requestKey);
 });
 
-test("request lines: a pasted tweet, an email address, a handle with other characters and a mid-line @tidy wake nothing", () => {
+test("request lines: only an answered @name at a line start wakes: another handle, an email address, a host, a capital and a mid-line @tidy are prose", () => {
   const names = new Set(["tidy"]);
   const pasted = "@e_p82 said the thing\nsam@tidy.example.com wrote\n@tidy.example.com is a host\n@tidy@mastodon.example\n@Tidy loud\nask @tidy later\n  - @tidy still";
   expect(requestLines(pasted, names).map((line) => line.line)).toEqual([6]);

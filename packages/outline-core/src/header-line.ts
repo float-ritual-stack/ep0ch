@@ -188,6 +188,8 @@ export function readFrontMatter(file: string): { fields: FrontMatterField[]; res
     const kv = /^("(?:[^"\\]|\\.)*"|[^:\s][^:]*?):\s*(.*)$/.exec(l);
     if (kv) fields.push([kv[1]!.startsWith('"') ? JSON.parse(kv[1]!) : kv[1]!, scalar(kv[2]!)]);
   }
+  // Divider lines around prose hold no fields: only a block with a field (or an empty `---`/`---` pair) is front matter.
+  if (fields.length === 0 && close > 1) return null;
   return { fields, rest: lines.slice(close + 1).join("\n") };
 }
 
