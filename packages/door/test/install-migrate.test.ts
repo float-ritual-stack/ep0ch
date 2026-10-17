@@ -97,6 +97,9 @@ beforeAll(async () => {
   newHead = git("rev-parse", "HEAD");
   git("push", "-q", "origin", "main"); git("reset", "-q", "--hard", oldHead);
   sh([bun, "install", "--frozen-lockfile"], repo, 300_000);
+  git("worktree", "add", "-qb", "inspect", join(root, "inspect"));
+  mkdirSync(join(root, "inspect/.claude"), {recursive: true});
+  writeFileSync(join(root, "inspect/.claude/settings.local.json"), JSON.stringify({permissions: {allow: ["mcp__pi-outliner"]}}));
   for (const d of [clientHome, clientOutlines, clientBin, join(clientOutlines, ".host")]) mkdirSync(d, { recursive: true, mode: 0o700 });
   sh(["git", "clone", "-q", origin, clientRepo]);
   sh(["git", "-C", clientRepo, "reset", "--hard", oldHead]);
@@ -193,6 +196,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(r1.ok).toBe(false);
     expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("away\nworkstation\n");
     expect(r1.steps.find(s => s.id === "repo")!.done!.join(" ")).toContain(`fast-forwarded ${oldHead.slice(0, 7)} → ${newHead.slice(0, 7)}`);
+    expect(r1.steps.find(s => s.id === "repo")!.done!.join(" ")).toContain("RUN AGAIN: ep0ch install --apply");
     const schema = r1.steps.find(s => s.id === "schema")!;
     expect(schema.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", `allotment: schema ${N} → ${M}`]);
     expect(schema.error).toContain(`migrating compost (schema ${N} → ${M}) failed`);
@@ -241,6 +245,10 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     const r2 = JSON.parse(second.out) as typeof r1;
     expect({ code: second.code, ok: r2.ok, err: r2.steps.find(s => s.error)?.error }).toEqual({ code: 0, ok: true, err: undefined });
     expect(r2.steps.find(s => s.id === "repo")!.status).toBe("skip");
+    for (const directory of [home, clientHome]) {
+      expect(JSON.parse(readFileSync(join(directory, ".claude/settings.json"), "utf8")).permissions.allow).toContain("mcp__ep0ch");
+    }
+    expect(JSON.parse(readFileSync(join(root, "inspect/.claude/settings.local.json"), "utf8")).permissions.allow).toEqual(["mcp__ep0ch"]);
     // The host started by hand is stopped through its unit first.
     expect(r2.steps.find(s => s.id === "schema")!.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", `compost: schema ${N} → ${M}`]);
     // The sweep: the host was already down for the migration, so it stops nothing more; the old form is in the new grammar.

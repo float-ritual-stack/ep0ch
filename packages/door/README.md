@@ -494,9 +494,14 @@ exits 1), and · for information:
 
 1. **Back up** every outline (`<outlines>/*.sqlite`) with SQLite's `VACUUM INTO`, a consistent copy even while
    the host writes, into `~/backups/ep0ch/<UTC timestamp>/<name>.sqlite`, integrity-checked. It runs before any
-   other step changes anything, and not at all when nothing else changes.
+   other step changes anything, and not at all when nothing else changes. Install keeps the last 10 backup
+   runs per outline (`EP0CH_INSTALL_KEEP` overrides the count), pruning older copies before the space check
+   and after a successful backup. Old backups are pruned even when no new copy is needed. It checks destination free space against the database and WAL sizes before
+   copying; a refusal reports bytes needed, bytes available, old install backups and worktree disk usage.
 2. **Update the ep0ch checkout**: `git pull --ff-only`, then `bun install --frozen-lockfile` at its root when
-   needed. The door, the outliner and outline-core move together.
+   needed. The door, the outliner and outline-core move together. After a fast-forward it prints
+   **RUN AGAIN: ep0ch install --apply**: this process still uses the install code it started with, so the
+   second run picks up newly added or changed steps.
 3. **The plugin in Herdr**: nothing to do when Herdr links this checkout's `packages/outliner`. A managed install
    is refreshed with `herdr plugin install float-ritual-stack/ep0ch/packages/outliner --ref main --yes` (Herdr has
    no update command). A link to another checkout is yours to change (`herdr plugin unlink float.pi-outliner`,
@@ -597,6 +602,12 @@ A checkout from before `install` gets it by hand, once:
     bun packages/door/src/main.ts doctor
     bun packages/door/src/main.ts install              # read the plan
     bun packages/door/src/main.ts install --apply      # then ep0ch is on PATH: ep0ch doctor
+
+Every apply also runs `packages/outliner/scripts/install-claude-mod.ts`, including on client
+machines. It renames old plugin keys and permission rules in user settings and known checkouts,
+and adds `mcp__ep0ch` to `permissions.allow` without prompting. `--no-allow` skips that addition.
+It lists user systemd units and launchd agents still naming the old tools without rewriting them.
+See [the mod installer](../claude-mod/README.md#use) for the rename and saved UI state decision.
 
 ## Run
 

@@ -46,7 +46,7 @@ function installMod(): string {
   mkdirSync(join(mod, "hooks"), { recursive: true });
   mkdirSync(join(mod, ".claude-plugin"), { recursive: true });
   writeFileSync(join(mod, "hooks", "register.ts"), "// the mod\n");
-  writeFileSync(join(mod, ".claude-plugin", "plugin.json"), "{}\n");
+  writeFileSync(join(mod, ".claude-plugin", "plugin.json"), '{"name":"pi-outliner"}\n');
   const old = new Date(Date.now() - 3600_000);
   utimesSync(join(mod, "hooks", "register.ts"), old, old);
   utimesSync(join(mod, ".claude-plugin", "plugin.json"), old, old);
@@ -256,8 +256,10 @@ describe("what a running agent knows", () => {
       updateMod(mod);
       await d.app.drawer.readKnows();
       expect(d.app.drawer.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
-      // Stale is an older door's missing variables now; stand that in, then restart by ⟳.
-      (d.app.drawer as any).knows = { state: "stale", why: "started by an older door, without EP0CH_TILE_ID" };
+      // A plugin rename changes tool registration, which hot reload cannot replace.
+      writeFileSync(join(mod, ".claude-plugin/plugin.json"), '{"name":"ep0ch"}');
+      await d.app.drawer.readKnows();
+      expect(await d.app.act({ action: "agent.knows", args: {}, as: "helper" })).toMatchObject({ knows: { state: "stale" } });
       expect(d.app.drawer.chipText()).toMatch(/^▼ claude · (idle|working) · started before update ⟳$/);
 
       // ⟳ is the chip's last cell: a click there restarts; anywhere else on the chip still toggles the drawer.

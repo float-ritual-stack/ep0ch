@@ -1,4 +1,4 @@
-import {readFile,writeFile,copyFile,rename,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,copyFile,rename,mkdir,readdir} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {resolve,join,dirname,isAbsolute,delimiter} from 'node:path';
 import {boundFolderOf} from '../src/paths';
@@ -18,12 +18,13 @@ import {boundFolderOf} from '../src/paths';
 // the allowlist) makes the mod feed nothing anywhere until the mode is set; the
 // installer says so, and --folder drops it, naming the listed folders bound to
 // no outline.
-const usage='Usage: install-claude-mod.ts [--project FOLDER]... [--exclude FOLDER]... | --folder | [--allowlist] FOLDER...';
+const usage='Usage: install-claude-mod.ts [--no-allow] [--project FOLDER]... [--exclude FOLDER]... | --folder | [--allowlist] FOLDER...';
 const excluded:string[]=[];
 const projectsArg:string[]=[];
 const allowed:string[]=[];
 let toFolderMode=false;
 let allowlistFlag=false;
+let allowTools=true;
 for(let i=2;i<process.argv.length;i++){
  const argument=process.argv[i]!;
  if(argument==='--exclude'){
@@ -34,7 +35,8 @@ for(let i=2;i<process.argv.length;i++){
   const folder=process.argv[++i];
   if(!folder||!isAbsolute(folder))throw Error(`--project needs an absolute folder. ${usage}`);
   projectsArg.push(folder);
- }else if(argument==='--folder')toFolderMode=true;
+ }else if(argument==='--no-allow')allowTools=false;
+ else if(argument==='--folder')toFolderMode=true;
  else if(argument==='--allowlist')allowlistFlag=true;
  else if(argument.startsWith('-'))throw Error(`Unknown option ${argument}. ${usage}`);
  else allowed.push(argument);
@@ -52,41 +54,35 @@ const source=await readFile(settingsPath,'utf8').catch((error:NodeJS.ErrnoExcept
  settingsExist=false;
  return '{}';
 });
-let settings:{env?:Record<string,string>};
+let settings:{env?:Record<string,string>;permissions?:{allow?:string[]}};
 try{settings=JSON.parse(source);}catch(error){throw Error(`${settingsPath} is not valid JSON (${(error as Error).message}); no configuration was changed. Fix or remove it, then run: bun ${import.meta.path}`);}
 if(!settings||typeof settings!=='object'||Array.isArray(settings))throw Error(`${settingsPath} is not a JSON object; no configuration was changed.`);
 
-// PIE-971: the mod was called pi-outliner and is now ep0ch. The name is moved only where it means the plugin, so
-// nothing else in a file (a user's own text, another plugin's options) is ever touched:
-//   permission rules (permissions.allow/deny/ask) and hook matchers: mcp__pi-outliner, mcp__pi-outliner__<tool>
-//   plugin keys and plugin-id strings: pi-outliner@<source> in enabledPlugins, pluginConfigs, plugins (installed_plugins)
-// A key already under the new name wins over the old one, and a rule the rename would list twice is kept once.
+// Only Claude's plugin maps and permission rules contain identities we own. Plugin payloads,
+// hooks and arbitrary settings are kept verbatim.
 const OLD_SERVER='mcp__pi-outliner';
 const renameRule=(rule:string)=>rule===OLD_SERVER||rule.startsWith(`${OLD_SERVER}__`)?`mcp__ep0ch${rule.slice(OLD_SERVER.length)}`:rule;
-const renameMatcher=(matcher:string)=>matcher.replace(/mcp__pi-outliner(?=__|\b|$)/g,'mcp__ep0ch');
 const renamePluginId=(id:string)=>id.startsWith('pi-outliner@')?`ep0ch@${id.slice('pi-outliner@'.length)}`:id;
-const PLUGIN_MAPS=new Set(['enabledPlugins','pluginConfigs','plugins']);
-const renameModIn=(value:unknown,key=''):unknown=>{
- if(Array.isArray(value)){
-  const rule=key==='allow'||key==='deny'||key==='ask';
-  const renamed=value.map(item=>typeof item==='string'&&rule?renameRule(item):typeof item==='string'&&PLUGIN_MAPS.has(key)?renamePluginId(item):renameModIn(item,key));
-  // Only an entry the rename changed is dropped when its new form is already listed; other arrays stay as written.
-  return renamed.filter((item,index)=>item===value[index]||!value.includes(item)&&renamed.indexOf(item)===index);
+const renameModIn=(value:Record<string,any>)=>{
+ const out={...value};
+ for(const key of ['enabledPlugins','pluginConfigs','plugins']){
+  const map=value[key];
+  if(!map)continue;
+  if(Array.isArray(map)){out[key]=[...new Set(map.map(renamePluginId))];continue;}
+  out[key]=Object.fromEntries(Object.entries(map).filter(([id])=>renamePluginId(id)===id||!(renamePluginId(id) in map)).map(([id,payload])=>[renamePluginId(id),payload]));
  }
- if(value&&typeof value==='object'){
-  const out:Record<string,unknown>={};
-  const entries=Object.entries(value as Record<string,unknown>);
-  for(const [name,item] of entries){
-   const renamedKey=PLUGIN_MAPS.has(key)?renamePluginId(name):name;
-   if(renamedKey!==name&&entries.some(([other])=>other===renamedKey))continue;
-   out[renamedKey]=typeof item==='string'&&name==='matcher'?renameMatcher(item):PLUGIN_MAPS.has(key)?item:renameModIn(item,name);
+ if(value.permissions){
+  out.permissions={...value.permissions};
+  for(const key of ['allow','deny','ask']){
+   const rules=value.permissions[key];
+   if(rules)out.permissions[key]=[...new Set(rules.map(renameRule))];
   }
-  return out;
  }
- return value;
+ return out;
 };
 /** Every Claude config file that may name the mod: parsed before anything is written, so a malformed one stops the whole step. */
 settings=renameModIn(settings) as typeof settings;
+const settingsRenamed=JSON.stringify(settings)!==JSON.stringify(JSON.parse(source));
 const claudeDir=dirname(settingsPath);
 const projectDirs=[...new Set([...projectsArg,join(homedir(),'projects/ep0ch'),join(homedir(),'float-hub')].map(dir=>resolve(dir)))];
 const otherFiles=[
@@ -133,6 +129,14 @@ env.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS='1';
 const listed=split(env.PI_OUTLINER_MENTIONS_WORKSPACES,/[:,]/);
 const setMode=(env.PI_OUTLINER_MENTIONS_MODE??'').trim();
 const notes:string[]=[];
+if(allowTools){
+ const permissions=settings.permissions??{};
+ if(!permissions.allow?.includes('mcp__ep0ch')){
+  settings.permissions={...permissions,allow:[...(permissions.allow??[]),'mcp__ep0ch']};
+  notes.push(`Added mcp__ep0ch to permissions.allow in ${settingsPath}; ep0ch's own access gates decide tool writes. Use --no-allow to skip adding it.`);
+ }else notes.push(`mcp__ep0ch is already in permissions.allow in ${settingsPath}.`);
+}
+
 const unbound=(folders:string[])=>folders.filter(folder=>{
  try{return !boundFolderOf(folder);}catch{return true;}
 });
@@ -166,8 +170,23 @@ if(allowed.length){
  notes.push(`Opted out: ${listed.join(', ')}.`);
 }
 
+// These are launch commands, not Claude settings: report the exact file for the owner to fix.
+for(const root of [join(process.env.XDG_CONFIG_HOME??join(homedir(),'.config'),'systemd/user'),join(homedir(),'Library/LaunchAgents')]){
+ const walk=async(dir:string):Promise<void>=>{
+  const entries=await readdir(dir,{withFileTypes:true}).catch((error:NodeJS.ErrnoException)=>{if(error.code==='ENOENT')return [];throw error;});
+  for(const entry of entries){
+   const path=join(dir,entry.name);
+   if(entry.isDirectory()){await walk(path);continue;}
+   if(!/\.(service|socket|timer|conf|plist)$/.test(entry.name))continue;
+   const text=await readFile(path,'utf8');
+   if(/mcp__pi-outliner(?=__|[^a-zA-Z0-9_-]|$)/.test(text))
+    notes.push(`Old tool names in ${path}: replace mcp__pi-outliner with mcp__ep0ch (including --allowedTools), then ${path.endsWith('.plist')?'reload this launchd plist':'run systemctl --user daemon-reload and restart the affected unit'}. Running Claude sessions need a restart.`);
+  }
+ };
+ await walk(root);
+}
 for(const plan of renamePlans)notes.push(await applyRenamePlan(plan));
-if(JSON.stringify(settings)!==JSON.stringify(JSON.parse(source)))notes.push(`Renamed the mod from pi-outliner to ep0ch in ${settingsPath}.`);
+if(settingsRenamed)notes.push(`Renamed the mod from pi-outliner to ep0ch in ${settingsPath}.`);
 const next=`${JSON.stringify({...settings,env},null,2)}\n`;
 if(settingsExist&&JSON.stringify(JSON.parse(source))===JSON.stringify(JSON.parse(next))){
  console.log([`Claude Code mod already installed from ${modDir}.`,...notes].join('\n'));

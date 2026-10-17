@@ -559,13 +559,28 @@ in a dim transcript line and never holds the message up. Messages between this s
 
 Function hooks are early access and need `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 
-The installer sets up everything below: `install.sh --claude-mod`, or, from a
+Every `ep0ch install --apply` runs the mod installer on that machine, including client machines.
+The installer can also be run with `install.sh --claude-mod`, or, from a
 checkout, `bun packages/outliner/scripts/install-claude-mod.ts`. It needs no folder.
 `ep0ch doctor` says whether Claude Code loads this checkout's mod.
 
 ```sh
 claude --plugin-dir ~/projects/ep0ch/packages/claude-mod
 ```
+
+The installer adds `mcp__ep0ch` to `permissions.allow` by default, so ep0ch's own MCP access
+and yolo gates decide writes. It renames `pi-outliner@` plugin keys and `mcp__pi-outliner`
+permission rules in user settings and known checkouts (including git worktrees). All configuration
+files are parsed before any is written; malformed JSON names the file and stops the step.
+Other settings, hook matchers and plugin payloads stay as written. User systemd units and
+launchd agents naming the old tools are listed with the required change.
+
+Saved UI state starts fresh under the plugin name `ep0ch`: binding-card visibility, detail
+history and tool-row preferences are not migrated from the old plugin namespace. Outline
+content and Claude conversations are unchanged. A plugin rename requires restarting running
+Claude sessions: `agent.knows` reports stale and the drawer chip shows `started before update ⟳`.
+New door processes carry their starting plugin name; for sessions from older doors, a manifest
+changed after startup also requires restart. Ordinary hook updates still reload live.
 
 To load it in every session, set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` and
 `CLAUDE_CODE_PLUGIN_DIRS=<checkout>/packages/claude-mod` in the `env` block of
@@ -575,6 +590,7 @@ other copy of this mod and backing the file up first.
 | Installer | Does |
 |---|---|
 | `install-claude-mod.ts` | Loads the mod. The folder list and mode are kept; a list with no mode is named (it feeds nothing until the mode is set). |
+| `install-claude-mod.ts --no-allow` | Skip adding the server-wide `mcp__ep0ch` permission. Existing permissions are kept. Also accepted by `ep0ch install --apply`. |
 | `install-claude-mod.ts --exclude /folder` | Opts the folder out (repeatable; `PI_OUTLINER_MENTIONS_MODE=folder`). |
 | `install-claude-mod.ts /folder` (or `--allowlist /folder`) | Strict mode: only these folders feed (`PI_OUTLINER_MENTIONS_MODE=allowlist`). |
 | `install-claude-mod.ts --folder` | Folder mode, dropping an allowlist (strict mode's, or a list with no mode from before folder mode) and naming its folders bound to no outline. |

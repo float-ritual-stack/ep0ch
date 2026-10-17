@@ -19,10 +19,11 @@ import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { ep0ch } from "../session/place";
 import { sshBin } from "../machine";
 import { copyName, type CopyUpdate, newsWords } from "@ep0ch/outliner/extension-update";
+import { prepareInstallBackups, pruneInstallBackups } from "./install-backups";
 import { startDeployRecord } from "./deploy-record";
 
 type Env = Record<string, string | undefined>;
-export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client]";
+export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in] [--no-allow] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client]";
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
@@ -145,7 +146,7 @@ export async function hostReady(f: Facts, verb: "restart" | "start", was: number
 }
 
 /** What a step runs, reported through its task: what it did (`say`), its children's output, its items. */
-async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[], clientOutcome?: (name: string, line: string) => Promise<void>): Promise<void> {
+async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[], clientOutcome?: (name: string, line: string) => Promise<void>, allowTools = true): Promise<void> {
   // `said` is what --json reports, whole; the person sees the same as a ✓ line, or (record, then show) tidied up.
   const record = (s: string) => { said.push(s); };
   const show = (line: string) => task.say(line);
@@ -160,7 +161,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     case "clients": {
       for (const [i, name] of f.installClients!.names.entries()) {
         const command = step.commands[i]!;
-        const r = await run([sshBin(env), "-o", "BatchMode=yes", "--", name, "ep0ch install --apply --as-client"], { env, timeoutMs: 900_000, onLine: child });
+        const r = await run([sshBin(env), "-o", "BatchMode=yes", "--", name, `ep0ch install --apply --as-client${allowTools ? "" : " --no-allow"}`], { env, timeoutMs: 900_000, onLine: child });
         const line = r.code === 0 ? `✓ ${name}: installed; sessions were handed over or their recovery commands were reported`
           : `! ${name}: ${r.err || r.out || `exit ${r.code}`}\n      run by hand: ${command}`;
         record(line); show(`    ${line}`);
@@ -175,8 +176,14 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     }
     case "backup": {
       const backups = step.backups ?? [];
-      const sizes = backups.map(b => { try { return statSync(b.path).size; } catch { return 0; } });
+      const sizes = backups.map(b => { try { return statSync(b.path).size + (existsSync(`${b.path}-wal`) ? statSync(`${b.path}-wal`).size : 0); } catch { return 0; } });
       const total = sizes.reduce((a, b) => a + b, 0);
+      const backupRoot = backupDirOf(f.home);
+      const keep = Number(env.EP0CH_INSTALL_KEEP ?? 10);
+      if (!Number.isSafeInteger(keep) || keep < 1) throw new StepFailed("EP0CH_INSTALL_KEEP must be a positive integer", "unset EP0CH_INSTALL_KEEP to keep the last 10 backups per outline");
+      if (step.status === "skip") { pruneInstallBackups(backupRoot, keep, say); return; }
+      try { prepareInstallBackups(backupRoot, join(f.home, "wt"), total, keep, say); }
+      catch (e) { throw new StepFailed((e as Error).message, "remove stale worktrees with git worktree remove <path>, or move old install backups off this volume, then rerun ep0ch install --apply"); }
       let copied = 0;
       // The folders once; then a short line per outline, in columns.
       if (backups.length) show(`    ${f.host.folder}/*.sqlite → ${dirname(backups[0]!.dest)}/ (VACUUM INTO, integrity-checked)`);
@@ -195,6 +202,20 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
           throw new StepFailed(`backing up ${b.name} failed: ${(e as Error).message}`, `nothing was changed; check the disk and ${b.path}, then rerun ep0ch install --apply`);
         }
       }
+      pruneInstallBackups(backupRoot, keep, say);
+      return;
+    }
+    case "claude-mod": {
+      const projects = new Set([f.repo.root]);
+      if (f.plugin?.kind === "local") projects.add(f.plugin.root);
+      for (const root of [...projects]) {
+        const list = await run(["git", "-C", root, "worktree", "list", "--porcelain", "-z"], { env });
+        if (list.code === 0) for (const field of list.out.split("\0")) if (field.startsWith("worktree ")) projects.add(field.slice(9));
+      }
+      const script = join(f.repo.outliner, "scripts/install-claude-mod.ts");
+      const result = await must([process.execPath, script, ...[...projects].flatMap(p => ["--project", p]), ...(allowTools ? [] : ["--no-allow"])],
+        `fix the named configuration, then rerun ep0ch install --apply (or bun ${sh(script)})`, { env });
+      if (result) for (const line of result.split("\n")) say(line);
       return;
     }
     case "plugin": {
@@ -210,6 +231,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     }
     case "repo": {
       const changed = await updateCheckout(f.repo.root, "the ep0ch checkout", say, child, env);
+      if (changed.length) say("RUN AGAIN: ep0ch install --apply — the checkout changed, but the remaining steps in this run use the code install started with. A second run picks up newly added or changed install steps.");
       if (changed.includes("packages/outliner/herdr-plugin.toml") && f.plugin?.kind === "local") say(`the plugin's manifest changed: herdr plugin link ${f.repo.outliner} --enabled refreshes Herdr's copy of it`);
       return;
     }
@@ -476,7 +498,7 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   }
   // `--dials-in`: this machine calls the others for EchoNet and is never called; `--no-dials-in` undoes it.
   const dials = rest.includes("--dials-in") ? true : rest.includes("--no-dials-in") ? false : undefined;
-  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--fix", "--move-scripts", "--backups", "--dials-in", "--no-dials-in", "--as-client"].includes(a));
+  const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--no-allow", "--fix", "--move-scripts", "--backups", "--dials-in", "--no-dials-in", "--as-client"].includes(a));
   if ((args.includes("--move-scripts") && !args.includes("--fix")) || (args[0] !== "doctor" && args.includes("--fix")) || unknown.length || (rest.includes("--dials-in") && rest.includes("--no-dials-in")) || (args[0] === "doctor" && (args.includes("--apply") || args.includes("--as-client") || at >= 0 || dials !== undefined)) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
   const home = resolve(env.HOME || homedir());
   if (!json) { const { out, err } = io; io = { ...io, out: s => out(tilde(s, home)), err: s => err(tilde(s, home)) }; }
@@ -584,14 +606,14 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       current = { ...current, mcp: await mcpFacts(current.platform, current.home, current.repo.root) };
       step = current.mcp ? mcpStep(current, current.repo.checkout.behind > 0) : { ...step, status: "skip", why: "the MCP gateway's unit is gone" };
     }
-    if (step.status !== "do") { stepLines(step, i, current, true).forEach(l => say(l)); results.push(step); continue; }
+    if (step.status !== "do" && step.id !== "backup") { stepLines(step, i, current, true).forEach(l => say(l)); results.push(step); continue; }
     status?.report({ state: "working", progress: Math.round((i / plan.steps.length) * 100), msg: `step ${i + 1} of ${plan.steps.length}: ${step.title}` });
     const task = progress.task({ lead: `${i + 1}`, mark: MARK.do, title: step.title });
     const done: string[] = [];
     try {
       if (step.id === "schema" && deploy) await record(() => deploy!.local(`running: ${step.title}; final outcome requires the host to return`));
       if (step.id === "clients" && deploy) await record(() => deploy!.local("local steps complete; installing clients"));
-      await execute(step, current, env, task, done, deploy ? (name, line) => record(() => deploy!.client(name, line)) : undefined);
+      await execute(step, current, env, task, done, deploy ? (name, line) => record(() => deploy!.client(name, line)) : undefined, !args.includes("--no-allow"));
       if (step.id === "host" && !creatingRecord && !args.includes("--as-client")) await beginRecord();
       task.end(true);
       results.push({ ...step, done });

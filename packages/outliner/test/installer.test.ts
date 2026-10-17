@@ -156,14 +156,29 @@ test("Claude mod installer replaces other copies of the mod and keeps unrelated 
     await writeFile(join(worktreeCopy, ".claude-plugin/plugin.json"), '{"name":"pi-outliner"}');
     await mkdir(join(unrelated, ".claude-plugin"), { recursive: true });
     await writeFile(join(unrelated, ".claude-plugin/plugin.json"), '{"name":"other"}');
-    const original = { theme: "dark", env: { KEEP: "1", CLAUDE_CODE_PLUGIN_DIRS: `${unrelated}:${worktreeCopy}` } };
+    const original = { theme: "dark", custom: { allow: ["mcp__pi-outliner"] }, env: { KEEP: "1", CLAUDE_CODE_PLUGIN_DIRS: `${unrelated}:${worktreeCopy}` } };
     await writeFile(settingsPath, JSON.stringify(original));
+    const unit = join(directory, "xdg/systemd/user/garden-tidy.service");
+    const plist = join(directory, "home/Library/LaunchAgents/garden.plist");
+    for (const path of [unit, plist]) {
+      await mkdir(path.slice(0, path.lastIndexOf("/")), {recursive: true});
+      await writeFile(path, '--allowedTools "mcp__pi-outliner,mcp__pi-outliner__outline_read"');
+    }
 
     // No folder needed: each session follows the outline its folder is bound to.
     const first = await runClaudeModInstaller(directory);
     expect(first.exitCode).toBe(0);
     const installed = JSON.parse(await readFile(settingsPath, "utf8"));
     expect(installed.theme).toBe("dark");
+    expect(installed.custom).toEqual(original.custom);
+    expect(installed.permissions.allow).toContain("mcp__ep0ch");
+    expect(first.stdout).toContain("permissions.allow");
+    for (const path of [unit, plist]) {
+      expect(first.stdout).toContain(path);
+      expect(await readFile(path, "utf8")).toContain("mcp__pi-outliner");
+    }
+    expect(first.stdout).toContain("systemctl --user daemon-reload");
+    expect(first.stdout).toContain("reload this launchd plist");
     expect(installed.env).toEqual({
       KEEP: "1",
       CLAUDE_CODE_PLUGIN_DIRS: `${unrelated}:${modDir}`,
@@ -180,6 +195,15 @@ test("Claude mod installer replaces other copies of the mod and keeps unrelated 
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("Claude mod installer can leave tool approval to Claude with --no-allow", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "claude-mod-installer-"));
+  try {
+    const result = await runClaudeModInstaller(directory, "--no-allow");
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(await readFile(join(directory, "settings.json"), "utf8")).permissions?.allow ?? []).not.toContain("mcp__ep0ch");
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("Claude mod installer moves the mod's old name (pi-outliner) to ep0ch, leaving one name", async () => {
@@ -206,7 +230,7 @@ test("Claude mod installer moves the mod's old name (pi-outliner) to ep0ch, leav
     expect(JSON.parse(await readFile(join(directory, "settings.local.json"), "utf8")).permissions.allow).toEqual(["mcp__ep0ch__work_stage"]);
     expect(JSON.parse(await readFile(join(directory, "plugins/installed_plugins.json"), "utf8")).plugins).toEqual({ "ep0ch@market": [{ scope: "user" }] });
 
-    expect(JSON.parse(await readFile(join(project, "settings.local.json"), "utf8"))).toEqual({ permissions: { allow: ["mcp__ep0ch__outline_find"] }, hooks: { PreToolUse: [{ matcher: "Read|^mcp__ep0ch__.*$" }] }, note: "mcp__pi-outliner__ stays in prose" });
+    expect(JSON.parse(await readFile(join(project, "settings.local.json"), "utf8"))).toEqual({ permissions: { allow: ["mcp__ep0ch__outline_find"] }, hooks: { PreToolUse: [{ matcher: "Read|^mcp__pi-outliner__.*$" }] }, note: "mcp__pi-outliner__ stays in prose" });
     expect(first.stdout.match(/Renamed the mod/g)).toHaveLength(4);
 
     const again = await runClaudeModInstaller(directory);
