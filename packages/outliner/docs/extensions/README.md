@@ -9,7 +9,11 @@ code; clients (Detail, the door, the publisher, agents) only draw what the servi
 
 ## Script blocks and files (PIE-601)
 
-A block with `[script::name]` and a closed `js` or `ts` fence loads through the same registry as folder
+The whole script surface (globals, `q`/`read`/`resolve`/`act`/`wait`, every `tools.*` and `view.*`, modes, effects,
+lifecycle, the traps and five worked examples, each entry with a `path:line` pointer to its source) is one page:
+[Scripts in a note: the surface](../scripts.md). This section is where scripts sit among the extension kinds.
+
+A block with `[script::name]` and a closed fence (the first of `js`, `javascript`, `ts`, `typescript` or `actions`; an unclosed first fence is an empty script) loads through the same registry as folder
 extensions. Files load only from `<outline folder>/.ep0ch/scripts/` (`.js` or `.ts`), and only when their
 first line is `// ep0ch-script`. The filename supplies the name. Files without that header, and files in the
 old `scripts/` folder, remain inactive; `ep0ch ext ls` explains why. Discovery never executes the file.
@@ -41,8 +45,7 @@ An ask in a live draft uses that draft holder's dispatcher for `act`, under the 
 when the person authored the script. A saved ask or rule has no door: service calls work, while `act`
 reports that it needs a connected door. Run those UI scripts from the power bar or a live draft.
 
-QuickJS codemode runs on a worker. Code has the host API's `tools.*`, `q(query)`, `read(ref)`, `resolve(path)`,
-`wait(ms)` and `act(name, args)`; `act` uses the connected door's dispatcher. Disk, network and imports stay in folder
+QuickJS codemode runs on a worker (the API is in [the reference](../scripts.md)). Disk, network and imports stay in folder
 extensions. Saving a malformed source still saves the block; the registry reports its problem.
 
 Starting a run returns immediately with its progress note and undo receipt. Each completed host call
@@ -55,39 +58,16 @@ draft patches together. The draft's own patch comparison preserves intervening t
 undo. Receipts last for this host process, as extension undo does. A run that could not prepare its draft
 inverse says why in its result note.
 
-Outside agents use MCP `script_run` with a script block's `ref` or `uri`. They run as the MCP caller;
+Outside agents use MCP `script_run` with a script block's `ref` or `uri`. Writes are `script:<name>` with the MCP caller as `requestedBy`; the run has no `this`, `props` or `act`;
 the gateway's existing access setting and proposal handler apply to each write. Propose access produces
 proposals, full access applies writes, and read/none cannot start a run. Automatic agent-written views
 remain a later scripting slice.
 
 ### A script in its Site (PIE-955)
 
-A script reads where it runs without an id written in it, as a template or a `{{ }}` does:
-
-- `this`: the note the run is about, as its record (`this.title`, `this.properties`, `this.fields`, `this.tasks`…). A
-  rule-fired script gets the matched block; a key or power-bar run gets the note in front of the person; an agent's
-  `act ext.<id>.run block=<id>` names it. With none, every `this.*` read says "this run has no note; pass at= or run
-  it from a note".
-- `self`: the script's own note, as a record. `caller`: `{ block, line? }`, where it was invoked (a rule's matched
-  note, a handler line). `props`: its slots, every key a list (`week=42` is `props.week[0]`); a js script's `props.x`
-  uses are offered as optional arguments by the power bar and `ext ls`.
-- `read(ref)` returns the note's record (header, body, properties, fields, tasks, links, backlinks) with
-  `outline_read`'s `children`, `depth` and `limit`. `resolve(path)` answers like `{{ path }}` through the service's one
-  resolver (`site.answer`): `{ values, links?, route }` or `{ problem: { message, didYouMean, example } }`, never an empty
-  string for a typo. `q("parent:this")` binds `this` to the run's note.
-- A returned string shows as plain text; `{ view }` or one `view.table(…)` itself as a table or card; the rest as JSON.
-- `wait(ms)` sleeps and ends with the run. A run ends at its deadline (`[deadline::2m]`, at most five minutes) and
-  says so; `scripts.stop` (`script.stop run=<undo id>` in the door) ends one run, naming who stopped it.
-- A run that writes into its own note goes on: the source is the code of its fence, so only an edit of the code ends a
-  run.
-- A run note is machinery (`[machine::script]`): it counts for no backlink.
-
-**Render mode.** `[mode::render]` makes the script a handler: a line `name::` (with `week=42` words as `props`) draws
-what the script returns under the line, live. It is the one producer path of every handler line (the output store and
-`inputs`, with the notes the script read and their revisions, so it redraws when one changes and never on a keystroke),
-it writes no run note, and it refuses `[effects::write]` (the script isn't served, `ext ls` says why). Drawing the
-same line again leaves every block and revision as it was. A `::= expression` line is a one-line render-mode script:
-`::= (await resolve('this.owner')).values[0]`.
+A script reads where it runs without an id written in it (`this`, `self`, `caller`, `props`), with `read`, `resolve`,
+`q`, `wait`, and a render mode (`[mode::render]`, `name::` lines and `::=` lines) that draws what it returns under the
+line. Those, the deadlines, `scripts.stop`, and the traps are in [Scripts in a note: the surface](../scripts.md).
 
 ## Keys and secrets
 
