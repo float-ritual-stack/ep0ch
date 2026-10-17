@@ -74,6 +74,10 @@ const NOTE_ID = /^(?:\(\()?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 /** Where a record names the place a note sits, not a note it holds. */
 const PLACES = new Set(["parent", "parentId", "ancestors", "path", "breadcrumbs"]);
 const MAX_NOTE_IDS = 500;
+/** A read that could not be listed (too many notes, nested too deep): never a note a page shows, so the output says nothing. */
+export const UNTRACKED_READ = "*";
+/** Which version of this tracking an output's reads were recorded with; an output from another is drawn again and shown to no one meanwhile. */
+export const READS_TRACKING = 2;
 
 const noteIdsOf = (value: unknown): string[] => [...noteIds(value)];
 const queryReadsChildren = (query: string): boolean => { try { return queryReach(parseSearchExpression(query).where).children; } catch { return false; } };
@@ -81,13 +85,22 @@ const queryReadsChildren = (query: string): boolean => { try { return queryReach
 /**
  * Every note a tool's answer mentions: its rows, children, links and backlinks, each an id (or `((id))`) somewhere in the
  * answer. A render script's output depends on all of them, and a reader who may not see one must not be shown the output.
+ * An answer too large to list says so (`UNTRACKED_READ`) rather than leave some out.
  */
 export function noteIds(result: unknown, out = new Set<string>(), depth = 0): Set<string> {
-  if (out.size >= MAX_NOTE_IDS || depth > 12) return out;
+  if (depth > 64 || out.size >= MAX_NOTE_IDS) { out.add(UNTRACKED_READ); return out; }
   if (typeof result === "string") { const found = NOTE_ID.exec(result.trim()); if (found) out.add(found[1]!.toLowerCase()); }
   else if (Array.isArray(result)) for (const item of result) noteIds(item, out, depth + 1);
   else if (result && typeof result === "object") for (const [key, value] of Object.entries(result)) if (!PLACES.has(key)) noteIds(value, out, depth + 1);
   return out;
+}
+
+/** The rows of a `child:` query read their children's words: those children, as one more read. */
+async function childReads(client: AgentToolsClient, query: string, result: unknown): Promise<string[]> {
+  const rows = (result as { blocks?: { id?: unknown }[] } | null)?.blocks;
+  if (!Array.isArray(rows) || !rows.length || !queryReadsChildren(query)) return [];
+  const ids = rows.flatMap(row => typeof row.id === "string" ? [row.id] : []);
+  return ids.length ? noteIdsOf((await client.request<{ records: object[] }>({ action: "blocks.records", ids: ids.slice(0, 200) })).records) : [];
 }
 
 /** One tool as a function: its arguments checked as every surface checks them, then its agent operation. */
@@ -126,7 +139,11 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
         result = await findBlocks(client, { ...command.input, this: options.thisId } as FindInput);
       } else result = await runAgentOperation(client, command.operation, command.input, actor);
       said("done", { result });
-      if (options.onRead) { const ids = noteIds(result); if (ids.size) options.onRead([...ids]); }
+      if (options.onRead) {
+        const ids = noteIds(result);
+        if (definition.name === "outline_find") for (const id of await childReads(client, String(checked.args.query ?? ""), result)) ids.add(id);
+        if (ids.size) options.onRead([...ids]);
+      }
       return result;
     } catch (e) {
       said("refused", { error: e instanceof Error ? e.message : String(e) });
@@ -165,11 +182,6 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   };
   const q = async (query: string, opts: { under?: string; limit?: number } = {}) => {
     const found = await call("outline_find", { query, ...opts }) as { blocks?: { id?: unknown }[] } | null;
-    // A `child:` clause matches by what the rows' children say: those children are read too.
-    if (options.onRead && Array.isArray(found?.blocks) && found.blocks.length && queryReadsChildren(query)) {
-      const rows = found.blocks.flatMap(row => typeof row.id === "string" ? [row.id] : []);
-      options.onRead(rows.length ? noteIdsOf((await client.request<{ records: object[] }>({ action: "blocks.records", ids: rows })).records) : []);
-    }
     if (options.onQuery && opts.under === undefined && Array.isArray(found?.blocks)) options.onQuery({ query, limit: opts.limit ?? 20, ids: found.blocks.flatMap(row => typeof row.id === "string" ? [row.id] : []) });
     return found;
   };

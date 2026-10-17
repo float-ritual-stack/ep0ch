@@ -141,3 +141,36 @@ test("a figure's relation query lists a note only when every note that decided i
   expect(html).toContain("Beta project");
   expect(html).not.toContain("Alpha project");
 });
+
+test("a ::links query and a view lane over a child: clause list a note only when the page shows every child that decided it", async () => {
+  const { store, tailnet } = await setup();
+  const alpha = store.create("Alpha project [type::project] [publish::public]");
+  store.create("Alpha sign-off [status::approved] [publish::never]", alpha.id);
+  const beta = store.create("Beta project [type::project] [publish::public]");
+  store.create("Beta sign-off [status::approved] [publish::public]", beta.id);
+  const view = store.create("Signed [type::virtual-branch] [query::type=project child:status=approved] [publish::public]");
+  store.create("Links page [publish::public:links-page]\n\n::links{query=\"type=project child:status=approved\"}\n::\n\n" + `!((${view.id}))`);
+  const html = await tailnet("links-page");
+  expect(html).toContain("Beta project");
+  expect(html).not.toContain("Alpha project");
+});
+
+test("a script that calls a tool directly, or reads deep, is tracked as well as one that calls q() or read()", async () => {
+  const { store, client, tailnet, publicly } = await setup();
+  const alpha = store.create("Alpha project [type::project] [publish::public]");
+  store.create("Alpha sign-off [status::approved] [publish::never]", alpha.id);
+  store.create("Direct [script::direct] [mode::render]\n```js\nconst found = await tools.outline_find({ query: \"type=project child:status=approved\" });\nreturn `${found.blocks.length} signed`;\n```");
+  const top = store.create("Top [publish::public]");
+  let at = top;
+  for (let level = 0; level < 5; level++) at = store.create(`Level ${level}`, at.id);
+  store.create("Deep vault [publish::never] [code::9023]", at.id);
+  store.create("Deep [script::deep] [mode::render]\n```js\nreturn JSON.stringify(await read(\"" + top.id + "\", { depth: 6 }));\n```");
+  const page = store.create("Script page [publish::public:script-page]\ndirect::\ndeep::", null, "user");
+  await client.request({ action: "resources.projection.read", blockId: page.id, materialize: true });
+  await until("both drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 2);
+  for (const html of [await tailnet("script-page"), await publicly("script-page")]) {
+    expect(html).not.toContain("1 signed");
+    expect(html).not.toContain("9023");
+    expect(html).toContain("hidden here");
+  }
+});
