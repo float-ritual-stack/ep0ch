@@ -21,7 +21,10 @@ import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizing } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
+import { LayoutHistory, type LayoutEntry } from "./layout-history";
+import { TXN } from "../surface/txn";
+import { partyOf } from "../steps";
+import { ActionRefused, ActionSet, actionSet, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
@@ -146,6 +149,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * checked step per operation, `this.apply`). The desk keeps the tile instances, the gestures and the painting.
    */
   private state: LayoutState<number> = init({ tree: leaf(0), names: new Map() });
+  /**
+   * One history of the screen's shape for every actor (PIE-957, src/desk/layout-history.ts): each change recorded at the
+   * state setter with who made it and its transaction. `layout.undo` rebuilds from the newest.
+   */
+  readonly history = new LayoutHistory();
+  /** Who asked each answer the module gave, and what for: `commit` records the change as theirs. */
+  private asked = new WeakMap<object, { actor: Actor; op: string }>();
+  /** The layout is being put back (an undo, a transaction's end rule): that is no new entry. */
+  private replaying = false;
   /** The layout as the module last answered it: read it; it changes by `apply`. */
   private get layout(): LayoutState<number> { return this.state; }
   /** The layout tree as the module last answered it: read it, never change it (`apply` does). */
@@ -561,14 +573,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
   }
   /** What `op` would do, asked (nothing changes): the new state, or the refusal. */
-  private ask(op: Op<number>, actor: Actor = USER): Result<number> { return applyOp(this.layout, op, this.layoutCtx(actor)); }
+  private ask(op: Op<number>, actor: Actor = USER): Result<number> {
+    const r = applyOp(this.layout, op, this.layoutCtx(actor));
+    if (r.ok) this.asked.set(r, { actor, op: op.op });
+    return r;
+  }
   /** Take the module's answer: its state is the layout now, the keys go where it says; a refusal is thrown, nothing done. */
   private commit(r: Result<number>): Extract<Result<number>, { ok: true }> {
     if (!r.ok) throw new ActionRefused(r.refused);
     // An answer asked of an earlier state would undo what changed since: never taken (asks and commits are paired).
     if (r.base !== this.state) throw new Error("a layout answer was committed over a newer layout; ask again");
     const was = this.layout.collapsed;
+    // The shape it leaves, against the shape it began from: a change of shape is a history entry (a focus move is none).
+    const by = this.asked.get(r), shape = this.shapeNow(), before = this.replaying ? null : this.layoutSpec();
     this.state = r.state;
+    if (before && this.shapeNow() !== shape) this.recordChange(before, by?.actor ?? USER, by?.op ?? "change");
     this.focus = r.focus;
     this.noteFocus();
     // A tile folded or opened is told (it keeps what it holds exactly).
@@ -577,6 +596,70 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** Apply one layout operation for `actor`: the layout changes as one checked step, or the refusal is thrown. */
   private apply(op: Op<number>, actor: Actor = USER): Extract<Result<number>, { ok: true }> { return this.commit(this.ask(op, actor)); }
+
+  // ── the layout's one history, undo and transactions (PIE-957, design §4.9) ────────
+
+  /** A change of shape `by` made, recorded with the transaction its action named (src/surface/txn.ts), which it opens or joins. */
+  private recordChange(before: LayoutSpec, by: Actor, what: string) {
+    if (this.replaying) return;
+    const scope = TXN.getStore(), now = Date.now();
+    if (scope) this.history.join(scope.txn, by, before, now, scope.motion);
+    this.history.record(before, by, what, now, scope?.txn);
+  }
+  /**
+   * `layout.undo` (and ctrl+z with nothing of a reader's to undo, when this is newer than a trash): take back the newest
+   * entry, for the person; an agent takes back its own only, and is refused with who changed it since otherwise. The shape
+   * is rebuilt from the entry (tiles kept by name), checked through the module's `load` so a lock, the tile the person
+   * types in and a container's policy hold.
+   */
+  undoLayout(actor: Actor, txn?: string): { undone: string; what: string; steps: number } {
+    const party = partyOf(actor);
+    const entry = txn ? this.history.forTxn(txn) : actor.kind === "agent" ? this.history.last(party) : this.history.newest();
+    if (!entry && actor.kind === "agent" && !txn && this.history.newest()) throw new ActionRefused(`the newest layout change is ${this.history.newest()!.party === "you" ? "the person's" : this.history.newest()!.party}'s; an agent undoes only its own`);
+    if (!entry) throw new ActionRefused(txn ? `no layout change in transaction ${txn} (it was undone, or this desk restarted)` : "nothing to undo on this screen's layout");
+    const later = this.history.after(entry).find(e => e.party !== entry.party);
+    if (later) throw new ActionRefused(`the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}`);
+    if (actor.kind === "agent" && entry.party !== party) throw new ActionRefused(`the newest layout change is ${entry.party === "you" ? "the person's" : entry.party}'s; an agent undoes only its own`);
+    this.replaying = true;
+    try { this.apply({ op: "load", name: "the layout before" }, actor); } finally { this.replaying = false; }
+    this.rebuildTo(entry.before);
+    this.history.take(entry);
+    for (const e of this.history.after(entry)) if (e.txn === entry.txn && entry.txn) this.history.take(e);
+    this.save(); this.redraw();
+    return { undone: this.title, what: entry.what, steps: entry.steps };
+  }
+
+  /** Rebuild the shape `spec`, keeping the tiles it names (as `layout.load` does), and no new entry. */
+  private rebuildTo(spec: LayoutSpec) {
+    this.replaying = true;
+    try { this.entered.clear(); this.ptyIn = null; this.build(spec, true); } finally { this.replaying = false; }
+  }
+
+  /**
+   * A transaction ends (`layout.txn.end`, the run's end, a minute idle). Normally it is the settled state and says so once; one
+   * that ended early (stopped, refused, error, the door lost it, the deadline) rebuilds its start and says that.
+   */
+  endTxn(txn: string, reason: "done" | "stopped" | "failed" | "idle", actor: Actor = USER): { txn: string; ended: string; steps: number; putBack: boolean } {
+    const t = this.history.close(txn), start = t?.start;
+    if (!t) throw new ActionRefused(`no open transaction ${txn} on this screen (it ended, or never opened here: layout changes carrying txn=${txn} open it)`);
+    const entry = this.history.forTxn(txn);
+    const steps = entry?.steps ?? 0;
+    const early = reason === "stopped" || reason === "failed";
+    if (early && start && entry) {
+      this.rebuildTo(start);
+      this.history.take(entry);
+      this.save(); this.redraw();
+      asActor(this.ctx, actor).flash(`${txn} ${reason}; layout put back`);
+      return { txn, ended: reason, steps, putBack: true };
+    }
+    if (entry && steps) asActor(this.ctx, actor).flash(`${steps === 1 ? "one layout change" : `${steps} layout changes`} · ctrl+z puts ${steps === 1 ? "it" : "them"} back`);
+    return { txn, ended: reason, steps, putBack: false };
+  }
+
+  /** A transaction nothing has joined for a minute closes, and says so. */
+  private sweepTxns() {
+    for (const t of this.history.idle(Date.now())) { try { this.endTxn(t.id, "idle"); } catch { /* gone already */ } }
+  }
 
   // ── building a layout (PIE-474) ──────────────────────────────────────────
 
@@ -1823,7 +1906,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A repaint, while the desk is the screen shown (kept in the background, its programs don't repaint the menu). */
   redraw() { if (this.onScreen) this.ctx?.redraw(); }
 
-  tick(): boolean { let any = false; for (const p of this.panes.values()) if (kindOf(p)?.tick?.(p)) any = true; return any; }
+  tick(): boolean { this.sweepTxns(); let any = false; for (const p of this.panes.values()) if (kindOf(p)?.tick?.(p)) any = true; return any; }
 
   onEvent(e: OutlineEvent) {
     this.hear(e);
@@ -2616,6 +2699,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   unsaved() { return this.drafts().length > 0 || [...this.models.values()].some(m => m.unsaved?.()); }
   /** A reader's history changed, or the door is handing over: the layout is saved with it (PIE-643). */
   keepLayout() { this.save(); }
+  layoutUndoSeq(): number | undefined { return this.history.newest()?.seq; }
   keepPlace() { this.save(); }
   keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts()), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
   /** The edits open here, by tile: what a session's next daemon opens again (src/session/restore.ts). */
@@ -3687,7 +3771,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // ctrl+z, with nothing of the tile's own to undo, brings back the note trashed last (note.untrash).
     if (!this.holdsKeys() && !pane?.typing?.()) {
       if (((k.kind === "char" && !k.ctrl && k.ch === "d") || k.kind === "delete") && pane?.subject?.()) return this.run("note.trash", {}, this.nameOf(this.focus));
-      if (k.kind === "char" && k.ctrl && k.ch === "z" && lastTrashed(this.ctx.board, USER)) return this.run("note.untrash", {}, this.nameOf(this.focus));
+      if (k.kind === "char" && k.ctrl && k.ch === "z") {
+        // The newest of a layout change and a trash (PIE-957): a layout change is taken back as a trash is brought back.
+        const trashed = lastTrashed(this.ctx.board, USER)?.seq, laid = this.history.newest()?.seq;
+        if (laid !== undefined && (trashed === undefined || laid > trashed)) return this.run("layout.undo", {}, this.nameOf(this.focus));
+        if (trashed !== undefined) return this.run("note.untrash", {}, this.nameOf(this.focus));
+      }
     }
     // Bare - folds the focused tile to a spine and + or = opens it (PIE-699), only now: a tile's own - + = (the tune
     // inspector's nudge, an image's size, a figure's density) took the key above, and nothing that takes text is here.
@@ -4759,7 +4848,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.entered.clear();
     this.ptyIn = null;
     const before = new Set(this.all());
+    const was = this.layoutSpec();
     this.build(found.spec, true);
+    this.recordChange(was, actor, `laid out ${name}`);
     this.layoutName = name;
     this.madeBase = madeScreen(name) ? { ...madeScreen(name)! } : null;
     this.savedAs = this.shapeNow();

@@ -71,6 +71,17 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     expect(status()).toContain("ttt-reset");
     click(b.x, b.y);
     await untilAsync(async () => (await boardOf()) === ".........", "a new game");
+    // The inline form is the same press: [start over](act: ttt-reset) after a move.
+    const extension = extensionList()!.extensions.find(e => e.name === "ttt-move")!;
+    await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "3" } }, USER);
+    await untilAsync(async () => (await boardOf()) !== ".........", "a move");
+    await until(() => screen().includes("start over") && !screen().includes("(act:"), "the inline press drawn as its words", 15_000);
+    const rows = screen().split("\n"), y = rows.findIndex(r => r.includes("start over"));
+    click(rows[y]!.indexOf("start over") + 2, y);
+    await until(() => !!status(), "the inline press asks");
+    expect(status()).toContain("ttt-reset");
+    click(rows[y]!.indexOf("start over") + 2, y);
+    await untilAsync(async () => (await boardOf()) === ".........", "a new game by the inline press");
   }, 60_000);
 
   test("edit and rich edit keep the board drawn under its line, read-only, while the lines around it are edited", async () => {

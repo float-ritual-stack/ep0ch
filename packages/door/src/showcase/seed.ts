@@ -166,6 +166,7 @@ if (request.input.request === "describe the beds") {
     "The board is drawn by a render script, which writes nothing. Each free square is a press (a button in the view): a click, or ⏎ on it, runs the move script as you. It writes, so it asks first: ⏎ or the same press again. The script answers with an o.",
     "ttt-board::",
     '::button{label="New game" of=ttt-reset}',
+    "In prose it is a link: [start over](act: ttt-reset).",
   ].join("\n"));
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [

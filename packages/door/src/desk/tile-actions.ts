@@ -4,6 +4,7 @@
 // `layout.move where=right`, alt+l then a click runs `tile.link`. An agent's is said on screen, and never
 // takes the person's focus or keys: a tile it opens or moves leaves their focus where it is, and what the
 // person is typing in (an edit, a terminal) is never closed, moved into, or typed into by an agent.
+import { TXN } from "../surface/txn";
 import type { Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, type ArgsOf } from "../surface/actions";
 import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
@@ -591,6 +592,26 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     async run({ name }, { d }, actor) { return await d.deleteScreen(name, actor); },
   }),
   "layout.load": loadLayout,
+  "layout.undo": def({
+    summary: "take back the newest change to this screen's layout, from the one history every actor's changes go in (a move, a close, a float, a load; a script's run is one entry, a transaction): the screen is rebuilt as it was before it, tiles kept by name, the lock and the tile you type in holding. Yours takes back the newest; an agent's takes back its own newest only, and both are refused with who changed the layout since (\"undo that first\"). txn=<id> takes back that transaction",
+    keys: "ctrl+z when a reader has nothing of its own to undo and the layout changed after the last trash; the tile menu's row",
+    touches: "screen", replay: "ask", confirms: true,
+    says: (r: { what: string; steps: number }) => `put the layout back · ${r.steps > 1 ? `${r.steps} steps` : r.what}`,
+    menu: { label: "undo the last layout change", group: SCREEN, key: "ctrl+z", now: ({ d }: On) => (d.history.size ? null : { hide: true }) },
+    args: {},
+    run: (_a, { d }: On, actor: Actor) => d.undoLayout(actor, TXN.getStore()?.txn),
+  }),
+  "layout.txn.end": def({
+    summary: "close the layout transaction txn=<id> (txn= opens one on the first action that carries it, for any actor; a script's run is its own, closed when it ends): it stays as the settled state and says once how many changes it made, with ctrl+z to put them back. layout.undo txn=<id> takes it back whole",
+    keys: "none: a script's run ends its own; an agent passes txn=<id>",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run: (_a, { d }: On, actor: Actor) => {
+      const txn = TXN.getStore()?.txn;
+      if (!txn) throw new ActionRefused("layout.txn.end closes a transaction: say which with txn=<id>");
+      return d.endTxn(txn, "done", actor);
+    },
+  }),
   "note.trash": def({
     summary: "move the note the tile points at (a reader's note, a list's or the tree's selected row; or ref=<block id>) and the notes under it to Trash, recorded as the actor's, where note.untrash (ctrl+z) brings it back. The person's first press says what would go in a two-row choice (d again, Delete or ⏎ trashes it, any other key or esc keeps it); an agent passes confirm=<the note's id>, the same note said twice. Refused with why: a system note (the Inbox, Trash, Bookmarks), a note already in the Trash, a note with a draft open on it",
     keys: "d then d again (Delete the same), a click on the tile menu's row",

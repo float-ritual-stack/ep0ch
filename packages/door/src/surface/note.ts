@@ -214,6 +214,8 @@ export interface SurfaceHost {
    * reader's `p`): an extension's key on a line never takes one of them (PIE-512).
    */
   ownKeys?: string;
+  /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it when it is newer than the reader's own. */
+  layoutUndoSeq?(): number | undefined;
   /**
    * This note's links (Outlinks, Resources, Backlinks) in the screen's links tile, as `b` asks: where the host has
    * one, or can open one beside the reader. Without it `b` says so and points at the inline `::links`.
@@ -3728,6 +3730,8 @@ export class NoteSurface {
       // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
       if (trashedAt !== undefined && trashedAt > last.seq) return false;
+      const laid = host.layoutUndoSeq?.();
+      if (laid !== undefined && laid > last.seq) return false;
       void this.runKey(last.name, {}, host, true);
       return true;
     }
@@ -3838,7 +3842,7 @@ export class NoteSurface {
       action = scripts[0]!.action.name;
     }
     // An extension's action acts on a note: the one this press is written in, unless the line names another.
-    if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block;
+    if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
     const info = d.list().actions.find(a => a.name === action);
     if (actor.kind === "user" && info?.replay === "ask" && !confirmed && host.ctx.arm) {
       const key = `${p.block}:${p.line}:${p.act}`, ms = 5000;

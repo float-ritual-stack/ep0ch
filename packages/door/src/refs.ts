@@ -433,8 +433,11 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     }
     for (const l of linkOccurrences(line, code)) {
       if (l.kind === "markdown") {
+        // `[review layout](act: layout.load name=review)` (PIE-957) is a press: its text runs the action line as the person.
+        const act = /^act:\s*(\S.*)$/.exec(l.url.trim())?.[1]?.trim();
+        if (act) spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { role: "control", label: l.text, press: { act, block: site?.block ?? "", line: i } }) });
         // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).
-        spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }, isExternalUrl(l.url)) });
+        else spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }, isExternalUrl(l.url)) });
       } else if (l.kind === "page") {
         spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) });
       } else if (!l.embed || !embeds) {

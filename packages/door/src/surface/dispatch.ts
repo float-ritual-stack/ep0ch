@@ -11,6 +11,7 @@
 //   (`actorRule`, below), so no action asks who is acting for this;
 // - runs it as the person (a key, a click: a refusal is said, then the screen is redrawn) or as an agent (said on
 //   the status bar before it runs, refused with the reason, and what it did said after: ActionDef.says).
+import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
@@ -372,8 +373,22 @@ export class Dispatcher {
     try { return Promise.resolve(f()).then(r => { ctx?.redraw?.(); return r; }, tell); } catch (e) { return Promise.resolve(tell(e)); }
   }
 
-  /** One request, for one actor: who owns it, the revision, then that set's run. */
+  /**
+   * One request, for one actor. `txn=` and `motion=` are the dispatcher's own (src/surface/txn.ts): taken out here for
+   * every action, and carried to the layout code that records the change.
+   */
   private run(req: ActRequest, actor: Actor, typed = false): unknown {
+    if (req.args && ("txn" in req.args || "motion" in req.args)) {
+      const args = { ...req.args };
+      const scope = takeReserved(args);
+      const rest = { ...req, args };
+      return scope ? TXN.run(scope, () => this.runPlain(rest, actor, typed)) : this.runPlain(rest, actor, typed);
+    }
+    return this.runPlain(req, actor, typed);
+  }
+
+  /** One request, for one actor: who owns it, the revision, then that set's run. */
+  private runPlain(req: ActRequest, actor: Actor, typed = false): unknown {
     req = this.mountedRequest(req);
     const args = { ...(req.args ?? {}) };
     // A path (`tile=<mount>/<tile>`, PIE-651) names a tile of a screen mounted in a tile: expected= is that screen's revision.
