@@ -28,6 +28,11 @@ export interface Whereabouts extends ScreenKeys {
   idle: number;
   /** Why nothing may move for them at all: not logged on yet, or the door is suspended under a shell or editor. */
   away: string | null;
+  /**
+   * Agents are in yolo (`agents.yolo`): the person handed them the door, so no person guard holds an agent back
+   * (typing, focus, idle, tile limits, locks). What keeps state valid (revisions, the layout's own shape) still does.
+   */
+  yolo?: true;
 }
 
 /** The host layer's agent tile, as `typingIn` names it while the person types in the drawer. */
