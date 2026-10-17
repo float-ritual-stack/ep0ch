@@ -18,6 +18,14 @@ another relation says nothing when a note it could consult is hidden (the body s
 reader may not see are refused; an ambiguous id prefix names no hidden title; a figure asked outside any note obeys
 `hidden` too; a `child:` clause (in a figure, an `::if`, a `| filter`, a script's `q()`) never answers for a note with a child the page may not show. Nothing to run (a protocol bump: update the host and the publisher together); pie's and gurgle's published pages were checked and none drew such a line.
 
+### `::fields` counts front matter, the header and hashtags (PIE-979)
+
+`::fields{key=…}` listed only a note's body lines, so a key written in its front matter (`- connectTo:: v`, a list
+value a row each) or header chip answered "0 occurrences". It now lists every occurrence wherever it is written, each
+with its line, and a row opens that line lit (a front-matter line isn't drawn in the note, so its row says it is in the property panel, and its `¶` anchor is refused). A `#hashtag` is the key `tag` (`::fields{key=tag}`); `key=tags` finds
+only a `tags::` property, and says to try `tag` when it finds none. The showcase's `fields-if` section writes one key
+in every form beside the `::fields` that lists them. `PROTOCOL` moves (what outline-core's record holds changed).
+
 ### Install rewrites the old brace forms (PIE-533, landing)
 
 `ep0ch install --apply` runs the brace sweep on every outline, after the schema step and before the host starts: rule

@@ -457,8 +457,9 @@ Two beds of scaffold boards.
 A `> [!quote]` callout's last line `— name, source` is drawn as its byline.
 
 **Fields and conditions** (a note that reads itself). `::fields{key=connectTo}` lists every place the note wrote that
-key (a `[connectTo::…]` chip or a `connectTo:: …` line in its body, after the first blank line), one row per occurrence
-with its line number; a row opens its own line, lit, found again by the text it was written as, and a row appears as soon
+key wherever it is written (the header's chips, front-matter lines `- connectTo:: v` before the first blank line, a
+`[connectTo::…]` chip in the body, a `connectTo:: …` line, a list value one row each), one row per occurrence
+with its line number. A `#hashtag` is the key `tag` (`::fields{key=tag}`), and `tags::` is an ordinary key of its own. A front-matter row isn't drawn in the note: opening it says its line is in the property panel (`i`), and its `¶` is refused (an anchor would become part of the value). Otherwise a row opens its own line, lit, found again by the text it was written as, and a row appears as soon
 as a line is saved. `of=((id))` lists another note's (the whole id or its first 8 characters; a title in the brackets is not an id, `ep0ch find <words> --ids` prints them), `title=` titles it. Its `¶` anchors that line on request
 (`fields.anchor key=connectTo n=2`), giving a `((note^anchor))` that links to it for good; drawing it never writes. `::if{where="status=active"}`
 … `::` draws its lines only while the note matches the query (the saved views' grammar, `{{this.owner}}` operands bound,

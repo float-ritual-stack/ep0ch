@@ -70,13 +70,14 @@ test("blocks.records: a block as one record, built by the service; missing and t
     id: note.id, parent: plot.id, title: "Seed order for the plot", author: "agent", actor: "planner",
     header: [{ key: "type", value: "errand" }, { key: "ctx", value: "2026-03-09 @ 09:27:29 AM" }, { key: "tag", value: "seeds" }, { key: "tag", value: "spring" }],
     properties: [{ key: "type", values: ["errand"] }, { key: "ctx", values: ["2026-03-09 @ 09:27:29 AM"] }, { key: "tag", values: ["seeds", "spring"] }, { key: "when", values: ["before Friday"] }],
-    fields: [],
     children: [child.id],
     tasks: [{ status: "todo", text: "order the beans", line: 3, id: null }, { status: "done", text: "measure the bed", line: 4, id: null }],
     links: [{ kind: "block", target: plot.id, status: "ready", text: `((${plot.id}|the plot))` }],
     backlinks: [fan.id],
     resources: [],
   });
+  // fields lists every occurrence, block scope too; none further down this note.
+  expect(r.fields.filter(f => f.scope !== "block")).toEqual([]);
   expect(r.body.split("\n")[0]).toBe("Seed order for the plot");
   expect(r.created).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
   expect(r.truncated).toBeUndefined();
