@@ -9238,6 +9238,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {},
     run: (_, { surface, host }, actor) => surface.undoExtension(host, actor),
   }),
+  "script.stop": def({
+    summary: "stop one running script by its run id (run=: the undo a script run answered with, also its run note's [script-run::…]): its remaining calls are refused and the run note says who stopped it. Writes it already made stay; ext.undo takes them back. Says so when the run isn't running",
+    keys: "none: act, or the power bar",
+    touches: "nothing", replay: "ask",
+    args: { run: { type: "string", about: "the run's id (its undo)" } },
+    async run({ run }, { host }, actor) {
+      if (!run?.trim()) throw new ActionRefused("script.stop needs run=<the run's id>: the undo a script run answered with");
+      const r = await host.ctx.board.stopScript(run.trim(), actor);
+      asActor(host.ctx, actor).flash(r.stopped ? "stopped the script" : "that script isn't running");
+      host.redraw();
+      return r;
+    },
+  }),
   "image.undo": def({
     summary: "undo the last image change (size, place, header) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
     keys: "ctrl+z (when an image change was the last change made here)",

@@ -140,6 +140,7 @@ export const marks: Record<string, string[]> = {
   "rich-edit": ["Seed inventory", "Beans", "Packets"],
   asks: ["Keep writing while the answer arrives"],
   scripts: ["Seed report", "Press alt+S"],
+  "scripts-in-place": ["Scripts in place", "beds-table"],
   "one-place": ["The long row of runner beans", "Bike shed"],
   "reading-line": ["The long row of runner beans", "Allotment notebook"],
   replies: ["Replies at the orchard", "Orchard row 1"],

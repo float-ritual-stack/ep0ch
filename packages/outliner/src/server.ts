@@ -512,7 +512,7 @@ export class OutlinerServer {
         await this.extensionRegistry.reload();
         const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === blockId);
         if (!extension) throw new Error("The answer's script needs a closed js or ts fence");
-        const run = this.scriptRuns.start(extension, { extension: extension.id, action: "run", blockId, clientId, background: true });
+        const run = this.scriptRuns.start(extension, { extension: extension.id, action: "run", clientId, background: true });
         void this.scriptRuns.finished(run.undo!);
         return run;
       },
@@ -531,6 +531,7 @@ export class OutlinerServer {
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
       script: (extension, request) => this.scriptRuns.start(extension, request),
+      scriptRender: (source, input) => this.scriptRuns.render(source, input),
       // An action's update goes where an @agent's edit goes: draft.patch, the edit policy's guard.
       patch: (input) => this.draftPatches.patch(input),
       // A group that also makes, moves or orders blocks: one transaction, or one proposal while a draft holds a part.
@@ -1859,6 +1860,15 @@ export class OutlinerServer {
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (request.action === "scripts.stop") {
+      try {
+        if (typeof request.run !== "string" || !request.run.trim()) throw new Error("scripts.stop needs run: the id a script run answered with (its undo), for example { action: \"scripts.stop\", run: \"<undo id>\" }");
+        const stopped = this.scriptRuns.stopRun(request.run, declaredRequester(request, "scripts.stop") ?? { author: "user" });
+        return { id: request.id, ok: true, result: { run: request.run, ...stopped }, sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     if (request.action === "scripts.run") {
       try {
         const levels = ["none", "read", "propose", "full"] as const;
@@ -2529,6 +2539,7 @@ export class OutlinerServer {
           );
           break;
         }
+        case "scripts.stop":
         case "scripts.run":
         case "extensions.list":
         case "extensions.act":

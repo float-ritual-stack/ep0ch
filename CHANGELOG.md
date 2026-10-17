@@ -10,6 +10,28 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Scripts in their Site (PIE-955, S5 of PIE-533)
+
+What changes for a script: it knows which note asked, takes slots, draws in place, and can be stopped.
+
+- **The Site's globals.** A script reads `this` (the note it is about: a rule's matched block, the note in front of a key
+  press, `block=` of an agent's act), `self` (its own note), `caller` and `props` (`week=42` is `props.week[0]`; the
+  power bar offers every `props.x` the code reads). No id is written in the script: the Showcase's seed report no longer
+  looks itself up.
+- **Reads.** `read()` returns the note's record (header, body, properties, fields, tasks, links, backlinks) with its
+  children. `resolve("this.owner")` answers as `{{this.owner}}` does, with a did-you-mean for a typo. `q("parent:this")`
+  binds `this`. A returned string shows as plain text; one `view.table(…)` is drawn without wrapping it.
+- **Render mode.** `[mode::render]` makes a script a handler: a `name:: week=42` line draws what it returns under the
+  line, live, redrawn when a note it read changes. It writes no run note and refuses `[effects::write]`. A `::= expression`
+  line is a one-line render-mode script. The kitchen sink has a "Scripts in place" section.
+- **Running.** A script that writes into its own note keeps running (only an edit of its code ends a run). `wait(ms)` is
+  bounded by the script's deadline (`[deadline::2m]`, five minutes at most). `script.stop run=<id>` (`scripts.stop`)
+  ends one run. A run note is machinery (`[machine::script]`): lists, queries and what-changed leave it out by default, and
+  it counts for no backlink. The backlink relation now leaves out every note stamped `[machine::…]` as a source
+  (deliveries, tosses, receipts too); `links:` and `linkedfrom:` are unchanged. An action run now stops at five
+  minutes unless the script says `[deadline::…]` (it was unbounded).
+- Wire: `site.answer` takes `self` and `caller`; new service action `scripts.stop`. No `PROTOCOL` bump of its own.
+
 ### Notes that read themselves: `::fields`, `::if` and one figure orchestrator (PIE-953, fourth slice of PIE-533)
 
 What you can now write in a note, and what it does:

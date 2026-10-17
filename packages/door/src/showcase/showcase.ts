@@ -980,6 +980,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "scripts-in-place", need: "a script that knows its note and draws where it is written, live", part: "the Site's script globals (this, self, caller, props), render mode through ExtensionCalls' one producer path, and `::=` lines", files: "outliner/src/script-runs.ts, src/extension-calls.ts, src/script-runtime.ts",
+    aside: "beds-table:: week=42 draws the Beds table script's view under its line, and the ::= line draws a one-line script · both read this note's owner: edit [owner::Sam] (e, save) and they redraw · nothing is written for a drawing: no run note, the note's text stays yours · the script is [mode::render] and can't declare [effects::write] · Run seed-report from the other section runs with this note in front as `this` · scripts.stop run=<id> ends one run",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · scripts in place", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.scriptsInPlace], [b, n.scripts]]);
+    },
+  },
+  {
     key: "one-place", need: "keep your place when reading, editing and returning to a held edit", part: "NoteSurface and Draft share source positions through Doc.source; DraftSession keeps the edit in the ReaderMode stack; PaneView.scroll draws its bar", files: "src/reader-position.ts, src/surface/note.ts, src/edit.ts, src/draft-session.ts",
     aside: "Scroll halfway, then e and Enter: the same line stays put. Click the shed, wheel the held edit, click back once to focus, again to place the cursor. Wheel away and type to return to the cursor. The scroll bar stays visible in both edits. Esc returns to reading at the same source line.",
     stage(n, show) {

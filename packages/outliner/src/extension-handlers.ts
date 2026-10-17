@@ -3,6 +3,7 @@ import type { ExtensionHandler, ExtensionOptionSpec } from "./extension-manifest
 import type { BoundHandler } from "./extension-registry";
 import { parsePropertyDirectiveLines } from "@ep0ch/outline-core/property-parse";
 import { splitWords } from "@ep0ch/outline-core/component-block";
+import { offsetInRanges, scanPropertyLiteralRanges, sourceLines } from "@ep0ch/outline-core/code-ranges";
 
 /**
  * Handler lines: `key:: [argument] [--option[=value]]` for a key an
@@ -136,11 +137,39 @@ export function handlerCalls(text: string, table: HandlerTable): HandlerCall[] {
   return calls;
 }
 
+/** The extension id and handler key of a `::=` line: a built-in handler of the host, a one-line render-mode script. */
+export const PIPELINE = "pipeline";
+
+const PIPELINE_LINE = /^([ \t]*)((?:[-*+][ \t]+)?)::=[ \t]*(\S.*?)[ \t]*$/;
+
+/**
+ * The `::=` lines of a block (PIE-533): `::= (await q("parent:this")).blocks.map(b => b.title).join(", ")`. The line's
+ * expression is a render-mode script (`this`, `props`, `q`, `read`, `resolve`), drawn under the line and again when what
+ * it read changes. It is the argument of the call, so two lines with different expressions are two calls.
+ */
+export function pipelineCalls(text: string): HandlerCall[] {
+  if (!text.includes("::=")) return [];
+  const literal = scanPropertyLiteralRanges(text);
+  const calls: HandlerCall[] = [];
+  sourceLines(text).forEach((line, lineIndex) => {
+    const match = PIPELINE_LINE.exec(text.slice(line.start, line.contentEnd));
+    if (!match || offsetInRanges(line.start + match[1]!.length, literal) || calls.length >= MAX_CALLS) return;
+    const argument = match[3]!;
+    calls.push({
+      extensionId: PIPELINE, handlerKey: PIPELINE, kind: "output", effects: "read", argument, options: {}, display: {}, unknown: [],
+      problems: argument.length > 500 ? ["the expression is longer than 500 characters"] : [], argumentOk: true,
+      callKey: createHash("sha256").update(JSON.stringify([PIPELINE, argument, {}])).digest("hex").slice(0, 32),
+      line: lineIndex, start: line.start + match[1]!.length + match[2]!.length, end: line.contentEnd, indent: match[1]!,
+    });
+  });
+  return calls;
+}
+
 /**
  * Cheap guard for readers: could this text hold a handler line (any `key::`
  * line) or an agent request (an `@name` line)? The service decides.
  */
 export function mayHaveHandlerLines(text: string): boolean {
-  return (text.includes("::") && /^[ \t]*(?:[-*+][ \t]+)?[A-Za-z][A-Za-z0-9_.-]*::/m.test(text)) ||
+  return (text.includes("::") && /^[ \t]*(?:[-*+][ \t]+)?(?:[A-Za-z][A-Za-z0-9_.-]*::|::=)/m.test(text)) ||
     (text.includes("@") && /^[ \t]*(?:[-*+][ \t]+)?@[a-z]/m.test(text));
 }
