@@ -69,6 +69,16 @@ test("props are the call site's, apart from the note's own values", () => {
   expect(values("props.statuz", s)).toMatchObject({ didYouMean: ["status"] });
 });
 
+test("edges: a key with an empty list is there, a list keeps its repeats, a prop name is only the call site's", () => {
+  const note = recordOf("n", "Page [tags::[]] [dup::[a, a, b]]");
+  expect(values("this.tags.count", site({ this: note }))).toEqual(["0"]);
+  expect(values("this.dup", site({ this: note }))).toEqual(["a", "a", "b"]);
+  expect(values("dup", site({ this: note }))).toEqual(["a", "a", "b"]);
+  expect(values("props.constructor")).toMatchObject({ message: expect.stringContaining("no prop") });
+  // A near miss is suggested from the parents too.
+  expect(values("ownr", site({ this: recordOf("c", "Bricks") }), { ancestors: [{ id: "p", text: "Lego [owner::sam]" }] })).toMatchObject({ didYouMean: ["owner"] });
+});
+
 test("parent.key reads the parent alone", () => {
   const parent = recordOf("p", "Lego night [project::lego-night]");
   const child = recordOf("c", "Bricks", "p");

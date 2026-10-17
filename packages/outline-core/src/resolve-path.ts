@@ -100,8 +100,8 @@ function inRecord(record: BlockRecord, steps: ParsedPath["steps"], label: string
   }
   const field = recordField(record, key);
   if (field) return finish({ ok: true, values: field }, rest);
-  const values = noteValues(record, key);
-  if (values.length) return finish({ ok: true, values }, rest);
+  // A key the note writes with no value (`[tags::[]]`) is there, as an empty list.
+  if (keysOf(record).includes(key)) return finish({ ok: true, values: noteValues(record, key) }, rest);
   return fail(`no \`${first.key}\` on ${label === "this" ? "this note" : `\`${label}\``}`, [...keysOf(record), ...RECORD_KEYS], first.key);
 }
 
@@ -132,8 +132,11 @@ function bare(key: string, steps: ParsedPath["steps"], site: Site, scope: PathSc
   const found = createContextResolver({ block: { id: here.id, text: here.text }, ancestors: scope.ancestors ?? [], matcher: matcherFor(k) }).resolve(scope.line ?? 0);
   // Two different values at the nearest level are a list: that level supplies them all.
   const raw = found.kind === "resolved" ? [found.key] : found.kind === "ambiguous" ? found.keys : [];
-  if (!raw.length) return fail(`no \`${key}\` here or in its parents`, keysOf(here), key);
-  return finish({ ok: true, values: [...new Set(raw.flatMap(splitPropertyValue))] }, steps);
+  if (!raw.length) {
+    const nearby = [...keysOf(here), ...(scope.ancestors ?? []).flatMap(a => parsePropertyRecords(a.text).map(r => r.key))];
+    return fail(`no \`${key}\` here or in its parents`, [...new Set(nearby)], key);
+  }
+  return finish({ ok: true, values: raw.flatMap(splitPropertyValue) }, steps);
 }
 
 /** Resolve one path against a Site. */
@@ -148,7 +151,7 @@ export function resolvePath(path: string | ParsedPath, site: Site, scope: PathSc
     case "props": {
       const [first, ...rest] = steps;
       if (!first || "index" in first) return { ok: false, problem: { message: "`props` needs a name: props.week", didYouMean: [] } };
-      const values = site.props[first.key];
+      const values = Object.hasOwn(site.props, first.key) ? site.props[first.key] : undefined;
       if (values) return finish({ ok: true, values: [...values] }, rest);
       return fail(`no prop \`${first.key}\` was passed`, Object.keys(site.props), first.key);
     }
