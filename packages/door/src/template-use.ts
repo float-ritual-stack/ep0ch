@@ -80,8 +80,8 @@ export function useRegion(d: UseDrawing): string[] {
   }
   if (answer.missing.length) {
     const names = answer.missing.map(m => m.name).join(", ");
-    const offer = `needs ${names} · ⏎ asks`;
-    out.push(S(fg(C.yellow) + (d.sink ? LINK_ON + tagged(d.sink, { block: d.host, role: "control", label: `fill ${names}`, use: { block: d.host, line: d.line } }, offer) + LINK_OFF : offer) + RESET));
+    const fill = "[fill it in]";
+    out.push(S(fg(C.yellow) + `needs ${names} ` + RESET + fg(C.lcyan) + (d.sink ? LINK_ON + tagged(d.sink, { block: d.host, role: "control", label: `fill in ${names}`, use: { block: d.host, line: d.line } }, fill) + LINK_OFF : fill) + RESET));
   }
   if (!answer.template) return out;
   // The template's note: kept read by the embed machinery (its text, revision and change events); its body is drawn here.

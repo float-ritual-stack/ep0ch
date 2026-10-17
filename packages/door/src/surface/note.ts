@@ -422,6 +422,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
+  : e.kind === "control" && e.link?.use ? "ask for what the ::use needs"
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"

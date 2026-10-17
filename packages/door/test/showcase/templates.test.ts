@@ -43,7 +43,7 @@ describe.skipIf(!outliner)("the showcase screen: templates (PIE-533 S4)", () => 
     expect(unfinished).toContain("Meeting note template has no prop `wiht`; did you mean `with`?");
     expect(unfinished).toContain("{{props.with}} · no prop with was passed");
     expect(unfinished).toContain("mood=gud isn't one of good, meh, rough; did you mean");
-    expect(unfinished).toContain("needs with");
+    expect(unfinished).toContain("needs with [fill it in]");
     // Nothing was written to draw any of it.
     expect((await board.get(seeded.notes.meetingSowing.id))!.text).toContain("::use{of=[[meeting-template]] with=Ada date=2026-10-14}");
   }, 40_000);
