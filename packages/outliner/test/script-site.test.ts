@@ -189,3 +189,12 @@ test("keep on a render line writes its output as a note and starts no run", asyn
   expect(store.children(note.id).map(c => c.text).join("\n")).toContain("sow the peas");
   expect(store.children(script.id)).toHaveLength(0);
 });
+
+test("a line written before its script exists is drawn once the script is loaded, without being asked again", async () => {
+  const { create, client, output } = await setup();
+  const note = create("Later\nlate-bloomer::");
+  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  expect(output(note.id)).toEqual([]);
+  create("Late [script::late-bloomer] [mode::render]\n```js\nreturn 'bloomed';\n```");
+  expect(await until("the line drawn by the script's arrival", () => output(note.id)[0])).toBe("bloomed");
+});
