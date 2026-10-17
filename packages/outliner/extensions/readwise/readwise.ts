@@ -21,7 +21,7 @@
 // `readwise` (key READWISE_TOKEN) on stdin, and is never written anywhere.
 import { outline } from "./outline";
 
-interface Block { id: string; text: string; revision: number }
+interface Block { id: string; text: string; revision: number; properties?: { key: string; value: string }[] }
 interface Config { board?: string; page?: string; link?: string; machine?: string; tags?: string[]; api?: string; minutes?: number; readerPage?: string; locations?: string[]; publish?: boolean }
 interface Request {
   operation: string;
@@ -145,8 +145,7 @@ async function linkOf(name: string, id: string): Promise<Link> {
   // Not public yet: set it the way a person would, then ask where it is. When nothing serves the outline publicly the
   // note goes back as it was, so a send never leaves a note waiting to be opened to the world by a publisher started later.
   const block = await outline<Block>({ action: "get", blockId: id }, name);
-  const props = headerProps(block.text);
-  const asked = props.publish?.trim() ?? "";
+  const asked = prop(block, "publish")?.trim() ?? "";
   const value = /^public(:|$)/i.test(asked) ? asked : /^(|true|yes|false|no|off|0)$/i.test(asked) ? "public" : `public:${asked}`;
   await update(block, withHeaderProps(block.text, { publish: value }), name);
   const after = await publicPermalink(name, id);
@@ -194,12 +193,8 @@ const token = (key: string, v: string | number | null | undefined) => (v === nul
 const tokens = (parts: string[]) => parts.filter(Boolean).join(" ");
 const short = (text: string) => { const one = value(text).replace(/\((?=\()/g, "(\\"); return one.length > 80 ? `${one.slice(0, 79)}…` : one; };
 
-/** The `[key::value]` tokens on a block's first line. */
-function headerProps(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const match of text.split("\n")[0]!.matchAll(/\[([A-Za-z][\w.-]*)::([^\]\n]*)\]/g)) out[match[1]!] = match[2]!;
-  return out;
-}
+/** A property's first value on a block: the service's own parse (front matter, header chips and the metadata line alike), never a scan of its text. */
+const prop = (block: Pick<Block, "properties">, key: string): string | undefined => block.properties?.find((p) => p.key === key)?.value;
 
 /** The first line with these properties set (a string) or taken out (null), the rest of the text as it was. */
 function withHeaderProps(text: string, changes: Record<string, string | null>, at = 0): string {
@@ -453,9 +448,9 @@ async function ontoBoard(page: Block, book: Book, highlights: Highlight[], tally
   if (book.source === "reader" && book.external_id) await linkDocument(book.external_id, home.id);
   const children = await outline<Block[]>({ action: "children", parentId: home.id }, BOARD);
   // A thread (a tweets book of more than one highlight, now or already on the board) reads as a thread.
-  const thread = book.category === "tweets" && (highlights.length > 1 || children.some((child) => headerPropsAnywhere(child.text)["readwise.highlight"]));
+  const thread = book.category === "tweets" && (highlights.length > 1 || children.some((child) => prop(child, "readwise.highlight")));
   if (thread) return ontoThread(home, children, book, highlights, tally);
-  const byId = new Map(children.map((child) => [headerPropsAnywhere(child.text)["readwise.highlight"], child] as const));
+  const byId = new Map(children.map((child) => [prop(child, "readwise.highlight"), child] as const));
   for (const highlight of highlights) {
     tally.board++;
     const wanted = highlightText(highlight, book);
@@ -482,13 +477,12 @@ async function ontoThread(home: Block, children: Block[], book: Book, highlights
   interface Tweet { id: string; at: string; order: number | null; highlight?: Highlight; block?: Block }
   const tweets = new Map<string, Tweet>();
   const seen = async (block: Block) => {
-    const found = headerPropsAnywhere(block.text);
-    const id = found["readwise.highlight"];
-    if (id) tweets.set(id, { id, at: found.highlighted ?? "", order: found["readwise.location-type"] === "order" && found["readwise.location"] ? Number(found["readwise.location"]) : null, block });
+    const id = prop(block, "readwise.highlight");
+    if (id) tweets.set(id, { id, at: prop(block, "highlighted") ?? "", order: prop(block, "readwise.location-type") === "order" && prop(block, "readwise.location") ? Number(prop(block, "readwise.location")) : null, block });
   };
   for (const child of children) {
     await seen(child);
-    if (headerPropsAnywhere(child.text)["readwise.highlight"]) for (const under of await outline<Block[]>({ action: "children", parentId: child.id }, BOARD)) await seen(under);
+    if (prop(child, "readwise.highlight")) for (const under of await outline<Block[]>({ action: "children", parentId: child.id }, BOARD)) await seen(under);
   }
   for (const highlight of highlights) {
     const id = String(highlight.id);
@@ -522,15 +516,9 @@ async function ontoThread(home: Block, children: Block[], book: Book, highlights
     if (block) { placed.push(block); head ??= block; }
   }
   const text = [`Thread, compiled [readwise.compiled::${book.user_book_id}]`, ...placed.map((tweet) => `\n!((${tweet.id}))`)].join("\n");
-  const compiled = children.find((child) => headerPropsAnywhere(child.text)["readwise.compiled"] === String(book.user_book_id));
+  const compiled = children.find((child) => prop(child, "readwise.compiled") === String(book.user_book_id));
   if (!compiled) await outline({ action: "create", parentId: home.id, text }, BOARD);
   else await update(compiled, text, BOARD);
-}
-
-/** Properties on a block's first two lines (a record's are on its second). */
-function headerPropsAnywhere(text: string): Record<string, string> {
-  const [first = "", second = ""] = text.split("\n");
-  return { ...headerProps(second), ...headerProps(first) };
 }
 
 /** A page of the board by address, or null when there is none yet. */
@@ -554,15 +542,14 @@ async function pull(): Promise<void> {
   // One pull at a time across the host: the schedule says once: "host" (it runs in one outline), and the service runs
   // a host-wide action one at a time whichever outline asks. The cursor lives on the board page, as properties.
   let page = await boardPage();
-  const props = headerProps(page.text);
-  const synced = props["readwise.synced"];
+  const synced = prop(page, "readwise.synced");
   const save = async (changes: Record<string, string | null>) => {
     page = await outline<Block>({ action: "get", blockId: page.id }, BOARD);
     await update(page, withHeaderProps(page.text, changes), BOARD);
   };
 
-  const sweep = props["readwise.sweep"] ?? new Date(STARTED).toISOString();
-  let cursor: string | null = props["readwise.next-page"] ?? null;
+  const sweep = prop(page, "readwise.sweep") ?? new Date(STARTED).toISOString();
+  let cursor: string | null = prop(page, "readwise.next-page") ?? null;
   const tally: Tally = { notes: 0, board: 0, created: 0, updated: 0, unanchored: 0 };
   let complete = false;
   try {
@@ -678,19 +665,18 @@ async function stillThere(id: string): Promise<boolean> {
 
 async function library(): Promise<void> {
   let page = await readerPage();
-  const props = headerProps(page.text);
-  const synced = props["reader.synced"];
+  const synced = prop(page, "reader.synced");
   const save = async (changes: Record<string, string | null>) => {
     page = await outline<Block>({ action: "get", blockId: page.id }, BOARD);
     await update(page, withHeaderProps(page.text, changes), BOARD);
   };
-  const sweep = props["reader.sweep"] ?? new Date(STARTED).toISOString();
+  const sweep = prop(page, "reader.sweep") ?? new Date(STARTED).toISOString();
   // A pass with no `reader.synced` lists everything (the backfill, or one asked for by clearing it): the only one that can say a document is gone.
   const full = !synced;
   const locations = config.locations?.length ? config.locations : DEFAULT_LOCATIONS;
-  const resumed = locations.indexOf(props["reader.location"] ?? "");
+  const resumed = locations.indexOf(prop(page, "reader.location") ?? "");
   let at = Math.max(0, resumed);
-  let cursor: string | null = resumed >= 0 ? props["reader.next-page"] ?? null : null;
+  let cursor: string | null = resumed >= 0 ? prop(page, "reader.next-page") ?? null : null;
   const counts: Counts = { seen: 0, created: 0, updated: 0, skipped: 0, deleted: 0 };
   const where = () => ({ "reader.sweep": sweep, "reader.location": locations[at]!, "reader.next-page": cursor });
   let complete = false;
@@ -709,7 +695,7 @@ async function library(): Promise<void> {
           const have = await documentBlock(page, doc.id);
           const book = await bookOf(doc.id);
           // `reader.seen` is the full pass that last listed it; an incremental run keeps what is there.
-          const text = documentText(doc, book?.id, full ? sweep : have ? headerPropsAnywhere(have.text)["reader.seen"] : null);
+          const text = documentText(doc, book?.id, full ? sweep : have ? prop(have, "reader.seen") : null);
           if (!have) {
             await outline({ action: "create", parentId: page.id, text }, BOARD);
             counts.created++;
@@ -741,7 +727,7 @@ async function library(): Promise<void> {
           where: `reader.id AND NOT reader.deleted AND NOT reader.seen="${sweep}"`, subtreeRootId: page.id, limit: 1000 } }, BOARD);
         if (!unlisted.blocks.length) break;
         for (const block of unlisted.blocks) {
-          const id = headerPropsAnywhere(block.text)["reader.id"];
+          const id = prop(block, "reader.id");
           const gone = !id || !(await stillThere(id));
           await update(block, withHeaderProps(block.text, gone ? { "reader.deleted": "true" } : { "reader.seen": sweep }, 1), BOARD);
           if (gone) counts.deleted++;

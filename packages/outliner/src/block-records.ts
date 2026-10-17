@@ -5,7 +5,7 @@ import { blockRecord, type BlockRecord, type BlockRecordInput } from "@ep0ch/out
 import { readAuthoredLinks, type AuthoredLinksDataSource } from "./authored-links";
 import { checklistItems } from "./checklist-items";
 import { outlinerReferenceOccurrences, propertyReferenceOccurrences, type OutlinerReferenceOccurrence } from "./reference-occurrences";
-import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { parsePropertyRecords, type PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { blockDisplayTitle } from "./references";
 import type { Block } from "./types";
@@ -26,6 +26,26 @@ export interface BlockRecordRead {
 /** What an occurrence names, so the places one link is written are one group. */
 const occurrenceKey = (o: OutlinerReferenceOccurrence) =>
   o.kind === "block" ? `block:${o.blockId}^${o.fragmentId ?? ""}` : o.kind === "page" ? `page:${o.normalizedAddress}` : `work-id:${o.address.toUpperCase()}`;
+
+/**
+ * One block's record from its text alone: properties, header, fields and checklist, with no links, backlinks or
+ * resources (they say so in `truncated`). What a call to an extension sees of its block and children (`context`),
+ * where reading the whole outline's references for each call would cost more than the call.
+ */
+export function textRecord(block: Block, children: readonly string[] = []): BlockRecord {
+  const text = block.text;
+  const properties = parsePropertyRecords(text);
+  return blockRecord({
+    block, title: blockDisplayTitle(block), properties, literal: scanPropertyLiteralRanges(text), children,
+    tasks: tasksOf(text, properties), links: [], backlinks: [], resources: [], truncated: ["links", "resources"],
+  });
+}
+
+/** A note's checklist as a record holds it: each item's text is its first line after the `[ ]`, without its `^anchor` (that is `id`). */
+const tasksOf = (text: string, properties: PropertyRecord[]): BlockRecord["tasks"] => checklistItems(text, properties).map(item => ({
+  status: item.status, line: item.span.startLine, id: item.itemId ?? null,
+  text: (text.slice(item.markerStart + 3).split("\n")[0] ?? "").replace(/[ \t]+\^[0-9A-Za-z_-]+[ \t]*$/, "").trim(),
+}));
 
 export function readBlockRecords(source: BlockRecordSource, ids: unknown): BlockRecordRead {
   if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_BLOCK_RECORD_IDS || ids.some(id => typeof id !== "string" || !id)) {
@@ -94,11 +114,7 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
       properties,
       literal: scanPropertyLiteralRanges(text),
       children: source.children(id).map(child => child.id),
-      tasks: checklistItems(text, properties).map(item => ({
-        status: item.status, line: item.span.startLine, id: item.itemId ?? null,
-        // The item's first line after its `[ ]`, without its `^anchor` (that is `id`).
-        text: (text.slice(item.markerStart + 3).split("\n")[0] ?? "").replace(/[ \t]+\^[0-9A-Za-z_-]+[ \t]*$/, "").trim(),
-      })),
+      tasks: tasksOf(text, properties),
       links,
       // A note's own Work ID in its title isn't a link to it.
       backlinks: (linking.get(id) ?? []).filter(from => from !== id),

@@ -46,6 +46,13 @@ describe("the surface without a service", () => {
   });
   const TEXT = "Plan the allotment [stage::queued]\nBeans along the fence, squash by the compost.\n\n> [!note] Frost dates\n> Nothing out before mid May.\n\n- [ ] dig the bed\n- [ ] buy canes\n\n| crop | row |\n|---|---|\n| beans | 1 |";
 
+  test("a figure written without its --- lines is listed as left open, and drawn saying where its props go (PIE-941)", () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note("Deploys\n\n::graph-table\nquery: type=deploy\ncolumns: [title, created]\n::"), h);
+    const read = s.render(100, 30, h).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, "")).join("\n");
+    expect(read).toContain("⚠ the ::graph-table has query:, columns: but no --- lines");
+  });
+
   test("draws at any width a river column might have: reading, editing, quoting, writing a comment", () => {
     for (const w of [8, 14, 22, 30, 48]) {
       const s = new NoteSurface(), h = host();

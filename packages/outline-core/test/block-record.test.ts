@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blockRecord, recordJson, recordTime } from "../src/block-record";
+import { blockRecord, recordJson, recordProperties, recordTime, valueOf, valuesOf } from "../src/block-record";
 
 // Fictional notes.
 const input = {
@@ -46,5 +46,21 @@ describe("a block as a record", () => {
     const json = recordJson({ b: 1, a: [{ d: 1, c: 2 }] });
     expect(json).toBe('{\n  "a": [\n    {\n      "c": 2,\n      "d": 1\n    }\n  ],\n  "b": 1\n}\n');
     expect(recordJson(blockRecord(input))).toBe(recordJson(blockRecord({ ...input })));
+  });
+});
+
+describe("reading values off properties", () => {
+  test("a record's and a wire block's properties answer valuesOf alike: a repeat adds, a list splits, a plain comma stays", () => {
+    const wire = [{ key: "tags", value: "beans" }, { key: "tags", value: "[squash, leeks]" }, { key: "Mix", value: "2, 1" }];
+    const record = { properties: recordProperties(wire) };
+    expect(record.properties).toEqual([{ key: "tags", values: ["beans", "squash", "leeks"] }, { key: "Mix", values: ["2, 1"] }]);
+    for (const source of [{ properties: wire }, record]) {
+      expect(valuesOf(source, "tags")).toEqual(["beans", "squash", "leeks"]);
+      expect(valuesOf(source, "mix")).toEqual(["2, 1"]);
+      expect(valueOf(source, "tags")).toBe("beans");
+      expect(valuesOf(source, "nope")).toEqual([]);
+      expect(valueOf(source, "nope")).toBeUndefined();
+    }
+    expect(valuesOf({}, "tags")).toEqual([]);
   });
 });

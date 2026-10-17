@@ -3,20 +3,21 @@
 // properties and children) and returns primitives every client draws: no client code, and the note's text is never
 // changed. All meetings are made up.
 
-interface Property { key: string; value: string }
+/** A property as the service sends it: a wire block's `{ key, value }`, or a record's `{ key, values }` (outline-core's block record). */
+interface Property { key: string; value?: string; values?: string[] }
 interface Request {
   operation: "decorate";
   input: {
     rule: string;
     hit: { at: "block" | "construct" | "text"; line: number; text: string };
-    context: { block: { id: string; text: string; properties: Property[] }; children: { id: string; text: string }[] };
+    context: { block: { id: string; text: string; title?: string; properties: Property[] }; children: { id: string; text: string }[] };
   };
 }
 
 const request = (await Bun.stdin.json()) as Request;
 const { block, children } = request.input.context;
-const values = (key: string) => block.properties.filter((p) => p.key === key).flatMap((p) => p.value.split(",")).map((v) => v.trim()).filter(Boolean);
-const title = block.text.split("\n", 1)[0]!.replace(/\[[^\]\n]*::[^\]\n]*\]/g, "").trim();
+const values = (key: string) => block.properties.filter((p) => p.key === key).flatMap((p) => p.values ?? (p.value === undefined ? [] : [p.value])).map((v) => v.trim()).filter(Boolean);
+const title = (block.title ?? block.text.split("\n", 1)[0]!.replace(/\[[^\]\n]*::[^\]\n]*\]/g, "")).trim();
 const who = values("attendees");
 const when = values("when")[0] ?? "no time set";
 const where = values("where")[0];

@@ -49,22 +49,20 @@ export function noteText(n: Notification, state: "unread" | "read"): string {
   return `${inert(n.title)} ${tokens}${n.snippet ? `\n\n${inert(n.snippet)}` : ""}`;
 }
 
-/** The first-line properties of a note we wrote. */
-export function propsOf(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const m of text.split("\n")[0]!.matchAll(/\[([A-Za-z][\w.-]*)::([^\]\n]*)\]/g)) out[m[1]!] = m[2]!;
-  return out;
-}
+/** A note as the service returns it: its text and its block-scope properties, every occurrence (never a first-line scan). */
+export interface Existing { text: string; properties?: readonly { key: string; value: string }[] }
+/** The first value of a property on a note, from the service's own parse. */
+export const valueOf = (note: Pick<Existing, "properties">, key: string): string | undefined => note.properties?.find((p) => p.key === key)?.value;
 
 /**
  * What a pull writes for a notification that may already be a note. Read never goes back to unread: a person who
  * marked it read (or moved its card) keeps that, whatever the source says later. Unread at the source becomes read
  * here only when the source says it was read.
  */
-export function merged(n: Notification, current?: string): string {
+export function merged(n: Notification, current?: Existing): string {
   if (!current) return noteText(n, n.unread ? "unread" : "read");
-  const was = propsOf(current)[STATE] === "read" ? "read" : "unread";
-  const [first = "", ...rest] = current.split("\n");
+  const was = valueOf(current, STATE) === "read" ? "read" : "unread";
+  const [first = "", ...rest] = current.text.split("\n");
   // The extension owns the title and the notify.* tokens of the first line; anything a person added there (their own
   // properties) and every line after it stay as they are.
   const mine = noteText(n, was === "read" || !n.unread ? "read" : "unread").split("\n")[0]!;

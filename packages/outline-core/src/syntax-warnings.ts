@@ -11,14 +11,17 @@ import { pageLinkSpans } from "./link-syntax";
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges } from "./code-ranges";
 import { isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
 import { formFieldChipProblems } from "./form-fields";
+import { graphKind, propsWithoutRules } from "./figure-props";
 
-export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal" | "form-field";
+export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal" | "form-field" | "figure";
 
 /** One construct left open: its kind, its line (0 is the title line), and a sentence saying what is read and how to close it. */
 export interface SyntaxWarning {
   kind: SyntaxWarningKind;
   line: number;
   message: string;
+  /** The last line of the construct, when it spans lines (a figure's closing `::`); a generated note about it can follow there. */
+  end?: number;
 }
 
 const MAX_WRITTEN = 40;
@@ -84,6 +87,13 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
   for (const { start, problem } of formFieldChipProblems(text)) {
     const line = lineOf(start);
     out.push({ kind: "form-field", line, message: `${problem.message} (line ${line + 1})` });
+  }
+
+  // A figure whose props are written without their `---` lines (PIE-941): drawn as Markdown rows, so it says so.
+  for (const c of componentBlocks(lines)) {
+    const kind = c.end > c.start ? graphKind(c) : null;
+    const problem = kind ? propsWithoutRules(kind, lines.slice(c.start + 1, c.end)) : null;
+    if (problem) out.push({ kind: "figure", line: c.start, end: c.end, message: `${problem} (line ${c.start + 1})` });
   }
 
   const unterminated = scanLiteralRegions(text).unterminated;

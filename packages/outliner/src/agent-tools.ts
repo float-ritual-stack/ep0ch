@@ -33,6 +33,8 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
+import { textRecord } from "./block-records";
+import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { isSystemNote, systemNoteKind } from "./note-placement";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
@@ -45,7 +47,6 @@ import type {
   BlockAuthor,
   BlockEditActivityPage,
   BlockReadCollection,
-  BlockProperty,
   BlockSearchQuery,
   MutationProvenance,
   ProjectedBlock,
@@ -96,16 +97,6 @@ function requireRevision(value: unknown): number {
     throw new WorkToolRefusal("Give expectedRevision: the revision outline_read returned");
   }
   return value;
-}
-
-/** Properties as `{key: value}`, a repeated key as a list of its values. */
-function propertyMap(properties: readonly BlockProperty[]): Record<string, string | string[]> {
-  const map: Record<string, string | string[]> = {};
-  for (const { key, value } of properties) {
-    const had = map[key];
-    map[key] = had === undefined ? value : Array.isArray(had) ? [...had, value] : [had, value];
-  }
-  return map;
 }
 
 function workIdOf(block: Block): string | undefined {
@@ -300,7 +291,10 @@ export interface ReadChild {
 
 export interface ReadResult extends ResolvedReference {
   text: string;
-  properties: Record<string, string | string[]>;
+  /** Block-scope properties as the record holds them (outline-core `block-record.ts`): each key once with its values in order. */
+  properties: BlockRecord["properties"];
+  /** Properties of a line or a spot in it (`key:: value` lines, `[key::value]` mid-sentence), where they start. */
+  fields: BlockRecord["fields"];
   author: BlockAuthor;
   actorId?: string;
   updated: string;
@@ -364,12 +358,14 @@ export async function readBlock(
   let children: ReadChild[] = [];
   if (depth > 0) children = await read(block.id, 1);
   else await markMore([{ id: block.id, text: "", revision: block.revision }]);
+  const record = textRecord(block);
   return {
     ...resolved,
     title: blockDisplayTitle(block),
     revision: block.revision,
     text: block.text,
-    properties: propertyMap(block.properties),
+    properties: record.properties,
+    fields: record.fields,
     author: block.author,
     ...(block.actorId ? { actorId: block.actorId } : {}),
     updated: block.updatedAt,

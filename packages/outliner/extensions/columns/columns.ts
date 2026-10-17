@@ -4,7 +4,8 @@
 // primitive, so each reader draws them as it draws a note (headings, lists, links, properties). No `targets`: the
 // service composes Markdown (the sections in order) and HTML from the same view.
 
-interface Child { id: string; text: string }
+/** A child as the service sends it in `context`: outline-core's record (`title` is its first line without its properties). Written sections have no record, so no title of their own. */
+interface Child { id: string; text: string; title?: string }
 interface Request {
   operation: string;
   input: { argument?: string | null; context: { block: { text: string }; line?: { index: number }; children: Child[] } };
@@ -19,7 +20,7 @@ const wanted = Number(request.input.argument ?? 0) || 0;
 /** A section: its first line is its title, the rest its words. */
 function section(child: Child): { title: string; lines: string[] } {
   const [first = "", ...rest] = child.text.split("\n");
-  const title = first.replace(/\s*\[[\w.-]+::[^\]]*\]/g, "").replace(/^#+\s*/, "").trim();
+  const title = (child.title ?? first).replace(/^#+\s*/, "").trim();
   return { title, lines: rest };
 }
 

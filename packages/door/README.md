@@ -797,8 +797,8 @@ A write to an outline whose home is another machine answers `queued` with a `que
   proposal's later life (applied or dismissed by its owner, which sends it to the Trash) is read from the mirror, so it
   shows once the next copy arrives. The queue's store is version 2; an older one is refused with the move-aside advice.
 - **Read your writes.** `outline_read` of a mirror's block adds `pending` for the caller's own still-queued writes about
-  it: `pending.body` is the body with each queued patch laid over it, every replacement between `{{pending <id>}}` and
-  `{{/pending}}` (a removal says `removes “…”`), `pending.spans` says which spans were found, and queued properties, new
+  it: `pending.body` is the body with each queued patch laid over it, every replacement between `⟦pending <id>⟧` and
+  `⟦/pending⟧` (a removal says `removes “…”`), `pending.spans` says which spans were found, and queued properties, new
   blocks and comments are listed. `record.body` stays the mirror's own text. Another caller's waiting writes are never
   shown. Once the home machine has applied them and the mirror follows, `pending` goes.
 - **`outline_query`** runs the views' grammar (`type=outbox-item outbox=next`, `type=ticket NOT work-stage=done`; the

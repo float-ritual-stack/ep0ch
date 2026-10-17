@@ -1,4 +1,5 @@
 import type { Decoration } from "./extension-rules";
+import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { mayHaveResourceProjections, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { mayHaveHandlerLines } from "./extension-handlers";
 import {presentedSource, projectedBlockReference} from './document-source';
@@ -738,6 +739,17 @@ async function readProposalsBeside(requester: DetailEmbedRequester, blockId: str
   }
 }
 
+/**
+ * What the sysop console says about a construct the note left open that changes what it draws (PIE-941: a figure whose
+ * props have no `---` lines), as a line after the construct. The door lists every open construct; Detail keeps the
+ * note as written and says only this, in outline-core's words.
+ */
+function noticeRegions(text: string): InsertedRegion[] {
+  return syntaxWarnings(text).filter(warning => warning.kind === "figure").map(warning => ({
+    line: warning.end ?? warning.line, lines: [`⚠ ${warning.message}`], indent: false, reason: "syntax notice", range: () => ({}),
+  }));
+}
+
 function proposalRegions(beside: readonly { afterLine: number; projected: ProjectedEmbed }[]): InsertedRegion[] {
   return beside.map(({ afterLine, projected }) => ({
     line: afterLine, lines: projected.text.split("\n"), indent: false, reason: "proposal beside the note",
@@ -788,7 +800,7 @@ export async function projectDetailRead(
       afterLine: proposal.afterLine,
       projected: await projectEmbed(requester, proposal.id, undefined, options.hostBlockId, () => loadTarget(proposal.id), loadTarget, loadPhysicalBlocks),
     })));
-    return { regions: [...resourceRegions(projections ?? []), ...proposalRegions(proposals)], projections };
+    return { regions: [...resourceRegions(projections ?? []), ...noticeRegions(text), ...proposalRegions(proposals)], projections };
   };
   const matches = embedMatches(projectedSource, text);
   if (matches.length === 0 && !isChecklistView(text)) {

@@ -217,6 +217,24 @@ test("done-stamp: start stamps, stop unstamps, attributed to the extension with 
   expect((await list()).rules.find((entry) => entry.key === "ext:done-stamp/stamp")).toMatchObject({ matching: 1, lastRun: { when: "stop" } });
 });
 
+test("a call sees its block and children as records: repeats and lists as values, a property further down as a field, never a key-to-value map", async () => {
+  const { create, extensionsFolder, client } = await setup();
+  writeExtension(extensionsFolder, "see", {
+    run: ["bun", "main.ts"],
+    actions: [{ id: "look", label: "Look", on: "block", effects: "read" }],
+  }, `const r = await Bun.stdin.json();
+const { block, children } = r.input.context;
+process.stdout.write(JSON.stringify({ ok: true, value: { message: JSON.stringify({ title: block.title, properties: block.properties, fields: block.fields.map((f) => [f.key, f.value, f.scope]), children: children.map((c) => [c.title, c.properties]) }) } }));`);
+  await client.request({ action: "extensions.list", reload: true });
+  const note = await create("Heap [tags::compost] [tags::[leaves, straw]] [mix::2, 1]\n\nTurned it [due::friday].");
+  await create("Bin [size::big]", note.id);
+  const seen = JSON.parse((await client.request<{ message: string }>({ action: "extensions.act", extension: "see", extensionAction: "look", blockId: note.id })).message);
+  expect(seen.title).toBe("Heap");
+  expect(seen.properties).toEqual([{ key: "tags", values: ["compost", "leaves", "straw"] }, { key: "mix", values: ["2, 1"] }]);
+  expect(seen.fields).toEqual([["due", "friday", "inline"]]);
+  expect(seen.children).toEqual([["Bin", [{ key: "size", values: ["big"] }]]]);
+});
+
 test("a trigger never runs for another extension's write, and change runs on a save while it matches", async () => {
   const { create, update, store, extensionsFolder, list } = await setup();
   // `count` appends a line on every save while a block is [watch::on]; `poke` is another extension writing the block.

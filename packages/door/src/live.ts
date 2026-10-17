@@ -9,6 +9,8 @@ import type { Msg } from "./board";
 import type { SocketBoard } from "./socket";
 import { subject } from "./board";
 import { viewReadOf } from "./views";
+import { propertyListOf } from "./props";
+import { recordProperties } from "@ep0ch/outline-core/block-record";
 import { watchedOn, type Watching } from "./watched";
 import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
 import { figureRow } from "@ep0ch/outline-core/figure-markdown";
@@ -132,7 +134,7 @@ export function childRows(note: string): { rows: Row[]; waiting: boolean } | nul
 }
 
 /** A result as outline-core's live figures read it. */
-const itemOf = (m: Msg): FigureItem => ({ id: m.id, title: subject(m), props: m.props, createdAt: m.createdAt, updatedAt: m.updatedAt, author: m.author });
+const itemOf = (m: Msg): FigureItem => ({ id: m.id, title: subject(m), properties: recordProperties(propertyListOf(m)), createdAt: m.createdAt, updatedAt: m.updatedAt, author: m.author });
 
 export interface Resolved { props: Props; status: string | null; waiting: boolean; error?: string }
 
