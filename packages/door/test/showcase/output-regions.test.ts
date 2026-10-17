@@ -23,7 +23,10 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     expect(screen()).not.toMatch(/ran (just now|\d+ min ago)|\[keep\]|run again|\[!output\]|╭─ ▾ .*output/);
     // The way in: the header's [sources], S, or a selection's "Where from" opens the Sources inspector beside the note.
     expect(screen()).toContain("[sources]");
-    await app.act({ action: "sources.open", args: {}, tile: "notes", as: "test-agent" }).catch(() => {});
+    const opened = await app.act({ action: "sources.open", args: {}, tile: "notes", as: "test-agent" }) as { opened?: boolean; sources?: { name: string }[] };
+    // An agent reads the note's sources without opening the person's panel: the three regions are listed.
+    expect(opened.opened).toBe(false);
+    expect(opened.sources?.length).toBeGreaterThanOrEqual(3);
     // Drawing wrote nothing.
     const after = (await board.get(id))!;
     expect([after.text, after.revision]).toEqual([first.text, first.revision]);

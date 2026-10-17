@@ -2215,7 +2215,7 @@ draws a ticket (PIE-512):
 
 A generated region (an output, a component's view, an `@name` request, a `::use`, a written `[!output]` callout) reads as
 the note's own content (PIE-956): its words, table or figure flush with the text around it at the note's measure, with
-no box, no indent, no header and no bullet row. One dim `≡` in the reader's gutter beside its first row is the only sign
+no box, no indent, no header and no bullet row. A region shows no mark until the `[ ]` position or a click reaches it (`[sources]` and `S` are the way in); then one dim `≡` in the reader's gutter beside its first row is the only sign
 it is generated, and what is behind it (its name, when it ran, and a control for each action the extension declares on that
 line (`[w ward]`), the built-in `[keep]` (the result written under the note as blocks) and `[r run again]` (`[r ask again]`
 for an agent)) shows as one dim row under it while the region is open: the `[ ]` position is on its mark (or a control in

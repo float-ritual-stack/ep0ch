@@ -137,7 +137,7 @@ export function withSlotProps(line: string, props: Record<string, string>): stri
   const rest = line.slice(read.head.length);
   const done = new Set<string>();
   const rewritten = rest.replace(/([A-Za-z_][\w-]*)=(?:"(?:[^"\\]|\\.)*"|\S*)/g, (whole, key: string) => {
-    if (!(key in props) || done.has(key)) return whole;
+    if (!Object.hasOwn(props, key) || done.has(key)) return whole;
     done.add(key);
     return say(key, props[key]!);
   });

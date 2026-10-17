@@ -43,7 +43,7 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     click(five.x, five.y);
     expect(status()).toBeUndefined();
     await untilAsync(async () => (await boardOf()) === "o...x....", "x on 5 and the reply o on 1");
-    // By keys: [ ] to square 9's element and ⏎ (element.open).
+    // A second click, on square 9 (the keys path, [ ] and ⏎ through element.open, is in the parity tests).
     const nine = await at("9");
     click(nine.x, nine.y);
     await untilAsync(async () => (await boardOf()).charAt(8) === "x", "x on 9");

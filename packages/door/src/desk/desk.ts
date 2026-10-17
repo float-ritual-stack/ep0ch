@@ -773,7 +773,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     try { this.undoLayout(USER, run); this.ctx.flash("the run's layout changes put back"); } catch (e) { this.ctx.flash(`layout not undone: ${e instanceof Error ? e.message : String(e)}`, 6000); }
   }
   scriptsLost() {
-    for (const id of this.history.openIds()) try { this.endTxn(id, "failed", USER); } catch { /* gone already */ }
+    // Only the runs that were waiting on the service: a transaction opened by hand (txn=) has no run to lose.
+    for (const id of this.runningScripts()) try { this.endTxn(id, "failed", USER); } catch { /* gone already */ }
   }
 
   /** A transaction nothing has joined for a minute closes, and says so. */

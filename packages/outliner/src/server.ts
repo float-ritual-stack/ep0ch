@@ -1033,6 +1033,7 @@ export class OutlinerServer {
       clientId,
       role: registration.role,
       contextId,
+      ...(registration.app === "door" ? { app: "door" as const } : {}),
       ...(outline ? { outline } : {}),
       ...(currentTarget ? { currentTarget } : {}),
       ...(runtime ? { runtime } : {}),

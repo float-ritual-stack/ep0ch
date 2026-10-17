@@ -74,7 +74,7 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
     const right = a ? `${updated} ${refresh}  ✕` : "✕";
     const gap = Math.max(1, w - width(title) - width(right) - 2);
     const at = 1 + width(title) + gap;
-    put(` ${fg(C.yellow)}${BOLD}${title}${UNBOLD}${RESET}${" ".repeat(gap)}${dim(updated)} ${fg(C.lcyan)}${refresh}${RESET}  ${fg(C.lcyan)}✕${RESET}`, a
+    put(` ${fg(C.yellow)}${BOLD}${title}${UNBOLD}${RESET}${" ".repeat(gap)}${a ? `${dim(updated)} ${fg(C.lcyan)}${refresh}${RESET}  ` : ""}${fg(C.lcyan)}✕${RESET}`, a
       ? [{ from: at + width(updated) + 1, to: at + width(updated) + 1 + refresh.length, action: "sources.refresh" }, { from: at + width(updated) + 1 + refresh.length + 2, to: at + width(updated) + 1 + refresh.length + 3, action: "sources.close" }]
       : [{ from: Math.max(0, w - 2), to: w - 1, action: "sources.close" }]);
   };

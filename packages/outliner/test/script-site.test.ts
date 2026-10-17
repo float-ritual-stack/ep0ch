@@ -224,6 +224,30 @@ test("a script that acts on a door with none connected is refused with where to 
   expect(text).toContain("door=<client>");
 });
 
+test("a script's act with no door= uses the one connected door, which a client declares with app: \"door\", not by the look of its clientId (PIE-957)", async () => {
+  const { client, create, run } = await setup();
+  create(`Ask door [script::ask-one-door] [effects::write]\n\`\`\`js\nconst r = await act("actions", {});\nreturn "door said " + JSON.stringify(r);\n\`\`\``);
+  const note = create("Somewhere else");
+  // A client whose id merely looks like a door's is not one.
+  const impostor = client.watch({ client: { clientId: "ep0ch-door-lookalike", role: "observer", contextId: "x" }, onEvent: () => {} });
+  const asked: string[] = [];
+  const door = client.watch({
+    client: { clientId: "a-real-door", role: "observer", contextId: "y", app: "door" },
+    onEvent: async event => {
+      const call = (event as unknown as { script?: { requestId: string; targetClientId: string; action: string } }).script;
+      if (event.domain !== "script" || !call || call.targetClientId !== "a-real-door") return;
+      asked.push(call.action);
+      await client.request({ action: "scripts.answer", requestId: call.requestId, clientId: "a-real-door", result: { ok: true } } as never);
+    },
+  });
+  try {
+    await until("both clients connected", async () => (await client.request<{ clientId: string }[]>({ action: "clients.list" })).length >= 2);
+    const { text } = await run("ask-one-door", { blockId: note.id });
+    expect(text).toContain("door said");
+    expect(asked).toEqual(["actions"]);
+  } finally { await impostor.stop(); await door.stop(); }
+});
+
 test("a line written before its script exists is drawn once the script is loaded, without being asked again", async () => {
   const { create, client, output } = await setup();
   const note = create("Later\nlate-bloomer::");

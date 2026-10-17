@@ -795,9 +795,12 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     keys: "`ep0ch act motion.set mode=calm`, the power bar's actions scope (>)",
     touches: "screen", replay: "ask", says: out => `· motion is ${out.mode}`,
     args: { mode: { type: "string", about: MOTION_MODES.join(", ") } },
-    run({ mode }, { ctx }) {
+    run({ mode }, { ctx }, actor) {
       const want = motionOf(mode);
       if (!want) throw new ActionRefused(`mode is ${MOTION_MODES.join(", ")}, not ${JSON.stringify(mode)}`);
+      // The setting is the person's cap on every actor's hint: an agent may lower it, never raise it.
+      const rank = { off: 0, calm: 1, full: 2 } as const;
+      if (actor.kind === "agent" && rank[want] > rank[motionMode()]) throw new ActionRefused("raising motion is the person's (the power bar, motion.set mode=full); an agent may only lower it");
       useMotion(want);
       writeState("motion.json", { mode: want });
       ctx.flash(want === "off" ? "layout changes snap" : want === "calm" ? "layout changes glide briefly" : "layout changes glide");
