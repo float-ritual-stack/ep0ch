@@ -106,7 +106,8 @@ export function toolCallText(name: string, args: Record<string, unknown>): strin
   return `${name} ${JSON.stringify(args)}`;
 }
 
-function distance(a: string, b: string): number {
+/** The edit distance between two words: the one measure did-you-mean rules share (`closest` here, outliner's `place()` anchors). */
+export function editDistance(a: string, b: string): number {
   let row = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     const next = [i];
@@ -123,7 +124,7 @@ export function closest(name: string, candidates: readonly string[]): string | u
   const lower = name.toLowerCase();
   let best: { name: string; d: number } | undefined;
   for (const candidate of candidates) {
-    const d = distance(lower, candidate.toLowerCase());
+    const d = editDistance(lower, candidate.toLowerCase());
     if (!best || d < best.d) best = { name: candidate, d };
   }
   return best && best.d <= Math.max(2, Math.floor(Math.max(name.length, best.name.length) / 3)) ? best.name : undefined;
