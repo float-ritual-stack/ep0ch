@@ -1961,6 +1961,8 @@ export type OutlinerRequestAction =
   | ({ id: string; action: "site.answer" } & import("@ep0ch/outline-core/site").SiteAnswerRequest & WatchFields)
   /** The call a `::use` line makes (PIE-533 S4): the template, the props resolved and checked, the chain to draw its body in. Reads only. */
   | ({ id: string; action: "template.use" } & import("@ep0ch/outline-core/template-use").TemplateUseRequest & WatchFields)
+  /** Every generated region of a note with what it read, when, what shaped it and what it answered (PIE-956 S6b): the Sources inspector's one answer. Reads only. */
+  | ({ id: string; action: "site.sources" } & import("@ep0ch/outline-core/sources").SourcesRequest)
   /** The props a template declares, for asking for them before a stamp or a use. Reads only. */
   | { id: string; action: "template.props"; of: string }
   /** Each block's link facets (kind, stage, dates), as an Outlink's target carries them: the links model's children and query rows (PIE-693). Reads only. */

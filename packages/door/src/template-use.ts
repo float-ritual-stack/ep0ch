@@ -91,7 +91,7 @@ export function useRegion(d: UseDrawing): string[] | AfterRows {
     const fill = "[fill it in]";
     notes.push(fg(C.yellow) + `needs ${names} ` + RESET + fg(C.lcyan) + (d.sink ? LINK_ON + tagged(d.sink, { block: d.host, role: "control", label: `fill in ${names}`, use: { block: d.host, line: d.line } }, fill) + LINK_OFF : fill) + RESET);
   }
-  const draw = (body: readonly string[]) => regionRows({ key, label: title, ...(open ? { target: open } : {}), body, notes, facts: [head], controls: [], width: d.width }, d.book);
+  const draw = (body: readonly string[]) => regionRows({ key, label: title, ...(open ? { target: open } : {}), body, notes, notesFirst: true, facts: [head], controls: [], width: d.width }, d.book);
   if (!answer.template) return draw([]);
   // The template's note: kept read by the embed machinery (its text, revision and change events); its body is drawn here.
   const st = embedState(answer.template.id, undefined, d.src, d.top);

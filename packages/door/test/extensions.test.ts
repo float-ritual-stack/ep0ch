@@ -243,7 +243,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(t).toContain("phase: Full Moon · illumination: 100%");
     // An output is the note's own content (PIE-956): no head row, no controls; its mark in the gutter holds the rest.
     expect(t).not.toMatch(/Horoscope virgo · ran/);
-    expect(t).toMatch(/^≡ Virgo, \d{4}-\d\d-\d\d\. /m);
+    expect(t).toMatch(/^ +Virgo, \d{4}-\d\d-\d\d\. /m);
     expect(t).toMatch(/Virgo, \d{4}-\d\d-\d\d\. /);                         // the output's markdown, drawn
     expect(t).toContain("Colour: ");
     expect(t).toMatch(/▌ Virgo: week of \d{4}-\d\d-\d\d {2}\[uneasy\]/);    // the card, from its primitives
