@@ -15,21 +15,30 @@
 // note's previous text is in its revisions and the install's backup is the rollback.
 import { Database } from "bun:sqlite";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
+import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { RECORD_KEYS } from "@ep0ch/outline-core/resolve-path";
 
 export interface SweepChange { form: "rule-label" | "rule-place" | "action-slot"; before: string; after: string }
 
 const SINGLE = /(?<!\{)\{([A-Za-z$][A-Za-z0-9_.$-]{0,63})\}(?!\})/g;
-const PLACES: Record<string, string> = { above: "prepend", below: "append" };
+const PLACES = new Map([["above", "prepend"], ["below", "append"]]);
+/** A key `this.<key>` reads as a path: a plain name. Anything else (`margin.x`) has no path and is left as written. */
+const PLAIN_KEY = /^[A-Za-z_][\w-]*$/;
 
-/** A rule label in the new grammar. */
+/**
+ * A rule label in the new grammar. `{key}` meant the block's own property of that name, so a key that is also a record
+ * field (`{author}`, `{id}`) becomes `this.block.<key>`, which reads properties alone; a key a path can't spell is left.
+ */
 function label(value: string): string {
-  return value.replace(SINGLE, (_, name: string) => {
+  return value.replace(SINGLE, (whole, name: string) => {
     if (name === "title") return "{{this.title}}";
     if (name === "text") return "{{match.text}}";
     if (name === "level") return "{{match.level}}";
     const capture = /^\$([0-9])$/.exec(name);
-    return capture ? `{{match[${capture[1]}]}}` : `{{this.${name}}}`;
+    if (capture) return `{{match[${capture[1]}]}}`;
+    if (!PLAIN_KEY.test(name)) return whole;
+    return (RECORD_KEYS as readonly string[]).includes(name.toLowerCase()) || ["block", "fields", "count"].includes(name.toLowerCase()) ? `{{this.block.${name}}}` : `{{this.${name}}}`;
   });
 }
 
@@ -54,7 +63,7 @@ export function sweepText(text: string): { text: string; changes: SweepChange[] 
       const edit = after !== record.value ? rewrite(text, record, after) : null;
       if (edit) { edits.push(edit); changes.push({ form: "rule-label", before: record.value, after }); }
     } else if (record.key === "rule-place") {
-      const after = PLACES[record.value.trim().toLowerCase()];
+      const after = PLACES.get(record.value.trim().toLowerCase());
       const edit = after ? rewrite(text, record, after) : null;
       if (edit) { edits.push(edit); changes.push({ form: "rule-place", before: record.value, after: after! }); }
     }
@@ -63,8 +72,11 @@ export function sweepText(text: string): { text: string; changes: SweepChange[] 
     const lines = text.split("\n");
     const starts: number[] = [];
     for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) starts.push(at);
+    // An example inside a `<!-- literal -->` region is text, not a script.
+    const literal = scanLiteralRegions(text).regions;
     for (const fence of codeBlocks(lines).fences) {
       if (fence.fence.info !== "actions" || !fence.closed) continue;
+      if (literal.some(region => starts[fence.start]! >= region.start && starts[fence.start]! < region.end)) continue;
       for (let i = fence.start + 1; i < fence.end; i++) {
         const line = lines[i]!;
         const after = line.replace(/(?<!\{)\{([a-z][a-z0-9_-]*)\}(?!\})/g, "{{props.$1}}");

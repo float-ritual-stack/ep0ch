@@ -61,7 +61,7 @@ const fail = (message: string, candidates: readonly string[], asked: string): Pa
 };
 
 /** The record's own fields a path can name besides a property. */
-const RECORD_KEYS = ["id", "parent", "title", "body", "text", "children", "created", "updated", "author", "actor", "revision"] as const;
+export const RECORD_KEYS = ["id", "parent", "title", "body", "text", "children", "created", "updated", "author", "actor", "revision"] as const;
 
 function recordField(record: BlockRecord, key: string): string[] | undefined {
   switch (key) {

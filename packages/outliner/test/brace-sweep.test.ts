@@ -25,6 +25,14 @@ test("the sweep turns each old form into the new grammar and leaves the rest", (
   for (const text of UNTOUCHED) expect(sweepText(text)).toEqual({ text, changes: [] });
 });
 
+test("a label keeps reading properties, a place word it doesn't know stays, and a script example in a literal region is text", () => {
+  // `{author}` was the block's property of that name, not its record field; a dotted key has no path and stays.
+  expect(sweepText("Badge [rule-name::b] [rule-label::{author} {id} {margin.x}]").text).toBe("Badge [rule-name::b] [rule-label::{{this.block.author}} {{this.block.id}} {margin.x}]");
+  expect(sweepText("Badge [rule-name::b] [rule-place::constructor]")).toEqual({ text: "Badge [rule-name::b] [rule-place::constructor]", changes: [] });
+  const shown = "How to [script::howto]\n<!-- literal -->\n```actions\nopen id={note}\n```\n<!-- /literal -->";
+  expect(sweepText(shown)).toEqual({ text: shown, changes: [] });
+});
+
 test("a dry run writes nothing, the apply is one attributed change, and a second run is a no-op", async () => {
   const database = join(work, "pie.sqlite");
   const store = new OutlinerStore(database);

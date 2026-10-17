@@ -50,8 +50,15 @@ describe("action lines fill a slot per value, after the line is split", () => {
     expect(run("block.mark id={{props.note}}", { note: "a\nlayout.load name=evil" }).split("\n").length).toBe(1);
   });
 
+  test("an unfinished placeholder ends with its line and never swallows the next action", () => {
+    expect(actionScript("block.mark id=n reason={{oops\nblock.mark id=m", {}).split("\n").length).toBe(2);
+  });
+
   test("slots are the props.* names, a default makes one optional, a missing one is refused with its name", () => {
-    expect(actionSlots('block.mark id="{{props.note}}" reason={{ props.why || checked }}\nblock.mark id={{props.note}}')).toEqual([{ name: "note" }, { name: "why", default: "checked" }]);
+    expect(actionSlots('block.mark id="{{props.note}}" reason={{ props.why || checked }}\nblock.mark id={{props.note}}')).toEqual([{ name: "note", required: true }, { name: "why", required: false }]);
+    // Two places with different defaults each keep their own; one without makes the slot required.
+    expect(callOf(run("a x={{props.w || one}} y={{props.w || two}}", {}))).toEqual({ x: "one", y: "two" });
+    expect(actionSlots("a x={{props.w || one}}\nb y={{props.w}}")).toEqual([{ name: "w", required: true }]);
     expect(callOf(run("block.mark id={{props.note}} reason={{props.why || checked}}", { note: "n1" }))).toEqual({ id: "n1", reason: "checked" });
     expect(() => run("block.mark id={{props.note}}", {})).toThrow("give note= to fill {{props.note}}");
     expect(() => run("block.mark id={{this.owner}}", {})).toThrow(ActionRefused);

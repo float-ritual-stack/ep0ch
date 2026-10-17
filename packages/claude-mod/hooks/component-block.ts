@@ -84,6 +84,8 @@ export function splitWords(line: string, lines: boolean, shell = true): Word[][]
     const here = at;
     at += c.length;
     // A placeholder: from its `{{` to its `}}`.
+    // An unfinished one ends with its line: it never swallows the next action.
+    if (brace && c === "\n") brace = false;
     if (brace) { word += c; if (c === "}" && word.endsWith("}}")) brace = false; continue; }
     if (c === "{" && !close && !escaped && word.endsWith("{") && !word.endsWith("\\{")) { word += c; brace = true; continue; }
     if (escaped) { word += (close && c !== close && c !== "\\") || c === "{" ? `\\${c}` : c; escaped = false; continue; }

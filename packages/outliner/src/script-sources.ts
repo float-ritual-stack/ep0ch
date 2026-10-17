@@ -15,7 +15,7 @@ export async function scriptSources(store: OutlinerStore): Promise<ManifestSourc
     const id = `script-${hash(identity).slice(0, 24)}`;
     sources.push({
       ...(error ? { error } : {}), expectedId: id, idFrom: identity, origin: "outline", directory: store.workspaceRoot ?? "",
-      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, ...(/^[a-z][a-z0-9-]{0,31}$/.test(name) ? { agents: [{ name, effects: script.effects }] } : {}), actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; progress goes into a run note`, on: "outline", effects: script.effects, ...(script.format === "actions" ? { args: actionSlots(script.code).map(slot => ({ name: slot.name, type: "text", ...(slot.default !== undefined ? { default: slot.default } : { required: true }) })) } : {}) }] }),
+      manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, ...(/^[a-z][a-z0-9-]{0,31}$/.test(name) ? { agents: [{ name, effects: script.effects }] } : {}), actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; progress goes into a run note`, on: "outline", effects: script.effects, ...(script.format === "actions" ? { args: actionSlots(script.code).map(slot => ({ name: slot.name, type: "text", ...(slot.required ? { required: true } : {}) })) } : {}) }] }),
       configRaw: "{}", script, stamp: hash(JSON.stringify(script)),
     });
   };

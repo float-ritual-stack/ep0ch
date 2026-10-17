@@ -36,8 +36,11 @@ export function actionLine(req: ActRequest): string {
     ...(req.tile !== undefined ? [`tile=${quote(req.tile)}`] : [])].join(" ");
 }
 
-/** A slot of an action line: `{{props.name}}`, with its `|| default` when it has one (then it needn't be given). */
-export interface ActionSlot { name: string; default?: string }
+/**
+ * A slot of an action line: `{{props.name}}`. Required unless every place that writes it has a `|| default`; each place
+ * keeps its own default (they may differ), so none is promoted to the action's argument.
+ */
+export interface ActionSlot { name: string; required: boolean }
 
 const slotName = (span: InterpolationSpan): string | undefined => {
   const first = span.parsed?.head === "props" ? span.parsed.steps[0] : undefined;
@@ -49,7 +52,9 @@ export function actionSlots(source: string): ActionSlot[] {
   const slots = new Map<string, ActionSlot>();
   for (const span of interpolationSpans(source, { fences: "template" })) {
     const name = slotName(span);
-    if (name !== undefined && !slots.has(name)) slots.set(name, { name, ...(span.default !== undefined ? { default: span.default } : {}) });
+    if (name === undefined) continue;
+    const had = slots.get(name);
+    slots.set(name, { name, required: (had?.required ?? false) || span.default === undefined });
   }
   return [...slots.values()];
 }

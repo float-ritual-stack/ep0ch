@@ -448,7 +448,7 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
     let place: Place | undefined;
     if (placeRaw) {
       if ((PLACES as readonly string[]).includes(placeRaw)) place = placeRaw as Place;
-      else if (placeRaw === "above" || placeRaw === "below") problems.push(`${where}: rule-place ${placeRaw} is now ${placeRaw === "above" ? "prepend" : "append"} (the Placement words are ${PLACES.join(", ")}); the brace sweep rewrites old rule notes: ep0ch install --apply runs it`);
+      else if (placeRaw === "above" || placeRaw === "below") problems.push(`${where}: rule-place ${placeRaw} is now ${placeRaw === "above" ? "prepend" : "append"} (the Placement words are ${PLACES.join(", ")}); the brace sweep rewrites old rule notes: outliner sweep <database.sqlite> --apply`);
       else problems.push(`${where}: rule-place ${JSON.stringify(placeRaw)} is one of ${PLACES.join(", ")}`);
     }
     rules.push({ name, block: b.id, match, ...(place ? { place } : {}), ...(decorate ? { decorate } : {}), ...(runs ? { on } : {}) });
