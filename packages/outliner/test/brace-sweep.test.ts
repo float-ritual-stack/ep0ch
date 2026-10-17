@@ -36,6 +36,16 @@ test("a label keeps reading properties, a place word it doesn't know stays, and 
   expect(sweepText(shown)).toEqual({ text: shown, changes: [] });
 });
 
+test("JSON-ish and other single braces in prose, properties and js fences are never rewritten", () => {
+  const prose = [
+    'Config sample: {"name": "beds", "rows": [1, 2]} and {a} and {title} in plain prose [status::{open}]',
+    'Rule notes quote them too: [rule-name::q] [rule-decorate::badge] [rule-match::type=x] `[rule-label::{title}]`',
+    'Script [script::j]\n```js\nconst o = {note}; act("x", {id: "{slot}"});\n```',
+    '- {"a": {"b": 1}}\n- { spaced }',
+  ];
+  for (const text of prose) expect(sweepText(text)).toEqual({ text, changes: [] });
+});
+
 test("a dry run writes nothing, the apply is one attributed change, and a second run is a no-op", async () => {
   const database = join(work, "pie.sqlite");
   const store = new OutlinerStore(database);
