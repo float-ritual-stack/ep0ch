@@ -11,6 +11,7 @@
 // - A watched answer may name the notes it was computed from (`deps` in its result: `site.answer`'s). It is evaluated
 //   again only when a change touched one of them (the changed note, or its parent before or after); an answer that says
 //   `anyChange` (something it looked for isn't there yet) and one with no `deps` are evaluated after every change.
+// - An answer that changes by the clock alone within the day (`clock: "minute"`, a `now.time`) is evaluated again each minute.
 // - A question can name the day (`wait-until <= today`, `due <= +3d`, PIE-769): when the machine's day turns, every
 //   watch is evaluated again with no change at all, so a view of what's waiting until today fills at midnight.
 //
@@ -38,7 +39,12 @@ interface Watch {
   response: OutlinerResponse;
   /** The notes the answer was computed from; absent: any change may change it. */
   deps?: ReadonlySet<string>;
+  /** The answer changes by the clock alone, each minute (`now.time`). */
+  minute?: true;
 }
+
+const isMinute = (response: OutlinerResponse): boolean =>
+  response.ok && !!response.result && typeof response.result === "object" && (response.result as { clock?: unknown }).clock === "minute";
 
 /** The notes a watched answer says it depends on, or undefined when any change may change it. */
 function depsOf(response: OutlinerResponse): ReadonlySet<string> | undefined {
@@ -78,6 +84,8 @@ export interface QueryWatchOptions {
   /** The service's sequence, stamped on the event. */
   sequence(): number;
   settleMs?: number;
+  /** How often a minute-clock answer is evaluated again (tests); the default is each minute's turn. */
+  minuteMs?: number;
   maxWaitMs?: number;
   perConnection?: number;
   perService?: number;
@@ -92,17 +100,20 @@ export class QueryWatches {
   private nextConnection = 1;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dayTimer: ReturnType<typeof setTimeout> | null = null;
+  private minuteTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSince = 0;
   /** What changed since the last evaluation: every note named, or everything (a change that names no note). */
   private pendingIds = new Set<string>();
   private pendingAll = false;
   private readonly settleMs: number;
+  private readonly minuteMs: number;
   private readonly maxWaitMs: number;
   private readonly perConnection: number;
   private readonly perService: number;
 
   constructor(private readonly options: QueryWatchOptions) {
     this.settleMs = options.settleMs ?? WATCH_LIMITS.settleMs;
+    this.minuteMs = options.minuteMs ?? 60_000;
     this.maxWaitMs = options.maxWaitMs ?? WATCH_LIMITS.maxWaitMs;
     this.perConnection = options.perConnection ?? WATCH_LIMITS.perConnection;
     this.perService = options.perService ?? WATCH_LIMITS.perService;
@@ -115,6 +126,18 @@ export class QueryWatches {
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1).getTime();
     this.dayTimer = setTimeout(() => { if (this.all.size) { this.pendingAll = true; this.flush(); } this.awaitDayTurn(); }, midnight - now.getTime());
     (this.dayTimer as { unref?: () => void }).unref?.();
+  }
+
+  /** While a watched answer changes by the minute, evaluate those at each minute's turn. */
+  private armMinute(): void {
+    if (this.minuteTimer || ![...this.all.values()].some(w => w.minute)) return;
+    const now = Date.now();
+    this.minuteTimer = setTimeout(() => {
+      this.minuteTimer = null;
+      this.evaluate(w => !!w.minute, new Set(), true);
+      this.armMinute();
+    }, this.minuteMs === 60_000 ? 60_000 - (now % 60_000) + 500 : this.minuteMs);
+    (this.minuteTimer as { unref?: () => void }).unref?.();
   }
 
   get size(): number { return this.all.size; }
@@ -146,9 +169,10 @@ export class QueryWatches {
     if (!response.ok) return response;
     if (held) this.all.delete(slot);
     const deps = depsOf(response);
-    const watch: Watch = { connection, key, request: question, signature, generation: 0, hash: hashOf(response), response, ...(deps ? { deps } : {}) };
+    const watch: Watch = { connection, key, request: question, signature, generation: 0, hash: hashOf(response), response, ...(deps ? { deps } : {}), ...(isMinute(response) ? { minute: true as const } : {}) };
     this.all.set(slot, watch);
     this.bound(connection);
+    this.armMinute();
     return this.reply(request.id, watch);
   }
 
@@ -194,27 +218,32 @@ export class QueryWatches {
     this.timer = setTimeout(() => this.flush(), wait);
   }
 
-  /** Evaluate every watch now; tell each connection which of its answers changed. */
+  /** Evaluate the watches the changes may have changed now; tell each connection which of its answers changed. */
   flush(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    const started = performance.now();
-    const changes = new Map<WatchConnection, QueryChange[]>();
     // A flush with nothing noted (a caller flushing by hand) evaluates everything, as before.
     const all = this.pendingAll || this.pendingIds.size === 0, touched = this.pendingIds;
     this.pendingAll = false;
     this.pendingIds = new Set();
+    this.evaluate(() => true, touched, all);
+  }
+
+  private evaluate(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): void {
+    const started = performance.now();
+    const changes = new Map<WatchConnection, QueryChange[]>();
     for (const watch of this.all.values()) {
-      if (watch.connection.destroyed) continue;
+      if (watch.connection.destroyed || !select(watch)) continue;
       if (!all && watch.deps && ![...touched].some(id => watch.deps!.has(id))) continue;
       const response = this.options.answer({ ...watch.request, id: "watch" } as Request);
       const hash = hashOf(response);
+      const deps = depsOf(response);
+      if (deps) watch.deps = deps; else delete watch.deps;
+      if (isMinute(response)) watch.minute = true; else delete watch.minute;
       if (hash === watch.hash) continue;
       watch.generation += 1;
       watch.hash = hash;
       watch.response = response;
-      const deps = depsOf(response);
-      if (deps) watch.deps = deps; else delete watch.deps;
       const list = changes.get(watch.connection) ?? [];
       list.push({ key: watch.key, generation: watch.generation });
       changes.set(watch.connection, list);
@@ -241,8 +270,10 @@ export class QueryWatches {
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
     if (this.dayTimer) clearTimeout(this.dayTimer);
+    if (this.minuteTimer) clearTimeout(this.minuteTimer);
     this.timer = null;
     this.dayTimer = null;
+    this.minuteTimer = null;
     this.all.clear();
     this.connections.clear();
   }

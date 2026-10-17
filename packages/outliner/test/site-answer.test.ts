@@ -324,6 +324,10 @@ describe("what Evan's real notes taught (made-up notes of the same shapes)", () 
     expect(read(store, hub.id, "this.children | nope=1").problem?.message).toStartWith("no notes have `nope`");
     expect(read(store, hub.id, "this.children | zzzzzz=1").problem?.message).toBe("no notes have `zzzzzz` (they have type, owner)");
     expect(read(store, hub.id, "this.owner | x=1").problem?.message).toContain("a filter works on a list of notes or tasks");
+    // The children it read are what the answer depends on (a child edited or added changes it); a path that doesn't read them doesn't.
+    const kids = store.children(hub.id).map(c => c.id);
+    expect(answerSite(store, { blockId: hub.id, paths: ["this.children"] }).deps.sort()).toEqual([hub.id, ...kids].sort());
+    expect(answerSite(store, { blockId: hub.id, paths: ["this.owner"] }).deps).toEqual([hub.id]);
   });
 
   test("tasks keep their chips: this.tasks.owner reads the checkbox lines", () => {
@@ -515,5 +519,101 @@ describe("the wire: site.answer is watched by the notes it was computed from", (
     expect(changes()).toEqual([{ key: "mine", generation: 1 }]);
     const again = await ask({ action: "site.answer", blockId: mine.id, watch: "mine", generation: 1 });
     expect(again.result.values[0].values).toEqual(["sam"]);
+  });
+});
+
+describe("review findings: shapes that differ, budgets, dependencies the answer can't name, the clock", () => {
+  test("notes of different shapes each finish the path on their own; the order of the children doesn't matter", () => {
+    const { store } = scratch();
+    store.create("Ann [page::ann] [first::ann]");
+    const parent = store.create("Parent");
+    store.create("Child one [owner::[[ann]]]", parent.id);
+    store.create("Child two [owner::plain text]", parent.id);
+    store.create("Child three\n\n- [ ] one task", parent.id);
+    expect(values(store, parent.id, "this.children.owner.first")).toEqual(["ann"]);
+    const reversed = store.create("Reversed");
+    store.create("Child two [owner::plain text]", reversed.id);
+    store.create("Child one [owner::[[ann]]]", reversed.id);
+    expect(values(store, reversed.id, "this.children.owner.first")).toEqual(["ann"]);
+    // One child has tasks, another a property called tasks: no crash, the ones that can answer do.
+    const mixed = store.create("Mixed");
+    store.create("Has tasks\n\n- [ ] ship the rail", mixed.id);
+    store.create("Writes it [tasks::custom]", mixed.id);
+    expect(values(store, mixed.id, "this.children.tasks.text")).toEqual(["ship the rail"]);
+  });
+
+  test("a note that links to itself twice is one note, however many steps follow it", () => {
+    const { store } = scratch();
+    const loop = store.create("Loop [page::loop] [friend::[[loop]]] [friend::[[loop]]]");
+    expect(values(store, loop.id, "this.friend.friend.friend.friend.title")).toEqual(["Loop"]);
+  });
+
+  test("a note with more children than a path reads says so, with the question to ask instead", () => {
+    const { store } = scratch();
+    const hub = store.create("Big hub");
+    for (let i = 0; i < 1001; i++) store.create(`Item ${i}`, hub.id);
+    const problem = read(store, hub.id, "this.children.count").problem;
+    expect(problem?.message).toBe("this note has more than 1000 children; a path reads at most 1000. Ask a question instead: a query such as parent:this, with a filter");
+    expect(problem?.example).toBe("where: parent:this type=task");
+    expect(read(store, hub.id, "this.$children").problem?.message).toContain("more than 1000 children");
+  });
+
+  test("a filter gets its this, reads grandchildren for child:, and a filter about other notes says its answer can't name its deps", () => {
+    const { store } = scratch();
+    const hub = store.create("Hub");
+    const a = store.create("Alpha", hub.id);
+    store.create("Beta", hub.id);
+    store.create("Grandchild [status::todo]", a.id);
+    expect(values(store, hub.id, "this.children | parent:this .count")).toEqual(["2"]);
+    expect(values(store, hub.id, "this.children | child:status=todo")).toEqual(["Alpha"]);
+    expect(answerSite(store, { blockId: hub.id, paths: ["this.children | child:status=todo"] }).anyChange).toBe(true);
+    expect(answerSite(store, { blockId: hub.id, paths: ["this.children | links:this"] }).anyChange).toBe(true);
+    // A filter on the rows' own properties names its deps exactly.
+    expect(answerSite(store, { blockId: hub.id, paths: ["this.children | title~Alpha"] }).anyChange).toBeUndefined();
+  });
+
+  test("a written link that isn't a note yet, or is in Trash, asks to be read again after any change", () => {
+    const { store } = scratch();
+    const gone = store.create("Gone page [page::gone]");
+    store.delete(gone.id);
+    const note = store.create("Reader [owner::[[nowhere]]] [also::[[gone]]]");
+    expect(answerSite(store, { blockId: note.id, paths: ["this.owner"] }).anyChange).toBe(true);
+    expect(answerSite(store, { blockId: note.id, paths: ["this.also.title"] }).anyChange).toBe(true);
+    // An id prefix that names one note today could name two tomorrow.
+    const real = store.create("Real", null, "user", undefined, { id: "abcdef12-0000-4000-8000-000000000009" });
+    const prefixed = store.create(`Prefixed [ref::abcdef12]`);
+    expect(values(store, prefixed.id, "ref.title")).toEqual([real.text]);
+    expect(answerSite(store, { blockId: prefixed.id, paths: ["ref.title"] }).anyChange).toBe(true);
+    // A note that only reads its own properties names exactly its deps.
+    expect(answerSite(store, { blockId: real.id, paths: ["this.title"] }).anyChange).toBeUndefined();
+  });
+
+  test("a task's text leaves its chips out, including a link or a list inside one", () => {
+    const { store } = scratch();
+    const note = store.create("List\n\n- [ ] Ask the neighbour [owner::[[Page]]] [tags::[a, b]]\n- [ ] Plain one");
+    expect(values(store, note.id, "this.tasks")).toEqual(["Ask the neighbour", "Plain one"]);
+  });
+
+  test("time of day is a minute-clock answer, and a watch of it is told when the minute turns", async () => {
+    const { store } = scratch();
+    const note = store.create("Clock");
+    const at = answerSite(store, { blockId: note.id, paths: ["now.time"] });
+    expect(at.clock).toBe("minute");
+    expect(answerSite(store, { blockId: note.id, paths: ["now.date"] }).clock).toBeUndefined();
+    expect(answerSite(store, { blockId: note.id, paths: ["now.date-2h"] }).clock).toBe("minute");
+    const { QueryWatches } = await import("../src/query-watches");
+    let minute = 0;
+    const sent: string[] = [];
+    const watches = new QueryWatches({
+      answer: request => ({ id: request.id, ok: true, result: { clock: "minute", time: minute }, sequence: 1 }),
+      sequence: () => 1, minuteMs: 40,
+    });
+    cleanups.push(() => watches.stop());
+    const connection = { write: (line: string) => { sent.push(line); }, destroyed: false };
+    watches.ask(connection, { id: "1", action: "site.answer", watch: "clock", blockId: note.id });
+    minute = 1;
+    await Bun.sleep(150);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(JSON.parse(sent[0]!).event.changes).toEqual([{ key: "clock", generation: 1 }]);
   });
 });

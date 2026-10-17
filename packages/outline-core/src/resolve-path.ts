@@ -31,7 +31,7 @@ import { valuesOf, type BlockRecord } from "./block-record";
 import { stepClosed } from "./checklist-marks";
 import { isoDay, readDateBound, wallClock } from "./dates";
 import { splitPropertyValue } from "./property-grammar";
-import { parsePropertyRecords } from "./property-parse";
+import { parsePropertyRecords, stripProperties } from "./property-parse";
 import { createContextResolver, type ContextBlock, type ContextKeyMatcher } from "./scope-walk";
 import type { Site } from "./site";
 import { closest } from "./tool-args";
@@ -61,6 +61,8 @@ export interface PathWorld {
    * a miss is worth saying; `value`: it is a property's value that may be a link, so a miss is plain text.
    */
   note(ref: string, as: "reference" | "value"): NoteLookup;
+  /** A note's children as records, in outline order (at most 200): read only when a path asks for `children`. */
+  children?(id: string): BlockRecord[];
   /** Which of `rows` the views' query `filter` holds for, or why it can't be read. */
   filter?(rows: readonly FilterRow[], filter: string): { ok: true; keep: boolean[] } | { ok: false; message: string; didYouMean?: string[] };
 }
@@ -71,8 +73,8 @@ export interface PathScope {
   line?: number;
   /** The note's ancestors, nearest (the parent) first. */
   ancestors?: readonly ContextBlock[];
-  /** The note's parent as a record, for `parent.key`. */
-  parent?: BlockRecord;
+  /** The note's parent as a record, for `parent.key` (a function: read only when a path says `parent`). */
+  parent?: BlockRecord | (() => BlockRecord | undefined);
   /** The service's lookups: another note, the clock, a query's matcher. Without one, those heads say so. */
   world?: PathWorld;
 }
@@ -99,6 +101,8 @@ export type PathAnswer =
     from?: string;
     /** The values that are links to a note (shown by the note's title). */
     links?: ResolvedLink[];
+    /** The answer changes within the day by the clock alone (`now.time`): a watch of it needs the minute's tick. */
+    clock?: "minute";
     route: string[];
   }
   | { ok: false; problem: PathProblem; route: string[] };
@@ -169,7 +173,12 @@ type Cursor =
   | { kind: "notes"; notes: BlockRecord[]; list: boolean; /** How the note was reached (`this`), for messages. */ label?: string }
   | { kind: "tasks"; tasks: TaskRow[]; list: boolean; of: BlockRecord };
 
-interface Cx { site: Site; scope: PathScope; route: string[]; tail?: PathTail }
+interface Cx { site: Site; scope: PathScope; route: string[]; tail?: PathTail; budget: { left: number }; clock?: { minute: boolean } }
+
+/** At most this many notes one path reads (a list of children, the notes a link value follows, each step of it). */
+const MAX_NOTES = 1000;
+/** At most this many notes one path visits in all, however it branches. */
+const MAX_VISITS = 5000;
 type Stepped = { cursor: Cursor; next: number } | { failed: Failed };
 
 const keysOf = (record: BlockRecord) => [...new Set([...record.properties.map(p => p.key), ...record.fields.map(f => f.key)])];
@@ -214,7 +223,7 @@ function followValues(values: readonly string[], cx: Cx): { notes: BlockRecord[]
     if (!link) { misses.push(`\`${value}\` is text, not a note`); continue; }
     const found = world!.note(link.token, link.written ? "reference" : "value");
     if (found.kind === "found") {
-      notes.push(found.record);
+      if (!notes.some(n => n.id === found.record.id)) notes.push(found.record);
       cx.route.push(`link ${value} → ((${short(found.record.id)})) by ${found.how}`);
     } else if (found.kind === "ambiguous" || found.kind === "hidden") misses.push(found.message);
     else misses.push(link.written ? found.message : `\`${value}\` names no note`);
@@ -224,8 +233,8 @@ function followValues(values: readonly string[], cx: Cx): { notes: BlockRecord[]
 
 // --- records ---
 
-/** A cursor for a record's own field, or null when the record has none by that name. */
-function recordField(record: BlockRecord, key: string, cx: Cx): Cursor | null {
+/** A cursor for a record's own field, `tooMany` when it holds more notes than a path reads, or null when the record has none by that name. */
+function recordField(record: BlockRecord, key: string, cx: Cx): Cursor | { tooMany: true } | null {
   switch (key) {
     case "id": case "title": case "body": case "text": case "created": case "updated": case "author": case "revision":
       return { kind: "values", values: [String(record[key])], from: record.id };
@@ -234,13 +243,9 @@ function recordField(record: BlockRecord, key: string, cx: Cx): Cursor | null {
     case "tasks": return { kind: "tasks", tasks: record.tasks, list: true, of: record };
     case "children": {
       const world = cx.scope.world;
-      if (!world) return { kind: "values", values: [...record.children], from: record.id };
-      const notes: BlockRecord[] = [];
-      for (const id of record.children.slice(0, 200)) {
-        const found = world.note(id, "reference");
-        if (found.kind === "found") notes.push(found.record);
-      }
-      return { kind: "notes", notes, list: true };
+      if (!world?.children) return { kind: "values", values: [...record.children], from: record.id };
+      const notes = world.children(record.id);
+      return notes.length > MAX_NOTES ? { tooMany: true } : { kind: "notes", notes, list: true };
     }
   }
   return null;
@@ -257,6 +262,9 @@ function joinedKey(steps: readonly PathStep[], i: number, keys: readonly string[
   }
   return null;
 }
+
+const tooManyChildren = (label: string, cx: Cx): Failed =>
+  problem(`${label === "this" ? "this note" : `\`${label}\``} has more than ${MAX_NOTES} children; a path reads at most ${MAX_NOTES}. Ask a question instead: a query such as parent:this, with a filter`, cx.route, [], "where: parent:this type=task");
 
 const NAME = (label: string) => (label === "this" ? "this note" : `\`${label}\``);
 
@@ -292,6 +300,7 @@ function inRecord(record: BlockRecord, steps: readonly PathStep[], i: number, la
   if (first.key.startsWith("$")) {
     const name = first.key.slice(1).toLowerCase();
     const field = recordField(record, name, cx);
+    if (field && "tooMany" in field) return { failed: tooManyChildren(label, cx) };
     if (field) { cx.route.push(`${label}.$${name}: the record's own field`); return { cursor: field, next: i + 1 }; }
     return { failed: fail(`${NAME(label)} has no record field \`${first.key}\``, RECORD_KEYS.map(k => `$${k}`), first.key, cx.route, near => `{{${label}.${near}}}`) };
   }
@@ -303,6 +312,7 @@ function inRecord(record: BlockRecord, steps: readonly PathStep[], i: number, la
     return { cursor: { kind: "values", values: noteValues(record, property.key), from: record.id }, next: i + property.used };
   }
   const field = recordField(record, lower, cx);
+  if (field && "tooMany" in field) return { failed: tooManyChildren(label, cx) };
   if (field) {
     cx.route.push(`${label}.${lower}: the record's field (the note writes no \`${lower}\` property; \`$${lower}\` always means the field)`);
     return { cursor: field, next: i + 1 };
@@ -315,24 +325,10 @@ function inRecord(record: BlockRecord, steps: readonly PathStep[], i: number, la
   return { failed: fail(`no \`${first.key}\` on ${NAME(label)}`, [...keys, ...RECORD_KEYS], first.key, cx.route, near => `{{${label}.${near}}}`) };
 }
 
-/** A step into a list of notes: each note's answer, joined. */
-function inNotes(notes: readonly BlockRecord[], steps: readonly PathStep[], i: number, cx: Cx, label?: string): Stepped {
-  if (notes.length === 1) return inRecord(notes[0]!, steps, i, label ?? short(notes[0]!.id), cx);
-  if (!notes.length) return { cursor: { kind: "values", values: [] }, next: steps.length };
-  const parts = notes.map(n => inRecord(n, steps, i, short(n.id), { ...cx, route: [] }));
-  const good = parts.filter((p): p is Extract<Stepped, { cursor: Cursor }> => "cursor" in p);
-  if (!good.length) return parts[0]!;
-  const next = good[0]!.next;
-  const kind = good[0]!.cursor.kind;
-  cx.route.push(`${notes.length} notes: ${good.length} have it`);
-  if (kind === "notes") return { cursor: { kind: "notes", notes: good.flatMap(p => (p.cursor as Extract<Cursor, { kind: "notes" }>).notes), list: true }, next };
-  if (kind === "tasks") return { cursor: { kind: "tasks", tasks: good.flatMap(p => (p.cursor as Extract<Cursor, { kind: "tasks" }>).tasks), list: true, of: notes[0]! }, next };
-  return { cursor: { kind: "values", values: good.flatMap(p => (p.cursor as Extract<Cursor, { kind: "values" }>).values) }, next };
-}
-
 // --- tasks ---
 
-const CHIP = /\s*\[[\w.-]+::[^\]]*\]/g;
+/** A task's text without its chips (the parser's own stripping: a chip may hold a `[[link]]` or a list). */
+const taskText = (t: TaskRow) => stripProperties(t.text);
 
 /**
  * A task as a row the views' matcher reads: its chips, `status` (the chip when it has one, else the box), `box` (the
@@ -359,7 +355,7 @@ function inTask(tasks: readonly TaskRow[], of: BlockRecord, steps: readonly Path
   if (!["text", "line", "id"].includes(key) && !chips.includes(key)) {
     return { failed: fail(`no task has \`${first.key}\``, ["text", "line", "id", ...chips], first.key, cx.route, near => `{{this.tasks.${near}}}`) };
   }
-  const values = key === "text" ? tasks.map(t => t.text.replace(CHIP, "").trim())
+  const values = key === "text" ? tasks.map(taskText)
     : key === "line" ? tasks.map(t => String(t.line))
     : key === "id" ? tasks.flatMap(t => t.id ? [t.id] : [])
     : rows.flatMap(r => r.properties.filter(p => p.key === key).map(p => p.value));
@@ -391,6 +387,8 @@ function nowAnswer(steps: readonly PathStep[], cx: Cx): PathAnswer {
   const m = NOW_KEY.exec(first.key);
   if (!m) return fail(`\`now\` has no \`${first.key}\``, ["date", "week", "time", "iso", "year", "month", "day", "weekday"], first.key, cx.route, near => `{{now.${near}}}`);
   let at = wall;
+  // Time of day (and an offset in hours or minutes) changes within the day: a watched answer needs the minute's tick.
+  if (/^(time|iso)$/i.test(m[1]!) || /[hm]$/.test(m[2] ?? "")) cx.clock = { minute: true };
   if (m[2]) {
     const bound = readDateBound(m[2], wall);
     if (!bound) return problem(`\`${m[2]}\` isn't an offset: write -1d, +7d, -2w, -3h or -30m`, cx.route, [], "{{now.date-1d}}");
@@ -511,6 +509,21 @@ function pick(c: Cursor, index: number): Cursor {
   return { kind: "tasks", tasks: c.tasks[index] ? [c.tasks[index]!] : [], list: false, of: c.of };
 }
 
+/** The answers of several notes, one cursor: notes joined (each once), tasks joined, otherwise their values. */
+function join(cursors: readonly Cursor[]): { cursor: Cursor } | { failed: string } {
+  const first = cursors[0]!;
+  if (cursors.every(c => c.kind === "notes")) {
+    const notes: BlockRecord[] = [];
+    for (const c of cursors) for (const n of (c as Extract<Cursor, { kind: "notes" }>).notes) if (!notes.some(m => m.id === n.id)) notes.push(n);
+    return notes.length > MAX_NOTES ? { failed: `that is ${notes.length} notes; a path reads at most ${MAX_NOTES}: narrow it with a filter` } : { cursor: { kind: "notes", notes, list: true } };
+  }
+  if (cursors.every(c => c.kind === "tasks")) {
+    const tasks = cursors.flatMap(c => (c as Extract<Cursor, { kind: "tasks" }>).tasks);
+    return { cursor: { kind: "tasks", tasks, list: true, of: (first as Extract<Cursor, { kind: "tasks" }>).of } };
+  }
+  return { cursor: { kind: "values", values: cursors.flatMap(valuesOfCursor) } };
+}
+
 /** Run `steps` from `from` over a cursor. */
 function walk(start: Cursor, steps: readonly PathStep[], from: number, cx: Cx): { cursor: Cursor } | { failed: Failed } {
   let cursor = start, i = from;
@@ -534,7 +547,21 @@ function walk(start: Cursor, steps: readonly PathStep[], from: number, cx: Cx): 
       cursor = { kind: "notes", notes, list: notes.length > 1 };
       continue;
     }
-    const stepped = cursor.kind === "notes" ? inNotes(cursor.notes, steps, i, cx, cursor.label) : inTask(cursor.tasks, cursor.of, steps, i, cx);
+    if (cursor.kind === "notes" && cursor.notes.length !== 1) {
+      // Each note finishes the rest of the path on its own, then the answers are joined: one with a different shape
+      // (a link where another has a name) can't turn another's steps into nonsense.
+      if (!cursor.notes.length) { cursor = { kind: "values", values: [] }; break; }
+      if ((cx.budget.left -= cursor.notes.length) < 0) return { failed: problem(`this path reads more than ${MAX_VISITS} notes; narrow the list with a filter first`, cx.route, [], "{{this.children | type=task .count}}") };
+      const each = cursor.notes.map(n => walk({ kind: "notes", notes: [n], list: false, label: short(n.id) }, steps, i, { ...cx, route: [] }));
+      const good = each.filter((e): e is { cursor: Cursor } => "cursor" in e);
+      if (!good.length) return each[0] as { failed: Failed };
+      cx.route.push(`${cursor.notes.length} notes: ${good.length} have it`);
+      const joined = join(good.map(g => g.cursor));
+      if ("failed" in joined) return { failed: problem(joined.failed, cx.route) };
+      cursor = joined.cursor;
+      break;
+    }
+    const stepped = cursor.kind === "notes" ? inRecord(cursor.notes[0]!, steps, i, cursor.label ?? short(cursor.notes[0]!.id), cx) : inTask(cursor.tasks, cursor.of, steps, i, cx);
     if ("failed" in stepped) return stepped;
     cursor = stepped.cursor; i = stepped.next;
   }
@@ -543,7 +570,7 @@ function walk(start: Cursor, steps: readonly PathStep[], from: number, cx: Cx): 
 
 /** A cursor's final values: values themselves, notes by title, tasks by text. */
 function valuesOfCursor(c: Cursor): string[] {
-  return c.kind === "values" ? c.values : c.kind === "notes" ? c.notes.map(titleOf) : c.tasks.map(t => t.text.replace(CHIP, "").trim());
+  return c.kind === "values" ? c.values : c.kind === "notes" ? c.notes.map(titleOf) : c.tasks.map(taskText);
 }
 
 /** Walk the rest of the steps, then the span's filter and the steps after it, and write the answer. */
@@ -574,7 +601,7 @@ function finish(start: Cursor, steps: readonly PathStep[], from: number, cx: Cx)
   }
 
   const values = valuesOfCursor(cursor);
-  const out: Extract<PathAnswer, { ok: true }> = { ok: true, values, route: cx.route };
+  const out: Extract<PathAnswer, { ok: true }> = { ok: true, values, route: cx.route, ...(cx.clock?.minute ? { clock: "minute" as const } : {}) };
   if (cursor.kind === "values") {
     if (cursor.lines) out.lines = cursor.lines;
     if (cursor.marks) out.marks = cursor.marks;
@@ -586,7 +613,7 @@ function finish(start: Cursor, steps: readonly PathStep[], from: number, cx: Cx)
       for (const value of values) {
         const link = linkTokenOf(value);
         if (!link) continue;
-        const found = world.note(link.token, "value");
+        const found = world.note(link.token, link.written ? "reference" : "value");
         if (found.kind === "found") links.push({ text: value, id: found.record.id, title: titleOf(found.record), how: found.how });
       }
       if (links.length) out.links = links;
@@ -619,7 +646,7 @@ export function resolvePath(path: string | ParsedPath, site: Site, scope: PathSc
   const route: string[] = [];
   if (!parsed) return problem(`\`${String(typeof path === "string" ? path : path.head)}\` isn't a path: write head.key, such as this.owner`, route, [], "{{this.owner}}");
   const { head, steps } = parsed;
-  const cx: Cx = { site, scope, route, ...(tail ? { tail } : {}) };
+  const cx: Cx = { site, scope, route, budget: { left: MAX_VISITS }, ...(tail ? { tail } : {}) };
   const record = (r: BlockRecord | undefined, label: string, why: string, missing: string): PathAnswer => {
     if (!r) return problem(missing, route);
     route.push(`${label}: ${why}`);
@@ -628,7 +655,7 @@ export function resolvePath(path: string | ParsedPath, site: Site, scope: PathSc
   switch (head) {
     case "this": return record(site.this, "this", "the note the producer sits in", "this run has no note; pass at= or run it from a note");
     case "self": return record(site.self, "self", "the producer's definition", "there is no `self` here: only a script, template or component has one");
-    case "parent": return record(scope.parent, "parent", "the note's parent", "this note has no parent");
+    case "parent": return record(typeof scope.parent === "function" ? scope.parent() : scope.parent, "parent", "the note's parent", "this note has no parent");
     case "props": return propsAnswer(steps, cx);
     case "match": return matched(steps, cx);
     case "caller": return callerAnswer(steps, cx);

@@ -52,7 +52,6 @@ import {
   BlockQueryError,
   compileQueryExpression,
   bindThis,
-  expressionPropertyKeys,
   normalizeBlockSearchQuery,
   type ValueBinder,
   type QueryRelations,
@@ -4123,14 +4122,29 @@ export class OutlinerStore {
    * `| filter`). A row is its text and its properties; a note's `id` lets `links:`, `parent:` and the other relation atoms
    * read it. A key no row has is said, with the nearest ones ("{rows}" in the message stands for the rows' kind).
    */
-  filterRows(rows: readonly FilterRow[], filter: string, thisId?: string): { ok: true; keep: boolean[] } | { ok: false; message: string; didYouMean?: string[] } {
+  filterRows(rows: readonly FilterRow[], filter: string, thisId?: string): { ok: true; keep: boolean[]; open?: true } | { ok: false; message: string; didYouMean?: string[] } {
     try {
       const parsed = parseSearchExpression(filter);
       const where = parsed.where && bindThis(parsed.where, thisId, this.valueBinder(thisId));
       const present = [...new Set(rows.flatMap(row => row.properties.map(p => p.key)))];
+      // A clause about other notes (links:, under:, child:…) makes the answer depend on notes the rows don't name.
+      let open = false;
+      const asked: string[] = parsed.filters.map(f => f.key);
+      const walk = (e: QueryExpression | undefined): void => {
+        if (!e) return;
+        switch (e.kind) {
+          case "property": if (e.relation) open = true; else asked.push(e.key); return;
+          case "compare": asked.push(e.key); return;
+          case "not": walk(e.operand); return;
+          case "and": case "or": e.operands.forEach(walk); return;
+          case "time": case "tag": case "title": case "text": return;
+          default: open = true;
+        }
+      };
+      walk(where);
       if (rows.length) {
-        for (const key of [...parsed.filters.map(f => f.key), ...expressionPropertyKeys(where)]) {
-          if (key === "tag" || key === "deleted" || present.includes(key)) continue;
+        for (const key of asked) {
+          if (key === "tag" || key === "deleted" || key === "revision" || present.includes(key)) continue;
           const near = closest(key, present);
           return { ok: false, message: `no {rows} have \`${key}\`${near ? `; did you mean \`${near}\`?` : present.length ? ` (they have ${present.slice(0, 8).join(", ")})` : ""}`, ...(near ? { didYouMean: [near] } : {}) };
         }
@@ -4138,11 +4152,16 @@ export class OutlinerStore {
       const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph())) : null;
       return {
         ok: true,
+        ...(open ? { open: true as const } : {}),
         keep: rows.map(row => {
           const properties = row.properties.map(p => ({ key: p.key, value: p.value }));
           const id = row.id && !row.id.includes("^") ? row.id : undefined;
-          return matchesFilters(properties, parsed.filters)
-            && (!test || test({ ...(id ? { id } : {}), text: row.text, createdAt: "", updatedAt: "" }, properties));
+          // A note's own times, revision and author are the block's; a checkbox line has none (those clauses don't hold for it).
+          const block = id ? this.getFromCurrentRead(id) : null;
+          const subject = block
+            ? { ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map(child => child.properties) }
+            : { text: row.text, createdAt: "", updatedAt: "" };
+          return matchesFilters(properties, parsed.filters) && (!test || test(subject, properties));
         }),
       };
     } catch (error) {

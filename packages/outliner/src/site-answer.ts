@@ -37,35 +37,54 @@ class StoreWorld implements PathWorld {
   unresolved = false;
   private readonly records = new Map<string, BlockRecord>();
 
-  constructor(private readonly store: SiteStore, private readonly clock: () => number, private readonly thisId?: string) {}
+  /** The note a filter's `this` stands for; set once the Site is bound. */
+  thisId?: string;
+
+  constructor(private readonly store: SiteStore, private readonly clock: () => number) {}
 
   now() { return this.clock(); }
 
+  /** A note as a record: its text's properties, header, fields and checklist. Its children are read only when a path asks (`children`). */
   record(block: Block): BlockRecord {
     this.deps.add(block.id);
     let record = this.records.get(block.id);
-    if (!record) this.records.set(block.id, record = textRecord(block, this.store.children(block.id).map(child => child.id)));
+    if (!record) this.records.set(block.id, record = textRecord(block));
     return record;
+  }
+
+  children(id: string): BlockRecord[] {
+    // One past the most a path reads, so the resolver can say there are more.
+    return this.store.children(id).slice(0, 1001).map(child => this.record(child));
   }
 
   note(ref: string, as: "reference" | "value"): NoteLookup {
     let found: BlockRefLookup;
     try { found = this.store.lookupBlockRef(ref); } catch (error) { return { kind: "missing", message: error instanceof Error ? error.message : String(error), didYouMean: [] }; }
     switch (found.kind) {
-      case "found": return { kind: "found", record: this.record(found.block), how: found.how };
+      case "found":
+        // An id prefix is a link while it names one note; a later note with the same prefix would make it ambiguous.
+        if (found.how === "block id prefix") this.unresolved = true;
+        return { kind: "found", record: this.record(found.block), how: found.how };
       case "ambiguous": {
         const matches = found.ids.map(id => ({ id, title: blockDisplayTitle(this.store.get(id)!) }));
         if (as === "reference") this.unresolved = true;
         return { kind: "ambiguous", matches, message: `${ref} starts ${matches.length} notes: ${matches.map(m => `${m.id.slice(0, 12)} ${m.title}`).join("; ")}; give more of it` };
       }
-      case "trashed": return { kind: "missing", message: found.message, didYouMean: [] };
+      case "trashed":
+        if (as === "reference") this.unresolved = true;
+        return { kind: "missing", message: found.message, didYouMean: [] };
       case "missing":
         if (as === "reference") this.unresolved = true;
         return { kind: "missing", message: found.message, didYouMean: found.didYouMean ? [found.didYouMean] : [] };
     }
   }
 
-  filter(rows: readonly FilterRow[], filter: string) { return this.store.filterRows(rows, filter, this.thisId); }
+  filter(rows: readonly FilterRow[], filter: string) {
+    const kept = this.store.filterRows(rows, filter, this.thisId);
+    // A filter that reads other notes (links:, child:, under:…) depends on notes the answer can't name.
+    if (kept.ok && kept.open) this.unresolved = true;
+    return kept;
+  }
 }
 
 /** A bound Site: what `resolvePath` reads, and the notes it came from. */
@@ -115,7 +134,7 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
   const deps = new Set<string>([target.id]);
 
   // The note read: its saved text, or the draft being typed (the record is built from that text, so values agree with the screen).
-  const recordOf = (block: Block, draft?: string) => draft === undefined ? world.record(block) : (deps.add(block.id), textRecord({ ...block, text: draft }, store.children(block.id).map(c => c.id)));
+  const recordOf = (block: Block, draft?: string) => draft === undefined ? world.record(block) : (deps.add(block.id), textRecord({ ...block, text: draft }));
   route.push(`note ((${target.id.slice(0, 8)}))${exact ? "" : ` (from \`${request.blockId.trim()}\`)`}: read from ${request.draft ? "the draft text" : `the saved text, revision ${target.revision}`}`);
 
   let site: Site;
@@ -139,18 +158,18 @@ function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number)
 
   // Its place in the outline: ancestors (the scope walk's), and the parent as a record.
   const here = site.this!;
+  world.thisId = here.id;
   const ancestors: { id: string; text: string }[] = [];
-  let parent: BlockRecord | undefined;
+  let parentBlock: Block | undefined;
   for (let at = here.parent, depth = 0; at && depth < MAX_DEPTH; depth += 1) {
     const block = store.get(at);
     if (!block) break;
     deps.add(block.id);
     ancestors.push({ id: block.id, text: block.text });
-    if (depth === 0) parent = world.record(block);
+    if (depth === 0) parentBlock = block;
     at = block.parentId;
   }
-  for (const id of world.deps) deps.add(id);
-  const scope: PathScope = { ...(line !== undefined ? { line } : {}), ancestors, ...(parent ? { parent } : {}), world };
+  const scope: PathScope = { ...(line !== undefined ? { line } : {}), ancestors, ...(parentBlock ? { parent: () => world.record(parentBlock!) } : {}), world };
   return { site, scope, world, route, deps, blockId: target.id, revision: target.revision, text };
 }
 
@@ -164,7 +183,7 @@ function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof int
     return {
       ...base, values: empty ? [parsed.default!] : answer.values, ...(empty ? { usedDefault: true as const } : {}),
       ...(answer.lines ? { lines: answer.lines } : {}), ...(answer.marks ? { marks: answer.marks } : {}),
-      ...(answer.from ? { from: answer.from } : {}), ...(answer.links ? { links: answer.links } : {}),
+      ...(answer.from ? { from: answer.from } : {}), ...(answer.links ? { links: answer.links } : {}), ...(answer.clock ? { clock: answer.clock } : {}),
       route: empty ? [...answer.route, `no value: the \`|| ${parsed.default}\` default`] : answer.route,
     };
   }
@@ -196,7 +215,8 @@ export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: 
     ...(request.paths ? { paths } : {}),
     route: bound.route,
     deps: [...bound.deps].sort(),
-    ...(bound.world.unresolved ? { anyChange: true } : {}),
+    ...(bound.world.unresolved ? { anyChange: true as const } : {}),
+    ...([...values, ...paths].some(v => v.clock) ? { clock: "minute" as const } : {}),
     problems: [...values, ...paths].filter(v => v.problem && !v.usedDefault).length,
   };
 }
