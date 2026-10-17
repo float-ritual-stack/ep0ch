@@ -8,6 +8,7 @@
 // notes). The anchor is unique per (producer, target). `[!answer]` regions are the same kind with the callout type
 // naming it. The service writes them (outliner `place.ts`), the door and Detail draw them by this one grammar.
 // Pure: no I/O.
+import { codeBlocks } from "./code-fence";
 
 /** The callout types that make a region: what a script wrote, and what an `@name` agent answered. */
 export const OUTPUT_TYPES = ["output", "answer"] as const;
@@ -37,7 +38,6 @@ export interface OutputRegion {
 
 const HEADER = /^(\s*)>\s*\[!(output|answer)\][+-]?\s*(.*)$/;
 const ANCHOR_END = /\s\^([A-Za-z0-9][A-Za-z0-9_-]{0,63})\s*$/;
-const FENCE = /^\s{0,3}(```|~~~)/;
 
 /** A small stable hash (cyrb53) as lowercase hex: for ownership and anchors, not security. */
 function digest(text: string): string {
@@ -52,8 +52,16 @@ function digest(text: string): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
 }
 
-/** The hash of a region's body as `[output-hash::]` holds it (line ends and trailing space don't count). */
-export const outputHash = (body: string): string => digest(body.replace(/\r\n?/g, "\n").split("\n").map(l => l.trimEnd()).join("\n").trim()).slice(0, 12);
+/**
+ * The hash of a region's body as `[output-hash::]` holds it: line ends and trailing space don't count, nor blank lines at its
+ * ends, but a line's indentation does (prose turned into indented code is an edit).
+ */
+export const outputHash = (body: string): string => {
+  const lines = body.replace(/\r\n?/g, "\n").split("\n").map(l => l.trimEnd());
+  while (lines.length && !lines[0]) lines.shift();
+  while (lines.length && !lines.at(-1)) lines.pop();
+  return digest(lines.join("\n")).slice(0, 12);
+};
 
 /** The words a label gives an anchor: lowercase letters, digits and dashes. */
 const slug = (label: string): string => label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "out";
@@ -82,11 +90,13 @@ export function outputHeader(line: string): { type: OutputType; label: string; p
 export function findOutputRegions(text: string): OutputRegion[] {
   const lines = text.split("\n");
   const regions: OutputRegion[] = [];
-  let offset = 0, fenced = false;
+  let offset = 0;
   const starts = lines.map(l => { const at = offset; offset += l.length + 1; return at; });
+  // A `>` line inside a fenced code block is code, by the one fence grammar (a longer fence is closed only by its own length).
+  const fenced = new Set<number>();
+  for (const f of codeBlocks(lines).fences) for (let j = f.start; j <= f.end; j++) fenced.add(j);
   for (let i = 0; i < lines.length; i++) {
-    if (FENCE.test(lines[i]!)) { fenced = !fenced; continue; }
-    if (fenced) continue;
+    if (fenced.has(i)) continue;
     const head = outputHeader(lines[i]!);
     if (!head) continue;
     let last = i;
@@ -107,7 +117,8 @@ export const outputRegionAt = (text: string, anchor: string): OutputRegion | und
 
 /** The text of a region: its header (label, producer, hash, anchor) and the body as `>` lines. `{{` in the body is escaped as `\{{` unless `interpolate`. */
 export function outputRegionText(r: { type?: OutputType; label: string; producer?: string; anchor: string; body: string; interpolate?: boolean }): string {
-  const body = (r.interpolate ? r.body : escapeBraces(r.body)).replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+  // A body line that would open a region of its own is written with its `[` escaped: it stays one region, and its hash holds.
+  const body = (r.interpolate ? r.body : escapeBraces(r.body)).replace(/\r\n?/g, "\n").replace(/\n+$/, "").replace(/^(\s*)\[!(output|answer)\]/gm, "$1\\[!$2]");
   const head = `> [!${r.type ?? "output"}]- ${r.label}${r.producer ? ` [output-of::((${r.producer}))]` : ""} [output-hash::${outputHash(body)}] ^${r.anchor}`;
   return [head, ...body.split("\n").map(l => (l ? `> ${l}` : ">"))].join("\n");
 }

@@ -12,6 +12,7 @@
 //    makes the region theirs: the new output becomes one proposal beside it.
 //  - a missing, moved or duplicate anchor gives one proposal at the caller with a did-you-mean, never the note's end.
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { frontMatterLines } from "@ep0ch/outline-core/header-line";
 import { findOutputRegions, outputAnchor, outputRegionText, type OutputRegion } from "@ep0ch/outline-core/output-region";
 import { fragmentAnchors, resolveFragmentSlice, type FragmentAnchor } from "./fragments";
 
@@ -65,10 +66,9 @@ export function didYouMean(wanted: string, known: readonly string[]): string[] {
   return [...new Set(near.sort((a, b) => a.d - b.d).map(x => x.id))].slice(0, 3);
 }
 
-/** The text before the note's first blank line is its front matter (title, header chips); an address in it is refused. */
-function inFrontMatter(lines: readonly string[], line: number): boolean {
-  const blank = lines.findIndex(l => !l.trim());
-  return line > 0 && (blank < 0 || line < blank);
+/** Whether `line` is in the note's front matter (outline-core's header grammar: its title, header chips and property lines): an address there is refused. */
+function inFrontMatter(text: string, line: number): boolean {
+  return frontMatterLines(text).has(line);
 }
 
 const offsetOf = (lines: readonly string[]) => { let o = 0; const at = lines.map(l => { const s = o; o += l.length + 1; return s; }); return at; };
@@ -127,7 +127,7 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
   if (!wanted) {
     if (here === undefined) return { ok: false, kind: "refused", reason: "place needs at: ^anchor, or to run from a line of a note (here)" };
     if (mode === "replace") return { ok: false, kind: "refused", reason: "replace needs an output region: give at: its ^anchor (use upsert to create or replace this producer's region)" };
-    if (inFrontMatter(lines, here)) return { ok: false, kind: "refused", reason: "the caller line is in the note's front matter; place writes below it" };
+    if (inFrontMatter(text, here)) return { ok: false, kind: "refused", reason: "the caller line is in the note's front matter; place writes below it" };
     // The caller's own words name the address, so a second run finds the region the first made though the line moved.
     const target = `here:${lines[here]!.trim()}`;
     if (mode === "upsert") {
@@ -146,7 +146,7 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
     return proposeAtCaller(reason, `^${wanted}`);
   }
   const anchor = matches[0]!;
-  if (inFrontMatter(lines, anchor.lineIndex) && anchor.kind !== "heading") return { ok: false, kind: "refused", reason: `^${wanted} is in the note's front matter; place writes below it` };
+  if (inFrontMatter(text, anchor.lineIndex) && anchor.kind !== "heading") return { ok: false, kind: "refused", reason: `^${wanted} is in the note's front matter; place writes below it` };
   const own = regions.find(r => r.anchor === wanted);
 
   // The address names an output region itself: this producer's can be replaced (or upserted); another's is never touched.

@@ -114,3 +114,16 @@ describe("the record leaves output regions out", () => {
     expect(record.tasks).toEqual([]);
   });
 });
+
+describe("front matter (PIE-956)", () => {
+  test("the note's title line and its header chips are front matter: an address there is refused, never written above the title", () => {
+    const titled = "Weekly notes ^title\n[status::draft]\n\nbody text ^body";
+    const plan = planPlace(titled, { producer, at: "^title", mode: "prepend", content: "x" });
+    expect(plan).toMatchObject({ ok: false, kind: "refused" });
+    expect((plan as { reason: string }).reason).toContain("front matter");
+  });
+  test("a rule line after the title starts the body: its paragraph is a legal address", () => {
+    const ruled = "Weekly notes\n---\nparagraph ^p";
+    expect(planPlace(ruled, { producer, at: "^p", content: "x" }).ok).toBe(true);
+  });
+});

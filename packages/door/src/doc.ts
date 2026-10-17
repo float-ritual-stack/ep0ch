@@ -393,6 +393,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (cuts.length) cut(base + r, ...cuts);
     });
     for (const [r, j] of sub.wraps ?? []) wraps.set(base + r, j);
+    for (const r of sub.regions ?? []) regions.push({ ...r, row: base + r.row });
     for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
   };
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));

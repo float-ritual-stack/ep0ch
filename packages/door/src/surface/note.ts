@@ -29,7 +29,7 @@ import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo
 import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
@@ -1934,6 +1934,7 @@ export class NoteSurface {
     if (this.printed) for (const row of new Set(marks.map(k => k.row))) if (body[row])
       body[row] = fg(marks.some(k => k.row === row && k.open) ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
     this.regionInfo = regionInfo;
+    this.regionSpans = (doc.regions ?? []).map(r => ({ key: r.key, from: top + r.row, to: top + r.row + r.rows }));
     const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
     // Both placements use the same card and controls; width alone chooses beside or below the passage.
     const cards = mcols ? placeCards(cardThreads.flatMap(c => {
@@ -3805,6 +3806,8 @@ export class NoteSurface {
     if (l?.refresh) return { block: l.refresh, ...(l.refreshLine !== undefined ? { line: l.refreshLine } : {}) };
     if (l?.role === "resource" && l.block) return { block: l.block };
     const m = this.msg!;
+    // Not read yet: what the note runs isn't known, so nothing is asked of the service on a guess.
+    if (!projectionsLoaded(m, this.src) && mayHaveProjections(m.text)) throw new ActionRefused("reading what this note runs · press again in a moment, or put [ ] on a line first");
     const runs = projectionsOf(m, this.src).filter(p => p.kind && p.kind !== "data");
     if (runs.length === 1) return { block: m.id, line: runs[0]!.anchor.line };
     if (runs.length > 1) throw new ActionRefused(`${this.runsWords(runs)} here: nothing ran · press ${RUN_AGAIN_KEY} with [ ] on one, or click its ${REGION_MARK} mark and its run again`);
@@ -4110,16 +4113,17 @@ export class NoteSurface {
   letGo() { this.cur = null; this.link = -1; this.linkUnlaid = null; }
   /** The generated regions the last layout drew (src/output-region.ts): what `[ ]` stops on at each one's gutter mark. */
   private regionInfo = new Map<string, { label: string; target: LinkTarget }>();
+  /** Their rows in the reader's content rows (header included), for `openRegionKey`. */
+  private regionSpans: { key: string; from: number; to: number }[] = [];
   /**
-   * The region whose mark's row (name, when it ran, its controls) is shown: the one the `[ ]` position is in, its mark or a
-   * control of it. Hovering would do it too, but the door asks the terminal for button tracking, not motion.
+   * The region whose row behind its mark is shown: the one the `[ ]` position is in (its mark, a control in that row, a link
+   * in its words). Hovering would do it too, but the door asks the terminal for button tracking, not motion.
    */
   private openRegionKey(): string | null {
     const e = this.cur ? this.elems.find(x => x.key === this.cur) : undefined;
     if (!e) return null;
     if (e.region) return e.region;
-    const x = e.kind === "control" ? e.link?.ext : undefined;
-    return x ? `${x.block}:${x.line}` : null;
+    return this.regionSpans.find(r => e.row >= r.from && e.row < r.to)?.key ?? null;
   }
 
   private setElem(e: Element) {

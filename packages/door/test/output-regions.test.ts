@@ -115,6 +115,18 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       expect(lines().join("\n")).toContain("[source]");
     }, 40_000);
 
+    test("[ ] on the open row's [source] control keeps the row open; a region inside a ::box has its mark too", async () => {
+      const producer = (await board.createBlock(null, "A script note")).id;
+      const { s, lines } = await reader(`Planning\n${region("one", producer)}\n\nProse after.`, /Prose after/);
+      s.key(char("]"), host); lines();                                    // the mark
+      expect(s.describe().elements!.current!.kind).toBe("embed");
+      s.key(char("]"), host); lines();                                    // [source]
+      expect(s.describe().elements!.current!.label).toBe("[source]");
+      expect(lines().join("\n")).toContain("[source]");
+      const boxed = await reader(`Planning\n::box{margin.x=2}\n${region("words in a box", producer)}\n::\n\nProse after the box.`, /Prose after the box/);
+      expect(boxed.lines().filter(l => l.includes("≡"))).toHaveLength(1);
+    }, 40_000);
+
     test("a region its person edited says so, behind the text they left", async () => {
       const producer = (await board.createBlock(null, "A script note")).id;
       const edited = region("one", producer).replace("> one", "> one, and my own words");
@@ -124,6 +136,17 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
   });
 
   describe("r with no position (PIE-956)", () => {
+    test("before the note's lines are read r asks the service nothing: it can't know what would run", async () => {
+      const note = await board.createBlock(null, "Omens\nhoroscope:: virgo\n\nfancy-horror:: virgo");
+      forgetProjectionAnswers();
+      const s = new NoteSurface();
+      s.show((await board.get(note.id))!, host);
+      refreshes = []; flashes.length = 0;
+      s.key(char("r"), host);
+      await until(() => flashes.some(f => f.includes("reading what this note runs")), "the refusal said", 5000);
+      expect(refreshes).toEqual([]);
+    }, 40_000);
+
     test("a note with two lines that run: r runs neither, says which there are, and asks nothing of the service", async () => {
       const { s } = await reader("Omens\nhoroscope:: virgo\n\nSome prose between.\n\nfancy-horror:: virgo", /Virgo, \d{4}/);
       s.letGo();

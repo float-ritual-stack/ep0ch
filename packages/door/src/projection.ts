@@ -471,6 +471,11 @@ export function projectionsOf(m: Msg, src: Source | null | undefined): readonly 
   return readOf(m, src)?.projections ?? [];
 }
 
+/** Whether the service's answer for note `m` has been read (and is for this revision): `projectionsOf` is empty both before it and when the note has none. */
+export function projectionsLoaded(m: Msg, src: Source | null | undefined): boolean {
+  return readOf(m, src) !== null;
+}
+
 /** The decorations the rules draw on note `m` (PIE-600), from the same answer as its projections: none until it's read. */
 export function decorationsOf(m: Msg, src: Source | null | undefined): readonly Decoration[] {
   return readOf(m, src)?.decorations ?? [];
