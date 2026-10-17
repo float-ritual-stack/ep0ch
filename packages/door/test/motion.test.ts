@@ -90,7 +90,7 @@ describe.skipIf(!outliner)("the desk draws a layout change as motion, and the se
 
   test("off snaps: no frames in flight, whatever a script asks", async () => {
     mode("off");
-    const [v] = names().filter(n => n !== D().layoutGet().focus);
+    const v = names().find(n => n !== D().layoutGet().focus)!;
     await act("tile.close", { txn: "m-off", motion: "fantasia" }, v);
     frame();
     expect(D().moving).toBe(false);
@@ -130,7 +130,7 @@ describe.skipIf(!outliner)("the desk draws a layout change as motion, and the se
     expect(D().moving).toBe(true);
     D().settle();
     frame();
-    expect(names()).toContain(v);
+    expect(names()).toContain(v as string);
   });
 
   test("a key settles what is in flight before it is handled; a control command's catchUp snaps it too", async () => {
@@ -162,7 +162,7 @@ describe.skipIf(!outliner)("the desk draws a layout change as motion, and the se
     mode("calm");
     D().settle();
     frame();
-    const [v] = names().filter(n => n !== D().layoutGet().focus);
+    const v = names().find(n => n !== D().layoutGet().focus)!;
     await act("tile.close", { txn: "m-calm", motion: "fantasia" }, v);
     frame();
     const t = D().transition as { plan: { style: string; ms: number } };
@@ -177,7 +177,7 @@ describe.skipIf(!outliner)("the desk draws a layout change as motion, and the se
     mode("full");
     D().settle();
     frame();
-    const [v] = names().filter(n => n !== D().layoutGet().focus);
+    const v = names().find(n => n !== D().layoutGet().focus)!;
     await act("tile.close", { txn: "m-ink", motion: "fantasia" }, v);
     now += 300;
     const lines = desk.render(D().ctx).lines.join("\n");
