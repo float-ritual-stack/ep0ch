@@ -65,6 +65,7 @@ import { DRAWER_NAME, DRAWER_TILE_ID } from "./agent-env";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
+import { prop } from "../props";
 
 /**
  * desk.json: the layout tree of tile specs (pairs as `ratio a b`, what every door reads), the focus, the open
@@ -1223,7 +1224,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }),
       { label: `nothing: held on its note${p.followMode === "held" && !now ? "  ·  now" : ""}`, args: { source: "none" } },
       // Pinned to a page (PIE-705), where the note has one: its mode, through reader.mode.
-      ...(p.followMode === "pinned" || p.msg?.props.page ? [{ label: `pinned to [[${p.pinPage ?? p.msg?.props.page}]]${p.followMode === "pinned" ? "  ·  now" : ""}`, args: { mode: "pinned" }, action: "reader.mode" }] : []),
+      ...(p.followMode === "pinned" || prop(p.msg, "page") ? [{ label: `pinned to [[${p.pinPage ?? prop(p.msg, "page")}]]${p.followMode === "pinned" ? "  ·  now" : ""}`, args: { mode: "pinned" }, action: "reader.mode" }] : []),
     ];
     const name = this.nameOf(id);
     this.overlay(new ListPicker<{ label: string; args: Record<string, unknown>; action?: string }, Desk>({
@@ -2645,7 +2646,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   describe(): Record<string, unknown> {
     const order = this.all();
-    const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : {});
+    const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: prop(m, "work-id") ?? prop(m, "ticket") } : {});
     // What its tiles' kinds say about the screen (the welcome's notes, the brief's day) beside the tiles.
     const peeks = Object.assign({}, ...order.map(id => { const p = this.panes.get(id)!; return kindOf(p)?.peek?.(p, this) ?? {}; }), ...[...this.models.values()].map(m => m.peek?.() ?? {}));
     return {
@@ -3119,7 +3120,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       });
     } else if (this.noteOf(id)) {
       // NoteSurface owns the full title; the frame identifies the tile and keeps its mode controls reachable.
-      const m = this.noteOf(id)!, named = workIdTitle(subject(m), m.props["work-id"]);
+      const m = this.noteOf(id)!, named = workIdTitle(subject(m), prop(m, "work-id"));
       if (this.numbered) put(`${this.numberOf(id)} `, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
       this.putStatus(id, put);
@@ -4642,7 +4643,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (q.length < 2) throw new ActionRefused("search needs query=<at least 2 characters>");
     const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)), { near: this.current?.id });
-    return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) };
+    return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}) })) };
   }
 
   restartTerminal(name: string, p: PtyPane, _actor: Actor): TileDone {
@@ -4827,7 +4828,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.panes.get(id);
       if (!p) return;
       const m = this.showing(p);
-      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, title: p.title(), showing: m ? { id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}), ...(m.props.page ? { page: m.props.page } : {}) } : null,
+      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, title: p.title(), showing: m ? { id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}), ...(prop(m, "page") ? { page: prop(m, "page") } : {}) } : null,
         focused: id === this.focus, collapsed: this.collapsed.has(id), float: this.isFloat(id), docked: !!how.docked, tab: !!how.tab, shown: how.shown ?? true, ...(p instanceof ReaderPane && p.follows ? { mode: p.followMode } : {}) });
     };
     const walk = (n: LNode, depth: number, docked: boolean) => {

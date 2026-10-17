@@ -13,10 +13,11 @@ import { SocketBoard } from "../src/socket";
 import { landingOf, startScreens, type ScreenRequest } from "../src/start";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const row = (id: string, welcome: string, title = id, createdAt = 0): Msg =>
-  ({ id, text: title, parentId: null, childIds: [], createdAt, updatedAt: createdAt, author: null, props: { welcome } });
+  ({ id, text: title, parentId: null, childIds: [], createdAt, updatedAt: createdAt, author: null, properties: [{ key: "welcome", value: welcome }] });
 const art = (lines: string[]): Art => {
   const w = Math.max(...lines.map(l => l.length));
   const rows: Cell[][] = lines.map(l => [...l.padEnd(w)].map(c => ({ code: c.charCodeAt(0), fg: 7, bg: 0 })));
@@ -115,7 +116,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   test("an outline with no notes of its own offers + New note (PIE-544): a click makes one in the Inbox and opens it to write; esc on it empty trashes it", async () => {
     expect(screen()).toContain("+ New note · ctrl+n");
     expect(screen()).toContain("^N new");
-    const inbox = (await board.roots()).find(r => r.props["system-view"] === "inbox")!.id;
+    const inbox = (await board.roots()).find(r => prop(r, "system-view") === "inbox")!.id;
     const before = (await board.children(inbox)).length;
     const drafting = () => [...(top() as any).panes.values()].find((p: any) => p.surface?.draft) as any;
     const { x, y } = at("+ New note");
@@ -400,14 +401,14 @@ describe.skipIf(!outliner)("the one-off: [welcome::n] numbers become the Welcome
     expect(dry.out).toMatch(/1\. Start here \[welcome::1\][\s\S]*2\. House rules \[welcome::2\][\s\S]*3\. Apple notes \[welcome::yes\]/);
     expect(dry.out).toContain("this order is set on the Welcome view this run makes");
     expect(dry.out).toContain("nothing written yet");
-    expect((await board.get(start.id))!.props.welcome).toBe("1");
+    expect(prop((await board.get(start.id))!, "welcome")).toBe("1");
     const done = run("--apply");
     expect(done.code).toBe(0);
     expect(done.out).toContain("✓ 3 value(s) rewritten to true");
-    for (const m of [rules, start, apple]) expect((await board.get(m.id))!.props.welcome).toBe("true");
+    for (const m of [rules, start, apple]) expect(prop((await board.get(m.id))!, "welcome")).toBe("true");
     const { welcomeView, findWelcome } = await import("../src/hub/welcome");
     const view = await welcomeView(board);
-    expect(view!.props).toMatchObject({ type: "virtual-branch", query: "welcome" });
+    expect([prop(view, "type"), prop(view, "query")]).toEqual(["virtual-branch", "welcome"]);
     expect((await findWelcome(board)).notes.map(m => m.id)).toEqual([start.id, rules.id, apple.id]);
     // The view it made is the agent's that ran it (a property patch keeps the note's own author).
     expect((await board.get(view!.id))!.author).toBe("welcome-order");

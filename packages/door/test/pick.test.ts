@@ -135,7 +135,7 @@ describe("pickInto on a screen with tiles: the picker beside the note", () => {
 });
 
 describe("ctrl+t and [insert] in a reader's edit (draft.pick)", () => {
-  const note: Msg = { id: "11111111-2222-4333-8444-555555555555", text: "Shed list\nOil the chain.", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {} };
+  const note: Msg = { id: "11111111-2222-4333-8444-555555555555", text: "Shed list\nOil the chain.", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [] };
   const host = (said: string[]): SurfaceHost => ({
     ctx: { board: { path: OUTLINE.socket, outline: "garden", ancestors: async () => [], comments: async () => [] }, flash: (m: string) => said.push(m), t: { cellW: 9, cellH: 16 }, graphics: false, suspended: () => null, ...stepAside() } as any,
     redraw() {}, navigate() {},

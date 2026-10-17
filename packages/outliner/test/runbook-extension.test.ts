@@ -110,6 +110,15 @@ test("running the whole runbook stops at the step that fails and says so; the st
   expect(summary).toContain("[run.status::failed]");
 });
 
+test("a runbook's values come from its record: a bracketed list is its values, a repeated key its first, and a type list still makes a runbook", async () => {
+  const { create, book, act, kids } = await setup();
+  const list = await create("Listed runbook [type::[runbook, checklist]] [env::[staging, prod]] [region::eu] [region::us]", book.id);
+  const step = await create("Where\nrun:: --mode=dry\n```sh\necho in {{env}} at {{region}}\n```", list.id);
+  await act(step.id, "run-step", PERSON);
+  expect((await kids(step.id))[0]).toContain("in staging at eu");
+  expect((await act(list.id, "run-all", PERSON)).message).toContain("all 1 steps ran ok");
+});
+
 test("a missing parameter is recorded as not run, saying which property to write", async () => {
   const { create, book, act, kids } = await setup();
   const step = await create("Needs a thing\nrun:: --mode=dry\n```sh\necho {{region}}\n```", book.id);

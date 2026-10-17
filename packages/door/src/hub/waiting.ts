@@ -20,22 +20,24 @@ import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind } from "../desk/tile-kinds";
 import { RowView } from "../scroll";
+import { prop } from "../props";
 
 export const WAITING_QUERY = "type=outbox-item outbox=waiting";
 const WAITING_LIMIT = 500;
 
 /** When the wait began: `sent` as people write a date (outline-core `dates.ts`), in local time, or when the item was written. */
 export function sentAt(m: Msg): number {
-  const when = m.props.sent?.trim() ? readDate(m.props.sent) : null;
+  const sent = prop(m, "sent")?.trim();
+  const when = sent ? readDate(sent) : null;
   return when ? fromWallClock(when.from) : m.createdAt;
 }
 
 /** Who it waits on and what it waits for: `waiting-on`'s "Name: question", else `to` and the item's title. */
 export function waitingOn(m: Msg): { who: string; what: string } {
-  const w = m.props["waiting-on"]?.trim() ?? "";
+  const w = prop(m, "waiting-on")?.trim() ?? "";
   const i = w.indexOf(":");
   if (i > 0 && i < 40) return { who: w.slice(0, i).trim(), what: w.slice(i + 1).trim() || subject(m) };
-  return { who: m.props.to?.trim() || "someone", what: w || subject(m) };
+  return { who: prop(m, "to")?.trim() || "someone", what: w || subject(m) };
 }
 
 export interface WaitGroup { who: string; items: Msg[]; since: number }
@@ -119,11 +121,11 @@ export class WaitingPane implements Pane {
     const sel = this.rows.findIndex(r => "item" in r && r.n === this.at);
     // The group header above the picked item comes into view with it.
     this.view.place(sel >= 0 ? sel : null, this.rows.length, h, [sel - ("head" in (this.rows[sel - 1] ?? {}) ? 1 : 0), sel]);
-    const tw = Math.min(10, Math.max(0, ...this.items.map(m => (m.props.ticket ?? "").length)));
+    const tw = Math.min(10, Math.max(0, ...this.items.map(m => (prop(m, "ticket") ?? "").length)));
     return {
       lines: this.rows.slice(this.view.top, this.view.top + h).map(r => {
         if ("head" in r) return pad(`${fg(C.yellow)}${r.head.who}${fg(C.dark)} · ${r.head.items.length} waiting · longest ${ago(r.head.since)}`, w) + RESET;
-        const m = r.item, age = ago(sentAt(m)).padStart(4), ticket = (m.props.ticket ?? "").padEnd(tw), what = waitingOn(m).what;
+        const m = r.item, age = ago(sentAt(m)).padStart(4), ticket = (prop(m, "ticket") ?? "").padEnd(tw), what = waitingOn(m).what;
         if (r.n === this.at) return selected(focused) + pad(` ${age} ${ticket} ${what}`, w) + RESET;
         const old = Date.now() - sentAt(m) > 3 * 86_400_000;
         return pad(` ${fg(old ? C.lred : C.brown)}${age} ${fg(C.lcyan)}${ticket} ${fg(C.grey)}${what}`, w) + RESET;
@@ -158,7 +160,7 @@ export class WaitingPane implements Pane {
     let n = 0;
     return groupWaiting(this.items ?? []).map(g => ({
       who: g.who,
-      items: g.items.map(m => ({ n: ++n, id: m.id, title: subject(m), ticket: m.props.ticket ?? null, waitingFor: waitingOn(m).what, sent: new Date(sentAt(m)).toISOString(), link: m.props.link ?? null })),
+      items: g.items.map(m => ({ n: ++n, id: m.id, title: subject(m), ticket: prop(m, "ticket") ?? null, waitingFor: waitingOn(m).what, sent: new Date(sentAt(m)).toISOString(), link: prop(m, "link") ?? null })),
     }));
   }
 }

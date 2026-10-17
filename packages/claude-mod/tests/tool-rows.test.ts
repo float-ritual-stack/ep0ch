@@ -156,10 +156,10 @@ describe('the formatter: one row per tool', () => {
   })
 
   test('the read tools: one quiet line each', () => {
-    const read = toolRowOf(done('outline_read', { ref: NOTE }, { id: NOTE, title: 'Seed swap plan', revision: 3, properties: { page: 'Seed Swap', crop: 'beans' }, children: [{}, {}] }))
+    const read = toolRowOf(done('outline_read', { ref: NOTE }, { id: NOTE, title: 'Seed swap plan', revision: 3, properties: [{ key: 'page', values: ['Seed Swap'] }, { key: 'crop', values: ['beans'] }], children: [{}, {}] }))
     expect(words(read)).toBe('⌕ read Seed swap plan · 2 properties · 2 children · rev 3')
     expect(read!.kind).toBe('read')
-    expect(words(toolRowOf(done('outline_read', { ref: 'PIE-12' }, { title: 'Bare', revision: 1, properties: {}, children: [] })))).toBe('⌕ read PIE-12 · rev 1')
+    expect(words(toolRowOf(done('outline_read', { ref: 'PIE-12' }, { title: 'Bare', revision: 1, properties: [], children: [] })))).toBe('⌕ read PIE-12 · rev 1')
     expect(words(toolRowOf(done('outline_find', { text: 'dropdown menu' }, { blocks: [{ id: NOTE, title: 'Menus' }], complete: false }))))
       .toBe('⌕ find "dropdown menu" · 1 hit+')
     expect(words(toolRowOf(done('outline_find', { property: 'crop=leek', under: 'PIE-12' }, { blocks: [], complete: true }))))

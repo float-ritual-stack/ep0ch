@@ -22,6 +22,7 @@ import { subject, type Msg } from "../board";
 import { EditConflict, type Actor, type SocketBoard } from "../socket";
 import { ActionRefused } from "../surface/actions";
 import { builtinScreen, forgetScreen, madeScreen, readSpec, registerScreen, screenNameProblem, screenNames, screenSlug, screenTitleProblem, specData, type ScreenSpec } from "./screen-spec";
+import { prop } from "../props";
 
 /** The property value that makes a block a screen note, and the one of the note they're kept under. */
 export const SCREEN_TYPE = "screen";
@@ -66,7 +67,7 @@ export function screenNoteText(spec: ScreenSpec): string {
  */
 export function readScreenNote(m: Msg): ScreenNote | { problem: string; name: string; id: string } {
   const heading = subject(m).trim();
-  const name = (m.props[SCREEN_TYPE] ?? "").trim() || screenSlug(heading) || heading;
+  const name = (prop(m, SCREEN_TYPE) ?? "").trim() || screenSlug(heading) || heading;
   // Its title is the note's own when that makes this name (renaming the property renames the screen, title and all).
   const title = heading && screenSlug(heading) === name ? heading : name;
   const where = `the screen note ((${m.id}))`;

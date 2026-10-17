@@ -1,5 +1,9 @@
 # Changelog
 
+## 3 (2026-10-16)
+
+- Reads a note's state and the page's cursors from the service's parse of its properties, not from the first line's text.
+
 ## 2 (2026-10-10)
 
 - The boards (by read state, and by source with a lane for each of GitHub, Gmail, Jira and Slack) and a start-here note

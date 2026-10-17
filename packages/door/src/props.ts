@@ -1,6 +1,7 @@
 // A note's properties the way Detail shows them: a one-line summary of chosen keys under the title, the
 // block's metadata lines kept out of the body, and every token (repeats and scope kept) for the property
 // panel. The service parses; the door only presents what `properties.preview` says the text holds.
+import { valueOf, valuesOf } from "@ep0ch/outline-core/block-record";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
@@ -53,16 +54,19 @@ export function summaryKeys(view?: readonly string[] | null): { keys: string[]; 
 
 /** A saved view's own summary keys (`[summary-properties::work-stage,priority]`), if it names any. */
 export const viewSummaryKeys = (def: Msg | null | undefined): string[] | null =>
-  parsePropertySummaryKeys(def?.properties?.find(p => p.key === "summary-properties")?.value ?? def?.props["summary-properties"]) ?? null;
+  parsePropertySummaryKeys(prop(def, "summary-properties")) ?? null;
 
 // ── the tokens of a text, from the service ─────────────────────────────────────
 
 /** Where a reader's reads go, and what to redraw when an answer arrives: the reader's own connection. */
 /** A note's properties in the service's list form: one entry per value, a key written twice (tags) listed twice. */
 export type PropertyList = readonly { key: string; value: string }[];
-/** The list form of a `Msg`: its `properties` as the service sent them, else its one-value-per-key `props`. */
-export const propertyListOf = (m: { props: Record<string, string>; properties?: PropertyList }): PropertyList =>
-  m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value }));
+/** The list form of a `Msg`: its `properties` as the service sent them. */
+export const propertyListOf = (m: { properties: PropertyList }): PropertyList => m.properties;
+/** A note's first value for a property (block scope, outline-core's list rule), or undefined. Keys compare in lower case. */
+export const prop = (m: { properties: PropertyList } | null | undefined, key: string): string | undefined => valueOf(m ?? {}, key);
+/** Every value a note has for a property, in order: a repeated key adds, a `[a, b]` list is two. */
+export const propValues = (m: { properties: PropertyList } | null | undefined, key: string): string[] => valuesOf(m ?? {}, key);
 
 export interface Source { board: SocketBoard; redraw(): void }
 

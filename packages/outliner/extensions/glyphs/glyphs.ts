@@ -4,7 +4,7 @@
 
 interface Request {
   operation: string;
-  input: { source?: string; query?: string; limit?: number; action?: string; args?: Record<string, string>; target?: { blockId: string }; context?: { block?: { id: string; text: string } } };
+  input: { source?: string; query?: string; limit?: number; action?: string; args?: Record<string, string>; target?: { blockId: string }; context?: { block?: { id: string; text: string; title: string } } };
 }
 
 /** The glyphs, with the names an ANSI artist calls them by and their code page 437 numbers. */
@@ -35,7 +35,8 @@ if (request.operation === "bar") {
   const words = (input.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const found = GLYPHS.filter(g => words.every(w => g.name.includes(w) || g.words.includes(w) || g.ch === w || String(g.cp) === w));
   const near = input.context?.block;
-  const title = near?.text.split("\n", 1)[0]?.replace(/\s*\[[^\]]*::[^\]]*\]/g, "").trim();
+  // The note's title as the service reads it (its first line without its properties): `context.block` is a record.
+  const title = near?.text.trim() ? near.title : undefined;
   const rows = found.flatMap(g => [
     { id: g.ch, label: `${g.ch}  ${g.name}`, detail: `CP437 ${g.cp} · U+${g.ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`, copy: g.ch,
       preview: `# ${g.ch} ${g.name}\n\n\`${g.ch.repeat(24)}\`\n\nCode page 437 number ${g.cp}. ⏎ copies it.` },

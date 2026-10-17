@@ -127,7 +127,7 @@ export interface ProposalsBeside { blockId: string; revision: number; proposals:
 /** One row of the whole-outline index: everything but the full text. `depth`: 0 for a top-level note. */
 export interface IndexBlock {
   id: string; parentId: string | null; position: number; depth: number; title: string; author: string;
-  createdAt: number; updatedAt: number; props: Record<string, string>; hasChildren: boolean;
+  createdAt: number; updatedAt: number; properties: { key: string; value: string }[]; hasChildren: boolean;
 }
 export type { BacklinkCollection, BacklinkSource } from "./backlinks";
 /** The service's record of one committed change (PIE-399), on content events and from `changes.since`. */
@@ -223,7 +223,6 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   createdAt: b.createdAt ? Date.parse(b.createdAt) : 0,
   updatedAt: b.updatedAt ? Date.parse(b.updatedAt) : 0,
   author: b.actorId ?? b.author ?? null,
-  props: Object.fromEntries((b.properties ?? []).map(p => [p.key, p.value])),
   revision: b.revision,
   properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
   ...(b.text === undefined ? { partial: true } : {}),
@@ -303,6 +302,7 @@ export type CreatePlan =
 /** A step's status: outline-core's checklist grammar (checklist-marks.ts, PIE-811). */
 export type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
 import type { ChecklistStatus as StepStatus } from "@ep0ch/outline-core/checklist-marks";
+import { prop, propValues } from "./props";
 /** One checklist step as `checklist.query` reads it. */
 export interface ChecklistStep {
   itemId?: string; identity: "unassigned" | "unique" | "duplicate"; status: StepStatus; evidence: string;
@@ -876,7 +876,7 @@ export class SocketBoard implements Board {
     return order.map(b => ({
       id: b.id, parentId: b.parentId ?? null, position: b.position ?? 0, depth: b.depth ?? 0, title: String(b.preview ?? "").trim() || "(untitled)",
       author: b.actorId ?? b.author ?? "?", createdAt: Date.parse(b.createdAt), updatedAt: Date.parse(b.updatedAt),
-      props: Object.fromEntries((b.properties ?? []).map((p: any) => [p.key, p.value])), hasChildren: !!b.hasChildren,
+      properties: (b.properties ?? []).map((p: any) => ({ key: p.key, value: p.value })), hasChildren: !!b.hasChildren,
     }));
   }
 
@@ -1058,7 +1058,7 @@ export class SocketBoard implements Board {
    */
   async untargeted(noteId: string, shown: readonly string[]): Promise<Array<{ id: string; why: string }>> {
     const known = new Set(shown);
-    const stray = (await this.children(noteId)).filter(child => child.props.type === "annotation" && !known.has(child.id)).slice(0, 20);
+    const stray = (await this.children(noteId)).filter(child => prop(child, "type") === "annotation" && !known.has(child.id)).slice(0, 20);
     const found: Array<{ id: string; why: string }> = [];
     for (const { id } of stray) {
       try { await this.request("annotations.get", { annotationId: id }); } catch (error) { found.push({ id, why: error instanceof Error ? error.message : String(error) }); }
@@ -1202,7 +1202,7 @@ export class SocketBoard implements Board {
   }
   /** The outline's Inbox: the root the service made it as (`[system-view::inbox]`), or null. */
   async inboxId(): Promise<string | null> {
-    return (await this.roots()).find(r => [r.props["system-view"]].flat().includes("inbox"))?.id ?? null;
+    return (await this.roots()).find(r => propValues(r, "system-view").includes("inbox"))?.id ?? null;
   }
 
   /**

@@ -11,6 +11,7 @@ import { visible } from "../src/style";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const TIDY: Actor = { kind: "agent", id: "tidy" };
@@ -128,7 +129,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     while (current(s)?.target !== proposal) { s.key(char("]"), h); frame(); }
     expect(s.key(char("A"), h)).toBe(true);
     await until(() => !!flashes.at(-1)?.startsWith("applied the proposal"), "the apply");
-    expect((await board.get(proposal))!.props["proposal-status"]).toBe("applied");
+    expect(prop((await board.get(proposal))!, "proposal-status")).toBe("applied");
     expect((await board.get(id))!.text).toContain("The peas climb the net.");
   }, 30_000);
 
@@ -138,7 +139,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     const p = at(frame(), "[apply]");
     expect(s.click(p.x + 1, p.y, h)).toBe(true);
     await until(() => !!flashes.at(-1)?.startsWith("applied the proposal"), "the apply");
-    expect((await board.get(proposal))!.props["proposal-status"]).toBe("applied");
+    expect(prop((await board.get(proposal))!, "proposal-status")).toBe("applied");
     expect((await board.get(id))!.text).toContain("The peas climb the net.");
     await until(() => { frame(); return !s.describeElements().some(e => e.control); }, "the controls gone once it's applied", 10_000);
   }, 30_000);
@@ -217,7 +218,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
 
   test("a proposal whose passage was already gone offers only [dismiss]: A says why, a click on [dismiss] dismisses it", async () => {
     const { id, proposal } = await proposed(true);
-    expect((await board.get(proposal))!.props["proposal-applies"]).toBe("no");
+    expect(prop((await board.get(proposal))!, "proposal-applies")).toBe("no");
     const { s, h, frame } = await reading(id);
     const lines = frame();
     expect(lines.join("\n")).not.toContain("[apply]");
@@ -228,11 +229,11 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect(s.key(char("A"), h)).toBe(true);
     await until(() => flashes.some(f => f.includes("can't be applied")), "A's refusal");
     await expect(NOTE_ACTIONS.run("proposal.apply", { id: proposal }, { surface: s, host: h }, TIDY)).rejects.toThrow("can't be applied");
-    expect((await board.get(proposal))!.props["proposal-status"]).toBe("open");
+    expect(prop((await board.get(proposal))!, "proposal-status")).toBe("open");
     const p = at(frame(), "[dismiss]");
     expect(s.click(p.x + 1, p.y, h)).toBe(true);
     await until(() => !!flashes.at(-1)?.startsWith("dismissed the proposal"), "the dismiss");
-    expect((await board.get(proposal))!).toMatchObject({ deleted: true, props: { "proposal-status": "dismissed" } });
+    { const gone = (await board.get(proposal))!; expect([gone.deleted, prop(gone, "proposal-status")]).toEqual([true, "dismissed"]); }
     expect((await board.get(id))!.text).not.toContain(`!((${proposal}))`);
     // Opened, it says so in its header too.
     const opened = new NoteSurface();

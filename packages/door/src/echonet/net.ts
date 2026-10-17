@@ -20,6 +20,7 @@
 import { subject, type Msg } from "../board";
 import { ago, bbsDate } from "../text";
 import { actorName } from "@ep0ch/outline-core/attribution";
+import { prop } from "../props";
 
 export const NODELIST = "nodelist";
 export const TOSS = "toss";
@@ -46,18 +47,18 @@ export function parseFrom(s: string | undefined): { node: string; id: string } |
 
 /** Every value of a key: repeated tokens and comma lists. */
 export function values(m: Msg, key: string): string[] {
-  const raw = m.properties?.filter(p => p.key === key).map(p => p.value) ?? (m.props[key] !== undefined ? [m.props[key]!] : []);
+  const raw = m.properties.filter(p => p.key === key).map(p => p.value);
   return [...new Set(raw.flatMap(v => v.split(",")).map(v => v.trim()).filter(Boolean))];
 }
 /** A copy's `from` in EchoNet's shape, whatever other `from` the note holds (`[from::karen]`). */
 export const fromOf = (m: Msg): { node: string; id: string } | null => {
-  for (const v of m.properties?.filter(p => p.key === "from").map(p => p.value) ?? [m.props.from ?? ""]) { const f = parseFrom(v); if (f) return f; }
+  for (const v of m.properties.filter(p => p.key === "from").map(p => p.value)) { const f = parseFrom(v); if (f) return f; }
   return null;
 };
-const has = (m: Msg, key: string) => m.props[key] !== undefined;
+const has = (m: Msg, key: string) => prop(m, key) !== undefined;
 /** A message: a note an area may carry. Never a copy, a view, a subscription, a source board or EchoNet's own. */
 export const isMessage = (m: Msg) =>
-  !fromOf(m) && !OWN_TYPES.has(m.props.type?.trim() ?? "") && !has(m, "echo-source") && !has(m, "subscribe") && !has(m, "query") && m.props.type?.trim() !== "virtual-branch";
+  !fromOf(m) && !OWN_TYPES.has(prop(m, "type")?.trim() ?? "") && !has(m, "echo-source") && !has(m, "subscribe") && !has(m, "query") && prop(m, "type")?.trim() !== "virtual-branch";
 /** Whether a note posts to the area `name` (one of its `echo` values, any case). */
 export const postsTo = (m: Msg, name: string) => values(m, "echo").some(v => v.toLowerCase() === name.toLowerCase());
 
@@ -112,8 +113,8 @@ export function areasIn(tagged: readonly Msg[], subscriptions: readonly Msg[], s
     return a;
   };
   for (const b of tagged) {
-    if (b.deleted || fromOf(b) || has(b, "subscribe") || has(b, "echo-source") || OWN_TYPES.has(b.props.type?.trim() ?? "")) continue;
-    const query = b.props.query?.trim();
+    if (b.deleted || fromOf(b) || has(b, "subscribe") || has(b, "echo-source") || OWN_TYPES.has(prop(b, "type")?.trim() ?? "")) continue;
+    const query = prop(b, "query")?.trim();
     for (const tag of values(b, "echo")) {
       const a = entry(tag);
       if (query === undefined) continue;
@@ -124,9 +125,9 @@ export function areasIn(tagged: readonly Msg[], subscriptions: readonly Msg[], s
   out.push(...[...local.values()].sort((a, b) => a.tag.localeCompare(b.tag)));
   const subs = new Map(subscriptions.map(s => [s.id, s]));
   for (const board of sources) {
-    const from = board.props["echo-source"]?.trim(), sub = board.parentId ? subs.get(board.parentId) : undefined;
+    const from = prop(board, "echo-source")?.trim(), sub = board.parentId ? subs.get(board.parentId) : undefined;
     if (!from || !sub || board.deleted || sub.deleted) continue;
-    const waiting = Number(board.props.waiting);
+    const waiting = Number(prop(board, "waiting"));
     out.push({
       key: `${node}/${board.id}`, outline, node, block: board, kind: "sub", tag: values(sub, "echo").join(",") || "?", name: subject(sub) || from,
       origin: from, queries: [`parent:((${board.id})) from`], tagged: null, total: null, fresh: null, lastToss: null,
@@ -141,7 +142,7 @@ export const unreadOf = (query: string) => `(${query}) unread:me`;
 
 /** When a message arrived: a copy's `tossed`, else when it was written. */
 export function arrived(m: Msg): number {
-  const t = Date.parse(m.props.tossed ?? "");
+  const t = Date.parse(prop(m, "tossed") ?? "");
   return Number.isFinite(t) ? t : m.createdAt;
 }
 
@@ -153,7 +154,7 @@ export const inArrivalOrder = (list: readonly Msg[]): Msg[] => [...list].sort((a
  * wrote the block, the person being the sysop.
  */
 export function messageFrom(m: Msg): string {
-  const said = m.props.by?.trim() || m.props.author?.trim(), from = fromOf(m);
+  const said = prop(m, "by")?.trim() || prop(m, "author")?.trim(), from = fromOf(m);
   if (said) return said;
   if (from) return from.node.split("@")[0]!;
   return !m.author || m.author === "user" ? "sysop" : actorName(m.author);
@@ -172,9 +173,9 @@ export const seenBy = (m: Msg, area: Area, marked: readonly string[] = []): stri
 
 /** `[upstream-newer::n]`: the origin has revision n, newer than this copy's `from-rev`; null when it hasn't. */
 export function upstreamNewer(m: Msg): { upstream: number; here: number | null } | null {
-  const n = Number(m.props["upstream-newer"]);
+  const n = Number(prop(m, "upstream-newer"));
   if (!Number.isFinite(n) || n <= 0) return null;
-  const here = Number(m.props["from-rev"]);
+  const here = Number(prop(m, "from-rev"));
   return { upstream: n, here: Number.isFinite(here) ? here : null };
 }
 
@@ -214,15 +215,15 @@ export function headerOf(msg: Message, of: number, area: Area): string[] {
     `|09Msg  : |15${msg.n} |08of ${of}${msg.fresh ? " |14new" : ""}`,
     // A copy that doesn't say who wrote it is from its node, said once.
     `|09From : ${messageFrom(m) === originOf(m, area).split("@")[0] ? "" : `|14${messageFrom(m)} |08@ `}|11${originOf(m, area)}|08 · ${bbsDate(arrived(m))}`,
-    `|09To   : |07${m.props.to?.trim() || "All"}`,
+    `|09To   : |07${prop(m, "to")?.trim() || "All"}`,
     `|09Subj : |15${subject(m)}`,
-    `|09Area : |11${(m.props.echo?.trim() || area.tag).toUpperCase()} |08· |07${area.name}${area.kind === "sub" ? ` |08· from ${area.origin}` : " |08· local"}${from && m.props["from-rev"] ? ` |08· copy of rev ${m.props["from-rev"]}` : ""}`,
+    `|09Area : |11${(prop(m, "echo")?.trim() || area.tag).toUpperCase()} |08· |07${area.name}${area.kind === "sub" ? ` |08· from ${area.origin}` : " |08· local"}${from && prop(m, "from-rev") ? ` |08· copy of rev ${prop(m, "from-rev")}` : ""}`,
     // Drift is the point: a newer original is there to take or compare, never brought in by itself.
     ...(newer ? [
       `|14 ! a newer version is upstream |08(rev ${newer.upstream}${newer.here !== null ? `, this copy is rev ${newer.here}` : ""})`,
       "|08   take it: |07ext.echonet.take-newer|08 · compare: |07ext.echonet.compare-newer",
     ] : []),
-    ...(m.props["upstream-gone"] ? [`|12 ! gone upstream |08since ${m.props["upstream-gone"]}: the original was trashed at ${from?.node ?? "its node"}; this copy stays`] : []),
+    ...(prop(m, "upstream-gone") ? [`|12 ! gone upstream |08since ${prop(m, "upstream-gone")}: the original was trashed at ${from?.node ?? "its node"}; this copy stays`] : []),
   ];
 }
 
@@ -266,8 +267,8 @@ export function nodesOf(text: string): NodeEntry[] {
 /** One toss, from its log's properties: when, by which node, and what it carried. */
 export interface TossLog { at: number | null; node: string; copies: number; updated: number; netmailOut: number; netmailIn: number; queued: number; failed: boolean }
 export function tossOf(m: Msg): TossLog {
-  const n = (k: string) => Number(m.props[k] ?? 0) || 0, at = Date.parse(m.props.at ?? "");
-  return { at: Number.isFinite(at) ? at : null, node: m.props.node ?? "?", copies: n("copies"), updated: n("updated"), netmailOut: n("netmail-out"), netmailIn: n("netmail-in"), queued: n("queued"), failed: m.props.failed === "yes" };
+  const n = (k: string) => Number(prop(m, k) ?? 0) || 0, at = Date.parse(prop(m, "at") ?? "");
+  return { at: Number.isFinite(at) ? at : null, node: prop(m, "node") ?? "?", copies: n("copies"), updated: n("updated"), netmailOut: n("netmail-out"), netmailIn: n("netmail-in"), queued: n("queued"), failed: prop(m, "failed") === "yes" };
 }
 
 /**

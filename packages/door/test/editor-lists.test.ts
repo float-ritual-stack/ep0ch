@@ -214,7 +214,7 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
 
 describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
   const TEXT = "Lantern workshop\nWhat it needs before Saturday.";
-  const msg = (text = TEXT) => ({ id: "0a1b2c3d-1111-4222-8333-444455556666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 5, props: {} });
+  const msg = (text = TEXT) => ({ id: "0a1b2c3d-1111-4222-8333-444455556666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 5, properties: [] });
   const setup = () => {
     const flashes: string[] = [];
     const h: SurfaceHost = {
@@ -290,7 +290,7 @@ describe("review: nothing reformatted", () => {
 
 describe("review: an agent never moves the person's draft", () => {
   const TEXT = "Rope\nhow long, and where it goes.";
-  const msg = () => ({ id: "7f7f7f7f-1111-4222-8333-444455556666", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, props: {} });
+  const msg = () => ({ id: "7f7f7f7f-1111-4222-8333-444455556666", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, properties: [] });
   test("the person opened the edit and hasn't typed yet: draft.place, scroll and preview are refused", async () => {
     const h: SurfaceHost = {
       ctx: { board: { ancestors: async () => [], comments: async () => [], get: async () => msg() }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any,

@@ -12,6 +12,7 @@ import { changedSinceRead, Refused, type Actor, type SocketBoard } from "./socke
 import { ActionRefused } from "./surface/actions";
 import { partyOf, undoStamp } from "./steps";
 import type { PageRename } from "@ep0ch/outline-core/protocol";
+import { prop } from "./props";
 
 /** A note trashed, as `note.untrash` finds it again: who trashed it, and what went with it. */
 export interface TrashedNote { id: string; title: string; notesUnder: number; by: string; seq: number }
@@ -30,8 +31,8 @@ const noteTitle = (m: Msg, n = 50) => ellipsize(subject(m), n);
  * Inbox, Trash, Bookmarks); a note in the Trash is there already; a draft open on it is somebody's words.
  */
 export function trashProblem(board: object, m: Msg): string | null {
-  if (m.props.type === "workspace") return `“${noteTitle(m)}” is the outline's own root; everything sits under it`;
-  if (m.props["system-view"]) return `“${noteTitle(m)}” is one of the outline's own (${m.props["system-view"]}); it stays`;
+  if (prop(m, "type") === "workspace") return `“${noteTitle(m)}” is the outline's own root; everything sits under it`;
+  if (prop(m, "system-view")) return `“${noteTitle(m)}” is one of the outline's own (${prop(m, "system-view")}); it stays`;
   if (m.deleted) return `“${noteTitle(m)}” is in the Trash already`;
   const draft = openDraftOf(board, m.id);
   if (draft) return `“${noteTitle(m)}” has a draft open${draft.dirty ? " with unsaved words" : ""}; save or close it first`;

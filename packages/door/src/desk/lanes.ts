@@ -10,7 +10,7 @@ import { byOf, recordedActorId, USER, type Actor, type Change, type OutlineEvent
 import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { armsEdit, draftPreviewDoc, leaveSaid, sessionStart } from "../surface/note";
-import { viewSummaryKeys } from "../props";
+import { viewSummaryKeys, prop } from "../props";
 import { bg, C, chip, ellipsize, fg, pad, paint, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
@@ -281,7 +281,7 @@ export class Lanes implements SourceModel {
   }
 
   peek(): Record<string, unknown> {
-    const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
+    const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: prop(m, "work-id") ?? prop(m, "ticket") } : null);
     const lanes = this.lanes;
     return {
       hub: brief(this.hub),
@@ -741,7 +741,7 @@ export class Lanes implements SourceModel {
           : p.kind === "patch" ? fg(C.lgreen) + "-> " + describeChanges(p.changes)
           : p.kind === "already" ? fg(C.dark) + "already matches · nothing to change"
           : fg(C.lred) + "can't: " + p.reason;
-        return [pickRow(` ${on ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? l.def?.props.query ?? "" : l.read?.status ?? "loading"}`, on, w, C.white), pad(`     ${what}`, w) + RESET];
+        return [pickRow(` ${on ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? prop(l.def, "query") ?? "" : l.read?.status ?? "loading"}`, on, w, C.white), pad(`     ${what}`, w) + RESET];
       },
       choose: (_, i) => {
         if (this.card()?.id !== card.id || this.lane !== from) return this.host.ctx.flash("the selection changed · not moved");
@@ -999,13 +999,13 @@ export class Lanes implements SourceModel {
       if (e instanceof Refused) throw new ActionRefused(e.message);
       const found = await this.findItem(input.project, input.title, since).catch(() => null);
       if (!found) throw new ActionRefused(`the outline didn't answer (${e instanceof Error ? e.message : String(e)}) and no such item is there yet; the outcome is unknown, so look before creating it again`);
-      made = { workId: found.props["work-id"] ?? "", workQueueId: found.parentId ?? "", block: found };
+      made = { workId: prop(found, "work-id") ?? "", workQueueId: found.parentId ?? "", block: found };
     }
     const m = made.block;
     const fields = [`priority=${input.priority}`, `arc=${input.arc}`, ...input.tracks.map(t => `track=${t}`), `project=${input.project}`];
     this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${input.title.slice(0, 50)} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
     // What the allocator gave it, read off the block it made (its stage rule is the service's, not ours).
-    const props = m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value }));
+    const props = m.properties;
     const bornWith = ["type", "priority", "work-stage", "work-batch", "project", "arc", "track"].flatMap(k => props.filter(p => p.key === k).map(p => `${k}=${p.value}`));
     return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith, recordedAs: recordedAs(actor) };
   }

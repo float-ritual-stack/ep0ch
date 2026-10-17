@@ -78,7 +78,7 @@ describe("the rows' words, as the outliner's Tree says them", () => {
     expect(ticket.text.split("\n")[0]).toBe("ACME-12 · Rollout checklist");
     expect(ticket.text).toContain("status In progress · labels rollout\n\nSteps for the depot.");
     expect(resourceNote(desc({ resource: { ...desc({}).resource, provider: "ext:jira", address: { kind: "ext:jira", key: "ACME-3" } }, source: { id: "s2", name: "Tickets (made up)", provider: "ext:jira" } })).text).toContain("Nothing is stored for this Resource yet.");
-    expect(isOutlineNote({ id: "file:/x", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "file", props: {} })).toBe(false);
+    expect(isOutlineNote({ id: "file:/x", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "file", properties: [] })).toBe(false);
   });
 
   const at = "2026-09-01T10:00:00.000Z";

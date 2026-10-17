@@ -13,6 +13,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 describe("the name a title is kept under", () => {
   test("lowercase, spaces to -, other characters dropped, at most 40", () => {
@@ -39,9 +40,9 @@ describe("the name a title is kept under", () => {
     const text = screenNoteText(spec);
     expect(text.split("\n")[0]).toBe("daily test [type::screen] [screen::daily-test]");
     expect(text).toContain('--screen "daily test"');
-    const m = { id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: { type: "screen", screen: "daily-test" }, revision: 1 };
+    const m = { id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "daily-test" }], revision: 1 };
     expect(readScreenNote(m)).toMatchObject({ name: "daily-test", title: "daily test", spec: { name: "daily-test", title: "daily test" } });
-    expect(readScreenNote({ ...m, props: { type: "screen", screen: "seedlings" } })).toMatchObject({ name: "seedlings", title: "seedlings" });
+    expect(readScreenNote({ ...m, properties: [{ key: "type", value: "screen" }, { key: "screen", value: "seedlings" }] })).toMatchObject({ name: "seedlings", title: "seedlings" });
   });
 });
 
@@ -96,7 +97,7 @@ describe.skipIf(!outliner)("naming screens, against a scratch outline", () => {
     const m = madeScreen("daily-test")!;
     const note = (await board.get(m.id))!;
     expect(note.text.split("\n")[0]).toBe("daily test [type::screen] [screen::daily-test]");
-    expect(note.props).toMatchObject({ screen: "daily-test" });
+    expect(prop(note, "screen")).toBe("daily-test");
     expect(screenTitle("daily-test")).toBe("daily test");
     expect(top().title).toBe("daily test");
     expect(layoutNames().find(l => l.name === "daily-test")).toMatchObject({ title: "daily test", saved: true });

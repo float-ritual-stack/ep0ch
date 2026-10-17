@@ -86,7 +86,7 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(hub.text.split("\n")[0]).toBe("Extensions [page::extensions]");
   expect(hub.author).toBe("system");
   // The hub: each installed one a link to its page; what the repo has that isn't installed, with how to install it.
-  expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v2`);
+  expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v3`);
   expect(listed.available.map((entry) => entry.id)).toContain("moon");
   expect(listed.available.map((entry) => entry.id)).not.toContain("notify");
   expect(hub.text).toMatch(/\*\*Moon\*\* `moon` v\d/);
@@ -98,7 +98,7 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(page.text).toContain("A note is a runbook.");
   expect(page.text).not.toContain("# Runbook");
   expect(page.text).toContain("- Action **Run this step** (`ext.runbook.run-step`, on a `run::` line, key `x`, writes)");
-  expect(page.text).toContain("### 2 (2026-10-10)");
+  expect(page.text).toContain("### 3 (2026-10-16)");
   expect(page.text).not.toContain("### 1 (2026-10-10)");
   const [runbook] = await children(page.id);
   expect(runbook!.text.split("\n")[0]).toBe("Ship the demo widget [type::runbook] [env::scratch]");
@@ -173,7 +173,7 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   expect(after.pages.runbook).toBeUndefined();
   expect(store.require(runbookPage).effectiveDeletedRootId).toBeString();
   // Back among the available ones.
-  expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook` v2");
+  expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook` v3");
   expect(store.require(after.hub!).text).not.toContain("|Runbook))");
 });
 

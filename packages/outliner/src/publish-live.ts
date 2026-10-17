@@ -9,6 +9,7 @@ import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-bl
 import { asksPerItem, figureQuestion, liveAsk, liveMark, liveProps, liveStatus, NONE, sortProblem, type FigureAnswer, type FigureItem, type FigureQuestion } from "@ep0ch/outline-core/figure-live";
 import { figureProps, figureSource, graphKind, type Props, type Row } from "@ep0ch/outline-core/figure-props";
 import { figureRow } from "@ep0ch/outline-core/figure-markdown";
+import { recordProperties } from "@ep0ch/outline-core/block-record";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockGroups, LINK_GROUPS, linkBlockAt, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
 import type { QuestionGroup } from "@ep0ch/outline-core/protocol";
@@ -35,8 +36,6 @@ export interface LiveHost {
 /** A component drawn in place of its lines (`start` to `end`, inclusive): its sentinel's Markdown. */
 export interface DrawnComponent { end: number; markdown: string }
 
-const propsOf = (properties: readonly BlockProperty[] | undefined): Record<string, string> =>
-  Object.fromEntries((properties ?? []).map(property => [property.key, property.value]));
 const ms = (iso: string | undefined) => (iso ? Date.parse(iso) || 0 : 0);
 const CHILDREN = "parent:this NOT type=annotation NOT type=annotation-reply";
 
@@ -116,6 +115,8 @@ async function drawFigure(host: LiveHost, kind: string, body: readonly string[],
   let props = read.props, foot = read.children ? "live · child notes" : "", error = "";
   const live = await answerFigure(host, kind, props, note);
   if (live) { props = live.props; foot = live.status; error = live.error ?? ""; }
+  // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
+  if (read.warning) error = [error, read.warning].filter(Boolean).join(" · ");
   const html = figureBodyHtml(kind, props, id => host.href(id), rows?.(src.at ?? 0));
   if (html === null) return componentSourceHtml(source);
   return figureFrame(kind, String(props.title ?? ""), html || `<p class="dim">no results</p>`, foot, error);
@@ -210,7 +211,7 @@ async function itemsOf(host: LiveHost, blocks: readonly { id: string; properties
   const visible = blocks.filter(block => shown.has(block.id));
   const titles = await host.titles(visible.map(block => block.id));
   return visible.map(block => ({
-    id: block.id, title: titles.get(block.id) || "untitled", props: propsOf(block.properties),
+    id: block.id, title: titles.get(block.id) || "untitled", properties: recordProperties(block.properties ?? []),
     createdAt: ms(block.createdAt), updatedAt: ms(block.updatedAt), author: block.author ?? null,
   }));
 }

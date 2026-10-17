@@ -3,6 +3,7 @@
 import { boardFor, type Out } from "./notes-cli";
 import { subject } from "./board";
 import { USER, type Actor } from "./socket";
+import { prop } from "./props";
 
 export const VIEW_USAGE = `  ep0ch view order <view> [<id>…] [--json] [--as <agent id>] [--ws <name>] [--machine <ssh-name>]
                                    a view's hand-set order (a view with no [sort::]: what its lanes, figures and
@@ -37,7 +38,7 @@ export async function viewCommand(argsIn: string[], io: Out = { out: console.log
     const viewId = order.viewId;
     const byId = new Map((await board.readMany(order.blockIds, ["title", "properties"])).map(b => [b.id, b]));
     const rows = order.blockIds.map(id => {
-      const m = byId.get(id), workId = m?.props["work-id"];
+      const m = byId.get(id), workId = prop(m, "work-id");
       return { id, title: m ? subject(m) : "", ...(workId ? { workId } : {}) };
     });
     if (args.includes("--json")) io.out(JSON.stringify({ view: viewId, order: rows, ...(order.completeness.kind !== "complete" ? { truncated: true } : {}) }));

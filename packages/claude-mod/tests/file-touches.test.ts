@@ -73,10 +73,11 @@ const result = (exitCode: number, stdout = '', stderr = ''): ProcessRunResult =>
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
 
 /** A session in the garden folder (bound to `garden`), in a door tile or not, whose Edit and Write the test answers. */
-function sessionIn(on: On, env: Record<string, string> = {}, page = '[file-touches::/work/garden/**/*.md] [file-touches::/notes/**]') {
+function sessionIn(on: On, env: Record<string, string> = {}, globs: string[] = ['/work/garden/**/*.md', '/notes/**']) {
   const runs: Run[] = []
   const pageReads: Run[] = []
-  const pageText = { value: `Recent files [page::recent-files]\n${page}` }
+  // The page as `agent read` answers it: the record's properties (the service's parse, so a glob's comma stays in it).
+  const pageRead = { value: globs }
   const readAnswer: { value: unknown } = { value: { kind: 'resource', id: 'resource:r1', threads: [] } }
   const toasts: string[] = []
   const copied: string[] = []
@@ -106,13 +107,13 @@ function sessionIn(on: On, env: Record<string, string> = {}, page = '[file-touch
     if (argv.includes('bound-folder')) return { value: result(0, `{"bound":true,"folder":"${WORKSPACE}","outline":"garden"}\n`) }
     if (argv.includes('work-id-status')) return { value: result(0, '{"prefix":"PIE"}') }
     if (argv.includes('mentions')) return { value: result(0, '{"entries":[]}') }
-    if (argv.includes('agent') && argv.includes('read') && e.init?.stdin?.includes('recent-files')) { pageReads.push(e); return { value: result(0, JSON.stringify({ text: pageText.value })) } }
+    if (argv.includes('agent') && argv.includes('read') && e.init?.stdin?.includes('recent-files')) { pageReads.push(e); return { value: result(0, JSON.stringify({ text: 'Recent files', properties: [{ key: 'page', values: ['recent-files'] }, ...(pageRead.value.length ? [{ key: 'file-touches', values: pageRead.value }] : [])], fields: [] })) } }
     if (argv.includes('agent') && argv.includes('read')) return { value: result(0, JSON.stringify(readAnswer.value)) }
     if (argv.includes('touch-file')) return { value: result(0, JSON.stringify({ id: 'b1', created: true, touches: 1, ...(JSON.parse(e.init?.stdin ?? '{}').original ? { snapshot: '/outlines/garden/file-touches/session-1/x-seed-list.txt' } : {}) })) }
     return { value: result(1, '', 'unexpected') }
   })
   const touches = () => runs.filter(r => r.argv.includes('touch-file')).map(r => JSON.parse(r.init?.stdin ?? '{}'))
-  return { runs, toasts, copied, clock, touches, readAnswer, pageText, pageReads }
+  return { runs, toasts, copied, clock, touches, readAnswer, pageRead, pageReads }
 }
 
 const START = { surface: 'terminal', isInteractive: true, cwd: WORKSPACE } as const
@@ -121,13 +122,15 @@ describe('each touch, recorded in the session\'s outline', () => {
   test('the globs on the Recent files page decide; the option or env saying off beats them', () => {
     expect([fileTouchesOff(undefined, undefined), fileTouchesOff('', ''), fileTouchesOff('off', 'on'), fileTouchesOff('', 'no'), fileTouchesOff('on', undefined)])
       .toEqual([false, false, true, true, false])
-    expect(fileTouchGlobsOf('Recent files [page::recent-files]\n[file-touches::~/rangle/**/*.md] [file-touches::**/plans/**]\n[other::x]'))
+    expect(fileTouchGlobsOf({ properties: [{ key: 'page', values: ['recent-files'] }, { key: 'file-touches', values: ['~/rangle/**/*.md', '**/plans/**'] }, { key: 'other', values: ['x'] }], fields: [] }))
       .toEqual(['~/rangle/**/*.md', '**/plans/**'])
+    // A glob written further down the page is a field, and one with a brace's comma is a single value.
+    expect(fileTouchGlobsOf({ properties: [], fields: [{ key: 'file-touches', value: '/a/*.{md,txt}' }, { key: 'other', value: 'y' }] })).toEqual(['/a/*.{md,txt}'])
+    expect(fileTouchGlobsOf(null)).toEqual([])
     expect([
       touchAllowed(['~/rangle/**/*.md'], '/home/e/rangle/a/b.md', '/home/e'), touchAllowed(['~/rangle/**/*.md'], '/home/e/rangle/a/b.ts', '/home/e'),
       touchAllowed(['**/plans/**'], '/work/x/plans/y/z.ts', undefined), touchAllowed([], FILE, undefined),
     ]).toEqual([true, false, true, false])
-    expect(fileTouchGlobsOf('[file-touches::/a/**]\n`[file-touches::**]`\n```\n[file-touches::/b/**]\n```')).toEqual(['/a/**'])
     expect(touchAllowed(['/a/foo**bar.md'], '/a/foo/x/bar.md', undefined)).toBe(false)
     expect([touchAllowed(['/a/*.md'], '/a/b/c.md', undefined), touchAllowed(['/a/*.{md,txt}'], '/a/c.txt', undefined), touchAllowed(['/a/**/*.md'], '/a/c.md', undefined)])
       .toEqual([false, true, true])
@@ -146,14 +149,14 @@ describe('each touch, recorded in the session\'s outline', () => {
   })
 
   test('the page is read again once a minute old: a glob added mid-session takes effect', async ($, on) => {
-    const s = sessionIn(on, {}, '')
+    const s = sessionIn(on, {}, [])
     await $.session.start(START)
     await s.clock.settle()
     const edit = { tool: 'Edit', file_path: FILE, old_string: 'Borlotti', new_string: 'Runner beans\nChard' } as any
     await $.tool.call(edit)
     await s.clock.settle()
     expect(s.touches()).toEqual([])
-    s.pageText.value = 'Recent files [page::recent-files]\n[file-touches::**/*.md]'
+    s.pageRead.value = ['**/*.md']
     await s.clock.advance(61_000)
     await $.tool.call(edit)
     await s.clock.settle()
@@ -162,7 +165,7 @@ describe('each touch, recorded in the session\'s outline', () => {
   })
 
   test('a page with no globs records nothing', async ($, on) => {
-    const none = sessionIn(on, {}, '')
+    const none = sessionIn(on, {}, [])
     await $.session.start(START)
     await none.clock.settle()
     await $.tool.call({ tool: 'Edit', file_path: FILE, old_string: 'Borlotti', new_string: 'Runner beans\nChard' } as any)

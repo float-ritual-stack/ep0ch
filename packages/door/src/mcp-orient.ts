@@ -10,6 +10,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { IndexBlock } from "./socket";
 import type { NotesBoard } from "./notes-cli";
+import { prop as noteProp } from "./props";
 
 // ── sort ─────────────────────────────────────────────────────────────────────
 
@@ -94,7 +95,7 @@ export function changesSummary(c: Pick<Changes, "count" | "proposals" | "comment
  */
 export function foldIds(ids: readonly string[], index: readonly IndexBlock[]): FoldedRow[] {
   const by = new Map(index.map(b => [b.id, b]));
-  const kindOf = (id: string) => derivedKindOf(by.get(id)?.props.type);
+  const kindOf = (id: string) => derivedKindOf(noteProp(by.get(id), "type"));
   const targetOf = (id: string): string | null => {
     let at = by.get(id)?.parentId ?? null;
     for (let hops = 0; at && hops < 24; hops++) {

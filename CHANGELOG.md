@@ -10,6 +10,35 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One property shape for clients and extensions (PIE-950, second slice of PIE-533)
+
+What changes for an agent or an extension author: a property is read from the note's record, never from a flattened
+`key → value` map that kept only the last of a repeated key.
+
+- **`outline_read`** (the mod's tool, the MCP gateway's and a script's `read()`) answers `properties` as
+  `[{ key, values }]`, each key once with its values in order, as `ep0ch find --json` does, and a new `fields` for
+  the properties of a line or a spot in the text (with where they start). It was a map from key to a value or a list.
+  Absorbs PIE-572.
+- **An extension's `context`** carries `block` and each of `children` as records (`properties` as `{ key, values }`,
+  `fields`, `header`, `title`, `text`) instead of `properties: [{ key, value }]`. An extension reads a value from them,
+  not by a regex over `text`: notify, readwise, gallery, columns, glyphs, meeting-card, echonet and runbook do now
+  (the runbook's `{{name}}` fills from the runbook note's properties the same way, and a run's status and exit code
+  from the run's record). An extension that read `context.block.properties[i].value` reads `values` now.
+- **A figure** reads each note it draws through the same record (`FigureItem.properties`), and the mod reads the
+  Recent files page's `[file-touches::…]` globs from `outline_read`'s `properties` and `fields`, so a glob with a
+  brace's comma, a front-matter one and one further down the page all count, and one in code doesn't.
+- **A figure written without its `---` lines** (`::graph-table` then `query:` and `columns:` lines) is read as
+  Markdown rows, so its props never arrived. It now says so, in outline-core's words, in the door (the figure and the
+  reader's list of what a note leaves open), in Detail (a line after the figure), on a published page (in the figure)
+  and in a save's warnings (PIE-941).
+- **The door** reads a note's properties from its list (`Msg.properties`, with `prop(m, key)` and `propValues(m, key)`),
+  not from `Msg.props`, a map that kept only the last value of a repeated key and left a `[a, b]` list as one string. A
+  repeated key now reads its first value, and a list its first element (`system-view` asks every value).
+- The showcase's seed and tests are split by area (`src/showcase/seed/*.ts`, `test/showcase/*.test.ts`), so a new
+  section is a new file. Nothing changes on screen.
+- The MCP `pending.body` fences a queued edit `⟦pending <id>⟧…⟦/pending⟧`, not `{{pending <id>}}…{{/pending}}`, so
+  the note's `{{ }}` values (coming) can never mistake it for one.
+
 ### Grammar collisions: colours, dividers, `::` and `@name` (PIE-950, PIE-533)
 
 - A `#word` that is a hex colour (`#00e5ff`, `#fff`, `#1a2b3c`) is not a tag: 3, 4, 6 or 8 hex digits, with a digit among

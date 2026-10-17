@@ -17,6 +17,8 @@ import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type Bloc
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import type { BlockRecord } from "@ep0ch/outline-core/block-record";
+import { textRecord } from "./block-records";
 import { FORM_FIELD_KEY, formFields } from "@ep0ch/outline-core/form-fields";
 import type { ResourceProjection } from "./resource-projection";
 import type { ExtensionCallFor, ResourceExtensionRuntime } from "./resource-extensions";
@@ -202,6 +204,25 @@ const MAX_CONTEXT_TEXT = 16_000;
 const MAX_CHILD_TEXT = 2_000;
 const MAX_CHILDREN = 50;
 const MAX_MARKDOWN = 64 * 1024;
+/** A call's record of a block: from the first `max` characters of its text, which is what the call's inputs hash covers, so what an extension reads (properties, fields, title) changes only when that hash does. */
+const recordWithin = (block: Block, max: number, children: readonly string[] = []): BlockRecord => textRecord(block.text.length > max ? { ...block, text: block.text.slice(0, max) } : block, children);
+/**
+ * What a call sees of the outline: bounded, read-only, from one read. The block and its children are records
+ * (outline-core's one shape, built from their text), never a flattened property map: an extension reads `properties`,
+ * `fields` and `header` as the door and `find --json` do. One builder for every call that carries a block.
+ */
+export function blockCallContext(store: Pick<OutlinerStore, "blockContext">, block: Block, line: number | undefined, now: number): Record<string, unknown> & { children: { id: string; text: string }[] } {
+  const context = store.blockContext(block.id);
+  const kids = context.children.slice(0, MAX_CHILDREN);
+  return {
+    block: recordWithin(block, MAX_CONTEXT_TEXT, kids.map((child) => child.id)),
+    ...(line !== undefined ? { line: { index: line, text: block.text.split("\n")[line] ?? "" } } : {}),
+    children: kids.map((child) => recordWithin(child, MAX_CHILD_TEXT)),
+    ancestors: contextAncestors(context.ancestors),
+    now: new Date(now).toISOString(),
+  };
+}
+
 /** Records one collection answer may hold (each is a block the extension owns). */
 const MAX_COLLECTION = 500;
 /** How much of a passage's subject text an action is sent with it. */
@@ -641,19 +662,7 @@ export class ExtensionCalls {
     return durationMs(handler?.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS;
   }
 
-  /** What a call sees of the outline: bounded, read-only, from one read. */
-  private context(block: Block, line: number | undefined): Record<string, unknown> & { children: { id: string; text: string }[] } {
-    const context = this.store.blockContext(block.id);
-    const lines = block.text.split("\n");
-    return {
-      block: { id: block.id, text: block.text.slice(0, MAX_CONTEXT_TEXT), revision: block.revision,
-        properties: parsePropertyRecords(block.text).filter((record) => record.scope === "block").map((record) => ({ key: record.key, value: record.value })) },
-      ...(line !== undefined ? { line: { index: line, text: lines[line] ?? "" } } : {}),
-      children: context.children.slice(0, MAX_CHILDREN).map((child) => ({ id: child.id, text: child.text.slice(0, MAX_CHILD_TEXT) })),
-      ancestors: contextAncestors(context.ancestors),
-      now: new Date(this.now).toISOString(),
-    };
-  }
+  private context(block: Block, line: number | undefined) { return blockCallContext(this.store, block, line, this.now); }
 
   private async run(block: Block, call: HandlerCall, extension: LoadedExtension): Promise<void> {
     const key = this.outputKey(block.id, call.callKey);

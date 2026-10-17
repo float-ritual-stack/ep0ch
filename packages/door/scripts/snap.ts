@@ -108,7 +108,7 @@ if (scenario === "doc") {
     "pasted from the mdxcn docs:", "```", "+------------------- [ LAUNCH ] -------------------+", "|                                                  |", "| [x]  freeze tokens                               |", "| [ ]  write the postmortem  still open            |", "|                                                  |", "+--------------------------------------------------+", "```"].join("\n");
   const pane = new ReaderPane();
   const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
-  pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", props: {} }, api);
+  pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", properties: [] }, api);
   onMediaChange(() => app.redraw());
   // Same note twice: a narrow reader beside a wide one.
   const narrow = new ReaderPane(); narrow.show((pane as any).msg, api);
@@ -136,7 +136,7 @@ if (scenario === "figures") {
     "> [!quote] On sheds", "> Shacks, not cathedrals.", ">", "> — shypht, the ep0ch BBS"].join("\n");
   const pane = new ReaderPane();
   const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
-  pane.show({ id: "figures", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", props: {} }, api);
+  pane.show({ id: "figures", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", properties: [] }, api);
   const narrow = new ReaderPane(); narrow.show((pane as any).msg, api);
   for (const [i, top] of [0, 70].entries()) {
     (pane as any).surface.scroll = top; (narrow as any).surface.scroll = top;
@@ -157,7 +157,7 @@ if (scenario === "live") {
     "::graph-check", "---", "title: doing (saved view)", `view: ((${process.env.VIEW}))`, "note: ticket", "---", "::"].join("\n");
   const pane = new ReaderPane();
   const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
-  pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", props: {} }, api);
+  pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", properties: [] }, api);
   app.push({ title: "live", render: (ctx: any) => ({ lines: pane.render(110, ctx.t.rows - 2, true, api).lines.map((l: string) => "  " + l) }), key() {} } as any);
   await snap("1-asking", 200);
   await snap("2-answered", 5000);

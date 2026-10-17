@@ -53,7 +53,7 @@ describe("the rule (src/scroll.ts)", () => {
 
 describe("a reader (NoteSurface): the wheel, the keys and act at the end", () => {
   const id = "a1111111-2222-4333-8444-555555555555";
-  const long = { id, text: `Seed swap ledger\n${Array.from({ length: 40 }, (_, i) => `Packet ${i + 1}: runner beans.`).join("\n")}\nLast packet.`, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} };
+  const long = { id, text: `Seed swap ledger\n${Array.from({ length: 40 }, (_, i) => `Packet ${i + 1}: runner beans.`).join("\n")}\nLast packet.`, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] };
   const short = { ...long, id: "b1111111-2222-4333-8444-555555555555", text: `Short list\n${Array.from({ length: 6 }, (_, i) => `Tray ${i + 1}.`).join("\n")}` };
   const host = (s: NoteSurface): SurfaceHost => {
     const h: SurfaceHost = {

@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "glyphs",
-  "version": 1,
+  "version": 2,
   "name": "Glyphs",
   "description": "A bar source: the code page 437 shades, blocks and box lines by name, to copy or to rule a note with.",
   "run": ["bun", "glyphs.ts"],

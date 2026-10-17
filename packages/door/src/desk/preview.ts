@@ -27,7 +27,7 @@ export const sourceName = (s: PreviewSource) => ("tile" in s ? `tile:${s.tile}` 
 export function fileNote(path: string): Msg {
   let text = "", at = Date.now();
   try { text = readFileSync(path, "utf8"); at = statSync(path).mtimeMs; } catch (e) { text = `${basename(path)}\n\ncan't read ${path}: ${(e as Error).message}`; }
-  return { id: `file:${path}`, text, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "file", props: {} };
+  return { id: `file:${path}`, text, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "file", properties: [] };
 }
 
 /** Keys that would edit, comment on or open a panel for the note: a file preview only reads. */

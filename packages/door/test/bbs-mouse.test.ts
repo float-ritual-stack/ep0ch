@@ -21,7 +21,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 const tick = () => new Promise(r => setTimeout(r, 0));
 
 const msg = (n: number, title: string, author = "rook"): Msg => ({
-  id: `0000000${n}-aaaa-4bbb-8ccc-dddddddddddd`, text: title, parentId: null, childIds: [], createdAt: n * 1000, updatedAt: n * 1000, author, props: {},
+  id: `0000000${n}-aaaa-4bbb-8ccc-dddddddddddd`, text: title, parentId: null, childIds: [], createdAt: n * 1000, updatedAt: n * 1000, author, properties: [],
 });
 const MSGS = [msg(1, "Seed swap on Saturday"), msg(2, "The compost bays need turning", "wren"), msg(3, "Kettle rota for the allotment shed")];
 

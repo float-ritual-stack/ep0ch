@@ -50,7 +50,7 @@ export function valueTarget(key: string, value: string, workIdPrefix: string | n
 export function propertyRows(m: Msg, tokens: PropertyRecord[] | null, workIdPrefix: string | null = null): PropRow[] {
   const src = tokens
     ? tokens.map(t => ({ key: t.key, value: t.value, scope: t.scope, placement: t.placement, syntax: t.syntax, line: t.line, ordinal: t.ordinal }))
-    : (m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value }))).map(p => ({ ...p, scope: "block" as const, ordinal: null }));
+    : m.properties.map(p => ({ ...p, scope: "block" as const, ordinal: null }));
   src.sort((a, b) => Number(a.scope !== "block") - Number(b.scope !== "block"));
   return src.map((p, i) => ({ n: i + 1, ...p, target: valueTarget(p.key, p.value, workIdPrefix) }));
 }

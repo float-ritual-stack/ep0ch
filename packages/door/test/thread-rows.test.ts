@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { threadRows, type ChildLink, type ThreadData } from "../src/links";
 import type { Msg } from "../src/board";
 
-const post = (id: string, at: number): ChildLink => ({ block: { id, text: id, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "ana", props: {} } as Msg });
+const post = (id: string, at: number): ChildLink => ({ block: { id, text: id, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "ana", properties: [] } as Msg });
 const names = (t: ThreadData, open = new Set<string>()) => threadRows(t, open).map(r => r.kind === "fold" ? `┄${r.count} ${r.what}` : `${"  ".repeat(r.depth)}${r.kind === "child" && r.thread?.here ? "►" : ""}${r.kind === "child" ? r.child.block.id : r.kind}`);
 const thread = (depth: number, siblings: number, replies: number): ThreadData => {
   const chain = Array.from({ length: depth }, (_, i) => post(`c${i}`, 1000 + i));

@@ -145,6 +145,15 @@ test("figures draw live from the service, links list the note's links, and an em
   expect(html).not.toContain("::graph-decision");
 });
 
+test("a figure written without its --- lines says so on the page (PIE-941)", async () => {
+  const { store, page } = await setup();
+  const bare = store.create("Deploys\n::graph-table\nquery: type=deploy\ncolumns: [title, created]\n::");
+  const html = await page(`/p/${bare.id}`);
+  expect(html).toContain("the ::graph-table has query:, columns: but no --- lines");
+  const ruled = store.create("Deploys\n::graph-table\n---\ntitle: Deploys\nheaders: [a]\nrows: [[b]]\n---\n::");
+  expect(await page(`/p/${ruled.id}`)).not.toContain("no --- lines");
+});
+
 test("the Markdown view keeps a figure's source as written", async () => {
   const { store, publisher } = await setup();
   const note = store.create("Report\n::graph-stat\n---\ntitle: Counts\n---\n- chores: 3\n::");

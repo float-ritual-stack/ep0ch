@@ -277,6 +277,18 @@ test("renders ordinary block Markdown without loading a workspace snapshot or ne
   expect(requester.calls).not.toContainEqual({ action: "get", blockId: "nested-target" });
 });
 
+test("a figure written without its --- lines gets a notice line after it; its authored lines stay as they were (PIE-941)", async () => {
+  const text = "Deploys\n::graph-table\nquery: type=deploy\ncolumns: [title, created]\n::\nAfter";
+  const projection = await projectDetailRead(new FakeRequester(new Map(), new Map()), text);
+  const lines = projection.text.split("\n");
+  expect(lines.slice(0, 5)).toEqual(text.split("\n").slice(0, 5));
+  expect(lines[5]).toBe("⚠ the ::graph-table has query:, columns: but no --- lines: they are read as Markdown rows, not properties; put them between --- lines (line 2)");
+  expect(lines.at(-1)).toBe("After");
+  // With its lines it says nothing.
+  const ruled = await projectDetailRead(new FakeRequester(new Map(), new Map()), "Deploys\n::graph-table\n---\nquery: type=deploy\n---\n::\nAfter");
+  expect(ruled.text).not.toContain("⚠");
+});
+
 test("embed syntax inside fenced or indented host code stays as written and is never loaded", async () => {
   const ordinary = block("ordinary-block", "Ordinary");
   const requester = new FakeRequester(new Map([[ordinary.id, ordinary]]), new Map());

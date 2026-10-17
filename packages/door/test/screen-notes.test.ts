@@ -12,16 +12,17 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 test("a screen note's text holds its spec as data, read back as the same spec under the note's name", () => {
   const spec = readSpec({ name: "potting", title: "potting", layouts: true, layout: { focus: "tree", root: { t: "leaf", kind: "tree", name: "tree" } } });
   const text = screenNoteText(spec);
   expect(text.split("\n")[0]).toBe("potting [type::screen] [screen::potting]");
-  const read = readScreenNote({ id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: { type: "screen", screen: "potting" }, revision: 3 });
+  const read = readScreenNote({ id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "potting" }], revision: 3 });
   expect(read).toMatchObject({ name: "potting", id: "n1", revision: 3, spec });
   // Renamed by its property, it's that screen; a note without its fence says how to write one.
-  expect(readScreenNote({ id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: { type: "screen", screen: "seedlings" }, revision: 3 })).toMatchObject({ name: "seedlings", spec: { name: "seedlings", title: "seedlings" } });
-  expect(readScreenNote({ id: "n2", text: "bare [type::screen]", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: { type: "screen" } })).toMatchObject({ problem: expect.stringContaining("has no ```json fence") });
+  expect(readScreenNote({ id: "n1", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }, { key: "screen", value: "seedlings" }], revision: 3 })).toMatchObject({ name: "seedlings", spec: { name: "seedlings", title: "seedlings" } });
+  expect(readScreenNote({ id: "n2", text: "bare [type::screen]", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: [{ key: "type", value: "screen" }] })).toMatchObject({ problem: expect.stringContaining("has no ```json fence") });
 });
 
 describe.skipIf(!outliner)("screens people make, against a scratch outline", () => {
@@ -81,7 +82,7 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     expect(top().name).toBe("potting");
     expect(top().shapeWarning()).toBeNull();
     const note = await board.get(saved.note);
-    expect(note!.props).toMatchObject({ type: "screen", screen: "potting" });
+    expect([prop(note, "type"), prop(note, "screen")]).toEqual(["screen", "potting"]);
     expect(note!.text).toContain("```json");
     expect(madeScreen("potting")).toMatchObject({ id: saved.note });
     // A built-in's name is refused, saying why.

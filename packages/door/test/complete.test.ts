@@ -343,7 +343,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
   test("a draft session that ends drops its popup, and the Jev ask waiting for its pause is never sent", async () => {
     const { board, asked } = fake();
     const { DraftSession, blockTarget } = await import("../src/draft-session");
-    const m = { id: "note-1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} } as any;
+    const m = { id: "note-1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] } as any;
     const s = DraftSession.open(blockTarget(m, { board: board as any } as any), { by: { kind: "agent", id: "t-1" } as any }, { board: board as any });
     const c = completerFor(s.draft, board, () => {})!;
     for (const ch of "((party hats") completionKey(s.draft, char(ch), c);

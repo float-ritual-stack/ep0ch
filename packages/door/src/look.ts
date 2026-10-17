@@ -268,10 +268,9 @@ export interface Look extends ResolvedStyle {
 }
 
 /** A note as a page: its own properties. */
-export function pageOf(m: Pick<Msg, "id" | "props"> | null | undefined): StylePlace["page"] {
+export function pageOf(m: Pick<Msg, "id" | "properties"> | null | undefined): StylePlace["page"] {
   if (!m) return undefined;
-  const props = Object.entries(m.props ?? {}).flatMap(([key, v]) => (Array.isArray(v) ? v : [v]).map(value => ({ key, value: String(value) })));
-  return { id: m.id, properties: props };
+  return { id: m.id, properties: m.properties };
 }
 
 const LEVEL_OF: Record<string, SaveLevel> = { global: "global", tile: "tile", screen: "screen", page: "page" };
@@ -385,7 +384,7 @@ export interface StyleWriteBoard {
 export const targetWords = (t: TuneTarget) => (t === "global" ? "global" : t.startsWith("page:") ? "this page" : t.startsWith("instance:") ? "this tile" : t.startsWith("list:") ? "this list" : t.includes(":") ? t.replace(":", " ") : `style ${t}`);
 
 /** A note's style property keys (`style.…`). */
-const styleKeys = (m: Msg) => Object.keys(m.props ?? {}).filter(k => k.toLowerCase().startsWith("style."));
+const styleKeys = (m: Msg) => [...new Set(m.properties.map(p => p.key))].filter(k => k.toLowerCase().startsWith("style."));
 
 /** A value to write: a value, several in order, or none (null: removed). */
 type Want = string | readonly string[] | null;

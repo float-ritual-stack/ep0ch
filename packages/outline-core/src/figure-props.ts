@@ -12,6 +12,7 @@
 import { componentBlocks, type ComponentBlock } from "./component-block";
 import { expandRuns, figureRow, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
 import { readDate } from "./dates";
+import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
 
 /** A figure's props, from its YAML (or its Markdown, or the outline). */
 export type Props = Record<string, any>;
@@ -32,6 +33,8 @@ export function graphKind(block: ComponentBlock): string | null {
  */
 export interface FigureSource {
   yaml: string; markdown?: readonly string[]; note?: string; block?: boolean;
+  /** The body had its `---` lines (even around nothing). Absent: not known, so an empty `yaml` means it had none. */
+  ruled?: boolean;
   /** Where `markdown` starts in the lines read: a row's `line` plus this is its line among them. */
   at?: number;
 }
@@ -51,7 +54,25 @@ export function figureSource(lines: readonly string[], note?: string, block?: bo
     if (dashes !== 1 && at < 0) at = i;
     (dashes === 1 ? yaml : markdown).push(l);
   }
-  return { yaml: yaml.join("\n"), markdown, at: Math.max(0, at), ...(note ? { note } : {}), ...(block ? { block } : {}) };
+  return { yaml: yaml.join("\n"), markdown, at: Math.max(0, at), ruled: open >= 0 && rule(lines[open]!), ...(note ? { note } : {}), ...(block ? { block } : {}) };
+}
+
+/**
+ * The warning for a figure written without its `---` lines (PIE-941): a body of only `key: value` lines (a continuation
+ * indented under one is fine) naming at least one of the kind's own YAML props (its schema's: `query:`, `columns:`) is
+ * read as Markdown rows, so those props never reach the figure. `body` is the lines between the figure's first line
+ * and its `::`. null when it isn't that, or has a `---` rule: a `Note: …` caption on a decision is a caption. One
+ * sentence for every surface that draws or lists the figure (the door, Detail, the web, a save's status).
+ */
+export function propsWithoutRules(kind: string, body: readonly string[]): string | null {
+  const lines = body.filter(l => l.trim());
+  const key = /^([A-Za-z][\w-]*):(?:\s|$)/;
+  if (!lines.length || lines.some(l => /^\s*---\s*$/.test(l)) || !lines.every(l => key.test(l) || /^\s+\S/.test(l)) || !key.test(lines[0]!)) return null;
+  const known = new Set(FIGURE_COMPONENT_SCHEMAS.find(s => s.id === `graph-${kind}`)?.props.filter(p => p.where === "yaml").map(p => p.key));
+  const names = lines.flatMap(l => key.exec(l)?.[1] ?? []);
+  if (!names.some(name => known.has(name))) return null;
+  const shown = names.map(name => `${name}:`);
+  return `the ::graph-${kind} has ${shown.slice(0, 3).join(", ")}${shown.length > 3 ? ` and ${shown.length - 3} more` : ""} but no --- lines: they are read as Markdown rows, not properties; put them between --- lines`;
 }
 
 /**
@@ -81,7 +102,7 @@ export type ChildRows = (note: string) => { rows: Row[]; waiting: boolean } | nu
  * bullets give. The YAML wins: a field it sets is never taken from the Markdown. `children`: the rows came from child
  * notes; `waiting`: they are still being asked for.
  */
-export function figureProps(kind: string, src: FigureSource, childRows?: ChildRows): { props: Props; children: boolean; waiting: boolean } | { error: string } {
+export function figureProps(kind: string, src: FigureSource, childRows?: ChildRows): { props: Props; children: boolean; waiting: boolean; warning?: string } | { error: string } {
   let yaml: Props = {};
   try { yaml = (Bun.YAML.parse(src.yaml) as Props) ?? {}; }
   catch (e) { return { error: `bad YAML: ${(e as Error).message}` }; }
@@ -99,7 +120,9 @@ export function figureProps(kind: string, src: FigureSource, childRows?: ChildRo
   const from = FIGURE_MARKDOWN[kind]?.(md, yaml) ?? {};
   // "child notes" only when a field drawn came from them: rows this kind makes nothing of don't count.
   const children = !!kids?.rows.length && rowFields.some(k => k in (FIGURE_MARKDOWN[kind]!({ rows: kids.rows, paragraphs: [], fences: [] }, yaml)));
-  return { props: { ...from, ...yaml }, children, waiting: !!kids?.waiting };
+  // Props written without their `---` lines are drawn as Markdown; the figure says so (PIE-941).
+  const warning = src.ruled || src.yaml.trim() ? null : propsWithoutRules(kind, src.markdown ?? []);
+  return { props: { ...from, ...yaml }, children, waiting: !!kids?.waiting, ...(warning ? { warning } : {}) };
 }
 
 // ── shared readings ──────────────────────────────────────────────────────────────────────────────────

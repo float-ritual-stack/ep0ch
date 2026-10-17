@@ -21,7 +21,7 @@ describe("every note, for a picker that filters as it's typed", () => {
   test("newest first, each with its ancestors' titles as its path", () => {
     const at = (n: number) => n * 1000;
     const b = (id: string, parentId: string | null, title: string, updatedAt: number) =>
-      ({ id, parentId, title, updatedAt, position: 0, depth: 0, author: "you", createdAt: 0, props: {}, hasChildren: false });
+      ({ id, parentId, title, updatedAt, position: 0, depth: 0, author: "you", createdAt: 0, properties: [], hasChildren: false });
     const list = everyNote([b("a", null, "Allotment", at(1)), b("b", "a", "Beds", at(3)), b("c", "b", "Bean canes", at(2))]);
     expect(list.map(f => [f.id, f.title, f.path])).toEqual([["b", "Beds", "Allotment"], ["c", "Bean canes", "Allotment › Beds"], ["a", "Allotment", ""]]);
   });
@@ -42,7 +42,7 @@ describe("every note, for a picker that filters as it's typed", () => {
 describe("the outline as a tree, from the index in the service's order", () => {
   // The index as the service sends it: depth first, each row with its depth (here: a shed, its tools, a bench).
   const row = (id: string, parentId: string | null, depth: number, title: string, props: Record<string, string> = {}) =>
-    ({ id, parentId, depth, title, props, updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
+    ({ id, parentId, depth, title, properties: Object.entries(props).map(([key, value]) => ({ key, value })), updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
   const index = [
     row("shed", null, 0, "Bike shed", { type: "place" }),
     row("tools", "shed", 1, "Tools"),
@@ -323,7 +323,7 @@ describe("the ep0ch channel's lines (ext/television's ep0ch-tv)", () => {
   const ID = /^.*\x1b\]8;;ep0ch:([0-9A-Za-z_-]+)\x1b.*$/;
   const shown = (l: string) => l.replace(/\x1b\][^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, "");
   const row = (id: string, parentId: string | null, depth: number, title: string, props: Record<string, string> = {}) =>
-    ({ id, parentId, depth, title, props, updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
+    ({ id, parentId, depth, title, properties: Object.entries(props).map(([key, value]) => ({ key, value })), updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
   let dir = "";
   beforeAll(() => { dir = mkdtempSync(join(tmpdir(), "ep0ch-tv-")); });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));

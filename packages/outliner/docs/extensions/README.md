@@ -367,19 +367,30 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 
 ```json
 {
-  "block": { "id": "…", "text": "…(16 000 characters at most)", "revision": 4, "properties": [{ "key": "status", "value": "doing" }] },
+  "block": { "id": "…", "title": "Heap", "text": "…(16 000 characters at most)", "revision": 4,
+             "properties": [{ "key": "status", "values": ["doing"] }, { "key": "tags", "values": ["compost", "leaves"] }],
+             "fields": [{ "key": "due", "value": "friday", "scope": "inline", "line": 2, "column": 10, "offset": 41 }],
+             "header": [{ "key": "status", "value": "doing" }], "body": "…", "tasks": [], "children": ["…"], "…": "…" },
   "line": { "index": 1, "text": "horoscope:: virgo" },
-  "children": [{ "id": "…", "text": "…" }],
-  "ancestors": [{ "id": "…", "title": "…" }],
+  "children": [{ "id": "…", "title": "Bin", "text": "…", "properties": [{ "key": "size", "values": ["big"] }], "fields": [] }],
+  "ancestors": [{ "id": "…", "title": "…", "properties": [{ "key": "type", "values": ["runbook"] }] }],
   "now": "2026-10-01T09:00:00.000Z"
 }
 ```
 
+- `block` and each of `children` are **records** (outline-core's `BlockRecord`, the shape `ep0ch find --json` gives), built
+  from the note's text, so a value is read from `properties` (each key once, its `values` in order: a repeated key
+  adds, `[a, b]` is two, a plain `a, b` is one) and `fields` (a property of a line or a spot in it, where it starts),
+  never found by a regex over `text`. They carry no `links`, `backlinks` or `resources` (`truncated` says so).
 - `block.text` is the block's whole saved text (16 000 characters at most): its first line with its properties, and
-  every line under it, fences and `key::` lines included. A door's unsaved draft isn't in it.
-- `children` are the block's first 50 children, each its text (2 000 characters at most).
+  every line under it, fences and `key::` lines included. A door's unsaved draft isn't in it. `block.title` is its
+  first line without its properties.
+- `children` are the block's first 50 children, each a record with its text (2 000 characters at most).
 - `ancestors` are every block above it, **the outline's top first and the block's parent last** (so the nearest is
-  `ancestors.at(-1)`), each its id and its first line (200 characters at most).
+  `ancestors.at(-1)`), each its id, its first line (200 characters at most) and its `properties` (as a record has them).
+
+A block an extension reads through its own connection (`outline get`, `children`, `blocks.query`) is the service's wire
+block, whose `properties` are `[{ "key", "value" }]`, one entry per occurrence.
 
 ## Handler lines
 
@@ -2139,7 +2150,7 @@ An extension that calls an outside API is shown the same way, with the outside w
    the extension no secret in the showcase. Don't install an extension that names a real group into a showcase
    without one: its first call would send the person's real token to the real service.
 3. **A section and its test.** The section shows what the person would see (the extension's lines, its schedule in the
-   extensions list, the notes it wrote), and `packages/door/test/showcase.test.ts` opens it, runs the action through
+   extensions list, the notes it wrote), and `packages/door/test/showcase/` opens it, runs the action through
    `act` (`ext.<id>.<action>`) and checks what the fake was sent and what the outline holds.
 
 ### Worked example: "sync my starred items from an outside API every hour"

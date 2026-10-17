@@ -36,7 +36,7 @@ const setup = (text = TEXT) => {
     ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash: (m: string) => flashes.push(m), copy: (t: string) => { copies.push(t); return true; }, t: { cellW: 9, cellH: 16 }, graphics: false } as any,
     redraw() {}, navigate() {},
   };
-  const m: Msg = { id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {} };
+  const m: Msg = { id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [] };
   const s = new NoteSurface();
   s.show(m, h);
   const draw = () => s.render(60, 24, h).lines;

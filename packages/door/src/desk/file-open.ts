@@ -61,5 +61,5 @@ export async function diffNote(path: string, against: string | undefined, exec: 
   const cut = diff.length > DIFF_MAX ? `${diff.slice(0, DIFF_MAX)}\n… ${diff.length - DIFF_MAX} more characters (git diff shows the rest)` : diff;
   const body = cut.trim() ? `\`\`\`diff\n${cut.replace(/\n$/, "")}\n\`\`\`` : top.code === 0 || against ? "No changes." : "Not in a git repository, and no copy from before the change to compare with.";
   const at = Date.now();
-  return { id: `file-diff:${path}`, text: `${name} · diff\n*${path}${from ? ` · ${from}` : ""}*\n\n${body}`, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "file", props: {} };
+  return { id: `file-diff:${path}`, text: `${name} · diff\n*${path}${from ? ` · ${from}` : ""}*\n\n${body}`, parentId: null, childIds: [], createdAt: at, updatedAt: at, author: "file", properties: [] };
 }

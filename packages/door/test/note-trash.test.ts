@@ -11,6 +11,7 @@ import { ReaderPane } from "../src/desk/panes";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
 
@@ -39,7 +40,7 @@ describe.skipIf(!outliner)("note.trash: d d from a reader, a list and the tree; 
     bulb = await board.createBlock(lamp.id, "A spare bulb\nIn the drawer.");
     porch = await board.createBlock(null, `Porch\nThe ((${lamp.id}|lamp)) by the door.`);
     hall = await board.createBlock(null, `Hall\nAnother ((${lamp.id}|lamp)).`);
-    inbox = (await board.roots()).find(r => r.props["system-view"] === "inbox")!;
+    inbox = (await board.roots()).find(r => prop(r, "system-view") === "inbox")!;
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
@@ -134,7 +135,7 @@ describe.skipIf(!outliner)("note.trash: d d from a reader, a list and the tree; 
     await expect(act("note.trash", { ref: porch.id }, "reader")).rejects.toThrow("in the Trash already");
     expect(await act("note.untrash", {}, undefined, "test-agent")).toMatchObject({ restored: porch.id });
     await expect(act("note.trash", { ref: inbox.id }, "reader")).rejects.toThrow("one of the outline's own");
-    const root = (await board.roots()).find(r => r.props.type === "workspace")!;
+    const root = (await board.roots()).find(r => prop(r, "type") === "workspace")!;
     await expect(act("note.trash", { ref: root.id }, "reader")).rejects.toThrow("the outline's own root");
     // A draft open on it (the person's edit): refused, the words stay.
     await act("tile.focus", {}, "reader");

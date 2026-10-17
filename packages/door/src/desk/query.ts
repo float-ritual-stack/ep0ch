@@ -19,7 +19,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
-import { summarySegments, viewSummaryKeys } from "../props";
+import { summarySegments, viewSummaryKeys, prop } from "../props";
 import { clamp, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { hasUnsent } from "../draft-session";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
@@ -30,7 +30,7 @@ const PREFERRED = ["validate", "doing", "queued", "review", "done"];
 const HIDDEN = new Set(["superseded"]);
 const PRIORITY: Record<string, number> = { high: C.lred, medium: C.yellow, low: C.dark };
 
-const isView = (k: Msg) => (k.props.type ?? "").toLowerCase() === "virtual-branch";
+const isView = (k: Msg) => (prop(k, "type") ?? "").toLowerCase() === "virtual-branch";
 
 /** A hub's children that are its board's lanes, in lane order. */
 export function laneDefs(kids: Msg[]): Msg[] {
@@ -45,7 +45,7 @@ export function laneDefs(kids: Msg[]): Msg[] {
 export async function findBoards(board: SocketBoard): Promise<{ hub: Msg; lanes: number }[]> {
   const branches = await board.query("type=virtual-branch", 500, "updated", "desc", true);
   const count = new Map<string, number>();
-  for (const b of branches) if (b.parentId && b.props.query) count.set(b.parentId, (count.get(b.parentId) ?? 0) + 1);
+  for (const b of branches) if (b.parentId && prop(b, "query")) count.set(b.parentId, (count.get(b.parentId) ?? 0) + 1);
   const ids = [...count].filter(([, n]) => n >= 2).map(([id]) => id);
   const hubs = await board.readMany(ids);
   return hubs.map(hub => ({ hub, lanes: count.get(hub.id)! })).sort((a, b) => b.hub.updatedAt - a.hub.updatedAt);
@@ -209,13 +209,13 @@ export class QueryPane implements Pane {
     const keys = viewSummaryKeys(this.def)?.filter(k => k !== "work-id" && k !== "priority") ?? null;
     items.slice(this.cursor.top, this.cursor.top + fit).forEach((m, j) => {
       const sel = this.cursor.top + j === this.sel;
-      const wid = m.props["work-id"] ?? m.props.ticket ?? "";
+      const wid = prop(m, "work-id") ?? prop(m, "ticket") ?? "";
       const title = wid ? subject(m).replace(new RegExp(`^${wid}\\s*[—:-]?\\s*`), "") : subject(m);
-      const pri = PRIORITY[m.props.priority ?? ""] ?? C.dark;
-      const extra = (keys ? summarySegments(m.properties ?? Object.entries(m.props).map(([key, value]) => ({ key, value })), keys).map(x => x.value) : [m.props.track, m.props.to && `→ ${m.props.to}`, m.props.channel, m.props["waiting-on"] && `waiting on ${m.props["waiting-on"]}`]).filter(Boolean).join(" · ");
+      const pri = PRIORITY[prop(m, "priority") ?? ""] ?? C.dark;
+      const extra = (keys ? summarySegments(m.properties, keys).map(x => x.value) : [prop(m, "track"), prop(m, "to") && `→ ${prop(m, "to")}`, prop(m, "channel"), prop(m, "waiting-on") && `waiting on ${prop(m, "waiting-on")}`]).filter(Boolean).join(" · ");
       if (sel) {
         const style = selected(focused, "idleRow");
-        lines.push(style + pad(` ${wid} ${m.props.priority ?? ""} ${extra} · ${ago(m.updatedAt)}`, w) + RESET);
+        lines.push(style + pad(` ${wid} ${prop(m, "priority") ?? ""} ${extra} · ${ago(m.updatedAt)}`, w) + RESET);
         lines.push(style + pad(` ${title}`, w) + RESET);
       } else {
         lines.push(pad(` ${fg(pri)}● ${fg(C.lcyan)}${wid}${wid ? " " : ""}${fg(C.dark)}${extra} · ${ago(m.updatedAt)}`, w) + RESET);
@@ -273,7 +273,7 @@ export class QueryPane implements Pane {
 
   spec() { return { ...(this.query !== null ? { query: this.query } : { view: this.view }), ...(this.home ? { source: `tile:${this.home}` } : {}), ...(this.held ? { mode: "held" as const } : {}) }; }
   describe() {
-    const brief = (m: Msg | undefined) => (m ? { id: m.id, title: subject(m), workId: m.props["work-id"] ?? m.props.ticket } : null);
+    const brief = (m: Msg | undefined) => (m ? { id: m.id, title: subject(m), workId: prop(m, "work-id") ?? prop(m, "ticket") } : null);
     return { ...(this.query !== null ? { query: this.query, ...(this.home ? { home: this.home } : {}), ...(this.holdable ? { held: this.held } : {}), cards: (this.items ?? []).map(m => ({ id: m.id, title: subject(m) })) } : { view: this.view }), lane: this.name, count: this.items?.length ?? null, status: this.read?.status, truncated: this.read?.truncated, selected: brief(this.card()) };
   }
 }

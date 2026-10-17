@@ -505,7 +505,7 @@ Each of these was asked for. None has the evidence yet. Each says what would mak
 ## Build order
 
 Each slice is one PR with a kitchen-sink section (`ep0ch --showcase`) and its test in
-`packages/door/test/showcase.test.ts`, and deletes what it replaces in the same PR. Each bumps `PROTOCOL`.
+`packages/door/test/showcase/`, and deletes what it replaces in the same PR. Each bumps `PROTOCOL`.
 
 | # | Item | Slice | Contract | Demo | Deletes |
 |---|---|---|---|---|---|

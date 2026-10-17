@@ -126,8 +126,8 @@ export const TREE_LEVELS = 10;
 
 /** What a note is, beside its title: its work id (unless the title starts with it), stage and type: Detail's summary, its values. */
 const ABOUT_KEYS = ["work-id", "work-stage", "stage", "type"];
-const aboutOf = (props: Record<string, string>, title: string) =>
-  summarySegments(Object.entries(props).map(([key, value]) => ({ key, value })), ABOUT_KEYS)
+const aboutOf = (properties: { key: string; value: string }[], title: string) =>
+  summarySegments(properties, ABOUT_KEYS)
     .filter(s => !(s.key === "work-id" && redundantLabel(s.value, title))).map(s => field(s.value)).join(" · ");
 
 /**
@@ -165,7 +165,7 @@ export function treeOf(index: readonly IndexBlock[], root?: string, levels = TRE
     const kept = rails.length > levels - 1 ? [`…${d}`.padEnd(3) + " ", ...rails.slice(rails.length - (levels - 2))] : rails;
     const glyphs = d === 0 ? "" : kept.join("") + (last[i] ? "└─ " : "├─ ");
     const title = previewTitle(b.title);
-    return { id: b.id, title, path: pathOf(b), depth: d, glyphs, about: aboutOf(b.props, title) };
+    return { id: b.id, title, path: pathOf(b), depth: d, glyphs, about: aboutOf(b.properties, title) };
   });
 }
 

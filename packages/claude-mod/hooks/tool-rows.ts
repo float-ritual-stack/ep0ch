@@ -365,12 +365,13 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       const target = targetOf(input.ref, titleOf)
       if (!target) return null
       if (typeof out?.title === 'string' && out.title && blockIdOfRef(target.ref)) target.label = clip(out.title, QUOTE_CHARS)
-      const props = recordOf(out?.properties)
+      // The record's properties: each key once with its values (outline_read, as find --json).
+      const props = Array.isArray(out?.properties) ? out.properties : []
       const children = Array.isArray(out?.children) ? out.children.length : null
       return {
         kind: 'read', glyph: '⌕', lead: 'read', target,
         change: [
-          ...(props && Object.keys(props).length ? [plural(Object.keys(props).length, 'property', 'properties')] : []),
+          ...(props.length ? [plural(props.length, 'property', 'properties')] : []),
           ...(children ? [plural(children, 'child', 'children')] : []),
           ...(typeof out?.revision === 'number' ? [`rev ${out.revision}`] : []),
         ],

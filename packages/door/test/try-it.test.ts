@@ -1,5 +1,5 @@
 // `scripts/try-it.sh --showcase`: it seeds on first run, keeps edits, --reset puts the seed back, and its pidfile never
-// makes it signal a process that isn't its service (moved out of showcase.test.ts, PIE-760: it tests the script, not a
+// makes it signal a process that isn't its service (moved out of the showcase tests, PIE-760: it tests the script, not a
 // section). Scratch services only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { loadShowcase } from "../src/showcase/seed";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
+import { prop } from "../src/props";
 
 /**
  * Processes whose environment serves `base`'s state: a scan of `proc`, and none where the host has no
@@ -57,7 +58,7 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
     svc = new Scratch(base, "showcase"); board = new SocketBoard(await svc.start());
     const back = (await loadShowcase(board))!;
     expect(back.notes.whiteboard!.text).toBe(original);
-    expect((await board.roots()).filter(r => r.props.type === "showcase").length).toBe(1);
+    expect((await board.roots()).filter(r => prop(r, "type") === "showcase").length).toBe(1);
     board.close(); await svc.stop();
     // --prepare leaves no service of its own running: no pidfile, and no process serving that state.
     expect(existsSync(join(base, "service.pid"))).toBe(false);

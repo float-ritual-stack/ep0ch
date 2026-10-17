@@ -45,7 +45,7 @@ const BODY = [
 ].join("\n");
 const TEXT = `Plan the allotment [stage::queued]\n${BODY}`;
 const ENV: DocEnv = { width: 60, cellW: 9, cellH: 16, graphics: false, maxImageRows: 4, unfold: false };
-const note = (text: string, over: Partial<Msg> = {}): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, props: {}, ...over });
+const note = (text: string, over: Partial<Msg> = {}): Msg => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [], ...over });
 const host = (): SurfaceHost & { flashes: string[] } => {
   const flashes: string[] = [];
   return { flashes, ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} };

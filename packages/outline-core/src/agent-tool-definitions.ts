@@ -84,7 +84,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     writes: false,
     target: "ref",
     description:
-      "Read {note}: its full text (never just the title), properties, revision, who last wrote it and when, and its " +
+      "Read {note}: its full text (never just the title), `properties` (each key once with its `values`, as `find --json` gives them) and `fields` (the properties of a line or a spot in the text), revision, who last wrote it and when, and its " +
       "children to `depth` levels (default 1), at most `limit` descendants (default 50), each with full text. " +
       "`complete` says whether anything was left out; a child with `more` has unread children. Read before you " +
       "edit: outline_edit and outline_patch need the revision this returns. A Resource (`resource:<id>`, or a " +
