@@ -11,8 +11,11 @@ import { closest } from "./tool-args";
 
 /** The property key a form field is written under. */
 export const FORM_FIELD_KEY = "form-field";
-/** What a field asks for: the types an action's declared arguments have (PIE-784). */
-export const FORM_FIELD_TYPES = ["text", "number", "choice", "property"] as const;
+/**
+ * What a field asks for: the types an action's declared arguments have (PIE-784), and the two a template's props add
+ * (PIE-533 S4): `note` (a note, picked by its words) and `tag` (a #tag). A template's props are these fields (props-spec.ts).
+ */
+export const FORM_FIELD_TYPES = ["text", "number", "choice", "property", "note", "tag"] as const;
 export type FormFieldType = typeof FORM_FIELD_TYPES[number];
 /** A field's name: what the action's `args` holds it under (the declared arguments' rule). */
 export const FORM_FIELD_NAME = /^[a-z][a-z0-9_-]{0,31}$/;

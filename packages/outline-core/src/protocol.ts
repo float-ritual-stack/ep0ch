@@ -185,7 +185,7 @@ export interface QueryChange { key: string; generation: number; dropped?: true }
 export const QUERIES_CHANGED = "queries.changed";
 export const WATCH_LIMITS = { perConnection: 64, perService: 512, settleMs: 250, maxWaitMs: 1000 } as const;
 /** The reads a client may watch. */
-export const WATCHABLE_ACTIONS = ["blocks.query", "views.read", "blocks.authored-links", "references.backlinks", "query.matches", "site.answer"] as const;
+export const WATCHABLE_ACTIONS = ["blocks.query", "views.read", "blocks.authored-links", "references.backlinks", "query.matches", "site.answer", "template.use"] as const;
 
 // The Site read (PIE-533): what a `{{ }}`, a figure, a script or a template reads of the note it sits in. Defined beside the
 // Site (site.ts), named here with the rest of the wire.

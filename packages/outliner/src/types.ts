@@ -1959,6 +1959,8 @@ export type OutlinerRequestAction =
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[] }
   | ({ id: string; action: "site.answer" } & import("@ep0ch/outline-core/site").SiteAnswerRequest & WatchFields)
+  /** The call a `::use` line makes (PIE-533 S4): the template, the props resolved and checked, the chain to draw its body in. Reads only. */
+  | ({ id: string; action: "template.use" } & import("@ep0ch/outline-core/template-use").TemplateUseRequest & WatchFields)
   /** Each block's link facets (kind, stage, dates), as an Outlink's target carries them: the links model's children and query rows (PIE-693). Reads only. */
   | { id: string; action: "blocks.facets"; blockIds: string[] }
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
