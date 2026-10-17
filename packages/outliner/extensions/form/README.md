@@ -11,7 +11,8 @@ Reading log
 ```
 
 - **A field** is `[form-field::<name> <type> [<options>] [required] [default=<value>]]`. The type is `text`, `number`,
-  `choice` (its options after it, split by `|`: `good|meh|rough`) or `property` (a property's name). `required` asks
+  `choice` (its options after it, split by `|`: `good|meh|rough`), `property` (a property's name), `note` (a note, found
+  by its words) or `tag` (a `#tag`). `required` asks
   until it has an answer; `default=` is lit first.
 - **Checked by the service,** as an action's declared arguments are: a choice among its options, a number a number, a
   required one present. A chip it can't read (`[form-field::mood choise good|meh]`) is saved as written and said on the

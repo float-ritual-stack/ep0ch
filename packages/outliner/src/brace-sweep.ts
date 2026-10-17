@@ -7,6 +7,8 @@
 //   rule places   `[rule-place::above|below]`          -> `[rule-place::prepend|append]`
 //   action slots  `{slot}` in a `[script::]` note's    -> `{{props.slot}}`
 //                 `actions` fence
+//   runbook steps `{{env}}` in a step's code fence     -> `{{self.env}}`
+//                 (a note with a `run::` line)            (the runbook note's own value, as it always read)
 //
 // Each form is rewritten only where it was read: a rule's property value, a script's `actions` fence. Text that merely
 // holds a `{word}` (code, prose) is left alone, and a second run changes nothing. `ep0ch install --apply` runs it on
@@ -19,9 +21,11 @@ import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { RECORD_KEYS } from "@ep0ch/outline-core/resolve-path";
 
-export interface SweepChange { form: "rule-label" | "rule-place" | "action-slot"; before: string; after: string }
+export interface SweepChange { form: "rule-label" | "rule-place" | "action-slot" | "runbook-step"; before: string; after: string }
 
 const SINGLE = /(?<!\{)\{([A-Za-z$][A-Za-z0-9_.$-]{0,63})\}(?!\})/g;
+/** Names that are already a head of the grammar: `{{now}}` is not a runbook value. */
+const STEP_HEADS = new Set(["this", "parent", "self", "caller", "props", "match", "now"]);
 const PLACES = new Map([["above", "prepend"], ["below", "append"]]);
 /** A key `this.<key>` reads as a path: a plain name. Anything else (`margin.x`) has no path and is left as written. */
 const PLAIN_KEY = /^[A-Za-z_][\w-]*$/;
@@ -84,6 +88,21 @@ export function sweepText(text: string): { text: string; changes: SweepChange[] 
       }
     }
   }
+  // A runbook step's `{{env}}` read the runbook note's own `[env::…]`; that is `self` now, and a bare key would walk the step's scope.
+  if (records.some(r => r.key === "run") && text.includes("{{")) {
+    const lines = text.split("\n");
+    const starts: number[] = [];
+    for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) starts.push(at);
+    const literal = scanLiteralRegions(text).regions;
+    for (const fence of codeBlocks(lines).fences) {
+      if (!fence.closed || literal.some(region => starts[fence.start]! >= region.start && starts[fence.start]! < region.end)) continue;
+      for (let i = fence.start + 1; i < fence.end; i++) {
+        const line = lines[i]!;
+        const after = line.replace(/(?<![\\$])\{\{\s*([A-Za-z_][\w-]*)\s*\}\}/g, (whole, name: string) => STEP_HEADS.has(name.toLowerCase()) ? whole : `{{self.${name}}}`);
+        if (after !== line) { edits.push({ start: starts[i]!, end: starts[i]! + line.length, to: after }); changes.push({ form: "runbook-step", before: line.trim(), after: after.trim() }); }
+      }
+    }
+  }
   let out = text;
   for (const edit of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, edit.start) + edit.to + out.slice(edit.end);
   return { text: out, changes };
@@ -101,7 +120,7 @@ export function sweepDiff(note: SweepNote): string {
 }
 
 const CANDIDATES = `SELECT id, text, revision FROM blocks WHERE effective_deleted_root_id IS NULL
-  AND (text LIKE '%rule-label::%' OR text LIKE '%rule-place::%' OR text LIKE '%script::%') ORDER BY created_at, id`;
+  AND (text LIKE '%rule-label::%' OR text LIKE '%rule-place::%' OR text LIKE '%script::%' OR text LIKE '%run::%') ORDER BY created_at, id`;
 
 /** What the sweep would change in `database`, read without opening it for writing (so a served file can be looked at). */
 export function planSweep(database: string): SweepReport {

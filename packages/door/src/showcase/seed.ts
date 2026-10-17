@@ -28,6 +28,7 @@ import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, REC
 import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, SPACING_LAB } from "./seed/looks";
 import { VENT_PERSON, VENT_PROJECT, VENT_RECIPE, ventRailText } from "./seed/values";
+import { DAILY_NOTES, DAILY_TEMPLATE, MEETING_ACTIONS, MEETING_PAGES, MEETING_TEMPLATE } from "./seed/templates";
 
 // The seed's notes and fixtures live beside it, by area (seed/*.ts); the tests and the screen import them from here.
 export * from "./seed/names";
@@ -295,6 +296,15 @@ if (request.input.request === "describe the beds") {
   notes.testPlan = await make(notes.root.id, TEST_PLAN);
   for (const job of TEST_PLAN_JOBS) await make(notes.testPlan.id, job);
   // Notes that read themselves (PIE-533 S2): the fixture under a project, with the notes its placeholders read from.
+  // Templates (PIE-533 S4): the meeting template, three pages that use it live, the daily template and where its stamp lands.
+  notes.templateMeeting = await make(notes.root.id, MEETING_TEMPLATE);
+  notes.templateDaily = await make(notes.root.id, DAILY_TEMPLATE);
+  notes.dailyNotes = await make(notes.root.id, DAILY_NOTES);
+  const [sowing, potting, unfinished] = MEETING_PAGES;
+  notes.meetingSowing = await make(notes.root.id, `${sowing.title} [project::${sowing.project}]\n\n${sowing.call}`);
+  notes.meetingPotting = await make(notes.root.id, `${potting.title} [project::${potting.project}]\n\n${potting.call}`);
+  notes.meetingUnfinished = await make(notes.root.id, `${unfinished.title} [project::${unfinished.project}]\n\n${unfinished.call}`);
+  for (const a of MEETING_ACTIONS) await make(notes.root.id, `${a.title} [type::action] [project::${a.project}]`);
   notes.ventProject = await make(notes.root.id, VENT_PROJECT);
   notes.ventPerson = await make(notes.root.id, VENT_PERSON);
   notes.ventRecipe = await make(notes.root.id, VENT_RECIPE);

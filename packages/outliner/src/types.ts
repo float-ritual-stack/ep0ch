@@ -1959,6 +1959,10 @@ export type OutlinerRequestAction =
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[] }
   | ({ id: string; action: "site.answer" } & import("@ep0ch/outline-core/site").SiteAnswerRequest & WatchFields)
+  /** The call a `::use` line makes (PIE-533 S4): the template, the props resolved and checked, the chain to draw its body in. Reads only. */
+  | ({ id: string; action: "template.use" } & import("@ep0ch/outline-core/template-use").TemplateUseRequest & WatchFields)
+  /** The props a template declares, for asking for them before a stamp or a use. Reads only. */
+  | { id: string; action: "template.props"; of: string }
   /** Each block's link facets (kind, stage, dates), as an Outlink's target carries them: the links model's children and query rows (PIE-693). Reads only. */
   | { id: string; action: "blocks.facets"; blockIds: string[] }
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
@@ -2179,6 +2183,8 @@ export type OutlinerRequestAction =
       author?: BlockAuthor;
       provenance?: BlockProvenance;
     }
+  /** A template written out as a new note, props filled (PIE-533 S4, src/template-stamp.ts); `for` stamps once per match. */
+  | ({ id: string; action: "template.stamp" } & import("./template-stamp").TemplateStampRequest)
   | { id:string; action:"mentions.ingest"; message:MentionMessage }
   | { id:string; action:"mentions.list"; scope?:MentionScope; limit?:number }
   | { id:string; action:"mentions.message"; messageKey:string }

@@ -3549,6 +3549,11 @@ export class OutlinerStore {
     })();
   }
 
+  /** Several writes as one: all happen or none do (a stamp's note and its subtree, PIE-533 S4). */
+  inTransaction<T>(run: () => T): T {
+    return this.database.transaction(run)();
+  }
+
   /** Where a new note or page goes now (src/note-placement.ts). */
   private placementFromCurrentRead(intent: NewNoteIntent): Placement {
     return placeNewNote(intent, {

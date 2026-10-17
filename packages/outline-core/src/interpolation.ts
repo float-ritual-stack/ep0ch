@@ -9,7 +9,7 @@
 //   interpolateWith(text, site)      the same through `resolvePath`
 //
 // Literal by default: a `{{` in a code span, a fence or a `<!-- literal -->` region stays as written; `\{{` is a
-// literal `{{` anywhere. A producer that owns its fences as templates (an `actions` fence, a runbook step) says so with
+// literal `{{` anywhere. A producer that owns its fences as templates (an `actions` fence, an extension's command step) says so with
 // `fences: "template"`, which leaves only literal regions alone.
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, type SourceRange } from "./code-ranges";
 import { parsePath, resolvePath, isReferenceHead, splitTail, type ParsedPath, type PathScope, type PathStep, type PathTail } from "./resolve-path";

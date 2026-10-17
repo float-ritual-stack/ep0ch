@@ -24,7 +24,7 @@ export interface Site {
   at: Address;
   /** The note that contains me (inside a live template: the host). Absent when a run has no note. */
   this?: BlockRecord;
-  /** My definition (a script, a template, a component note, a runbook root). */
+  /** My definition (a script, a template, a component note, an extension's definition note). */
   self?: BlockRecord;
   /** Where I was invoked (the `::run` line, the button, the `@name` line, the `::use` line). */
   caller?: Address;
@@ -107,6 +107,12 @@ export interface SiteAnswerRequest {
   /** A producer in the note (a figure, `::fields`, `::if`) asking its own question over this Site: answered in `produced`. */
   produce?: SiteProducer;
   /**
+   * Text to fill in this Site besides the note's own (an extension step's command): its `{{ }}` are read like the note's, and
+   * answered as `interpolated`. `fences: "template"` reads the ones inside code fences too, for a producer that owns its
+   * fences as templates (a step's command); by default a fence is literal.
+   */
+  interpolate?: { text: string; fences?: "literal" | "template" };
+  /**
    * Notes the reader may not see (a publisher's locked or non-public ones): a path that reads one answers `hidden` and no
    * value, and an ancestor in it supplies no bare key (nor any above it). A reader with no limits sends none.
    */
@@ -170,6 +176,8 @@ export interface SiteValue {
   /** The expression as written, and its path. */
   expression: string;
   path: string;
+  /** The path's head as written (`self`, `props`, `((id))`, a bare key): which of the Site's parts answered. */
+  head?: string;
   /** The values (always a list); absent with a `problem`. A `|| default` fills in for a problem and says so. */
   values?: string[];
   problem?: SiteProblem;
@@ -204,6 +212,8 @@ export interface SiteAnswer {
   site: { this?: string; self?: string; caller?: Address; props: Record<string, string[]> };
   values: SiteValue[];
   paths?: SiteValue[];
+  /** For `interpolate`: its text with each placeholder that has a value replaced by it (the rest as written), and each one's answer. */
+  interpolated?: { text: string; values: SiteValue[] };
   /** The producer's answer (`produce`). */
   produced?: SiteProduced;
   /** How the Site was bound (the chain, the draft). */

@@ -79,3 +79,14 @@ test("a dry run writes nothing, the apply is one attributed change, and a second
   expect(planSweep(database).notes).toEqual([]);
   expect((await applySweep(database)).applied).toBe(false);
 });
+
+test("a runbook step's {{name}} reads the runbook note's own value: it becomes {{self.name}}, and a head or prose is left", () => {
+  const step = "Check the widget\nrun:: --mode=dry\n```sh\nwidget check --env {{env}} --at {{ region }} --day {{now.date}} --me {{props.who}} --lit \\{{env}} ${{ secrets.X }}\n```\nNote {{env}} in prose stays.";
+  const swept = sweepText(step);
+  expect(swept.text).toBe("Check the widget\nrun:: --mode=dry\n```sh\nwidget check --env {{self.env}} --at {{self.region}} --day {{now.date}} --me {{props.who}} --lit \\{{env}} ${{ secrets.X }}\n```\nNote {{env}} in prose stays.");
+  expect(swept.changes.map(c => c.form)).toEqual(["runbook-step"]);
+  // A second run changes nothing, and a fence in a note with no run:: line is not a runbook step.
+  expect(sweepText(swept.text).changes).toEqual([]);
+  const other = "Prose\n```sh\necho {{env}}\n```";
+  expect(sweepText(other)).toEqual({ text: other, changes: [] });
+});

@@ -243,7 +243,8 @@ export interface PageResolution { address: string; status: "resolved" | "deleted
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import type { SiteAnswer } from "@ep0ch/outline-core/site";
+import type { PropsSpec, SiteAnswer, SiteLink } from "@ep0ch/outline-core/site";
+import type { TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
 /**
@@ -765,11 +766,30 @@ export class SocketBoard implements Board {
   }
 
   /**
+   * A template written out as a new note (PIE-533 S4, `template.stamp`): the service fills the stamp's own values and makes
+   * the note (or one per `for` match), recorded as `actor`'s. Never retried blindly.
+   */
+  async templateStamp(req: { of: string; parent?: string; title?: string; props?: Record<string, string>; for?: string; freeze?: string; as?: string; into?: string }, actor: Actor = USER): Promise<{ template: { id: string; title: string }; stamped: { id: string; title: string; parentId: string | null; blocks: number; frozen: number; for?: string }[]; skipped: { for: string; stamped: string }[]; warnings: string[]; said: string }> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    return this.request("template.stamp", { ...req, ...who });
+  }
+
+  /** The props a template declares (`template.props`): what a person is asked before it is stamped. */
+  templateProps(of: string): Promise<{ template: { id: string; title: string; how: string }; spec: PropsSpec; problems: string[] }> {
+    return this.request("template.props", { of });
+  }
+
+  /** The call a `::use` line makes (`template.use`), once; a drawing asks it watched (src/template-use.ts). */
+  templateUse(block: string, line: number, draft?: string): Promise<TemplateUseAnswer> {
+    return this.request("template.use", { block, line, ...(draft !== undefined ? { draft: { text: draft } } : {}) });
+  }
+
+  /**
    * What the `{{ }}` of a note read as (PIE-533 `site.answer`): the service resolves, the door draws. `draft` is the note's
    * unsaved text, so values agree with what is on screen. A service without it answers an error (the placeholders stay text).
    */
-  async siteAnswer(blockId: string, draft?: string): Promise<SiteAnswer> {
-    return this.request<SiteAnswer>("site.answer", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}) });
+  async siteAnswer(blockId: string, draft?: string, call?: { chain?: SiteLink[]; props?: Record<string, string[]> }): Promise<SiteAnswer> {
+    return this.request<SiteAnswer>("site.answer", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}), ...(call?.chain?.length ? { chain: call.chain } : {}), ...(call?.props ? { props: call.props } : {}) });
   }
 
   /** Every property token in `text`, as the service parses it (PIE-401). */

@@ -98,7 +98,7 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(page.text).toContain("A note is a runbook.");
   expect(page.text).not.toContain("# Runbook");
   expect(page.text).toContain("- Action **Run this step** (`ext.runbook.run-step`, on a `run::` line, key `x`, writes)");
-  expect(page.text).toContain("### 3 (2026-10-16)");
+  expect(page.text).toContain("### 4 (2026-10-17)");
   expect(page.text).not.toContain("### 1 (2026-10-10)");
   const [runbook] = await children(page.id);
   expect(runbook!.text.split("\n")[0]).toBe("Ship the demo widget [type::runbook] [env::scratch]");
@@ -173,7 +173,7 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   expect(after.pages.runbook).toBeUndefined();
   expect(store.require(runbookPage).effectiveDeletedRootId).toBeString();
   // Back among the available ones.
-  expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook` v3");
+  expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook` v4");
   expect(store.require(after.hub!).text).not.toContain("|Runbook))");
 });
 

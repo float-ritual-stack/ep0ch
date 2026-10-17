@@ -174,6 +174,18 @@ value, not the braces; the editor, `ep0ch show --source` and the stored text kee
   here` and names nothing.
 - A selection of a drawn value, a comment on it and a link to it anchor on the whole `{{ }}` token.
 
+## Templates: `::use` and `template.stamp`
+
+A template is a note whose `[form-field::name type …]` chips declare its props and whose `[template-for::meeting]` says
+what it makes. Use it live, `::use{of=[[meeting-template]] date=2026-10-14 with=Jay}` (its body drawn where the line is,
+`this` the page the line is on, so a figure over `{{this.project}}` lists each page's own), or write it out as a new note,
+`ep0ch act template.stamp of='[[daily-template]]' as=new parent='[[Daily notes]]' title='{{now.date}}'` (`props`, `self`
+and `now` become text now; `this`, `parent` and bare keys stay `{{ }}`; `freeze=all` writes those too; `for=<query>` once
+per match). A prop the template doesn't declare is a warning with the nearest name, a required one left out is asked for
+(`use.fill`, an agent names it with `with='{"name":"value"}'`), and a prop's value may be a path
+(`status={{parent.status}}`). `of=type:meeting` finds the template by what it makes. Read
+[references/templates-and-values.md](references/templates-and-values.md).
+
 ## Link, don't direct
 
 Point at a block with its link: `((id|short label))`, or `((id^anchor|label))` for a passage. Never write
@@ -675,7 +687,7 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
 sprint check), don't write an extension per form. With the Form extension installed (`outliner ext add form`), write the
 fields on the note itself, one chip each: `[form-field::book text required] [form-field::pages number]
 [form-field::mood choice gripping|slow|abandoned default=slow]` (types `text`, `number`, `choice` with its options split
-by `|`, `property`). Fill in the form (the power bar, or `act ext.form.fill block=<id> with='{"book":"…"}'`) writes an
+by `|`, `property`, `note`, `tag`). Fill in the form (the power bar, or `act ext.form.fill block=<id> with='{"book":"…"}'`) writes an
 entry under the note with the answers as properties. Any action can ask a note's fields: `"fieldsFrom": "block"` in its
 `extension.json`. A chip it can't read is saved and warned on with a did-you-mean.
 

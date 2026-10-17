@@ -1,6 +1,6 @@
 // `resolvePath(path, site, scope)` (PIE-533): the one pure resolver for a path like `this.owner`, `parent.project`,
 // `props.week`, `this.fields.storyTime`, `((id)).query`, `person.firstName` or a bare `project`. The service, every
-// client and every host call (a script's `resolve`, the runbook, rule labels) read values through it; nobody walks a
+// client and every host call (a script's `resolve`, an extension's command, rule labels) read values through it; nobody walks a
 // note's properties on their own.
 //
 // A path is `head(.key | [n] | ["dotted.key"])*`, optionally followed by a filter (`| status=todo`) and more steps.

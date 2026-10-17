@@ -67,6 +67,7 @@ export const marks: Record<string, string[]> = {
   questions: ["Allotment society", "NOT LINKED BACK", "20 matches", "BY CROP", "beans 3 · brassicas 3"],
   // The vent rail: its connectTo lines listed, one ::if body drawn; two project pages with one figure.
   "fields-if": ["Vent rail connections", "SAID SO FAR", "demonstrating by doing", "shacks not cathedrals", "this paragraph is drawn only while the note is active"],
+  templates: ["Sowing meeting", "Filed on Sowing meeting", "Filed on Potting meeting", "Prune the roses", "Pot up the tomatoes", "needs with"],
   "page-figure": ["Lego night", "Garden club", "TICKETS FOR THIS PROJECT", "Sort the bricks", "Water the beans"],
   // The plot calendar's dates, written four ways, asked as any property (PIE-769); the lanes are saved views.
   dates: ["Plot calendar", "DUE IN THREE DAYS", "DONE WAITING", "IN ITS WINDOW TODAY", "Due in th"],

@@ -8,16 +8,26 @@ Deploy the demo widget [type::runbook] [env::scratch]
   Stage the build with the token
   run:: --mode=dry --secrets=widget-demo
   ```sh
-  widget stage --env {{env}}
+  widget stage --env {{self.env}}
   ```
   Apply the patch
   run:: --mode=apply --secrets=widget-demo --confirm=ship
   ```sh
-  widget apply --env {{env}}
+  widget apply --env {{self.env}}
   ```
 ```
 
-- `{{name}}` is filled from the runbook note's own `[name::value]` properties (or `name=value` when you run it).
+- A step's command reads the outline's one `{{ }}` grammar, filled by the service in the step's Site (the extension asks
+  `site.answer`; it carries no parser of its own):
+  - `{{self.name}}` is the runbook note's own `[name::value]` (`self` is the nearest `[type::runbook]` note above the
+    step). Its author wrote it, so it is trusted as written.
+  - `{{props.name}}` is a value the run is given (`name=value` on the action, `with='{"name":"value"}'` from `act`, or
+    the runbook note's own `[form-field::name text]` chips, which the door asks for when you run the whole runbook).
+    It lands in a shell command, so it must be plain characters (letters, digits and `. @ : / = + , -`).
+  - Any other value (`{{((id)).x}}`, `{{parent.x}}`, `{{now.date}}`, a link followed from `self`) is checked the same way:
+    a value that could build a command refuses the step ("put the value on the runbook note, or pass it as a prop").
+  - A placeholder with no value refuses the step, saying which and how to give it. A step never runs half-filled.
+  - A list joins with `, `; `{{self.env[0]}}` picks one.
 - `--secrets=<group>[,<group>]` names `with-secrets` groups. When the step runs, the extension asks the service for each
   group by name (`secrets.group`; the manifest's `"secretGroups": ["*"]` allows any) and runs the command with the
   values in its environment. The service scrubs them (and their base64 and URL-encoded forms, and a value split by

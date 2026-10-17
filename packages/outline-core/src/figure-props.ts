@@ -42,6 +42,8 @@ export interface FigureSource {
   attrs?: string;
   /** Where the figure is drawn: the invocations that draw its note (a `::use` on a host, an embed), outermost first. Absent: the note itself. */
   chain?: SiteLink[];
+  /** The props of the call that draws it (a `::use`'s, `props.*` in the figure's Site), under its own call-site args. */
+  props?: Record<string, string[]>;
 }
 
 /** A `::graph-*` block's lines (after its first line, to its `::`) as its YAML and its Markdown. */

@@ -110,7 +110,7 @@ export interface ResourceDirectiveProvider {
   claims(source: ResourceSource, key: string): boolean;
   /** Snapshot metadata a projection may show, in display order. Others stay in the Resource. */
   readonly fields: readonly string[];
-  /** Its web page relative to its Source's origin before the first fetch (`browse/{key}`), from its manifest. */
+  /** Its web page relative to its Source's origin before the first fetch (`browse/{{key}}`), from its manifest. */
   readonly link?: string;
 }
 

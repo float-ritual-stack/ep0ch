@@ -219,6 +219,19 @@ shown in a tile (the board on the desk), it goes on to the desk's own steps.
     ep0ch act list.read --as claude-7
     ep0ch act list.open n=3 --as claude-7
 
+### Templates (PIE-533 S4)
+
+Two actions on every screen and one in a reader. `template.stamp` writes a template out as a new note: `of=` the template
+(`[[page]]`, `((id))`, a Work ID, or `type:meeting`, the note that says `[template-for::meeting]`), `as=new` (the only
+placement until `place()`; `into=` is refused with that said), `parent=` (default the top of the Inbox), `title=`,
+`for=<query>` (once per match, each `props.for`; a match already stamped from this template is skipped), `freeze=all`, and
+`with='{"prop":"value"}'` for the template's props. The service fills `props`, `self` and `now`, leaves `this`, `parent` and
+bare keys as `{{ }}`, checks the props before writing anything (an unknown one says the nearest, a needed one left out says
+the call that works) and records the note as the agent; the answer lists `stamped` (`id`, `title`, `parentId`), `skipped`,
+`warnings` and `said`. The person's asks in the power bar for the template and for what it needs, and opens the first note.
+`use.fill [line=N] with='{"prop":"value"}'` (in a reader) writes the props a `::use` is missing onto its line, through the
+note's save, checked against the line as drawn; `use.undo` (ctrl+z) puts it back. Neither takes the person's focus.
+
 ### New notes and pages (PIE-544)
 
 Also on every screen: `note.new` (the person's `ctrl+n`, the menu's `+`). The service makes the note where its
@@ -578,6 +591,8 @@ at, and what it does while they're typing:
 | `host.toggle open=false`, `host.size` | no | refused while they're typing in the drawer |
 | `agent.restart` | no: the agent comes back where it was | refused while they're typing in the drawer, and within 10s of their last key in the agent |
 | `note.new`, `page.create` | no: an agent's makes the note or page and opens nothing; its placement never reads the person's reader | allowed |
+| `template.stamp` | no: an agent's makes the note (or one per `for=` match) and opens nothing; the person's opens the first | allowed |
+| `use.fill`, `use.undo` | no: an agent's writes the line and is said on the status bar; the person's asks in the power bar | refused while the person has a draft open on the note |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `open tile=<reader>`, `link.follow`, `element.open`, `props.follow`, `up`, `threads`, `resolve` in the reader that has the person's keys (on the board, the preview they read the lanes through too) | it would move what they're reading | refused, the way named: another reader (`tile=`), or `open id=` naming none (an open naming no tile lands where opens land (the tile's link, the readers row, a reader that follows), which can be the note the person is reading: said on screen, never their keys, never a reader they're typing in). Elsewhere allowed; an agent's `link.follow n=` never moves the person's `[ ]` position |
 | `link.follow`, `element.open` on a web link or a figure | no: an agent never opens the person's browser or system viewer | allowed: the answer gives the address (`outside: browser\|viewer`, `url`, `launched: false`) and the reader says the agent was given it |

@@ -39,6 +39,8 @@ import {
 import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
 import { answerSite } from "./site-answer";
+import { templatePropsOf, templateUse } from "./template-use";
+import { stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
@@ -286,7 +288,7 @@ const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "headings.styles", "callouts.types", "styles.list",
-  "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer",
+  "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer", "template.use", "template.props",
 ]);
 
 /** How long `shares.start` waits for a `cloudflare` share's tunnel to come up before answering without its link. */
@@ -339,7 +341,7 @@ function asAgentSource<T>(input: T): T {
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "agents.held", "blocks.query", "views.read", "query.matches", "site.answer"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "annotations.list", "mcp.access.status", "agents.held", "blocks.query", "views.read", "query.matches", "site.answer", "template.use", "template.props"]);
 /**
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
@@ -2323,6 +2325,12 @@ export class OutlinerServer {
         case "site.answer":
           result = answerSite(this.store, request);
           break;
+        case "template.use":
+          result = templateUse(this.store, request);
+          break;
+        case "template.props":
+          result = templatePropsOf(this.store, request);
+          break;
         case "mcp.access.status":
           result = this.store.mcpAccessStatus();
           break;
@@ -2812,6 +2820,11 @@ export class OutlinerServer {
         case "notes.create":
           result = this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
           break;
+        case "template.stamp": {
+          const { id: _id, action: _action, ...stamp } = request;
+          result = stampTemplate(this.store, stamp);
+          break;
+        }
         case "mentions.ingest": result=this.mentions.ingest(request.message); break;
         case "mentions.list": result=this.mentions.list(request.scope,request.limit); break;
         case "mentions.message": result=this.mentions.message(request.messageKey); break;
@@ -3420,6 +3433,13 @@ export class OutlinerServer {
         domain = "content";
         blockId = (response.result as NewNoteReceipt).block.id;
         break;
+      case "template.stamp": {
+        const stamped = (response.result as TemplateStampResult).stamped;
+        if (!stamped.length) return null;
+        domain = "content";
+        blockId = stamped[0]!.id;
+        break;
+      }
       case "edit-recovery.commit":
         domain = "content";
         blockId = (response.result as Block).id;
