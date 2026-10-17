@@ -9,6 +9,7 @@ import {boundFolderOf} from '../src/paths';
 //
 //   install-claude-mod.ts                        load the mod; the folder list and mode are kept
 //   install-claude-mod.ts --exclude FOLDER…      and opt these folders out
+//   install-claude-mod.ts --project FOLDER…     also rename the mod in FOLDER/.claude/settings*.json (~/projects/ep0ch and ~/float-hub always)
 //   install-claude-mod.ts --folder               folder mode, dropping an allowlist (strict
 //                                                mode's, or a list from before folder mode)
 //   install-claude-mod.ts [--allowlist] FOLDER…  strict mode: only these folders feed
@@ -17,8 +18,9 @@ import {boundFolderOf} from '../src/paths';
 // the allowlist) makes the mod feed nothing anywhere until the mode is set; the
 // installer says so, and --folder drops it, naming the listed folders bound to
 // no outline.
-const usage='Usage: install-claude-mod.ts [--exclude FOLDER]... | --folder | [--allowlist] FOLDER...';
+const usage='Usage: install-claude-mod.ts [--project FOLDER]... [--exclude FOLDER]... | --folder | [--allowlist] FOLDER...';
 const excluded:string[]=[];
+const projectsArg:string[]=[];
 const allowed:string[]=[];
 let toFolderMode=false;
 let allowlistFlag=false;
@@ -46,51 +48,68 @@ const source=await readFile(settingsPath,'utf8').catch((error:NodeJS.ErrnoExcept
  settingsExist=false;
  return '{}';
 });
-let settings=JSON.parse(source) as {env?:Record<string,string>};
+let settings:{env?:Record<string,string>};
+try{settings=JSON.parse(source);}catch(error){throw Error(`${settingsPath} is not valid JSON (${(error as Error).message}); no configuration was changed. Fix or remove it, then run: bun ${import.meta.path}`);}
 if(!settings||typeof settings!=='object'||Array.isArray(settings))throw Error(`${settingsPath} is not a JSON object; no configuration was changed.`);
 
-// PIE-971: the mod was called pi-outliner and is now ep0ch. Wherever Claude's config names it (tool names such as
-// mcp__pi-outliner__*, in permission lists and hooks; plugin keys such as pi-outliner@inline in pluginConfigs,
-// enabledPlugins and installed_plugins.json) the name is moved, so a machine ends with the new name only. A key
-// already under the new name wins over the old one, and a rule the rename would list twice is kept once.
-const OLD_TOOLS='mcp__pi-outliner__';
-const renameModIn=(value:unknown):unknown=>{
- if(typeof value==='string')return value.split(OLD_TOOLS).join('mcp__ep0ch__');
+// PIE-971: the mod was called pi-outliner and is now ep0ch. The name is moved only where it means the plugin, so
+// nothing else in a file (a user's own text, another plugin's options) is ever touched:
+//   permission rules (permissions.allow/deny/ask) and hook matchers: mcp__pi-outliner, mcp__pi-outliner__<tool>
+//   plugin keys and plugin-id strings: pi-outliner@<source> in enabledPlugins, pluginConfigs, plugins (installed_plugins)
+// A key already under the new name wins over the old one, and a rule the rename would list twice is kept once.
+const OLD_SERVER='mcp__pi-outliner';
+const renameRule=(rule:string)=>rule===OLD_SERVER||rule.startsWith(`${OLD_SERVER}__`)?`mcp__ep0ch${rule.slice(OLD_SERVER.length)}`:rule;
+const renamePluginId=(id:string)=>id.startsWith('pi-outliner@')?`ep0ch@${id.slice('pi-outliner@'.length)}`:id;
+const PLUGIN_MAPS=new Set(['enabledPlugins','pluginConfigs','plugins']);
+const renameModIn=(value:unknown,key=''):unknown=>{
  if(Array.isArray(value)){
+  const rule=key==='allow'||key==='deny'||key==='ask';
+  const renamed=value.map(item=>typeof item==='string'&&rule?renameRule(item):typeof item==='string'&&PLUGIN_MAPS.has(key)?renamePluginId(item):renameModIn(item,key));
   // Only an entry the rename changed is dropped when its new form is already listed; other arrays stay as written.
-  const renamed=value.map(renameModIn);
   return renamed.filter((item,index)=>item===value[index]||!value.includes(item)&&renamed.indexOf(item)===index);
  }
  if(value&&typeof value==='object'){
   const out:Record<string,unknown>={};
   const entries=Object.entries(value as Record<string,unknown>);
-  for(const [key,item] of entries){
-   const renamedKey=key.startsWith('pi-outliner@')?`ep0ch@${key.slice('pi-outliner@'.length)}`:key.split(OLD_TOOLS).join('mcp__ep0ch__');
-   if(renamedKey!==key&&entries.some(([other])=>other===renamedKey))continue;
-   out[renamedKey]=renameModIn(item);
+  for(const [name,item] of entries){
+   const renamedKey=PLUGIN_MAPS.has(key)?renamePluginId(name):name;
+   if(renamedKey!==name&&entries.some(([other])=>other===renamedKey))continue;
+   out[renamedKey]=typeof item==='string'&&name==='matcher'?renameRule(item):renameModIn(item,name);
   }
   return out;
  }
  return value;
 };
-/** Other Claude config files that may name the mod; rewritten in place (backed up) only when they change. */
-async function renameModInFile(path:string){
+/** Every Claude config file that may name the mod: parsed before anything is written, so a malformed one stops the whole step. */
+settings=renameModIn(settings) as typeof settings;
+const claudeDir=dirname(settingsPath);
+const projectDirs=[...new Set([...projectsArg,join(homedir(),'projects/ep0ch'),join(homedir(),'float-hub')].map(dir=>resolve(dir)))];
+const otherFiles=[
+ join(claudeDir,'settings.local.json'),join(claudeDir,'plugins/installed_plugins.json'),
+ ...projectDirs.flatMap(dir=>[join(dir,'.claude/settings.local.json'),join(dir,'.claude/settings.json')]),
+];
+const parseConfig=(path:string,text:string)=>{
+ try{return JSON.parse(text);}catch(error){throw Error(`${path} is not valid JSON (${(error as Error).message}); no configuration was changed. Fix or remove it, then run: bun ${import.meta.path}`);}
+};
+const renamePlans:{path:string;text:string}[]=[];
+for(const path of otherFiles){
  const text=await readFile(path,'utf8').catch((error:NodeJS.ErrnoException)=>{
   if(error.code==='ENOENT')return null;
   throw error;
  });
- if(text===null)return null;
- const before=JSON.parse(text);
+ if(text===null)continue;
+ const before=parseConfig(path,text);
  const after=renameModIn(before);
- if(JSON.stringify(before)===JSON.stringify(after))return null;
+ if(JSON.stringify(before)!==JSON.stringify(after))renamePlans.push({path,text:`${JSON.stringify(after,null,2)}\n`});
+}
+async function applyRenamePlan({path,text}:{path:string;text:string}){
  const saved=`${path}.before-claude-mod-${Date.now()}`;
  await copyFile(path,saved);
  const tmp=`${path}.claude-mod-${process.pid}`;
- await writeFile(tmp,`${JSON.stringify(after,null,2)}\n`,{mode:0o600});
+ await writeFile(tmp,text,{mode:0o600});
  await rename(tmp,path);
  return `Renamed the mod from pi-outliner to ep0ch in ${path}. Backup: ${saved}`;
 }
-settings=renameModIn(settings) as typeof settings;
 const env={...settings.env};
 
 /** Another checkout or worktree of this mod (under the name it had before PIE-971 too): replaced, so only one copy loads. */
@@ -142,11 +161,8 @@ if(allowed.length){
  notes.push(`Opted out: ${listed.join(', ')}.`);
 }
 
-const configDir=dirname(settingsPath);
-for(const file of [join(configDir,'settings.local.json'),join(configDir,'plugins/installed_plugins.json')]){
- const done=await renameModInFile(file);
- if(done)notes.push(done);
-}
+for(const plan of renamePlans)notes.push(await applyRenamePlan(plan));
+if(JSON.stringify(settings)!==JSON.stringify(JSON.parse(source)))notes.push(`Renamed the mod from pi-outliner to ep0ch in ${settingsPath}.`);
 const next=`${JSON.stringify({...settings,env},null,2)}\n`;
 if(settingsExist&&JSON.stringify(JSON.parse(source))===JSON.stringify(JSON.parse(next))){
  console.log([`Claude Code mod already installed from ${modDir}.`,...notes].join('\n'));
