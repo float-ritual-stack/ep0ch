@@ -213,9 +213,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "^W f; board o; a click on the focused tile's ⧉ floats it, on a float's ⧉ puts it back; while dragging a tile, f",
     touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "put back"} ${r.tile}`,
     menu: { label: "float", group: TILE, key: "ctrl+w f", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { label: "put back in the layout" } : { refused: n.refused("float") }; } },
-    args: {},
-    run(_, { d, reader }, actor) {
-      return d.floatTile(reader, actor);
+    args: { on: { type: "boolean", optional: true, about: "true floats it, false puts it back; with it left out the action toggles. A tile already in that state is left as it is (a script floating every tile can't land one that floats)" } },
+    run({ on }, { d, reader }, actor) {
+      return d.floatTile(reader, actor, on);
     },
   }),
   "tile.link": def({

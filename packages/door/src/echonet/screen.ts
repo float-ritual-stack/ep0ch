@@ -499,7 +499,7 @@ export class EchoReader extends ReaderPane {
     const m = this.message;
     return m && this.area ? `${this.area.tag.toUpperCase()} · message ${m.n} of ${this.list.length}` : this.msg ? `reading · ${subject(this.msg).slice(0, 40)}` : "message reader";
   }
-  override hint() { return this.message ? `} { next prev · r reply · q quote · ${super.hint()}` : super.hint(); }
+  override hint() { return this.message ? `} { next prev · R reply · q quote · ${super.hint()}` : super.hint(); }
   /** It reads what its list opens: the desk's current note doesn't move it. */
   override select() {}
   protected override emptyFor(): string { return "⏎ on a message in the list reads it here · } { then step through the area · r replies · q quotes"; }
@@ -594,7 +594,7 @@ export class EchoReader extends ReaderPane {
     const c = ch(k);
     if (this.message && !this.holdsKeys && !desk.holdsKeys?.()) {
       if (c === "}" || c === "{") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.step", { by: c === "}" ? 1 : -1 }); return true; }
-      if (c === "r") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.reply", {}); return true; }
+      if (c === "R") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.reply", {}); return true; }
       if (c === "q") { void desk.press?.(this, ECHO_READER_ACTIONS, "echo.quote", {}); return true; }
     }
     return super.key(k, desk);
@@ -714,7 +714,7 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
   }),
   "echo.reply": def({
     summary: "reply to the message read: a comment on the copy (on its subject line), which the tosser carries back to the origin as netmail. The person writes it in the shared comment composer; an agent says body=, sent at once",
-    keys: "r",
+    keys: "R",
     touches: "draft", draft: "type", replay: "ask",
     args: { body: { type: "string", optional: true, about: "the reply, sent at once (an agent's; the person's opens the composer)" } },
     async run({ body }, { pane, desk }, actor) {
@@ -785,7 +785,7 @@ export function echoKinds(): TileKind[] {
       peek: p => ({ list: (p as EchoMessages).describe() }),
     },
     {
-      ...reader, kind: "echo.reader", word: "reader", about: "an EchoNet message: its header, the note, its FidoNet footer; } { step, r reply, q quote", noun: "the message reader", keys: undefined,
+      ...reader, kind: "echo.reader", word: "reader", about: "an EchoNet message: its header, the note, its FidoNet footer; } { step, R reply, q quote", noun: "the message reader", keys: undefined,
       make: () => new EchoReader(), actions: ECHO_READER_ACTIONS, inherits: reader.actions ? [reader.actions] : undefined,
       start: (p, env) => { const net = joinNet(p as EchoReader, env.tile); if (net) net.reader = p as EchoReader; },
       // An agent's open (`ep0ch open <id>`): a message of the area listed is read there; another note is shown in the reader.

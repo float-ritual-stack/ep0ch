@@ -5255,8 +5255,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * back (beside the tile the person has; one opened into a container goes back into it). Refused where policy keeps the
    * tile where it is, and to an agent for the tile the person is typing in.
    */
-  floatTile(sel: string | undefined, actor: Actor): TileDone {
+  floatTile(sel: string | undefined, actor: Actor, on?: boolean): TileDone {
     const t = this.tile(sel), p = this.panes.get(t.id)!;
+    // on=true|false (PIE-957): the state asked for, so a script that floats every tile never puts back one already floating.
+    if (on !== undefined && on === this.isFloat(t.id)) return { tile: t.name, pane: t.name, floated: on, now: t.name } as TileDone;
     if (this.ctx?.hostLayer?.isDrawer(this)) throw new ActionRefused(`${t.name} is in the drawer: it doesn't float there · ^W a puts it on the screen, where it floats`);
     const key = this.openedInto(t.id), c = key !== undefined ? node(this.root, key) : null;
     // A float opened into a container (the board's readers row) goes back into it, as its last tile there; a full one
