@@ -32,7 +32,8 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
-import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { pairValues, readerWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
@@ -418,7 +419,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
-  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
+  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.value ? (e.link.value.problem ?? (e.link.at !== undefined ? "show the line it reads" : "say how it is computed")) : e.link?.media || e.link?.url ? "open" : "follow";
 /** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
 function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
   if (x.action === RUN_AGAIN) return "run it again";
@@ -1961,7 +1962,7 @@ export class NoteSurface {
     const blocks: LinkBlockInfo[] = [];
     this.linkBlocksDrawn = blocks;
     const { preview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
-    const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
+    const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
       ...env, literal, ...hooks,
       linkBlocks: this.printed ? undefined : {
         ui: key => {
@@ -2080,7 +2081,7 @@ export class NoteSurface {
         const inside = target.text.includes("<!--") ? literalLines(target.text).inside : new Set<number>();
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
       } else ({ text, lines, literal: lit } = readableSource(target, src));
-      return renderDoc(presentLinks(text, true, src, target.text, drawn), {
+      return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
@@ -4991,6 +4992,11 @@ export class NoteSurface {
       if ("web" in to) return this.openOutside("browser", to.web, host);
       return this.followTarget(to.target, host, how);
     }
+    // A `{{ }}` (PIE-533 S2): where its value is written, lit; else what it is (computed, or why it has no value).
+    if (l.value && (!l.block || (l.at === undefined && l.block === this.msg?.id))) {
+      host.ctx.flash(l.value.problem ? `${l.value.expression}: ${l.value.problem}` : `${l.value.expression} → ${printable(l.value.words)} · computed (${l.value.route.split(" → ").at(-1)})`, 8000);
+      return null;
+    }
     let target: Msg | null = null;
     if (l.block) target = await host.ctx.board.get(l.block);
     else if (l.page) {
@@ -6154,6 +6160,9 @@ export class NoteSurface {
     const start = all.slice(0, lo).reduce((n, l) => n + l.length + 1, 0);
     const span = all.slice(lo, hi + 1).join("\n");
     const seen = s.text(rows);
+    // The `{{ }}` on these lines are drawn as their values (refs.ts presentLinks): a selection of those words is the whole token.
+    const answer = isOutlineNote(m) ? siteAnswerOf(m.id, m.text, this.src) : null;
+    const values = answer ? pairValues(m.text, answer.values).flatMap(p => p.value && p.start >= start && p.end <= start + span.length ? [{ start: p.start - start, end: p.end - start, words: readerWords(m.text.slice(p.start, p.end), p.value) }] : []) : [];
     // Words that are on these lines more than once: the same one as drawn, counted from where the lines start drawing.
     let r0 = s.start.row;
     const lineOfRow = (r: number) => (r >= d.titleRows[0] && r < d.titleRows[1] ? Math.max(0, titleLine(m.text).line) : r >= d.top ? d.lines[d.doc.source[r - d.top] ?? -1] : undefined);
@@ -6165,13 +6174,18 @@ export class NoteSurface {
     for (const t of [seen, seen.replace(/\n/g, " ")]) {
       if (!t.trim()) continue;
       const k = nth(t, before.replace(/\n/g, " ") + t.slice(0, -1));
+      // A value is drawn as its words, not its source: the selection that touches one is read from the drawing (source-map.ts).
+      if (values.length) {
+        const hit = sourceSpanOf(span, t, values, k);
+        if (hit) return { text: span.slice(hit.from, hit.to), exact: true, from: start + hit.from, to: start + hit.to, lines: [lo, hi] };
+      }
       let at = -1;
       for (let i = 0, j = span.indexOf(t); j >= 0; i++, j = span.indexOf(t, j + 1)) if (i === k) { at = j; break; }
       if (at >= 0) return { text: t, exact: true, from: start + at, to: start + at + t.length, lines: [lo, hi] };
     }
     // Drawn words with a link, emphasis or a list mark inside: read the source lines as they're drawn (source-map.ts).
     for (const t of [seen, seen.replace(/^[ \t]*[•◦▪▸‣·○●☐☑✓✗□■-][ \t]+/gm, "")]) {
-      const hit = sourceSpanOf(span, t);
+      const hit = sourceSpanOf(span, t, values);
       if (hit) return { text: span.slice(hit.from, hit.to), exact: true, from: start + hit.from, to: start + hit.to, lines: [lo, hi] };
     }
     const lead = span.length - span.trimStart().length;

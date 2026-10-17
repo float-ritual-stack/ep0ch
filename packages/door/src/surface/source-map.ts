@@ -12,11 +12,16 @@
 
 import { fragmentAnchorMatch, labelBar, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 
+/** A `{{ }}` the reader drew as its `words` (refs.ts presentLinks), at `start`..`end` of the span: a passage takes it whole. */
+export interface DrawnValue { start: number; end: number; words: string }
+
 /** For each source character: drawn (true) or hidden by the reader (false); and the tokens a passage takes whole. */
-function visibility(span: string): { shown: boolean[]; tokens: { start: number; end: number }[] } {
+function visibility(span: string, values: readonly DrawnValue[] = []): { shown: boolean[]; tokens: { start: number; end: number }[] } {
   const shown = new Array<boolean>(span.length).fill(true);
   const hide = (a: number, b: number) => { for (let i = Math.max(0, a); i < Math.min(span.length, b); i++) shown[i] = false; };
   const tokens: { start: number; end: number }[] = [];
+  // A value is drawn as its words, which are not in the source (sourceSpanOf lays them in): its source is not drawn.
+  for (const v of values) { tokens.push({ start: v.start, end: v.end }); hide(v.start, v.end); }
   for (const l of linkOccurrences(span, "inline")) {
     tokens.push({ start: l.start, end: l.end });
     const raw = span.slice(l.start, l.end);
@@ -56,23 +61,37 @@ function visibility(span: string): { shown: boolean[]; tokens: { start: number; 
  * Where `seen` (drawn text) is in `span` (source text): offsets into `span`, widened to whole links at either edge;
  * null when it isn't there once.
  */
-export function sourceSpanOf(span: string, seen: string): { from: number; to: number } | null {
+export function sourceSpanOf(span: string, seen: string, values: readonly DrawnValue[] = [], nth?: number): { from: number; to: number } | null {
   const want = seen.replace(/\s+/g, " ").trim();
   if (!want) return null;
-  const { shown, tokens } = visibility(span);
+  const { shown, tokens } = visibility(span, values);
+  const valueAt = new Map(values.map(v => [v.start, v]));
   // The drawn text, blanks folded to one space, with each character's offset in the source.
   let drawn = "";
   const at: number[] = [];
   let blank = false;
   for (let i = 0; i < span.length; i++) {
+    // A value's words stand where its token is; each of their characters is the token's start.
+    const value = valueAt.get(i);
+    if (value) {
+      for (const ch of value.words) {
+        if (/\s/.test(ch)) { blank = true; continue; }
+        if (blank && drawn) { drawn += " "; at.push(i); }
+        blank = false;
+        drawn += ch; at.push(i);
+      }
+      continue;
+    }
     if (!shown[i]) continue;
     if (/\s/.test(span[i]!)) { blank = true; continue; }
     if (blank && drawn) { drawn += " "; at.push(i - 1); }
     blank = false;
     drawn += span[i]; at.push(i);
   }
-  const first = drawn.indexOf(want);
-  if (first < 0 || drawn.indexOf(want, first + 1) >= 0) return null;
+  // The drawn words are found once; with `nth` (the selection's place among its repeats), the nth time.
+  let first = drawn.indexOf(want);
+  if (nth !== undefined) for (let i = 0; i < nth && first >= 0; i++) first = drawn.indexOf(want, first + 1);
+  if (first < 0 || (nth === undefined && drawn.indexOf(want, first + 1) >= 0)) return null;
   let from = at[first]!, to = at[first + want.length - 1]! + 1;
   for (const t of tokens) {
     if (from > t.start && from < t.end) from = t.start;
