@@ -45,8 +45,7 @@ An ask in a live draft uses that draft holder's dispatcher for `act`, under the 
 when the person authored the script. A saved ask or rule has no door: service calls work, while `act`
 reports that it needs a connected door. Run those UI scripts from the power bar or a live draft.
 
-QuickJS codemode runs on a worker. Code has the host API's `tools.*`, `q(query)`, `read(ref)`, `resolve(path)`,
-`wait(ms)` and `act(name, args)`; `act` uses the connected door's dispatcher and works only when the run started from a door (`ep0ch ext act` and MCP answer "act needs a connected door"). Disk, network and imports stay in folder
+QuickJS codemode runs on a worker (the API is in [the reference](../scripts.md)). Disk, network and imports stay in folder
 extensions. Saving a malformed source still saves the block; the registry reports its problem.
 
 Starting a run returns immediately with its progress note and undo receipt. Each completed host call
@@ -66,32 +65,9 @@ remain a later scripting slice.
 
 ### A script in its Site (PIE-955)
 
-A script reads where it runs without an id written in it, as a template or a `{{ }}` does:
-
-- `this`: the note the run is about, as its record (`this.title`, `this.properties`, `this.fields`, `this.tasks`…). A
-  rule-fired script gets the matched block; a key or power-bar run gets the note in front of the person; an agent's
-  `act ext.<id>.run block=<id>` names it. With none, every `this.*` read says "this run has no note; pass at= or run
-  it from a note".
-- `self`: the script's own note, as a record. `caller`: `{ block, line? }`, where it was invoked (a rule's matched
-  note, a handler line, `act … line=`; `null` for a key, the power bar, `@name` and MCP). `props`: its slots, every key a list (`week=42` is `props.week[0]`; one value per key on an action run, repeats kept on render lines); a js script's `props.x`
-  uses are offered as optional arguments by the power bar and `ext ls`.
-- `read(ref)` returns the note's record (header, body, properties, fields, tasks, links, backlinks) with
-  `outline_read`'s `children`, `depth` and `limit`. `resolve(path)` answers like `{{ path }}` through the service's one
-  resolver (`site.answer`): `{ path, values, links?, lines?, route }` or `{ problem: { message, didYouMean, example } }`, never an empty
-  string for a typo. `q("parent:this")` binds `this` to the run's note.
-- A returned string shows as plain text; `{ view }` or one `view.table(…)` itself as a table or card; the rest as JSON.
-- `wait(ms)` sleeps and ends with the run. A run ends at its deadline (`[deadline::2m]`; longer is clamped to five minutes, malformed ignored; default 5 minutes, 15 seconds for a render) and
-  says so; `scripts.stop` (`script.stop run=<undo id>` in the door) ends one run, naming who stopped it.
-- A run that writes into its own note goes on: the source is the code of its fence, so an edit of the code ends a
-  run at its next host call; a changed script setting discards its output at the end.
-- A run note is machinery (`[machine::script]`): it counts for no backlink.
-
-**Render mode.** `[mode::render]` makes the script a handler: a line `name::` (with `week=42` words as `props`) draws
-what the script returns under the line, live. It is the one producer path of every handler line (the output store and
-`inputs`, with the notes the script read and their revisions, so it redraws when one changes (not for a change made by a script or an extension) and never on a keystroke),
-it writes no run note, and it refuses `[effects::write]` (the script isn't served, `ext ls` says why). Drawing the
-same line again leaves every block and revision as it was. A `::= expression` line is a one-line render-mode script:
-`::= (await resolve('this.owner')).values[0]`.
+A script reads where it runs without an id written in it (`this`, `self`, `caller`, `props`), with `read`, `resolve`,
+`q`, `wait`, and a render mode (`[mode::render]`, `name::` lines and `::=` lines) that draws what it returns under the
+line. Those, the deadlines, `scripts.stop`, and the traps are in [Scripts in a note: the surface](../scripts.md).
 
 ## Keys and secrets
 

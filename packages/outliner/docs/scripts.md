@@ -153,21 +153,21 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong` | `packages/outliner/src/component-primitives.ts:154` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:158` |
-| `view.badge` | `label`, `tone` | `packages/outliner/src/component-primitives.ts:161` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:164` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:171` |
-| `view.table` | `columns`, `rows`, `links` | `packages/outliner/src/component-primitives.ts:178` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:198` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:209` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `children` | `packages/outliner/src/component-primitives.ts:215` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:231` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:234` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:237` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:242` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:258` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:265` |
+| `view.text` | `text`, `tone`, `strong` | `packages/outliner/src/component-primitives.ts:173` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:177` |
+| `view.badge` | `label`, `tone` | `packages/outliner/src/component-primitives.ts:180` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:183` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:190` |
+| `view.table` | `columns`, `rows`, `links` | `packages/outliner/src/component-primitives.ts:197` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:217` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:228` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `children` | `packages/outliner/src/component-primitives.ts:234` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:250` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:253` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:256` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:261` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:277` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:284` |
 
 <!-- generated:view:end -->
 
@@ -187,9 +187,10 @@ What the fields mean:
 
 | Entry | Source |
 |---|---|
-| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:142` |
+| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:161` |
 | `PRIMITIVE_TYPES` | `packages/outliner/src/component-primitives.ts:27` |
-| `MAX_NODES` | `packages/outliner/src/component-primitives.ts:87` |
+| `PRIMITIVE_FIELDS` | `packages/outliner/src/component-primitives.ts:28` |
+| `MAX_NODES` | `packages/outliner/src/component-primitives.ts:106` |
 
 ## What a script returns
 

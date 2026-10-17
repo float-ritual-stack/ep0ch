@@ -6,6 +6,11 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { USER } from "../../src/socket";
 import { extensionList } from "../../src/extensions";
 import { outliner, until } from "../scratch";
+
+/** `until` for an answer that takes a request. */
+const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 15_000) => {
+  for (const end = Date.now() + ms; !(await ok());) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
+};
 import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("the showcase screen: script examples", () => {
@@ -32,7 +37,7 @@ describe.skipIf(!outliner)("the showcase screen: script examples", () => {
     // Example 4: the rule stamped the checklist under the note that matched, once.
     const match = (await board.children(seeded.notes.scriptExamples.id)).find(c => c.text.startsWith("Beans for the swap"))!;
     let stamped: Awaited<ReturnType<typeof board.children>> = [];
-    for (const end = Date.now() + 15_000; Date.now() < end && !stamped.length;) { stamped = await board.children(match.id); await Bun.sleep(100); }
+    await untilAsync(async () => (stamped = await board.children(match.id)).length > 0, "the checklist stamped under the match");
     expect(stamped.map(c => c.text)).toEqual(["Ship list for Beans for the swap\n- [ ] Pack\n- [ ] Label\n- [ ] Hand over"]);
     // The table's total follows an edit of a child.
     const order = seeded.notes.exampleOrder.id;

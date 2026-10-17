@@ -634,59 +634,16 @@ doesn't have the environment variable: the service reads the group when a call s
 
 **When to reach for one:** a small thing that belongs to one note or one outline and needs no disk, network or secret: a
 computed column over a note's children, a sentence built from its properties, a checklist stamped on every match, a move
-you keep repeating. Needing a file, the web, a key or another language makes it an extension (below). **The whole surface**
-(globals, `q`/`read`/`resolve`/`act`/`wait`, every `tools.*` and `view.*`, modes, effects, lifecycle, the traps, five worked
-examples) is one page with a `path:line` pointer per entry: `packages/outliner/docs/scripts.md` in the repository. Read it
-before writing a script that isn't a copy of the example below.
+you keep repeating. Needing a file, the web, a key or another language makes it an extension (below).
 
-A render-mode script and the note that asks for it (a table of the note's children with a computed column):
+A script is a note with `[script::name]` and a closed `js` fence; `[mode::render]` makes it draw under a `name::` line,
+`[effects::write]` lets it write. **The whole surface** (globals, `q`/`read`/`resolve`/`act`/`wait`, every `tools.*` and
+`view.*`, modes, effects, lifecycle, traps, five worked examples you can paste) is one page with a `path:line` pointer per
+entry: `packages/outliner/docs/scripts.md` in the repository. Read it before writing a script; its example 2 is the
+usual start (a table of a note's children with a computed column). Two traps to know first: `this.children` is always
+empty (use `q("parent:this")` or `read(this.id)`), and a `q` row has no properties (read the row).
 
-````blockdown
-Seed table [script::seed-table] [mode::render]
-```js
-const host = await read(this.id, { depth: 1 });
-const rows = [];
-for (const child of host.children) {
-  const note = await read(child.id);
-  const number = key => Number(note.properties.find(p => p.key === key)?.values[0] ?? 0);
-  rows.push([note.title, number("qty"), number("price"), number("qty") * number("price")]);
-}
-return view.table({ columns: ["Item", "Qty", "Price", "Cost"], rows });
-```
-````
-
-Write `seed-table::` on a line of the parent note; each child is `Beans [qty::5] [price::2]`. Two traps from the page: `this.children`
-is always empty (read `this.id` or use `q("parent:this")`), and a `q` row has no properties (read the row).
-
-- A script is a block with `[script::name]` and a closed `js`, `ts` or `actions` fence, loaded by the extension registry.
-- `tools.*` calls the shared agent tools, such as `tools.outline_comment({ref, whole: true, body})`.
-- `q(query)` calls `outline_find` with the views' query grammar.
-- `read(ref)` returns the note's record (`outline_read` plus header, tasks, links, backlinks): `properties` is `[{ key, values }]` (each key once, a repeat or a `[a, b]` list as several values) and `fields` the line and inline ones.
-- A script reads its Site with no id in it: `this` (the note it is about: the matched block of a rule, the note in front of a key press, `block=` of an agent's act), `self` (its own note), `caller` and `props` (`week=42` is `props.week[0]`); `resolve("this.owner")` answers as `{{this.owner}}` does and `q("parent:this")` binds `this`. Read [references/scripts.md](references/scripts.md).
-- A returned string shows as plain text. `[mode::render]` makes the script draw in place: a `name:: week=42` line (or a one-line `::= expression`) shows what it returns, live, writing nothing.
-- `act(name, args)` calls the door's existing action dispatcher and needs a connected door; use the power bar or a live draft, since saved asks and rules have no door.
-- Run by name in the power bar or `/`, with `slot=value` arguments for slots in an `actions` fence.
-- `[keys::alt+S]` binds a script key; clashes are reported and typing keeps its keys.
-- A rule's `[rule-on::script:name]` invokes it through the existing rule triggers.
-- An inline `@name slot=value` ask invokes it after the quiet timer; names use lowercase letters, digits and hyphens, starting with a letter, up to 32 characters.
-- A run is attributed to `script:<name>` and records the requester separately. Scripts default to read-only; a block declares writes with `[effects::write]`.
-- The child run note streams progress and records the source revision and changes since the previous run in this host.
-- `extensions.undo` with the returned `undo` receipt undoes the whole run's saved writes, door-action writes and draft patches; conflicts preserve intervening edits, and receipts last for this host process.
-- An agent-written `[script::]` runs as soon as invoked, attributed, with no approval gate.
-- MCP `script_run` takes a script block's `ref` or `uri` and runs as the MCP caller: `propose` makes proposals, `full` applies writes, and `read`/`none` cannot start a run.
-- The person presses `alt+Q` to record a macro and again to save its script block, then edits action values into `{{props.slot}}` placeholders (one grammar: `{{ path || default }}`).
-
-One fictional block; run `seed-summary` from the power bar:
-
-````blockdown
-Seed summary [script::seed-summary]
-```js
-const seeds = await q("type=seed");
-return seeds;
-```
-````
-
-For the full contract, read [Script blocks and files](../../../outliner/docs/extensions/README.md#script-blocks-and-files-pie-601).
+The short form for working in an outline is [references/scripts.md](references/scripts.md).
 
 ## Extensions: adding one for a need
 

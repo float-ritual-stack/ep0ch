@@ -7,7 +7,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_TOOL_DEFINITIONS, describeTool } from "@ep0ch/outline-core/agent-tool-definitions";
-import { PRIMITIVE_TYPES } from "../src/component-primitives";
+import { PRIMITIVE_FIELDS, PRIMITIVE_TYPES } from "../src/component-primitives";
 
 /** The repository root, which the page's pointers are relative to. */
 export const REPO = join(import.meta.dir, "..", "..", "..");
@@ -44,33 +44,21 @@ export function toolsTable(): string {
   return ["| Tool | Effect | Arguments (**required**) | What it does | Source |", "|---|---|---|---|---|", ...rows].join("\n");
 }
 
-/** The fields a primitive's validator accepts, read from its `only(node, [...])` line. */
-export function viewFields(type: string): { fields: string[]; line: number } {
-  const source = lines(PRIMITIVES_FILE);
-  const at = source.findIndex(line => line.trim() === `case "${type}":` || line.trim() === `case "${type}": {`);
-  if (at === -1) throw new Error(`${type} has no case in ${PRIMITIVES_FILE}`);
-  for (let i = at; i < at + 4; i++) {
-    const found = /only\(node, \[([^\]]*)\]/.exec(source[i] ?? "");
-    if (found) return { fields: [...found[1]!.matchAll(/"([^"]+)"/g)].map(m => m[1]!).filter(field => field !== "type"), line: at + 1 };
-  }
-  throw new Error(`${type}'s case in ${PRIMITIVES_FILE} has no only(node, [...]) line`);
-}
-
 /** The `view.*` table: one row per primitive, with the fields its validator accepts (anything else is refused). */
 export function viewTable(): string {
   const rows = PRIMITIVE_TYPES.map(type => {
-    const { fields, line } = viewFields(type);
-    return `| \`view.${type}\` | ${fields.map(field => `\`${field}\``).join(", ")} | \`${PRIMITIVES_FILE}:${line}\` |`;
+    const at = lines(PRIMITIVES_FILE).findIndex(line => /^\s*case "/.test(line) && line.includes(`"${type}"`)) + 1;
+    return `| \`view.${type}\` | ${PRIMITIVE_FIELDS[type].map(field => `\`${field}\``).join(", ")} | \`${PRIMITIVES_FILE}:${at}\` |`;
   });
   return ["| Builder | Fields (anything else is refused) | Source |", "|---|---|---|", ...rows].join("\n");
 }
 
-const GENERATED = { tools: toolsTable, view: viewTable } as const;
+const GENERATED_BLOCKS = { tools: toolsTable, view: viewTable } as const;
 
 /** The page with its generated blocks written from the code. */
 export function withGenerated(page: string): string {
   let out = page;
-  for (const [name, make] of Object.entries(GENERATED)) {
+  for (const [name, make] of Object.entries(GENERATED_BLOCKS)) {
     const { start, end } = marks(name);
     const from = out.indexOf(start), to = out.indexOf(end);
     if (from === -1 || to === -1 || to < from) throw new Error(`the page has no ${name} block: add ${start} and ${end} where it goes`);
@@ -80,7 +68,7 @@ export function withGenerated(page: string): string {
 }
 
 /** What a pointer in the page must still show: the entry's name, within a few lines of the one it points at. */
-const NEAR = 4;
+const LINES_NEAR_A_POINTER = 4;
 const POINTER = /`((?:packages|scripts|docs)\/[\w./-]+):(\d+)`/g;
 
 /**
@@ -101,9 +89,10 @@ export function stalePointers(page: string): string[] {
       if (!entry) continue;
       const word = entry.replace(/\(.*$/, "").split(/[^\w$]+/).filter(Boolean).at(-1);
       if (!word) continue;
-      const near = source.slice(at - 1, at - 1 + NEAR).join("\n");
-      const stem = word.includes("_") ? word.slice(0, word.lastIndexOf("_") + 1) : "";
-      if (!(stem.length > 6 && near.includes(stem)) && !new RegExp(`(?<![\\w$])${word.replace(/[$]/g, "\\$&")}(?![\\w$])`).test(near)) problems.push(`${file}:${at}: \`${entry}\` isn't there any more; search the file for "${word}" and write the line it is on`);
+      const near = source.slice(at - 1, at - 1 + LINES_NEAR_A_POINTER).join("\n");
+      // `outline_proposal_${op}` is one template for two tools: its stem on the line is enough.
+      const templatedStem = word.includes("_") ? word.slice(0, word.lastIndexOf("_") + 1) : "";
+      if (!(templatedStem.length > 6 && near.includes(templatedStem)) && !new RegExp(`(?<![\\w$])${word.replace(/[$]/g, "\\$&")}(?![\\w$])`).test(near)) problems.push(`${file}:${at}: \`${entry}\` isn't there any more; search the file for "${word}" and write the line it is on`);
     }
   }
   return problems;

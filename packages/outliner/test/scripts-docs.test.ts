@@ -25,7 +25,8 @@ test("the pointer check notices a pointer that moved, or a file that is gone", (
   expect(stalePointers(`| \`read\` | \`packages/outliner/src/host-api.ts:${at}\` |`)).toEqual([]);
 });
 
-test("the globals, functions, tools and view builders the page lists are what a script sees", async () => {
+/** A script that reports what its sandbox holds, run on a note that has one child. */
+async function surface() {
   const { create, run } = await setup();
   const host = create("Host [owner::sam]");
   create(`Surface [script::surface]
@@ -38,20 +39,29 @@ return {
 };
 \`\`\``);
   create("Child [qty::2]", host.id);
-  const surfaced = await run("surface", { blockId: host.id });
-  if (!surfaced.text.includes("· done")) throw new Error(surfaced.text);
-  const ran = JSON.parse(surfaced.text.split("\n").pop()!);
-  const documented = (heading: string) => [...page.matchAll(new RegExp(`^\\| \`${heading}\\.(\\w+)\``, "gm"))].map(m => m[1]!);
-  expect(ran.tools).toEqual(documented("tools"));
-  expect(ran.builders).toEqual(documented("view"));
-  expect(ran.builders).toEqual([...PRIMITIVE_TYPES]);
-  // The page's list of functions and the absences it names (`now`, `stop`, no `fetch`).
-  expect(ran.kinds).toMatchObject({ q: "function", read: "function", resolve: "function", act: "function", wait: "function", text: "function", console: "object", exit: "function", now: "undefined", stop: "undefined", fetch: "undefined" });
-  // Traps: `this` is a text record (no children), and a `q` row has no properties.
-  expect(ran.childrenOfThis).toEqual([]);
-  expect(ran.row).toEqual(["id", "parentId", "revision", "title", "updated"]);
-  expect(ran.caller).toBeNull();
-  expect(ran.props).toEqual({});
+  const ran = await run("surface", { blockId: host.id });
+  if (!ran.text.includes("· done")) throw new Error(ran.text);
+  return JSON.parse(ran.text.split("\n").pop()!);
+}
+const documented = (heading: string) => [...page.matchAll(new RegExp(`^\\| \`${heading}\\.(\\w+)\``, "gm"))].map(m => m[1]!);
+
+test("the tools and view builders the page lists are the ones a script sees", async () => {
+  const seen = await surface();
+  expect(seen.tools).toEqual(documented("tools"));
+  expect(seen.builders).toEqual(documented("view"));
+  expect(seen.builders).toEqual([...PRIMITIVE_TYPES]);
+});
+
+test("the functions the page lists exist, and the globals it says are absent are", async () => {
+  expect((await surface()).kinds).toMatchObject({ q: "function", read: "function", resolve: "function", act: "function", wait: "function", text: "function", console: "object", exit: "function", now: "undefined", stop: "undefined", fetch: "undefined" });
+});
+
+test("the traps: this has no children, a q row has no properties, caller and props are empty off a line", async () => {
+  const seen = await surface();
+  expect(seen.childrenOfThis).toEqual([]);
+  expect(seen.row).toEqual(["id", "parentId", "revision", "title", "updated"]);
+  expect(seen.caller).toBeNull();
+  expect(seen.props).toEqual({});
 });
 
 test("a read-only script's write is refused, a render can't act, and an arrow function keeps this", async () => {
@@ -116,17 +126,6 @@ test("example 2: the table of children, with its computed column, draws again wh
   expect(await drawn("ex2-order", out => out.includes("| Beans | 6 | 2 | 12 |"))).toContain("| Total |  |  | 24 |");
   create("Kale [qty::2] [price::3]", made.get("ex2-order")!.id);
   expect(await drawn("ex2-order", out => out.includes("Kale"))).toContain("| Total |  |  | 30 |");
-});
-
-test("the ep0ch-outline skill's example is example 2 without its total, and draws the same rows", async () => {
-  const skill = readFileSync(join(import.meta.dir, "../../door/skills/ep0ch-outline/SKILL.md"), "utf8");
-  const code = /Seed table \[script::seed-table\] \[mode::render\]\n```js\n([\s\S]*?)\n```/.exec(skill)![1]!;
-  const example = examples.find(e => e.example === 2)!;
-  const { drawn, create, client } = await paste({ ...example, notes: example.notes.filter(n => n.label !== "ex2-script") });
-  create(`Seed table [script::seed-table] [mode::render]\n\`\`\`js\n${code}\n\`\`\``);
-  await client.request({ action: "extensions.list", reload: true });
-  await Bun.sleep(120);
-  expect(await drawn("ex2-order")).toContain("| Beans | 5 | 2 | 10 |");
 });
 
 test("example 3: the board is a property; a move changes it and the drawing follows", async () => {

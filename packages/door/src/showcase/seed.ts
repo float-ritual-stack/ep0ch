@@ -158,7 +158,7 @@ if (request.input.request === "describe the beds") {
     "A ::= line is the same in one line, with this, props, q, read and resolve:",
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
   ].join("\n"));
-  // The worked examples of the scripts reference (PIE-982), pasted as notes: the page's own text, so the sink can't drift from it.
+  // The worked examples of the scripts reference (PIE-982), pasted as notes. Read from the page at seed time on purpose: the page is the one source of the example text, and its test runs these same notes, so a copy in the seed could only drift from both.
   notes.scriptExamples = await make(notes.root.id, `${SEED.scriptExamples}\nThe worked examples of the scripts reference (packages/outliner/docs/scripts.md), pasted as notes beneath this one. ${SEED.exampleOrder} draws a table of its children with a computed column; ${SEED.exampleGame} is tic-tac-toe, played with ttt-play cell=5 from the power bar; Bed 4 reads its properties into a sentence; a rule stamps a checklist under every #shipit note.`);
   const pasted = new Map<string, Msg>();
   for (const example of scriptExamples()) {
