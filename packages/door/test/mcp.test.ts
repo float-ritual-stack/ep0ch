@@ -268,8 +268,9 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
         expect((await board.get(remote.note.id))!.text).toContain(op === "apply" ? "Plant peas." : "Plant beans.");
       }
       const other = await make("another-agent");
-      await expect(api.call("outline_proposal_dismiss", { ref: other.id })).rejects.toThrow("only its own");
-      expect((await board.get(other.id))!.deleted).toBeFalsy();
+      // Another agent's proposal: any agent may settle it (Evan, Oct 17), recorded as the one who did.
+      expect(await api.call("outline_proposal_dismiss", { ref: other.id })).toMatchObject({ outcome: "dismissed" });
+      expect((await board.get(other.id))!.deleted).toBe(true);
       await setAccess("read");
     }, 60_000);
 

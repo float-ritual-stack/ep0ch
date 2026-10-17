@@ -7367,7 +7367,7 @@ const PROPOSAL_DEFS = {
     },
   }),
   "proposal.dismiss": proposalDef({
-    summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) marks it dismissed and puts it in Trash, all recorded as whoever runs this, and the note it sits beside stops showing it (an older proposal's embed line comes out of the note, or the draft of it being written). An agent dismisses only its own proposals; the person, any", keys: "X, a click on [dismiss]",
+    summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) marks it dismissed and puts it in Trash, all recorded as whoever runs this, and the note it sits beside stops showing it (an older proposal's embed line comes out of the note, or the draft of it being written). Anyone may dismiss any proposal, an agent another agent's too, attributed", keys: "X, a click on [dismiss]",
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
     async run({ id }, { surface, host }, actor) {
@@ -7944,7 +7944,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const r: unknown = await NOTE_ACTIONS.run(`unsent.${e.link.unsent.op}`, { kind: e.link.unsent.kind }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
-      // A proposal's [apply] [dismiss] run its action as whoever asks (an agent dismisses only its own).
+      // A proposal's [apply] [dismiss] run its action as whoever asks, attributed to them.
       if (e.kind === "control" && e.link?.proposal?.op) {
         const r: unknown = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };

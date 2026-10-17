@@ -401,7 +401,7 @@ describe("draft.patch over the protocol", () => {
     expect(late.warning).toContain("couldn't be marked applied");
   });
 
-  test("dismiss: the proposal is marked dismissed and goes to the Trash, attributed, and an older one's embed line comes out; an agent only its own", async () => {
+  test("dismiss: the proposal is marked dismissed and goes to the Trash, attributed, and an older one's embed line comes out; any agent may settle it", async () => {
     const { store, client } = await service();
     const note = store.create("Plan\nbeans   here\n@tidy go");
     const edited = store.update(note.id, note.text.replace("beans   here", "beans   here, still writing"), note.revision, { author: "user" });
@@ -411,9 +411,8 @@ describe("draft.patch over the protocol", () => {
     // A proposal from before PIE-725 left its embed line in the note: it is drawn by that embed, not beside it again.
     store.update(note.id, `${edited.text}\n!((${result.proposalId}))`, edited.revision, { author: "user" });
     expect((await client.request<{ proposals: unknown[] }>({ action: "draft.proposals.list", blockId: note.id })).proposals).toEqual([]);
-    await expect(client.request({ action: "draft.proposal.dismiss", proposalId: result.proposalId, mutation: { author: "agent", actorId: "someone-else" } }))
-      .rejects.toThrow("That proposal is @tidy's; an agent dismisses only its own");
-    const dismissed = await client.request<{ outcome: string; embedRemoved: string | null }>({ action: "draft.proposal.dismiss", proposalId: result.proposalId, mutation: TIDY });
+    // Another agent settles @tidy's proposal: allowed (Evan, Oct 17), and recorded as that agent below.
+    const dismissed = await client.request<{ outcome: string; embedRemoved: string | null }>({ action: "draft.proposal.dismiss", proposalId: result.proposalId, mutation: { author: "agent", actorId: "someone-else" } });
     expect(dismissed).toMatchObject({ outcome: "dismissed", embedRemoved: "saved" });
     expect(store.require(note.id).text).toBe("Plan\nbeans   here, still writing\n@tidy go");
     const gone = store.require(result.proposalId);
@@ -421,7 +420,7 @@ describe("draft.patch over the protocol", () => {
     expect(gone.properties).toEqual(expect.arrayContaining([{ key: "proposal-status", value: "dismissed" }]));
     expect(gone.text).toStartWith("Dismissed: 1 proposed edit from @tidy, not applied because");
     const feed = await client.request<{ changes: Array<{ blockId?: string; kind: string; actor?: { author: string; actorId?: string } }> }>({ action: "changes.since", sequence: 0 });
-    expect([...feed.changes].reverse().find(change => change.blockId === note.id && change.kind === "edit")?.actor).toMatchObject({ author: "agent", actorId: "tidy" });
+    expect([...feed.changes].reverse().find(change => change.blockId === note.id && change.kind === "edit")?.actor).toMatchObject({ author: "agent", actorId: "someone-else" });
     await expect(client.request({ action: "draft.proposal.apply", proposalId: result.proposalId, mutation: { author: "user" } })).rejects.toThrow();
   });
 
