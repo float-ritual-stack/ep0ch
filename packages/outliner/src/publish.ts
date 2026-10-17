@@ -5,6 +5,9 @@ import type { ResourceProjection, ResourceProjectionReadResult } from "./resourc
 import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
 import { boardHtml, FIGURE_STYLE, viewRowsHtml } from "./publish-figures";
 import { drawNoteComponents, drawViewLane, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
+import { publishedValueWords, readPageValues } from "./publish-values";
+import { substituteValues } from "@ep0ch/outline-core/site-values";
+import type { SiteValue } from "@ep0ch/outline-core/site";
 import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
 import { artifactKind, artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { validatePrimitive, viewImages } from "./component-primitives";
@@ -2209,6 +2212,13 @@ export class Publisher {
     // Where the page has a search (the tailnet, a share), a #tag opens the notes carrying it (PIE-800).
     if ((audience === "tailnet" || share) && !linked.labelsOnly) linked = { ...linked, tagSearch: true };
     const components: string[] = [];
+    // The page's `{{ }}`: each note's values as the service reads them, less what the page may not show (publish-values.ts).
+    const valueHost = this.liveHost(audience, linked, base, share);
+    const values = await readPageValues(valueHost, rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })));
+    if (embeds) {
+      const embedded = Object.values(embeds.read.blocks).filter((b) => !embeds.locked.has(b.id) && !embeds.extensionHidden?.has(b.id) && (!embeds.shareable || embeds.shareable.has(b.id)));
+      embeds.values = await readPageValues(valueHost, embedded.map((b) => ({ id: b.id, text: b.text ?? "" })));
+    }
     const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
     const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages });
     // An HTML page draws the built-in components (figures, links components, embedded views) from the service's
@@ -2254,7 +2264,7 @@ export class Publisher {
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec));
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
-    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse);
+    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse, values);
     return { markdown, marks: order, index: linked, components, anchors: anchors ?? [], steps };
   }
 
@@ -2432,6 +2442,8 @@ export interface EmbedExpansion {
   shareable?: ReadonlySet<string>;
   /** Embedded views drawn as lanes (`!((view))`), by view id: each its component's sentinel. */
   views?: ReadonlyMap<string, string>;
+  /** The `{{ }}` of the embedded notes, as the page may show them (publish-values.ts), by note id. */
+  values?: ReadonlyMap<string, readonly SiteValue[]>;
   cursor: { next: number };
 }
 
@@ -2455,6 +2467,11 @@ function lineOf(text: string, offset: number): number {
   let line = 0;
   for (let at = text.indexOf("\n"); at >= 0 && at < offset; at = text.indexOf("\n", at + 1)) line++;
   return line;
+}
+
+/** A note's text with its `{{ }}` as the page may show them: the value, `hidden here` where it read a note the page may not show, else as typed. */
+function valuedText(text: string, values: readonly SiteValue[]): string {
+  return substituteValues(text, values, { words: publishedValueWords, hidden: () => placeholder("hidden here") });
 }
 
 /** Markdown emphasis for a fixed placeholder such as "locked note". */
@@ -2482,7 +2499,9 @@ function renderEmbed(node: TransclusionNode | undefined, context: TextContext): 
   // A mark shows its own words, from its title's line: not its generated heading and the store's line under it.
   const from = !node.fragment && isAnnotationBlock(block) ? markTitleLine(block.text)?.line ?? 0 : 0;
   // Anchors (`^spring`) are hidden as a fragment's text hides them; the lines stay line for line.
-  const text = node.fragment ? node.fragment.text : stripFragmentAnchors(from ? block.text.split("\n").slice(from).join("\n") : block.text);
+  const raw = node.fragment ? node.fragment.text : stripFragmentAnchors(from ? block.text.split("\n").slice(from).join("\n") : block.text);
+  const values = expansion.values?.get(node.blockId);
+  const text = values ? valuedText(raw, values) : raw;
   return publishedText(text, context, {}, {
     nodes: node.embeds ?? [], cursor: { next: 0 }, note: block.text, firstLine: node.fragment?.startLine ?? from,
   }) || placeholder("empty note");
@@ -2845,6 +2864,7 @@ export function renderSubtreeMarkdown(
   owner = false,
   steps?: PublishedStep[],
   blockAnchors = true,
+  values: ReadonlyMap<string, readonly SiteValue[]> = new Map(),
 ): string {
   const [rootRow, ...rows] = shownSubtree(subtree, owner);
   if (!rootRow) return "";
@@ -2865,7 +2885,8 @@ export function renderSubtreeMarkdown(
     return placeAnchor(text, anchors.length - 1);
   };
   // Each block's own step boxes, numbered page-wide (`steps` collects them, for drawSteps); the same length as the boxes.
-  const stepped = (block: ProjectedVisibleBlock) => steps ? placeStepSentinels(block.text ?? "", { id: block.id, revision: block.revision ?? 0 }, steps) : block.text ?? "";
+  const valued = (block: ProjectedVisibleBlock) => (values.has(block.id) ? valuedText(block.text ?? "", values.get(block.id)!) : block.text ?? "");
+  const stepped = (block: ProjectedVisibleBlock) => steps ? placeStepSentinels(valued(block), { id: block.id, revision: block.revision ?? 0 }, steps) : valued(block);
   const decorated = (block: ProjectedVisibleBlock) => decoratedText(stepped(block), decorations.get(block.id), under.get(block.id), drawn.get(block.id),
     anchors ? lineAddresses(block.text ?? "", block.id === root.id ? "" : `${block.id}--`, anchors) : undefined);
   const rootText = marked(root, publishedText(decorated(root), context, { title: true }));

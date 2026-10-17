@@ -5,7 +5,7 @@
 import { tokensOf, type Source } from "./props";
 import { ticketKeyReferences, type TicketPrefixes } from "@ep0ch/outline-core/work-ids";
 import { emphasis } from "./inline";
-import { ADORN, LINK_END, linkTag, stripMarks } from "./style";
+import { ADORN, LINK_END, linkTag, STYLE, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 import type { StepRef } from "./steps";
 import type { FigureControl } from "./graphs";
@@ -15,6 +15,9 @@ import { resourceProviderKeys } from "./resource-providers";
 import { noteStructure } from "@ep0ch/outline-core/component-block";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
 import { blockReferenceOccurrences, linkOccurrences, pageAddressText } from "@ep0ch/outline-core/link-syntax";
+import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
+import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, readerWords } from "@ep0ch/outline-core/site-values";
+import type { SiteAnswer, SiteValue } from "@ep0ch/outline-core/site";
 
 /** Markers around a resolved link / an unlinked missing one in prepared text; colourBody styles them. */
 export const LINK_ON = "", MISSING_ON = "", LINK_OFF = "";
@@ -60,6 +63,7 @@ export function invalidateReferences() { outlineChanged(null, true); }
 interface Cached<T> { value: T | null; error?: string; at: number; asking: boolean }
 const refsBy = new WeakMap<object, Map<string, Cached<Map<string, ReferenceResolution>>>>();
 const pagesBy = new WeakMap<object, Map<string, Cached<PageResolution>>>();
+const siteBy = new WeakMap<object, Map<string, Cached<{ answer: SiteAnswer | null; ms: number; text: string }>>>();
 
 function ask<T>(by: WeakMap<object, Map<string, Cached<T>>>, src: Source | null | undefined, key: string, fetch: (b: SocketBoard) => Promise<T>, stale: (c: Cached<T>) => boolean): Cached<T> | null {
   if (!src) return null;
@@ -146,6 +150,36 @@ export function pageOf(address: string, src: Source | null | undefined): PageRes
 }
 
 /**
+ * What the `{{ }}` of note `blockId` read as, from the service's `site.answer` (the door resolves nothing itself); null
+ * while asked, for a note with no placeholders, and when the service can't answer. `draft`: the note's unsaved text.
+ * Asked again when a note it was computed from changes, any change when it looked for a page that isn't there, and each
+ * minute for a value that reads the clock.
+ */
+function siteRead(blockId: string, text: string, src: Source | null | undefined, draft: boolean): { answer: SiteAnswer | null; current: boolean } {
+  if (!text.includes("{{") || !interpolationSpans(text).length) return { answer: null, current: true };
+  // A draft is asked for under its note's own key, so one read is in flight at a time as the person types (the answer of the
+  // text before is drawn meanwhile): asked again only when the draft is no longer the text that was read.
+  const entry = ask(siteBy, src, draft ? `${blockId}\0draft` : blockId, async b => {
+    // A failed read is an answer of none, kept with the text it was for: a change (or more typing) asks again.
+    try { return { answer: await b.siteAnswer(blockId, draft ? text : undefined) as SiteAnswer | null, ms: Date.now(), text }; }
+    catch { return { answer: null, ms: Date.now(), text }; }
+  }, c => !c.value ? true
+      : (draft && c.value.text !== text) ? true
+      : !c.value.answer ? anyChangeSince(c.at)
+      : changedSince(c.at, c.value.answer.deps) || (!!c.value.answer.anyChange && anyChangeSince(c.at))
+        || (c.value.answer.clock === "minute" && Math.floor(c.value.ms / 60000) !== Math.floor(Date.now() / 60000)));
+  const answer = entry?.value?.answer ?? null;
+  return { answer, current: !!entry && !entry.asking && !!entry.value && (!draft || entry.value.text === text) };
+}
+
+export const siteAnswerOf = (blockId: string, text: string, src: Source | null | undefined, draft = false): SiteAnswer | null => siteRead(blockId, text, src, draft).answer;
+
+
+/** The text has a `{{ }}` whose answer isn't read yet for this very text (being read, or the draft has moved on): a drawing of it is not final. */
+export const siteAnswerWaiting = (blockId: string, text: string, src: Source | null | undefined, draft = false): boolean =>
+  !!src && !siteRead(blockId, text, src, draft).current;
+
+/**
  * Only a cheap guard, so a note without a bracketed resource-shaped property costs no request: the keys
  * pi-herdr-outliner's `authoredResourceReferenceOccurrences` (src/resource-references.ts) reads as resources.
  * The service decides which tokens are.
@@ -185,13 +219,18 @@ export interface LinkView { text: string; missing: boolean }
  * none.
  */
 export type LinkTarget = {
+  /**
+   * A `{{ }}` the note reads (PIE-533 S2), as the service answered it: ⏎ or a click shows where its value is written (`block`,
+   * `at` and `atLabel` light that line), or says it is computed. `problem` is why it has no value.
+   */
+  value?: { expression: string; words: string; problem?: string; route: string };
   /** A `#tag` (PIE-800), its value as the service's parser read it (`garden/beds`): it opens the notes carrying the tag. */
   tag?: string;
   /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
   resource?: AuthoredResourceLink;
   /** A Resource an extension's view links to (PIE-754): `file:/path`, `web:https://…` or `resource:<id>`. */
   resourceRef?: string;
-  block?: string; fragment?: string; at?: number; atLabel?: string; /** With `at`: what the lit line is (a `::fields` row's: "the line it was written on"). */ atWhy?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image" | "picture"; reason?: string;
+  block?: string; fragment?: string; at?: number; atLabel?: string; /** With `at`: what the lit line is (a `::fields` row's: "the line it was written on"). */ atSays?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image" | "picture"; reason?: string;
   /**
    * A live figure's control (role "figure"): one of a tabs figure's tabs, or its density; on a row (role "row"), the
    * figure the row is in (`figure` only), so the figure's keys work while the row is current (src/graphs.ts).
@@ -293,7 +332,16 @@ function tagsIn(noteText: string, src: Source | null | undefined): { raw: string
   return values.map(value => ({ raw: `#${value}`, value, re: new RegExp(`(^|[\\s(])#${esc(value)}(?![\\p{L}\\p{M}\\p{N}_/-])`, "gu") }));
 }
 
-export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = []): string {
+/** A value's words with the characters inline Markdown would take for emphasis kept as typed. */
+const plainWords = (words: string) => words.replace(/[*_~\\]/g, "\\$&");
+
+/**
+ * `site`: the note this text is drawn for. Its `{{ }}` are drawn as the service's `site.answer` reads them (PIE-533 S2):
+ * the value in place, in italics as computed (a URL as a link), or an unresolved one dimmed as typed with the nearest key.
+ * Each is an element: ⏎ or a click shows the line the value is written on. Without `site`, or while the answer is on its
+ * way, a placeholder stays as typed. `draft`: the text is the note's unsaved one.
+ */
+export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = [], site?: { block: string; draft?: boolean }): string {
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
   // Fence lines and the code between them are left as typed, links and Markdown alike. So is a component block
@@ -307,16 +355,42 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   const scope = src ? ticketPrefixesOf(src) : null;
   // A fence inside a callout or quote is code too (PIE-690): its lines stay as typed.
   for (const span of structuralLiteralLines(lines)) for (let j = span.start; j <= span.end; j++) if (typed[j]! < 0) typed[j] = span.start;
+  // A `{{ }}` as the reader draws it: tagged as an element of its own, never in a link's colour unless it is a URL.
+  const drawValue = (raw: string, v: SiteValue, block: string): string => {
+    const words = readerWords(raw, v);
+    const resolved = hasWords(v);
+    const near = v.problem && !resolved ? problemWords(v) : undefined;
+    const to: LinkTarget = {
+      value: { expression: v.expression, words, ...(near ? { problem: near } : {}), route: v.route.join(" → ") },
+      label: v.expression,
+      ...(v.source ? { block: v.source.block, at: v.source.start, ...(v.source.mark ? { atLabel: v.source.mark } : {}) } : v.from && v.from !== block ? { block: v.from } : {}),
+    };
+    const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
+    if (!resolved) return MISSING_ON + on + plainWords(words) + off + LINK_OFF;
+    const url = (v.values ?? []).length === 1 && isExternalUrl(v.values![0]!);
+    // Computed, so lightly marked: italic; a URL is a link's colour instead.
+    return url ? EXTERNAL_ON + on + plainWords(words) + off + LINK_OFF
+      : STYLE.italic[0] + on + plainWords(words === "" ? EMPTY_VALUE : words) + off + STYLE.italic[1];
+  };
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
   const mark = (v: LinkView, to: LinkTarget, external = false) => {
     const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
     return (v.missing ? MISSING_ON : external ? EXTERNAL_ON : LINK_ON) + on + v.text + off + (external ? ADORN + "↗" : "") + LINK_OFF;
   };
+  // The `{{ }}` of the text, where the scan finds them, paired with the service's answers (none until it has answered).
+  const answer = site ? siteAnswerOf(site.block, noteText, src, site.draft) : null;
+  const pairs = answer ? pairValues(text, answer.values.slice(0, MAX_NOTE_VALUES)).filter(p => p.value) : [];
+  let lineStart = 0;
   return lines.map((line, i) => {
+    const from = lineStart;
+    lineStart += line.length + 1;
     if (typed[i]! >= 0) return line;
     // Each link where outline-core's scan finds it, spliced in by its offsets; code spans keep their text.
     const code = codeSpanRanges(line);
     const spans: { start: number; end: number; draw: () => string }[] = [];
+    for (const p of pairs) if (p.start >= from && p.end <= from + line.length) {
+      spans.push({ start: p.start - from, end: p.end - from, draw: () => drawValue(line.slice(p.start - from, p.end - from), p.value!, site!.block) });
+    }
     // A resource token the service names reads as itself without its brackets, and shows its Resource.
     for (const t of resources) for (let at = line.indexOf(t.raw); at >= 0; at = line.indexOf(t.raw, at + t.raw.length))
       spans.push({ start: at, end: at + t.raw.length, draw: () => mark({ text: t.raw.slice(1, -1), missing: false }, { resource: t.link, label: t.link.label }) });

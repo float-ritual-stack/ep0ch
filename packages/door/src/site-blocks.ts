@@ -48,7 +48,7 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
   const inner = Math.max(10, W - 4);
   const body = a.rows.map((row, n) => {
     const words = ellipsize(row.link ? row.link.title : row.value, Math.max(6, inner - 14));
-    const to: LinkTarget = { block: a.from, role: "row", ...(row.offset !== undefined ? { at: row.offset, ...(row.token ? { atLabel: row.token } : {}), atWhy: "the line it was written on" } : {}) };
+    const to: LinkTarget = { block: a.from, role: "row", ...(row.offset !== undefined ? { at: row.offset, ...(row.token ? { atLabel: row.token } : {}), atSays: "the line it was written on" } : {}) };
     const anchor: LinkTarget = { block: a.from, role: "row", anchor: { key: spec.key, n: n + 1 } };
     const text = (tag ? tag(to, words) : words);
     const control = tag ? tag(anchor, "¶") : "¶";

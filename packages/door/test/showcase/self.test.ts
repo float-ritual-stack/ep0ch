@@ -34,7 +34,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     expect(rows.map(r => r.label)).toEqual(expect.arrayContaining(["demonstrating by doing", "shacks not cathedrals"]));
 
     // A third line saved: a row appears, on its own.
-    const rail = (await board.get(seeded.notes.ventRail.id))!;
+    const rail = (await board.get(seeded.notes.fieldsRail.id))!;
     await board.update(rail.id, rail.text.replace("\n::fields", "\n- third pass [connectTo::trust the drift]\n::fields"), rail.revision!);
     await until(() => text().includes("trust the drift") && text().includes("live · 3 occurrences"), "the third row", 8000);
 

@@ -118,6 +118,7 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
       const note = (await board.get(ids.emph!))!;
       await board.comment(`pie541-${i}`, ids.emph!, note.revision!, body, { quote: last, start: note.text.indexOf(last) });
     }
+    await make("values", ["Vent rail [owner::sam] [target::https://example.test/vent]", "Owner {{this.owner}} at {{this.target}}; typo {{this.ownr}}."].join("\n"));
     await make("figures", ["Garden figures [count::2]", "", "::graph-check", "---", "title: Chores (live query)", 'query: "type=chore"', "---", "::", "", `See ((${ids.shed}|the shed)).`, "", "::links", ""].join("\n"));
     board.close();
   });
@@ -185,6 +186,21 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     expect(ansi.out.split("\n").map(l => visible(l).trimEnd())).toEqual(plain.out.split("\n"));
     // ((id)) as a picker outputs it is taken as the id.
     expect((await run(["show", `((${ids.oil}))`, "--width", "40"], env)).out).toBe(plain.out);
+  });
+
+  test("show draws a note's {{ }} as their values; --source keeps them as written; --site gives the text and the service's whole answer (PIE-533 S2)", async () => {
+    const drawn = await run(["show", ids.values!, "--width", "100"], env);
+    expect(drawn.out).toContain("Owner sam at https://example.test/vent; typo {{this.ownr}} · did you mean owner?.");
+    expect((await run(["show", ids.values!, "--source"], env)).out).toContain("Owner {{this.owner}} at {{this.target}}; typo {{this.ownr}}.");
+    const site = JSON.parse((await run(["show", ids.values!, "--site"], env)).out);
+    expect(site).toMatchObject({ id: ids.values, text: expect.stringContaining("{{this.owner}}") });
+    expect(site.site.values.map((v: any) => [v.expression, v.values ?? null, v.problem?.didYouMean?.[0] ?? null])).toEqual([
+      ["this.owner", ["sam"], null], ["this.target", ["https://example.test/vent"], null], ["this.ownr", null, "owner"],
+    ]);
+    expect(site.site.problems).toBe(1);
+    // A note with no placeholder has no answer; two of the modes at once is refused.
+    expect(JSON.parse((await run(["show", ids.oil!, "--site"], env)).out).site).toBeUndefined();
+    expect((await run(["show", ids.values!, "--site", "--cells"], env)).code).toBe(2);
   });
 
   test("show: links inside italics and bold are drawn in colour, and a line with several comment threads gets one mark (PIE-541)", async () => {

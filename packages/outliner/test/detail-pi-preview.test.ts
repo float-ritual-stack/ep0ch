@@ -2769,6 +2769,22 @@ describe("structured property inspector presentations", () => {
     expect(inline.context.selected?.text).toBe(canonical);
   });
 
+  test("lists the note's {{ }} as the service read them under the properties (PIE-533 S2)", () => {
+    const detail = propertyState("dedicated");
+    detail.valueBindings = [
+      { expression: "this.owner", words: "sam", from: "0d62cdcb-1111-4222-8333-444455556666", route: "this → the note" },
+      { expression: "this.ownr", words: "", problem: "no `ownr` on this note; did you mean `owner`?", route: "this" },
+      { expression: "now.date", words: "2026-10-17", route: "now" },
+    ];
+    const out = renderPropertyInspectorDocument(detail, 100);
+    expect(out).toContain("### Values read here · 3");
+    expect(out).toContain("| {{this.owner}} | sam | 0d62cdcb |");
+    expect(out).toContain("did you mean");
+    expect(out).toContain("| {{now.date}} | 2026-10-17 | computed |");
+    detail.valueBindings = [];
+    expect(renderPropertyInspectorDocument(detail, 100)).not.toContain("Values read here");
+  });
+
   test("renders responsive table columns and typed target actions", () => {
     const detail = propertyState("inline");
     const regions = detailPropertyInspectorRegions(detail);

@@ -3,7 +3,7 @@
 
 /** A key written on several lines, a `::fields` that lists them, and two `::if` bodies, one that holds and one that doesn't. */
 export const VENT_RAIL = [
-  "Vent rail demo [status::active] [owner::sam]",
+  "Vent rail connections [status::active] [owner::sam]",
   "",
   "Notes on the vent rail for the greenhouse.",
   "- first pass [connectTo::demonstrating by doing]",

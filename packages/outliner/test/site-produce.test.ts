@@ -168,7 +168,7 @@ describe("::fields", () => {
     const note = fixture(store);
     const draft = "Typed\n\n- moved up [connectTo::now first]\n- first pass [connectTo::demonstrating by doing]";
     const produced = answerSite(store, { blockId: note.id, draft: { text: draft }, produce: { kind: "fields", key: "connectTo" } }).produced as Extract<SiteProduced, { kind: "fields" }>;
-    expect(produced.rows.map(r => draft.slice(r.offset!, r.offset! + r.token!.length))).toEqual(produced.rows.map(r => r.token));
+    expect(produced.rows.map(r => draft.slice(r.offset!, r.offset! + r.token!.length))).toEqual(produced.rows.map(r => r.token!));
     expect(produced.rows[0]!.token).toBe("[connectTo::now first]");
     expect(produced.revision).toBe(0);
   });

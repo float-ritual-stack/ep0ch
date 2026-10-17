@@ -75,6 +75,9 @@ export function valueView(r: PropRow, src: Source | null, noteText?: string): st
   return v;
 }
 
+/** One `{{ }}` of the note as the service read it: for the panel's "Values read here". */
+export interface ValueRow { expression: string; words: string; problem?: string; from?: string }
+
 /** A value `properties.patch` would take, or why not (the service's own rules: non-empty, one line, balanced brackets). */
 export function checkValue(r: PropRow, value: string): string | null {
   const v = value.trim();
@@ -132,7 +135,7 @@ export class PropertyPanel {
   }
 
   /** The panel's lines, at most `h`, `w` wide. `summary` holds the keys the summary line shows. */
-  render(rows: PropRow[], w: number, h: number, info: { origin?: number; revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string }): string[] {
+  render(rows: PropRow[], w: number, h: number, info: { origin?: number; revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string; values?: readonly ValueRow[] }): string[] {
     const scopes = info.scopes === "ready" ? "" : info.scopes === "loading" ? " · reading…" : " · block only (no properties.preview here)";
     const title = `properties · ${rows.length}${info.revision !== undefined ? ` · rev ${info.revision}` : ""}${scopes}`;
     const out = [rule(w, ellipsize(title, Math.max(2, w - 8)))];
@@ -177,6 +180,16 @@ export class PropertyPanel {
           c.drawn = { row: (info.origin ?? 0) + out.length, items: at };
           out.push(...popup);
         }
+      }
+    }
+    // The `{{ }}` the note reads (PIE-533 S2): what each says, what it reads as (or why not), and the note it came from.
+    const values = info.values ?? [];
+    if (values.length && out.length + 2 < h - (foot ? 1 : 0)) {
+      out.push(fg(C.dark) + pad(`Values read here · ${values.length}`, w) + RESET);
+      for (const v of values.slice(0, Math.max(0, h - 1 - (foot ? 1 : 0) - out.length))) {
+        const key = ellipsize(`{{${printable(v.expression)}}}`, Math.max(8, keyW + 12));
+        const reads = v.problem ? fg(C.brown) + printable(v.problem) : fg(C.yellow) + printable(v.words) + (v.from ? fg(C.dark) + `  ${shortId(v.from)}` : fg(C.dark) + "  computed");
+        out.push(pad("  " + fg(C.lcyan) + key + RESET + "  " + reads + RESET, w));
       }
     }
     if (foot) out.push(fg(this.field?.changedElsewhere || /not saved|can't|refused|failed/.test(foot) ? C.lred : C.yellow) + pad(foot, w) + RESET);

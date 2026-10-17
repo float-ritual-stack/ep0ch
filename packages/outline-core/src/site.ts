@@ -102,6 +102,11 @@ export interface SiteAnswerRequest {
   paths?: string[];
   /** A producer in the note (a figure, `::fields`, `::if`) asking its own question over this Site: answered in `produced`. */
   produce?: SiteProducer;
+  /**
+   * Notes the reader may not see (a publisher's locked or non-public ones): a path that reads one answers `hidden` and no
+   * value, and an ancestor in it supplies no bare key (nor any above it). A reader with no limits sends none.
+   */
+  hidden?: string[];
 }
 
 /**
@@ -172,10 +177,17 @@ export interface SiteValue {
   offsets?: number[];
   /** The note the values were read from. */
   from?: string;
+  /**
+   * Where the first value is written: the note, the offset and line of its property token, and the token's text (to find it
+   * again by when the note has been edited). Absent for a computed value.
+   */
+  source?: { block: string; start: number; line: number; mark: string };
   /** Values that are links to a note (shown by its title). */
   links?: { text: string; id: string; title: string; how: string }[];
   /** The value changes within the day by the clock alone (`now.time`). */
   clock?: "minute";
+  /** It read a note the request said the reader may not see: no value, and nothing of it is to be drawn (`problem` says so). */
+  hidden?: true;
   /** How: which head, which resolver answered, which fallback was taken. */
   route: string[];
 }
