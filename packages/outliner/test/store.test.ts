@@ -6,7 +6,7 @@ import {
   annotationSourceHash,
   createTextQuoteAnchor,
 } from "../src/annotations";
-import { PROPERTY_PARSER_VERSION } from "../src/properties";
+import { PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { checklistItems, shortChecklistItemId, updateChecklistText } from "../src/checklist-items";
 import { OutlinerStore } from "../src/store";
 import type {

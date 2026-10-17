@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerStore } from "../src/store";
-import { parsePropertyRecords } from "../src/properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { treeSemanticState } from "../src/tree-renderer";
 import { propertySummarySegments } from "../src/property-summary";
 

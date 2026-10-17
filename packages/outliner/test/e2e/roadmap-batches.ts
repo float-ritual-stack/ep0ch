@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { OutlinerClient } from "../../src/client";
-import { parsePropertyRecords } from "../../src/properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { Block, RoadmapItemCreateReceipt, VisibleBlockCollection } from "../../src/types";
 import { runHerdrScenario } from "./herdr-runner";
 

@@ -29,7 +29,7 @@ import { annotationKind, annotationTone, isTldr } from "@ep0ch/outline-core/anno
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { ExtensionsListResult } from "./extension-registry";
 import { onItsPage, plainBody } from "./publish-marginalia";
-import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "./properties";
+import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
 import { extractAnnotationBody } from "./annotations";
 import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, ChecklistUpdateReceipt, MarkQuoteReceipt, ProjectedBlockCollection } from "./types";

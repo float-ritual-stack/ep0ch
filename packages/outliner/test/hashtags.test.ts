@@ -2,13 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  firstLineWithoutPropertyTokens,
-  parseProperties,
-  parsePropertyRecords,
-  patchPropertyText,
-  stripProperties,
-} from "../src/properties";
+import { patchPropertyText } from "../src/properties";
+import { firstLineWithoutPropertyTokens, parseProperties, parsePropertyRecords, stripProperties } from "@ep0ch/outline-core/property-parse";
 import { createPropertyInspectorModel, propertyInspectorAuthoredText } from "../src/property-inspector";
 import { OutlinerStore } from "../src/store";
 

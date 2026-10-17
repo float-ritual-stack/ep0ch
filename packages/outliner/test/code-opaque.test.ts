@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import { OutlinerStore } from "../src/store";
 import { readAuthoredLinks } from "../src/authored-links";
-import { parsePropertyRecords } from "../src/properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { embedMatches } from "../src/transclusions";
 import { extractMentionReferences } from "../src/mentions";
 import { completionTargetAtCursor } from "../src/completion";

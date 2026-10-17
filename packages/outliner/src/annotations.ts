@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { normalizeRetainedResourceRevisionRef } from "./resources";
-import { getProperty, parseProperties, stripProperties } from "./properties";
+import { getProperty } from "./properties";
+import { parseProperties, stripProperties } from "@ep0ch/outline-core/property-parse";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
 import { ANNOTATION_EDITED_KEY, annotationProperties, annotationPropertyProblem, isMarkLifecycle, MARK_HEADING } from "@ep0ch/outline-core/annotation-marks";
 import type {

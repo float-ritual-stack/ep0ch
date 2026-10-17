@@ -2861,7 +2861,8 @@ The service owns what things mean; the door asks it, and never computes the answ
   cards are planned by `views.planWrite`, and a live figure's `done:` and `now:` by `query.matches`
   (PIE-490). The door has no evaluator of its own.
 - **Property grammar.** The door finds `[key::value]` tokens while it paints (titles, digests, metadata
-  lines) with outline-core's `property-grammar.ts`, the file the service parses with; `test/grammar.test.ts`
+  lines) with outline-core's `property-grammar.ts` and `property-parse.ts` (the `PropertyRecord` type, and the summary
+  line's `property-summary.ts`), the files the service parses with; `test/grammar.test.ts`
   checks that titles hide exactly the tokens the service's parser reads.
 - **Lists without full text.** Lanes, board discovery and Who's Online read titles, properties and revision
   only (`views.read`'s compact rows, `blocks.query` `fields`, `blocks.read`; PIE-400). A reader fetches the

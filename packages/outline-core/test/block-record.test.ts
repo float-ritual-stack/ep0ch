@@ -10,11 +10,11 @@ const input = {
   },
   title: "Seed order",
   properties: [
-    { key: "type", value: "errand", scope: "block" as const, line: 0 },
-    { key: "tag", value: "seeds", scope: "block" as const, line: 0 },
-    { key: "tag", value: "spring", scope: "block" as const, line: 0 },
-    { key: "who", value: "Sam", scope: "inline" as const, line: 1 },
-    { key: "when", value: "Friday", scope: "line" as const, line: 2 },
+    { key: "type", value: "errand", scope: "block" as const, line: 0, column: 11, start: 11 },
+    { key: "tag", value: "seeds", scope: "block" as const, line: 0, column: 28, start: 28 },
+    { key: "tag", value: "spring", scope: "block" as const, line: 0, column: 41, start: 41 },
+    { key: "who", value: "Sam", scope: "inline" as const, line: 1, column: 4, start: 59 },
+    { key: "when", value: "Friday", scope: "line" as const, line: 2, column: 0, start: 77 },
   ],
   literal: [],
   children: ["c2", "c1"],
@@ -28,7 +28,10 @@ describe("a block as a record", () => {
   test("properties as ordered lists, the header and body from the header line, one timestamp format", () => {
     const r = blockRecord(input);
     expect(r.properties).toEqual([{ key: "type", values: ["errand"] }, { key: "tag", values: ["seeds", "spring"] }]);
-    expect(r.fields).toEqual([{ key: "who", value: "Sam", scope: "inline", line: 1 }, { key: "when", value: "Friday", scope: "line", line: 2 }]);
+    expect(r.fields).toEqual([
+      { key: "who", value: "Sam", scope: "inline", line: 1, column: 4, offset: 59 },
+      { key: "when", value: "Friday", scope: "line", line: 2, column: 0, offset: 77 },
+    ]);
     expect(r.header.map(h => h.key)).toEqual(["type", "tag", "tag"]);
     expect(r.body).toBe("Seed order\nAsk [who::Sam] first.\nwhen:: Friday");
     expect([r.created, r.updated]).toEqual(["2026-03-09T09:00:00.000Z", "2026-03-09T09:30:00.500Z"]);

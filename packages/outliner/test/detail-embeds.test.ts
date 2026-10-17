@@ -5,7 +5,7 @@ import {
   projectDetailRead,
   type DetailEmbedRequester,
 } from "../src/detail-embeds";
-import { parseProperties } from "../src/properties";
+import { parseProperties } from "@ep0ch/outline-core/property-parse";
 import { parseVirtualBranchConfig, selectVirtualBranchMembers } from "../src/virtual-branches";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import type {

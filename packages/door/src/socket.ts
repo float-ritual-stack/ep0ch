@@ -233,16 +233,6 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
 /** A writer that is an extension (`ext:jira`): the service attributes every extension write that way. */
 export const isExtensionWriter = (author: string | null | undefined) => !!author?.startsWith("ext:");
 
-/**
- * Every property token in a text as the service's save-time parser reads it (PIE-401 `properties.preview`):
- * key, value, scope (block / line / inline), where it sits, and the `ordinal` `properties.patch` addresses.
- * Ordinals count every token (hashtags too) and hold only for exactly that text.
- */
-export interface PropertyRecord {
-  key: string; value: string; raw: string; start: number; end: number; line: number; column: number;
-  placement: "metadata-line" | "trailing-metadata" | "inline"; syntax: "bracket" | "bare" | "hashtag";
-  ordinal: number; scope: "block" | "line" | "inline";
-}
 /** How the service reads one `((id^fragment|label))` (`references.resolve`). */
 export interface ReferenceResolution {
   blockId: string; fragmentId?: string; label?: string;
@@ -253,6 +243,7 @@ export interface ReferenceResolution {
 export interface PageResolution { address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
+import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
 /**

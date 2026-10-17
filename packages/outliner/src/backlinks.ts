@@ -4,7 +4,7 @@ import {
   type BacklinkFacetRules,
 } from "./backlink-facets";
 import { normalizePageAddress } from "@ep0ch/outline-core/link-syntax";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import {
   outlinerReferenceOccurrences,
   propertyReferenceOccurrences,

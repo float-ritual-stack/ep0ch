@@ -231,7 +231,8 @@ export function propertyValueHolds(value: string, wanted: string): boolean {
 
 /**
  * A link written inside a property's value (PIE-874): a `((id))` or `[[page]]` anywhere in it, or an item of the value
- * that is exactly a ticket key (`[ticket::PC-582]`, `[blocks::PIE-12, PIE-14]`), whatever the key: properties are open.
+ * that is exactly a ticket key (`[ticket::PC-582]`; a list is written in brackets, `[blocks::[PIE-12, PIE-14]]`, since
+ * a plain value's commas are part of the one value, #604), whatever the key: properties are open.
  * Offsets are the whole text's. Anything else in a value stays text.
  */
 export type PropertyValueLink =

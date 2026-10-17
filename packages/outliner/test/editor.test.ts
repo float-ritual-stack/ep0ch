@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseProperties, stripProperties } from "../src/properties";
+import { parseProperties, stripProperties } from "@ep0ch/outline-core/property-parse";
 import { isDetailToggle, isModifiedEnter, isPrintableInput, TerminalInputDecoder } from "../src/terminal";
 import { TextBuffer } from "../src/text-buffer";
 

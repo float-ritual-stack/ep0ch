@@ -60,16 +60,8 @@ import {
 } from "./block-query";
 import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { ReadMarks } from "./read-marks";
-import {
-  firstLineWithoutPropertyTokens,
-  titlePropertyRanges,
-  formatProperty,
-  matchingPropertyRecords,
-  matchesFilters,
-  parsePropertyRecords,
-  patchPropertyText,
-  PROPERTY_PARSER_VERSION,
-} from "./properties";
+import { formatProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
+import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle, blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";

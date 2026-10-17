@@ -16,7 +16,7 @@ import type { DraftGroupInput } from "./draft-patch-router";
 import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type BlockWrite, type ExtensionWrite, type GroupOutcome, type TriggerWrite } from "./extension-writes";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-registry";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { FORM_FIELD_KEY, formFields } from "@ep0ch/outline-core/form-fields";
 import type { ResourceProjection } from "./resource-projection";
 import type { ExtensionCallFor, ResourceExtensionRuntime } from "./resource-extensions";

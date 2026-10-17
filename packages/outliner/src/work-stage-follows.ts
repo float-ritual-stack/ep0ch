@@ -1,5 +1,6 @@
 import { parseWorkId } from "./work-ids";
-import { parsePropertyRecords, patchPropertyText } from "./properties";
+import { patchPropertyText } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { PropertyPatchOperation, PropertyRecord } from "./types";
 
 // What moves with a roadmap item's work-stage (PIE-844). The workboard owns `work-stage`; these are the properties

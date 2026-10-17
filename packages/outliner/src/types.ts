@@ -155,22 +155,9 @@ export interface BlockEditActivityPage {
   cursor: number;
 }
 
-export type PropertyPlacement = "inline" | "trailing-metadata" | "metadata-line";
-export type PropertyScope = "block" | "line" | "inline";
+export type { PropertyPlacement, PropertyRecord, PropertyScope, PropertySyntax } from "@ep0ch/outline-core/property-parse";
+import type { PropertyRecord, PropertyScope } from "@ep0ch/outline-core/property-parse";
 export type PropertyQueryScope = PropertyScope | "all";
-export type PropertySyntax = "bracket" | "bare" | "hashtag";
-
-export interface PropertyRecord extends BlockProperty {
-  ordinal: number;
-  raw: string;
-  start: number;
-  end: number;
-  line: number;
-  column: number;
-  placement: PropertyPlacement;
-  scope: PropertyScope;
-  syntax: PropertySyntax;
-}
 
 /**
  * How the save-time parser reads a draft. Nothing is stored: a client compares

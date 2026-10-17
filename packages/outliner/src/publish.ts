@@ -21,7 +21,8 @@ import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
-import { getProperty, parseProperties, parsePropertyRecords, stripPropertyTokens } from "./properties";
+import { getProperty } from "./properties";
+import { parseProperties, parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import {
   canonicalPublishRoots,

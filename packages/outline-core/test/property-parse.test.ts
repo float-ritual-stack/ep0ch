@@ -1,0 +1,196 @@
+import { expect, test } from "bun:test";
+import { parsePropertyRecords, parseProperties, stripProperties, stripPropertyTokens } from "../src/property-parse";
+
+test("records lossless property spans and placement", () => {
+  const text = [
+    "Title [type::feedback] middle [project::skippy]",
+    "[status::open] [owner::evan]",
+    "Body [inline::yes] after",
+  ].join("\n");
+  const tokens = parsePropertyRecords(text);
+
+  expect(tokens.map(({ key, ordinal, line, column, placement }) => ({
+    key,
+    ordinal,
+    line,
+    column,
+    placement,
+  }))).toEqual([
+    { key: "type", ordinal: 0, line: 0, column: 6, placement: "inline" },
+    { key: "project", ordinal: 1, line: 0, column: 30, placement: "trailing-metadata" },
+    { key: "status", ordinal: 2, line: 1, column: 0, placement: "metadata-line" },
+    { key: "owner", ordinal: 3, line: 1, column: 15, placement: "metadata-line" },
+    { key: "inline", ordinal: 4, line: 2, column: 5, placement: "inline" },
+  ]);
+  for (const token of tokens) expect(text.slice(token.start, token.end)).toBe(token.raw);
+});
+test("a media line is content, never the preamble: an image right under the subject, then the block's properties (PIE-598)", () => {
+  const text = [
+    "An evening on the plot",
+    "[img::/pictures/beds.jpg] [hero-focus::0.8,0.6] [alt::the beds]",
+    "",
+    "[season::autumn]",
+    "Body",
+    "[img::/pictures/gate.jpg] [size::50%]",
+  ].join("\n");
+  expect(parsePropertyRecords(text).map(({ key, scope, placement, line }) => ({ key, scope, placement, line }))).toEqual([
+    { key: "img", scope: "inline", placement: "trailing-metadata", line: 1 },
+    { key: "hero-focus", scope: "inline", placement: "trailing-metadata", line: 1 },
+    { key: "alt", scope: "inline", placement: "trailing-metadata", line: 1 },
+    { key: "season", scope: "inline", placement: "metadata-line", line: 3 },
+    { key: "img", scope: "inline", placement: "trailing-metadata", line: 5 },
+    { key: "size", scope: "inline", placement: "trailing-metadata", line: 5 },
+  ]);
+  // A line with any other property on it isn't a media line: it stays the preamble, as before.
+  expect(parsePropertyRecords("Title\n[img::/a.png] [type::note]").map(r => r.scope)).toEqual(["block", "block"]);
+});
+
+test("classifies the metadata preamble separately from body properties", () => {
+  const text = [
+    "",
+    "# Subject [type::roadmap-item]",
+    "[status::planned]",
+    "owner:: evan",
+    "",
+    "Body [work-stage::next]",
+    "ctx:: later [tag::body]",
+    "[late::inline]",
+  ].join("\n");
+
+  expect(parsePropertyRecords(text).map(({ key, value, scope, syntax, line }) => ({
+    key,
+    value,
+    scope,
+    syntax,
+    line,
+  }))).toEqual([
+    { key: "type", value: "roadmap-item", scope: "block", syntax: "bracket", line: 1 },
+    { key: "status", value: "planned", scope: "block", syntax: "bracket", line: 2 },
+    { key: "owner", value: "evan", scope: "block", syntax: "bare", line: 3 },
+    { key: "work-stage", value: "next", scope: "inline", syntax: "bracket", line: 5 },
+    { key: "ctx", value: "later", scope: "line", syntax: "bare", line: 6 },
+    { key: "tag", value: "body", scope: "inline", syntax: "bracket", line: 6 },
+    { key: "late", value: "inline", scope: "inline", syntax: "bracket", line: 7 },
+  ]);
+  expect(parseProperties(text)).toEqual([
+    { key: "type", value: "roadmap-item" },
+    { key: "status", value: "planned" },
+    { key: "owner", value: "evan" },
+  ]);
+});
+
+test("uses an initial property-only run as block metadata", () => {
+  const records = parsePropertyRecords(
+    "\n[status::open]\nowner:: evan\n\nBody\n[late::inline]",
+  );
+  expect(records.map(({ key, scope }) => ({ key, scope }))).toEqual([
+    { key: "status", scope: "block" },
+    { key: "owner", scope: "block" },
+    { key: "late", scope: "inline" },
+  ]);
+});
+
+test("ignores fenced code while indexing properties after a closing fence", () => {
+  const text = [
+    "```ts",
+    "[fake::backtick]",
+    "````",
+    "[real::after-backtick]",
+    "  ~~~ language",
+    "[fake::tilde]",
+    "  ~~~",
+    "[also-real::after-tilde]",
+    "    [indented::eligible]",
+  ].join("\n");
+
+  expect(parsePropertyRecords(text).map(({ key, value }) => ({ key, value }))).toEqual([
+    { key: "real", value: "after-backtick" },
+    { key: "also-real", value: "after-tilde" },
+    { key: "indented", value: "eligible" },
+  ]);
+});
+
+test("treats an unclosed fence as literal through the end of the block", () => {
+  expect(parsePropertyRecords("Title [real::yes]\n~~~js\n[fake::no]\n[still-fake::no]")).toEqual([
+    expect.objectContaining({ key: "real", ordinal: 0 }),
+  ]);
+});
+
+test("ignores equal-length inline code spans on one line; an unclosed run and a line break end nothing (PIE-764)", () => {
+  // A span is one line, and an unclosed run is text (CommonMark): a stray backtick never hides the next line's
+  // properties, nor its own line's.
+  const text = [
+    "`[fake::single]` [first::real]",
+    "``[cross::real]",
+    "no span crosses a line`` [second::real]",
+    "`[unmatched::real]",
+    "[third::real] ``[fake::double]`` [fourth::real]",
+  ].join("\n");
+
+  expect(parsePropertyRecords(text).map(({ key, line }) => ({ key, line }))).toEqual([
+    { key: "first", line: 0 },
+    { key: "cross", line: 1 },
+    { key: "second", line: 2 },
+    { key: "unmatched", line: 3 },
+    { key: "third", line: 4 },
+    { key: "fourth", line: 4 },
+  ]);
+});
+
+test("uses odd and even backslash parity for escaped property openers", () => {
+  const text = String.raw`\[odd::no] \\[even::yes] \\\[odd-three::no] \\\\[even-four::yes]`;
+  expect(parsePropertyRecords(text).map(({ key }) => key)).toEqual(["even", "even-four"]);
+});
+
+test("preserves UTF-16 CRLF offsets and exact spans beside inline literals", () => {
+  const text = "😀\r\n`[fake::x]`[real::yes]\r\n[second::ok]";
+  const tokens = parsePropertyRecords(text);
+
+  expect(tokens.map(({ key, ordinal, line, column, start, end, placement }) => ({
+    key,
+    ordinal,
+    line,
+    column,
+    start,
+    end,
+    placement,
+  }))).toEqual([
+    {
+      key: "real",
+      ordinal: 0,
+      line: 1,
+      column: 11,
+      start: text.indexOf("[real::yes]"),
+      end: text.indexOf("[real::yes]") + "[real::yes]".length,
+      placement: "trailing-metadata",
+    },
+    {
+      key: "second",
+      ordinal: 1,
+      line: 2,
+      column: 0,
+      start: text.indexOf("[second::ok]"),
+      end: text.indexOf("[second::ok]") + "[second::ok]".length,
+      placement: "metadata-line",
+    },
+  ]);
+  for (const token of tokens) expect(text.slice(token.start, token.end)).toBe(token.raw);
+});
+
+test("strips only indexed spans while preserving literals and line structure", () => {
+  const text = [
+    "Title [status::open]",
+    "```",
+    "[example::literal]",
+    "```",
+    "[owner::evan]",
+  ].join("\r\n");
+
+  expect(stripPropertyTokens(text)).toBe(
+    ["Title ", "```", "[example::literal]", "```", ""].join("\r\n"),
+  );
+  expect(stripProperties("Title `[example::literal]` [status::open]")).toBe(
+    "Title `[example::literal]`",
+  );
+});
+

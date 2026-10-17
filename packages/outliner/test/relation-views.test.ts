@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseProperties } from "../src/properties";
+import { parseProperties } from "@ep0ch/outline-core/property-parse";
 import {
   isRelationViewDefinition,
   parseRelationViewConfig,

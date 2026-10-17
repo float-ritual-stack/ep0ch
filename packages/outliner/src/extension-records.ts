@@ -1,4 +1,4 @@
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { isPropertyKey, replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { sanitizedTextParts } from "./terminal";
 

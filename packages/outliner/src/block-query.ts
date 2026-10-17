@@ -1,5 +1,6 @@
 import { MACHINE_KEY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
-import { firstLineWithoutPropertyTokens, matchesFilters, normalizePropertyKey } from "./properties";
+import { matchesFilters, normalizePropertyKey } from "./properties";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "@ep0ch/outline-core/query-atoms";
 import { QUESTION_DEFAULT_LIMIT, QUESTION_MAX_LIMIT } from "@ep0ch/outline-core/protocol";
 import { ROADMAP_WORK_STAGES } from "./types";

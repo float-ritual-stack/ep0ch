@@ -15,7 +15,8 @@
  * counts before and after; a second run changes nothing. A one-off: run it on pie, then delete it (git keeps it).
  */
 import { OutlinerStore } from "../../src/store";
-import { parsePropertyRecords, patchPropertyText } from "../../src/properties";
+import { patchPropertyText } from "../../src/properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 
 export interface AnnotationTargetRepair {
   /** Comments with no target before the run. */

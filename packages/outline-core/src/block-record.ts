@@ -4,10 +4,11 @@
 // what it read (the block, its parsed properties, children, tasks, links, backlinks, resources) and nothing here reads
 // anything. `recordJson` writes it deterministically: sorted keys, one timestamp format (ISO 8601, UTC, milliseconds).
 import { splitPropertyValue } from "./property-grammar";
+import type { PropertyScope } from "./property-parse";
 import { bodyOffset, headerLine, type LiteralRange } from "./header-line";
 
 export type TaskStatus = import("./checklist-marks").ChecklistStatus;
-export type PropertyScope = "block" | "line" | "inline";
+export type { PropertyScope } from "./property-parse";
 
 /** A block as a record. */
 export interface BlockRecord {
@@ -24,8 +25,11 @@ export interface BlockRecord {
   text: string;
   /** Block-scope properties (what queries and views match), each key once with its values in order, keys in order. */
   properties: { key: string; values: string[] }[];
-  /** Properties of a line or a spot in it (`key:: value` lines, `[key::value]` mid-sentence), in order. */
-  fields: { key: string; value: string; scope: "line" | "inline"; line: number }[];
+  /**
+   * Properties of a line or a spot in it (`key:: value` lines, `[key::value]` mid-sentence), in order: `line` and
+   * `column` where the token starts, `offset` its offset in `text`.
+   */
+  fields: { key: string; value: string; scope: "line" | "inline"; line: number; column: number; offset: number }[];
   /** The children's ids, in outline order. */
   children: string[];
   /** The checklist's items, in order. */
@@ -63,7 +67,7 @@ export interface BlockRecordInput {
   };
   title: string;
   /** The service's parse of the text, in order. */
-  properties: readonly { key: string; value: string; scope: PropertyScope; line: number }[];
+  properties: readonly { key: string; value: string; scope: PropertyScope; line: number; column: number; start: number }[];
   /** The text's literal ranges (code spans, fences), so a token in one isn't read as a header chip. */
   literal: readonly LiteralRange[];
   children: readonly string[];
@@ -97,7 +101,7 @@ export function blockRecord(input: BlockRecordInput): BlockRecord {
     body: h.body,
     text: block.text,
     properties,
-    fields: input.properties.flatMap(p => (p.scope === "block" ? [] : [{ key: p.key, value: p.value, scope: p.scope, line: p.line }])),
+    fields: input.properties.flatMap(p => (p.scope === "block" ? [] : [{ key: p.key, value: p.value, scope: p.scope, line: p.line, column: p.column, offset: p.start }])),
     children: [...input.children],
     tasks: input.tasks,
     links: input.links.map(l => ({

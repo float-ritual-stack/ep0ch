@@ -16,7 +16,7 @@ import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { AgentRequestRow, OutlinerStore } from "./store";
 import type { AnnotationRecord, AnnotationThread, Block, MutationProvenance } from "./types";
 import { resourceCommentSource } from "./resource-comments";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockDisplayTitle } from "./references";
 
 /**
