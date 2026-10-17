@@ -7,6 +7,7 @@ import { checklistItems } from "./checklist-items";
 import { outlinerReferenceOccurrences, propertyReferenceOccurrences, type OutlinerReferenceOccurrence } from "./reference-occurrences";
 import { parsePropertyRecords, type PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
+import { maskOutputRegions } from "@ep0ch/outline-core/output-region";
 import { blockDisplayTitle } from "./references";
 import type { Block } from "./types";
 
@@ -34,10 +35,11 @@ const occurrenceKey = (o: OutlinerReferenceOccurrence) =>
  */
 export function textRecord(block: Block, children: readonly string[] = []): BlockRecord {
   const text = block.text;
-  const properties = parsePropertyRecords(text);
+  // An output region is its producer's, not the note's: its `[key::value]` chips and tasks aren't the note's fields (PIE-956).
+  const properties = parsePropertyRecords(maskOutputRegions(text));
   return blockRecord({
     block, title: blockDisplayTitle(block), properties, literal: scanPropertyLiteralRanges(text), children,
-    tasks: tasksOf(text, properties), links: [], backlinks: [], resources: [], truncated: ["links", "resources"],
+    tasks: tasksOf(maskOutputRegions(text), properties), links: [], backlinks: [], resources: [], truncated: ["links", "resources"],
   });
 }
 
@@ -61,7 +63,7 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
     if (!block) { unavailable.push({ id, status: "missing" }); continue; }
     if (block.effectiveDeletedRootId) { unavailable.push({ id, status: "trashed" }); continue; }
     const text = block.text;
-    const properties = parsePropertyRecords(text);
+    const properties = parsePropertyRecords(maskOutputRegions(text));
     const truncated: string[] = [];
     const authored = readAuthoredLinks(source, id);
     const links: BlockRecordInput["links"] = [];
@@ -114,7 +116,7 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
       properties,
       literal: scanPropertyLiteralRanges(text),
       children: source.children(id).map(child => child.id),
-      tasks: tasksOf(text, properties),
+      tasks: tasksOf(maskOutputRegions(text), properties),
       links,
       // A note's own Work ID in its title isn't a link to it.
       backlinks: (linking.get(id) ?? []).filter(from => from !== id),

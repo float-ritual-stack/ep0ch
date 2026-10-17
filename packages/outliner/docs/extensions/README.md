@@ -42,7 +42,7 @@ when the person authored the script. A saved ask or rule has no door: service ca
 reports that it needs a connected door. Run those UI scripts from the power bar or a live draft.
 
 QuickJS codemode runs on a worker. Code has the host API's `tools.*`, `q(query)`, `read(ref)`, `resolve(path)`,
-`wait(ms)` and `act(name, args)`; `act` uses the connected door's dispatcher. Disk, network and imports stay in folder
+`wait(ms)`, `place(content, { at, mode, label })` (writes an output region the script owns at a `^anchor`; `effects=write`; `src/place.ts`) and `act(name, args)`; `act` uses the connected door's dispatcher. Disk, network and imports stay in folder
 extensions. Saving a malformed source still saves the block; the registry reports its problem.
 
 Starting a run returns immediately with its progress note and undo receipt. Each completed host call

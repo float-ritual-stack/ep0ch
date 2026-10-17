@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### `place()`: scripts write output where you say (PIE-956, S6 of PIE-533, service side)
+
+A script with `[effects::write]` calls `place(content, { at: "^week", mode })` and its output lands in the note as an
+output region: a folded `> [!output]-` callout it owns, hashed in the text so ownership survives restarts. `append`
+(the default) and `prepend` add a region next to the anchor; `upsert` replaces the script's own region or creates it;
+`replace` only ever touches an unedited region of its own. A missing anchor is one proposal at the caller with a
+did-you-mean, never the end of the note; a region you edited is yours and the new output waits as a proposal. The
+note's record (fields, tasks) leaves regions out. `ExtensionCalls.materialize` is now `refreshOutput`.
+
 ### Install rewrites the old brace forms (PIE-533, landing)
 
 `ep0ch install --apply` runs the brace sweep on every outline, after the schema step and before the host starts: rule
