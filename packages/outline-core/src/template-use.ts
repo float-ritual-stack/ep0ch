@@ -104,14 +104,19 @@ export function withUseProps(line: string, props: Record<string, string>): strin
   if (!open || open[1] !== USE_NAME) return null;
   const added = Object.entries(props);
   if (!added.length) return line;
+  const had = new Set(added.map(([key]) => key.toLowerCase()));
+  const rebuilt = (attrs: string, head?: string) => {
+    const { classes, pairs } = componentAttrs(attrs);
+    return [...(head ? [head] : []), ...classes.map(c => `.${c}`), ...pairs.filter(p => !had.has(p.key.toLowerCase())).map(p => attrWord(p.key, p.value)), ...added.map(([key, value]) => attrWord(key, value))].join(" ");
+  };
   let written: string;
-  if (!open[3]) written = `${line.trimEnd()} ${added.map(([key, value]) => attrWord(key, value)).join(" ")}`;
-  else {
-    const had = new Set(added.map(([key]) => key.toLowerCase()));
-    const { classes, pairs } = componentAttrs(open[3].slice(1, -1));
-    const words = [...classes.map(c => `.${c}`), ...pairs.filter(p => !had.has(p.key.toLowerCase())).map(p => attrWord(p.key, p.value)), ...added.map(([key, value]) => attrWord(key, value))];
+  if (open[3]) {
     const at = line.indexOf(open[3]);
-    written = `${line.slice(0, at)}{${words.join(" ")}}${line.slice(at + open[3].length)}`;
+    written = `${line.slice(0, at)}{${rebuilt(open[3].slice(1, -1))}}${line.slice(at + open[3].length)}`;
+  } else {
+    // `::use [[t]] owner=jay`: the template is the first word, the props follow.
+    const argument = open[2]!.trim(), first = /^\S+/.exec(argument)?.[0];
+    written = `${line.slice(0, line.indexOf("::use"))}::use ${rebuilt(argument, first && !first.includes("=") ? first : undefined)}`;
   }
   // The line must read back as the call it was with these props (a value with a brace or a line break can't be written on it).
   const back = useCallAt([written], 0);

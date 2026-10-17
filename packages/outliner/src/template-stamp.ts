@@ -15,11 +15,12 @@
 // what is new. A template that is a subtree is stamped whole. A step's generated id (`^t-3fa9c1`) is not carried over (the new
 // note's steps are its own to address), so an agent can fill a placeholder step in without declaring an identity change. Writes only through the store's normal paths, attributed
 // as whoever asked; refuses before writing anything when the template, a prop or `for` is wrong.
-import { escapeInterpolation, interpolationSpans, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
+import { interpolationSpans, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
 import { ADDRESS_KEYS } from "@ep0ch/outline-core/property-grammar";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { checkProps } from "@ep0ch/outline-core/props-spec";
-import { substituteValues } from "@ep0ch/outline-core/site-values";
+import { EMPTY_VALUE, hasWords, pairValues, valueWords } from "@ep0ch/outline-core/site-values";
+import type { SiteValue } from "@ep0ch/outline-core/site";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import type { BlockAuthor } from "@ep0ch/outline-core/protocol";
 import { blockDisplayTitle } from "./references";
@@ -81,20 +82,58 @@ const NOT_STAMPED = new Set(["annotation", "annotation-reply", "draft-proposal"]
 
 const isStampSpan = (span: InterpolationSpan) => !!span.parsed && STAMP_HEADS.has(span.parsed.head.toLowerCase());
 
-/** `text` with the stamp's own `{{ }}` replaced by their values; every other byte, a `\{{` and the other heads included, stays as written. */
+/** A piece of a stamped text: from the template (`trusted`) or a value written into it. */
+interface Piece { text: string; trusted: boolean }
+
+/**
+ * The pieces joined, with no `{{` that a value made or took part in left live: a value is words, so a `{{` inside one, or
+ * made where a value's `{` meets the template's or another value's, is escaped (`\{{`). The template's own `{{ }}` (the heads
+ * a stamp leaves to read where the note lands) and its own `\{{` are untouched.
+ */
+function seal(pieces: readonly Piece[]): string {
+  let out = "";
+  const trusted: boolean[] = [];
+  for (const piece of pieces) { out += piece.text; for (let k = 0; k < piece.text.length; k++) trusted.push(piece.trusted); }
+  const escape: number[] = [];
+  for (let at = out.indexOf("{{"); at >= 0; at = out.indexOf("{{", at + 1)) {
+    if ((trusted[at] && trusted[at + 1]) || out[at - 1] === "\\") continue;
+    escape.push(at);
+  }
+  for (const at of escape.reverse()) out = out.slice(0, at) + "\\" + out.slice(at);
+  return out;
+}
+
+/** `text` with the stamp's own `{{ }}` replaced by their values (as words); every other byte, a `\{{` and the other heads included, stays as written. */
 function fill(text: string, read: ReturnType<typeof siteReader>, warnings: string[]): string {
-  let out = "", at = 0;
+  const pieces: Piece[] = [];
+  let at = 0;
   for (const span of interpolationSpans(text)) {
     if (!isStampSpan(span)) continue;
     const answer = read(span);
     let words: string;
-    if (answer.ok && (answer.values.length || span.default === undefined)) words = literal(answer.values.join(", "));
-    else if (span.default !== undefined) words = literal(span.default);
+    if (answer.ok && (answer.values.length || span.default === undefined)) words = answer.values.join(", ");
+    else if (span.default !== undefined) words = span.default;
     else { warnings.push(`{{${span.expression}}}: ${answer.ok ? "no value" : answer.problem.message}; left as written`); continue; }
-    out += text.slice(at, span.start) + words;
+    pieces.push({ text: text.slice(at, span.start), trusted: true }, { text: words, trusted: false });
     at = span.end;
   }
-  return out + text.slice(at);
+  pieces.push({ text: text.slice(at), trusted: true });
+  return seal(pieces);
+}
+
+/** `text` with each `{{ }}` the Site answered replaced by its value (`freeze=all`); one it couldn't answer stays as written. */
+function freeze(text: string, values: readonly SiteValue[]): { text: string; frozen: number } {
+  const pieces: Piece[] = [];
+  let at = 0, frozen = 0;
+  for (const pair of pairValues(text, values)) {
+    const v = pair.value;
+    if (!v || !hasWords(v)) continue;
+    pieces.push({ text: text.slice(at, pair.start), trusted: true }, { text: valueWords(v) || EMPTY_VALUE, trusted: false });
+    at = pair.end;
+    frozen += 1;
+  }
+  pieces.push({ text: text.slice(at), trusted: true });
+  return { text: seal(pieces), frozen };
 }
 
 /** The template's bookkeeping (and its own page address) taken out of a stamped text; a line that held only that goes. */
@@ -142,9 +181,6 @@ function withoutStepIds(text: string): string {
 }
 const GENERATED_STEP_ID = /^t-[0-9a-f]{6,}$/;
 
-/** A value written into a stamped text is words: a `{{` in it never becomes a live placeholder of the new note. */
-const literal = (words: string) => escapeInterpolation(words);
-
 const lineEnd = (text: string) => { const i = text.indexOf("\n"); return i < 0 ? text.length : i; };
 /** `[key::value]` added at the end of the first line. */
 const withChip = (text: string, key: string, value: string) => { const at = lineEnd(text); return `${text.slice(0, at)} [${key}::${value}]${text.slice(at)}`; };
@@ -165,8 +201,7 @@ function subtreeOf(store: StampStore, block: Block, count: { n: number }): Node 
 }
 
 function alreadyStamped(store: StampStore, template: Block, match: Block): Block | null {
-  const rows = store.queryBlocks({ where: `${STAMPED_FOR_KEY}=((${match.id}))`, limit: 50 }).blocks;
-  return rows.find(row => parsePropertyRecords(row.text).some(r => r.key === "from-template" && r.value.includes(template.id))) ?? null;
+  return store.queryBlocks({ where: `${STAMPED_FOR_KEY}=((${match.id})) from-template=((${template.id}))`, limit: 1 }).blocks[0] ?? null;
 }
 
 export function stampTemplate(store: StampStore, request: TemplateStampRequest, clock: () => number = Date.now): TemplateStampResult {
@@ -244,10 +279,10 @@ export function stampTemplate(store: StampStore, request: TemplateStampRequest, 
           const block = store.resolveBlockRef(id);
           if (!block.text.includes("{{")) continue;
           const answer = answerSite(store, { blockId: id }, clock);
-          const next = substituteValues(block.text, answer.values, { words: literal });
-          if (next !== block.text) {
-            frozen += answer.values.filter(v => v.values !== undefined).length;
-            store.update(id, next, block.revision, mutation);
+          const done = freeze(block.text, answer.values);
+          if (done.text !== block.text) {
+            frozen += done.frozen;
+            store.update(id, done.text, block.revision, mutation);
           }
           for (const v of answer.values) if (v.problem && !v.usedDefault) warnings.push(`{{${v.expression}}}: ${v.problem.message}; left as written`);
         }

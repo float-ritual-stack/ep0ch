@@ -280,7 +280,9 @@ function fill(bound: Bound, ask: NonNullable<SiteAnswerRequest["interpolate"]>):
     throw new Error(`interpolate is { text: "<text with {{ }}>", fences?: "template" } of at most ${MAX_INTERPOLATE} characters`);
   }
   const spans = interpolationSpans(ask.text, { fences: ask.fences ?? "literal" });
-  const values = spans.slice(0, MAX_PAGE_PLACEHOLDERS).map(span => valueOf(bound, span.expression, span, span.start, span.end));
+  // Never read some and leave the rest unchecked: a caller that runs the filled text (a command) must know every placeholder was.
+  if (spans.length > MAX_PAGE_PLACEHOLDERS) throw new Error(`interpolate reads at most ${MAX_PAGE_PLACEHOLDERS} placeholders; this text has ${spans.length}`);
+  const values = spans.map(span => valueOf(bound, span.expression, span, span.start, span.end));
   const answered = new Map<number, SiteValue>(values.map((value, i) => [spans[i]!.start, value]));
   return { text: interpolate(ask.text, span => { const v = answered.get(span.start); return v && v.values && !v.hidden ? v.values : undefined; }, { fences: ask.fences ?? "literal" }), values };
 }

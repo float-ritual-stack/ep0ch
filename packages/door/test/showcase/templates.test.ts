@@ -63,6 +63,18 @@ describe.skipIf(!outliner)("the showcase screen: templates (PIE-533 S4)", () => 
     expect((await board.get(page.id))!.text).toContain("::use{of=[[meeting-template]] mood=gud wiht=Kit}");
   }, 40_000);
 
+  test("use.fill with block= writes the line of the note the call is written in, not the note shown (a call inside an embed or a template)", async () => {
+    const inner = await board.createBlock(null, "Embedded call\n::use{of=[[meeting-template]]}", { kind: "agent", id: "test-agent" });
+    const shown = (await board.get(seeded.notes.meetingUnfinished.id))!;
+    const done = await app.act({ action: "use.fill", tile: "unfinished", args: { block: inner.id, line: 2, with: JSON.stringify({ with: "Zed" }) }, ...agent }) as any;
+    expect(done).toMatchObject({ block: inner.id, wrote: { with: "Zed" } });
+    expect((await board.get(inner.id))!.text).toContain("::use{of=[[meeting-template]] with=Zed}");
+    // The note shown is as it was.
+    expect((await board.get(shown.id))!.text).toBe(shown.text);
+    // A value the line can't hold is refused, nothing written.
+    await expect(app.act({ action: "use.fill", tile: "unfinished", args: { block: inner.id, line: 2, with: JSON.stringify({ mood: "a}b" }) }, ...agent })).rejects.toThrow(/can't be written on line 2/);
+  }, 30_000);
+
   test("template.stamp writes today's daily note under Daily notes: now filled, this and parent left to read where it lands", async () => {
     const out = await app.act({ action: "template.stamp", args: { of: "[[daily-template]]", as: "new", parent: "[[daily notes]]", title: "{{now.date}}" }, ...agent }) as any;
     expect(out.stamped).toHaveLength(1);

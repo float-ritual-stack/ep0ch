@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { answerSite } from "../src/site-answer";
 import { stampTemplate, type TemplateStampRequest } from "../src/template-stamp";
 import { OutlinerStore } from "../src/store";
 
@@ -157,5 +158,33 @@ describe("what a stamp writes is words", () => {
     expect(text(store, out.stamped[0]!.id)).toContain("Hello \\{{this.secret}}.");
     const second = stamp(store, { of: "[[greeting-tpl]]", props: { who: "Ada" }, title: "Line one\nline two" });
     expect(text(store, second.stamped[0]!.id)).toStartWith("Line one line two ");
+  });
+});
+
+describe("review findings", () => {
+  test("a value's braces and the template's can't meet to make a live placeholder, and freeze=all doesn't either", () => {
+    const store = scratch();
+    store.create("Pair {{props.a}}{{props.b}} [page::pair-tpl] [type::template]\n[form-field::a text]\n[form-field::b text]\nbody {{props.a}}{{props.b}} and {{this.title}}");
+    const out = stamp(store, { of: "[[pair-tpl]]", props: { a: "{", b: "{this.secret}}" } });
+    const made = text(store, out.stamped[0]!.id);
+    // Escaped where the two values meet; the template's own {{this.title}} stays live.
+    expect(made).toContain("body \\{{this.secret}} and {{this.title}}");
+    expect(answerSite(store, { blockId: out.stamped[0]!.id }).values.map(v => v.expression)).toEqual(["this.title"]);
+    const frozen = stamp(store, { of: "[[pair-tpl]]", props: { a: "{", b: "{this.secret}}" }, freeze: "all" });
+    expect(text(store, frozen.stamped[0]!.id)).toContain("and Pair \\{{this.secret}}");
+    expect(answerSite(store, { blockId: frozen.stamped[0]!.id }).values).toEqual([]);
+  });
+
+  test("a match stamped from one template is still stamped from another, and neither is made twice", () => {
+    const store = scratch();
+    store.create("A {{props.for.title}} [page::tpl-a] [type::template]");
+    store.create("B {{props.for.title}} [page::tpl-b] [type::template]");
+    const parent = store.create("Asks");
+    store.create("Fix the gate [kind::ask]", parent.id);
+    const once = (of: string) => stamp(store, { of, parent: parent.id, for: "kind=ask" });
+    expect(once("[[tpl-a]]").stamped).toHaveLength(1);
+    expect(once("[[tpl-b]]").stamped).toHaveLength(1);
+    expect(once("[[tpl-a]]").skipped).toHaveLength(1);
+    expect(once("[[tpl-b]]").skipped).toHaveLength(1);
   });
 });

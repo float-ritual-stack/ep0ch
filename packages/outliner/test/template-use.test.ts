@@ -205,3 +205,24 @@ describe("an agent reads a note's ::use calls (outline_site)", () => {
     expect(await useCallsRead(client, page.id, "no calls here")).toEqual([]);
   });
 });
+
+describe("review findings", () => {
+  test("of=type:… depends on the whole outline: another template of the kind changes its answer", () => {
+    const store = scratch();
+    const { project } = cards(store);
+    const page = store.create("P\n::use{of=type:status owner=evan}", project.id);
+    expect(use(store, page, 1).anyChange).toBe(true);
+    const named = store.create("Q\n::use{of=[[status-card]] owner=evan}", project.id);
+    expect(use(store, named, 1).anyChange).toBeUndefined();
+  });
+
+  test("interpolate refuses a text with more placeholders than it reads, never leaving the rest unchecked", () => {
+    const store = scratch();
+    const note = store.create("Step");
+    const many = Array.from({ length: 201 }, (_, i) => `{{props.k${i}}}`).join(" ");
+    expect(() => answerSite(store, { blockId: note.id, props: {}, interpolate: { text: many, fences: "template" } })).toThrow(/at most 200 placeholders; this text has 201/);
+    const ok = answerSite(store, { blockId: note.id, props: { a: ["1"] }, interpolate: { text: "{{props.a}} {{props.b}}", fences: "template" } });
+    expect(ok.interpolated!.text).toBe("1 {{props.b}}");
+    expect(ok.interpolated!.values[1]!.problem).toBeDefined();
+  });
+});

@@ -2098,6 +2098,7 @@ export class NoteSurface {
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
+        // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
         // A `::use` in an embedded note hosts that note: a fresh Site, as an embed starts one.
@@ -2113,7 +2114,7 @@ export class NoteSurface {
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
         ...env, width, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined,
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
-        tag: (to, t) => tagged(drawn, to, t), note: site.chain?.[0]?.block ?? m.id,
+        tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
         use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
       }).lines;
@@ -4134,7 +4135,7 @@ export class NoteSurface {
     }
     if (e.link?.anchor) return this.runKey("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, host);
     // A `::use` that needs a prop: the person is asked for it in the power bar (an agent gives it: use.fill with=).
-    if (e.link?.use) { if (!select) throw new ActionRefused("a ::use's missing props are asked of the person; an agent gives them: use.fill line=" + (e.link.use.line + 1) + " with='{\"name\":\"value\"}'"); return this.runKey("use.fill", { line: e.link.use.line + 1 }, host); }
+    if (e.link?.use) { if (!select) throw new ActionRefused("a ::use's missing props are asked of the person; an agent gives them: use.fill block=" + e.link.use.block + " line=" + (e.link.use.line + 1) + " with='{\"name\":\"value\"}'"); return this.runKey("use.fill", { block: e.link.use.block, line: e.link.use.line + 1 }, host); }
     if (e.kind === "control") return this.useControl(e, host);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
@@ -4942,7 +4943,7 @@ export class NoteSurface {
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
     if (l.unsent) { void this.runKey(`unsent.${l.unsent.op}`, { kind: l.unsent.kind }, host); return Promise.resolve(null); }
     if (l.anchor) { void this.runKey("fields.anchor", { key: l.anchor.key, n: l.anchor.n }, host); return Promise.resolve(null); }
-    if (l.use) { void this.runKey("use.fill", { line: l.use.line + 1 }, host); return Promise.resolve(null); }
+    if (l.use) { void this.runKey("use.fill", { block: l.use.block, line: l.use.line + 1 }, host); return Promise.resolve(null); }
     if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
     if (l.role === "figure" && l.figure) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
@@ -5495,8 +5496,11 @@ export class NoteSurface {
    * ordinary save (rewriteLines), recorded as whoever asks; ctrl+z (use.undo) puts the line back. An agent names the props
    * (`with`); nothing here is asked of it or moves the person's focus.
    */
-  async fillUse(line: number | undefined, given: Record<string, string>, host: SurfaceHost, actor: Actor) {
-    const whole = await this.whole();
+  async fillUse(block: string | undefined, line: number | undefined, given: Record<string, string>, host: SurfaceHost, actor: Actor) {
+    // The note the call is written in: the one shown, or one drawn inside it (an embed, a template that holds a call).
+    const shown = this.requireNote();
+    const whole = block && block !== shown.id ? await host.ctx.board.get(block) : await this.whole();
+    if (!whole) throw new ActionRefused(`that note (${block}) isn't there any more`);
     const calls = useCallsOf(whole.text);
     const call = line === undefined ? (calls.length === 1 ? calls[0] : undefined) : calls.find(c => c.line === line - 1);
     if (!call) throw new ActionRefused(calls.length ? `say which ::use: line= (${calls.map(c => c.line + 1).join(", ")})` : "this note has no ::use line");
@@ -7927,7 +7931,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // A `::use` that needs a prop: an agent names them (use.fill with=); the person is asked.
-      if (e.link?.use && actor.kind === "agent") throw new ActionRefused(`that's a ::use that needs a prop: an agent gives it with use.fill line=${e.link.use.line + 1} with='{"name":"value"}'`);
+      if (e.link?.use && actor.kind === "agent") throw new ActionRefused(`that's a ::use that needs a prop: an agent gives it with use.fill block=${e.link.use.block} line=${e.link.use.line + 1} with='{"name":"value"}'`);
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
       if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : e.control === "untldr" || e.control === "tldr" ? `thread.tldr thread=${e.thread!.slice(0, 8)}${e.control === "untldr" ? " remove=true" : ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
@@ -9358,10 +9362,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "⏎ or a click on a ::use's “needs …” line",
     touches: "draft", draft: "write", replay: "ask",
     args: {
+      block: { type: "string", optional: true, about: "the note the ::use is written in, when it is drawn inside this one (an embed, a template): default the note shown" },
       line: { type: "number", optional: true, about: "the line of the ::use, from 1 (default: the only one the note has)" },
       with: { type: "string", optional: true, about: "the props to write, as JSON: names to text (an agent's; the person is asked for the rest)" },
     },
-    async run({ line, with: w }, { surface, host }, actor) {
+    async run({ block, line, with: w }, { surface, host }, actor) {
       let given: Record<string, string> = {};
       if (w !== undefined) {
         let v: unknown;
@@ -9369,7 +9374,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (!v || typeof v !== "object" || Array.isArray(v) || Object.values(v).some(x => typeof x !== "string")) throw new ActionRefused("with= maps names to text; for example with='{\"owner\":\"ada\"}'");
         given = v as Record<string, string>;
       }
-      return surface.fillUse(line, given, host, actor);
+      return surface.fillUse(block, line, given, host, actor);
     },
   }),
   "use.undo": def({

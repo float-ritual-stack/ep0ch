@@ -58,6 +58,8 @@ export function templateUse(store: TemplateUseStore, request: TemplateUseRequest
     problems.push({ kind: "of", message: call.problem ?? "::use names no template", didYouMean: [], example: "::use{of=[[meeting-template]]}" });
     return answer({});
   }
+  // `type:meeting` is a question about the outline at large: another note saying `[template-for::meeting]` changes its answer.
+  if (/^type:/i.test(call.of)) anyChange = true;
   const found = findTemplate(store, call.of);
   if (!found.ok) {
     // A page that doesn't exist yet may be written later: any change can fill it.

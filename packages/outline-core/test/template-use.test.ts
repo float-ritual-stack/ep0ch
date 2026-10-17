@@ -37,6 +37,9 @@ describe("adding props to a call", () => {
     expect(withUseProps("::use{of=[[t]] owner=\"a b\" mood=meh}", { owner: "ada" })).toBe("::use{of=[[t]] mood=meh owner=ada}");
     expect(withUseProps("::use{of=[[t]] n=1}", { n: "{{parent.n}}" })).toBe("::use{of=[[t]] n={{parent.n}}}");
     expect(withUseProps("::use [[t]] mood=meh", { owner: "ada" })).toBe("::use [[t]] mood=meh owner=ada");
+    // The argument form replaces a prop it already has, as the braces do.
+    expect(withUseProps("::use [[t]] owner=jay mood=meh", { owner: "ada" })).toBe("::use [[t]] mood=meh owner=ada");
+    expect(useCallAt([withUseProps("::use [[t]] owner=jay", { owner: "ada" })!], 0)!.props).toEqual([{ key: "owner", value: "ada" }]);
     expect(withUseProps("just text", { owner: "ada" })).toBeNull();
     // A value the line can't hold (a brace, a line break) is refused, not written to break the call.
     expect(withUseProps("::use{of=[[t]]}", { owner: "a}b" })).toBeNull();
