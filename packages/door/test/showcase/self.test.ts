@@ -21,9 +21,17 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "fields-if" }, ...agent })).toMatchObject({ key: "fields-if" });
     const text = () => { screen(); return stage("fields-if").pane("reader")?.render(150, 40, false, stage("fields-if")).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "") ?? ""; };
-    await until(() => text().includes("live · 2 occurrences"), "the fields rows", 8000);
-    expect(text()).toContain("SAID SO FAR");
-    expect(text()).toContain("live · 2 occurrences");
+    await until(() => text().includes("live · 6 occurrences"), "the fields rows", 8000);
+    // One key in every form, each row with its line: the header chip (1), two front-matter lines (2, 3: the list is a row each), the inline chip (5) and the line of its own (6).
+    expect(text()).toContain("EVERY CONNECTTO IN THIS NOTE");
+    for (const [row, line] of [["in the header", 1], ["in the front matter", 2], ["a list", 3], ["is a row each", 3], ["inline in a sentence", 5], ["a line of its own", 6]] as const) {
+      expect(text().split("\n").find(l => l.includes(row) && l.includes("∙")) ?? "").toContain(`line ${line}`);
+    }
+    // The hashtags are the key tag: the header's and the body's.
+    await until(() => text().includes("live · 2 occurrences"), "the hashtag rows", 8000);
+    expect(text()).toContain("HASHTAGS (KEY TAG)");
+    expect(text().split("\n").find(l => l.includes("∙ greenhouse")) ?? "").toContain("line 1");
+    expect(text().split("\n").find(l => l.includes("∙ spring")) ?? "").toContain("line 5");
     expect(text()).toContain("drawn only while the note is active");
     expect(text()).not.toContain("drawn only while the note is paused");
     expect(text()).not.toContain("::if");
@@ -31,35 +39,48 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     // Each row is an element the reader steps to and opens (its line, lit), with its ¶ beside it.
     const elements = async () => ((await app.act({ action: "elements", tile: "reader", ...agent })) as any).elements as { n: number; kind: string; label: string }[];
     const rows = (await elements()).filter(e => e.kind === "row");
-    expect(rows.map(r => r.label)).toEqual(expect.arrayContaining(["demonstrating by doing", "shacks not cathedrals"]));
+    expect(rows.map(r => r.label)).toEqual(expect.arrayContaining(["in the header", "in the front matter", "a list", "is a row each", "inline in a sentence", "a line of its own"]));
+
+    // A click on a row opens its line, front matter included, lit (a person's click; an agent's open leaves the person's focus alone).
+    const reader = () => { screen(); return stage("fields-if").pane("reader") as any; };
+    const click = (label: string) => {
+      const rows = screen().split("\n"), y = rows.findIndex(l => l.includes(`∙ ${label}`)), x = rows[y]!.indexOf(label);
+      h.press({ kind: "mouse", action: "down", button: 0, x: x + 1, y }); h.press({ kind: "mouse", action: "up", button: 0, x: x + 1, y });
+    };
+    click("in the front matter");
+    await until(() => reader().surface?.focusMark?.line === true && reader().surface.focusMark.spec.line === 2, "the front-matter line lit");
+    click("a line of its own");
+    await until(() => reader().surface?.focusMark?.line === true && reader().surface.focusMark.spec.line === 6, "the body line lit");
 
     // A third line saved: a row appears, on its own.
     const rail = (await board.get(seeded.notes.fieldsRail.id))!;
-    await board.update(rail.id, rail.text.replace("\n::fields", "\n- third pass [connectTo::trust the drift]\n::fields"), rail.revision!);
-    await until(() => text().includes("trust the drift") && text().includes("live · 3 occurrences"), "the third row", 8000);
+    await board.update(rail.id, rail.text.replace("\n::fields{key=connectTo", "\n- third pass [connectTo::trust the drift]\n::fields{key=connectTo"), rail.revision!);
+    await until(() => text().includes("trust the drift") && text().includes("live · 7 occurrences"), "the third row", 8000);
 
     // The anchor is explicit: drawing wrote nothing, then the ¶ on the second row gives that line an anchor.
     const before = (await board.get(rail.id))!;
     expect(before.text).not.toMatch(/\^[a-z0-9-]+\s*$/m);
-    const anchored = await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 2 }, ...agent }) as any;
+    const anchored = await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 6 }, ...agent }) as any;
     expect(anchored.created).toBe(true);
     expect(typeof anchored.noteLine).toBe("number");
     expect(anchored.link).toBe(`((${rail.id}^${anchored.anchor}))`);
     const after = (await board.get(rail.id))!;
     // The second row's own line (not the first's), found by what it says.
     const anchoredLine = after.text.split("\n").find(l => l.includes(`^${anchored.anchor}`))!;
-    expect(anchoredLine).toContain("second pass");
+    expect(anchoredLine).toContain("a line of its own");
     expect(after.text.split("\n").filter(l => /\^[a-z0-9-]+$/.test(l))).toHaveLength(1);
     expect(after.text.split("\n")[anchored.noteLine - 1]).toContain(`^${anchored.anchor}`);
     // Again, once the list has been read from the anchored text: already anchored, nothing more written.
     await until(() => { screen(); const d = fieldsDrawn(rail.id, "connectTo"); return "found" in d && d.found.revision === after.revision; }, "the list read again", 8000);
-    expect(await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 2 }, ...agent })).toMatchObject({ created: false, anchor: anchored.anchor });
-    await expect(app.act({ action: "fields.anchor", tile: "reader", args: { n: 9 }, ...agent })).rejects.toThrow(/has rows 1 to/);
+    expect(await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 6 }, ...agent })).toMatchObject({ created: false, anchor: anchored.anchor });
+    await expect(app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 9 }, ...agent })).rejects.toThrow(/has rows 1 to/);
 
     // The other body: the note paused.
     const now = (await board.get(rail.id))!;
     await board.update(rail.id, now.text.replace("[status::active]", "[status::paused]"), now.revision!);
     await until(() => text().includes("drawn only while the note is paused") && !text().includes("drawn only while the note is active"), "the paused body", 8000);
+    // The clicks put the person in the section; back on the index, an agent can move again.
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) h.press({ kind: "esc" });
   }, 40_000);
 
   test("page-figure: the same figure on two project pages lists each page's own tickets", async () => {

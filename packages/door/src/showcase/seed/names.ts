@@ -87,7 +87,7 @@ export const SEED = {
   dayPlan: "Plan for Saturday",
   outbox: "Letters to send",
   society: "Allotment society",
-  fieldsRail: "Vent rail connections",
+  fieldsRail: "Where a key is written",
   projectLego: "Lego night",
   projectGarden: "Garden club",
   marginalia: "Greenhouse plan for the spring",

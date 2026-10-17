@@ -125,3 +125,32 @@ test("without a world, the heads that need the service say so; the rest answer",
   expect(resolvePath("caller.line", nested)).toMatchObject({ ok: true, values: ["4"], from: "host" });
   expect(resolvePath("props.week", nested)).toMatchObject({ ok: true, values: ["42"] });
 });
+
+// PIE-979: front matter, header chips and hashtags are block scope; ::fields lists them too, each with its line.
+const sowing = recordOf("sow", [
+  "## Early sowing notes [type::note] #garden",
+  "- [ctx::2026-10-15 @ 10:19:21 PM] - [project::plot]",
+  "- re:: whether to sow early",
+  "- connectTo:: ['beans', 'frost']",
+  "- tags:: ['neat']",
+  "",
+  "Sheltered with #spring and [inline::data] in the notebook.",
+  "",
+  "- key:: stuff",
+  "",
+  "anotherkey:: stuff",
+].join("\n"));
+
+test("this.fields.key lists front matter lines, list values one row each, header chips and hashtags, with their lines", () => {
+  const s = site({ this: sowing, at: { block: "sow" } });
+  const rows = (key: string) => { const a = resolvePath(`this.fields.${key}`, s); return a.ok ? { values: a.values, lines: a.lines } : a.problem; };
+  expect(rows("re")).toEqual({ values: ["whether to sow early"], lines: [2] });
+  expect(rows("connectTo")).toEqual({ values: ["beans", "frost"], lines: [3, 3] });
+  expect(rows("tags")).toEqual({ values: ["neat"], lines: [4] });
+  expect(rows("tag")).toEqual({ values: ["garden", "spring"], lines: [0, 6] });
+  expect(rows("type")).toEqual({ values: ["note"], lines: [0] });
+  expect(rows("project")).toEqual({ values: ["plot"], lines: [1] });
+  expect(rows("key")).toEqual({ values: ["stuff"], lines: [8] });
+  // this.key does not count a block-scope value twice
+  expect(noteValues(sowing, "re")).toEqual(["whether to sow early"]);
+});

@@ -55,9 +55,10 @@ describe.skipIf(!outliner)("::fields, ::if and a figure over this, drawn from si
   }, 20_000);
 
   test("::fields of a key nobody wrote says so; an unknown option is said, not guessed", async () => {
-    const id = await make("Empty\n\n::fields{key=connectTo}\n\n::fields{key=x colour=red}");
+    const id = await make("Empty #spring\n\n::fields{key=connectTo}\n\n::fields{key=tags}\n\n::fields{key=x colour=red}");
     const text = await show(id);
     expect(text).toContain("no connectTo written in this note's lines yet");
+    expect(text).toContain("a #hashtag is the key tag: try ::fields{key=tag}");
     expect(text).toContain("colour isn't one of ::fields' keys");
   }, 20_000);
 
