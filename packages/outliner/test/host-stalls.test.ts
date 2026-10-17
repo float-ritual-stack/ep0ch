@@ -10,8 +10,8 @@ import { OutlinerStore } from "../src/store";
 import type { Block, TreeIndexSnapshot } from "../src/types";
 
 // What keeps the outline host answering (PIE-625). The timing guard is scripts/bench-host-stalls.ts (a note read
-// answered in under 200 ms at start-up, under load, during a backup and after a restart); these check the parts it
-// rests on, without timing anything.
+// answered in under 200 ms at start-up, under load, during a backup and after a restart). The bounded-read
+// regressions below also guard the 50 ms budget with a second outline waiting on the same event loop.
 
 function scratch(name: string) {
   const root = mkdtempSync(join(tmpdir(), `${name}-`));
@@ -125,14 +125,15 @@ test("a loop stall is reported with the work that held it", async () => {
   expect(stalls[0]!.during).toEqual(["tree.index 70", "views.read 60 (2×)"]);
 });
 
-test("backlinks in a 50,000-block outline leave another outline responsive (PIE-1001)", async () => {
+test.each(["backlinks", "records-1", "records-20", "draft.patch", "draft.patch-anchor"] as const)("%s in a 50,000-block outline leaves another outline responsive (PIE-1001)", async (action) => {
   const { root, store: seed, done } = scratch("backlink-latency");
   let store = seed;
   const smallStore = new OutlinerStore(join(root, "small.sqlite"));
   let largeServer: OutlinerServer | undefined;
   const smallServer = new OutlinerServer(smallStore, join(root, "small.sock"));
   try {
-    const target = store.create("Needle");
+    const target = store.create(action === "draft.patch-anchor" ? "Needle\nPassage ^tip" : "Needle");
+    const ids = [target.id, ...Array.from({ length: 19 }, (_, i) => store.create(`Requested note ${i}`).id)];
     const unrelated = store.create("Other destination");
     store.database.transaction(() => {
       const insert = store.database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', ?, ?)");
@@ -151,17 +152,25 @@ test("backlinks in a 50,000-block outline leave another outline responsive (PIE-
     const server = largeServer = new OutlinerServer(store, join(root, "large.sock"));
     const small = smallStore.create("Small note");
     const started = performance.now();
-    const backlinks = Promise.resolve().then(() => server.handleAsync({
-      id: "backlinks", action: "references.backlinks", query: { targetBlockId: target.id, limit: 10 },
-    })).then(result => ({ result, ms: performance.now() - started }));
+    const request = Promise.resolve().then(() => server.handleAsync(action === "backlinks" ? {
+      id: action, action: "references.backlinks", query: { targetBlockId: target.id, limit: 10 },
+    } : action === "draft.patch" || action === "draft.patch-anchor" ? {
+      id: action, action: "draft.patch", blockId: target.id, revision: target.revision,
+      patches: [action === "draft.patch-anchor" ? { observed: " ^tip", replacement: "" } : { observed: "Needle", replacement: "Needle, mended" }],
+      mutation: { author: "agent", actorId: "mender" },
+    } : { id: action, action: "blocks.records", ids: ids.slice(0, action === "records-1" ? 1 : 20) })).then(result => ({ result, ms: performance.now() - started }));
     const read = new Promise<Awaited<ReturnType<typeof smallServer.handleAsync>>>(resolve => setImmediate(() => {
       resolve(smallServer.handleAsync({ id: "read", action: "get", blockId: small.id }));
     })).then(result => ({ result, ms: performance.now() - started }));
-    const [links, note] = await Promise.all([backlinks, read]);
-    console.log(`PIE-1001: backlinks ${links.ms.toFixed(1)} ms; second outline ${note.ms.toFixed(1)} ms`);
-    expect(links.result).toMatchObject({ ok: true, result: { sources: [{ blockId: source.id }] } });
+    const [answer, note] = await Promise.all([request, read]);
+    console.log(`PIE-1001: ${action} ${answer.ms.toFixed(1)} ms; second outline ${note.ms.toFixed(1)} ms`);
+    if (action === "backlinks") expect(answer.result).toMatchObject({ ok: true, result: { sources: [{ blockId: source.id }] } });
+    else if (action === "draft.patch" || action === "draft.patch-anchor") {
+      expect(answer.result).toMatchObject({ ok: true, result: { outcome: "applied" } });
+      expect(store.get(target.id)?.text).toBe(action === "draft.patch-anchor" ? "Needle\nPassage" : "Needle, mended");
+    } else expect(answer.result).toMatchObject({ ok: true, result: { records: ids.slice(0, action === "records-1" ? 1 : 20).map(id => ({ id, backlinks: id === target.id ? [source.id] : [] })) } });
     expect(note.result).toMatchObject({ ok: true, result: { text: "Small note" } });
-    expect(links.ms).toBeLessThan(50);
+    expect(answer.ms).toBeLessThan(50);
     expect(note.ms).toBeLessThan(50);
   } finally {
     await largeServer?.close();
