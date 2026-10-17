@@ -207,7 +207,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `[label](act: …)`, a view's `button`) runs an action line as them: `element.open n=<its element>` presses it as you, in
   another reader than the one they have; a layout change you make glides (`motion=fantasia` on an action in a transaction asks for
   the wandering path; `settle` or none is the plain ease) unless the person's `motion.set` is calm or off, which caps your hint;
-  `peek` and `layout.get` always read the settled layout; a script `act()` with no door refused names the doors (`door=<client>` picks one).
+  `peek` and `layout.get` always read the settled layout; `layout.stop` (the person's Esc while a script run is rearranging the screen) stops the run and puts its layout changes back; a script `act()` with no door refused names the doors (`door=<client>` picks one).
 - **The drawer** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
   share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `tile.drawer tile=<t>`
   moves a tile into it whole (its program keeps running), `tile.drawer on=false tile=<t> to=<tile> where=<side>` back

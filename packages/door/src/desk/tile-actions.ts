@@ -601,6 +601,14 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {},
     run: (_a, { d }: On, actor: Actor) => d.undoLayout(actor, TXN.getStore()?.txn),
   }),
+  "layout.stop": def({
+    summary: "stop the script run that is rearranging this screen (a dance in flight): scripts.stop on it, and the layout it changed is put back, as far as nobody changed it since. The person's Esc does this while a run is moving the screen, and only then (a draft, an overlay, a ^W command or a drag keep their Esc)",
+    keys: "esc while a script run is rearranging the screen",
+    touches: "shape", replay: "ask", says: (r: { stopped: string[] }) => (r.stopped.length ? "stopped the dance" : "nothing to stop"),
+    menu: { label: "stop the script rearranging this screen", group: SCREEN, key: "esc", now: ({ d }: On) => (d.runningScripts().length ? null : { hide: true }) },
+    args: {},
+    run: (_a, { d }: On, actor: Actor) => d.stopRuns(actor),
+  }),
   "layout.txn.end": def({
     summary: "close the layout transaction txn=<id> (txn= opens one on the first action that carries it, for any actor; a script's run is its own, closed when it ends): it stays as the settled state and says once how many changes it made, with ctrl+z to put them back. layout.undo txn=<id> takes it back whole",
     keys: "none: a script's run ends its own; an agent passes txn=<id>",

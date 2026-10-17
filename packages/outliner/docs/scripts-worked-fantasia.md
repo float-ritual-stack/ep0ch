@@ -55,7 +55,7 @@ What happens, step by step:
 Paths:
 
 - **An agent's run** (`act ext.<id>.run block=<the note> beats=3`) is the same script on the same path, attributed to the agent (`onBehalfOf` it, `layout.undo` by it works on its own run), but with no press there is no invitation: the tile the person's keys are on is refused and left docked, and said in the run note.
-- **Stop** (`script.stop run=<id>`): the run ends, the service says `scripts.ended`, the door's end rule puts the layout back (as far as nobody changed it since) and says so. Floats never stay strewn.
+- **Stop**: **Esc** while the screen is dancing (the status bar says so when it starts), or `layout.stop` / `script.stop run=<id>`: the run ends, the service says `scripts.ended`, the door's end rule puts the layout back (as far as nobody changed it since) and says so. Floats never stay strewn.
 - **Undo** (`layout.undo`, ctrl+z, or `ext.undo` for the run's writes and layout together; a run with `stay=1` or `layout=` leaves something to undo): the whole run is taken back, newest step first; it is refused over a change somebody else made since ("undo that first").
 - **By hand**, with no script: `door_act tile.float tile=… on=true txn=g1 motion=fantasia` per tile, `door_act layout.load name=… txn=g1`, then `door_act layout.txn.end txn=g1`. `txn=` and `motion=` are the dispatcher's own arguments, open to every actor.
 

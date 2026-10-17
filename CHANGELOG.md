@@ -16,7 +16,7 @@ are its record. The outliner's entries from then are kept below, under
 `motion=fantasia` and settles them back, as one layout transaction: your press invites it (it may move the tile you are in), an agent's run
 is the same script without the invitation (that tile stays), stopping it puts the layout back, and one `layout.undo` takes the whole run
 back. The showcase has it (`act section name=fantasia`); the worked example is `packages/outliner/docs/scripts-worked-fantasia.md`.
-`motion=` on a button is the script's `props.motion`; alone on any action it is a hint for that one action. The showcase screen forwards
+**Esc stops a dance**: while a script run is rearranging the screen, Esc (or `layout.stop`) stops the run and puts the layout back, and the status bar says so when it starts ("fantasia is rearranging the screen · esc stops it"); with no run Esc is the screen's own, and a draft, an overlay, a ^W command or a drag keep theirs. `motion=` on a button is the script's `props.motion`; alone on any action it is a hint for that one action. The showcase screen forwards
 script ends and undos to the desks it stages.
 
 ### Layout changes move (PIE-958, S8 of the self-reference wave)

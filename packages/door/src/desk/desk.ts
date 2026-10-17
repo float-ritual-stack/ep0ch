@@ -626,6 +626,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.replaying) return;
     const scope = TXN.getStore(), now = Date.now();
     if (scope?.txn) this.history.join(scope.txn, by, before, now, scope.motion);
+    if (scope?.txn && by.kind === "agent" && by.id.startsWith("script:") && !this.announced.has(scope.txn)) { this.announced.add(scope.txn); this.ctx?.flash(`${by.id.slice(7)} is rearranging the screen · esc stops it`, 8000); }
     this.history.record(before, by, what, now, scope?.txn);
     this.startMotion(scope?.motion ?? (scope?.txn ? this.history.openTxn(scope.txn)?.motion : undefined), what);
   }
@@ -647,6 +648,30 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const floated = new Set<number>([...this.floats.map(f => f.id), ...(this.transition?.floated ?? [])]);
     this.transition = null;
     this.pendingMotion = { from, plan, floated };
+  }
+
+  /** The script runs whose layout changes are open on this screen (a dance in flight): their run ids. */
+  runningScripts(): string[] {
+    return this.history.openIds().filter(id => { const by = this.history.openTxn(id)?.by; return by?.kind === "agent" && by.id.startsWith("script:"); });
+  }
+  /** The runs already announced ("esc stops it"), once each. */
+  private announced = new Set<string>();
+
+  /**
+   * `layout.stop` (Esc while a script run is rearranging the screen): stop the run (`scripts.stop`); the service says it ended
+   * and the transaction's end rule puts the layout back, as far as nothing else changed. One obvious key, for whoever's screen
+   * is moving.
+   */
+  async stopRuns(actor: Actor): Promise<{ stopped: string[] }> {
+    const runs = this.runningScripts();
+    if (!runs.length) throw new ActionRefused("no script run is rearranging this screen");
+    const results = await Promise.all(runs.map(run => this.ctx.board.stopScript(run, actor).then(r => (r.stopped ? run : null), () => null)));
+    const stopped = results.filter((r): r is string => !!r);
+    // A run that has already ended (or was started elsewhere) isn't there to stop: the transaction is closed here as stopped.
+    for (const run of runs) if (!stopped.includes(run)) { try { this.endTxn(run, "stopped", actor); stopped.push(run); } catch { /* gone */ } }
+    asActor(this.ctx, actor).flash(stopped.length ? "stopped the dance; the layout is put back" : "nothing to stop");
+    this.redraw();
+    return { stopped };
   }
 
   /** Whether a change is drawing its way (a test and the status line ask). */
@@ -3707,6 +3732,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   key(k: Key, ctx: Ctx): void {
     // A key or a click first settles a transition in flight, so it lands where the tile is (PIE-958).
     if (this.moving) { this.settle(); this.render(ctx); }
+    // Esc while a script run is rearranging the screen stops it (layout.stop): one obvious key. Only then; a prefix, a draft, an overlay or a drag keep their Esc.
+    if (k.kind === "esc" && this.runningScripts().length && !this.prefix && !this.holdsKeys() && !this.dragging && !this.floatDrag && ![...this.overlays.all()].length) return void this.run("layout.stop");
     // The band (the spec's): a press on it is its kind's. Only presses: a release or drag over it is the desk's, so a
     // border or tile drag still ends.
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }

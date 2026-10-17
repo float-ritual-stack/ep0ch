@@ -147,6 +147,28 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
     expect(desk().history.entriesOf(run).length).toBe(0);
   }, 90_000);
 
+  test("Esc while a run is rearranging the screen stops it and puts the layout back; with none running Esc is the screen's own", async () => {
+    await openSection();
+    desk().settle();
+    const start = names();
+    // With no run, Esc runs no layout.stop.
+    expect(desk().runningScripts().length).toBe(0);
+    (app as any).lastInput = Date.now();
+    const b = button();
+    click(b.x, b.y);
+    await untilAsync(() => tiles().filter(t => t.float).length >= 3, "the tiles floated", 20_000);
+    const run = (desk().runningScripts() as string[])[0]!;
+    expect(run).toBeTruthy();
+    expect(screen()).toContain("esc stops it");
+    press({ kind: "esc" });
+    await untilAsync(() => !desk().history.isOpen(run), "the stopped run's transaction closed", 20_000);
+    desk().settle();
+    expect(tiles().every(t => !t.float)).toBe(true);
+    expect(names()).toEqual(start);
+    expect(desk().history.entriesOf(run).length).toBe(0);
+    expect(desk().runningScripts().length).toBe(0);
+  }, 90_000);
+
   test("a locked screen refuses the dance and says so; nothing moved", async () => {
     await openSection();
     desk().settle();
