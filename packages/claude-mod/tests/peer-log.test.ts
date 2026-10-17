@@ -27,7 +27,7 @@ function sessionIn(on: On, cwd: string, found: () => ProcessRunResult = () => re
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: cwd }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
   on('ui.status', () => ({ value: undefined }))
   on('session.send', ($, e) => {
     sends.push(e)

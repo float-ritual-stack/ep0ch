@@ -109,8 +109,8 @@ describe('freshness helpers', () => {
   test('what counts: a deploy, an outline write', () => {
     expect(isDeploy('cd ~/projects/ep0ch && ep0ch install --apply')).toBe(true)
     expect(isDeploy('ep0ch install')).toBe(false)
-    expect(isOutlineWrite('mcp__pi-outliner__outline_edit')).toBe(true)
-    expect(isOutlineWrite('mcp__pi-outliner__outline_read')).toBe(false)
+    expect(isOutlineWrite('mcp__ep0ch__outline_edit')).toBe(true)
+    expect(isOutlineWrite('mcp__ep0ch__outline_read')).toBe(false)
   })
 
   test('the sweep\'s Bash may read and may not write', () => {

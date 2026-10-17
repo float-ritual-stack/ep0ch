@@ -48,7 +48,7 @@ function sessionIn(on: On, c: Case) {
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: c.cwd ?? FOLDER }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('prompt.context', ($, e) => ({ blocks: e.blocks }))
   on('ui.status', ($, e) => { statuses.push(e.text); return { value: undefined } })
@@ -77,7 +77,7 @@ function sessionIn(on: On, c: Case) {
 const START = { surface: 'terminal', isInteractive: true, cwd: FOLDER } as const
 
 const band = ($: any, surface: 'terminal' | 'desktop' = 'terminal') =>
-  $.ui.mount({ plugin: 'pi-outliner', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { top: 0, bodyRows: 20, rows: 0 }, view: {} } })
+  $.ui.mount({ plugin: 'ep0ch', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { top: 0, bodyRows: 20, rows: 0 }, view: {} } })
 
 /** The card's words, row by row, as the band draws them. */
 async function cardText(drawn: any): Promise<string> {

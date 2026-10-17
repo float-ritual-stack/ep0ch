@@ -85,7 +85,7 @@ function sessionIn(on: On, env: Record<string, string> = {}, page = '[file-touch
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: WORKSPACE }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
   on('ui.toast', ($, e) => { toasts.push(e.text); return { value: undefined } })
   on('ui.copy', ($, e) => { copied.push(e.text); return { value: { isCopied: true } } })
   on('ui.render', { component: 'ToolUse' }, ($, e) => $.ui.resolve(e).Box({ key: 'engine' }))
@@ -221,7 +221,7 @@ describe('each touch, recorded in the session\'s outline', () => {
     const s = sessionIn(on, { EP0CH_CONTROL: '/state/sessions/local/garden/door.sock', EP0CH_TILE: 'claude' })
     await $.session.start(START)
     await s.clock.settle()
-    const drawn = await $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_9',
+    const drawn = await $.ui.mount({ plugin: 'ep0ch', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_9',
       props: { tool_use_id: 'toolu_9', tool: 'Edit', input: { file_path: FILE, old_string: 'a', new_string: 'b' }, output: EDITED, isRunning: false, isErrored: false, isInterrupted: false } })
     expect(await drawn.find({ key: 'engine' })).toBeUndefined()
     expect((await drawn.find({ key: 'tool-row-open-toolu_9' }))?.text).toBe('beds/plan.md')
@@ -241,7 +241,7 @@ describe('each touch, recorded in the session\'s outline', () => {
     const s = sessionIn(on)
     await $.session.start(START)
     await s.clock.settle()
-    const drawn = await $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_9',
+    const drawn = await $.ui.mount({ plugin: 'ep0ch', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_9',
       props: { tool_use_id: 'toolu_9', tool: 'Edit', input: { file_path: FILE, old_string: 'a', new_string: 'b' }, output: EDITED, isRunning: false, isErrored: false, isInterrupted: false } })
     await drawn.press({ key: 'tool-row-open-toolu_9' })
     await s.clock.settle()
