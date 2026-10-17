@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { drawNote } from "../src/notes-cli";
-import { outlineChanged } from "../src/refs";
+import { outlineChanged, siteAnswerOf } from "../src/refs";
+import { sourceSpanOf } from "../src/surface/source-map";
 import { SocketBoard } from "../src/socket";
 import { visible } from "../src/style";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -143,4 +144,39 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
     expect(surface.focusMark!.spec.line).toBe(1);
     expect(opened).toEqual([note.id]);                           // the value is written in this very note: it stays here, the line lit
   }, 30_000);
+});
+describe("the pieces a value's drawing rests on (PIE-533 S2)", () => {
+  test("a selection near a value whose words hold an emoji maps by UTF-16 units: the token whole, the words after it exact", () => {
+    const span = "{{this.owner}} tail";
+    const values = [{ start: 0, end: 14, words: "😀" }];
+    expect(sourceSpanOf(span, "😀", values)).toEqual({ from: 0, to: 14 });
+    expect(sourceSpanOf(span, "tail", values)).toEqual({ from: 15, to: 19 });
+    expect(sourceSpanOf(span, "😀 tail", values)).toEqual({ from: 0, to: 19 });
+  });
+
+  test("a failed refresh is asked again on the next change, and a draft asks again as it is typed", async () => {
+    let calls = 0, fail = false;
+    const board = { siteAnswer: async (_id: string, draft?: string) => { calls++; if (fail) throw new Error("down"); return { blockId: "b", revision: 1, site: { props: {} }, values: [], route: [], deps: ["b"], problems: 0, ...(draft ? { draft } : {}) }; } };
+    const src = { board, redraw() {} } as never;
+    const settle = () => Bun.sleep(20);
+    expect(siteAnswerOf("b", "x {{this.a}}", src)).toBeNull();
+    await settle();
+    expect(siteAnswerOf("b", "x {{this.a}}", src)).not.toBeNull();
+    expect(calls).toBe(1);
+    // A change names it: asked again, and the read fails: the answer there was is kept, and the next change asks again.
+    fail = true; outlineChanged(["b"]);
+    siteAnswerOf("b", "x {{this.a}}", src); await settle();
+    expect(calls).toBe(2);
+    siteAnswerOf("b", "x {{this.a}}", src); await settle();
+    expect(calls).toBe(2);
+    fail = false; outlineChanged(["b"]);
+    siteAnswerOf("b", "x {{this.a}}", src); await settle();
+    expect(calls).toBe(3);
+    // A draft: a failed read of the text so far, then more typing asks again.
+    fail = true;
+    siteAnswerOf("b", "d {{this.a}}", src, true); await settle();
+    const before = calls;
+    siteAnswerOf("b", "d {{this.a}} more", src, true); await settle();
+    expect(calls).toBe(before + 1);
+  });
 });

@@ -654,4 +654,14 @@ describe("what a reader may not see (PIE-533 S2)", () => {
     const draft = answerSite(store, { blockId: vent.id, draft: { text: "Draft [owner::sam]\n{{this.owner}}" } });
     expect(draft.values[0]).toMatchObject({ values: ["sam"], source: { block: vent.id, start: 6, line: 0, mark: "[owner::sam]" } });
   });
+  test("a filter that reads other notes says nothing when the reader may not see some (it could answer from one)", () => {
+    const { store } = scratch();
+    const hub = store.create("Hub");
+    const kid = store.create("Kid", hub.id);
+    const secret = store.create("Secret [secret::yes]", kid.id);
+    expect(values(store, hub.id, "this.children | child:secret=yes .count")).toEqual(["1"]);
+    const shut = answerSite(store, { blockId: hub.id, hidden: [secret.id], paths: ["this.children | child:secret=yes .count", "this.children.count"] });
+    expect(shut.paths![0]).toMatchObject({ hidden: true });
+    expect(shut.paths![1]!.values).toEqual(["1"]);
+  });
 });

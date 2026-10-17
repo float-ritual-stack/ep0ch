@@ -74,7 +74,9 @@ export function sourceSpanOf(span: string, seen: string, values: readonly DrawnV
     // A value's words stand where its token is; each of their characters is the token's start.
     const value = valueAt.get(i);
     if (value) {
-      for (const ch of value.words) {
+      // By UTF-16 unit, as `drawn` and its offsets are counted (`at[k]` is the source offset of `drawn[k]`).
+      for (let k = 0; k < value.words.length; k++) {
+        const ch = value.words[k]!;
         if (/\s/.test(ch)) { blank = true; continue; }
         if (blank && drawn) { drawn += " "; at.push(i); }
         blank = false;

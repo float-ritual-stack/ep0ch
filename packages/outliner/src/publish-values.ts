@@ -5,11 +5,13 @@
 // same rule figure rows follow (publish-live.ts): a row the page may not show is left out, never named.
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import type { SiteAnswer, SiteValue } from "@ep0ch/outline-core/site";
-import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
+import { MAX_NOTE_VALUES, markdownValueWords } from "@ep0ch/outline-core/site-values";
 import type { LiveHost } from "./publish-live";
 
 /** The most notes of one page whose placeholders are read (the rest stay as typed). */
 export const MAX_PAGE_VALUE_NOTES = 200;
+/** The most times one note's answer is asked again as notes the page may not show turn up in it. */
+const MAX_ROUNDS = 4;
 
 /** The values of each note in `blocks` that holds a placeholder, as the page may show them (by note id). */
 export async function readPageValues(host: LiveHost, blocks: readonly { id: string; text: string }[]): Promise<Map<string, readonly SiteValue[]>> {
@@ -17,18 +19,25 @@ export async function readPageValues(host: LiveHost, blocks: readonly { id: stri
   const wanted = blocks.filter(block => block.text.includes("{{") && interpolationSpans(block.text).length > 0).slice(0, MAX_PAGE_VALUE_NOTES);
   for (const block of wanted) {
     try {
-      let answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: block.id });
-      // Every note the answer was computed from, and every note a value was read from or links to.
-      const touched = new Set<string>(answer.deps);
-      for (const v of answer.values) {
-        if (v.from) touched.add(v.from);
-        for (const l of v.links ?? []) touched.add(l.id);
+      // Each answer may be computed from notes the one before did not read (a fallback once an ancestor is left out): asked
+      // again, naming every note found not shown, until it reads only notes the page shows. A read that never settles says nothing.
+      const hidden = new Set<string>();
+      let answer: SiteAnswer | undefined;
+      for (let round = 0; round < MAX_ROUNDS; round++) {
+        answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: block.id, ...(hidden.size ? { hidden: [...hidden] } : {}) });
+        const touched = new Set<string>(answer.deps);
+        for (const v of answer.values) {
+          if (v.from) touched.add(v.from);
+          for (const l of v.links ?? []) touched.add(l.id);
+        }
+        touched.delete(block.id);
+        const shown = touched.size ? await host.shown([...touched]) : new Set<string>();
+        const fresh = [...touched].filter(id => !shown.has(id) && !hidden.has(id));
+        if (!fresh.length) break;
+        for (const id of fresh) hidden.add(id);
+        if (round === MAX_ROUNDS - 1) answer = undefined;
       }
-      touched.delete(block.id);
-      const shown = touched.size ? await host.shown([...touched]) : new Set<string>();
-      const hidden = [...touched].filter(id => !shown.has(id));
-      if (hidden.length) answer = await host.request<SiteAnswer>({ action: "site.answer", blockId: block.id, hidden });
-      out.set(block.id, answer.values.slice(0, MAX_NOTE_VALUES));
+      if (answer) out.set(block.id, answer.values.slice(0, MAX_NOTE_VALUES));
     } catch {
       // A service that can't answer (an older one, a note gone): the placeholders stay as typed.
     }
@@ -36,9 +45,5 @@ export async function readPageValues(host: LiveHost, blocks: readonly { id: stri
   return out;
 }
 
-/** A value's words as Markdown text: plain, whatever characters Markdown would take; a lone web address is a link. */
-export function publishedValueWords(words: string, value: SiteValue): string {
-  const only = value.values?.length === 1 ? value.values[0]!.trim() : "";
-  if (/^https?:\/\/[^\s<>]+$/i.test(only)) return `<${only}>`;
-  return words.replace(/[\\`*_{}[\]()#+!|<>~]/g, "\\$&");
-}
+/** A value's words as Markdown text (outline-core's `markdownValueWords`: literal, a lone web address a link). */
+export const publishedValueWords = markdownValueWords;

@@ -677,3 +677,32 @@ test("Detail's read preview shows a note's {{ }} as the service reads them, line
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("a value in Detail's preview is literal: it never becomes emphasis, markup or an embed, and a lone address is a link", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { OutlinerClient } = await import("../src/client");
+  const { OutlinerServer } = await import("../src/server");
+  const { OutlinerStore } = await import("../src/store");
+  const directory = mkdtempSync(join(tmpdir(), "detail-values-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const socket = join(directory, "o.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  try {
+    const other = store.create("Other note\nbody");
+    const holder = store.create(`Holder [embed::!((${other.id}))]`);
+    const note = store.create(`Card [shout::*loud* ~gone~ <b>] [site::https://example.test/a_b]\nA {{this.shout}}; B {{((${holder.id})).embed}}; C {{this.site}}.\nEnd`);
+    const projection = await projectDetailRead(new OutlinerClient(socket), note.text, { hostBlockId: note.id, hostRevision: note.revision });
+    const lines = projection.text.split("\n");
+    expect(lines).toHaveLength(3);
+    // A value that is a link to a note shows the note's title, as plain text: no embed is made of it.
+    expect(lines[1]).toBe(`A \\*loud\\* \\~gone\\~ \\<b\\>; B Other note; C <https://example.test/a_b>.`);
+    expect(projection.embeds).toEqual([]);
+  } finally {
+    await server.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

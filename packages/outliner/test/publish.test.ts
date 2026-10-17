@@ -1276,3 +1276,14 @@ test("a bare key from an ancestor the page may not show is not supplied, and an 
   const host = await (await get("/p/host")).text();
   expect(host).toContain("> Owner here: ada");
 });
+
+test("a value that only turns up once a hidden ancestor is left out is checked too: no private note's value is published", async () => {
+  const { store, publisher } = await setup();
+  store.create("Private person [page::private person] [name::Zed]");
+  const parent = store.create("Private plans [person.name::shadow]");
+  store.create("Open page [publish::public:open] [person::[[private person]]]\nGuide: {{person.name}}.", parent.id);
+  const body = await (await sharing(publisher)("/share/p/open")).text();
+  expect(body).not.toContain("Zed");
+  expect(body).not.toContain("shadow");
+  expect(body).toContain("Guide:");
+});

@@ -92,7 +92,11 @@ class StoreWorld implements PathWorld {
   filter(rows: readonly FilterRow[], filter: string) {
     const kept = this.store.filterRows(rows, filter, this.thisId);
     // A filter that reads other notes (links:, child:, under:…) depends on notes the answer can't name.
-    if (kept.ok && kept.open) this.unresolved = true;
+    if (kept.ok && kept.open) {
+      this.unresolved = true;
+      // …so for a reader who may not see some notes, it says nothing: it could answer from one of them.
+      if (this.hidden.size) { this.hiddenHits += 1; return { ok: false as const, message: "this filter reads other notes, and some aren't shown here" }; }
+    }
     return kept;
   }
 }

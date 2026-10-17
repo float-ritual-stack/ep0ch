@@ -10,7 +10,7 @@ import {isChecklistView,projectChecklistView} from './checklist-views';
 import { resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING } from "./transclusions";
 import { propertyReferenceOccurrences } from "./reference-occurrences";
-import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, valueWords } from "@ep0ch/outline-core/site-values";
+import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, markdownValueWords, pairValues, problemWords, valueWords } from "@ep0ch/outline-core/site-values";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { blockDisplayTitle } from "./references";
 import { propertySummarySegments } from "./property-summary";
@@ -785,8 +785,9 @@ async function withSiteValues(requester: DetailEmbedRequester, hostBlockId: stri
     const v = pair.value!;
     const raw = source.text.slice(pair.start, pair.end);
     parts.push(sliceDocument(source, cursor, pair.start));
-    const words = hasWords(v) ? valueWords(v).replace(/\n/g, " ") || EMPTY_VALUE : `${raw} (${problemWords(v)})`;
-    bindings.push({ expression: v.expression, words: hasWords(v) ? words : "", ...(hasWords(v) ? {} : { problem: problemWords(v) }), ...(v.from ? { from: v.from } : {}), route: v.route.join(" → ") });
+    // Literal in the preview's Markdown and in the outline's own grammars: a value never becomes a link, an embed or emphasis.
+    const words = hasWords(v) ? markdownValueWords(valueWords(v) || EMPTY_VALUE, v) : `${raw} (${problemWords(v)})`;
+    bindings.push({ expression: v.expression, words: hasWords(v) ? valueWords(v) || EMPTY_VALUE : "", ...(hasWords(v) ? {} : { problem: problemWords(v) }), ...(v.from ? { from: v.from } : {}), route: v.route.join(" → ") });
     const slices = sliceDocument(source, pair.start, pair.end).runs.flatMap(run => run.origin.kind === 'source' ? run.origin.slices : []);
     parts.push(slices.length ? atomicDocument(words, {kind: 'source', slices}) : generatedDocument(words, 'site value'));
     cursor = pair.end;

@@ -65,6 +65,16 @@ export const nearestKey = (v: SiteValue): string | undefined => v.problem?.didYo
 export const hasWords = (v: SiteValue | undefined): boolean => !!v && v.values !== undefined && !v.hidden;
 
 /**
+ * A value's words in a surface that reads Markdown (Detail's preview, a published page): literal, whatever characters
+ * Markdown or the outline's own grammars (`((id))`, `!((id))`, `[[page]]`, `{{ }}`) would take; a lone web address is a link.
+ */
+export function markdownValueWords(words: string, value: SiteValue): string {
+  const only = value.values?.length === 1 ? value.values[0]!.trim() : "";
+  if (/^https?:\/\/[^\s<>]+$/i.test(only)) return `<${only}>`;
+  return words.replace(/[\\`*_{}[\]()#+!|<>~]/g, "\\$&");
+}
+
+/**
  * The note's text with each placeholder it can read replaced by its words, for a surface that draws text (Detail's
  * preview, the publisher). `onProblem` says what an unresolved or hidden one becomes (default: as written). Replacing
  * never adds a line: a value's words are one row.
