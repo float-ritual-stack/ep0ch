@@ -208,7 +208,7 @@ function sourceOccurrences(
 
 /**
  * For many targets at once, the ids of the active blocks that link to each (the same relation as
- * `resolveBacklinkRelation`, in one pass over the outline), in outline order.
+ * `resolveBacklinkRelation`, over the supplied candidates), in outline order.
  */
 export function backlinkSourceIds(
   input: Omit<BacklinkRelationInput, "query" | "target" | "blocksById" | "facetRules">,

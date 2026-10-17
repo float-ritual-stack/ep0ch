@@ -53,7 +53,7 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
   if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_BLOCK_RECORD_IDS || ids.some(id => typeof id !== "string" || !id)) {
     throw new Error(`Block records need ids: 1 through ${MAX_BLOCK_RECORD_IDS} block IDs`);
   }
-  // Backlinks for every id in one pass over the outline (the relation `references.backlinks` answers one at a time).
+  // Share one indexed candidate read across the requested targets.
   const asked = [...new Set(ids as string[])];
   const linking = source.backlinkSources(asked);
   const records: BlockRecord[] = [];

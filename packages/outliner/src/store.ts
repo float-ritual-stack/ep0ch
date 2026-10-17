@@ -2428,6 +2428,7 @@ export class OutlinerStore {
       ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
         .map((row) => row.extension_id)])];
     const pages = new Map<string, string>();
+    // Start at extension records: SQLite otherwise walks every active block to find its owner row.
     const rows = [
       ...this.database.query(`
         SELECT upper(trim(property.value)) AS key, block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
@@ -2436,7 +2437,7 @@ export class OutlinerStore {
       `).all(...keys) as Array<{ key: string; id: string }>,
       ...this.database.query(`
         SELECT record.item_key AS key, block.id FROM extension_records record
-        JOIN blocks block ON block.id = record.parent_block_id JOIN blocks owned ON owned.id = record.block_id
+        CROSS JOIN blocks block ON block.id = record.parent_block_id CROSS JOIN blocks owned ON owned.id = record.block_id
         WHERE record.role = 'record' AND block.effective_deleted_root_id IS NULL AND owned.effective_deleted_root_id IS NULL
         ORDER BY block.created_at, block.id
       `).all() as Array<{ key: string; id: string }>,
@@ -3428,20 +3429,20 @@ export class OutlinerStore {
   queryBacklinks(input: BacklinkQuery): BacklinkCollection {
     return this.database.transaction(() => {
       const query = { ...input, targetBlockId: input.targetBlockId.trim() };
-      const context = this.backlinkContextFromCurrentRead(query.targetBlockId);
+      const context = this.backlinkContextFromCurrentRead([query.targetBlockId]);
       const target = context.blocksById.get(query.targetBlockId);
       if (!target) throw new Error(`Block not found: ${query.targetBlockId}`);
       return resolveBacklinkRelation({ query, target, ...context });
     })();
   }
 
-  /** The ids of the active blocks linking to each of `ids` (the backlink relation, one pass), in outline order. */
+  /** The active sources for these targets, read through the reference candidate index in outline order. */
   backlinkSources(ids: readonly string[]): Map<string, string[]> {
-    return this.database.transaction(() => backlinkSourceIds(this.backlinkContextFromCurrentRead(), new Set(ids)))();
+    return this.database.transaction(() => backlinkSourceIds(this.backlinkContextFromCurrentRead(ids), new Set(ids)))();
   }
 
   /** A target reads indexed candidates and their ancestors; whole-outline relation queries share the graph. */
-  private backlinkContextFromCurrentRead(targetId?: string) {
+  private backlinkContextFromCurrentRead(targetIds?: readonly string[]) {
     const addressRows = this.database.query(
       "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
     ).all() as Array<{ normalized_address: string; block_id: string }>;
@@ -3455,8 +3456,9 @@ export class OutlinerStore {
     }
     const blocksById = new Map<string, Block>();
     let orderedBlocks: Block[];
-    if (targetId !== undefined) {
-      const addresses = [targetId, ...[...addressTargets].filter(([, id]) => id === targetId).map(([address]) => address)];
+    if (targetIds !== undefined) {
+      const targets = new Set(targetIds);
+      const addresses = [...targets, ...[...addressTargets].filter(([, id]) => targets.has(id)).map(([address]) => address)];
       const rows = this.database.query(`SELECT DISTINCT block_id FROM block_reference_candidates
         WHERE address IN (${addresses.map(() => "?").join(", ")})`).all(...addresses) as { block_id: string }[];
       const load = (id: string): Block | null => {
@@ -3469,7 +3471,7 @@ export class OutlinerStore {
         }
         return block;
       };
-      load(targetId);
+      for (const id of targetIds) load(id);
       orderedBlocks = rows.map(row => load(row.block_id)!);
       // A reply's lifecycle follows its thread even when it is filed outside that thread's tree.
       for (const block of orderedBlocks) {
@@ -3915,6 +3917,20 @@ export class OutlinerStore {
   /** Every block not in the Trash, in outline order: a rule's baseline (PIE-600, `src/extension-rules.ts`). */
   liveBlocks(): Block[] {
     return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active" }))();
+  }
+
+  /** A property-selected reader depends on its members and their outline order, not unrelated writes. */
+  propertyDependencyStamp(key: string): string {
+    return JSON.stringify(this.database.query(`
+      WITH RECURSIVE dependencies(id) AS (
+        SELECT block_id FROM block_properties WHERE key = ? AND scope = 'block'
+        UNION
+        SELECT block.parent_id FROM blocks block JOIN dependencies ON block.id = dependencies.id
+        WHERE block.parent_id IS NOT NULL
+      )
+      SELECT block.id, block.revision, block.parent_id, block.position, block.effective_deleted_root_id
+      FROM dependencies JOIN blocks block ON block.id = dependencies.id ORDER BY block.id
+    `).all(key));
   }
 
   /** What a `{{path}}` in a question reads: the Site's values for the note the question sits in (`this`). */
