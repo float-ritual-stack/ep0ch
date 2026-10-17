@@ -121,11 +121,12 @@ test("band and track are primitives: checked, and drawn as a heading and a break
 // ── Rule notes: the no-code tier ─────────────────────────────────────────
 
 test("a rule note decorates with no code: a heading style is a band in the heading's place, scoped to a subtree", async () => {
-  const { create, decorations, list, events } = await setup();
+  const { create, update, client, decorations, list, events } = await setup();
   const garden = await create("Garden\n# Beds\nRaised, by the shed.\n## Squash\nSow in May.");
   const elsewhere = await create("Kitchen\n# Shelves");
   const before = events.filter((event) => event.action === "extensions.changed").length;
-  await create(`Garden headings [rule-name::garden-h1] [rule-under::((${garden.id}))] [rule-kind::heading:1] [rule-decorate::band] [rule-pattern::stack] [rule-align::center] [rule-style::tab]`);
+  const ruleHome = await create("Styles");
+  const rule = await create(`Garden headings [rule-name::garden-h1] [rule-under::((${garden.id}))] [rule-kind::heading:1] [rule-decorate::band] [rule-pattern::stack] [rule-align::center] [rule-style::tab]`, ruleHome.id);
   // Readers hear the rules changed, so they draw every note again.
   await until("extensions.changed", () => events.filter((event) => event.action === "extensions.changed").length > before);
   const ds = await decorations(garden.id);
@@ -135,6 +136,14 @@ test("a rule note decorates with no code: a heading style is a band in the headi
   expect(await decorations(elsewhere.id)).toEqual([]);
   const listed = await list();
   expect(listed.rules.map((rule) => [rule.name, rule.source.kind, rule.decorate?.use])).toEqual([["garden-h1", "note", "band"]]);
+  await update(rule.id, text => text.replace("[rule-style::tab]", "[rule-style::plain]"));
+  expect((await decorations(garden.id))[0]?.view).toMatchObject({ style: "plain" });
+  await client.request({ action: "delete", blockId: ruleHome.id, mutation: PERSON });
+  expect(await decorations(garden.id)).toEqual([]);
+  await client.request({ action: "trash.restore", blockId: ruleHome.id, mutation: PERSON });
+  expect((await decorations(garden.id))[0]?.view).toMatchObject({ style: "plain" });
+  await update(rule.id, () => "Retired style");
+  expect(await decorations(garden.id)).toEqual([]);
 });
 
 test("rule notes: a card of the block's properties on a query, a text pattern outside code, and what's wrong said", async () => {

@@ -3919,6 +3919,20 @@ export class OutlinerStore {
     return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active" }))();
   }
 
+  /** A property-selected reader depends on its members and their outline order, not unrelated writes. */
+  propertyDependencyStamp(key: string): string {
+    return JSON.stringify(this.database.query(`
+      WITH RECURSIVE dependencies(id) AS (
+        SELECT block_id FROM block_properties WHERE key = ? AND scope = 'block'
+        UNION
+        SELECT block.parent_id FROM blocks block JOIN dependencies ON block.id = dependencies.id
+        WHERE block.parent_id IS NOT NULL
+      )
+      SELECT block.id, block.revision, block.parent_id, block.position, block.effective_deleted_root_id
+      FROM dependencies JOIN blocks block ON block.id = dependencies.id ORDER BY block.id
+    `).all(key));
+  }
+
   /** What a `{{path}}` in a question reads: the Site's values for the note the question sits in (`this`). */
   private valueBinder(thisId: string | undefined): ValueBinder | undefined {
     return thisId ? path => pathValues(this, thisId, path) : undefined;

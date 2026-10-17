@@ -215,7 +215,7 @@ interface Pending {
 }
 
 export class ExtensionRules {
-  private noteCache: { sequence: number; rules: RuleEntry[]; problems: string[]; signature: string } | null = null;
+  private noteCache: { sequence: number; dependencies: string; rules: RuleEntry[]; problems: string[]; signature: string } | null = null;
   private readonly compiled = new Map<string, Compiled>();
   private readonly running = new Set<string>();
   private readonly waiting: Array<() => void> = [];
@@ -255,10 +255,15 @@ export class ExtensionRules {
 
   // ── the rules ──────────────────────────────────────────────────────────
 
-  /** The rule notes in the outline, read again after any write. */
+  /** Rule declarations change only with their indexed notes or their placement. */
   private notes(): { rules: RuleEntry[]; problems: string[]; signature: string } {
     const sequence = this.store.sequence;
     if (this.noteCache?.sequence === sequence) return this.noteCache;
+    const dependencies = this.store.propertyDependencyStamp("rule-name");
+    if (this.noteCache?.dependencies === dependencies) {
+      this.noteCache.sequence = sequence;
+      return this.noteCache;
+    }
     const declared = this.store.queryBlocks({ filters: [{ key: "rule-name" }], limit: 500 });
     const { rules, problems } = rulesFromBlocks(declared.blocks.map((block) => ({
       id: block.id,
@@ -274,7 +279,7 @@ export class ExtensionRules {
     }));
     if (declared.completeness.kind === "truncated") problems.push("more than 500 notes declare rules: the first 500 are used");
     const signature = JSON.stringify([entries, problems]);
-    this.noteCache = { sequence, rules: entries, problems, signature };
+    this.noteCache = { sequence, dependencies, rules: entries, problems, signature };
     return this.noteCache;
   }
 

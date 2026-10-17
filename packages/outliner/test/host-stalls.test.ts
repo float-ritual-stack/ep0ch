@@ -4,6 +4,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect } from "node:net";
+import { OutlinerClient } from "../src/client";
 import { actionOf, noteWork, Turns, watchEventLoop, type LoopStall } from "../src/loop-watch";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -20,6 +22,69 @@ function scratch(name: string) {
 }
 
 const graphOf = (store: OutlinerStore) => (store as unknown as { loadGraph(): { byId: Map<string, Block> } }).loadGraph();
+
+test("a write's fan-out in a 50,000-block outline leaves another outline responsive (PIE-1001)", async () => {
+  const { root, store, done } = scratch("fanout-latency");
+  const small = new OutlinerStore(join(root, "small.sqlite"));
+  const server = new OutlinerServer(store, join(root, "large.sock"));
+  const other = new OutlinerServer(small, join(root, "small.sock"));
+  let socket: ReturnType<typeof connect> | undefined;
+  try {
+    const target = store.create("Needle [kind::seed]");
+    const note = small.create("Small note");
+    store.database.transaction(() => {
+      const insert = store.database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', ?, ?)");
+      for (let i = 0; i < 50_000; i++) insert.run(crypto.randomUUID(), i + 100, `Note ${i}`, target.createdAt, target.createdAt);
+    })();
+    await server.start();
+    await other.start();
+    socket = connect(join(root, "large.sock"));
+    socket.setEncoding("utf8");
+    let buffer = "";
+    const replies = new Map<string, (value: { ok: boolean }) => void>();
+    const delivered = Promise.withResolvers<void>();
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) {
+        const message = JSON.parse(buffer.slice(0, at));
+        buffer = buffer.slice(at + 1);
+        if (message.event?.action === "draft.patch") delivered.resolve();
+        else replies.get(message.id)?.(message);
+      }
+    });
+    const ask = (id: string, request: object) => new Promise<{ ok: boolean }>(resolve => {
+      replies.set(id, resolve);
+      socket!.write(`${JSON.stringify({ id, ...request })}\n`);
+    });
+    expect((await ask("subscribe", { action: "events.subscribe", client: { clientId: "garden-door", role: "observer", contextId: "garden" } })).ok).toBe(true);
+    for (const kind of ["seed", "tool"]) expect((await ask(kind, {
+      action: "blocks.query", query: { where: `kind=${kind}`, limit: 20 }, watch: kind,
+    })).ok).toBe(true);
+    const client = new OutlinerClient(join(root, "large.sock"));
+    const second = new OutlinerClient(join(root, "small.sock"));
+    const started = performance.now();
+    const write = client.request<{ outcome: string }>({ action: "draft.patch", blockId: target.id, revision: target.revision,
+      patches: [{ observed: "Needle", replacement: "Needle, mended" }], mutation: { author: "agent", actorId: "mender" } });
+    const delivery = delivered.promise.then(() => performance.now() - started);
+    const read = new Promise<void>(resolve => setImmediate(resolve)).then(async () => {
+      const answer = await second.request<Block>({ action: "get", blockId: note.id });
+      return { answer, ms: performance.now() - started };
+    });
+    const [result, fanoutMs, reading] = await Promise.all([write, delivery, read]);
+    expect(result.outcome).toBe("applied");
+    expect(store.get(target.id)?.text).toBe("Needle, mended [kind::seed]");
+    expect(reading.answer.text).toBe("Small note");
+    console.log(`PIE-1001: write through fan-out ${fanoutMs.toFixed(1)} ms; second outline ${reading.ms.toFixed(1)} ms`);
+    expect(fanoutMs).toBeLessThan(20);
+    expect(reading.ms).toBeLessThan(20);
+  } finally {
+    socket?.destroy();
+    await server.close();
+    await other.close();
+    small.close();
+    done();
+  }
+}, 120_000);
 
 test("the outline graph is read once per change, is frozen, and a failed transaction drops it", () => {
   const { store, done } = scratch("graph-cache");
