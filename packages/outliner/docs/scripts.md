@@ -258,7 +258,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:32` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:759` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:786` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:417` |
 
 ## Effects, access and attribution
