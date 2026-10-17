@@ -471,5 +471,10 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
     const hit = level.find(k => titleOf(k) === SEED.threadHere);
     if (hit) notes.threadHere = (await board.get(hit.id)) ?? hit;
   }
+  // The fixture of "Notes that read themselves" (PIE-533) sits under its project, so its `parent` has a project to read.
+  if (notes.ventProject) {
+    const hit = (await board.children(notes.ventProject.id)).find(k => titleOf(k) === SEED.ventRail);
+    if (hit) notes.ventRail = (await board.get(hit.id)) ?? hit;
+  }
   return { root, notes };
 }
