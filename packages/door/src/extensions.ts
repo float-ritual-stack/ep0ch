@@ -387,14 +387,15 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
-      block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
+      block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
       line: { type: "number", optional: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
       with: { type: "string", optional: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
       ...declaredArgs(a),
     } as ActionDef<ExtArgs, ExtOn>["args"],
     run({ block: named, line, with: w, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
-      const block = named ?? (actor.kind === "user" && !handler && !bar && !outline ? on.ctx.noteInFront?.() ?? undefined : undefined);
+      // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
+      const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
       if (!block && !bar && !outline) throw new ActionRefused(`${a.name} acts on ${handler ? `a ${handler}:: line: say block=<the note's id>` : "a block: say block=<id>"}`);
       const given = { ...withArgs(w), ...givenArgs(a, rest) };
       return askingFirst(on.ctx, e, a, block, given, actor, args =>

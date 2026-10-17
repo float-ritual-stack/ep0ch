@@ -13,7 +13,7 @@
  */
 import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, toolArgsSpec, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
-import { runAgentOperation, resolveRef, type AgentActor, type AgentToolsClient } from "./agent-tools";
+import { findBlocks, runAgentOperation, resolveRef, type AgentActor, type AgentToolsClient, type FindInput } from "./agent-tools";
 import { applyWrite, type McpWriteTool } from "./mcp-write";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import type { AnnotationRecord, AnnotationThread } from "./types";
@@ -41,6 +41,14 @@ export interface HostApiOptions {
   effects?: "read" | "write";
   mcpAccess?: McpAccessLevel;
   act?(name: string, args: Record<string, unknown>): Promise<unknown>;
+  /** The note this run is about (`this`): a query's `this` targets (`parent:this`) are bound to it. */
+  thisId?: string;
+  /** What `resolve(path)` answers: the Site's path reader (`site.answer`), for this run's Site. */
+  resolve?(path: string): Promise<unknown>;
+  /** Ids of the notes this run read (a read, a resolve, a query's rows): what a render-mode script's output depends on. */
+  onRead?(ids: readonly string[]): void;
+  /** A `q(query)` and the rows it found, so a render can be drawn again when the query's answer changes (a new match, not only an edit of a row). */
+  onQuery?(query: { query: string; limit: number; ids: readonly string[] }): void;
   /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
   onStep?(step: HostStep): void;
 }
@@ -55,8 +63,20 @@ export interface HostApi {
   call(name: string, input?: Record<string, unknown>): Promise<unknown>;
   /** The blocks a query in the views' grammar holds for (outline_find with `query`): `q("type=ticket due <= +3d")`. */
   q(query: string, options?: { under?: string; limit?: number }): Promise<unknown>;
-  /** A note with its children (outline_read): `read("PIE-123", { depth: 2 })`. */
+  /** A note as its record (id, parent, title, header, body, text, properties, fields, tasks, links, backlinks…) with its children (outline_read's, to `depth`): `read("PIE-123", { depth: 2 })`. */
   read(ref: string, options?: { depth?: number; limit?: number }): Promise<unknown>;
+  /** A path as `{{ }}` answers it for this run's Site (`this.owner`, `props.week`, `this.tasks | status=todo`): `{ values }` or `{ problem }`. */
+  resolve(path: string): Promise<unknown>;
+}
+
+/** The notes a read tool's answer came from: a note read, the rows a query found. */
+function readIds(tool: string, result: unknown, onRead: (ids: readonly string[]) => void): void {
+  const found = result as { id?: unknown; blocks?: { id?: unknown }[]; children?: unknown[] } | null;
+  if (!found || typeof found !== "object") return;
+  const ids: string[] = [];
+  if (tool === "outline_read" && typeof found.id === "string") ids.push(found.id);
+  if (tool === "outline_find" && Array.isArray(found.blocks)) for (const row of found.blocks) if (typeof row.id === "string") ids.push(row.id);
+  if (ids.length) onRead(ids);
 }
 
 /** One tool as a function: its arguments checked as every surface checks them, then its agent operation. */
@@ -90,8 +110,12 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
         }, { tool: definition.name as McpWriteTool, blockId, input: writeInput, ...(typeof writeInput.revision === "number" ? { revision: writeInput.revision } : {}) },
         { level: options.mcpAccess, actor, uri: id => `((${id}))` });
         result = outcome.outcome === "proposed" ? outcome : outcome.detail;
+      } else if (command.operation === "find" && options.thisId) {
+        // A query in a script's note reads `this` (`parent:this`): the tool's arguments don't name it, the run's Site does.
+        result = await findBlocks(client, { ...command.input, this: options.thisId } as FindInput);
       } else result = await runAgentOperation(client, command.operation, command.input, actor);
       said("done", { result });
+      if (options.onRead) readIds(definition.name, result, options.onRead);
       return result;
     } catch (e) {
       said("refused", { error: e instanceof Error ? e.message : String(e) });
@@ -128,12 +152,25 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     }
     return tool(input);
   };
-  const q = (query: string, opts: { under?: string; limit?: number } = {}) => call("outline_find", { query, ...opts });
-  const read = (ref: string, opts: { depth?: number; limit?: number } = {}) => call("outline_read", { ref, ...opts });
+  const q = async (query: string, opts: { under?: string; limit?: number } = {}) => {
+    const found = await call("outline_find", { query, ...opts }) as { blocks?: { id?: unknown }[] } | null;
+    if (options.onQuery && opts.under === undefined && Array.isArray(found?.blocks)) options.onQuery({ query, limit: opts.limit ?? 20, ids: found.blocks.flatMap(row => typeof row.id === "string" ? [row.id] : []) });
+    return found;
+  };
+  const read = async (ref: string, opts: { depth?: number; limit?: number } = {}) => {
+    const read = await call("outline_read", { ref, ...opts }) as { id?: string };
+    // outline_read's answer is the record's properties and fields already; the rest of the record (header, tasks, links…) joins it.
+    if (typeof read?.id !== "string") return read;
+    const { records } = await client.request<{ records: object[] }>({ action: "blocks.records", ids: [read.id] });
+    return { ...(records[0] ?? {}), ...read };
+  };
+  const resolve = (path: string) => options.resolve
+    ? options.resolve(path)
+    : Promise.reject(new WorkToolRefusal("resolve answers for a note: run this script from a note, or pass at= (this run has no note)"));
   const act = (name: string, args: Record<string, unknown> = {}) => options.effects === "read"
     ? Promise.reject(new WorkToolRefusal("This script is read-only; declare effects=write to dispatch door actions"))
     : options.act
     ? options.act(name, args)
     : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));
-  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act });
+  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act, resolve });
 }

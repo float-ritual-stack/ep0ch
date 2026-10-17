@@ -420,6 +420,8 @@ export interface FindInput {
   view?: string;
   /** Only under this block. */
   under?: string;
+  /** The note a `parent:this` / `links:this` in the query stands for (a script's Site supplies it; no tool argument names it). */
+  this?: string;
   limit?: number;
   /** `hide` (the default) leaves out what tools wrote for their own bookkeeping (`[machine::…]`); `only` or `show`. */
   machinery?: string;
@@ -480,6 +482,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     ...(given("text") ? { text: input.text } : {}),
     ...(given("query") ? { where: input.query } : {}),
     ...(given("under") ? { subtreeRootId: (await resolveRef(client, input.under!)).id } : {}),
+    ...(given("this") ? { this: input.this } : {}),
     ...(input.machinery !== undefined ? { machinery: machineryInput(input.machinery) } : {}),
   };
   // An older service ignores `where` and would return unfiltered results.

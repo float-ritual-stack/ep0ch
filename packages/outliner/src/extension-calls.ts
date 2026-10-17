@@ -9,8 +9,8 @@ import {
   type RenderTarget,
   type RenderedComponent,
 } from "./component-primitives";
-import { handlerCalls, mayHaveHandlerLines, type HandlerCall } from "./extension-handlers";
-import { DEFAULT_DEADLINE_MS, durationMs, type ExtensionActionArg, type LoadedExtension } from "./extension-manifest";
+import { handlerCalls, mayHaveHandlerLines, pipelineCalls, PIPELINE, type HandlerCall } from "./extension-handlers";
+import { DEFAULT_DEADLINE_MS, durationMs, loadExtensionManifest, type ExtensionActionArg, type LoadedExtension, type ScriptSource } from "./extension-manifest";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
 import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type BlockWrite, type ExtensionWrite, type GroupOutcome, type TriggerWrite } from "./extension-writes";
@@ -69,6 +69,11 @@ import { createHash } from "node:crypto";
 export interface ExtensionCallsOptions {
   readonly undoDrafts?: import("./extension-writes").ExtensionWritesDeps["undoDrafts"];
   readonly script?: (extension: LoadedExtension, request: ExtensionActRequest) => ExtensionActResult;
+  /**
+   * A render-mode script drawn for a line (`ScriptRuns.render`): what it returns as Blockdown, and the notes it read with
+   * their revisions. The producer path for a script is this handler line's, so it keeps its output where every handler does.
+   */
+  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }) => Promise<{ markdown: string; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }>;
   readonly now?: () => number;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
   readonly changed?: (blockId: string) => void;
@@ -413,6 +418,8 @@ export class ExtensionCalls {
   private readonly spendSeen = new Map<string, Set<string>>();
   /** A block a handler line names, and the blocks whose lines name it: a change to it is a change to their inputs. */
   private readonly named = new Map<string, Set<string>>();
+  /** Blocks with a render-mode line that ran a query: any content change may add or remove a match, so they look again. */
+  private readonly queryReaders = new Set<string>();
   private stopped = false;
 
   constructor(
@@ -465,10 +472,10 @@ export class ExtensionCalls {
    */
   inputChanged(blockId: string, parentIds: readonly (string | null | undefined)[]): void {
     if (this.stopped) return;
-    const readers = new Set([...parentIds.filter((id): id is string => !!id), ...(this.named.get(blockId) ?? [])]);
+    const readers = new Set([...parentIds.filter((id): id is string => !!id), ...(this.named.get(blockId) ?? []), ...this.queryReaders]);
     for (const reader of readers) {
       const block = reader === blockId ? null : this.store.get(reader);
-      if (!block || !mayHaveHandlerLines(block.text)) continue;
+      if (!block || !mayHaveHandlerLines(block.text)) { if (block === null && reader !== blockId) this.queryReaders.delete(reader); continue; }
       void this.materialize(reader, "open").catch(() => {});
     }
   }
@@ -485,20 +492,48 @@ export class ExtensionCalls {
     for (const id of names) {
       const target = this.store.get(id);
       hash.update(`\0((${id}))\0${target && !target.effectiveDeletedRootId ? target.revision : "gone"}`);
-      const readers = this.named.get(id) ?? new Set<string>();
-      readers.add(block.id);
-      this.named.delete(id);
-      this.named.set(id, readers);
-      if (this.named.size > MAX_WATCHED) this.named.delete(this.named.keys().next().value!);
+      this.watching(id, block.id);
     }
     return hash.digest("hex").slice(0, 32);
+  }
+
+  private watchQueries(reader: string): void {
+    this.queryReaders.delete(reader);
+    this.queryReaders.add(reader);
+    if (this.queryReaders.size > MAX_WATCHED) this.queryReaders.delete(this.queryReaders.values().next().value!);
+  }
+
+  /** `reader`'s lines read block `id`: a change to it runs those lines again if what they read is different. */
+  private watching(id: string, reader: string): void {
+    const readers = this.named.get(id) ?? new Set<string>();
+    readers.add(reader);
+    this.named.delete(id);
+    this.named.set(id, readers);
+    if (this.named.size > MAX_WATCHED) this.named.delete(this.named.keys().next().value!);
+  }
+
+  private pipelineExtension?: LoadedExtension;
+
+  /** The host's own handler for `::=` lines (a render-mode script whose source is the line): shaped like an extension so one path serves both. */
+  private pipeline(): LoadedExtension {
+    return this.pipelineExtension ??= loadExtensionManifest({
+      manifestRaw: JSON.stringify({ contract: 2, id: PIPELINE, version: 1, name: "::= line", handlers: [{ key: PIPELINE, kind: "output", effects: "read", description: "A one-line render-mode script" }] }),
+      configRaw: "{}", origin: "outline", directory: "", expectedId: PIPELINE, idFrom: "the host",
+      script: { effects: "read", code: "", revision: 1, author: { author: "system" } },
+    });
+  }
+
+  /** The extension that serves a call: a registered one, or the host's for a `::=` line. */
+  private serving(call: HandlerCall): LoadedExtension | undefined {
+    return call.extensionId === PIPELINE ? this.pipeline() : this.registry.extension(call.extensionId);
   }
 
   /** The handler lines a block has now (none for a block an extension owns). */
   calls(blockId: string): { block: Block; calls: HandlerCall[] } | null {
     const block = this.store.get(blockId);
     if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return null;
-    return { block, calls: handlerCalls(block.text, this.registry) };
+    const calls = [...handlerCalls(block.text, this.registry), ...pipelineCalls(block.text)];
+    return { block, calls: calls.length > 1 ? calls.sort((a, b) => a.line - b.line) : calls };
   }
 
   /**
@@ -563,7 +598,7 @@ export class ExtensionCalls {
     const chosen = calls.filter((call) => options.line === undefined || call.line === options.line);
     await Promise.all(chosen.map(async (call) => {
       if (call.problems.length) return;
-      const extension = this.registry.extension(call.extensionId);
+      const extension = this.serving(call);
       if (!extension) return;
       // A spend line runs by itself only when a person has just written it.
       const fresh = call.effects !== "spend" ||
@@ -652,9 +687,34 @@ export class ExtensionCalls {
     if (row.extensionVersion !== extension.version) return true;
     // What it read changed (the block, a child, a block the line names): it redraws without r.
     if (storedInputs(row) !== this.inputs(block, call.line)) return true;
+    if (this.scriptChanged(row, block, extension)) return true;
     const handler = extension.manifest.handlers?.find((candidate) => candidate.key === call.handlerKey);
     const stale = durationMs(handler?.staleAfter);
     return stale !== undefined && row.ranAt !== null && this.now - Date.parse(row.ranAt) > stale;
+  }
+
+  private revisionOf(id: string): number | null {
+    const block = this.store.get(id);
+    return block && !block.effectiveDeletedRootId ? block.revision : null;
+  }
+
+  /**
+   * A render-mode script's output is out of date: the script's code changed (`stamp`), a note it read is another revision
+   * (`reads`), or a query it ran now finds other rows (`queries`: a new match, one that stopped matching).
+   */
+  private scriptChanged(row: ExtensionOutputRow, block: Block, extension: LoadedExtension): boolean {
+    const request = row.request as { reads?: unknown; queries?: unknown; stamp?: unknown } | null;
+    if (!extension.script || !request || !Array.isArray(request.reads)) return false;
+    if (request.stamp !== extension.stamp) return true;
+    if (request.reads.some((read: { id?: unknown; revision?: unknown }) => typeof read?.id === "string" && this.revisionOf(read.id) !== (read.revision ?? null))) return true;
+    const queries = (Array.isArray(request.queries) ? request.queries : []) as { query?: unknown; limit?: unknown; ids?: unknown }[];
+    if (queries.length) this.watchQueries(block.id);
+    return queries.some(q => {
+      if (typeof q.query !== "string" || !Array.isArray(q.ids)) return false;
+      try {
+        return this.store.queryBlocks({ where: q.query, limit: typeof q.limit === "number" ? q.limit : 20, this: block.id }).blocks.map(b => b.id).join() !== q.ids.join();
+      } catch { return true; }
+    });
   }
 
   private deadline(extension: LoadedExtension, handlerKey?: string): number {
@@ -676,8 +736,19 @@ export class ExtensionCalls {
     const inputs = this.inputs(block, call.line, context.children);
     const base = { blockId: block.id, callKey: call.callKey, extensionId: extension.id, handlerKey: call.handlerKey,
       kind: call.kind as "output" | "component", request: { ...request, inputs }, attemptedAt, blockRevision: block.revision, extensionVersion: extension.version };
+    let reads: { id: string; revision: number | null }[] | undefined;
+    let queries: { query: string; limit: number; ids: string[] }[] | undefined;
     try {
-      const answer = await this.runtime.invokeLoaded(extension, "run",
+      let answer: { value: unknown };
+      if (extension.script) {
+        // A script is drawn by the same path as any handler line: it returns Blockdown, kept as the line's output.
+        if (!this.options.scriptRender) throw new Error("scripts aren't drawn here: this service has no script runtime");
+        const rendered = await this.options.scriptRender(call.handlerKey === PIPELINE ? { ...extension.script, code: `return (${call.argument});` } : extension.script,
+          { blockId: block.id, line: call.line, argument: call.handlerKey === PIPELINE ? null : call.argument, deadlineMs: extension.script.deadlineMs ?? this.deadline(extension, call.handlerKey) });
+        reads = rendered.reads;
+        queries = rendered.queries;
+        answer = { value: { markdown: rendered.markdown } };
+      } else answer = await this.runtime.invokeLoaded(extension, "run",
         { handler: call.handlerKey, ...request, context }, this.deadline(extension, call.handlerKey),
         { label: `ext.${extension.id}.${call.handlerKey}`, writes: call.effects === "write" });
       let result: unknown;
@@ -688,8 +759,15 @@ export class ExtensionCalls {
       } catch (error) {
         throw new Error(`${extension.name} returned something the service can't show: ${error instanceof ComponentError || error instanceof Error ? error.message : String(error)}`);
       }
-      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, result });
+      // A script's output is what its code read: the notes (and their revisions), the queries (and their rows), the code itself.
+      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp } : base.request;
+      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result });
+      // A note it read changes the line's output: its change comes back here (`inputChanged`).
+      for (const read of reads ?? []) this.watching(read.id, block.id);
+      if (queries?.length) this.watchQueries(block.id);
       this.state.delete(key);
+      // A note it read changed while it ran: what it drew is already out of date.
+      if (reads?.some(read => this.revisionOf(read.id) !== read.revision)) void this.materialize(block.id, "open").catch(() => {});
     } catch (error) {
       if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, error: message(error) });
       this.state.set(key, { running: false, error: message(error) });
@@ -822,7 +900,7 @@ export class ExtensionCalls {
   }
 
   private projection(block: Block, call: HandlerCall, row: ExtensionOutputRow | undefined): ResourceProjection {
-    const extension = this.registry.extension(call.extensionId);
+    const extension = this.serving(call);
     const handler = extension?.manifest.handlers?.find((candidate) => candidate.key === call.handlerKey);
     const base = {
       anchor: { kind: "directive" as const, line: call.line, start: call.start, end: call.end },
@@ -956,7 +1034,8 @@ export class ExtensionCalls {
     if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
     const action = this.registry.action(extension.id, request.action);
     if (!action) throw new Error(`${extension.name} has no action ${request.action}`);
-    if (extension.script) return this.options.script!(extension, request);
+    // A script runs; its built-in `keep` (a render line's output kept as blocks) is the host's, not a run.
+    if (extension.script && !action.builtIn) return this.options.script!(extension, request);
     if (action.on === "passage") return this.actOnPassage(extension, action, request);
     if (request.passage) throw new Error(`${action.name} acts on ${action.on ?? "a block"}, not a passage`);
     const block = request.blockId ? this.store.get(request.blockId) : null;

@@ -587,6 +587,11 @@ export class SocketBoard implements Board {
     return this.request("extensions.undo", { undo, mutation: requesterOf(actor) });
   }
 
+  /** End one running script (`scripts.stop`) by its run id (the undo its start answered with); `stopped` is false when it isn't running. */
+  stopScript(run: string, actor: Actor = USER): Promise<{ run: string; stopped: boolean }> {
+    return this.request("scripts.stop", { run, mutation: requesterOf(actor) });
+  }
+
   /** What an action asks for (`extensions.args`, PIE-784): each declared argument with its choices on `blockId` and its value when not given. */
   extensionArgs(extension: string, action: string, blockId?: string): Promise<{ args: ExtensionArgChoice[] }> {
     return this.request("extensions.args", { extension, extensionAction: action, ...(blockId ? { blockId } : {}) });

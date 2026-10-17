@@ -807,6 +807,10 @@ export interface ScriptSource {
   readonly effects: "read" | "write";
   readonly keys?: readonly string[];
   readonly format?: "actions";
+  /** `[mode::render]`: the script is a handler (`name::` lines) that draws what it returns in place and writes nothing. */
+  readonly render?: true;
+  /** `[deadline::2m]`: how long a run may take (at most five minutes). */
+  readonly deadlineMs?: number;
   readonly code: string;
   readonly blockId?: string;
   readonly file?: string;
