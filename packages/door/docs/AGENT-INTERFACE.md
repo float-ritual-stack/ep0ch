@@ -159,8 +159,10 @@ name is refused with the names there are.
 
 Two reads need no door at all, only the outline: `ep0ch find <words>… [--lines|--json]` (the service's forgiving
 ranker, as Goto, `/` and `((` rank; `--recent`, `--tree [<root id>]`) and `ep0ch show <id>… [--width <n>] [--ansi |
---cells | --source]` (each note drawn by the note surface, as a reader draws it, live figures and `::links` answered;
-`--source`, its text as written). Both take `--ws` and `--machine`. `ep0ch find --query "<expression>"` (`--view
+--cells | --source | --site]` (each note drawn by the note surface, as a reader draws it, live figures and `::links` answered;
+a `{{this.owner}}` drawn as its value; `--source`, its text as written; `--site`, a line of JSON with the text and the
+service's whole answer for its `{{ }}`: each placeholder's values or problem and nearest keys, its route and the notes it
+was computed from, which is what `outline_read` returns as `site`). Both take `--ws` and `--machine`. `ep0ch find --query "<expression>"` (`--view
 <id>`, `--under <id>`, `--ids`, `--json` for block records) lists what the outline says a query holds for, and `ep0ch
 export` writes notes out as Markdown or JSON (PIE-534; the door README has the flags).
 

@@ -10,6 +10,30 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Notes that read themselves: values in every reader (PIE-952, fourth slice of PIE-533)
+
+What you can now do: write `Play it at {{this.target}}. Owner: {{this.owner}}.` in a note and see the value, not the
+braces, in the door, in Detail's preview, on a published page, in `ep0ch show` and in what an agent reads. The editor
+shows what you typed.
+
+- **The door's reader** draws a value in place, lightly marked as computed (italic; a URL in a link's colour). ⏎ or a
+  click on it (or `[ ]` to it first) lights the line it is written on, said in the banner (`the line this.owner reads`),
+  or says it is computed (`now.date`) or why it has no value. Selecting the drawn words and commenting anchors on the
+  whole `{{this.owner}}`, not on a lookalike word elsewhere on the line.
+- **A typo never loses the save.** `{{this.ownr}}` is saved as typed and drawn dimmed as `{{this.ownr}} · did you mean
+  owner?`; fix it and the value redraws. Values follow a change to any note they were read from.
+- **The property panel (`i`) lists the values read here** under the properties: what each says, what it reads as (or why
+  not) and the note it came from. Detail's property inspector does the same.
+- **Detail's read preview** shows the values line for line; a comment on a drawn value anchors on its token.
+- **Published pages** carry the value in the HTML. A value that read a note the page may not show (a locked note, a note
+  outside a share or a public page) says *hidden here* and names nothing; a bare key is not supplied by an ancestor the
+  page may not show, nor any above it.
+- **`outline_read` returns `site`** for a note that holds a `{{ }}` (`values`, `problems`, `route`, `deps`);
+  `ep0ch show <id> --site` prints the same as a line of JSON with the text.
+- **Kitchen sink:** the section "Notes that read themselves" (`ep0ch --showcase`, `act section name=values`).
+- Wire: `site.answer` takes `hidden` (notes the reader may not see), answers `hidden` and `source` (the property token a
+  value is written in) per value; `outline_read` has `site`. No `PROTOCOL` change in this slice.
+
 ### The Site: one read for what a note says about itself (PIE-951, third slice of PIE-533)
 
 What changes for an agent, a script or a figure: a note's own values, its parent's, its ancestors', another note's and
