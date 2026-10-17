@@ -20,7 +20,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
   test("fields-if: ::fields lists the connectTo lines and gains a row on save, ::if draws the body that matches, the row's ¶ anchors its line", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "fields-if" }, ...agent })).toMatchObject({ key: "fields-if" });
-    const text = () => { screen(); return stage("fields-if").pane("reader")?.render(150, 40, false, stage("fields-if")).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "") ?? ""; };
+    const text = (): string => { screen(); return stage("fields-if").pane("reader")?.render(150, 40, false, stage("fields-if")).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "") ?? ""; };
     await until(() => text().includes("live · 6 occurrences"), "the fields rows", 8000);
     // One key in every form, each row with its line: the header chip (1), two front-matter lines (2, 3: the list is a row each), the inline chip (5) and the line of its own (6).
     expect(text()).toContain("EVERY CONNECTTO IN THIS NOTE");
