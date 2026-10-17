@@ -49,7 +49,7 @@ template and every page redraws. Nothing is written to the page.
   `meeting-template has no prop `wiht`; did you mean `with`?` and the call that works. A choice outside its options says
   the nearest option. A required prop left out is drawn as "needs: with", and a press on it (⏎, or a click) opens the
   picker of its kind in the power bar, then writes the answers onto the `::use` line (ctrl+z takes them back).
-- `outline_site` / `ep0ch show --site` on the page shows the same reads for an agent.
+- `outline_site` on the page returns `uses`: each call as the service reads it, for an agent writing one.
 
 ## Written out: `template.stamp`
 
@@ -81,6 +81,29 @@ A new note (with the template's subtree) whose text is the person's from then on
 - The person is asked in the power bar for the template (`ctrl+k`, `template.stamp`) and for a choice, a note or a needed
   prop; the first new note opens. An agent's stamp is attributed to it and opens nothing.
 - `into=((id^anchor))` (writing into a note's anchor) arrives with placement; it is refused until then, saying so.
+
+## Worked example: a status card used on two pages
+
+```text
+Status card [page::status-card] [type::template]
+[form-field::status choice active|paused|done default=active]
+[form-field::owner text required]
+{{this.title}}: {{props.status}}, owned by {{props.owner}}.
+```
+
+```text
+Beds page
+::use{of=[[status-card]] owner=Ada}
+
+Traps page
+::use{of=[[status-card]] owner=Jay status=paused}
+```
+
+The beds page draws `Beds page: active, owned by Ada.` (`status` took its default), the traps page `Traps page: paused,
+owned by Jay.` Leave `owner` off a call and the line says `needs owner [fill it in]`; write `owner=Ada stauts=paused`
+and it says ``Status card has no prop `stauts`; did you mean `status`?``. Check a call before you rely on it with
+`outline_site` on the page: `uses` lists each `::use` with the `props` it gets, `problems` (with the nearest name and a
+call that works) and the `missing` props; a write also warns about the same after the save.
 
 ## Which one
 

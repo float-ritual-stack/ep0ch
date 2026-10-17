@@ -164,13 +164,31 @@ async function writableBlock(client: AgentToolsClient, ref: string): Promise<Blo
 }
 
 /** `outline_site`: what a note's placeholders and the paths asked resolve to, by the service's one resolver (`site.answer`). */
-export async function siteRead(client: AgentToolsClient, input: { ref: string; paths?: string[]; draft?: string; chain?: unknown[]; props?: Record<string, string[]>; line?: number }): Promise<SiteAnswer> {
+export async function siteRead(client: AgentToolsClient, input: { ref: string; paths?: string[]; draft?: string; chain?: unknown[]; props?: Record<string, string[]>; line?: number }): Promise<SiteAnswer & { uses?: UseCallRead[] }> {
   const { block } = await resolveReference(client, input.ref);
-  return client.request<SiteAnswer>({
+  const answer = await client.request<SiteAnswer>({
     action: "site.answer", blockId: block.id,
     ...(input.paths ? { paths: input.paths } : {}), ...(input.draft !== undefined ? { draft: { text: input.draft } } : {}),
     ...(input.chain ? { chain: input.chain as never } : {}), ...(input.props ? { props: input.props } : {}), ...(input.line !== undefined ? { line: input.line } : {}),
   });
+  const uses = await useCallsRead(client, block.id, input.draft ?? block.text);
+  return uses.length ? { ...answer, uses } : answer;
+}
+
+/** One `::use` of a note as the service reads it (`template.use`): the template, the props it gets, and what is wrong with the call. */
+export interface UseCallRead { line: number; of: string | null; template?: { id: string; title: string }; props: Record<string, string[]>; problems: TemplateUseAnswer["problems"]; missing: TemplateUseAnswer["missing"] }
+
+/** The `::use` calls `text` holds (at most 8), each as the service reads it in note `blockId`; none for a note that holds none. */
+export async function useCallsRead(client: AgentToolsClient, blockId: string, text: string): Promise<UseCallRead[]> {
+  if (!text.includes("::use")) return [];
+  const out: UseCallRead[] = [];
+  for (const call of useCallsOf(text).slice(0, 8)) {
+    try {
+      const a = await client.request<TemplateUseAnswer>({ action: "template.use", block: blockId, line: call.line, draft: { text } });
+      out.push({ line: call.line + 1, of: call.of, ...(a.template ? { template: { id: a.template.id, title: a.template.title } } : {}), props: a.props, problems: a.problems, missing: a.missing });
+    } catch { /* a call the service can't read says nothing */ }
+  }
+  return out;
 }
 
 export async function resolveRef(client: AgentToolsClient, ref: string): Promise<ResolvedReference> {

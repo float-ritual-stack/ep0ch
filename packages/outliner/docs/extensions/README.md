@@ -1039,8 +1039,9 @@ actions yet; `r` is its path today.
 
 - **Fields from the note** (PIE-828): `"fieldsFrom": "block"` beside (or instead of) `args` makes the action also ask
   for the fields the block it runs on writes, one chip per field: `[form-field::<name> <type> [<options>] [required]
-  [default=<value>]]`, the type `text`, `number`, `choice` (options split by `|`: `mood choice good|meh|rough`) or
-  `property`, names as declared arguments' (not one the request uses). One action then serves every note that writes
+  [default=<value>]]`, the type `text`, `number`, `choice` (options split by `|`: `mood choice good|meh|rough`),
+  `property`, `note` or `tag`, names as declared arguments' (not one the request uses; a template's props, which are these
+  same chips, may use `with` and `color`). One action then serves every note that writes
   its own form, and the form is edited where it's used. The service reads the chips (outline-core's `form-fields.ts`),
   lists them after the declared ones in `extensions.args` on that block (each `fromBlock: true`), checks the answers the
   same way, and tells the action the note's form as `input.fields` (`[{ name, type, options?, required?, default? }]`).

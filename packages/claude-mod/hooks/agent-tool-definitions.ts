@@ -147,7 +147,9 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "Returns, per placeholder and path: `values`, or a `problem` with a did-you-mean and an example that works; `route` " +
       "(which resolver answered, which fallback was taken); `links` (values that name a note); and `deps`, the notes it was " +
       "computed from. `draft` reads the text you are about to write, unsaved; `chain` reads a note as drawn inside another " +
-      "(a `::use` in a host: `[{kind: \"use\", block, line}]`); `props` are the call's arguments. Only reads.",
+      "(a `::use` in a host: `[{kind: \"use\", block, line}]`); `props` are the call's arguments. A note that holds `::use` " +
+      "lines also returns `uses`: each call as the service reads it (its template, the `props` it gets, `problems` with the " +
+      "nearest name and a call that works, `missing` required props). Only reads.",
     properties: {
       ref: REF,
       paths: { type: "array", items: { type: "string" }, description: "Paths to read besides the note's own placeholders: this.owner, parent.project, this.tasks | status=todo, now.date-1d" },

@@ -188,3 +188,20 @@ describe("a save's warnings", () => {
     expect(await useCallWarnings(client, text, undefined)).toEqual([]);
   });
 });
+
+describe("an agent reads a note's ::use calls (outline_site)", () => {
+  test("each call comes back with its template, the props it gets, and what is wrong with it", async () => {
+    const { useCallsRead } = await import("../src/agent-tools");
+    const store = scratch();
+    const { project, template } = cards(store);
+    const text = "P\n::use{of=[[status-card]] owner=evan}\n::use{of=[[status-card]] stauts=paused}";
+    const page = store.create(text, project.id);
+    const client = { request: async (r: any) => templateUse(store, r) } as any;
+    const calls = await useCallsRead(client, page.id, text);
+    expect(calls.map(c => [c.line, c.of])).toEqual([[2, "[[status-card]]"], [3, "[[status-card]]"]]);
+    expect(calls[0]).toMatchObject({ template: { id: template.id, title: "Status card" }, props: { owner: ["evan"], status: ["active"] }, problems: [], missing: [] });
+    expect(calls[1]!.problems.map(p => p.kind).sort()).toEqual(["missing", "unknown"]);
+    expect(calls[1]!.missing).toEqual([{ name: "owner", kind: "text", example: "owner=text" }]);
+    expect(await useCallsRead(client, page.id, "no calls here")).toEqual([]);
+  });
+});

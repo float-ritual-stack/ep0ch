@@ -687,7 +687,7 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
 sprint check), don't write an extension per form. With the Form extension installed (`outliner ext add form`), write the
 fields on the note itself, one chip each: `[form-field::book text required] [form-field::pages number]
 [form-field::mood choice gripping|slow|abandoned default=slow]` (types `text`, `number`, `choice` with its options split
-by `|`, `property`). Fill in the form (the power bar, or `act ext.form.fill block=<id> with='{"book":"…"}'`) writes an
+by `|`, `property`, `note`, `tag`). Fill in the form (the power bar, or `act ext.form.fill block=<id> with='{"book":"…"}'`) writes an
 entry under the note with the answers as properties. Any action can ask a note's fields: `"fieldsFrom": "block"` in its
 `extension.json`. A chip it can't read is saved and warned on with a did-you-mean.
 
