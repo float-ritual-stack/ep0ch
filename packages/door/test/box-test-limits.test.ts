@@ -3,7 +3,7 @@
 // worktrees are a made-up repository whose one package's `test` script is a stub (a long sleep, plus a daemon that
 // leaves the run's process group), so nothing of the real suites runs and nothing of float-box is touched.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { codexPreToolUse } from "../../../.claude/skills/ep0ch-repo/hooks/whole-suite";
@@ -27,7 +27,8 @@ const pids = (file: string) => lines(file).map(Number);
 let origin = "";
 const worktrees: string[] = [];
 const runs: ReturnType<typeof Bun.spawn>[] = [];
-const runDirs = () => Bun.spawnSync(["sh", "-c", `ls -d /tmp/ep0ch-box-${userInfo().username}-???????? 2>/dev/null`]).stdout.toString().split("\n").filter(Boolean);
+/** The run dir a process of a run carries (its BOX_TEST_RUN_DIR), read while it lives. */
+const runDirOf = (pid: number) => readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").find(kv => kv.startsWith("BOX_TEST_RUN_DIR="))?.slice(17) ?? "";
 
 /** A worktree of the fixture repo, with the real scripts copied in (box-test finds its guard next to itself). */
 function worktree(name: string) {
@@ -40,12 +41,12 @@ function worktree(name: string) {
 }
 
 /** `box-test` from `dir`; the stub's marks go to out/<tag>.*, and it finishes when out/<tag>.go exists. */
-function box(dir: string, tag: string, ...flags: string[]) {
+function box(dir: string, tag: string, flags: string[] = [], env: Record<string, string> = {}) {
   const p = Bun.spawn([join(dir, "scripts/box-test"), "--on", "float-box", ...flags, "outline-core"], {
     cwd: dir, stdout: "pipe", stderr: "pipe",
     env: {
       ...process.env, EP0CH_BOX_SSH: join(root, "ssh"), EP0CH_BOX_REPO: origin, EP0CH_BOX_LOCKS: locks, EP0CH_BOX_SLOTS: "2",
-      XDG_STATE_HOME: join(root, "state"), FIX_OUT: out, FIX_TAG: tag,
+      XDG_STATE_HOME: join(root, "state"), FIX_OUT: out, FIX_TAG: tag, FAKE_SSHD: join(root, "sshd-session"), ...env,
     },
   });
   runs.push(p);
@@ -58,7 +59,9 @@ function box(dir: string, tag: string, ...flags: string[]) {
 beforeAll(() => {
   mkdirSync(out, { recursive: true });
   // The stand-in for ssh: skip its options and the host, run the command here (stdin and stderr pass through).
-  writeFileSync(join(root, "ssh"), `#!/usr/bin/env bash\nwhile [ $# -gt 0 ]; do case $1 in -o) shift 2;; -*) shift;; *) break;; esac; done\nshift\nexec bash -c "$*"\n`);
+  writeFileSync(join(root, "ssh"), `#!/usr/bin/env bash\nwhile [ $# -gt 0 ]; do case $1 in -o) shift 2;; -*) shift;; *) break;; esac; done\nshift\nexec setsid -w "$FAKE_SSHD" -c "$*; exit \\$?"\n`);
+  // The connection's process on the "server": a bash named like OpenSSH 9.8's session process, so the guard's watcher finds it.
+  symlinkSync(Bun.which("bash")!, join(root, "sshd-session"));
   chmodSync(join(root, "ssh"), 0o755);
   const seed = join(root, "seed");
   mkdirSync(join(seed, "packages/outline-core"), { recursive: true });
@@ -90,7 +93,8 @@ describe("scripts/box-test limits", () => {
     const wt = worktree("wt-a");
     const first = box(wt, "a1");
     await until("the first run to start", first.started);
-    const dirsWhileRunning = runDirs().length;
+    const firstDir = runDirOf(first.daemons()[0]!);
+    expect(existsSync(firstDir)).toBe(true);
     const second = box(wt, "a2");
     expect(await second.p.exited).toBe(3);
     expect(second.text.err).toContain("REFUSED");
@@ -98,13 +102,13 @@ describe("scripts/box-test limits", () => {
     expect(second.text.err).toContain("scripts/box-test --replace");
     expect(first.p.exitCode).toBeNull();
 
-    const third = box(wt, "a3", "--replace");
+    const third = box(wt, "a3", ["--replace"]);
     await until("the replacing run to start", third.started, 60_000);
     expect(await first.p.exited).not.toBe(0);
     expect(third.text.err).toContain("--replace: stopping the run");
     // The first run's daemon went with it, and its run dir.
     await until("the first run's daemon to die", () => first.daemons().every(pid => !alive(pid)), 10_000);
-    expect(runDirs().length).toBe(dirsWhileRunning);
+    await until("the first run dir to go", () => !existsSync(firstDir), 10_000);
     third.go();
     expect(await third.p.exited).toBe(0);
     await until("the last daemon to die", () => third.daemons().every(pid => !alive(pid)), 10_000);
@@ -129,12 +133,37 @@ describe("scripts/box-test limits", () => {
     const r = box(worktree("wt-c"), "c1");
     await until("the run to start", r.started);
     await until("its daemon", () => r.daemons().length > 0);
-    const mine = new Set(runDirs());
+    const dir = runDirOf(r.daemons()[0]!);
     r.p.kill("SIGTERM");
     await r.p.exited;
     await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 20_000);
-    await until("the run dir to go", () => runDirs().length < mine.size, 20_000);
+    await until("the run dir to go", () => !existsSync(dir), 20_000);
     expect(r.text.err).not.toContain("LEAK");
+  }, 90_000);
+
+  test("the ssh dying (its session process killed) stops the run, its daemon and its dir", async () => {
+    const r = box(worktree("wt-e"), "e1");
+    await until("the run to start", r.started);
+    await until("its daemon", () => r.daemons().length > 0);
+    const dir = runDirOf(r.daemons()[0]!);
+    // The stand-in's session process is the one named sshd-session of this run; killing it is the connection dropping.
+    const session = Number(Bun.spawnSync(["pgrep", "sshd-session"]).stdout.toString().split("\n").find(pid => pid && readFileSync(`/proc/${pid}/environ`, "utf8").includes("FIX_TAG=e1")));
+    expect(session).toBeGreaterThan(1);
+    process.kill(session, "SIGKILL");
+    await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 30_000);
+    await until("the run dir to go", () => !existsSync(dir), 30_000);
+    await r.p.exited;
+  }, 90_000);
+
+  test("the timeout stops the run, exit 124, nothing left", async () => {
+    const r = box(worktree("wt-f"), "f1", [], { EP0CH_BOX_MAX: "5" });
+    await until("the run to start", r.started);
+    await until("its daemon", () => r.daemons().length > 0);
+    const dir = runDirOf(r.daemons()[0]!);
+    expect(await r.p.exited).toBe(124);
+    expect(r.text.err).toContain("passed EP0CH_BOX_MAX");
+    await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 20_000);
+    expect(existsSync(dir)).toBe(false);
   }, 90_000);
 
   test("a sweep kills orphans of runs whose dir is gone, and says how many", async () => {

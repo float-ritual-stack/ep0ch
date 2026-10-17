@@ -8,7 +8,7 @@
 #   nothing outlives it    the run is a process group of its own, killed whole on every way out (exit, INT, TERM, HUP,
 #                          the ssh that started it dying, the timeout), then anything still tied to the run dir
 #                          (its environment, command line or working folder) is killed too and a survivor is reported.
-#   a sweep first          processes whose parent is init and whose run dir is gone are killed, and counted.
+#   a sweep first          processes whose parent is init (or systemd) and whose run dir is gone are killed, and counted.
 #
 # Environment (all set by box-test): BOX_DIR the run dir, BOX_WT the worktree's key, BOX_WT_LABEL its path for messages,
 # BOX_SHA, BOX_REPLACE, BOX_SLOTS (box-test's EP0CH_BOX_SLOTS), BOX_MAX (seconds), BOX_KEEP, BOX_HOST (for the commands it prints), BOX_LOCKS (the
@@ -60,14 +60,13 @@ stop_group() {
   return 0
 }
 
-# ── sweep: orphans of runs that no longer exist, and run dirs nothing is using ──
+# ── sweep: orphans of runs whose dir no longer exists ──
 sweep() {
-  local p pid d killed=0 dirs=" " victims=() stale=0 old
+  local p pid d killed=0 victims=()
   for p in /proc/[0-9]*; do
     pid=${p#/proc/}
     [ "$pid" = $$ ] && continue
     d=$(run_dir_of "$pid"); [ -n "$d" ] || continue
-    dirs+="$d "
     if [ ! -d "$d" ] && orphan "$pid"; then victims+=("$pid"); fi
   done
   if [ ${#victims[@]} -gt 0 ]; then
@@ -76,20 +75,15 @@ sweep() {
     for pid in "${victims[@]}"; do d=$(run_dir_of "$pid"); [ -n "$d" ] && [ ! -d "$d" ] && kill -KILL "$pid" 2>/dev/null; done
     killed=${#victims[@]}
   fi
-  # A run dir nobody uses and nothing has touched for longer than a run may last is a client that died before it began.
-  for d in /tmp/ep0ch-box-"$(id -un)"-????????; do
-    [ -d "$d" ] && [ "$d" != "$dir" ] || continue
-    case $dirs in *" $d "*) continue;; esac
-    old=$(( $(now) - $(stat -c %Y "$d") ))
-    if [ "$old" -gt $((max + 1800)) ]; then rm -rf -- "$d" && stale=$((stale + 1)); fi
-  done
-  say "sweep: killed $killed orphan process(es) of finished runs, removed $stale stale run dir(s)"
+  say "sweep: killed $killed orphan process(es) of finished runs"
 }
 
 # ── the lock for this worktree ──
 wtlock=$locks/wt-$key.lock wtinfo=$locks/wt-$key.info
 exec {wtfd}>"$wtlock"
 if ! flock -n "$wtfd"; then
+  # The holder writes its info right after it takes the lock: give it a moment.
+  for i in 1 2 3 4 5 6 7 8 9 10; do [ -n "$(get "$wtinfo" pid)" ] && break; sleep 0.5; done
   opid=$(get "$wtinfo" pid) odir=$(get "$wtinfo" dir) osha=$(get "$wtinfo" sha) ostart=$(get "$wtinfo" start) ostate=$(get "$wtinfo" state) orun=$(get "$wtinfo" run)
   [[ $ostart =~ ^[0-9]+$ ]] || ostart=$(now)
   # The recorded pid is only trusted while it is still tied to the recorded run dir (a pid can be reused).
@@ -111,12 +105,16 @@ echo "$$" > "$dir/pid"
 # ── what we start we stop: the run's group, then anything tied to the run dir ──
 runpid=0 code=0 watcher=0 reaped=0
 export BOX_TEST_RUN_DIR=$dir
+# Our own ancestors (setsid's waiting parent, the ssh session's shell) carry the run dir in their command line too.
+ancestors=" "
+for ((a = $$; a > 1; )); do a=$(ppid_of "$a") || break; ancestors+="$a "; done
 survivors() {
   local p pid d out=()
   for p in /proc/[0-9]*; do
     pid=${p#/proc/}
     [ "$pid" = $$ ] && continue
     [ "$pid" = "$BASHPID" ] && continue
+    case $ancestors in *" $pid "*) continue;; esac
     d=$(run_dir_of "$pid"); [ "$d" = "$dir" ] && out+=("$pid")
   done
   echo "${out[@]:-}"
@@ -137,7 +135,7 @@ reap() {
       [ $code = 0 ] && code=97
     fi
   fi
-  if [ "$keep" = 1 ]; then say "kept $host:$dir (a later run's sweep removes it after its processes are gone and it is older than a run may last)"; else rm -rf -- "$dir"; fi
+  if [ "$keep" = 1 ]; then say "kept $host:$dir (--keep: it stays until you remove it on $host)"; else rm -rf -- "$dir"; fi
   [ -n "$mine_info" ] && rm -f "$mine_info"
   rm -f "$wtinfo" 2>/dev/null
 }
@@ -145,10 +143,10 @@ on_exit() { local c=$?; [ $code = 0 ] && code=$c; reap; exit $code; }
 trap on_exit EXIT
 trap 'code=143; exit 143' INT TERM HUP PIPE
 
-# The ssh that started us dying ends the run: sshd's process for the connection (our nearest sshd ancestor) exits
+# The ssh that started us dying ends the run: sshd's process for the connection (our nearest sshd or sshd-session ancestor) exits
 # with it. Without one (a test's stand-in for ssh) nothing watches.
 gp=$PPID
-while [ "$gp" -gt 1 ] && [ "$(cat "/proc/$gp/comm" 2>/dev/null)" != sshd ]; do gp=$(ppid_of "$gp") || { gp=0; break; }; done
+while [ "$gp" -gt 1 ] && ! [[ $(cat "/proc/$gp/comm" 2>/dev/null) == sshd* ]]; do gp=$(ppid_of "$gp") || { gp=0; break; }; done
 if [ "$gp" -gt 1 ]; then
   ( while kill -0 "$gp" 2>/dev/null; do sleep 5; done; kill -TERM $$ 2>/dev/null ) </dev/null >/dev/null 2>&1 {wtfd}>&- &
   watcher=$!
