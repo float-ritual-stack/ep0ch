@@ -12,7 +12,7 @@ import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/out
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { readsOtherNotes, type ValueBinder } from "./block-query";
+import { queryRelations, type QueryRelationKind, type ValueBinder } from "./block-query";
 
 type Props = Record<string, any>;
 
@@ -40,26 +40,43 @@ export const MAX_CHECKED = 500;
  */
 export function unknowable(store: ProducerStore, world: Bound["world"], ids: readonly string[], expression: string | undefined): Set<string> {
   const out = new Set<string>();
-  if (!world.cut || !expression || !readsOtherNotes(expression)) return out;
+  if (!world.cut || !expression) return out;
+  const relations = queryRelations(expression);
+  if (!relations.size) return out;
+  // A note the question names (`linkedfrom:((id))`) is one it consults whether or not it matches (a `NOT` answers from it too).
+  const named = [...expression.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)].map(found => found[0].toLowerCase());
+  for (const id of named) world.deps.add(id);
+  const all = named.some(id => world.hidden.has(id));
   ids.forEach((id, i) => {
-    if (i >= MAX_CHECKED) { out.add(id); return; }
-    for (const near of neighbours(store, id)) {
-      world.deps.add(near);
-      if (world.hidden.has(near)) out.add(id);
+    if (all || i >= MAX_CHECKED) { out.add(id); return; }
+    const near = neighbours(store, id, relations);
+    for (const other of near.ids) {
+      world.deps.add(other);
+      if (world.hidden.has(other)) out.add(id);
     }
+    if (near.incomplete) out.add(id);
   });
   if (out.size) world.hiddenHits += 1;
   return out;
 }
 
-/** The notes a relation clause can consult about `id`: its children, its ancestors, the notes linking to it and the ones it links to. */
-function neighbours(store: ProducerStore, id: string): string[] {
-  const out = new Set<string>(store.children(id).map(child => child.id));
-  const seen = new Set<string>([id]);
-  for (let at = store.get(id)?.parentId; at && !seen.has(at); at = store.get(at)?.parentId) { out.add(at); seen.add(at); }
-  const linked = store.queryBlocks({ where: "links:this OR linkedfrom:this", this: id, limit: 1000, machinery: "show" } as BlockSearchQuery);
-  for (const block of linked.blocks) out.add(block.id);
-  return [...out];
+/** The notes the relations a question reads can consult about `id`; `incomplete` when a list was cut short. */
+function neighbours(store: ProducerStore, id: string, relations: ReadonlySet<QueryRelationKind>): { ids: Set<string>; incomplete: boolean } {
+  const out = new Set<string>();
+  let incomplete = false;
+  const all = relations.has("other");
+  if (all || relations.has("child")) for (const child of store.children(id)) out.add(child.id);
+  if (all || relations.has("parent") || relations.has("under")) {
+    const seen = new Set<string>([id]);
+    for (let at = store.get(id)?.parentId; at && !seen.has(at); at = relations.has("under") || all ? store.get(at)?.parentId : null) { out.add(at); seen.add(at); }
+  }
+  if (all || relations.has("links") || relations.has("linkedfrom")) {
+    const where = [all || relations.has("links") ? "links:this" : "", all || relations.has("linkedfrom") ? "linkedfrom:this" : ""].filter(Boolean).join(" OR ");
+    const linked = store.queryBlocks({ where, this: id, limit: 1000, machinery: "show" } as BlockSearchQuery);
+    for (const block of linked.blocks) out.add(block.id);
+    if (linked.completeness?.kind !== "complete") incomplete = true;
+  }
+  return { ids: out, incomplete };
 }
 
 /**

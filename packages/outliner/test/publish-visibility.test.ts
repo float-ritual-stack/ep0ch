@@ -196,3 +196,15 @@ test("a script that calls a tool directly, or reads deep, is tracked as well as 
     expect(html).toContain("hidden here");
   }
 });
+
+test("a NOT over a relation to a note the page may not show says nothing, and an unrelated private neighbour hides no child", async () => {
+  const { store, tailnet } = await setup();
+  const locked = store.create("Vault note [publish::never]");
+  store.create(`Absent page [publish::public:absent-page]\n::if{where="NOT linkedfrom:((${locked.id}))"}\nNo vault link.\n::`);
+  expect(await tailnet("absent-page")).not.toContain("No vault link.");
+  const parent = store.create("Bed list [publish::public:bed-list]");
+  const child = store.create("Bean bed [publish::public]", parent.id);
+  store.create("Hidden compost [publish::never]", child.id);
+  store.update(parent.id, `Bed list [publish::public:bed-list]\n::graph-table\n---\nquery: parent:this\ncolumns: [title]\n---\n::`, store.get(parent.id)!.revision, { author: "user" });
+  expect(await tailnet("bed-list")).toContain("Bean bed");
+});
