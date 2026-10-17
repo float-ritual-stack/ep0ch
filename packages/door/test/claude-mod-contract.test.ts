@@ -156,7 +156,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     const logs = listedOf(await outliner(listArgs(BUILD_LOG_QUERY, LIST_LIMIT, "id,title,timestamps")));
     const any = listedOf(await outliner(listArgs(ANY_ITEM_QUERY, 1, "id")));
     // The done item's needs::sysop is history, not a wait; the queued one waits.
-    expect(items.blocks.map((b: { properties: Record<string, string> }) => b.properties["work-id"]).sort()).toEqual(["GAR-1", "GAR-3"]);
+    expect(items.blocks.map((b: { properties: { key: string; value: string }[] }) => b.properties.find((p: { key: string; value: string }) => p.key === "work-id")?.value).sort()).toEqual(["GAR-1", "GAR-3"]);
     expect(items.complete).toBe(true);
     expect(logs.blocks[0].createdAt).toEqual(expect.any(String));
     expect(any.blocks).toHaveLength(1);

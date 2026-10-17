@@ -198,7 +198,7 @@ describe("live figures answer from the outline", () => {
         watch = p.watch;
         return { generation, blocks: [block("a", "Nudge Sumit", { type: "outbox-item", outbox: stage, "waiting-on": "Sumit" })].filter(() => p.query.where === "type=outbox-item"), completeness: { kind: "complete" } };
       },
-      toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", props: Object.fromEntries(b.properties.map((x: any) => [x.key, x.value])) })),
+      toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", properties: b.properties })),
     };
     fake.watched = new Watched(fake);
     let redraws = 0;

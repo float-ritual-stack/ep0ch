@@ -138,7 +138,7 @@ describe("CP437 on the wire", () => {
   test("every glyph the door draws is in the VGA font or has a lookalike in it", () => {
     // Characters only read, never drawn: keys macOS types with Option, key names, a paste's markers, a
     // terminal tile's zero-width second cell.
-    const INPUT_ONLY = new Set([..."∫∂©˙∆˚øœ®†∑™⌫ ￼​"]);
+    const INPUT_ONLY = new Set([..."∫∂©˙∆˚øœ®†∑™⌫ ￼​⟦⟧"]); // ⟦⟧: the fence an MCP receipt puts round a queued edit (sent to a client, never drawn)
     const files: string[] = [];
     const walk = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) { if (f !== "vendor") walk(p); } else if (p.endsWith(".ts")) files.push(p); } };
     const src = join(import.meta.dir, "../src");

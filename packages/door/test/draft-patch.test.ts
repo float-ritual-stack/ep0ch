@@ -526,7 +526,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const id = await proposedInDraft(e);
     expect(e.d.text).toContain("The peas   climb  the net.");
     const proposal = (await board.get(id))!;
-    expect(proposal).toMatchObject({ parentId: e.id, props: { type: "draft-proposal", "proposal-status": "open" } });
+    expect([proposal.parentId, prop(proposal, "type"), prop(proposal, "proposal-status")]).toEqual([e.id, "draft-proposal", "open"]);
 
     // Apply anyway: A on the proposal, in another reader. It lands in the draft being typed, as the person's.
     const reader = new NoteSurface(), h = host();
@@ -558,7 +558,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     await until(() => !!flashes.at(-1)?.startsWith("dismissed the proposal"), "the dismissal");
     expect(flashes.at(-1)).not.toContain("embed line");
     expect(e.d.text).toBe(`Allotment\nThe peas sugar   climb  the net.\n\n${tidyMark}\n`);
-    expect((await board.get(id))!).toMatchObject({ deleted: true, props: { "proposal-status": "dismissed" } });
+    { const gone = (await board.get(id))!; expect([gone.deleted, prop(gone, "proposal-status")]).toEqual([true, "dismissed"]); }
   }, 30_000);
 
   test("what an agent did to a draft is noted while it's open, gone once saved, and in the past once put aside", async () => {

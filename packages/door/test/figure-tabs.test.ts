@@ -59,7 +59,7 @@ describe("::graph-tabs from the outline", () => {
           { value: "queued", count: 3, ids: ["a", "d", "f"] }, { value: null, count: 1, ids: ["e"] },
         ] } : {}),
       }),
-      toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", props: Object.fromEntries(b.properties.map((x: any) => [x.key, x.value])) })),
+      toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "user", properties: b.properties })),
     } as any, () => {});
   });
   const yaml = 'title: Jobs\nquery: "type=job"\ngroup: stage\norder: [doing, review]\ncolumns: [title]\nlimit: 2';

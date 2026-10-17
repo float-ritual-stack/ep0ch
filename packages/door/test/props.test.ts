@@ -604,7 +604,7 @@ describe("review: snapshot write scenarios are scratch-only", () => {
 
 describe("the reader's header leads with the title (PIE-657)", () => {
   const text = `Build the compost bin [type::roadmap-item] [priority::high]\n[work-stage::doing] [track::soil]\n[related-to::${A}]\n\n## Outcome\nA bin by ((${A})).`;
-  const m = msg("dddddddd-4444-4444-8444-444444444444", text, { author: "claude-code", properties: P(["type", "roadmap-item"], ["priority", "high"], ["work-stage", "doing"], ["related-to", A]) });
+  const m = msg("dddddddd-4444-4444-8444-444444444444", text, { author: "claude-code", properties: P(["type", "roadmap-item"], ["priority", "high"], ["work-stage", "doing"], ["related-to", A], ["work-id", "HUB-003"]) });
   const host = (src: Source, over: object = {}): SurfaceHost => ({ ctx: { board: src.board, flash() {}, t: { cellW: 9, cellH: 16, sized: true }, graphics: true, copy() {} } as any, redraw() {}, navigate() {}, ...over });
   async function shown(over: object = {}, w = 70) {
     const src = fakeSource(notes);
@@ -618,7 +618,7 @@ describe("the reader's header leads with the title (PIE-657)", () => {
     const lines = view.lines.map(strip);
     expect(lines[0]!.trim()).toBe("top level");
     expect(lines[1]!.trim()).toBe("HUB-003 · Build the compost bin");   // its Work ID first (PIE-809), off the meta line
-    expect(lines[2]!).toContain("claude-code · 01-01-70 (00:00) · i 4 properties · stage doing");   // wide enough for one line
+    expect(lines[2]!).toContain("claude-code · 01-01-70 (00:00) · i 5 properties · stage doing");   // wide enough for one line
     expect(lines[3]!.trim()).toBe("");
     expect(lines[4]).toContain("Outcome");
     // The title is bold and bright; the eyebrow and the meta line are dim.

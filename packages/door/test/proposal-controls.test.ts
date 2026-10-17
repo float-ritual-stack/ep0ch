@@ -233,7 +233,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     const p = at(frame(), "[dismiss]");
     expect(s.click(p.x + 1, p.y, h)).toBe(true);
     await until(() => !!flashes.at(-1)?.startsWith("dismissed the proposal"), "the dismiss");
-    expect((await board.get(proposal))!).toMatchObject({ deleted: true, props: { "proposal-status": "dismissed" } });
+    { const gone = (await board.get(proposal))!; expect([gone.deleted, prop(gone, "proposal-status")]).toEqual([true, "dismissed"]); }
     expect((await board.get(id))!.text).not.toContain(`!((${proposal}))`);
     // Opened, it says so in its header too.
     const opened = new NoteSurface();

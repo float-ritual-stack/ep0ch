@@ -20,7 +20,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000
 
 describe("a host's own header over the surface, without a service", () => {
   const ID = "11111111-2222-4333-8444-555555555555", TARGET = "99999999-2222-4333-8444-555555555555";
-  const note = { id: ID, text: `Seed swap [related::((${TARGET}))]\nSaturday by the compost bays.`, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, props: { related: `((${TARGET}))` }, properties: [{ key: "related", value: `((${TARGET}))` }] };
+  const note = { id: ID, text: `Seed swap [related::((${TARGET}))]\nSaturday by the compost bays.`, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, properties: [{ key: "related", value: `((${TARGET}))` }] };
   const opened: string[] = [];
   const host = (): SurfaceHost => ({
     ctx: { board: { ancestors: async () => [], comments: async () => [], get: async (id: string) => ({ ...note, id, text: "Compost bays", properties: [] }) }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any,

@@ -25,6 +25,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
+import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer, status, sessions, power bar, policy", () => {
   const h = useShowcaseScreen();
@@ -76,7 +77,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(guide.text).toContain(RACE_LINE.replace(RACE_PATCH.winner.observed, RACE_PATCH.winner.replacement));
     expect(guide.text).not.toContain(seeded.race.proposal);
     const proposal = (await board.get(seeded.race.proposal))!;
-    expect(proposal).toMatchObject({ parentId: guide.id, props: { type: "draft-proposal", "proposal-status": "open" } });
+    expect([proposal.parentId, prop(proposal, "type"), prop(proposal, "proposal-status")]).toEqual([guide.id, "draft-proposal", "open"]);
     expect(seeded.race.retry).toEqual({ proposalId: seeded.race.proposal, deduped: true });
     expect((await board.proposalsBeside(guide.id)).proposals.map(p => p.id)).toEqual([seeded.race.proposal]);
 
