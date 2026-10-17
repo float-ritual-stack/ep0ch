@@ -133,3 +133,18 @@ describe("stamp for=", () => {
     expect(() => stamp(store, { of: "[[ticket-template]]", for: "kind=bulk" })).toThrow(/more than 50/);
   });
 });
+
+describe("stamp and step ids (PIE-818)", () => {
+  test("a template's generated step ids are not carried into the stamp; a name its author wrote is", () => {
+    const store = scratch();
+    store.create("Plan template [page::plan-template] [type::template]\n- [ ] Fill in the first step ^t-3fa9c1\n- [ ] Second ^t-aabbcc dd\n## Log ^log\nA line ^named");
+    const out = stamp(store, { of: "[[plan-template]]" });
+    const made = text(store, out.stamped[0]!.id);
+    expect(made).not.toContain("^t-3fa9c1");
+    expect(made).toContain("- [ ] Fill in the first step\n");
+    expect(made).toContain("## Log ^log");
+    expect(made).toContain("A line ^named");
+    // The template keeps its own.
+    expect(text(store, store.resolveBlockRef("[[plan-template]]").id)).toContain("^t-3fa9c1");
+  });
+});

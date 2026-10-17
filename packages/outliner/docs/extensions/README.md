@@ -1343,6 +1343,33 @@ to do: `… was saved since it was read (revision 4, now 5); read it again`.
 The calls an extension makes most, with what each takes and answers, are [the call reference](#the-call-reference)
 below.
 
+### Reading in the Site: `site.answer` with `self`, `props` and `interpolate` (PIE-533 S4)
+
+An extension that fills `{{ }}` in text it owns (a command, a message) asks the service; it carries no parser, no
+resolver and no substitution of its own. `site.answer` (an extension's connection may read it) binds a Site for the call
+and reads the text in it:
+
+```jsonc
+{ "action": "site.answer",
+  "blockId": "<the note the call is about: `this`>",
+  "self": "<the extension's definition note: `self`>",   // optional
+  "props": { "env": ["staging"] },                        // the call's arguments, every key a list
+  "interpolate": { "text": "deploy --env {{props.env}} --name {{self.name}}", "fences": "template" } }
+```
+
+The answer's `interpolated.text` is the text with every placeholder that has a value replaced (a list joins with `, `;
+the rest stay as written), and `interpolated.values` carries each one's `values`, or its `problem` with `didYouMean` and an
+example, plus `head` (which part of the Site answered: `self`, `props`, `this`, `((id))`, a bare key), `from` (the note the
+values were read from) and `route`. `fences: "template"` reads placeholders inside code fences too (a step's command lives in
+one); by default a fence is literal.
+
+What an extension does with that is its own: the **runbook** is the proof. It asks with the step as `this`, the runbook note
+as `self` and the run's arguments as `props`; refuses a step when any value has a `problem`; trusts a value whose `head` is
+`self` and whose `from` is the runbook note (its author's); and holds every other value (a prop, a parent, a `((id))`, a
+clock, a link followed from `self`) to the shell check, refusing the step otherwise. Nothing in outline-core, the service or
+the door names the runbook; everything it uses (`site.answer`, `children`, `create`, `update`, `secrets.group`) is this
+contract, and a new extension gets the same.
+
 ### Writes anywhere, through the normal paths
 
 Over its connection an extension may **read** (`get`, `children`, `pages.resolve`, `blocks.query`, `tree.search`,

@@ -12,7 +12,8 @@
 // `[form-field::…]` chips) is not stamped; `[template-for::meeting]` becomes the stamped note's `[type::meeting]`, and
 // `[from-template::((id))]` says where it came from, once, on text the person now owns. `for=` stamps once per match
 // (each match is `props.for`), and a match already stamped from this template is skipped, so running it again adds only
-// what is new. A template that is a subtree is stamped whole. Writes only through the store's normal paths, attributed
+// what is new. A template that is a subtree is stamped whole. A step's generated id (`^t-3fa9c1`) is not carried over (the new
+// note's steps are its own to address), so an agent can fill a placeholder step in without declaring an identity change. Writes only through the store's normal paths, attributed
 // as whoever asked; refuses before writing anything when the template, a prop or `for` is wrong.
 import { interpolationSpans, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
 import { ADDRESS_KEYS } from "@ep0ch/outline-core/property-grammar";
@@ -22,6 +23,7 @@ import { substituteValues } from "@ep0ch/outline-core/site-values";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import type { BlockAuthor } from "@ep0ch/outline-core/protocol";
 import { blockDisplayTitle } from "./references";
+import { fragmentAnchors } from "./fragments";
 import { answerSite, siteReader } from "./site-answer";
 import type { Block, BlockProvenance, NewNoteReceipt } from "./types";
 import { findTemplate, TEMPLATE_FOR_KEY, TEMPLATE_ONLY_KEYS, templateProps } from "./templates";
@@ -119,6 +121,26 @@ function withTitle(text: string, title: string): string {
   return [`${m[1]}${title}${m[3]}`, ...rest].join("\n");
 }
 
+/**
+ * The generated step ids (`^t-3fa9c1`, a checklist step made addressable) taken out of a stamped text. They are the template's
+ * steps' addresses, and nothing links to the new note's: a placeholder step an agent then fills in is not an address it must
+ * protect (PIE-818). A name the author wrote (`^weekly`, `## Log ^log`) stays: a script may place into it.
+ */
+function withoutStepIds(text: string): string {
+  if (!text.includes("^t-")) return text;
+  let out = text;
+  for (const anchor of [...fragmentAnchors(text)].reverse()) {
+    if (anchor.kind !== "list-item" || !GENERATED_STEP_ID.test(anchor.id)) continue;
+    const at = out.indexOf(`^${anchor.id}`, anchor.markerStart);
+    if (at < 0) continue;
+    let start = at;
+    while (start > 0 && out[start - 1] === " ") start -= 1;
+    out = out.slice(0, start) + out.slice(at + 1 + anchor.id.length);
+  }
+  return out;
+}
+const GENERATED_STEP_ID = /^t-[0-9a-f]{6,}$/;
+
 const lineEnd = (text: string) => { const i = text.indexOf("\n"); return i < 0 ? text.length : i; };
 /** `[key::value]` added at the end of the first line. */
 const withChip = (text: string, key: string, value: string) => { const at = lineEnd(text); return `${text.slice(0, at)} [${key}::${value}]${text.slice(at)}`; };
@@ -192,7 +214,7 @@ export function stampTemplate(store: StampStore, request: TemplateStampRequest, 
       const read = siteReader(store, { self: template, props }, clock);
       const own: string[] = [];
       const make = (node: Node, first: boolean): string => {
-        let text = fill(withoutTemplateChips(node.text, addresses), read, own);
+        let text = fill(withoutStepIds(withoutTemplateChips(node.text, addresses)), read, own);
         if (first) {
           if (request.title !== undefined) text = withTitle(text, fill(request.title, read, own));
           if (forWord && !parsePropertyRecords(text).some(r => r.key === "type")) text = withChip(text, "type", forWord);

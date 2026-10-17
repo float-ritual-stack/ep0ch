@@ -39,6 +39,7 @@ What you can now do: write a template once and use it two ways. Draw it live whe
   an old step's `{{env}}` to `{{self.env}}`.
 - **The last single-brace expanders are gone from the grammar's neighbourhood:** an extension's resource link
   `browse/{{key}}` reads `{{ }}`; intake's archive command takes `%word%` (an extension's own argv, not a note's text).
+- **A stamped note carries no generated step ids** (`^t-3fa9c1`, a step made addressable): they were the template's steps' addresses, and nothing links to the new note's, so an agent can fill a placeholder step in without declaring an identity change (PIE-818's first request; a name the author wrote, `## Log ^log`, is kept).
 - **Kitchen sink:** the section "Templates" (`ep0ch --showcase`, `act section name=templates`).
 - Wire: new service reads `template.use` (watched) and `template.props`, and write `template.stamp`; `site.answer` takes
   `interpolate` (a text filled in the Site; the runbook's step) and answers `interpolated` and each value's `head`.
