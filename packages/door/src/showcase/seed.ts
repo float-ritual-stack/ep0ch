@@ -11,6 +11,7 @@
 // echonet); this file keeps the order they are written in. A new section's content is a new file there.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { titleLine, type Msg } from "../board";
 import { USER, type Actor, type SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
@@ -167,6 +168,17 @@ if (request.input.request === "describe the beds") {
     "ttt-board::",
     '::button{label="New game" of=ttt-reset}',
     "In prose it is a link: [start over](act: ttt-reset).",
+  ].join("\n"));
+  // Generated regions in prose (PIE-956): the render script's table, a ::= sentence and a written output region, each read like the page.
+  notes.outputRegions = await make(notes.root.id, [
+    `${SEED.outputRegions} [owner::Sam] [crop::beans]`,
+    "Sam's sowing plan for week 42 is a script's table, drawn as if it were written here:",
+    "beds-table:: week=42",
+    "Below it, one sentence is generated too:",
+    "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
+    "Neither shows who ran it, when, or a button: the one dim mark in the margin beside each is all that says so. Put the cursor on it (the [ ] keys), or click it, to see when it ran and to run it again. A script that writes leaves its output in the note, as a region you can edit:",
+    outputRegionText({ label: "last week's rota", producer: notes.scripts.id, anchor: "out-rota-7c2e", body: "- Mon: Sam waters the beans\n- Wed: Robin thins the carrots\n- Fri: Sam picks the first peas" }),
+    "Change a word inside it and it is yours: the script's next run waits as a proposal beside it.",
   ].join("\n"));
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.richEdit = await make(notes.root.id, [

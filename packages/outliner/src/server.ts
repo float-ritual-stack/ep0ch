@@ -2148,7 +2148,7 @@ export class OutlinerServer {
         const handlerLines = dataRecord || record ? [] : (this.extensionCalls.calls(normalized.blockId)?.calls ?? [])
           .filter((call) => normalized.line === undefined || call.line === normalized.line);
         if (handlerLines.length) {
-          await this.extensionCalls.materialize(normalized.blockId, "refresh", normalized.line !== undefined ? { line: normalized.line } : {});
+          await this.extensionCalls.refreshOutput(normalized.blockId, "refresh", normalized.line !== undefined ? { line: normalized.line } : {});
         }
         // `r` on an `@name` line asks its agent again; on the note, the requests not answered yet. Who pressed it
         // is who asked.
@@ -2396,7 +2396,7 @@ export class OutlinerServer {
             const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
             void this.extensionSync.materialize(record?.parentBlockId ?? normalized.blockId).catch(() => {});
           }
-          if (request.materialize === true) void this.extensionCalls.materialize(normalized.blockId, "open").catch(() => {});
+          if (request.materialize === true) void this.extensionCalls.refreshOutput(normalized.blockId, "open").catch(() => {});
           const read = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), request.materialize === true), normalized.line);
           // A whole block's read carries what the rules draw on it (PIE-600); a line's doesn't.
           const decorations = normalized.line === undefined ? this.extensionRules.decorations(normalized.blockId) : [];

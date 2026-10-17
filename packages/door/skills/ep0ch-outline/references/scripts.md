@@ -14,6 +14,7 @@ same Site a `{{ }}` is read in: it knows which note asked, takes slots, and read
 | `resolve(path)` | What `{{ path }}` shows: `{ values, links?, route }` or `{ problem: { message, didYouMean, example } }`. `resolve("this.owner")`, `resolve("parent.project")`, `resolve("((id)).status")`, `resolve("this.tasks | status=todo .count")`. |
 | `q(query)` | The views' query grammar; `this` is bound: `q("parent:this")`, `q("links:this")`. Twenty rows unless `{limit}`. |
 | `tools.*`, `act(name, args)` | As before: the agent tools, and the connected door's actions. |
+| `place(content, { at, mode, label })` | Writes `content` into the run's note as an output region the script owns (a folded `> [!output]-` callout carrying `[output-of::((script))]` and `[output-hash::…]`), as one attributed edit. `at: "^anchor"` (default: right after the line that ran it); `mode`: `append` (default), `prepend`, `replace` (only this script's own unedited region; refused for a heading or paragraph anchor), `upsert` (replace or create). A missing anchor is one proposal at the caller with a did-you-mean, never the note's end; a region a person edited is theirs and the new output waits as a proposal. `{{` in the output is written as `\{{` unless `interpolate: true`. Needs `[effects::write]`. |
 | `wait(ms)` | Sleeps. Ends with the run: the deadline (`[deadline::2m]`, five minutes at most) or a stop. |
 
 ```js
@@ -60,7 +61,7 @@ and closes it with `layout.txn.end txn=<id>`; `layout.undo` takes the newest cha
 `ep0ch show` draws the note and its values but not what a script or other extension line returns: that is drawn by a door's
 Detail screen. To see it as a reader does, run a door of your own on your outline (the `ep0ch` skill, "run your own": a
 tmux pane with `EP0CH_STATE` and `EP0CH_CONTROL` set, `ep0ch --ws <name> --no-daemon --screen detail <full id>`), then `ep0ch peek`: it prints the door's state as JSON and, below the closing brace, the screen as text. To draw the
-lines now after a change, `ep0ch act projection.refresh block=<full id>`. An argument is `key=value` after the `::`
+lines now after a change, `ep0ch act projection.refresh block=<full id>` (add `line=<index>` for one line: with several lines that run and no `line=`, nothing runs and the refusal names them). In a door a generated line draws flush with the note's text, with one dim `≡` mark in the gutter that shows its name, when it ran and its controls. An argument is `key=value` after the `::`
 (`weekly:: week=42`, read as `props.week[0]`); a line with none is `weekly::` and runs with empty `props`.
 
 ## Running, stopping, undoing

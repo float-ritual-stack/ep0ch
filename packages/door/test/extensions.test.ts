@@ -140,7 +140,7 @@ describe.skipIf(!outliner)("parity with Detail's layout for an extension's line"
       { ...base, provider: "moon", label: "Moon", propertyKey: "moon", kind: "data", key: "2026-10-26", status: "not-fetched", reason: "not fetched yet" },
     ];
     // The reader's head says it as the service words it.
-    const dismissed = extensionRegion(cases[3]!, 80, 0, Date.parse("2026-10-01T10:00:00.000Z"), undefined, { note: "n1", markdown: t => [t] }).map(plain);
+    const dismissed = extensionRegion(cases[3]!, 80, Date.parse("2026-10-01T10:00:00.000Z"), undefined, { note: "n1", markdown: t => [t] }).rows.map(plain);
     expect(dismissed[0]).toContain("Tidy @tidy · dismissed · proposed 1 edit");
     for (const p of cases) {
       const want = theirs.resourceProjectionLayout(p);
@@ -241,7 +241,9 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await until(() => text().includes("Moon on 2026-10-26: Full Moon") && text().includes("week of") && /Tidy @tidy · (applied|nothing)/.test(text()), "every line drawn", 20_000);
     const t = text();
     expect(t).toContain("phase: Full Moon · illumination: 100%");
-    expect(t).toMatch(/∙ Horoscope virgo · ran (just now|\d+ min ago)/);
+    // An output is the note's own content (PIE-956): no head row, no controls; its mark in the gutter holds the rest.
+    expect(t).not.toMatch(/Horoscope virgo · ran/);
+    expect(t).toMatch(/^≡ Virgo, \d{4}-\d\d-\d\d\. /m);
     expect(t).toMatch(/Virgo, \d{4}-\d\d-\d\d\. /);                         // the output's markdown, drawn
     expect(t).toContain("Colour: ");
     expect(t).toMatch(/▌ Virgo: week of \d{4}-\d\d-\d\d {2}\[uneasy\]/);    // the card, from its primitives
@@ -251,9 +253,9 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(omenList.length).toBeGreaterThan(3);
     const drawn = omenList.filter(o => t.includes(`[ ] ${o}`));
     expect(drawn.length).toBeGreaterThanOrEqual(1);
-    expect(t).toContain("[w ward] [keep] [r run again]");
+    expect(t).not.toContain("[w ward] [keep] [r run again]");
     expect(t).toMatch(/Tidy @tidy · applied · formatted 1 line/);
-    expect(t).toContain("[r ask again]");
+    expect(t).not.toContain("[r ask again]");
     // @tidy applied an attributed edit: the line above it is tidied, by ext:tidy.
     const after = (await board.get(note.id))!;
     expect(after.text).toContain("\nwater the leeks\n@tidy");
@@ -291,8 +293,8 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     // Its cells are on the terminal's own background, not the extension region's tint (PIE-839): a terminal that draws a
     // picture placed under the text beneath every cell with a background of its own (Tern) showed an empty box there.
     expect(tintedCells(v.lines, at)).toEqual([]);
-    // Only its cells: the region beside it on the same rows keeps its tint.
-    expect(tintedCells(v.lines, { ...at, col: 0, cols: at.col }).length).toBeGreaterThan(0);
+    // The region around it has no tint of its own now (PIE-956): it draws as the note does.
+    expect(tintedCells(v.lines, { ...at, col: 0, cols: at.col })).toEqual([]);
     // Nothing was written for it: the note is as it was.
     expect((await board.get(cards.id))!.text).toBe("Seed cards\ngallery:: 4");
     // pic:: under an [img::] line: both pictures placed, each on the terminal's own background.

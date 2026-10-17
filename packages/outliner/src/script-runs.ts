@@ -4,6 +4,7 @@ import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls"
 import type { LoadedExtension, ScriptSource } from "./extension-manifest";
 import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
+import { planPlace, type PlaceMode } from "./place";
 import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
@@ -202,11 +203,31 @@ export class ScriptRuns {
       },
     };
     const site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger, props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])) });
+    // place(): the plan is made on the note as its draft has it now, sent as this script, applied or one proposal at the caller.
+    const place = async (content: string, opts: { at?: string; mode?: string; label?: string; interpolate?: boolean }) => {
+      if (!site.thisId) throw new Error("place writes into this run's note: run this script from a note (this run has none)");
+      const draft = await client.request<{ text: string; revision: number; holder?: string }>({ action: "drafts.read", blockId: site.thisId });
+      const line = request.line;
+      const producer = { id: (source.blockId ?? extension.id).replace(/[^A-Za-z0-9_-]/g, "-").padEnd(8, "-"), name: extension.name };
+      const plan = planPlace(draft.text, {
+        producer, content, ...(opts.at !== undefined ? { at: opts.at } : {}), ...(opts.mode !== undefined ? { mode: opts.mode as PlaceMode } : {}),
+        ...(opts.label !== undefined ? { label: opts.label } : {}), ...(line !== undefined ? { here: line } : {}), ...(opts.interpolate ? { interpolate: true } : {}),
+      });
+      if (!plan.ok && plan.kind === "refused") throw new Error(plan.reason);
+      const result = await client.request<{ outcome: string; reason?: string; proposalId?: string }>({
+        action: "draft.patch", blockId: site.thisId, revision: draft.revision, patches: plan.spans, mutation: actor, current: true,
+        ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(plan.ok ? {} : { propose: "always" as const }),
+      });
+      const said = plan.ok ? plan.summary : plan.reason;
+      lines.push(`\nplace: ${result.outcome === "applied" ? said : `proposed instead: ${result.reason ?? said}`}`);
+      return { outcome: result.outcome, ...(plan.anchor ? { anchor: plan.anchor } : {}), ...(plan.ok ? { created: plan.created } : {}), message: result.outcome === "applied" ? said : (plan.ok ? (result.reason ?? said) : plan.reason), ...(result.proposalId ? { proposalId: result.proposalId } : {}) };
+    };
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
       ...(site.thisId ? { thisId: site.thisId } : {}),
       ...(site.resolve ? { resolve: site.resolve } : {}),
       effects: source.effects,
+      place: (content, opts) => place(content, opts),
       mcpAccess: request.mcpAccess,
       // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
       act: (name: string, args: Record<string, unknown>) => this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) }),

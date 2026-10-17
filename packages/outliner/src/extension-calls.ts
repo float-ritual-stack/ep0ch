@@ -468,7 +468,7 @@ export class ExtensionCalls {
       this.scheduled.delete(blockId);
       const save = this.saves.get(blockId);
       this.saves.delete(blockId);
-      void this.materialize(blockId, "save", { byPerson: save?.byPerson ?? false, created: save?.created ?? false }).catch(() => {});
+      void this.refreshOutput(blockId, "save", { byPerson: save?.byPerson ?? false, created: save?.created ?? false }).catch(() => {});
     }, 0);
   }
 
@@ -485,7 +485,7 @@ export class ExtensionCalls {
     for (const reader of readers) {
       const block = reader === blockId && !byScript ? null : this.store.get(reader);
       if (!block || !mayHaveHandlerLines(block.text)) { if (block === null && reader !== blockId) this.queryReaders.delete(reader); continue; }
-      void this.materialize(reader, "open").catch(() => {});
+      void this.refreshOutput(reader, "open").catch(() => {});
     }
   }
 
@@ -551,7 +551,7 @@ export class ExtensionCalls {
    * one on `line`) now. A pass asked for while one runs on that block runs
    * after it (a save during a slow call is never lost); a refresh runs at once.
    */
-  materialize(blockId: string, reason: CallReason, options: PassOptions = {}): Promise<void> {
+  refreshOutput(blockId: string, reason: CallReason, options: PassOptions = {}): Promise<void> {
     const running = this.passes.get(blockId);
     if (running && reason !== "refresh") {
       const queued = this.queued.get(blockId);
@@ -564,12 +564,12 @@ export class ExtensionCalls {
       const entry: { next: { reason: CallReason; options: PassOptions }; promise: Promise<void> } = { next: { reason, options }, promise: Promise.resolve() };
       entry.promise = running.catch(() => {}).then(() => {
         this.queued.delete(blockId);
-        return this.materialize(blockId, entry.next.reason, entry.next.options);
+        return this.refreshOutput(blockId, entry.next.reason, entry.next.options);
       });
       this.queued.set(blockId, entry);
       return entry.promise;
     }
-    const pass = this.materializeNow(blockId, reason, options)
+    const pass = this.refreshOutputNow(blockId, reason, options)
       .finally(() => { if (this.passes.get(blockId) === pass) this.passes.delete(blockId); });
     this.passes.set(blockId, pass);
     return pass;
@@ -590,7 +590,7 @@ export class ExtensionCalls {
     return before ?? (created ? new Set() : new Set(current));
   }
 
-  private async materializeNow(blockId: string, reason: CallReason, options: PassOptions): Promise<void> {
+  private async refreshOutputNow(blockId: string, reason: CallReason, options: PassOptions): Promise<void> {
     const found = this.calls(blockId);
     if (!found) return;
     const { block, calls } = found;
@@ -776,7 +776,7 @@ export class ExtensionCalls {
       if (queries?.length) this.watchQueries(block.id);
       this.state.delete(key);
       // A note it read changed while it ran: what it drew is already out of date.
-      if (reads?.some(read => this.revisionOf(read.id) !== read.revision)) void this.materialize(block.id, "open").catch(() => {});
+      if (reads?.some(read => this.revisionOf(read.id) !== read.revision)) void this.refreshOutput(block.id, "open").catch(() => {});
     } catch (error) {
       if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, error: message(error) });
       this.state.set(key, { running: false, error: message(error) });
@@ -883,7 +883,7 @@ export class ExtensionCalls {
     for (const blockId of blocks) {
       const found = this.calls(blockId);
       for (const call of found?.calls.filter((candidate) => candidate.handlerKey === handlerKey && !candidate.problems.length) ?? []) {
-        await this.materialize(blockId, "refresh", { line: call.line });
+        await this.refreshOutput(blockId, "refresh", { line: call.line });
         const error = this.state.get(this.outputKey(blockId, call.callKey))?.error;
         if (error) failed.push(error);
         else lines += 1;
@@ -1093,7 +1093,7 @@ export class ExtensionCalls {
     // An action's writes change what a read handler's line reads: run that line again (found again by its
     // call, in case the writes moved it) before answering. A spend or write line waits for r.
     const again = touched && call?.effects === "read" ? this.calls(block!.id)?.calls.find((candidate) => candidate.callKey === call.callKey) : undefined;
-    if (again) await this.materialize(block!.id, "refresh", { line: again.line });
+    if (again) await this.refreshOutput(block!.id, "refresh", { line: again.line });
     else if (block && (touched || applied.proposalId)) this.options.changed?.(block.id);
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
