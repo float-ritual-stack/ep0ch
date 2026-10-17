@@ -243,6 +243,7 @@ export interface PageResolution { address: string; status: "resolved" | "deleted
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
+import type { SiteAnswer } from "@ep0ch/outline-core/site";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
 /**
@@ -756,6 +757,14 @@ export class SocketBoard implements Board {
   async resolvePage(address: string): Promise<PageResolution> {
     const r = await this.request<{ address: string; status: PageResolution["status"]; block?: WireBlock }>("pages.resolve", { address });
     return { address: r.address, status: r.status, ...(r.block ? { block: toMsg(r.block) } : {}) };
+  }
+
+  /**
+   * What the `{{ }}` of a note read as (PIE-533 `site.answer`): the service resolves, the door draws. `draft` is the note's
+   * unsaved text, so values agree with what is on screen. A service without it answers an error (the placeholders stay text).
+   */
+  async siteAnswer(blockId: string, draft?: string): Promise<SiteAnswer> {
+    return this.request<SiteAnswer>("site.answer", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}) });
   }
 
   /** Every property token in `text`, as the service parses it (PIE-401). */

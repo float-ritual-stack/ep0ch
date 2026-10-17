@@ -86,7 +86,9 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     description:
       "Read {note}: its full text (never just the title), `properties` (each key once with its `values`, as `find --json` gives them) and `fields` (the properties of a line or a spot in the text), revision, who last wrote it and when, and its " +
       "children to `depth` levels (default 1), at most `limit` descendants (default 50), each with full text. " +
-      "`complete` says whether anything was left out; a child with `more` has unread children. Read before you " +
+      "`complete` says whether anything was left out; a child with `more` has unread children. A note that holds " +
+      "a `{{ }}` also returns `site`: what each placeholder reads as (`values`, or a `problem` with the nearest keys), " +
+      "how it was found (`route`), and the notes it came from (`deps`); `text` stays what the author wrote. Read before you " +
       "edit: outline_edit and outline_patch need the revision this returns. A Resource (`resource:<id>`, or a " +
       "`[file::path]` token) reads as its stored text with the comment threads that are open on it: read a file " +
       "that has threads before you rewrite it.",

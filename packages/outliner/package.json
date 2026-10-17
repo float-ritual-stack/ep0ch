@@ -63,7 +63,8 @@
     "test:e2e:outline-chooser": "bun run test/e2e/outline-chooser.ts",
     "test:e2e:embed-links": "bun run test/e2e/embed-links.ts",
     "test:e2e:proposals-beside": "bun run test/e2e/proposals-beside.ts",
-    "test:e2e:rule-decorations": "bun run test/e2e/detail-rule-decorations.ts"
+    "test:e2e:rule-decorations": "bun run test/e2e/detail-rule-decorations.ts",
+    "test:e2e:values": "bun run test/e2e/values.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.84.2",

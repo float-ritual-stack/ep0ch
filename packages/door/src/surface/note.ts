@@ -32,7 +32,8 @@ import { planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
-import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
@@ -79,7 +80,7 @@ import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
-import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
+import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
@@ -418,7 +419,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
-  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
+  : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.value ? (e.link.value.problem ?? (e.link.at !== undefined ? "show the line it reads" : "say how it is computed")) : e.link?.media || e.link?.url ? "open" : "follow";
 /** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
 function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
   if (x.action === RUN_AGAIN) return "run it again";
@@ -703,7 +704,7 @@ export class NoteSurface {
   /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
   /** The reveal this surface took last (`takeReveal`), so showing the note again doesn't scroll back to it. */
   private revealed: object | null = null;
-  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean } | null = null;
+  focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean; says?: string } | null = null;
   private revealMark = false;
   /**
    * Folded headings and list items (their FoldPoint keys): this reader's reading state, never the note's
@@ -1497,7 +1498,7 @@ export class NoteSurface {
       ...(open.length > OPEN_SHOWN ? [dim(`  and ${open.length - OPEN_SHOWN} more left open`)] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${agentWords(this.agent.id)}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
-      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · the line that links here${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
+      ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.line ? `◆ ${this.focusMark.label} · ${this.focusMark.says ?? "the line that links here"}${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} opened it` : ""} · esc lets go` : this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
     );
     if (this.panel?.card) {
       const card = this.panel.card, fields = this.settingFields(m, card.schemas);
@@ -1507,12 +1508,12 @@ export class NoteSurface {
     } else if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
-      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text };
+      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text, values: this.valueRows(m, src) };
       const at = head.length;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
       const popup = this.panel.field && completionOf(this.panel.field.input) ? COMPLETION_ROWS : 0;
-      const ph = Math.min(rows.length + 2 + popup + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4 + popup, Math.floor((h - head.length) * 0.5)));
+      const ph = Math.min(rows.length + 2 + popup + (info.values.length ? Math.min(info.values.length, 6) + 1 : 0) + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4 + popup, Math.floor((h - head.length) * 0.5)));
       head.push(...this.panel.render(rows, w, ph, info));
       panelHits();
     }
@@ -1961,7 +1962,7 @@ export class NoteSurface {
     const blocks: LinkBlockInfo[] = [];
     this.linkBlocksDrawn = blocks;
     const { preview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
-    const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
+    const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
       ...env, literal, ...hooks,
       linkBlocks: this.printed ? undefined : {
         ui: key => {
@@ -2046,7 +2047,7 @@ export class NoteSurface {
    */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
-  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false, draftOf?: string): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
     const m = this.msg, src = this.src;
     // `pictures`: its img:: lines drawn as the reader draws them (PIE-846), where the terminal can; else each says what it is.
     const graphics = pictures && !!host?.ctx.graphics;
@@ -2059,7 +2060,10 @@ export class NoteSurface {
       pending ||= embedState(id, fragment, src, m.id).kind === "loading";
       return out;
     } : undefined;
-    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn), { ...env, ...(embed ? { embed } : {}) });
+    // `draftOf`: the text is that note's unsaved one (an edit's preview): its `{{ }}` are read from the text as typed (PIE-533 S2).
+    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn, undefined, draftOf ? { block: draftOf, draft: true } : undefined), { ...env, ...(embed ? { embed } : {}) });
+    // Its `{{ }}` still being read: drawn again on the redraw the answer brings.
+    if (draftOf && siteAnswerWaiting(draftOf, text, src, true)) pending = true;
     // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
     return { lines: doc.lines, source: doc.source, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [], images: graphics ? doc.images : [] };
   }
@@ -2080,7 +2084,7 @@ export class NoteSurface {
         const inside = target.text.includes("<!--") ? literalLines(target.text).inside : new Set<number>();
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
       } else ({ text, lines, literal: lit } = readableSource(target, src));
-      return renderDoc(presentLinks(text, true, src, target.text, drawn), {
+      return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
@@ -2429,7 +2433,7 @@ export class NoteSurface {
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
-      preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links), pick: true, follow: true, ...(away ? { away } : {}),
+      preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links, false, isOutlineNote(m) ? m.id : undefined), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
       ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
       title: `editing · ${subject({ ...m, text: d.text })}`,
@@ -4220,6 +4224,16 @@ export class NoteSurface {
     return { doc: out, controls: panels.flatMap((p, i) => p.controls.map(c => ({ ...c, row: starts[shown(i)]! + c.row }))), ...placed(out, starts, n) };
   }
 
+  /** The note's `{{ }}` as the service read them, for the property panel (the draft's, while one is open). */
+  private valueRows(m: Msg, src: Source | null): ValueRow[] {
+    if (!isOutlineNote(m)) return [];
+    const text = this.draft?.text ?? m.text;
+    const answer = siteAnswerOf(m.id, text, src, !!this.draft && this.draft.text !== m.text);
+    return (answer?.values ?? []).slice(0, MAX_NOTE_VALUES).map(v => hasWords(v)
+      ? { expression: v.expression, words: valueWords(v) || EMPTY_VALUE, ...(v.from ? { from: v.from } : {}) }
+      : { expression: v.expression, words: "", problem: problemWords(v) });
+  }
+
   /**
    * An expanded thread's control, by ⏎ or a click, through the comment code the thread list uses: Select
    * selects its passage (the reader's text selection, PIE-419); Reply opens the thread list as the person's
@@ -4991,6 +5005,11 @@ export class NoteSurface {
       if ("web" in to) return this.openOutside("browser", to.web, host);
       return this.followTarget(to.target, host, how);
     }
+    // A `{{ }}` (PIE-533 S2): where its value is written, lit; else what it is (computed, or why it has no value).
+    if (l.value && (!l.block || (l.at === undefined && l.block === this.msg?.id))) {
+      host.ctx.flash(l.value.problem ? `${l.value.expression}: ${l.value.problem}` : `${l.value.expression} → ${printable(l.value.words)} · computed (${l.value.route.split(" → ").at(-1)})`, 8000);
+      return null;
+    }
     let target: Msg | null = null;
     if (l.block) target = await host.ctx.board.get(l.block);
     else if (l.page) {
@@ -5006,7 +5025,7 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}) } : {}) }, host.actor ?? USER);
+    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
     this.track(() => host.navigate(target, how));
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
@@ -5065,7 +5084,7 @@ export class NoteSurface {
     if (this.revealed === r) return;
     this.revealed = r;
     if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
-    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label);
+    else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label, r.says);
   }
 
   /** `u`: the note's parent. */
@@ -5665,7 +5684,7 @@ export class NoteSurface {
    * Scroll to the line of this note that holds a reference (a backlinks row opened, PIE-884: `at`, the reference's
    * offset in the text the service read) and mark it, as an anchored link's fragment is. Folds around it open.
    */
-  async revealAt(at: number, host: SurfaceHost, by: Actor = USER, label?: string) {
+  async revealAt(at: number, host: SurfaceHost, by: Actor = USER, label?: string, says?: string) {
     const m = this.msg;
     if (!m) return;
     const from = this.scroll;
@@ -5684,7 +5703,7 @@ export class NoteSurface {
     const { points, lines } = this.foldsIn(now);
     const shown = lines.indexOf(line);
     for (const p of points) if (this.folded.has(p.key) && shown >= 0 && p.line < shown && shown < p.end) this.folded.delete(p.key);
-    this.focusMark = { by, spec: { line: line + 1, to: line + 1 }, label: `line ${line + 1}`, at: Date.now(), line: true };
+    this.focusMark = { by, spec: { line: line + 1, to: line + 1 }, label: `line ${line + 1}`, at: Date.now(), line: true, ...(says ? { says } : {}) };
     this.revealMark = this.scroll === from;
     host.redraw();
   }
@@ -6154,6 +6173,9 @@ export class NoteSurface {
     const start = all.slice(0, lo).reduce((n, l) => n + l.length + 1, 0);
     const span = all.slice(lo, hi + 1).join("\n");
     const seen = s.text(rows);
+    // The `{{ }}` on these lines are drawn as their values (refs.ts presentLinks): a selection of those words is the whole token.
+    const answer = isOutlineNote(m) ? siteAnswerOf(m.id, m.text, this.src) : null;
+    const values = answer ? pairValues(m.text, answer.values).flatMap(p => p.value && p.start >= start && p.end <= start + span.length ? [{ start: p.start - start, end: p.end - start, words: readerWords(m.text.slice(p.start, p.end), p.value) }] : []) : [];
     // Words that are on these lines more than once: the same one as drawn, counted from where the lines start drawing.
     let r0 = s.start.row;
     const lineOfRow = (r: number) => (r >= d.titleRows[0] && r < d.titleRows[1] ? Math.max(0, titleLine(m.text).line) : r >= d.top ? d.lines[d.doc.source[r - d.top] ?? -1] : undefined);
@@ -6165,13 +6187,18 @@ export class NoteSurface {
     for (const t of [seen, seen.replace(/\n/g, " ")]) {
       if (!t.trim()) continue;
       const k = nth(t, before.replace(/\n/g, " ") + t.slice(0, -1));
+      // A value is drawn as its words, not its source: the selection that touches one is read from the drawing (source-map.ts).
+      if (values.length) {
+        const hit = sourceSpanOf(span, t, values, k);
+        if (hit) return { text: span.slice(hit.from, hit.to), exact: true, from: start + hit.from, to: start + hit.to, lines: [lo, hi] };
+      }
       let at = -1;
       for (let i = 0, j = span.indexOf(t); j >= 0; i++, j = span.indexOf(t, j + 1)) if (i === k) { at = j; break; }
       if (at >= 0) return { text: t, exact: true, from: start + at, to: start + at + t.length, lines: [lo, hi] };
     }
     // Drawn words with a link, emphasis or a list mark inside: read the source lines as they're drawn (source-map.ts).
     for (const t of [seen, seen.replace(/^[ \t]*[•◦▪▸‣·○●☐☑✓✗□■-][ \t]+/gm, "")]) {
-      const hit = sourceSpanOf(span, t);
+      const hit = sourceSpanOf(span, t, values);
       if (hit) return { text: span.slice(hit.from, hit.to), exact: true, from: start + hit.from, to: start + hit.to, lines: [lo, hi] };
     }
     const lead = span.length - span.trimStart().length;

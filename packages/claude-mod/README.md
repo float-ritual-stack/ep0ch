@@ -367,7 +367,7 @@ copy from the marker down.
 
 | Tool | Input | Returns |
 |---|---|---|
-| `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500) | full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete` |
+| `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500) | full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete`, and for a note that holds a `{{ }}` its `site`: the service's answer for each placeholder (`values`, or a `problem` with the nearest keys), how it was found (`route`) and the notes it came from (`deps`), while `text` stays what the author wrote |
 | `outline_find` | `text?`, `property?` (`key=value` or `key`), `hasKey?`, `query?`, `under?`, or `view?`; `limit?` | rows: `id`, `title`, `revision`; `complete` |
 | `outline_resolve` | `ref` | `id`, `title`, `revision`, `workId`, `fragmentId` |
 | `outline_edit` | `ref`, `expectedRevision`, one of `text`, `replaceSection {heading, body}`, `append`; `allowStructural?` | the new `revision`, a short `diff`, and with `allowStructural` what it `dropped` |

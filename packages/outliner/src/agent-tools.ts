@@ -35,6 +35,8 @@ import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
 import { textRecord } from "./block-records";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
+import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
+import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { isSystemNote, systemNoteKind } from "./note-placement";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -313,6 +315,12 @@ export interface ReadResult extends ResolvedReference {
   children: ReadChild[];
   /** Every descendant to `depth` is here, and none below it was cut off. */
   complete: boolean;
+  /**
+   * What the note's `{{ }}` read as (`site.answer`): each placeholder with its values, or its problem and the nearest keys,
+   * how it was found (`route`), and the notes it was computed from. What the person sees; `text` is what they wrote.
+   * Only a note holding a `{{ }}` has one.
+   */
+  site?: SiteAnswer;
 }
 
 /** How much children's text one read returns at most (the note's own text is always whole). */
@@ -370,6 +378,7 @@ export async function readBlock(
   if (depth > 0) children = await read(block.id, 1);
   else await markMore([{ id: block.id, text: "", revision: block.revision }]);
   const record = textRecord(block);
+  const site = await readSiteOf(client, block);
   return {
     ...resolved,
     title: blockDisplayTitle(block),
@@ -383,7 +392,19 @@ export async function readBlock(
     parentId: block.parentId,
     children,
     complete,
+    ...(site ? { site } : {}),
   };
+}
+
+/** The note's whole `site.answer` (bounded), for a note that holds a `{{ }}`; nothing when it holds none or the service can't answer. */
+async function readSiteOf(client: AgentToolsClient, block: Block): Promise<SiteAnswer | undefined> {
+  if (!block.text.includes("{{") || !interpolationSpans(block.text).length) return undefined;
+  try {
+    const answer = await client.request<SiteAnswer>({ action: "site.answer", blockId: block.id });
+    return answer.values.length > MAX_NOTE_VALUES ? { ...answer, values: answer.values.slice(0, MAX_NOTE_VALUES) } : answer;
+  } catch {
+    return undefined;
+  }
 }
 
 // ─── Find ──────────────────────────────────────────────────────────────────
