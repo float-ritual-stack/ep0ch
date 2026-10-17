@@ -34,7 +34,7 @@ export function slotProps(words: string | null | undefined): Record<string, stri
 }
 
 /** What a render-mode script drew, and what it read: the notes (with their revision when first read) and the queries (with their rows). */
-export interface ScriptRendered { markdown: string; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
+export interface ScriptRendered { markdown: string; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; /** The script's own note: redraws the line, but is not a note the output shows. */ own?: string; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
 
 /** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
@@ -103,6 +103,8 @@ export class ScriptRuns {
     let untracked = false;
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
     const props = slotProps(input.argument);
+    // The script's own note redraws the line when edited (its code, `self`): a read to watch, not one a reader's view depends on (`own`).
+    if (source.blockId) onRead([source.blockId]);
     const site = this.bind(source, { blockId: input.blockId, line: input.line, props }, onRead);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(input.deadlineMs / 1000)}s)`)), input.deadlineMs);
@@ -113,7 +115,7 @@ export class ScriptRuns {
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (!result.ok) throw new Error(result.error.message);
-      return { markdown: result.value === undefined ? "" : scriptText(result.value), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };
+      return { markdown: result.value === undefined ? "" : scriptText(result.value), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(source.blockId ? { own: source.blockId } : {}), ...(untracked ? { untracked: true as const } : {}) };
     } finally { clearTimeout(timer); }
   }
 
