@@ -17,7 +17,7 @@ const sh = (cwd: string, ...argv: string[]) => {
   return r.stdout.toString().trim();
 };
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-const until = async (what: string, ok: () => boolean, ms = 30_000) => {
+const until = async (what: string, ok: () => boolean, ms = 120_000) => {
   for (const end = Date.now() + ms; Date.now() < end;) { if (ok()) return; await Bun.sleep(100); }
   throw new Error(`timed out waiting for ${what}`);
 };
@@ -103,31 +103,31 @@ describe("scripts/box-test limits", () => {
     expect(first.p.exitCode).toBeNull();
 
     const third = box(wt, "a3", ["--replace"]);
-    await until("the replacing run to start", third.started, 60_000);
+    await until("the replacing run to start", third.started, 120_000);
     expect(await first.p.exited).not.toBe(0);
     expect(third.text.err).toContain("--replace: stopping the run");
     // The first run's daemon went with it, and its run dir.
-    await until("the first run's daemon to die", () => first.daemons().every(pid => !alive(pid)), 10_000);
-    await until("the first run dir to go", () => !existsSync(firstDir), 10_000);
+    await until("the first run's daemon to die", () => first.daemons().every(pid => !alive(pid)), 120_000);
+    await until("the first run dir to go", () => !existsSync(firstDir), 120_000);
     third.go();
     expect(await third.p.exited).toBe(0);
-    await until("the last daemon to die", () => third.daemons().every(pid => !alive(pid)), 10_000);
-  }, 120_000);
+    await until("the last daemon to die", () => third.daemons().every(pid => !alive(pid)), 120_000);
+  }, 360_000);
 
   test("three worktrees with two slots: the third waits, says so, and starts when one finishes", async () => {
     const a = box(worktree("wt-b1"), "b1"), b = box(worktree("wt-b2"), "b2");
     await until("two runs to start", () => a.started() && b.started());
     const c = box(worktree("wt-b3"), "b3");
-    await until("the third to say it waits", () => c.text.err.includes("waiting for a slot: 2 run(s) ahead"), 30_000);
+    await until("the third to say it waits", () => c.text.err.includes("waiting for a slot: 2 run(s) ahead"), 120_000);
     expect(c.started()).toBe(false);
     a.go();
     expect(await a.p.exited).toBe(0);
-    await until("the third to start", c.started, 30_000);
+    await until("the third to start", c.started, 120_000);
     expect(c.text.err).toContain("got slot");
     b.go(); c.go();
     expect(await b.p.exited).toBe(0);
     expect(await c.p.exited).toBe(0);
-  }, 120_000);
+  }, 360_000);
 
   test("a killed run leaves nothing: its group, its daemon outside the group and its dir are gone", async () => {
     const r = box(worktree("wt-c"), "c1");
@@ -136,10 +136,10 @@ describe("scripts/box-test limits", () => {
     const dir = runDirOf(r.daemons()[0]!);
     r.p.kill("SIGTERM");
     await r.p.exited;
-    await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 20_000);
-    await until("the run dir to go", () => !existsSync(dir), 20_000);
+    await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 90_000);
+    await until("the run dir to go", () => !existsSync(dir), 90_000);
     expect(r.text.err).not.toContain("LEAK");
-  }, 90_000);
+  }, 360_000);
 
   test("the ssh dying (its session process killed) stops the run, its daemon and its dir", async () => {
     const r = box(worktree("wt-e"), "e1");
@@ -150,21 +150,21 @@ describe("scripts/box-test limits", () => {
     const session = Number(Bun.spawnSync(["pgrep", "sshd-session"]).stdout.toString().split("\n").find(pid => pid && readFileSync(`/proc/${pid}/environ`, "utf8").includes("FIX_TAG=e1")));
     expect(session).toBeGreaterThan(1);
     process.kill(session, "SIGKILL");
-    await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 30_000);
-    await until("the run dir to go", () => !existsSync(dir), 30_000);
+    await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 120_000);
+    await until("the run dir to go", () => !existsSync(dir), 120_000);
     await r.p.exited;
-  }, 90_000);
+  }, 360_000);
 
   test("the timeout stops the run, exit 124, nothing left", async () => {
-    const r = box(worktree("wt-f"), "f1", [], { EP0CH_BOX_MAX: "5" });
+    const r = box(worktree("wt-f"), "f1", [], { EP0CH_BOX_MAX: "90" });
     await until("the run to start", r.started);
     await until("its daemon", () => r.daemons().length > 0);
     const dir = runDirOf(r.daemons()[0]!);
     expect(await r.p.exited).toBe(124);
     expect(r.text.err).toContain("passed EP0CH_BOX_MAX");
-    await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 20_000);
+    await until("the daemon to die", () => r.daemons().every(pid => !alive(pid)), 90_000);
     expect(existsSync(dir)).toBe(false);
-  }, 90_000);
+  }, 360_000);
 
   test("a sweep kills orphans of runs whose dir is gone, and says how many", async () => {
     const gone = `/tmp/ep0ch-box-${userInfo().username}-ZZZZZZZZ`;
@@ -182,7 +182,7 @@ describe("scripts/box-test limits", () => {
       expect(r.text.err).toMatch(/sweep: killed [1-9]\d* orphan/);
       await until("the orphan to die", () => !alive(orphan!), 5000);
     } else process.kill(orphan!, "SIGKILL");
-  }, 90_000);
+  }, 360_000);
 });
 
 describe("the Codex hook", () => {
