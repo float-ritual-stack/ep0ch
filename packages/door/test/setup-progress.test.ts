@@ -3,7 +3,7 @@
 // arrives, and a whole --apply in a scratch home (fictional databases; nothing real is read or written).
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, symlinkSync, statfsSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setupCommand, withoutProgress } from "../src/setup/apply";
@@ -219,6 +219,11 @@ describe("the whole command, in a scratch home", () => {
     mkdirSync(join(h, ".local/bin"), { recursive: true });
     mkdirSync(join(h, "ep0ch/packages/door/src"), { recursive: true });
     writeFileSync(join(h, "ep0ch/packages/door/src/main.ts"), "");
+    symlinkSync(join(import.meta.dir, "../../outliner"), join(h, "ep0ch/packages/outliner"));
+    mkdirSync(join(h, ".claude"), { recursive: true });
+    writeFileSync(join(h, ".claude/settings.json"), JSON.stringify({enabledPlugins: {"pi-outliner@inline": true}}));
+    mkdirSync(join(h, "ep0ch/.claude"), { recursive: true });
+    writeFileSync(join(h, "ep0ch/.claude/settings.local.json"), JSON.stringify({permissions: {allow: ["mcp__pi-outliner"]}}));
     for (const n of ["field-notes", "seed-library"]) {
       const db = new Database(join(outlines, `${n}.sqlite`));
       db.run("CREATE TABLE notes (id TEXT, body TEXT)");
@@ -228,6 +233,50 @@ describe("the whole command, in a scratch home", () => {
     const env = { HOME: h, PATH: [join(h, ".local/bin"), dirname(process.execPath), "/usr/bin", "/bin"].join(":"), TERM: "xterm-256color" };
     return { h, env, repoRoot: join(h, "ep0ch") };
   }
+
+  test("install prunes old backup runs per outline and installs the mod in known checkouts", async () => {
+    const f = home("mod-backups");
+    const backups = join(f.h, "backups/ep0ch");
+    for (let day = 1; day <= 12; day++) {
+      const folder = join(backups, `202601${String(day).padStart(2, "0")}T000000Z`);
+      mkdirSync(folder, {recursive: true});
+      writeFileSync(join(folder, "field-notes.sqlite"), "old backup");
+    }
+    const out: string[] = [];
+    expect(await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: f.env, repoRoot: f.repoRoot, now: new Date("2026-03-14T09:26:53Z")})).toBe(0);
+    expect(JSON.parse(readFileSync(join(f.h, ".claude/settings.json"), "utf8"))).toMatchObject({enabledPlugins: {"ep0ch@inline": true}, permissions: {allow: ["mcp__ep0ch"]}});
+    expect(JSON.parse(readFileSync(join(f.repoRoot, ".claude/settings.local.json"), "utf8")).permissions.allow).toEqual(["mcp__ep0ch"]);
+    const copies = readdirSync(backups).filter(n => existsSync(join(backups, n, "field-notes.sqlite")));
+    expect(copies).toHaveLength(10);
+    expect(existsSync(join(backups, "20260103T000000Z/field-notes.sqlite"))).toBe(false);
+    expect(out.join("\n")).toContain("Pruned");
+    out.length = 0;
+    expect(await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: {...f.env, EP0CH_INSTALL_KEEP: "2"}, repoRoot: f.repoRoot})).toBe(0);
+    expect(JSON.parse(out[0]!).steps.find((s: {id: string}) => s.id === "backup").status).toBe("skip");
+    expect(readdirSync(backups).filter(n => existsSync(join(backups, n, "field-notes.sqlite")))).toHaveLength(2);
+    expect(existsSync(join(backups, "20260314T092653Z/seed-library.sqlite"))).toBe(true);
+  });
+
+  test("install refuses a backup without enough space before copying any database", async () => {
+    const f = home("full-backup-volume");
+    const trees = join(f.h, "volume-worktrees");
+    mkdirSync(trees);
+    writeFileSync(join(trees, "old-checkout"), "stale checkout");
+    linkSync(join(trees, "old-checkout"), join(trees, "same-cache-file"));
+    symlinkSync(trees, join(trees, "loop"));
+    symlinkSync(trees, join(f.h, "wt"));
+    const disk = statfsSync(f.h);
+    truncateSync(join(f.h, "outlines/field-notes.sqlite"), disk.bavail * disk.bsize + 1024 ** 3);
+    const out: string[] = [];
+    const exit = await setupCommand(["install", "--apply", "--json"], {out: s => out.push(s), err: s => out.push(s), env: f.env, repoRoot: f.repoRoot});
+    expect(exit).toBe(1);
+    const result = JSON.parse(out[0]!);
+    expect(result.steps.find((s: {id: string}) => s.id === "backup").error).toMatch(/space.*need/i);
+    expect(out.join("\n")).toContain("worktrees");
+    expect(out.join("\n")).toContain("old install backups");
+    expect(out.join("\n")).not.toContain("stale worktrees): 0 B");
+    expect(JSON.parse(readFileSync(join(f.h, ".claude/settings.json"), "utf8")).enabledPlugins).toEqual({"pi-outliner@inline": true});
+  });
 
   test("--json is unchanged by a terminal: nothing drawn, the same JSON", async () => {
     const { env, repoRoot } = home("json");

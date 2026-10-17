@@ -60,6 +60,8 @@ export interface AgentAt {
 /** The one place a door agent's variables are made. `env`: the door's (or the launcher's) own, for CARRIED_VARS. */
 export function agentVars(env: Record<string, string | undefined>, at: AgentAt): Record<string, string> {
   const out: Record<string, string> = { EP0CH_TILE: at.tile, EP0CH_IN_DOOR: "1", EP0CH_NEST: at.nest };
+  const mod = modStamp(modDirs(env));
+  if (mod?.name) out.EP0CH_CLAUDE_MOD_NAME = mod.name;
   if (at.tileId) out.EP0CH_TILE_ID = at.tileId;
   if (at.control) out.EP0CH_CONTROL = at.control;
   if (at.place) out[PLACE_VAR] = at.place;
@@ -150,6 +152,9 @@ export interface ModStamp {
   at: number;
   /** That file. */
   file: string;
+  /** A changed manifest can rename tool registrations; hook reload alone cannot replace them. */
+  manifestAt?: number;
+  name?: string;
 }
 
 /**
@@ -185,15 +190,22 @@ export function modStamp(dirs: string[]): ModStamp | null {
     walk(dir, join(dir, "hooks"), 0);
     consider(dir, join(dir, ".claude-plugin", "plugin.json"));
   }
-  return best;
+  const found = best as ModStamp | null;
+  if (found) {
+    try { found.name = JSON.parse(readFileSync(join(found.dir, ".claude-plugin/plugin.json"), "utf8")).name; } catch { /* unreadable manifest */ }
+    found.manifestAt = Math.max(...dirs.map(dir => {
+      try { return statSync(join(dir, ".claude-plugin/plugin.json")).mtimeMs; } catch { return 0; }
+    }));
+  }
+  return found;
 }
 
 // ── what it knows ──
 
 /**
  * - `current`: started in a door (EP0CH_CONTROL and the rest): it has the door tools. A mod changed since doesn't
- *   matter: Claude Code reloads mods into a running session.
- * - `stale`: started by an older door that left variables out: a restart fixes it.
+ *   matter when the registration name is unchanged: Claude Code reloads hooks into a running session.
+ * - `stale`: the plugin registration name changed, or an older door left variables out: a restart fixes it.
  * - `no-door`: started without EP0CH_CONTROL, so the mod gave it no door tools.
  * - `unknown`: its environment couldn't be read (gone, or not this user's), or Claude loads no Outliner mod.
  */
@@ -214,6 +226,12 @@ export function judgeAgent(proc: AgentProc | null, mod: ModStamp | null): AgentK
   if (!env.EP0CH_CONTROL) return { state: "no-door", why: "it started without EP0CH_CONTROL, so it has no door tools" };
   const missing = AGENT_VARS.filter(k => !env[k]);
   if (missing.length) return { state: "stale", why: `it was started by an older door, without ${missing.join(", ")}` };
+  // New door processes carry the registration name, which hot reload cannot change. Older ones have
+  // only their start time; allow a second for ps and Linux btime's timestamp precision.
+  const renamed = env.EP0CH_CLAUDE_MOD_NAME && mod.name ? env.EP0CH_CLAUDE_MOD_NAME !== mod.name
+    : mod.manifestAt && proc.startedAt !== null && proc.startedAt + 1000 < mod.manifestAt;
+  if (renamed)
+    return { state: "stale", why: "the Claude mod manifest changed after this session started; renamed tools keep their old registration until restart" };
   // A newer mod is not staleness: Claude Code hot-reloads its mods into a running session (2.1.287+), so only
   // what a session can't pick up live, its environment, needs a restart.
   return { state: "current", why: `started in a door; the Claude mod (${mod.dir}, last changed ${hhmm(mod.at)}) reloads into it live` };

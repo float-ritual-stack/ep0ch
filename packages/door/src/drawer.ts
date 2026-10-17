@@ -1621,7 +1621,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     },
   }),
   "agent.knows": def({
-    summary: "what the drawer's own agent (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools; a changed mod reloads into it live), stale (started by an older door, without its variables), no-door (no EP0CH_CONTROL) or unknown",
+    summary: "what the drawer's own agent (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools; a changed mod reloads into it live), stale (started before the mod manifest changed, or by an older door without its variables), no-door (no EP0CH_CONTROL) or unknown",
     keys: "the ▲ claude chip says it: · door tools, · started before update ⟳",
     touches: "nothing", replay: "safe",
     args: {},
