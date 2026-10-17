@@ -73,7 +73,7 @@ export interface ExtensionCallsOptions {
    * A render-mode script drawn for a line (`ScriptRuns.render`): what it returns as Blockdown, and the notes it read with
    * their revisions. The producer path for a script is this handler line's, so it keeps its output where every handler does.
    */
-  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }) => Promise<{ markdown: string; reads: { id: string; revision: number | null }[] }>;
+  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }) => Promise<{ markdown: string; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }>;
   readonly now?: () => number;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
   readonly changed?: (blockId: string) => void;
@@ -418,6 +418,8 @@ export class ExtensionCalls {
   private readonly spendSeen = new Map<string, Set<string>>();
   /** A block a handler line names, and the blocks whose lines name it: a change to it is a change to their inputs. */
   private readonly named = new Map<string, Set<string>>();
+  /** Blocks with a render-mode line that ran a query: any content change may add or remove a match, so they look again. */
+  private readonly queryReaders = new Set<string>();
   private stopped = false;
 
   constructor(
@@ -470,10 +472,10 @@ export class ExtensionCalls {
    */
   inputChanged(blockId: string, parentIds: readonly (string | null | undefined)[]): void {
     if (this.stopped) return;
-    const readers = new Set([...parentIds.filter((id): id is string => !!id), ...(this.named.get(blockId) ?? [])]);
+    const readers = new Set([...parentIds.filter((id): id is string => !!id), ...(this.named.get(blockId) ?? []), ...this.queryReaders]);
     for (const reader of readers) {
       const block = reader === blockId ? null : this.store.get(reader);
-      if (!block || !mayHaveHandlerLines(block.text)) continue;
+      if (!block || !mayHaveHandlerLines(block.text)) { if (block === null && reader !== blockId) this.queryReaders.delete(reader); continue; }
       void this.materialize(reader, "open").catch(() => {});
     }
   }
@@ -679,20 +681,33 @@ export class ExtensionCalls {
     if (row.extensionVersion !== extension.version) return true;
     // What it read changed (the block, a child, a block the line names): it redraws without r.
     if (storedInputs(row) !== this.inputs(block, call.line)) return true;
-    if (this.readsChanged(row)) return true;
+    if (this.scriptChanged(row, block, extension)) return true;
     const handler = extension.manifest.handlers?.find((candidate) => candidate.key === call.handlerKey);
     const stale = durationMs(handler?.staleAfter);
     return stale !== undefined && row.ranAt !== null && this.now - Date.parse(row.ranAt) > stale;
   }
 
-  /** A render-mode script's output was drawn from notes it read (`reads`); one of them is another revision now. */
-  private readsChanged(row: ExtensionOutputRow): boolean {
-    const reads = (row.request as { reads?: unknown } | null)?.reads;
-    if (!Array.isArray(reads)) return false;
-    return reads.some((read: { id?: unknown; revision?: unknown }) => {
-      if (typeof read?.id !== "string") return false;
-      const block = this.store.get(read.id);
-      return (block && !block.effectiveDeletedRootId ? block.revision : null) !== (read.revision ?? null);
+  private revisionOf(id: string): number | null {
+    const block = this.store.get(id);
+    return block && !block.effectiveDeletedRootId ? block.revision : null;
+  }
+
+  /**
+   * A render-mode script's output is out of date: the script's code changed (`stamp`), a note it read is another revision
+   * (`reads`), or a query it ran now finds other rows (`queries`: a new match, one that stopped matching).
+   */
+  private scriptChanged(row: ExtensionOutputRow, block: Block, extension: LoadedExtension): boolean {
+    const request = row.request as { reads?: unknown; queries?: unknown; stamp?: unknown } | null;
+    if (!extension.script || !request || !Array.isArray(request.reads)) return false;
+    if (request.stamp !== extension.stamp) return true;
+    if (request.reads.some((read: { id?: unknown; revision?: unknown }) => typeof read?.id === "string" && this.revisionOf(read.id) !== (read.revision ?? null))) return true;
+    const queries = (Array.isArray(request.queries) ? request.queries : []) as { query?: unknown; limit?: unknown; ids?: unknown }[];
+    if (queries.length) this.queryReaders.add(block.id);
+    return queries.some(q => {
+      if (typeof q.query !== "string" || !Array.isArray(q.ids)) return false;
+      try {
+        return this.store.queryBlocks({ where: q.query, limit: typeof q.limit === "number" ? q.limit : 20, this: block.id }).blocks.map(b => b.id).join() !== q.ids.join();
+      } catch { return true; }
     });
   }
 
@@ -716,6 +731,7 @@ export class ExtensionCalls {
     const base = { blockId: block.id, callKey: call.callKey, extensionId: extension.id, handlerKey: call.handlerKey,
       kind: call.kind as "output" | "component", request: { ...request, inputs }, attemptedAt, blockRevision: block.revision, extensionVersion: extension.version };
     let reads: { id: string; revision: number | null }[] | undefined;
+    let queries: { query: string; limit: number; ids: string[] }[] | undefined;
     try {
       let answer: { value: unknown };
       if (extension.script) {
@@ -724,6 +740,7 @@ export class ExtensionCalls {
         const rendered = await this.options.scriptRender(call.handlerKey === PIPELINE ? { ...extension.script, code: `return (${call.argument});` } : extension.script,
           { blockId: block.id, line: call.line, argument: call.handlerKey === PIPELINE ? null : call.argument, deadlineMs: extension.script.deadlineMs ?? this.deadline(extension, call.handlerKey) });
         reads = rendered.reads;
+        queries = rendered.queries;
         answer = { value: { markdown: rendered.markdown } };
       } else answer = await this.runtime.invokeLoaded(extension, "run",
         { handler: call.handlerKey, ...request, context }, this.deadline(extension, call.handlerKey),
@@ -736,10 +753,15 @@ export class ExtensionCalls {
       } catch (error) {
         throw new Error(`${extension.name} returned something the service can't show: ${error instanceof ComponentError || error instanceof Error ? error.message : String(error)}`);
       }
-      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, ...(reads ? { request: { ...base.request, reads } } : {}), result });
+      // A script's output is what its code read: the notes (and their revisions), the queries (and their rows), the code itself.
+      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp } : base.request;
+      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result });
       // A note it read changes the line's output: its change comes back here (`inputChanged`).
       for (const read of reads ?? []) this.watching(read.id, block.id);
+      if (queries?.length) this.queryReaders.add(block.id);
       this.state.delete(key);
+      // A note it read changed while it ran: what it drew is already out of date.
+      if (reads?.some(read => this.revisionOf(read.id) !== read.revision)) void this.materialize(block.id, "open").catch(() => {});
     } catch (error) {
       if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, error: message(error) });
       this.state.set(key, { running: false, error: message(error) });

@@ -47,6 +47,8 @@ export interface HostApiOptions {
   resolve?(path: string): Promise<unknown>;
   /** Ids of the notes this run read (a read, a resolve, a query's rows): what a render-mode script's output depends on. */
   onRead?(ids: readonly string[]): void;
+  /** A `q(query)` and the rows it found, so a render can be drawn again when the query's answer changes (a new match, not only an edit of a row). */
+  onQuery?(query: { query: string; limit: number; ids: readonly string[] }): void;
   /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
   onStep?(step: HostStep): void;
 }
@@ -150,7 +152,11 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     }
     return tool(input);
   };
-  const q = (query: string, opts: { under?: string; limit?: number } = {}) => call("outline_find", { query, ...opts });
+  const q = async (query: string, opts: { under?: string; limit?: number } = {}) => {
+    const found = await call("outline_find", { query, ...opts }) as { blocks?: { id?: unknown }[] } | null;
+    if (options.onQuery && opts.under === undefined && Array.isArray(found?.blocks)) options.onQuery({ query, limit: opts.limit ?? 20, ids: found.blocks.flatMap(row => typeof row.id === "string" ? [row.id] : []) });
+    return found;
+  };
   const read = async (ref: string, opts: { depth?: number; limit?: number } = {}) => {
     const read = await call("outline_read", { ref, ...opts }) as { id?: string };
     // outline_read's answer is the record's properties and fields already; the rest of the record (header, tasks, links…) joins it.

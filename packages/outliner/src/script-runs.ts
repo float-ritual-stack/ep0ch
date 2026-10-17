@@ -33,6 +33,9 @@ export function slotProps(words: string | null | undefined): Record<string, stri
   return props;
 }
 
+/** What a render-mode script drew, and what it read: the notes (with their revision when first read) and the queries (with their rows). */
+export interface ScriptRendered { markdown: string; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[] }
+
 /** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
 
@@ -80,7 +83,7 @@ export class ScriptRuns {
     return {
       globals, thisId: here.id,
       resolve: async path => {
-        const answer = answerSite(this.store, { blockId: here.id, paths: [path], ...(own ? { self: own.id } : {}), ...(caller ? { caller } : {}), props: input.props });
+        const answer = answerSite(this.store, { blockId: here.id, paths: [path], ...(input.line !== undefined ? { line: input.line } : {}), ...(own ? { self: own.id } : {}), ...(caller ? { caller } : {}), props: input.props });
         onRead?.(answer.deps);
         const read = answer.paths![0]!;
         return { path: read.path, ...(read.values ? { values: read.values } : {}), ...(read.problem ? { problem: read.problem } : {}), ...(read.links ? { links: read.links } : {}), ...(read.lines ? { lines: read.lines } : {}), route: read.route };
@@ -93,8 +96,9 @@ export class ScriptRuns {
    * notes it read and their revisions then (what it must be drawn again for). No run note, no undo step, and nothing
    * written: the API is read-only, and a refused write says so. Called by ExtensionCalls' one producer path.
    */
-  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }): Promise<{ markdown: string; reads: { id: string; revision: number | null }[] }> {
+  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }): Promise<ScriptRendered> {
     const reads = new Map<string, number | null>();
+    const queries: ScriptRendered["queries"] = [];
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
     const props = slotProps(input.argument);
     const site = this.bind(source, { blockId: input.blockId, line: input.line, props }, onRead);
@@ -103,11 +107,11 @@ export class ScriptRuns {
     const signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal;
     try {
       const api = hostApi(this.client, undefined, {
-        effects: "read", onRead, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+        effects: "read", onRead, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (!result.ok) throw new Error(result.error.message);
-      return { markdown: result.value === undefined ? "" : scriptText(result.value), reads: [...reads].map(([id, revision]) => ({ id, revision })) };
+      return { markdown: result.value === undefined ? "" : scriptText(result.value), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
     } finally { clearTimeout(timer); }
   }
 
@@ -171,6 +175,7 @@ export class ScriptRuns {
     const client: AgentToolsClient = {
       requireCompatibleService: () => this.client.requireCompatibleService(),
       request: async input => {
+        if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : new Error("The script run ended");
         // The script is its code: a run that writes into its own note (its output, a log) goes on; an edit of the code ends it.
         const changed = source.blockId
           ? scriptFence(this.store.get(source.blockId)?.text ?? "").code !== source.code
@@ -182,7 +187,7 @@ export class ScriptRuns {
         return captured(() => this.client.request(input));
       },
     };
-    const site = this.bind(source, { blockId: request.blockId === source.blockId ? undefined : request.blockId, line: request.line, trigger: !!request.trigger, props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])) });
+    const site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger, props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])) });
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
       ...(site.thisId ? { thisId: site.thisId } : {}),

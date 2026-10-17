@@ -11,7 +11,6 @@ import { OutlinerClient } from "../src/client";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { Block } from "../src/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -194,4 +193,38 @@ test("a read-only render script can't write: its write is refused", async () => 
   const note = create("Draw\nmeddler::");
   await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
   expect(await until("the refusal", () => output(note.id)[0])).toContain("read-only");
+});
+
+test("a render line is drawn again when its script's code changes, and when a query it ran finds a new match", async () => {
+  const { store, create, client, output } = await setup();
+  const script = create("Count [script::todo-count] [mode::render]\n```js\nconst open = (await q('status=todo')).blocks.length;\nreturn `open: ${open}`;\n```");
+  create("Wash the shed [status::todo]");
+  const note = create("Chores\ntodo-count::");
+  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  expect(await until("one open", () => output(note.id)[0])).toBe("open: 1");
+  // A new match (no row of the old answer changed): drawn again.
+  create("Mend the gate [status::todo]");
+  await until("two open", () => output(note.id)[0] === "open: 2");
+  // The code changes: drawn again, though nothing the code read did.
+  store.update(script.id, store.get(script.id)!.text.replace("`open: ${open}`", "`todo: ${open}`"), store.get(script.id)!.revision, { author: "user" });
+  await client.request({ action: "extensions.list", reload: true });
+  await client.request({ action: "resources.projection.read", blockId: note.id, materialize: true });
+  await until("new wording", () => output(note.id)[0] === "todo: 2");
+});
+
+test("stop refuses a run's next call, and a script run on its own note has that note as this", async () => {
+  const { store, client, create, extensionOf, run } = await setup();
+  const looper = create("Reader loop [script::reader-loop]\n```js\nwhile (true) { await read(self.id); await wait(10); }\n```");
+  const extension = await extensionOf("reader-loop");
+  const started = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
+  await Bun.sleep(100);
+  await client.request({ action: "scripts.stop", run: started.undo });
+  await until("the stopped run", () => store.get(started.written[0]!)!.text.split("\n")[0]!.includes("failed"));
+  const steps = (store.get(started.written[0]!)!.text.match(/outline_read/g) ?? []).length;
+  await Bun.sleep(150);
+  expect((store.get(started.written[0]!)!.text.match(/outline_read/g) ?? []).length).toBe(steps);
+  create("Own [script::own]\n```js\nreturn this.title;\n```");
+  const own = await run("own", { blockId: store.queryBlocks({ where: "script=own" }).blocks[0]!.id });
+  expect(own.text.split("\n").pop()).toBe("Own");
+  expect(looper.id).toBeTruthy();
 });
