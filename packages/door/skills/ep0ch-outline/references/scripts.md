@@ -37,6 +37,7 @@ Everything here runs from your worktree and under `scripts/agent-env <name> --`,
 `ep0ch` (a worktree whose `PROTOCOL` differs from the installed one answers "update the door (ep0ch install --apply)": run
 `bun packages/door/src/main.ts …` from the worktree for every command instead of `ep0ch`).
 
+0. Every `new`, `show` and `find` needs `--ws <ws>`. A host prints nothing when it is ready: wait until `outline create` answers.
 1. A scratch host: `scripts/agent-env <name> -- bun packages/outliner/src/host-main.ts` in the background (the Bash tool's
    `run_in_background`; stop it by its pid), then `scripts/agent-env <name> -- bun packages/door/src/main.ts outline create <ws>`.
 2. Notes: a multi-line note goes in as one argument (`new "$(cat note.md)"`, or `$'line one\nline two'`) and lands in the Inbox;
@@ -44,12 +45,15 @@ Everything here runs from your worktree and under `scripts/agent-env <name> --`,
 3. A test door: in a tmux pane started through agent-env (it inherits `EP0CH_STATE` and `EP0CH_CONTROL`), `bun packages/door/src/main.ts
    --ws <ws> --no-daemon --screen detail <full id>`. The first screen is a reader the person holds; an agent's presses and moves
    go through `act` (`--as <id>`).
-4. Press: `act button.press label="Bump"` presses a button of the note in front (`n=` from `act elements`; a miss lists the buttons the
+4. Press: `button.press` and `elements` see the focused reader only: make the button's note the door's first screen (`--screen detail <full id>`), or `act tile.focus` it. `act button.press label="Bump" --as <id>` presses a button of the note in front (`n=` from `act elements`; a miss lists the buttons the
    note has). It runs the line through the same dispatcher as a click, attributed to you, and answers the line it ran.
-5. A dance moves tiles that are not held: a screen of one or two tiles shows little. Use a layout with several readers (the board, the
-   showcase's `fantasia` section), and add `stay=1` to the button to leave the tiles where they danced, so `act layout.undo` has
+5. A dance moves tiles that are not held: a screen of one or two tiles shows little. Use a layout with several readers (`act tile.open kind=detail note=<id>` adds one; the board; the
+   showcase's `fantasia` section; an agent's run leaves the reader the person holds docked, so one tile fewer than the screen shows dances), and add `stay=1` to the button to leave the tiles where they danced, so `act layout.undo` has
    something to take back. `act ext.undo run=<the run's undo id>` takes back the script's writes and layout together (the answer's
    `undo` names the script's run note, which is what `ext.undo` wants, not the note the button is in).
+
+Clean up: stop the host by its pid and the test door by killing your own tmux session (`tmux -L <socket> kill-server` on your own socket;
+`session end --all` finds nothing for a `--no-daemon` door), then `scripts/agent-env <name> --clean`.
 
 ## Looking at a script's output
 
