@@ -2229,6 +2229,20 @@ there are and what to do. Ticket regions (`jira::`, a kept record) are unchanged
 (`regionRows`, `regionTail`, the `RegionBook` the reader keeps); `extensionRegion`, `useRegion` and the callout branch of
 `renderDoc` call it, so a new kind of generated region draws the same way. Detail draws its own regions and is not changed.
 
+**Sources (PIE-956 S6b).** A page shows none of the mechanics behind a generated region. The header's `[sources]` (on a note
+that generates anything), `S`, or selected words in a region and then `a` `w` ("Where from" on the passage toolbar) open the
+Sources inspector beside the note (under it in a narrow tile): every generated region of the note (handler lines, `::=`,
+`::use`, figures, `::fields`, `::if`, written `[!output]` callouts) with when it last read. ⏎ or a click opens one, with three
+folds (1 2 3): **Query** (its parameters; `e` or ⏎ on one asks for a new value and writes it back onto the note's line,
+attributed, ctrl+z takes it back; handler slots and `::use` props, other kinds are written in the note), **Transform** (the
+script, template or figure YAML that shaped it; `g` jumps to its note) and **Result** (the rows; `y` copies them, then
+Outline, Read "live, as of …" and the Query). `r` in the list runs every line that runs on the note again and reads the
+answer again; on one source, only that line. It is drawn from the service's `site.sources`, so a published page's panel can
+draw the same answer; the door has no hover (button events only), so the way in from a value is the selection, not a
+pointer resting on it. Actions: `sources.open`, `sources.at line=`, `sources.pick`, `sources.enter`, `sources.fold`,
+`sources.refresh`, `sources.set param= value=`, `sources.copy part=`, `sources.jump`, `sources.back`, `sources.close`,
+`sources.undo`; an agent's `sources.open` and `sources.at` answer the same list and open nothing in the person's reader.
+
 The door asks the service which extensions it runs (`extensions.list`) when it starts and again whenever the
 service says they changed: an extension added or removed while the door runs shows up or goes away without a
 restart (`extensions: horoscope added` on the status bar).

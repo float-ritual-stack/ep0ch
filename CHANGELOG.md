@@ -26,6 +26,15 @@ bit over a second and wanders), and then it is the layout. Nothing fades or flas
   on no longer makes the region vanish for a frame (a board a script just wrote to); one that moves a line still waits.
 - **A published page draws a button as its label** (`::button{…}` and `[label](act: …)`), never the line it would run.
 
+### Sources: where a generated region comes from (PIE-956, S6b)
+
+A generated region shows no mark until the `[ ]` position is in it. The way in is the header's `[sources]`, `S`, or selected
+words in a region and the passage toolbar's "Where from" (`a` then `w`): the Sources inspector lists every generated region
+of the note with when it last read, and opens one with Query (its parameters, written back onto the note's line), Transform
+(its script, template or figure YAML, with a jump) and Result (rows, copy, Outline, Read, Query). One service answer,
+`site.sources`, so a published page can draw the same thing. New wire request `site.sources` (the landing's PROTOCOL bump
+covers it); outline-core `sources.ts`; actions `sources.*`.
+
 ### Acting from content: buttons, transactions, one layout history (PIE-957, PIE-981; S7 of the self-reference wave)
 
 What you can now do: write a button in a note, and let a script's drawing be pressed. Kitty's noughts and crosses is the
