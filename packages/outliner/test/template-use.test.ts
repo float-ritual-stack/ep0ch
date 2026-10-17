@@ -167,3 +167,24 @@ describe("the template and its props", () => {
     expect(use(store, page, 1).problems[0]).toMatchObject({ kind: "unknown", prop: "as" });
   });
 });
+
+describe("a save's warnings", () => {
+  test("a ::use that names a prop the template lacks, a bad choice or a missing prop is warned about after the save, with the nearest name", async () => {
+    const { useCallWarnings } = await import("../src/agent-tools");
+    const store = scratch();
+    const { project } = cards(store);
+    const text = "P\n::use{of=[[status-card]] stauts=paused}\n::use{of=[[status-card]] owner=evan status=pausd}\n::use{of=[[status-card]] owner=evan}";
+    const page = store.create(text, project.id);
+    // The service as a client asks it: the saved text is the draft's.
+    const client = { request: async (r: any) => templateUse(store, r) } as any;
+    const warnings = await useCallWarnings(client, text, page.id);
+    expect(warnings).toHaveLength(3);
+    expect(warnings[0]).toContain("the ::use on line 2: Status card has no prop `stauts`; did you mean `status`?");
+    expect(warnings[1]).toContain("the ::use on line 2");
+    expect(warnings[1]).toContain("needs `owner`");
+    expect(warnings[2]).toContain("the ::use on line 3: status=pausd isn't one of active, paused, done; did you mean `paused`?");
+    // Text without a ::use, or no host to ask about, says nothing.
+    expect(await useCallWarnings(client, "Just prose", page.id)).toEqual([]);
+    expect(await useCallWarnings(client, text, undefined)).toEqual([]);
+  });
+});

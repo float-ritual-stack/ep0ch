@@ -780,8 +780,8 @@ export class SocketBoard implements Board {
   }
 
   /** The call a `::use` line makes (`template.use`), once; a drawing asks it watched (src/template-use.ts). */
-  templateUse(block: string, line: number): Promise<TemplateUseAnswer> {
-    return this.request("template.use", { block, line });
+  templateUse(block: string, line: number, draft?: string): Promise<TemplateUseAnswer> {
+    return this.request("template.use", { block, line, ...(draft !== undefined ? { draft: { text: draft } } : {}) });
   }
 
   /**

@@ -16,6 +16,7 @@
 import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
+import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
@@ -541,7 +542,24 @@ export function shortDiff(before: string, after: string, max = 40): string {
  * after the write, never a reason to refuse it. A lookup that fails only drops a suggestion; none at all gives no field.
  */
 export async function referenceWarningsFor(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
-  return [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message)];
+  return [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message), ...await useCallWarnings(client, text, self)];
+}
+
+/**
+ * What each `::use` the text holds gets wrong (PIE-533 S4): a prop the template doesn't declare (with the nearest name), a
+ * value outside a choice's options, a required prop left out, a template that isn't there. The service reads the call
+ * (`template.use`, with this text as the host's, so the lines agree); a call it can't ask about says nothing.
+ */
+export async function useCallWarnings(client: AgentToolsClient, text: string, self?: string): Promise<string[]> {
+  if (!self || !text.includes("::use")) return [];
+  const out: string[] = [];
+  for (const call of useCallsOf(text).filter(c => !c.problem).slice(0, 8)) {
+    try {
+      const answer = await client.request<TemplateUseAnswer>({ action: "template.use", block: self, line: call.line, draft: { text } });
+      for (const problem of answer.problems) out.push(`the ::use on line ${call.line + 1}: ${problem.message}${problem.example ? ` (for example ${problem.example})` : ""}`);
+    } catch { /* an older service, a host that is gone: nothing to say */ }
+  }
+  return out;
 }
 
 async function referenceOnlyWarnings(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
