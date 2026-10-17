@@ -22,6 +22,7 @@ import { inResize, resizeEnded, resizing } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
+import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
@@ -158,6 +159,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private asked = new WeakMap<object, { actor: Actor; op: string }>();
   /** The layout is being put back (an undo, a transaction's end rule): that is no new entry. */
   private replaying = false;
+  /**
+   * Motion (PIE-958): a change of shape draws its tiles on the way from where they were to where they are. `pending` is a
+   * change recorded and not yet laid out (the next paint knows where the tiles are now); `transition` is one running. They
+   * are paint only: the layout, `peek`, `viewState` and a snapshot read the settled state, and the first key or click settles it.
+   */
+  private pendingMotion: { from: Map<number, Rect>; plan: MotionPlan } | null = null;
+  private transition: Transition | null = null;
+  /** The clock motion runs on (a test injects its own). */
+  clock: () => number = () => Date.now();
   /** The layout as the module last answered it: read it; it changes by `apply`. */
   private get layout(): LayoutState<number> { return this.state; }
   /** The layout tree as the module last answered it: read it, never change it (`apply` does). */
@@ -616,7 +626,31 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const scope = TXN.getStore(), now = Date.now();
     if (scope) this.history.join(scope.txn, by, before, now, scope.motion);
     this.history.record(before, by, what, now, scope?.txn);
+    this.startMotion(scope?.motion ?? (scope ? this.history.openTxn(scope.txn)?.motion : undefined), what);
   }
+
+  /**
+   * A change of shape was just made: the next paint animates from where the tiles are drawn now, as the person's setting
+   * allows the actor's hint (src/motion.ts). A drag's own steps (a resize, a float moved by the pointer) are not animated:
+   * the pointer is the motion.
+   */
+  private startMotion(hint: string | undefined, what: string) {
+    // The drawer's desk is ticked by no screen of its own: it snaps (nothing could settle its frames).
+    if (this.ctx?.hostLayer?.isDrawer(this)) return;
+    if (what === "resize" || this.dragging || this.floatDrag || inResize()) return;
+    const plan = planMotion(hint, motionMode());
+    if (!plan) return;
+    const now = this.clock();
+    const from = this.transition ? this.transition.rectsNow(now, this.area) : new Map(this.hits);
+    if (!from.size) return;
+    this.transition = null;
+    this.pendingMotion = { from, plan };
+  }
+
+  /** Whether a change is drawing its way (a test and the status line ask). */
+  get moving(): boolean { return !!this.transition || !!this.pendingMotion; }
+  /** Snap to the settled layout: the first key or click, a peek, a snapshot. True when something was in flight. */
+  settle(): boolean { const was = this.moving; this.transition = null; this.pendingMotion = null; return was; }
   /**
    * `layout.undo` (and ctrl+z with nothing of a reader's to undo, when this is newer than a trash): take back the newest
    * entry, for the person; an agent takes back its own (or what a script it asked for did) only. With a transaction, all of
@@ -668,6 +702,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Rebuild the shape `spec`, keeping the tiles it names (as `layout.load` does), and no new entry. */
   private rebuildTo(spec: LayoutSpec) {
     this.replaying = true;
+    this.startMotion(TXN.getStore()?.motion, "put back");
     try { this.entered.clear(); this.ptyIn = null; this.build(spec, true); } finally { this.replaying = false; }
   }
 
@@ -1955,7 +1990,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A repaint, while the desk is the screen shown (kept in the background, its programs don't repaint the menu). */
   redraw() { if (this.onScreen) this.ctx?.redraw(); }
 
-  tick(): boolean { this.sweepTxns(); let any = false; for (const p of this.panes.values()) if (kindOf(p)?.tick?.(p)) any = true; return any; }
+  tick(): boolean {
+    this.sweepTxns();
+    let any = false;
+    // A running transition asks for a frame every tick, and one more when it lands.
+    if (this.pendingMotion) any = true;
+    if (this.transition) { any = true; if (this.transition.done(this.clock())) this.transition = null; } for (const p of this.panes.values()) if (kindOf(p)?.tick?.(p)) any = true; return any; }
 
   onEvent(e: OutlineEvent) {
     this.hear(e);
@@ -2888,12 +2928,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.pickReflows([...pinned, ...this.slid.flatMap(d => [...d.placed.rects]), ...floats]);
     // For the mouse: the top float first, then the top dock's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
+    // Motion (PIE-958): a change just made begins from where the tiles were; the tiles that move are drawn in flight, on top.
+    if (this.pendingMotion) {
+      const t = new Transition(this.pendingMotion.from, new Map(this.hits), this.clock(), this.pendingMotion.plan);
+      this.pendingMotion = null;
+      if (t.moves) this.transition = t;
+    }
+    const flying = this.transition && !this.transition.done(this.clock()) ? this.transition : null;
+    if (this.transition && !flying) this.transition = null;
+    const ghosts: [number, Rect][] = [];
     this.tileSpots = [];
     this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.linkChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.wireChips = []; this.holdButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
     const lay = (id: number, r: Rect, dock = false, float = false) => {
+      const at = flying ? flying.at(id, this.clock(), area) : "settled";
+      if (at !== "settled") { ghosts.push([id, at]); return; }
       const box = this.boxOf(id, r);
       placements = uncover(placements, box);
       this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, box));
@@ -2914,6 +2965,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (r.row + r.rows < area.row + area.rows) canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, cols - r.col - 1))) + RESET, cols);
       lay(id, r, false, true);
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
+    }
+    // In flight, a tile is drawn as it is, at the rectangle it is in (its contents move with it: nothing goes dark and comes
+    // back, so nothing pulses), on top of the rest; its pictures are taken away until it lands, so nothing bright slides over
+    // text (src/motion.ts). They land where the layout puts them.
+    for (const [id, r] of ghosts) {
+      placements = uncover(placements, r);
+      this.drawTile(canvas, id, r, false, this.isFloat(id));
     }
     this.drawEmpty(canvas);
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
@@ -3641,6 +3699,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   key(k: Key, ctx: Ctx): void {
+    // A key or a click first settles a transition in flight, so it lands where the tile is (PIE-958).
+    if (this.moving) { this.settle(); this.render(ctx); }
     // The band (the spec's): a press on it is its kind's. Only presses: a release or drag over it is the desk's, so a
     // border or tile drag still ends.
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }

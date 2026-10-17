@@ -272,6 +272,23 @@ describe("a projection in a reader", () => {
     expect(b.reads).toBe(0);
   });
 
+  test("a write that moves no line the region hangs on keeps the region drawn until the new read is ready; one that moves a line does not (PIE-958)", async () => {
+    let slow = false;
+    const b = stub(() => (slow ? new Promise<ResourceProjectionRead>(() => {}) : readOf([READY])));
+    const r = await shown(b, note(TEXT));
+    const drawn = () => r.lines(120).map(plain).some(l => l.includes("Jira ACME-12 · Rollout checklist"));
+    expect(drawn()).toBe(true);
+    slow = true;
+    // The title line changed (a property written): the jira:: line is where it was, so what was drawn stays, though the new read hasn't come.
+    r.s.show(note(TEXT.replace("Vendor call ACME-12", "Vendor call ACME-12 [stage::done]"), 5), r.host);
+    r.lines(); await Bun.sleep(5);
+    expect(drawn()).toBe(true);
+    // A line inserted above it moved the jira:: line: the old read's place is wrong, so nothing is drawn until the new one comes.
+    r.s.show(note(`A new first line\n${TEXT}`, 6), r.host);
+    r.lines(); await Bun.sleep(5);
+    expect(drawn()).toBe(false);
+  });
+
   test("a failed read leaves the note as it was; an answer for another revision isn't drawn", async () => {
     const before = (await shown(stub(() => readOf([])), note(TEXT))).lines().map(plain);
     const failing = stub(() => Promise.reject(new Error("service went away")));

@@ -146,6 +146,7 @@ export const marks: Record<string, string[]> = {
   scripts: ["Seed report", "Press alt+S"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
   press: ["Noughts and crosses", "ttt-board"],
+  motion: ["Tiles that move", "Shuffle the tiles"],
   "one-place": ["The long row of runner beans", "Bike shed"],
   "reading-line": ["The long row of runner beans", "Allotment notebook"],
   replies: ["Replies at the orchard", "Orchard row 1"],

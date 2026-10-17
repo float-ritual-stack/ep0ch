@@ -408,7 +408,8 @@ export function projectionRegion(ps: readonly ResourceProjection[], w: number, i
 
 // ── the answers, per connection and note ─────────────────────────────────────────────────────────
 
-interface Entry { read: ResourceProjectionRead | null; failed: boolean; at: number; rat: number; asking: boolean }
+/** `text`: the note's text `read` was taken for; `asked`: the text the read now under way is for. */
+interface Entry { read: ResourceProjectionRead | null; failed: boolean; at: number; rat: number; asking: boolean; text?: string; asked?: string; askedRev?: number }
 const cacheBy = new WeakMap<object, Map<string, Entry>>();
 const caches = new Set<WeakRef<Map<string, Entry>>>();
 
@@ -488,21 +489,31 @@ function readOf(m: Msg, src: Source | null | undefined): ResourceProjectionRead 
   const hit = cache.get(m.id);
   const fresh = hit && (hit.asking || !stale(m.id, hit));
   if (!fresh) {
-    const entry: Entry = { read: hit?.read ?? null, failed: hit?.failed ?? false, at: changeClock(), rat: rtick, asking: true };
+    const entry: Entry = { read: hit?.read ?? null, failed: hit?.failed ?? false, at: changeClock(), rat: rtick, asking: true, asked: m.text, ...(m.revision !== undefined ? { askedRev: m.revision } : {}), ...(hit?.text !== undefined ? { text: hit.text } : {}) };
     const c = cache;
     c.set(m.id, entry);
     if (c.size > 200) c.delete(c.keys().next().value!);
     Promise.resolve().then(() => src.board.readResourceProjections(m.id)).then(
-      read => { c.set(m.id, { ...entry, read, failed: false, asking: false }); src.redraw(); },
+      read => {
+        // Its text is known only when the answer is for the revision asked: otherwise nothing of it may stand in for a later one.
+        const { text: _gone, ...rest } = entry;
+        c.set(m.id, { ...rest, read, failed: false, asking: false, ...(entry.asked !== undefined && read.revision === entry.askedRev ? { text: entry.asked } : {}) });
+        src.redraw();
+      },
       // A failed read keeps what was shown (nothing, the first time: the note as it was), and is asked
       // again after the next change.
       () => { c.set(m.id, { ...entry, failed: true, asking: false }); src.redraw(); },
     );
   }
-  const read = cache.get(m.id)?.read;
-  // An answer for another revision waits for the read the change brings: its lines may have moved.
-  if (!read || (m.revision !== undefined && read.revision !== m.revision)) return null;
-  return read;
+  const now = cache.get(m.id), read = now?.read;
+  if (!read) return null;
+  if (m.revision === undefined || read.revision === m.revision) return read;
+  // An answer for another revision: its lines may have moved, so it waits for the read the change brings, unless every line
+  // it hangs on reads as it did (a property changed, a line elsewhere): then what was drawn stays until the new one is ready,
+  // and a board a script just wrote to doesn't vanish for a frame (PIE-958).
+  const was = now.text?.split("\n"), is = m.text.split("\n");
+  // (A rule's decoration hangs on lines too, and is not checked here: a read with any waits.)
+  return was && !read.decorations?.length && read.projections.every(p => p.anchor.line < was.length && was[p.anchor.line] === is[p.anchor.line]) ? read : null;
 }
 
 // ── an extension's line (PIE-507: output, component, an @name request, a record not fetched yet) ──

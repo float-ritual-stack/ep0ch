@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Layout changes move (PIE-958, S8 of the self-reference wave)
+
+What you can now do: a layout change shows itself. Close a tile, load a layout, press a script's button, undo: the tiles that
+moved glide from where they were to where they are, over about a quarter of a second (a script's `motion=fantasia` takes a
+bit over a second and wanders), and then it is the layout. Nothing fades or flashes and no brightness changes: they only move.
+
+- **The `motion` setting** is `full` (the default: a script's Fantasia is Fantasia), `calm` (a short plain glide whatever
+  was asked) or `off` (snap). `act motion.set mode=calm` keeps it; `EP0CH_MOTION` overrides it. It caps every actor's hint,
+  an agent's and a script's included.
+- **It is paint only.** The layout, `peek`, `layout.get` and snapshots read the settled state; the first key or click snaps
+  what is in flight and is then handled where the tile is. Focus never moves for it. A resize drag and a float dragged by
+  the pointer are not animated: the pointer is the motion.
+- **A region stays drawn while a write is read again.** A write that moves none of the lines a handler line's region hangs
+  on no longer makes the region vanish for a frame (a board a script just wrote to); one that moves a line still waits.
+- **A published page draws a button as its label** (`::button{…}` and `[label](act: …)`), never the line it would run.
+
 ### Sources: where a generated region comes from (PIE-956, S6b)
 
 A generated region shows no mark until the `[ ]` position is in it. The way in is the header's `[sources]`, `S`, or selected

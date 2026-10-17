@@ -319,6 +319,8 @@ export interface Screen {
   scriptUndone?(run: string): void;
   /** The service was lost and found again: transactions waiting on a run's end end early. */
   scriptsLost?(): void;
+  /** Snap any motion to the settled screen (a peek or a snapshot reads that, never frames in flight); true when something was moving. */
+  settle?(): boolean;
   /** Every key is the screen's, ctrl+c included, and a paste goes to it whole: the person is typing in a terminal tile (PIE-417). */
   rawKeys?(): boolean;
   /** Where raw input bytes go right now (a running terminal tile the person is in), or null to decode keys. */
@@ -687,7 +689,11 @@ export class App implements Ctx {
    * The frame skipped while nobody saw the screen (a session with no terminal attached), drawn now: before a control
    * command reads it (peek, snap, an act whose rows come from the last frame) and when a terminal attaches.
    */
-  catchUp(): void { if (this.skipped) this.flush(); }
+  catchUp(): void {
+    // What a control command reads is the settled screen, never a transition's frames (PIE-958).
+    const snapped = this.stack.at(-1)?.settle?.() === true;
+    if (this.skipped || snapped) this.flush();
+  }
   /** A frame was due while nobody saw the screen, and wasn't rendered. */
   private skipped = false;
   end(force: boolean): string | null {
