@@ -3823,10 +3823,10 @@ export class NoteSurface {
   /**
    * A press (PIE-957, a `::button` or a view's button, badge, card or row): its action line through the door's one dispatcher,
    * as `actor`. The head is an action the door has, or a script's name (it runs as the script, with the note the press is in
-   * as `this`); the words are its arguments. The person's press of an action that writes (`replay: ask`) asks first, with
-   * the line shown: ⏎ or the same press again runs it. An agent's is attributed and said, as any `act` is.
+   * as `this`); the words are its arguments. The person's press runs at once (their click is the consent; what it does is
+   * attributed and undoable: ext.undo, layout.undo). An agent's is attributed and said, as any `act` is.
    */
-  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor, confirmed = false): Promise<unknown> {
+  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor): Promise<unknown> {
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
     let req;
@@ -3841,19 +3841,6 @@ export class NoteSurface {
     }
     // An extension's action acts on a note: the one this press is written in, unless the line names another.
     if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
-    const info = d.list().actions.find(a => a.name === action);
-    if (actor.kind === "user" && info?.replay === "ask" && !confirmed && host.ctx.arm) {
-      // One owner of "is it confirmed": the shell's arm. The same press again, while that arm stands (Esc or any other key
-      // let it go; a click doesn't), is the confirm.
-      const token = `${p.block}:${p.line}:${p.act}`, armed = host.ctx.armed?.();
-      if (armed?.token === token && armed.of === this) host.ctx.disarm?.();
-      else {
-        const ms = 5000;
-        host.ctx.arm({ of: this, what: p.act, token, keepsClicks: true, say: `run ${p.act}? it writes · ⏎ or press again · any other key cancels`, frame: { title: "▶ press?", hint: "⏎ runs it · press again · any other key cancels" }, key: { kind: "enter" }, ms, run: () => { void this.runPress(p, host, actor, true).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e))); } });
-        host.redraw();
-        return { asking: p.act };
-      }
-    }
     // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. The
     // run's note records the button and its author beside who asked.
     if (actor.kind === "user" && scriptActions().some(s => s.action.name === action)) {

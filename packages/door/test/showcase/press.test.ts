@@ -31,28 +31,22 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
   const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
   const status = () => (app as any).armedNow?.a?.say as string | undefined;
 
-  test("a click on a square asks once (the move writes), the same press again runs it as the person; act and ⏎ run the same line; the board is drawn again", async () => {
+  test("a click on a square runs the move at once, as the person; ⏎ on the element, act and an agent's act run the same line; the board is drawn again", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "press" }, as: "test-agent" });
     screen();
     await untilAsync(async () => /\[1\]\s+\[2\]\s+\[3\]/.test(screen()), "the board drawn with its squares", 15_000);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "ttt-move"), "the move script loaded");
     expect(await boardOf()).toBe(".........");
-    // By mouse: a click on square 5 asks, with the line shown, and writes nothing yet.
+    // By mouse: one click on square 5 is the consent; no question is asked.
     const five = await at("5");
     click(five.x, five.y);
-    await until(() => !!status(), "the press asks first");
-    expect(status()).toContain("ttt-move at=5");
-    expect(await boardOf()).toBe(".........");
-    // The same press again runs it: x on 5, and the script's reply o on 1.
-    click(five.x, five.y);
+    expect(status()).toBeUndefined();
     await untilAsync(async () => (await boardOf()) === "o...x....", "x on 5 and the reply o on 1");
-    // Another square, confirmed with ⏎ this time.
+    // By keys: [ ] to square 9's element and ⏎ (element.open).
     const nine = await at("9");
     click(nine.x, nine.y);
-    await until(() => !!status(), "square 9 asks");
-    press({ kind: "enter" });
-    await untilAsync(async () => (await boardOf()).charAt(8) === "x", "x on 9 by ⏎");
+    await untilAsync(async () => (await boardOf()).charAt(8) === "x", "x on 9");
     // An agent's act of the same action: attributed, with no one to ask (element.open in the person's own reader is refused).
     await untilAsync(async () => (await board.get(seeded.notes.press.id))!.text.includes("[board::oo"), "the reply o on 2");
     const extension = extensionList()!.extensions.find(e => e.name === "ttt-move")!;
@@ -63,41 +57,20 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     await untilAsync(async () => (await boardOf()).charAt(6) === "x", "x on 7 by act");
   }, 90_000);
 
-  test("esc cancels a press that asked: the same press afterwards asks again, and nothing was written", async () => {
-    await untilAsync(async () => !!find("9") || !!find("8"), "the board drawn", 15_000);
-    const square = find("8") ? "8" : "9";
-    const before = await boardOf();
-    const sq = find(square)!;
-    click(sq.x, sq.y);
-    await until(() => !!status(), "the press asks");
-    press({ kind: "esc" });
-    await until(() => !status(), "esc let the ask go");
-    click(sq.x, sq.y);
-    await until(() => !!status(), "the press asks again, not runs");
-    expect(await boardOf()).toBe(before);
-    press({ kind: "esc" });
-    await until(() => !status(), "esc let it go again");
-  }, 30_000);
-
-  test("a ::button runs a script with its slots, asking first", async () => {
+  test("a ::button runs a script with its slots, and the prose link is the same press", async () => {
     await at("1").catch(() => null);
-    const b = await (async () => { await until(() => screen().includes("[New game]"), "the button drawn", 15_000); const rows = screen().split("\n"); const y = rows.findIndex(r => r.includes("[New game]")); return { x: rows[y]!.indexOf("[New game]") + 1, y }; })();
-    click(b.x, b.y);
-    await until(() => !!status(), "the button asks");
-    expect(status()).toContain("ttt-reset");
-    click(b.x, b.y);
+    await until(() => screen().includes("[New game]"), "the button drawn", 15_000);
+    const rows = screen().split("\n"), y = rows.findIndex(r => r.includes("[New game]"));
+    click(rows[y]!.indexOf("[New game]") + 1, y);
     await untilAsync(async () => (await boardOf()) === ".........", "a new game");
-    // The inline form is the same press: [start over](act: ttt-reset) after a move.
+    // The inline form: [start over](act: ttt-reset) after a move.
     const extension = extensionList()!.extensions.find(e => e.name === "ttt-move")!;
     await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "3" } }, USER);
     await untilAsync(async () => (await boardOf()) !== ".........", "a move");
     const proseRow = () => screen().split("\n").findIndex(r => r.includes("In prose it is a link"));
     await until(() => proseRow() >= 0 && !screen().split("\n")[proseRow()]!.includes("(act:"), "the inline press drawn as its words", 15_000);
-    const rows = screen().split("\n"), y = proseRow();
-    click(rows[y]!.indexOf("start over") + 2, y);
-    await until(() => !!status(), "the inline press asks");
-    expect(status()).toContain("ttt-reset");
-    click(rows[y]!.indexOf("start over") + 2, y);
+    const rows2 = screen().split("\n"), y2 = proseRow();
+    click(rows2[y2]!.indexOf("start over") + 2, y2);
     await untilAsync(async () => (await boardOf()) === ".........", "a new game by the inline press");
   }, 60_000);
 

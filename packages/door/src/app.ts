@@ -1162,7 +1162,7 @@ export class App implements Ctx {
     // An armed edit (e in a reader, src/arm.ts) takes the next key first: ⏎ or the arming key again opens it; any
     // other key (a click too) lets it go, then does what it does, wherever it goes.
     const armed = this.armedNow?.a;
-    if (armed && disarms(k) && !(armed.keepsClicks && k.kind === "mouse")) {
+    if (armed && disarms(k)) {
       this.disarm();
       this.redraw();
       if (confirms(armed, k)) { armed.run(); return; }

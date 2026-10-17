@@ -19,8 +19,7 @@ example: `ttt-board::` draws the board, each free square runs `ttt-move at=5`, a
   `::button{label="Fantasia" of=fantasia layout=focus}` runs a script with its slots; `[review layout](act: layout.load
   name=review)` is the same in prose. A view a script returns has a `button` primitive, and `act` on a `text`, `badge` or
   `card` (and `acts` on a table's rows). A click, or ⏎ on the element, runs the line as you through the door's one
-  dispatcher; `act` runs the same line. An action that writes asks once first, with the line shown: ⏎ or the same press
-  again. Any other client (a page, an export, Detail) draws the primitive as it was, with nothing to press.
+  dispatcher; `act` runs the same line. Your click is the consent: a press runs at once, and what it does is attributed and undoable (`ext.undo`, `layout.undo`). Any other client (a page, an export, Detail) draws the primitive as it was, with nothing to press.
 - **A press invites the run.** A script you start by pressing may move your tiles, including the one you are looking at,
   where "you are at the keys" would otherwise refuse an agent the moment after your click. It never reaches a draft's text,
   and a tile you start typing in is still refused. The invitation is spent when the run ends. The run's note records you

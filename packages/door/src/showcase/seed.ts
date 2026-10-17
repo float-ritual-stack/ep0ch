@@ -163,7 +163,7 @@ if (request.input.request === "describe the beds") {
   await make(notes.scripts.id, "Noughts reset [script::ttt-reset] [effects::write]\n```js\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: '.........', revision: this.revision });\nreturn 'new game';\n```");
   notes.press = await make(notes.root.id, [
     `${SEED.press} [board::.........]`,
-    "The board is drawn by a render script, which writes nothing. Each free square is a press (a button in the view): a click, or ⏎ on it, runs the move script as you. It writes, so it asks first: ⏎ or the same press again. The script answers with an o.",
+    "The board is drawn by a render script, which writes nothing. Each free square is a press (a button in the view): a click, or ⏎ on it, runs the move script as you. Your click is the consent: it runs at once, and ctrl+z or ext.undo takes it back. The script answers with an o.",
     "ttt-board::",
     '::button{label="New game" of=ttt-reset}',
     "In prose it is a link: [start over](act: ttt-reset).",

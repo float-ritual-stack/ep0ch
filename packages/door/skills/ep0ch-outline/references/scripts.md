@@ -41,7 +41,7 @@ A press is an **action line**, as the power bar takes one (`ttt-move at=5`, `lay
 primitive or an `act:` on a `badge`, `text`, `card` (and `acts:` per table row) carries it; in a note, `::button{label="Review"
 act="layout.load name=review"}`, `::button{label="Play" of=ttt-move at=5}` (`of=` a script, the other words its slots) or the
 prose link `[review layout](act: layout.load name=review)`. In the door a click or ⏎ runs it as the person, on the note it is
-written in (`this`), and an action that writes asks once first. The move script is `[effects::write]`; the render script only
+written in (`this`), at once (the click is the consent; `ext.undo` takes it back). The move script is `[effects::write]`; the render script only
 draws, and is drawn again when the move writes the note it read.
 
 ```js

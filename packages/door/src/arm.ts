@@ -18,12 +18,6 @@ export interface Arm {
   key: Key;
   /** How long it waits, in milliseconds. */
   ms: number;
-  /** The armed reader's frame says it in these words when it isn't an edit (a press, PIE-957): its title's lead and its hint. */
-  frame?: { title: string; hint: string };
-  /** A press's identity (PIE-957): the same press again, while this is armed, is the confirm. */
-  token?: string;
-  /** A click doesn't cancel it: the surface that armed it sees the click and decides (the same press confirms). Any key still cancels. */
-  keepsClicks?: boolean;
   /** Open the edit, as the person's key did before arming (the confirm: the note's `edit` action). */
   run(): void;
 }

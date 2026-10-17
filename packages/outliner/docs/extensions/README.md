@@ -678,8 +678,7 @@ of=fantasia layout=focus}` (`of=` a script, every other word a slot, `txn=` and 
 
 - **The door** draws a press as a control: `[ ]` stops on it, the hint row shows the line before the press, and a click or
   ⏎ runs it through the one dispatcher as the person (the run is attributed like a `[w ward]` chip's; `act element.open` presses
-  it as an agent, said on the status bar). An action that writes (`replay: ask`) asks first, with the line shown: ⏎ or the
-  same press again runs it. A press of a script mints a one-run invitation (shape, screen): the script may move the person's
+  it as an agent, said on the status bar). The person's click is the consent: it runs at once, and what it does is attributed and undoable. A press of a script mints a one-run invitation (shape, screen): the script may move the person's
   tiles while it runs, never a draft's text, and the invitation is spent when the run ends. The run's note records the person
   and the button's author.
 - **Every other client** (a page, an export, Detail, MCP) draws the primitive as it was: a button is its label. A page

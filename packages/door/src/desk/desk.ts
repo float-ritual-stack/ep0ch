@@ -3140,7 +3140,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lines = lv.border === "none" || joined ? NO_BOX : lv.border !== "auto" && lv.border !== "joined" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
     const glyphs = keys ? FOCUS_BOX : lines;
     const frameInk = (cover === "peek" && !focused ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
-    canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}${armedNow!.frame?.title ?? "✎ edit?"} ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}${armedNow!.frame?.hint ?? "⏎ opens it · any other key cancels"}` : hint, glyphs);
+    canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, glyphs);
     // `edge=bar`: a bar down its left side in the tone (the tile colour for neutral; a state's colour while it has one), over the frame's side.
     if (lv.edge === "bar" && r.rows > 2) for (let y = r.row + 1; y < r.row + r.rows - 1; y++) canvas.text(r.col, y, (edgeC === "tile" || edgeC === toned ? edge(toned ?? "tile") : frameInk) + "▌" + RESET, 1);
     // The focused tile's ⧉, in its frame's top right corner, floats it by mouse (tile.float, as ^W f); a float's own
