@@ -160,7 +160,7 @@ const TABLE: ComponentSchema = {
 const FIELDS: ComponentSchema = {
   id: "fields",
   title: "Fields (::fields)",
-  intro: "Every place a note writes a key, listed: one row per occurrence of `connectTo` (a `[connectTo::…]` chip in a line, a `connectTo:: …` line), each row opening its own line with the line lit, found again by the text it was written as, so it still works after edits above it. A row appears as soon as a line is saved. A row's `⚓` anchors its line (`fields.anchor`), so `((note^anchor))` links to it for good; drawing the component never writes. The service answers it (`site.answer`) and every reader draws the answer.",
+  intro: "Every place a note writes a key, listed: one row per occurrence of `connectTo` (a `[connectTo::…]` chip in a line, a `connectTo:: …` line), each row opening its own line with the line lit, found again by the text it was written as, so it still works after edits above it. A row appears as soon as a line is saved. A row's `¶` anchors its line (`fields.anchor`), so `((note^anchor))` links to it for good; drawing the component never writes. The service answers it (`site.answer`) and every reader draws the answer.",
   where: "a `::fields{key=connectTo}` line in a note, alone or closed by `::`",
   props: [
     { key: "key", where: "yaml", type: "text", meaning: "the property to list, case-insensitive (`connectTo`, `storyTime`)", samples: ["connectTo", "storyTime", "decision"] },

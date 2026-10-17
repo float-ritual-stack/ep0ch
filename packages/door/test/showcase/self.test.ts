@@ -17,7 +17,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
   const agent = { as: "test-agent" } as const;
   const stage = (key: string) => { screen(); return S().stage(SECTIONS.findIndex((s: { key: string }) => s.key === key)).top; };
 
-  test("fields-if: ::fields lists the connectTo lines and gains a row on save, ::if draws the body that matches, the row's ⚓ anchors its line", async () => {
+  test("fields-if: ::fields lists the connectTo lines and gains a row on save, ::if draws the body that matches, the row's ¶ anchors its line", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "fields-if" }, ...agent })).toMatchObject({ key: "fields-if" });
     const text = () => { screen(); return stage("fields-if").pane("reader")?.render(150, 40, false, stage("fields-if")).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "") ?? ""; };
@@ -28,7 +28,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     expect(text()).not.toContain("drawn only while the note is paused");
     expect(text()).not.toContain("::if");
 
-    // Each row is an element the reader steps to and opens (its line, lit), with its ⚓ beside it.
+    // Each row is an element the reader steps to and opens (its line, lit), with its ¶ beside it.
     const elements = async () => ((await app.act({ action: "elements", tile: "reader", ...agent })) as any).elements as { n: number; kind: string; label: string }[];
     const rows = (await elements()).filter(e => e.kind === "row");
     expect(rows.map(r => r.label)).toEqual(expect.arrayContaining(["demonstrating by doing", "shacks not cathedrals"]));
@@ -38,7 +38,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     await board.update(rail.id, rail.text.replace("\n::fields", "\n- third pass [connectTo::trust the drift]\n::fields"), rail.revision!);
     await until(() => text().includes("trust the drift") && text().includes("live · 3 occurrences"), "the third row", 8000);
 
-    // The anchor is explicit: drawing wrote nothing, then the ⚓ on the second row gives that line an anchor.
+    // The anchor is explicit: drawing wrote nothing, then the ¶ on the second row gives that line an anchor.
     const before = (await board.get(rail.id))!;
     expect(before.text).not.toMatch(/\^[a-z0-9-]+\s*$/m);
     const anchored = await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 2 }, ...agent }) as any;

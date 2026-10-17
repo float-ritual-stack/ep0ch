@@ -5439,7 +5439,7 @@ export class NoteSurface {
   }
 
   /**
-   * The `⚓` on a `::fields` row (S3): the row's line gets an anchor (`fragments.ensure`, attributed), so `((note^anchor))`
+   * The `¶` on a `::fields` row (S3): the row's line gets an anchor (`fragments.ensure`, attributed), so `((note^anchor))`
    * links to it for good. The one thing a `::fields` writes, and only when asked: drawing it never does.
    */
   async anchorField(key: string | undefined, n: number, host: SurfaceHost, actor: Actor) {
@@ -5459,7 +5459,7 @@ export class NoteSurface {
     catch (e) {
       const said = e instanceof Error ? e.message : String(e);
       // The list was drawn from an older text: it is read again (watched), and the row anchors once it is.
-      const why = /changed since/.test(said) ? "not anchored: the note changed since the list was read; it is read again, press ⚓ once more" : `not anchored: ${said}`;
+      const why = /changed since/.test(said) ? "not anchored: the note changed since the list was read; it is read again, press ¶ once more" : `not anchored: ${said}`;
       host.ctx.flash(why);
       throw new ActionRefused(why);
     }
@@ -7818,7 +7818,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const r: unknown = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
-      // A `::fields` row's ⚓ anchors its line, as whoever asks.
+      // A `::fields` row's ¶ anchors its line, as whoever asks.
       if (e.link?.anchor) {
         const r: unknown = await NOTE_ACTIONS.run("fields.anchor", { key: e.link.anchor.key, n: e.link.anchor.n }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
@@ -9237,7 +9237,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "fields.anchor": def({
     summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: key= which ::fields (its key; default the only one the note draws), n= its row (from 1)",
-    keys: "⏎ or a click on a ::fields row's ⚓",
+    keys: "⏎ or a click on a ::fields row's ¶",
     touches: "draft", draft: "write", replay: "ask",
     args: {
       key: { type: "string", optional: true, about: "which ::fields: its key (default the only one the note draws)" },

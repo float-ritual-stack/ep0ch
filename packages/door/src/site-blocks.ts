@@ -1,7 +1,7 @@
 // `::fields` and `::if` in the reader (PIE-533 S3): the components that read their note's Site. The service answers
 // both through `site.answer` (the watched `produce` read, src/live.ts); this module only draws the answer. `::fields`
 // is a frame of rows, one per occurrence of a key, each a link that opens its own line lit (a reader finds it by the
-// text it was written as, so it still works after edits above it) and a `⚓` that anchors the line when asked: a render
+// text it was written as, so it still works after edits above it) and a `¶` that anchors the line when asked: a render
 // never writes. `::if` draws its body only while `this` matches.
 import type { FieldRow, SiteProduced } from "@ep0ch/outline-core/site";
 import type { FieldsSpec } from "@ep0ch/outline-core/site-blocks";
@@ -51,7 +51,7 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
     const to: LinkTarget = { block: a.from, role: "row", ...(row.offset !== undefined ? { at: row.offset, ...(row.token ? { atLabel: row.token } : {}), atWhy: "the line it was written on" } : {}) };
     const anchor: LinkTarget = { block: a.from, role: "row", anchor: { key: spec.key, n: n + 1 } };
     const text = (tag ? tag(to, words) : words);
-    const control = tag ? tag(anchor, "⚓") : "⚓";
+    const control = tag ? tag(anchor, "¶") : "¶";
     return fg(C.white) + "∙ " + RESET + text + fg(C.dark) + ` · line ${row.line + 1} ` + RESET + control;
   });
   if (!body.length) body.push(fg(C.dark) + `no ${spec.key} written in ${spec.of ? "that note" : "this note"}'s lines yet` + RESET);

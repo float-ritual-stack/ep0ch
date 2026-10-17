@@ -198,7 +198,7 @@ export type LinkTarget = {
    */
   figure?: FigureControl;
   /**
-   * The `⚓` on a `::fields` row (role "row"): it anchors that row's line when pressed (`fields.anchor`): the `::fields` of
+   * The `¶` on a `::fields` row (role "row"): it anchors that row's line when pressed (`fields.anchor`): the `::fields` of
    * that `key`, its `n`th row.
    */
   anchor?: { key: string; n: number };

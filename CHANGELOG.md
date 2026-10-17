@@ -16,7 +16,7 @@ What you can now write in a note, and what it does:
 
 - **`::fields{key=connectTo}`** lists every place the note wrote that key, one row per occurrence with its line. A row
   opens its own line, lit, found again by the text it was written as, so it still works after edits above it; a row
-  appears as soon as a line is saved. `of=((id))` lists another note's. A row's `⚓` anchors its line when you ask
+  appears as soon as a line is saved. `of=((id))` lists another note's. A row's `¶` anchors its line when you ask
   (`fields.anchor`, by click, `⏎` or `act`) and gives you `((note^anchor))`; drawing it never writes.
 - **`::if{where="status=active"}` … `::`** draws its lines only while the note matches the query (the views' grammar,
   `{{this.owner}}` operands bound). A query it can't read hides the body and says why. Its body holds Blockdown but no
