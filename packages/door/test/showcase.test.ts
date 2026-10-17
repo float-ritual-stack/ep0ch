@@ -447,6 +447,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     title: ["A title you can find", "Before:", "3 note detail · A title you can find"],
     // The Markdown figures on the left (a decision first), the keys read from the registry on the right.
     figures: ["Figures, written in Markdown", "SQUASH BEDS", "Raised beds", "The reader's keys", "[e]"],
+    focus: ["Figures, written in Markdown", "SQUASH BEDS", "The reader's keys"],
     // A guide note with a [[page]] nobody wrote yet, for ctrl+n, the offer and the page title fill.
     "move-note": ["Moving notes", "Cold frame"],
     newnotes: ["New notes from anywhere", "Seed swap ledger", "ctrl+n"],

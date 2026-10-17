@@ -16,7 +16,7 @@ import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
-import { RULER_BG } from "../src/surface/selection";
+import { ITEM_BG, RULER_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import * as BV from "./board-view";
@@ -301,8 +301,11 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     stepTo(B().preview, "## Beds");
     expect(ruled().join("\n")).toContain("## Beds");
     stepTo(B().preview, "Water the seedlings");
+    // The figure has the ruler's tint (container focus); the row the cursor is on is the item band (PIE-969) over it.
     expect(ruled().length).toBeGreaterThan(1);
-    expect(ruled().join("\n")).toContain("Water the seedlings");
+    const item = frame().slice(r.row, r.row + r.rows).filter(l => l.includes(ITEM_BG)).map(l => plain(l));
+    expect(item.length).toBe(1);
+    expect(item[0]).toContain("Water the seedlings");
   }, 20_000);
 
   test("an agent's focus mark: tinted, named in the header, and the person's position, selection and keys stay", async () => {
