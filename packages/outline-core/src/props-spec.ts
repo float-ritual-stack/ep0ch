@@ -1,6 +1,6 @@
 // A producer's props (PIE-533 S4, §4.6): one declaration, `PropsSpec` (site.ts), compiled from what a template note
 // writes as `[form-field::status choice active|paused default=active]` chips (form-fields.ts reads the chip), and one
-// check of a call against it: every client that draws or runs a call (the live `::use`, a stamp, a runbook's run
+// check of a call against it: every client that draws or runs a call (the live `::use`, a stamp, an extension's run
 // arguments) says the same words when a prop is unknown, missing or not one of its choices. A prop's `default` is text and
 // may itself be a `{{ }}` path (the service fills it in the caller's Site). Pure: no I/O.
 import { formFields, FORM_FIELD_KEY, type FormField } from "./form-fields";

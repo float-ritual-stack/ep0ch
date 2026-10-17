@@ -45,9 +45,9 @@ async function setup(timeoutSeconds = 20) {
   const create = (text: string, parentId?: string) => client.request<Block>({ action: "create", text, author: "user", ...(parentId ? { parentId } : {}) });
   const fence = (command: string) => "```sh\n" + command + "\n```";
   const book = await create("Ship the widget [type::runbook] [env::scratch]");
-  const check = await create(`Check the widget\nrun:: --mode=dry\n${fence("echo checking {{env}}")}`, book.id);
+  const check = await create(`Check the widget\nrun:: --mode=dry\n${fence("echo checking {{self.env}}")}`, book.id);
   const publish = await create(`Stage the widget\nrun:: --mode=dry --secrets=widget-demo\n${fence('echo "token is $WIDGET_TOKEN"; echo "b64 $(printf %s "$WIDGET_TOKEN" | base64)"; echo staged')}`, book.id);
-  const apply = await create(`Apply the widget\nrun:: --mode=apply --secrets=widget-demo --confirm=ship\n${fence("echo applying to {{env}}; echo broke >&2; exit 3")}`, book.id);
+  const apply = await create(`Apply the widget\nrun:: --mode=apply --secrets=widget-demo --confirm=ship\n${fence("echo applying to {{self.env}}; echo broke >&2; exit 3")}`, book.id);
   const after = await create(`Verify the widget\nrun:: --mode=dry\n${fence("echo verified")}`, book.id);
   const act = (blockId: string, extensionAction: string, mutation: { author: "user" | "agent"; actorId?: string }, args?: Record<string, string>) =>
     client.request<{ message?: string }>({ action: "extensions.act", extension: "runbook", extensionAction, blockId, line: extensionAction === "run-step" ? 1 : undefined, mutation, ...(args ? { args } : {}) });
@@ -110,20 +110,20 @@ test("running the whole runbook stops at the step that fails and says so; the st
   expect(summary).toContain("[run.status::failed]");
 });
 
-test("a runbook's values come from its record: a bracketed list is its values, a repeated key its first, and a type list still makes a runbook", async () => {
+test("a runbook's values come from its record: a bracketed list and a repeated key are all its values ([0] picks one), and a type list still makes a runbook", async () => {
   const { create, book, act, kids } = await setup();
   const list = await create("Listed runbook [type::[runbook, checklist]] [env::[staging, prod]] [region::eu] [region::us]", book.id);
-  const step = await create("Where\nrun:: --mode=dry\n```sh\necho in {{env}} at {{region}}\n```", list.id);
+  const step = await create("Where\nrun:: --mode=dry\n```sh\necho in {{self.env[0]}} at {{self.region[0]}} of {{self.region}}\n```", list.id);
   await act(step.id, "run-step", PERSON);
-  expect((await kids(step.id))[0]).toContain("in staging at eu");
+  expect((await kids(step.id))[0]).toContain("in staging at eu of eu, us");
   expect((await act(list.id, "run-all", PERSON)).message).toContain("all 1 steps ran ok");
 });
 
 test("a missing parameter is recorded as not run, saying which property to write", async () => {
   const { create, book, act, kids } = await setup();
-  const step = await create("Needs a thing\nrun:: --mode=dry\n```sh\necho {{region}}\n```", book.id);
+  const step = await create("Needs a thing\nrun:: --mode=dry\n```sh\necho {{self.region}}\n```", book.id);
   const done = await act(step.id, "run-step", PERSON);
-  expect(done.message).toContain("{{region}}");
+  expect(done.message).toContain("{{self.region}}");
   expect((await kids(step.id))[0]).toContain("[run.status::refused]");
 });
 
@@ -138,15 +138,16 @@ test("a handler line draws the step: its filled command and its last run", async
 
 test("a run-time value that could build a command is refused; a secret split by terminal escapes is still scrubbed; the nearest runbook's parameters win", async () => {
   const { create, book, act, kids } = await setup();
-  const step = await create("Echo it\nrun:: --mode=dry\n```sh\necho \"{{env}}\"\n```", book.id);
+  const step = await create("Echo it\nrun:: --mode=dry\n```sh\necho \"{{props.env}}\"\n```", book.id);
   const refused = await act(step.id, "run-step", PERSON, { env: "$(touch /tmp/never)" });
   expect(refused.message).toContain("refused");
+  expect(refused.message).toContain("characters a command could be built from");
   expect((await kids(step.id))[0]).toContain("[run.status::refused]");
   const split = await create(`Split it\nrun:: --mode=dry --secrets=widget-demo\n\`\`\`sh\nprintf 'a %s\\033[0m%s b\\n' "$(echo $WIDGET_TOKEN | cut -c1-8)" "$(echo $WIDGET_TOKEN | cut -c9-)"\n\`\`\``, book.id);
   await act(split.id, "run-step", PERSON);
   expect((await kids(split.id))[0]).not.toContain(TOKEN);
   const inner = await create("Inner runbook [type::runbook] [env::staging]", book.id);
-  const nested = await create("Where\nrun:: --mode=dry\n```sh\necho in {{env}}\n```", inner.id);
+  const nested = await create("Where\nrun:: --mode=dry\n```sh\necho in {{self.env}}\n```", inner.id);
   const all = await act(inner.id, "run-all", PERSON);
   expect(all.message).toContain("all 1 steps ran ok");
   expect((await kids(nested.id))[0]).toContain("in staging");
@@ -178,4 +179,36 @@ test("a step's wrapper ends when the command's output is in, not 1.5 s later; a 
   // Something the command left running keeps the output open: what it says before it lets go is kept.
   const held = await run("(sleep 0.4; echo late) & echo early");
   expect(held.output).toBe("early\nlate\n");
+});
+
+// PIE-533 S4: the runbook on the shared grammar. `{{self.x}}` is the runbook note's, `{{props.x}}` the run's; the service fills them.
+test("a run's own values are {{props.x}}: given, they fill the command; left out, the step does not run and says how to give it", async () => {
+  const { create, book, act, kids } = await setup();
+  const step = await create("Greet\nrun:: --mode=dry\n```sh\necho hello {{props.who}} in {{self.env}}\n```", book.id);
+  const missing = await act(step.id, "run-step", PERSON);
+  expect(missing.message).toContain("refused");
+  expect(missing.message).toContain("{{props.who}}");
+  expect(missing.message).toContain("{{self.name}}");
+  const ok = await act(step.id, "run-step", PERSON, { who: "ada" });
+  expect(ok.message).toContain("ok (exit 0)");
+  expect((await kids(step.id)).at(-1)).toContain("hello ada in scratch");
+});
+
+test("only the runbook note's own value is trusted: a value from anywhere else that could build a command is refused, a prop likewise", async () => {
+  const { create, book, act, kids } = await setup();
+  // The runbook's author wrote it: two words and a semicolon are theirs to write.
+  const note = await create("Careful [type::runbook] [note::one; echo two]");
+  const trusted = await create("Own\nrun:: --mode=dry\n```sh\necho {{self.note}}\n```", note.id);
+  expect((await act(trusted.id, "run-step", PERSON)).message).toContain("ok");
+  expect((await kids(trusted.id))[0]).toContain("one");
+  // A value read through a reference is somebody else's.
+  const other = await create("Other note [x::a;b]");
+  const viaRef = await create(`Via a reference\nrun:: --mode=dry\n\`\`\`sh\necho {{((${other.id})).x}}\n\`\`\``, book.id);
+  const refused = await act(viaRef.id, "run-step", PERSON);
+  expect(refused.message).toContain("refused");
+  expect(refused.message).toContain("comes from outside the runbook note");
+  expect((await kids(viaRef.id))[0]).toContain("[run.status::refused]");
+  // A plain value from outside is fine.
+  const plain = await create("Plain\nrun:: --mode=dry\n```sh\necho {{now.date}}\n```", book.id);
+  expect((await act(plain.id, "run-step", PERSON)).message).toContain("ok");
 });

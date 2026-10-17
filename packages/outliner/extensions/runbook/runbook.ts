@@ -4,10 +4,13 @@
 //   Check the widget
 //   run:: --mode=dry --secrets=widget-demo
 //   ```sh
-//   widget check --env {{env}}
+//   widget check --env {{self.env}}
 //   ```
 //
-// {{name}} is filled from the runbook note's own [name::value] properties. `--secrets` names with-secrets groups, never
+// {{self.name}} is the runbook note's own [name::value] (its author's: trusted); {{props.name}} is a value the run is given
+// (`env=staging`, or the runbook's own [form-field::env text] asked for in the door): checked, since it lands in a shell. The
+// service fills them (`site.answer`'s `interpolate`, the one `{{ }}` grammar, with this runbook as `self`); a step with a value
+// missing, or one from anywhere else that could build a command, does not run. `--secrets` names with-secrets groups, never
 // a value: the service reads each group when the step runs (`secrets.group`, allowed by the manifest's secretGroups),
 // the command gets the values in its environment (wrap.ts runs it), and the service scrubs them from everything this
 // extension writes or answers. Each run is a child block of the step (status, exit code, when, who, an output tail).
@@ -18,6 +21,9 @@ import { outline } from "./outline";
 /** A property as the service sends it: a wire block's `{ key, value }`, or a record's `{ key, values }` (`context.block`, outline-core's record). */
 interface Prop { key: string; value?: string; values?: string[] }
 interface Block { id: string; text: string; revision: number; properties?: Prop[] }
+/** One `{{ }}` of a command, as the service read it (`site.answer`'s `interpolate`). */
+interface Placeholder { expression: string; head?: string; values?: string[]; from?: string; problem?: { message: string; didYouMean: string[]; example?: string }; usedDefault?: true }
+interface Filled { interpolated?: { text: string; values: Placeholder[] } }
 /** An ancestor as the call's context sends it: its `properties` are the record's, so a list or a repeat is already read. */
 interface Ancestor { id: string; title: string; properties?: Prop[] }
 interface Context { block: Block; line?: { index: number; text: string }; children: Block[]; ancestors: Ancestor[]; now: string }
@@ -67,14 +73,28 @@ const titleOf = (text: string) => outsideFences(text).find((line) => line.trim()
 /** Every value a block has for a property, from the service's parse (never a scan of its text). */
 const valuesOf = (block: { properties?: Prop[] }, key: string) => (block.properties ?? []).filter((prop) => prop.key === key).flatMap((prop) => prop.values ?? (prop.value === undefined ? [] : [prop.value]));
 
-/** The runbook a step is in: the nearest ancestor that is [type::runbook] (or the step itself), read from the properties the call carries. */
-function runbookOf(step: { properties?: Prop[] }, ancestors: readonly Ancestor[]): { properties?: Prop[] } | null {
+/** The runbook a step is in, which is its `self`: the nearest ancestor that is [type::runbook] (or the step itself), read from the properties the call carries. */
+function runbookOf(step: Block, ancestors: readonly Ancestor[]): { id: string } | null {
   return [step, ...[...ancestors].reverse()].find((candidate) => valuesOf(candidate, "type").includes("runbook")) ?? null;
 }
-function fill(template: string, param: (name: string) => string | undefined): { command: string; missing: string[] } {
-  const missing = new Set<string>();
-  const command = template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_, name: string) => { const value = param(name); if (value === undefined) missing.add(name); return value ?? ""; });
-  return { command, missing: [...missing] };
+/**
+ * The command with its `{{ }}` filled by the service in this step's Site (`this` the step, `self` the runbook, `props` the
+ * run's values), or why not. A value from the runbook note itself is its author's. Every other (a prop, a parent, a
+ * `((id))`, a clock) lands in a shell command, so it must be plain characters or the step does not run.
+ */
+const SAFE = /^[\w.@:\/=+,-]*$/;
+async function fillCommand(template: string, step: Block, root: { id: string } | null, args: Record<string, string>): Promise<{ command: string; missing: string[]; unsafe?: string }> {
+  const props = Object.fromEntries(Object.entries(args).filter(([key]) => key !== "confirm").map(([key, value]) => [key, [value]]));
+  const answer = await outline<Filled>({
+    action: "site.answer", blockId: step.id, ...(root ? { self: root.id } : {}), props, interpolate: { text: template, fences: "template" },
+  });
+  const values = answer.interpolated?.values ?? [];
+  const missing = values.filter((v) => (!v.values || v.problem) && !v.usedDefault).map((v) => `{{${v.expression}}}: ${v.problem?.message ?? "no value"}`);
+  const unsafe = values.find((v) => !(v.head === "self" && root && v.from === root.id) && (v.values ?? []).some((value) => !SAFE.test(value)));
+  const why = unsafe && (unsafe.head === "props"
+    ? `{{${unsafe.expression}}} has characters a command could be built from; pass a plain value (letters, digits and . @ : / = + , -), or put the value on the runbook note as [name::value] and write {{self.name}}`
+    : `{{${unsafe.expression}}} comes from outside the runbook note and has characters a command could be built from; put the value on the runbook note as [name::value] and write {{self.name}}, or pass it as a prop`);
+  return { command: answer.interpolated?.text ?? template, missing, ...(why ? { unsafe: why } : {}) };
 }
 
 // ── The record of a run ──────────────────────────────────────────────────
@@ -115,11 +135,9 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
   const template = commandOf(step.text);
   if (!template) return refuse("it has no command: put one in a code fence under the run:: line");
   const root = runbookOf(step, context.ancestors);
-  // A value passed at run time lands in a shell command: plain characters only. A runbook's own properties are its author's.
-  const unsafe = Object.entries(args).find(([key, value]) => key !== "confirm" && !/^[\w.@:\/=+,-]*$/.test(value));
-  if (unsafe) return refuse(`${unsafe[0]}=… has characters a command could be built from; put the value on the runbook note as [${unsafe[0]}::value] instead`);
-  const { command, missing } = fill(template, (name) => args[name] ?? (root ? valuesOf(root, name)[0] : undefined));
-  if (missing.length) return refuse(`no value for ${missing.map((name) => `{{${name}}}`).join(", ")}: write [${missing[0]}::value] on the runbook note, or pass ${missing[0]}=value`);
+  const { command, missing, unsafe } = await fillCommand(template, step, root, args);
+  if (missing.length) return refuse(`${missing.join("; ")}. Write [name::value] on the runbook note and use {{self.name}}, or pass the value (act ext.runbook.run-step … with='{"name":"value"}') and use {{props.name}}`);
+  if (unsafe) return refuse(unsafe);
 
   if (line.mode === "apply") {
     if (by !== "person") return refuse(`apply steps are the person's to run${by === "unknown" ? " (who asked isn't known)" : ` (${by} asked)`}. The command: ${command}`);
@@ -161,7 +179,7 @@ if (request.operation === "run") {
   const all = runs(context.children);
   const last = all.at(-1);
   const ok = last?.status === "ok";
-  const filled = template ? fill(template, (name) => (root ? valuesOf(root, name)[0] : undefined)) : null;
+  const filled = template ? await fillCommand(template, context.block, root, {}) : null;
   const lastExit = last ? valuesOf(last, "run.exit")[0] : undefined;
   say({
     title: titleOf(context.block.text),
@@ -171,7 +189,7 @@ if (request.operation === "run") {
       subtitle: `${line?.mode ?? "dry"} step${line?.secrets.length ? ` · secrets from ${line.secrets.join(", ")} (by name)` : ""}`,
       badge: { label: last ? (ok ? "ok" : `${last.status}${lastExit ? ` (exit ${lastExit})` : ""}`) : "not run", tone: ok ? "good" : last ? "bad" : "dim" },
       children: [
-        { type: "text", text: !template ? "No command: put one in a code fence." : filled!.missing.length ? `${filled!.command}\nStill needs: ${filled!.missing.join(", ")}` : filled!.command },
+        { type: "text", text: !template ? "No command: put one in a code fence." : filled!.missing.length ? `${filled!.command}\nStill needs: ${filled!.missing.join("; ")}` : filled!.unsafe ? `${filled!.command}\nWill not run: ${filled!.unsafe}` : filled!.command },
         { type: "checklist", items: [{ label: ok ? "ran ok" : "run it", done: ok }] },
       ],
     },

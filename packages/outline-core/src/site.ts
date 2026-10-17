@@ -24,7 +24,7 @@ export interface Site {
   at: Address;
   /** The note that contains me (inside a live template: the host). Absent when a run has no note. */
   this?: BlockRecord;
-  /** My definition (a script, a template, a component note, a runbook root). */
+  /** My definition (a script, a template, a component note, an extension's definition note). */
   self?: BlockRecord;
   /** Where I was invoked (the `::run` line, the button, the `@name` line, the `::use` line). */
   caller?: Address;
@@ -104,7 +104,7 @@ export interface SiteAnswerRequest {
   /** More paths to read besides the note's own `{{ }}` (a script's `resolve`, an agent's question): `this.tasks | status=todo`. */
   paths?: string[];
   /**
-   * Text to fill in this Site besides the note's own (a runbook step's command): its `{{ }}` are read like the note's, and
+   * Text to fill in this Site besides the note's own (an extension step's command): its `{{ }}` are read like the note's, and
    * answered as `interpolated`. `fences: "template"` reads the ones inside code fences too, for a producer that owns its
    * fences as templates (a step's command); by default a fence is literal.
    */
