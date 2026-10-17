@@ -28,6 +28,8 @@ import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type D
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
+import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
+import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
 import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { planDecorations } from "../decorations";
@@ -337,6 +339,7 @@ interface HeaderBlock {
   crumbsRow?: number;
   /** The byline's [comment] (PIE-846): a click writes a comment on the whole note, as C with nothing selected does. */
   commentChip?: { row: number; from: number; to: number };
+  sourcesChip?: { row: number; from: number; to: number };
   /** The byline's comment count (PIE-873): a click cycles the margin, as M does. */
   marginChip?: { row: number; from: number; to: number };
   /** Marks only (PIE-873): the whole-note threads' one mark after the title, and the thread a click opens. */
@@ -376,7 +379,7 @@ const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number } | { region: string });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number } | { region: string } | { sources: true });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -598,6 +601,7 @@ const LEAVE_SAYS: Record<LeaveChoice, string> = {
 };
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type LinksMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { block: string; describe(): { block: string; title: string | null; selected: string | null; typing: string | null } };
+type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; top: number; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
 /** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
@@ -1135,6 +1139,17 @@ export class NoteSurface {
       const top = mode.top;
       return { lines: [pad(`THREAD · T full list · b links · Esc close${mode.truncated ? " · cut short" : ""}`, cols), ...data.slice(top, top + rows - 1).map((r, i) => linkRowLine(r, { cols, selected: i + top === mode.selected, focused: true }))] };
     });
+    // The Sources inspector (PIE-956 S6b): beside the note when the reader is wide, under it when not.
+    const sm = this.sourcesMode;
+    if (sm) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
+      sm.rect = { x: col, y: row, w: cols, h: rows };
+      const full = drawSources(sm.panel, cols, 10_000, Date.now());
+      sm.top = Math.max(0, Math.min(sm.top, Math.max(0, full.lines.length - rows)));
+      if (full.focus < sm.top) sm.top = full.focus;
+      else if (full.focus >= sm.top + rows) sm.top = full.focus - rows + 1;
+      sm.draw = { ...full, lines: full.lines.slice(sm.top, sm.top + rows), hits: full.hits.map(x => ({ ...x, row: x.row - sm.top })).filter(x => x.row >= 0 && x.row < rows) };
+      return { lines: sm.draw.lines };
+    });
     if (this.replyParent && this.draft) return this.renderSplit(w, h, host, { d: this.draft, f: this.replyFrame(host) });
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
     const writing = this.composing(host);
@@ -1279,7 +1294,9 @@ export class NoteSurface {
     const meta = [authorName(m.author), bbsDate(m.updatedAt)].filter(Boolean).join(" · ");
     const open = this.comments?.filter(c => c.open).length ?? 0;
     // The way in to a comment on the whole note (PIE-846), by mouse: the same as C with nothing selected.
-    const chip = !this.printed && (isOutlineNote(m) || (m.resource && !m.resource.uncommentable)) ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "";
+    const sourcesOn = !this.printed && this.hasSources(m);
+    const commentOn = !this.printed && (isOutlineNote(m) || (m.resource && !m.resource.uncommentable));
+    const chip = (sourcesOn ? `${fg(C.dark)} · ${fg(C.lcyan)}${SOURCES_CHIP}` : "") + (commentOn ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "");
     // Marks only (PIE-873): the margin's off mode said where the comments are counted, so it's found and its way back is.
     const n = this.comments?.length ?? 0, off = this.marginMode === "off" && !this.printed;
     const mode = off ? "marks" : this.marginMode === "full" ? "full" : "shown";
@@ -1348,8 +1365,9 @@ export class NoteSurface {
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...metas];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
-    const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
-    return { rows: rows.map(l => " ".repeat(gx) + l), wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: { row: this.printed ? 0 : 1, rows: lines.length }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
+    const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
+    const sourcesChip = chipped && sourcesOn ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
+    return { rows: rows.map(l => " ".repeat(gx) + l), wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: { row: this.printed ? 0 : 1, rows: lines.length }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
   }
 
   /**
@@ -1495,7 +1513,7 @@ export class NoteSurface {
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
     this.lookAt(m, w, host);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, marginChip, wholeMarks } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
@@ -1638,6 +1656,7 @@ export class NoteSurface {
     // The crumbs: a click shows the note in the outline (reader.reveal, PIE-794), where the host has one.
     if (crumbsRow !== undefined && host?.revealInOutline && isOutlineNote(m)) this.hits.push({ row: crumbsRow, from: 0, to: Math.max(1, Math.min(w, width(this.crumbs))), crumbs: true });
     if (commentChip) this.hits.push({ ...commentChip, start: "note" });
+    if (sourcesChip) this.hits.push({ ...sourcesChip, sources: true });
     if (marginChip) this.hits.push({ ...marginChip, margin: true });
     for (const mark of wholeMarks ?? []) this.hits.push({ ...mark, elem: `comment:${mark.thread}` });
     const firstOf = new Map<number, string>();
@@ -1770,7 +1789,8 @@ export class NoteSurface {
     for (const r of this.printed || host?.externalGutter === 0 ? [] : doc.regions ?? []) {
       const row = top + r.row - this.scroll;
       if (row < top || row >= top + room || !this.regionInfo.has(r.key)) continue;
-      gutterRows.set(row, pad(gutterRows.get(row) ?? "", 0) + fg(C.dark) + REGION_MARK + RESET);
+      // Zero chrome until the `[ ]` position is in the region (PIE-956 S6b): the mark is still a target, drawn only while it is open.
+      if (this.openRegionKey() === r.key) gutterRows.set(row, pad(gutterRows.get(row) ?? "", 0) + fg(C.dark) + REGION_MARK + RESET);
       this.hits.push({ row, from: this.gutterStart, to: this.gutterStart + 1, region: r.key });
     }
     for (const k of this.printed ? [] : marks) {
@@ -3702,8 +3722,8 @@ export class NoteSurface {
       const at = this.msg?.id ?? "";
       // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
-        .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
+        .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
       // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
       if (trashedAt !== undefined && trashedAt > last.seq) return false;
@@ -3750,6 +3770,8 @@ export class NoteSurface {
     if (c === "M" && this.msg && !this.msg.partial) { void this.runKey("margin", {}, host); return true; }
     // r: fetch the tickets this note shows now (PIE-445): the one the [ ] position is on, else the note's.
     if (c === "r" && this.msg && isOutlineNote(this.msg)) { void this.runKey("projection.refresh", {}, host, true); return true; }
+    // S: where this note's generated regions come from (PIE-956 S6b): the Sources inspector.
+    if (c === "S" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("sources.open", {}, host); return true; }
     return false;
   }
 
@@ -4963,6 +4985,8 @@ export class NoteSurface {
     // The byline's [comment] (PIE-846): as its key would, where the host keeps track of the person's session.
     // The byline's comment count (PIE-873): the margin's next mode, as M.
     if (h && "margin" in h) { void this.runKey("margin", {}, host); return true; }
+    // The header's [sources] (PIE-956 S6b): the Sources inspector, as S does.
+    if (h && "sources" in h) { void this.runKey("sources.open", {}, host); return true; }
     if (h && "start" in h) { if (host.startSession) void host.startSession(h.start); else void this.startAsPerson(h.start, host); return true; }
     // A chip of the passage toolbar (ADR 0004 contract 5): what its key after `a` does, on the person's selection.
     if (h && "passage" in h) { this.passageMenu = false; this.passagePick(h.passage, host); return true; }
@@ -5616,6 +5640,272 @@ export class NoteSurface {
       return write({});
     }
     return askInBar(host.ctx as never, `${answer.template?.title ?? "::use"} needs`, need.map(x => propQuestion(x.name, answer.spec[x.name]!)), given, actor, write);
+  }
+
+  // ── Sources (PIE-956 S6b) ────────────────────────────────────────────────────────────────────────────────────────
+
+  /** The Sources inspector, when it is open on this reader. */
+  get sourcesMode(): SourcesMode | null { return (this.modes.get("sources") as SourcesMode | null) ?? null; }
+  readonly sourceHistory = new UndoHistory<LineUndo>();
+
+  /** Whether the note has anything generated: what the header's `[sources]` chip is for. */
+  private hasSources(m: Msg): boolean {
+    if (!isOutlineNote(m) || m.partial) return false;
+    return sourceCalls(m.text).length > 0 || projectionsOf(m, this.src).some(p => p.kind === "output" || p.kind === "component");
+  }
+
+  /** The source answer as an agent reads it, one row per source. */
+  private sourcesRead(a: NonNullable<SourcesPanel["answer"]>) {
+    return { block: a.blockId, revision: a.revision, readAt: a.readAt, sources: a.sources.map((s, i) => ({ n: i + 1, key: s.key, kind: s.kind, name: s.name, line: s.line + 1, ...(s.readAt ? { readAt: s.readAt } : {}), live: s.live, params: s.query.params, editable: s.query.editable, transform: s.transform.label, ...(s.transform.block ? { transformBlock: s.transform.block } : {}), rows: s.result.rows, ...(s.problem ? { problem: s.problem } : {}) })) };
+  }
+
+  /** Read the service's answer for the panel again (`site.sources`); a failed read is said in the panel, never thrown. */
+  private async readSources(P: SourcesPanel, host: SurfaceHost) {
+    P.loading = true;
+    try {
+      const was = P.answer?.sources[P.open ?? -1]?.key;
+      P.answer = await host.ctx.board.siteSources(P.block);
+      P.error = null;
+      if (was !== undefined) { const i = P.answer.sources.findIndex(s => s.key === was); P.open = i < 0 ? null : i; }
+      P.sel = Math.min(P.sel, Math.max(0, P.answer.sources.length - 1));
+    } catch (e) { P.error = `couldn't read what this note generates: ${e instanceof Error ? e.message : String(e)}`; }
+    P.loading = false;
+    host.redraw();
+  }
+
+  /**
+   * Open the Sources inspector on this note (`sources.open`, `sources.at`, the header's `[sources]`, `S`): every generated
+   * region with when it last read, and, at `line` (a note line, from 0), that region's three folds. The person's; an
+   * agent's call answers the same list and opens nothing in their reader.
+   */
+  async openSources(host: SurfaceHost, actor: Actor, at?: { line: number } | { anchor: string }) {
+    const m = this.requireNote();
+    if (!isOutlineNote(m)) throw new ActionRefused("a resource or a file isn't a block: it generates nothing here");
+    if (actor.kind !== "user") {
+      const a = await host.ctx.board.siteSources(m.id);
+      const i = this.sourceIndex(a, at);
+      if (at !== undefined && i < 0) throw new ActionRefused(`no generated region holds ${"line" in at ? `line ${at.line + 1}` : `^${at.anchor}`}: ${a.sources.map(s => `${s.name} (line ${s.line + 1})`).join(", ") || "this note has none"}`);
+      this.noteAgent(actor, `read the sources of this note`);
+      return { ...this.sourcesRead(a), ...(i >= 0 ? { at: i + 1 } : {}), opened: false };
+    }
+    let mode = this.sourcesMode;
+    if (!mode || mode.panel.block !== m.id) { mode = this.sourcesModeOf(newPanel(m.id, ""), host); this.modes.push(mode); }
+    const P = mode.panel;
+    await this.readSources(P, host);
+    if (at !== undefined && P.answer) {
+      const i = this.sourceIndex(P.answer, at);
+      if (i < 0) { host.ctx.flash(`no generated region holds that line`); }
+      else { P.open = i; P.sel = i; P.item = 0; mode.top = 0; }
+    }
+    host.redraw();
+    return { opened: true, ...(P.answer ? this.sourcesRead(P.answer) : { block: m.id, sources: [] }), ...(P.open !== null ? { at: P.open + 1 } : {}) };
+  }
+
+  /**
+   * The generated region the person's selection or `[ ]` position is in, as the note line (from 0) it is written on, or
+   * its anchor (`#out-…`), for `sources.at`: the region's own key says it, so rows a region draws never read as the line
+   * they were drawn after.
+   */
+  regionHere(): { line: number } | { anchor: string } | null {
+    const sel = this.selection, e = sel ? null : this.inView();
+    const from = sel ? Math.min(sel.anchor.row, sel.head.row) : e?.row, to = sel ? Math.max(sel.anchor.row, sel.head.row) : e?.row;
+    if (from === undefined || to === undefined) return null;
+    const hit = this.regionSpans.find(r => from < r.to && to >= r.from);
+    if (!hit) return null;
+    const tail = /:(#.+|\d+)$/.exec(hit.key)?.[1];
+    if (!tail) return null;
+    return tail.startsWith("#") ? { anchor: tail.slice(1) } : { line: Number(tail) };
+  }
+
+  /** Which source a line or an anchor names, or -1. */
+  private sourceIndex(a: NonNullable<SourcesPanel["answer"]>, at: { line: number } | { anchor: string } | undefined): number {
+    if (!at) return -1;
+    return "line" in at ? sourceAt(a, at.line) : a.sources.findIndex(s => s.key === `#${at.anchor}`);
+  }
+
+  /** Whether the selection (or `[ ]` position) lies in a generated region: the passage toolbar's "Where from". */
+  private selectionInRegion(): boolean {
+    const sel = this.selection;
+    if (!sel) return false;
+    const a = Math.min(sel.anchor.row, sel.head.row), b = Math.max(sel.anchor.row, sel.head.row);
+    return this.regionSpans.some(r => a < r.to && b >= r.from);
+  }
+
+  /** What the panel's focused row (or the open source) does on ⏎ or a click. */
+  async enterSource(host: SurfaceHost, actor: Actor, n?: number): Promise<unknown> {
+    const P = this.requireSources(), a = P.answer;
+    if (!a) throw new ActionRefused("the sources are still being read");
+    if (P.open === null) {
+      const i = n !== undefined ? n - 1 : P.sel;
+      if (!a.sources[i]) throw new ActionRefused(`this note has ${a.sources.length} generated region${a.sources.length === 1 ? "" : "s"}`);
+      P.open = i; P.sel = i; P.item = 0; P.note = "";
+      host.redraw();
+      return { open: i + 1, name: a.sources[i]!.name };
+    }
+    const s = a.sources[P.open]!, items = itemsOf(s, P.folds), at = n !== undefined ? n - 1 : P.item;
+    const it = items[at];
+    if (!it) throw new ActionRefused(`this source has ${items.length} rows`);
+    P.item = at; P.note = "";
+    if (it.kind === "fold") return this.foldSource(it.fold, host);
+    if (it.kind === "param") return this.runKey("sources.set", { param: it.key }, host).then(() => ({ param: it.key }));
+    if (it.kind === "jump") return this.jumpSource(host, actor);
+    return this.copySource(it.part, host, actor);
+  }
+
+  private requireSources(): SourcesPanel {
+    const m = this.sourcesMode;
+    if (!m) throw new ActionRefused("the Sources inspector isn't open here · S opens it, or the header's [sources], or select words in a generated region and press a then w");
+    return m.panel;
+  }
+
+  foldSource(fold: SourcesFold, host: SurfaceHost) {
+    const P = this.requireSources();
+    P.folds[fold] = !P.folds[fold];
+    const s = P.answer?.sources[P.open ?? -1];
+    if (s) P.item = Math.min(P.item, itemsOf(s, P.folds).length - 1);
+    host.redraw();
+    return { fold, open: P.folds[fold] };
+  }
+
+  pickSource(host: SurfaceHost, by?: number, n?: number) {
+    const P = this.requireSources(), a = P.answer;
+    if (!a) return { selected: 0 };
+    if (P.open === null) {
+      const last = Math.max(0, a.sources.length - 1);
+      P.sel = n !== undefined ? Math.max(0, Math.min(last, n - 1)) : Math.max(0, Math.min(last, P.sel + (by ?? 1)));
+      host.redraw();
+      return { selected: P.sel + 1 };
+    }
+    const items = itemsOf(a.sources[P.open]!, P.folds);
+    P.item = n !== undefined ? Math.max(0, Math.min(items.length - 1, n - 1)) : Math.max(0, Math.min(items.length - 1, P.item + (by ?? 1)));
+    host.redraw();
+    return { item: P.item + 1, of: items.length };
+  }
+
+  closeSources(host: SurfaceHost) { this.modes.drop("sources"); host.redraw(); return { closed: true }; }
+
+  /** Back from one source to the list; from the list, close. */
+  backSource(host: SurfaceHost) {
+    const P = this.sourcesMode?.panel;
+    if (P && P.open !== null) { P.open = null; P.note = ""; host.redraw(); return { closed: false, view: "list" }; }
+    this.modes.drop("sources");
+    host.redraw();
+    return { closed: true };
+  }
+
+  /** Re-read the sources; with `all` (the list's ⟳) run every line that runs again first, as the person asks. */
+  async refreshSources(host: SurfaceHost, actor: Actor, all: boolean) {
+    const P = this.requireSources();
+    const s = P.answer?.sources[P.open ?? -1];
+    if (all || !s) {
+      try { await host.ctx.board.refreshProjections(P.block, undefined, actor); } catch (e) { host.ctx.flash(`not all ran: ${e instanceof Error ? e.message : String(e)}`); }
+      resourceChanged(null);
+    } else if (s.kind === "handler" || s.kind === "expr") {
+      try { await host.ctx.board.refreshProjections(P.block, s.line, actor); } catch (e) { host.ctx.flash(`not run: ${e instanceof Error ? e.message : String(e)}`); }
+      resourceChanged(null);
+    }
+    await this.readSources(P, host);
+    return { readAt: P.answer?.readAt ?? null, sources: P.answer?.sources.length ?? 0 };
+  }
+
+  /** The text a part of the open source copies: its query line, its code, or every row of its result. */
+  private sourcePart(s: SourceEntry, part: "query" | "transform" | "result"): string {
+    if (part === "query") return s.query.text;
+    if (part === "transform") return s.transform.text ?? "";
+    return s.result.table && s.result.columns ? [s.result.columns.join("\t"), ...s.result.table.map(r => r.join("\t"))].join("\n") : s.result.text;
+  }
+
+  copySource(part: "query" | "transform" | "result", host: SurfaceHost, actor: Actor) {
+    const P = this.requireSources(), s = P.answer?.sources[P.open ?? -1];
+    if (!s) throw new ActionRefused("open one source first (⏎ on it): then y copies its query, its code or its result");
+    const text = this.sourcePart(s, part);
+    if (actor.kind === "user") { host.ctx.copy?.(text); host.ctx.flash(`copied ${s.name}'s ${part}`); }
+    host.redraw();
+    return { part, text, ...(actor.kind === "user" ? { copied: true } : {}) };
+  }
+
+  /** The transform's note, opened in this reader (the person's; an agent reads it with outline_read). */
+  async jumpSource(host: SurfaceHost, actor: Actor) {
+    const P = this.requireSources(), s = P.answer?.sources[P.open ?? -1];
+    if (!s?.transform.block) throw new ActionRefused("this source's transform has no note to jump to (it is the line itself, or code that isn't in the outline)");
+    if (actor.kind !== "user") return { block: s.transform.block, opened: false, said: "an agent reads it with outline_read; the jump opens it in the person's reader" };
+    this.modes.drop("sources");
+    await this.followTarget({ block: s.transform.block, role: "embed" }, host, { link: true });
+    return { opened: s.transform.block };
+  }
+
+  /**
+   * Write one parameter of the open source back onto the note's line (`sources.set`): a handler line's slot or a `::use`'s prop,
+   * through the note's save, checked against the line as drawn, recorded as whoever asks; ctrl+z takes it back. The person is
+   * asked for the value; an agent passes it. Other kinds are written in the note.
+   */
+  async setSourceParam(param: string | undefined, value: string | undefined, host: SurfaceHost, actor: Actor) {
+    const P = this.requireSources(), s = P.answer?.sources[P.open ?? -1];
+    if (!s) throw new ActionRefused("open one source first (⏎ on it), then e edits a parameter");
+    if (!s.query.editable) throw new ActionRefused(`${s.name} is written in the note, not through a field: edit its line ${s.line + 1} there`);
+    const items = itemsOf(s, P.folds), cur = items[P.item];
+    const key = param ?? (cur?.kind === "param" ? cur.key : undefined);
+    const now = s.query.params.find(x => x.key === key);
+    if (!key) throw new ActionRefused(`say which parameter: param=<${s.query.params.map(x => x.key).join("|") || "name"}>`);
+    const write = (given: string) => this.inTurn(async () => {
+      const whole = await this.whole();
+      const before = whole.text.split("\n")[s.line] ?? "";
+      const after = s.kind === "use" ? withUseProps(before, { [key]: given }) : s.kind === "handler" ? withSlotProps(before, { [key]: given }) : null;
+      if (after === null) throw new ActionRefused(`that value can't be written on line ${s.line + 1}: it holds one line, and none of { }`);
+      if (after === before) throw new ActionRefused(`line ${s.line + 1} already says that`);
+      const r = await this.rewriteLines(whole.id, [{ line: s.line, before, after }], this.sourceHistory, host, actor, SOURCE_STALE);
+      const said = `${s.name}: ${key}=${given}`;
+      host.ctx.flash(`${said}${actor.kind === "user" ? " · ctrl+z takes it back" : ""}`);
+      this.noteAgent(actor, said);
+      await this.readSources(P, host);
+      return { block: whole.id, line: s.line + 1, wrote: { [key]: given }, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+    });
+    if (value !== undefined) return write(value);
+    if (actor.kind !== "user") throw new ActionRefused(`give the new value: sources.set param=${key} value=<text>`);
+    return askInBar(host.ctx as never, `${s.name}: ${key}`, [{ name: "value", type: "text", label: key, ...(now ? { value: now.value } : {}) }], {}, actor, answers => write(answers.value ?? ""));
+  }
+
+  undoSource(host: SurfaceHost, actor: Actor) {
+    return this.inTurn(() => this.undoLines(this.sourceHistory, "source parameter", host, actor)).then(r => ({ block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) }));
+  }
+
+  private sourcesModeOf(P: SourcesPanel, host: SurfaceHost): SourcesMode {
+    const run = (name: string, args: Record<string, unknown> = {}) => { void this.runKey(name as keyof NoteActionArgs & string, args as never, host); };
+    const mode: SourcesMode = {
+      name: "sources", of: P, word: "sources", noun: "the sources", panel: P, holdsKeys: true, editing: () => false, covers: () => false,
+      rect: { x: 0, y: 0, w: 0, h: 0 }, draw: null, top: 0,
+      changed: () => { if (!P.loading) void this.readSources(P, host); },
+      key: k => {
+        const c = k.kind === "char" && !k.ctrl ? k.ch : "";
+        if (k.kind === "esc") run("sources.back");
+        else if (k.kind === "char" && k.ctrl && k.ch === "z") run("sources.undo");
+        else if (c === "q" || c === "S") run("sources.close");
+        else if (k.kind === "down" || c === "j" || k.kind === "tab") run("sources.pick", { by: 1 });
+        else if (k.kind === "up" || c === "k") run("sources.pick", { by: -1 });
+        else if (k.kind === "enter") run("sources.enter");
+        else if (c === "e") run("sources.set");
+        else if (c === "y") run("sources.copy");
+        else if (c === "g") run("sources.jump");
+        else if (c === "r") run("sources.refresh", { all: P.open === null });
+        else if (c === "1") run("sources.fold", { fold: "query" });
+        else if (c === "2") run("sources.fold", { fold: "transform" });
+        else if (c === "3") run("sources.fold", { fold: "result" });
+        return true;
+      },
+      click: (x, y) => {
+        y += this.drawn?.heroRows ?? 0;
+        const r = mode.rect;
+        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
+        const hit = mode.draw?.hits.filter(h => h.row === y - r.y && x - r.x >= h.from && x - r.x < h.to).sort((a, b) => (a.to - a.from) - (b.to - b.from))[0];
+        if (hit) run(hit.action, hit.args);
+        return true;
+      },
+      wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("sources.pick", { by: dir }); return true; },
+      rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
+      hint: () => (P.open === null ? "j k select · ⏎ open · r read all again · esc close" : "j k move · ⏎ fold or edit · e edit · y copy · g jump · r run again · esc back"), state: () => "sources",
+      describe: () => ({ block: P.block, view: P.open === null ? "list" : "source", ...(P.answer ? { readAt: P.answer.readAt, sources: P.answer.sources.map((s, i) => ({ n: i + 1, name: s.name, kind: s.kind, ...(i === P.open ? { open: true, folds: { ...P.folds }, item: P.item + 1 } : {}), ...(i === P.sel ? { selected: true } : {}) })) } : {}), ...(P.error ? { error: P.error } : {}), loading: P.loading }),
+    };
+    return mode;
   }
 
   async undoUse(host: SurfaceHost, actor: Actor) {
@@ -6519,6 +6809,7 @@ export class NoteSurface {
    * the rest run passage.act at once.
    */
   private passagePick(action: string, host: SurfaceHost) {
+    if (action === "sources") { void this.runKey("sources.at", {}, host); return; }
     const agent = threadAgents()[0];
     if ((action === "comment" || (action === "ask" && agent)) && host.startSession && this.selection) {
       try { this.passageFor(USER); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); return; }
@@ -6548,6 +6839,8 @@ export class NoteSurface {
       if (k) taken.add(k);
       own.push({ action: action.name, label: action.label, ...(k ? { key: k } : {}) });
     }
+    // Selected words in a generated region: where they come from (PIE-956 S6b), the one way in from the words themselves.
+    if (this.selectionInRegion()) own.push({ action: "sources", label: "Where from", key: "w" });
     return own;
   }
 
@@ -6606,6 +6899,7 @@ export class NoteSurface {
       // The look it was drawn with (PIE-673): reported here, never put into the text it reads back.
       look: this.lastLook ? { breakpoint: this.lastLook.breakpoint, width: this.lastLook.width, ...Object.fromEntries((["measure", "pad.x", "pad.y", "margin.x", "margin.y", "list.gap", "list.zebra", "list.zebra.bg", "list.zebra.strength", "list.divider", "list.divider.glyph", "list.divider.align", "bg", "bg.strength", "border", "edge", "tone", "header.bg", "header.bg.opacity", "header.image", "header.image.x", "header.image.y"] as const).map(t => [t, this.lastLook!.values[t]])) } : null,
       properties: (this.modes.get("panel") as PanelMode | null)?.describe() ?? null,
+      sources: this.sourcesMode?.describe() ?? null,
       selection: this.describeSelection(this.selection),
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
       history: this.describeHistory(),
@@ -6829,6 +7123,7 @@ const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 
 /** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
 interface Stale { flash: string; refused: string; again: string }
 const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn · nothing was changed · choose again", refused: "that callout changed since it was drawn; nothing was changed (callout.list reads it again)", again: "choose again" };
+const SOURCE_STALE: Stale = { flash: "that line changed since the sources were read · nothing was changed · read them again (r)", refused: "that line changed since the sources were read; nothing was changed", again: "read the sources again (r) and retry" };
 const USE_STALE: Stale = { flash: "that ::use line changed since it was drawn · nothing was changed · press again", refused: "that ::use line changed since it was drawn; nothing was changed (use.fill reads it again)", again: "press again" };
 const IMAGE_STALE: Stale = { flash: "that image's line changed since it was drawn · nothing was changed · try again", refused: "that image's line changed since it was drawn; nothing was changed (images reads it again)", again: "try again" };
 /** One line of a note rewritten: its index, its text as it was read, and what it became. */
@@ -6900,6 +7195,8 @@ const previewPictures = (d: Draft, from: number, to: number): Placement[] =>
 
 /** The byline's way in to a comment on the whole note (PIE-846). */
 const COMMENT_CHIP = "[comment]";
+/** The header's quiet way into the Sources inspector, on a note that generates anything (PIE-956 S6b). */
+const SOURCES_CHIP = "[sources]";
 
 /** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
 export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
@@ -9469,6 +9766,90 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       return surface.fillUse(block, line, given, host, actor);
     },
+  }),
+  "sources.open": def({
+    summary: "open the Sources inspector on this note (PIE-956): every generated region (handler lines, ::=, ::use, figures, ::fields, ::if, written output) with when it last read, from the service's one answer (site.sources), beside the note when the reader is wide. A page shows none of its mechanics by default; this is where \"where this comes from\" goes. An agent's call answers the same list and opens nothing in the person's reader",
+    keys: "S, the header's [sources]",
+    touches: "shape", replay: "safe", says: () => "opened the sources", way: "the inspector opens beside their note · an agent reads the list in the answer, or sources.at line=",
+    menu: noteRow("where this comes from (sources)", "S", { now: ({ surface }) => (!surface.msg || !isOutlineNote(surface.msg) || surface.msg.partial ? { hide: true } : null) }),
+    args: {},
+    run: (_, { surface, host }, actor) => surface.openSources(host, actor),
+  }),
+  "sources.at": def({
+    summary: "open the Sources inspector on the generated region that holds a line: line= (from 1), else the person's selection, `[ ]` position or reading line. The passage toolbar's \"Where from\" (a then w) is this. An agent's call answers that source's row and opens nothing in their reader",
+    keys: "select words in a generated region, then a w (or a click on [Where from])",
+    touches: "shape", replay: "safe", way: "the inspector opens beside their note · an agent reads the source in the answer",
+    args: { line: { type: "number", optional: true, about: "the note line, from 1 (default: the selection's, else the [ ] position's, else the reading line)" } },
+    run({ line }, { surface, host }, actor) {
+      const at = line !== undefined ? { line: line - 1 } : actor.kind === "user" ? surface.regionHere() : null;
+      if (!at || ("line" in at && at.line < 0)) throw new ActionRefused("say which line: line=<from 1>, or select words (or put [ ] on a line) in a generated region first");
+      return surface.openSources(host, actor, at);
+    },
+  }),
+  "sources.close": def({
+    summary: "close the Sources inspector", keys: "q, S, esc in the list", touches: "shape", replay: "safe", says: () => "closed the sources",
+    args: {}, run: (_, { surface, host }) => surface.closeSources(host),
+  }),
+  "sources.back": def({
+    summary: "from one source back to the list; from the list, close the inspector", keys: "esc, a click on ←", touches: "shape", replay: "safe",
+    args: {}, run: (_, { surface, host }) => surface.backSource(host),
+  }),
+  "sources.pick": def({
+    summary: "move in the inspector: the next or previous source in the list (by=), or the nth (n=); inside one source, its next row (a fold, a parameter, a copy)", keys: "j k, ↑ ↓, tab, a click on a row, the wheel",
+    touches: "shape", replay: "safe",
+    args: { by: { type: "number", optional: true, about: "rows to move; negative is up" }, n: { type: "number", optional: true, about: "the row, from 1" } },
+    run: ({ by, n }, { surface, host }) => surface.pickSource(host, by, n),
+  }),
+  "sources.enter": def({
+    summary: "⏎ in the inspector: open the selected source; on a row of one, fold or unfold it, edit the parameter (the person is asked), jump to the transform's note, or copy", keys: "⏎, a click on a row",
+    touches: "shape", replay: "ask", draft: "write",
+    args: { n: { type: "number", optional: true, about: "the row, from 1 (default: the selected one)" } },
+    run: ({ n }, { surface, host }, actor) => surface.enterSource(host, actor, n),
+  }),
+  "sources.item": def({
+    summary: "a click on a row of an open source: it is the focused row, and does what ⏎ does there", keys: "a click on a row", touches: "shape", replay: "ask", draft: "write",
+    args: { n: { type: "number", about: "the row, from 1" } },
+    run: ({ n }, { surface, host }, actor) => surface.enterSource(host, actor, n),
+  }),
+  "sources.fold": def({
+    summary: "fold or unfold one of the open source's three parts: query (its parameters), transform (the code or template that shaped it) or result (its rows)", keys: "1 2 3, a click on a fold",
+    touches: "shape", replay: "safe",
+    args: { fold: { type: "string", about: `${FOLDS.join(", ")}` } },
+    run: ({ fold }, { surface, host }) => { if (!(FOLDS as readonly string[]).includes(fold)) throw new ActionRefused(`fold is ${FOLDS.join(", ")}, not ${JSON.stringify(fold)}`); return surface.foldSource(fold as SourcesFold, host); },
+  }),
+  "sources.refresh": def({
+    summary: "read the sources again (\"Updated … ⟳\"): in the list with all=true (r), every line that runs on the note is run again first, as the person asks for it; on one source, only that line. Never run by a bare key outside the inspector",
+    keys: "r, a click on ⟳", touches: "nothing", replay: "ask",
+    args: { all: { type: "boolean", optional: true, about: "run every line that runs on the note again, then read (default: from the list)" } },
+    run: ({ all }, { surface, host }, actor) => surface.refreshSources(host, actor, all === true),
+  }),
+  "sources.set": def({
+    summary: "write one parameter of the open source back onto the note's line (a handler line's slot, a ::use's prop): the person is asked for the value in the power bar, an agent passes value=; saved through the note's save, checked against the line as read, recorded as whoever asks; ctrl+z (sources.undo) takes it back. Other kinds are written in the note",
+    keys: "e, ⏎ on a parameter", touches: "draft", draft: "write", replay: "ask",
+    args: { param: { type: "string", optional: true, about: "the parameter (default: the focused row's)" }, value: { type: "string", optional: true, about: "the new value (the person is asked when it is left out)" } },
+    run: ({ param, value }, { surface, host }, actor) => surface.setSourceParam(param, value, host, actor),
+  }),
+  "sources.copy": def({
+    summary: "copy a part of the open source: query (its line), transform (its code) or result (every row, tab separated); the person's goes to the clipboard, an agent's is returned", keys: "y, a click on [y copy]",
+    touches: "nothing", replay: "safe",
+    args: { part: { type: "string", optional: true, about: "query, transform or result (default: the focused copy row's, else result)" } },
+    run({ part }, { surface, host }, actor) {
+      const P = surface.sourcesMode?.panel, s = P?.answer?.sources[P.open ?? -1];
+      const at = P && s ? itemsOf(s, P.folds)[P.item] : undefined;
+      const which = part ?? (at?.kind === "copy" ? at.part : "result");
+      if (which !== "query" && which !== "transform" && which !== "result") throw new ActionRefused("part is query, transform or result");
+      return surface.copySource(which, host, actor);
+    },
+  }),
+  "sources.jump": def({
+    summary: "jump to the open source's transform note (the script, the template): the person's reader opens it; an agent is told its id and reads it with outline_read", keys: "g, ⏎ on [g jump to its note]",
+    touches: "tile", replay: "ask", way: "the jump leaves the page they are reading · an agent reads the note with outline_read",
+    args: {}, run: (_, { surface, host }, actor) => surface.jumpSource(host, actor),
+  }),
+  "sources.undo": def({
+    summary: "undo the last sources.set made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
+    keys: "ctrl+z (when a source parameter was the last change made here)", touches: "draft", draft: "write", replay: "ask",
+    args: {}, run: (_, { surface, host }, actor) => surface.undoSource(host, actor),
   }),
   "use.undo": def({
     summary: "undo the last use.fill made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the ::use line changed again since",

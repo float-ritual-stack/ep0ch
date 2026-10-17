@@ -11,8 +11,8 @@ import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { bindExtensions } from "../src/extensions";
 import { forgetProjectionAnswers } from "../src/projection";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
-import { NoteSurface, type SurfaceHost } from "../src/surface/note";
+import { SocketBoard, USER } from "../src/socket";
+import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -70,7 +70,9 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       const rows = lines();
       const out = rows.findIndex(l => l.includes("Virgo, ")), prose = rows.findIndex(l => l.includes("Some prose before."));
       expect(rows[out]!.indexOf("Virgo, ")).toBe(rows[prose]!.indexOf("Some prose before."));
-      expect(rows[out]!.startsWith("≡")).toBe(true);                             // the mark: the first row's gutter cell
+      expect(rows[out]!.startsWith("≡")).toBe(false);                            // zero chrome: no mark drawn until `[ ]` is in the region
+      s.key(char("]"), host);
+      expect(lines()[out]!.startsWith("≡")).toBe(true);                          // then the one dim mark, in the first row's gutter cell
       const text = rows.join("\n");
       expect(text).not.toMatch(/ran (just now|\d+ min ago)/);
       expect(text).not.toContain("run again");
@@ -80,7 +82,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
 
     test("a click on the mark shows what is behind it (name, when it ran, keep, run again) as one dim row; a second click closes it", async () => {
       const { s, lines } = await reader("Omens\nhoroscope:: virgo\n\nProse after the output.", /Virgo, \d{4}/);
-      const row = lines().findIndex(l => l.startsWith("≡"));
+      const row = lines().findIndex(l => l.includes("Virgo, "));
       expect(row).toBeGreaterThan(0);
       const before = lines().length;
       s.click(0, row, host);
@@ -107,7 +109,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       const table = rows.findIndex(l => l.includes("day")), prose = rows.findIndex(l => l.includes("Some prose before."));
       expect(rows[table]!.indexOf("day")).toBeGreaterThanOrEqual(rows[prose]!.indexOf("Some prose before."));
       expect(rows.join("\n")).not.toMatch(/\[!output\]|output-hash|output-of|╭─|╰─/);         // no callout frame, no header chips
-      const mark = rows.findIndex(l => l.startsWith("≡"));
+      const mark = rows.findIndex(l => l.includes("┌"));
       expect(mark).toBeGreaterThan(prose);
       expect(rows.slice(mark, mark + 4).join("\n")).toContain("mon");
       s.click(0, mark, host);
@@ -124,6 +126,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       expect(s.describe().elements!.current!.label).toBe("[source]");
       expect(lines().join("\n")).toContain("[source]");
       const boxed = await reader(`Planning\n::box{margin.x=2}\n${region("words in a box", producer)}\n::\n\nProse after the box.`, /Prose after the box/);
+      boxed.s.key(char("]"), host);
       expect(boxed.lines().filter(l => l.includes("≡"))).toHaveLength(1);
     }, 40_000);
 
@@ -133,6 +136,75 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       const { lines } = await reader(`Planning\n${edited}\n\nProse after.`, /my own words/);
       expect(lines().join("\n")).toContain("edited here: it is yours now");
     }, 40_000);
+  });
+
+  describe("the Sources inspector (PIE-956 S6b)", () => {
+    const AGENT = { kind: "agent" as const, id: "sources-agent" };
+    const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
+    const SOURCES_NOTE = async () => {
+      const template = (await board.createBlock(null, "Meeting template\nWho: {{props.who}}")).id;
+      const r = await reader(`Omens\nhoroscope:: virgo\n\nfancy-horror:: virgo\n\n::use{of=((${template})) who=Kit}`, /Virgo, \d{4}/);
+      return { ...r, template };
+    };
+
+    test("the header says the note generates something; S lists every generated region; ⏎ opens one with its three folds", async () => {
+      const { s, lines, text } = await SOURCES_NOTE();
+      expect(text()).toContain("[sources]");
+      s.key(char("S"), host);
+      await until(() => text().includes("Sources · 3 generated regions"), "the list", 15_000);
+      const list = text();
+      expect(list).toMatch(/horoscope[\s\S]*fancy-horror[\s\S]*::use/);
+      expect(list).toContain("Updated");
+      s.key(char("j"), host); s.key(char("j"), host);
+      s.key({ kind: "enter" }, host);
+      await until(() => text().includes("Transform"), "the open source", 5000);
+      const open = text();
+      expect(open).toContain("Query");
+      expect(open).toContain("Result");
+      expect(open).toMatch(/who\s+Kit/);
+      expect(open).toContain("Meeting template");           // the transform: the template it is drawn from
+      s.key({ kind: "esc" }, host); s.key({ kind: "esc" }, host);
+      await until(() => !text().includes("Sources ·") && !text().includes("Transform"), "closed", 5000);
+      expect(lines().length).toBeGreaterThan(0);
+    }, 60_000);
+
+    test("a parameter is written back onto the line, attributed and undoable; the person is asked, an agent passes it", async () => {
+      const { s, note, text } = await SOURCES_NOTE();
+      await NOTE_ACTIONS.run("sources.open", {}, { surface: s, host }, USER);
+      await until(() => text().includes("Sources ·"), "the list", 15_000);
+      await NOTE_ACTIONS.run("sources.pick", { n: 3 }, { surface: s, host }, USER);
+      await NOTE_ACTIONS.run("sources.enter", {}, { surface: s, host }, USER);
+      await expect(NOTE_ACTIONS.run("sources.set", { param: "who" }, { surface: s, host }, AGENT)).rejects.toThrow(/give the new value/);
+      await NOTE_ACTIONS.run("sources.set", { param: "who", value: "Ada" }, { surface: s, host }, USER);
+      expect((await board.get(note.id))!.text).toContain("who=Ada");
+      expect((await board.get(note.id))!.text).not.toContain("who=Kit");
+      await until(() => /who\s+Ada/.test(text()), "the field reads Ada", 15_000);
+      s.key(ctrl("z"), host);
+      const end = Date.now() + 8000;
+      while (!(await board.get(note.id))!.text.includes("who=Kit") && Date.now() < end) await Bun.sleep(30);
+      expect((await board.get(note.id))!.text).toContain("who=Kit");
+    }, 60_000);
+
+    test("an agent reads the same list and opens nothing in the person's reader; a region without a field says it is written in the note", async () => {
+      const { s, note, text } = await SOURCES_NOTE();
+      const a = await NOTE_ACTIONS.run("sources.open", {}, { surface: s, host }, AGENT) as { opened: boolean; sources: { name: string; kind: string }[] };
+      expect(a.opened).toBe(false);
+      expect(a.sources.map(x => x.kind)).toEqual(["handler", "handler", "use"]);
+      expect(text()).not.toContain("Sources ·");
+      const at = await NOTE_ACTIONS.run("sources.at", { line: 6 }, { surface: s, host }, AGENT) as { at: number };
+      expect(at.at).toBe(3);
+      await expect(NOTE_ACTIONS.run("sources.at", { line: 1 }, { surface: s, host }, AGENT)).rejects.toThrow(/no generated region holds line 1/);
+      expect(note.id).toBeTruthy();
+    }, 60_000);
+
+    test("select words in a generated region and the passage toolbar offers Where from; a then w opens that source", async () => {
+      const { s, text } = await SOURCES_NOTE();
+      await NOTE_ACTIONS.run("select", { text: "Virgo," }, { surface: s, host }, USER);
+      s.render(120, 80, host);
+      expect(s.passageChoices().map(c => c.label)).toContain("Where from");
+      s.key(char("a"), host); s.key(char("w"), host);
+      await until(() => /Transform/.test(text()) && /horoscope/.test(text()), "the source opened at the selection", 15_000);
+    }, 60_000);
   });
 
   describe("r with no position (PIE-956)", () => {

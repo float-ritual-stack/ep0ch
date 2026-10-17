@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Sources: where a generated region comes from (PIE-956, S6b)
+
+A generated region shows no mark until the `[ ]` position is in it. The way in is the header's `[sources]`, `S`, or selected
+words in a region and the passage toolbar's "Where from" (`a` then `w`): the Sources inspector lists every generated region
+of the note with when it last read, and opens one with Query (its parameters, written back onto the note's line), Transform
+(its script, template or figure YAML, with a jump) and Result (rows, copy, Outline, Read, Query). One service answer,
+`site.sources`, so a published page can draw the same thing. New wire request `site.sources` (the landing's PROTOCOL bump
+covers it); outline-core `sources.ts`; actions `sources.*`.
+
 ### Generated output reads as the note's own content; `r` runs one line, never all (PIE-956, S6 of PIE-533, door)
 
 A handler's output, a component's view, an `@name` request, a `::use` and a written `[!output]` callout draw flush with

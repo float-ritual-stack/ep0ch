@@ -10,7 +10,7 @@ import type { LeaveResult } from "../draft-session";
 import type { Actor } from "../socket";
 import type { Key } from "../term";
 
-export type ModeName = "picker" | "panel" | "draft" | "comment" | "links" | "grip" | "replies";
+export type ModeName = "picker" | "panel" | "draft" | "comment" | "links" | "grip" | "replies" | "sources";
 
 /**
  * Which mode takes a reader's keys first, when more than one is open: a step's status choice or an inline `::links`
@@ -19,7 +19,7 @@ export type ModeName = "picker" | "panel" | "draft" | "comment" | "links" | "gri
  * the edit or the comment (one at a time: each refuses to open while the other is). Over a comment being written: moving
  * its box by keys (ctrl+g, PIE-785).
  */
-export const PRECEDENCE: Record<ModeName, number> = { replies: 2, grip: 3, picker: 3, links: 3, panel: 2, draft: 1, comment: 1 };
+export const PRECEDENCE: Record<ModeName, number> = { replies: 2, sources: 2, grip: 3, picker: 3, links: 3, panel: 2, draft: 1, comment: 1 };
 
 /** One mode, as the reader asks it. `H` is the reader's host. */
 export interface ReaderMode<H> extends Mode<H> {

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
 // Board over the outliner's JSON-lines socket, on outline-core's PROTOCOL: a service on another number is refused.
 // Reads use the service's safe-read actions. Writes are guarded by the service, never by retrying:
 // `update` (a saved edit) and `properties.patch` (a card moved between lanes) name the revision they
@@ -792,6 +793,14 @@ export class SocketBoard implements Board {
    */
   async siteAnswer(blockId: string, draft?: string, call?: { chain?: SiteLink[]; props?: Record<string, string[]> }): Promise<SiteAnswer> {
     return this.request<SiteAnswer>("site.answer", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}), ...(call?.chain?.length ? { chain: call.chain } : {}), ...(call?.props ? { props: call.props } : {}) });
+  }
+
+  /**
+   * Every generated region of a note with what it read, when, what shaped it and what it answered (`site.sources`, PIE-956 S6b):
+   * the Sources inspector's one answer, the one a published page's panel draws too. `draft`: the unsaved text.
+   */
+  siteSources(blockId: string, draft?: string): Promise<SourcesAnswer> {
+    return this.request<SourcesAnswer>("site.sources", { blockId, ...(draft !== undefined ? { draft: { text: draft } } : {}) });
   }
 
   /** Every property token in `text`, as the service parses it (PIE-401). */
