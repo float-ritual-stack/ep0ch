@@ -988,27 +988,41 @@ export type ValueBinder = (path: string) => string[];
 /** No clause matches: an `or` of nothing. */
 const NO_MATCH: QueryExpression = { kind: "or", operands: [] };
 
+/** Whether a query (its text) has a clause about other notes (`child:`, `links:`, `under:`…); one that can't be read says no. */
+export function readsOtherNotes(query: string): boolean {
+  try { return queryReach(parseSearchExpression(query).where).open; } catch { return false; }
+}
+
+/** The relations a query reads (none for one that can't be read). */
+export function queryRelations(query: string): ReadonlySet<QueryRelationKind> {
+  try { return queryReach(parseSearchExpression(query).where).relations; } catch { return new Set(); }
+}
+
+/** The relations a query reads: `child` (a child's properties) and the atoms about other notes. */
+export type QueryRelationKind = "child" | "links" | "linkedfrom" | "under" | "parent" | "other";
+
 /**
- * What a query expression asks about: the property keys it names, whether any clause is about other notes (`links:`,
- * `under:`, `child:`…), which makes its answer depend on notes the subject doesn't name, and whether one reads the
- * properties of the subject's children (`child:status=approved`): those notes' words decide who matches.
+ * What a query expression asks about: the property keys it names, which relations to other notes it reads (`child:`,
+ * `links:`, `linkedfrom:`, `under:`, `parent:`; `other` for the reader/author atoms), so its answer depends on notes the
+ * subject doesn't name.
  */
-export function queryReach(expression: QueryExpression | undefined): { open: boolean; children: boolean; asked: string[] } {
-  let open = false, children = false;
+export function queryReach(expression: QueryExpression | undefined): { open: boolean; children: boolean; relations: Set<QueryRelationKind>; asked: string[] } {
+  const relations = new Set<QueryRelationKind>();
   const asked: string[] = [];
   const walk = (e: QueryExpression | undefined): void => {
     if (!e) return;
     switch (e.kind) {
-      case "property": if (e.relation) { open = true; children = true; } else asked.push(e.key); return;
+      case "property": if (e.relation) relations.add("child"); else asked.push(e.key); return;
       case "compare": asked.push(e.key); return;
       case "not": walk(e.operand); return;
       case "and": case "or": e.operands.forEach(walk); return;
       case "time": case "tag": case "title": case "text": return;
-      default: open = true;
+      case "links": case "linkedfrom": case "under": case "parent": relations.add(e.kind); return;
+      default: relations.add("other");
     }
   };
   walk(expression);
-  return { open, children, asked };
+  return { open: relations.size > 0, children: relations.has("child"), relations, asked };
 }
 
 /**

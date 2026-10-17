@@ -24,7 +24,8 @@ export function propsUsed(code: string): string[] {
 }
 
 /** What identifies a script's source: its code and settings, never its note's revision (a script may write into its own note). */
-const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, revision: undefined, author: undefined }));
+/** `reads` is the version of what a render records of the notes it read: a change draws every render script again. */
+const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, revision: undefined, author: undefined, reads: 2 }));
 
 /** Sources stay authored text; a malformed fence is reported by the loader, never by saving the block. */
 export async function scriptSources(store: OutlinerStore): Promise<ManifestSource[]> {

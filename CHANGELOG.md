@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Published pages: every relation is cut, in one place (PIE-978, follow-up)
+
+The cut now sits in the store the producers ask, so a figure, an `::if`, a `| filter`, a view lane and a `::links` query are
+all cut by construction, for every relation (`child:`, `links:`, `linkedfrom:`, `under:`, `parent:`), not only `child:`. The
+publisher asks the service (`unknowable`) instead of keeping its own rule. A render script that prints a breadcrumb, or counts
+matches it was not shown, says *hidden here*; a script defined in an unpublished note draws as it should. Old render outputs are
+drawn again once (the script stamp carries the version of what a render records). Nothing to run beyond `ep0ch install --apply`.
+
 ### A published page reads only what it may show (PIE-978, permissions)
 
 Closes the ways a page drawn from the Site could tell a reader about a note the page may not show: a render script's

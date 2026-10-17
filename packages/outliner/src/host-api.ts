@@ -14,7 +14,7 @@
 import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, toolArgsSpec, type AgentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
 import { checkToolArgs } from "@ep0ch/outline-core/tool-args";
 import { findBlocks, runAgentOperation, resolveRef, type AgentActor, type AgentToolsClient, type FindInput } from "./agent-tools";
-import { parseSearchExpression, queryReach } from "./block-query";
+import { readsOtherNotes } from "./block-query";
 import { applyWrite, type McpWriteTool } from "./mcp-write";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import type { AnnotationRecord, AnnotationThread } from "./types";
@@ -48,6 +48,8 @@ export interface HostApiOptions {
   resolve?(path: string): Promise<unknown>;
   /** Ids of the notes this run read (a read, a resolve, a query's rows): what a render-mode script's output depends on. */
   onRead?(ids: readonly string[]): void;
+  /** The run saw more than could be listed (`Reads.untracked`): what it drew depends on notes it can't name. */
+  onUntracked?(): void;
   /** A `q(query)` and the rows it found, so a render can be drawn again when the query's answer changes (a new match, not only an edit of a row). */
   onQuery?(query: { query: string; limit: number; ids: readonly string[] }): void;
   /** Deferred to a microtask, never awaited; errors are ignored. Keep callbacks brief: they share the host event loop. */
@@ -70,37 +72,45 @@ export interface HostApi {
   resolve(path: string): Promise<unknown>;
 }
 
-const NOTE_ID = /^(?:\(\()?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\)\))?$/i;
-/** Where a record names the place a note sits, not a note it holds. */
-const PLACES = new Set(["parent", "parentId", "ancestors", "path", "breadcrumbs"]);
+const NOTE_ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+/** Text longer than this is a note's words, not a reference to a note: its ids aren't scanned. */
+const MAX_REFERENCE = 200;
 const MAX_NOTE_IDS = 500;
-/** A read that could not be listed (too many notes, nested too deep): never a note a page shows, so the output says nothing. */
-export const UNTRACKED_READ = "*";
-/** Which version of this tracking an output's reads were recorded with; an output from another is drawn again and shown to no one meanwhile. */
-export const READS_TRACKING = 2;
 
-const noteIdsOf = (value: unknown): string[] => [...noteIds(value)];
-const queryReadsChildren = (query: string): boolean => { try { return queryReach(parseSearchExpression(query).where).children; } catch { return false; } };
+/** The notes a script's answers mention, and whether it saw more than could be listed (or counted notes it was not shown). */
+export interface Reads { ids: Set<string>; untracked: boolean }
 
 /**
- * Every note a tool's answer mentions: its rows, children, links and backlinks, each an id (or `((id))`) somewhere in the
- * answer. A render script's output depends on all of them, and a reader who may not see one must not be shown the output.
- * An answer too large to list says so (`UNTRACKED_READ`) rather than leave some out.
+ * Every note a tool's answer mentions: its rows, children, links, backlinks, ancestors and breadcrumbs, each an id (or
+ * `((id))` or a URI holding one) somewhere in the answer. A render script's output depends on all of them, and a reader who
+ * may not see one must not be shown the output. An answer too large to list is `untracked`.
  */
-export function noteIds(result: unknown, out = new Set<string>(), depth = 0): Set<string> {
-  if (depth > 64 || out.size >= MAX_NOTE_IDS) { out.add(UNTRACKED_READ); return out; }
-  if (typeof result === "string") { const found = NOTE_ID.exec(result.trim()); if (found) out.add(found[1]!.toLowerCase()); }
+export function noteIds(result: unknown, out: Reads = { ids: new Set(), untracked: false }, depth = 0): Reads {
+  if (depth > 64 || out.ids.size >= MAX_NOTE_IDS) { out.untracked = true; return out; }
+  if (typeof result === "string") { if (result.length <= MAX_REFERENCE) for (const found of result.matchAll(NOTE_ID)) out.ids.add(found[0].toLowerCase()); }
   else if (Array.isArray(result)) for (const item of result) noteIds(item, out, depth + 1);
-  else if (result && typeof result === "object") for (const [key, value] of Object.entries(result)) if (!PLACES.has(key)) noteIds(value, out, depth + 1);
+  else if (result && typeof result === "object") {
+    for (const [key, value] of Object.entries(result)) {
+      // A bare parent id names a place, not a note's words; a breadcrumb or ancestor list (with titles) is read.
+      if ((key === "parent" || key === "parentId") && typeof value === "string") continue;
+      noteIds(value, out, depth + 1);
+    }
+  }
   return out;
 }
 
-/** The rows of a `child:` query read their children's words: those children, as one more read. */
-async function childReads(client: AgentToolsClient, query: string, result: unknown): Promise<string[]> {
+/** A find that says more notes matched than it listed (a total, an incomplete answer): its count tells of notes it did not list. */
+const countsUnlisted = (result: unknown): boolean => {
+  const found = result as { blocks?: unknown[]; complete?: boolean; total?: number } | null;
+  return !!found && Array.isArray(found.blocks) && (found.complete === false || (typeof found.total === "number" && found.total > found.blocks.length));
+};
+
+/** The rows of a question about other notes read those notes' words: their neighbours, as one more read. */
+async function neighbourReads(client: AgentToolsClient, query: string, result: unknown): Promise<Reads> {
   const rows = (result as { blocks?: { id?: unknown }[] } | null)?.blocks;
-  if (!Array.isArray(rows) || !rows.length || !queryReadsChildren(query)) return [];
+  if (!Array.isArray(rows) || !rows.length || !readsOtherNotes(query)) return { ids: new Set(), untracked: false };
   const ids = rows.flatMap(row => typeof row.id === "string" ? [row.id] : []);
-  return ids.length ? noteIdsOf((await client.request<{ records: object[] }>({ action: "blocks.records", ids: ids.slice(0, 200) })).records) : [];
+  return ids.length ? noteIds((await client.request<{ records: object[] }>({ action: "blocks.records", ids: ids.slice(0, 200) })).records) : { ids: new Set(), untracked: false };
 }
 
 /** One tool as a function: its arguments checked as every surface checks them, then its agent operation. */
@@ -140,9 +150,14 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
       } else result = await runAgentOperation(client, command.operation, command.input, actor);
       said("done", { result });
       if (options.onRead) {
-        const ids = noteIds(result);
-        if (definition.name === "outline_find") for (const id of await childReads(client, String(checked.args.query ?? ""), result)) ids.add(id);
-        if (ids.size) options.onRead([...ids]);
+        const reads = noteIds(result);
+        if (definition.name === "outline_find") {
+          const near = await neighbourReads(client, String(checked.args.query ?? ""), result);
+          for (const id of near.ids) reads.ids.add(id);
+          if (near.untracked || countsUnlisted(result)) reads.untracked = true;
+        }
+        if (reads.ids.size) options.onRead([...reads.ids]);
+        if (reads.untracked) options.onUntracked?.();
       }
       return result;
     } catch (e) {
@@ -191,7 +206,7 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     if (typeof read?.id !== "string") return read;
     const { records } = await client.request<{ records: object[] }>({ action: "blocks.records", ids: [read.id] });
     const whole = { ...(records[0] ?? {}), ...read };
-    if (options.onRead) options.onRead(noteIdsOf(whole));
+    if (options.onRead) { const reads = noteIds(whole); options.onRead([...reads.ids]); if (reads.untracked) options.onUntracked?.(); }
     return whole;
   };
   const resolve = (path: string) => options.resolve

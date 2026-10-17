@@ -25,13 +25,13 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     // One key in every form, each row with its line: the header chip (1), two front-matter lines (2, 3: the list is a row each), the inline chip (5) and the line of its own (6).
     expect(text()).toContain("EVERY CONNECTTO IN THIS NOTE");
     for (const [row, line] of [["in the header", 1], ["in the front matter", 2], ["a list", 3], ["is a row each", 3], ["inline in a sentence", 5], ["a line of its own", 6]] as const) {
-      expect(text().split("\n").find(l => l.includes(row) && l.includes("∙")) ?? "").toContain(`line ${line}`);
+      expect(text().split("\n").find((l: string) => l.includes(row) && l.includes("∙")) ?? "").toContain(`line ${line}`);
     }
     // The hashtags are the key tag: the header's and the body's.
     await until(() => text().includes("live · 2 occurrences"), "the hashtag rows", 8000);
     expect(text()).toContain("HASHTAGS (KEY TAG)");
-    expect(text().split("\n").find(l => l.includes("∙ greenhouse")) ?? "").toContain("line 1");
-    expect(text().split("\n").find(l => l.includes("∙ spring")) ?? "").toContain("line 5");
+    expect(text().split("\n").find((l: string) => l.includes("∙ greenhouse")) ?? "").toContain("line 1");
+    expect(text().split("\n").find((l: string) => l.includes("∙ spring")) ?? "").toContain("line 5");
     expect(text()).toContain("drawn only while the note is active");
     expect(text()).not.toContain("drawn only while the note is paused");
     expect(text()).not.toContain("::if");

@@ -106,16 +106,38 @@ test("a render script that reads a note and returns its child says hidden here w
   }
 });
 
-test("a render script on a note the page may not show says nothing of that note (self is a read too)", async () => {
-  const { store, client, tailnet, publicly } = await setup();
-  store.create("Peek [script::peek-self] [mode::render] [publish::never] [code::9023]\n```js\nreturn `self says ${self.title} ${JSON.stringify(self.properties)}`;\n```");
+test("a script defined in a note the page does not show still draws: its code is not content", async () => {
+  const { store, client, publicly } = await setup();
+  store.create("Peek [script::peek-self] [mode::render] [publish::never]\n```js\nreturn `self says ${self.title}`;\n```");
   const page = store.create("Shelf view [publish::public:shelf-two]\npeek-self::", null, "user");
   await client.request({ action: "resources.projection.read", blockId: page.id, materialize: true });
   await until("the line drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 1);
-  for (const html of [await tailnet("shelf-two"), await publicly("shelf-two")]) {
-    expect(html).not.toContain("9023");
-    expect(html).not.toContain("self says");
+  expect(await publicly("shelf-two")).toContain("self says Peek");
+});
+
+test("a script that prints a breadcrumb, or counts matches it was not shown, says hidden here", async () => {
+  const { store, client, tailnet, publicly } = await setup();
+  const locked = store.create("Vault shelf [publish::never]");
+  const row = store.create("Seed packet [type::seed] [publish::public]", locked.id);
+  store.create("Seed packet two [type::seed] [publish::never]");
+  store.create("Crumbs [script::crumbs] [mode::render]\n```js\nreturn JSON.stringify(await read(\"" + row.id + "\", { depth: 0 }));\n```");
+  store.create("Counter [script::counter] [mode::render]\n```js\nconst found = await q(\"type=seed\", { limit: 1 });\nreturn `${found.total} seeds`;\n```");
+  const page = store.create("Script page two [publish::public:script-two]\ncrumbs::\ncounter::", null, "user");
+  await client.request({ action: "resources.projection.read", blockId: page.id, materialize: true });
+  await until("both drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 2);
+  expect(store.extensionOutputs(page.id).map(r => (r.request as { untracked?: boolean }).untracked ?? false).sort()).toEqual([false, true]);
+  for (const html of [await tailnet("script-two"), await publicly("script-two")]) {
+    expect(html).not.toContain("Vault shelf");
+    expect(html).not.toMatch(/\d seeds/);
   }
+});
+
+test("an ::if over any relation to a note the page may not show says nothing", async () => {
+  const { store, tailnet } = await setup();
+  const locked = store.create("Vault note [publish::never]");
+  const page = store.create(`Linked page [publish::public:linked-page]\n::if{where="linkedfrom:((${locked.id}))"}\nVault links here.\n::`);
+  store.update(locked.id, `Vault note [publish::never] ((${page.id}))`, store.get(locked.id)!.revision, { author: "user" });
+  expect(await tailnet("linked-page")).not.toContain("Vault links here.");
 });
 
 test("a count over a relation filter never changes with a note the page may not show", async () => {
@@ -173,4 +195,16 @@ test("a script that calls a tool directly, or reads deep, is tracked as well as 
     expect(html).not.toContain("9023");
     expect(html).toContain("hidden here");
   }
+});
+
+test("a NOT over a relation to a note the page may not show says nothing, and an unrelated private neighbour hides no child", async () => {
+  const { store, tailnet } = await setup();
+  const locked = store.create("Vault note [publish::never]");
+  store.create(`Absent page [publish::public:absent-page]\n::if{where="NOT linkedfrom:((${locked.id}))"}\nNo vault link.\n::`);
+  expect(await tailnet("absent-page")).not.toContain("No vault link.");
+  const parent = store.create("Bed list [publish::public:bed-list]");
+  const child = store.create("Bean bed [publish::public]", parent.id);
+  store.create("Hidden compost [publish::never]", child.id);
+  store.update(parent.id, `Bed list [publish::public:bed-list]\n::graph-table\n---\nquery: parent:this\ncolumns: [title]\n---\n::`, store.get(parent.id)!.revision, { author: "user" });
+  expect(await tailnet("bed-list")).toContain("Bean bed");
 });

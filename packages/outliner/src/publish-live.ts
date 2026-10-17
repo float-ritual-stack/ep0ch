@@ -4,7 +4,6 @@
 // meaning: views are read with `views.read` (its order, limit and sort), queries with `blocks.query`, links with
 // `blocks.authored-links` and `references.backlinks`; nothing here evaluates a view or a query. A row the page may
 // not show (locked, outside a share, not public on a public page) is left out, never named.
-import { parseSearchExpression, queryReach } from "./block-query";
 import { linkingLineId } from "./publish-anchors";
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
 import { siteBlockAt, type SiteBlock } from "@ep0ch/outline-core/site-blocks";
@@ -257,18 +256,14 @@ async function itemsOf(host: LiveHost, blocks: readonly { id: string; properties
 }
 
 /**
- * The rows of a question that reads their children's words (`child:status=approved`), less the ones with a child this
- * page may not show: whether such a row is listed would tell what that child holds. More rows than are checked are all left out.
+ * The rows of a question (a `::links` query, a view's members), less the ones the service says it can't answer for this
+ * page: whether such a row is listed would tell what a note the page may not show holds (`site.answer`'s `unknowable`).
  */
-async function withoutHiddenChildren<T extends { id: string }>(host: LiveHost, rows: readonly T[], expression: string | undefined): Promise<T[]> {
-  let reads = false;
-  try { reads = !!expression && queryReach(parseSearchExpression(expression).where).children; } catch { /* a question that can't be read lists nothing */ }
-  if (!reads || !rows.length) return [...rows];
-  const checked = rows.slice(0, 200);
-  const { records } = await host.request<{ records: { id: string; children: string[] }[] }>({ action: "blocks.records", ids: checked.map(row => row.id) });
-  const children = new Map(records.map(record => [record.id, record.children]));
-  const shown = await host.shown([...new Set(records.flatMap(record => record.children))]);
-  return checked.filter(row => (children.get(row.id) ?? []).every(id => shown.has(id)));
+async function withoutUnknowable<T extends { id: string }>(host: LiveHost, note: string, rows: readonly T[], where: string | undefined): Promise<T[]> {
+  if (!where || !rows.length) return [...rows];
+  const asked = rows.slice(0, 1000);
+  const gone = new Set((await produced(host, note, { kind: "unknowable", ids: asked.map(row => row.id), where }) as Extract<SiteProduced, { kind: "unknowable" }>).ids);
+  return asked.filter(row => !gone.has(row.id));
 }
 
 // ── `::links` and its kin ──────────────────────────────────────────────────────────────────────────────
@@ -292,7 +287,7 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
   if (found instanceof Error) {
     return figureFrame("links", title, `<p class="dim">query: <code>${spec.query!.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)}</code></p>`, "live · query not read", found.message);
   }
-  const matches = found && spec.query ? { ...found, blocks: await withoutHiddenChildren(host, found.blocks, spec.query) } : found;
+  const matches = found && spec.query ? { ...found, blocks: await withoutUnknowable(host, note, found.blocks, spec.query) } : found;
   // Every note a row stands for, asked once whether this page shows it.
   const ids: string[] = [];
   if (authored?.kind === "ready") {
@@ -359,7 +354,7 @@ export async function readViewLane(host: LiveHost, view: { id: string; propertie
   try { read = await host.request<SavedViewReadResult>({ action: "views.read", viewId: view.id }); }
   catch (error) { return { ...base, problem: `couldn't read the view: ${(error as Error).message}` }; }
   if (read.status !== "ready") return { ...base, problem: `view ${read.status}${read.errors.length ? `: ${read.errors.join("; ")}` : ""}` };
-  const blocks = await withoutHiddenChildren(host, read.blocks as VisibleBlock[], query);
+  const blocks = await withoutUnknowable(host, view.id, read.blocks as VisibleBlock[], query);
   const shown = await host.shown(blocks.map(block => block.id));
   const visible = blocks.filter(block => shown.has(block.id));
   const titles = await host.titles(visible.map(block => block.id));

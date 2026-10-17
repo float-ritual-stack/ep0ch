@@ -133,7 +133,9 @@ export type SiteProducer =
   /** `::fields{key=connectTo}`: one row per occurrence of the key in `of` (default: `this`). */
   | { kind: "fields"; key: string; of?: string }
   /** `::if{where="status=active"}`: whether `this` matches (the views' query atoms). */
-  | { kind: "if"; where: string };
+  | { kind: "if"; where: string }
+  /** Which of `ids` a question (`where`) can't be answered for by a reader who may not see every note it consults (a view's rows, a `::links` query's): for a reader sending `hidden`. */
+  | { kind: "unknowable"; ids: string[]; where?: string };
 
 /** One occurrence of a key in a note: its value, the line it is written on, and where, to open it lit. */
 export interface FieldRow {
@@ -165,7 +167,8 @@ export type SiteProduced =
   }
   | { kind: "children"; blocks: unknown[] }
   | { kind: "fields"; key: string; /** The note read (its id) and its revision. */ from: string; revision: number; rows: FieldRow[]; problem?: SiteProblem }
-  | { kind: "if"; holds: boolean; problem?: SiteProblem };
+  | { kind: "if"; holds: boolean; problem?: SiteProblem }
+  | { kind: "unknowable"; ids: string[] };
 
 /** A path that has no answer: why, the nearest keys, and a path that works. */
 export interface SiteProblem { message: string; didYouMean: string[]; example?: string }
