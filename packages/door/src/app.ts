@@ -1,3 +1,4 @@
+import { INVITES } from "./surface/invite";
 import { MacroRecording, MACRO_ACTIONS } from "./macros";
 // The door: a stack of screens, one status bar, one paint per change.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
@@ -312,6 +313,16 @@ export interface Screen {
    * (`ep0ch-door actions` lists them). A screen without one has only the shell's.
    */
   readonly dispatch?: Dispatcher;
+  /** A script run ended (PIE-957): the screen closes the layout transaction that run held, by its end rule. */
+  scriptEnded?(run: string, reason: "done" | "stopped" | "failed"): void;
+  /** A script run's writes were taken back (`ext.undo`): the screen takes back the layout it changed in that run. */
+  scriptUndone?(run: string): void;
+  /** The service was lost and found again: transactions waiting on a run's end end early. */
+  scriptsLost?(): void;
+  /** A script run is rearranging this screen (a dance): the status bar offers a click that stops it (layout.stop, as Esc does). */
+  dancing?(): boolean;
+  /** Snap any motion to the settled screen (a peek or a snapshot reads that, never frames in flight); true when something was moving. */
+  settle?(): boolean;
   /** Every key is the screen's, ctrl+c included, and a paste goes to it whole: the person is typing in a terminal tile (PIE-417). */
   rawKeys?(): boolean;
   /** Where raw input bytes go right now (a running terminal tile the person is in), or null to decode keys. */
@@ -680,7 +691,11 @@ export class App implements Ctx {
    * The frame skipped while nobody saw the screen (a session with no terminal attached), drawn now: before a control
    * command reads it (peek, snap, an act whose rows come from the last frame) and when a terminal attaches.
    */
-  catchUp(): void { if (this.skipped) this.flush(); }
+  catchUp(): void {
+    // What a control command reads is the settled screen, never a transition's frames (PIE-958).
+    const snapped = this.stack.at(-1)?.settle?.() === true;
+    if (this.skipped || snapped) this.flush();
+  }
   /** A frame was due while nobody saw the screen, and wasn't rendered. */
   private skipped = false;
   end(force: boolean): string | null {
@@ -872,15 +887,30 @@ export class App implements Ctx {
     finally { this.away = null; this.redraw(); }
   }
 
+  private scriptEvent(e: OutlineEvent) {
+    const screens = [...this.stack, ...this.background];
+    if (e.ended) {
+      INVITES.spendRun(e.ended.run);
+      for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.reason);
+    } else if (e.undone) for (const s of screens) s.scriptUndone?.(e.undone.run);
+    this.redraw();
+  }
+
   event(e: OutlineEvent) {
     this.heldAsks.heard(e);
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
+    // A script run ended or was undone (PIE-957): the screens holding its layout transaction close or take it back.
+    if (e.domain === "script") { this.scriptEvent(e); return; }
     // Yolo went on or off in the service (PIE-973): this door's chip and the guards it lifts follow.
     if (e.domain === "agents") { this.heardYolo(e.yolo === true); return; }
     // A reconnected service forgot a yolo this door handed over: say it again (a restarted service starts with it off).
-    if (e.action === "reconnected" || e.action === "reset") void this.syncYolo();
+    if (e.action === "reconnected" || e.action === "reset") {
+      void this.syncYolo();
+      // A script run's layout transaction can't hear its end any more: it ends early, and its start is put back (PIE-957).
+      for (const s of [...this.stack, ...this.background]) s.scriptsLost?.();
+    }
     // A Resource registered or refreshed (PIE-445): only readers showing a projection of it redraw, and
     // those read it again. It isn't an outline change, so nothing else is asked again. An extension's line that
     // ran (`extensions.output`) or an agent that answered (`extensions.agent`) names its note.
@@ -1046,10 +1076,13 @@ export class App implements Ctx {
     const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
     const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
-    if (this.bar && !w.busy) return { ...w, busy: true, why: "the person has the power bar open (ctrl+k)" };
+    // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)
+    const free = !w.busy || !!w.navHold;
+    if (this.bar && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: "the person has the power bar open (ctrl+k)" }; }
     // An armed edit holds the next key: the person is mid-gesture.
     const a = this.armedNow?.a;
-    return a && !w.busy ? { ...w, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` } : w;
+    if (a && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` }; }
+    return w;
   }
 
   /**
@@ -1149,6 +1182,12 @@ export class App implements Ctx {
     if (this.bar) {
       if (!this.bar.ended()) this.bar.key(k, this);
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
+      return;
+    }
+    // A click on the status bar's stop-the-dance chip stops the script run rearranging the screen (layout.stop), as Esc does.
+    const dance = this.danceAt;
+    if (dance && k.kind === "mouse" && k.y === dance.row && k.x >= dance.from && k.x < dance.to) {
+      if (k.action === "down") void this.dispatch.press("layout.stop");
       return;
     }
     // A click on the status bar's YOLO takes agents out of yolo (agents.yolo on=false).
@@ -1385,6 +1424,7 @@ export class App implements Ctx {
   /** Where the status bar's video mode and theme are, for a click (video.cycle, theme.cycle). */
   private videoAt: { from: number; to: number; row: number } | null = null;
   private macroAt: { from: number; to: number; row: number } | null = null;
+  private danceAt: { from: number; to: number; row: number } | null = null;
   private themeAt: { from: number; to: number; row: number } | null = null;
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
@@ -1411,7 +1451,9 @@ export class App implements Ctx {
     const waitPart = waiting.plain ? `${waiting.styled} ${fg(C.lcyan)}│ ` : "";
     // Yolo is loud: agents act with no person guard while it shows.
     const yoloPart = this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD} ${fg(C.lcyan)}│ ` : "";
-    const right = `${yoloPart}${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
+    // A script run is rearranging the screen: one visible control to stop it, as Esc does (layout.stop).
+    const dancePart = s.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD} ${fg(C.lcyan)}│ ` : "";
+    const right = `${dancePart}${yoloPart}${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
     const from = cols - width(right);
     const backupFrom = cols - width(backupPart + newPart + extPart + tail);
     this.backupAt = backup && backupFrom >= 0 ? { from: backupFrom, to: backupFrom + width(backup.text), row: this.term.info.rows - 1 } : null;
@@ -1419,10 +1461,13 @@ export class App implements Ctx {
     this.extAt = ext && extFrom >= 0 ? { from: extFrom, to: extFrom + width(ext), row: this.term.info.rows - 1 } : null;
     const tailFrom = cols - width(tail), row = this.term.info.rows - 1;
     // statusLine keeps " │ " ahead of the right part, so it starts at 3 at the least.
-    this.yoloAt = yoloPart ? { from: Math.max(3, from), to: Math.max(3, from) + 4, row } : null;
+    const danceFrom = Math.max(3, from);
+    this.danceAt = dancePart ? { from: danceFrom, to: danceFrom + width("■ stop the dance"), row } : null;
+    const afterDance = from + width(dancePart);
+    this.yoloAt = yoloPart ? { from: Math.max(3, afterDance), to: Math.max(3, afterDance) + 4, row } : null;
     this.videoAt = tailFrom >= 0 ? { from: tailFrom, to: tailFrom + width(this.video), row } : null;
     this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
-    const chipFrom = from + width(yoloPart);
+    const chipFrom = from + width(dancePart + yoloPart);
     this.drawer.chipAt = chip && from >= 0 ? { from: chipFrom, to: chipFrom + width(this.drawer.chipText()), row: this.term.info.rows - 1 } : null;
     const waitFrom = cols - width(waitPart + (this.offline ? "offline │ " : "") + backupPart + newPart + extPart + tail);
     const changedFrom = cols - width(newPart + extPart + tail);

@@ -40,6 +40,7 @@ export async function runScript(source: string, api: HostApi, signal?: AbortSign
       { name: "act", spread: true, execute: args => api.act(...args as Parameters<HostApi["act"]>) },
       { name: "q", spread: true, execute: args => api.q(...args as Parameters<HostApi["q"]>) },
       { name: "read", spread: true, execute: args => api.read(...args as Parameters<HostApi["read"]>) },
+      { name: "place", spread: true, execute: args => api.place(...args as Parameters<HostApi["place"]>) },
       { name: "resolve", spread: true, execute: args => api.resolve(...args as Parameters<HostApi["resolve"]>) },
       // Bounded by the run: it ends with the run, and the run's deadline (the signal's) cuts it short.
       { name: "wait", spread: true, execute: args => wait(Number((args as unknown[])[0]), signal) },

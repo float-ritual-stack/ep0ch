@@ -1,3 +1,4 @@
+import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { cleanExtensionText, inertBlockdown } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, type Align, type BandPattern } from "@ep0ch/outline-core/rules";
 import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
@@ -24,18 +25,19 @@ import { safeExtensionHtml } from "./extension-html";
  * An unknown primitive never breaks a reader: it degrades to its text.
  */
 
-export const PRIMITIVE_TYPES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"] as const;
+export const PRIMITIVE_TYPES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button"] as const;
 /** The fields each primitive accepts besides `type` (anything else is refused): the one list the validator checks and the scripts reference prints. */
 export const PRIMITIVE_FIELDS = {
-  text: ["text", "tone", "strong"],
+  text: ["text", "tone", "strong", "act"],
   blockdown: ["text"],
-  badge: ["label", "tone"],
+  badge: ["label", "tone", "act"],
+  button: ["label", "act", "tone"],
   stat: ["label", "value", "unit", "tone"],
   bar: ["label", "value", "max", "tone"],
-  table: ["columns", "rows", "links"],
+  table: ["columns", "rows", "links", "acts"],
   checklist: ["items"],
   sparkline: ["label", "values"],
-  card: ["title", "subtitle", "badge", "link", "children"],
+  card: ["title", "subtitle", "badge", "link", "act", "children"],
   box: ["title", "children"],
   stack: ["children"],
   row: ["children", "minWidth"],
@@ -49,21 +51,34 @@ export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;
 export type Tone = typeof TONES[number];
 
+/**
+ * What a press runs (PIE-957, PIE-981): an action line as the power bar and `ep0ch act` take it, `<action> key=value …`.
+ * Its head is an action the door has (`layout.load`) or a script's name (`ttt-move`), which runs as the script; the
+ * words are its slots. The door runs it through its one dispatcher as the person; every other client draws the
+ * primitive as it is without it, so a page or an export never gains a write.
+ */
+export type ActionLine = string;
+
 export type Primitive =
-  | { type: "text"; text: string; tone?: Tone; strong?: boolean }
+  | { type: "text"; text: string; tone?: Tone; strong?: boolean; act?: ActionLine }
   /**
    * Blockdown a client draws with its own reader (the door's note surface, Detail's, the publisher's HTML), so its
    * headings, lists, links and properties read as they do in a note. A text target gets the source as written.
    */
   | { type: "blockdown"; text: string }
-  | { type: "badge"; label: string; tone?: Tone }
+  | { type: "badge"; label: string; tone?: Tone; act?: ActionLine }
+  /** A button (PIE-957): a labelled press, drawn in the control row an extension line's controls are. */
+  | { type: "button"; label: string; act: ActionLine; tone?: Tone }
   | { type: "stat"; label: string; value: string | number; unit?: string; tone?: Tone }
   | { type: "bar"; label: string; value: number; max: number; tone?: Tone }
-  /** `links`: a block id or a Resource ref (`file:`, `web:`, `resource:`) per row (or null) that a client opens on Enter or a click. */
-  | { type: "table"; columns: string[]; rows: (string | number)[][]; links?: (string | null)[] }
+  /**
+   * `links`: a block id or a Resource ref (`file:`, `web:`, `resource:`) per row (or null) that a client opens on Enter or a click.
+   * `acts`: an action line to press per row (or null), in place of its link.
+   */
+  | { type: "table"; columns: string[]; rows: (string | number)[][]; links?: (string | null)[]; acts?: (ActionLine | null)[] }
   | { type: "checklist"; items: { label: string; done: boolean }[] }
   | { type: "sparkline"; label?: string; values: number[] }
-  | { type: "card"; title: string; subtitle?: string; badge?: { label: string; tone?: Tone }; link?: string; children?: Primitive[] }
+  | { type: "card"; title: string; subtitle?: string; badge?: { label: string; tone?: Tone }; link?: string; act?: ActionLine; children?: Primitive[] }
   | { type: "box"; title?: string; children: Primitive[] }
   | { type: "stack"; children: Primitive[] }
   /**
@@ -153,6 +168,23 @@ function tone(value: unknown, path: string): Tone | undefined {
   return value as Tone;
 }
 
+const ACT_HEAD = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
+const MAX_ACT = 400;
+
+/**
+ * A press's action line, checked for its shape (the service can't tell which action names a door has): a head word, then
+ * `key=value` words; no `as=` (a press runs as the person). Returns it as written.
+ */
+function actionLine(value: unknown, path: string): ActionLine {
+  if (typeof value !== "string") fail(path, "must be an action line as the power bar takes it, such as `ttt-move at=5`");
+  if (value.length > MAX_ACT) fail(path, `is longer than ${MAX_ACT} characters`);
+  let req;
+  try { req = actRequestOf(lineWords(value)); } catch (error) { fail(path, `isn't an action line: ${error instanceof Error ? error.message : String(error)} (an action, then key=value words: \`ttt-move at=5\`)`); }
+  if (!ACT_HEAD.test(req.action)) fail(path, "must start with an action's name (layout.load, ext.<id>.run) or a script's name");
+  if (req.as !== undefined) fail(path, "runs as the person: leave out as=");
+  return value.trim();
+}
+
 function only(object: Record<string, unknown>, keys: readonly string[], path: string): void {
   for (const key of Object.keys(object)) if (key !== "type" && !keys.includes(key)) fail(path, `has a field it doesn't know: ${key}`);
 }
@@ -173,13 +205,18 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
     case "text":
       only(node, PRIMITIVE_FIELDS.text, path);
       if (node.strong !== undefined && typeof node.strong !== "boolean") fail(`${path}.strong`, "must be true or false");
-      return { type: "text", text: text(node.text, `${path}.text`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}), ...(node.strong ? { strong: true } : {}) };
+      return { type: "text", text: text(node.text, `${path}.text`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}), ...(node.strong ? { strong: true } : {}),
+        ...(node.act !== undefined ? { act: actionLine(node.act, `${path}.act`) } : {}) };
     case "blockdown":
       only(node, PRIMITIVE_FIELDS.blockdown, path);
       return { type: "blockdown", text: text(node.text, `${path}.text`, false, MAX_BLOCKDOWN)! };
     case "badge":
       only(node, PRIMITIVE_FIELDS.badge, path);
-      return { type: "badge", label: text(node.label, `${path}.label`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
+      return { type: "badge", label: text(node.label, `${path}.label`)!, ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}),
+        ...(node.act !== undefined ? { act: actionLine(node.act, `${path}.act`) } : {}) };
+    case "button":
+      only(node, PRIMITIVE_FIELDS.button, path);
+      return { type: "button", label: text(node.label, `${path}.label`)!, act: actionLine(node.act, `${path}.act`), ...(tone(node.tone, `${path}.tone`) ? { tone: node.tone as Tone } : {}) };
     case "stat": {
       only(node, PRIMITIVE_FIELDS.stat, path);
       const statValue = typeof node.value === "number" ? finite(node.value, `${path}.value`) : text(node.value, `${path}.value`)!;
@@ -212,7 +249,13 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
           return link;
         });
       }
-      return { type: "table", columns, rows, ...(links ? { links } : {}) };
+      let acts: (ActionLine | null)[] | undefined;
+      if (node.acts !== undefined) {
+        if (!Array.isArray(node.acts) || node.acts.length !== rows.length) fail(`${path}.acts`, "must have one entry per row");
+        acts = node.acts.map((act, index) => (act === null ? null : actionLine(act, `${path}.acts[${index}]`)));
+        if (links?.some((link, index) => link !== null && acts![index])) fail(`${path}.acts`, "can't press a row that also links");
+      }
+      return { type: "table", columns, rows, ...(links ? { links } : {}), ...(acts ? { acts } : {}) };
     }
     case "checklist": {
       only(node, PRIMITIVE_FIELDS.checklist, path);
@@ -241,10 +284,12 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
         badge = { label: text(raw.label, `${path}.badge.label`)!, ...(tone(raw.tone, `${path}.badge.tone`) ? { tone: raw.tone as Tone } : {}) };
       }
       if (node.link !== undefined && (typeof node.link !== "string" || !linkable(node.link))) fail(`${path}.link`, "must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
+      if (node.act !== undefined && node.link !== undefined) fail(`${path}.act`, "can't press a card that also links");
       return { type: "card", title: text(node.title, `${path}.title`)!,
         ...(node.subtitle !== undefined ? { subtitle: text(node.subtitle, `${path}.subtitle`)! } : {}),
         ...(badge ? { badge } : {}),
         ...(node.link !== undefined ? { link: node.link as string } : {}),
+        ...(node.act !== undefined ? { act: actionLine(node.act, `${path}.act`) } : {}),
         ...(node.children !== undefined ? { children: children() } : {}) };
     }
     case "box":
@@ -358,6 +403,7 @@ function terminalLines(node: Primitive): string[] {
     case "text": return oneLine(node.text).split(/\n/);
     case "blockdown": return node.text.split("\n").map(oneLine);
     case "badge": return [`[${oneLine(node.label)}]`];
+    case "button": return [`[${oneLine(node.label)}]`];
     case "stat": return [`${oneLine(node.label)}  ${oneLine(statText(node))}`];
     case "bar": return [`${oneLine(node.label)}  ${meter(node.value, node.max)}  ${node.value}/${node.max}`];
     case "sparkline": return [`${node.label ? `${oneLine(node.label)}  ` : ""}${sparkline(node.values)}`];
@@ -413,6 +459,7 @@ function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
     // Blockdown is the reader's own: as written, between blank lines.
     case "blockdown": return [node.text.replace(/\r\n?/g, "\n").trim(), ""];
     case "badge": return [`\`${oneLine(node.label).replace(/`/g, "'")}\``, ""];
+    case "button": return [`\`${oneLine(node.label).replace(/`/g, "'")}\``, ""];
     case "stat": return [`- **${mdInline(node.label)}:** ${mdInline(statText(node))}`];
     case "bar": return [`- ${mdInline(node.label)}: ${meter(node.value, node.max)} ${node.value}/${node.max}`];
     case "sparkline": return [`- ${node.label ? `${mdInline(node.label)}: ` : ""}${sparkline(node.values)}`];
@@ -460,6 +507,8 @@ function htmlOf(node: Primitive, count = { images: 0 }): string {
     // shows it as written.
     case "blockdown": return `<div class="ext-blockdown">${html(node.text)}</div>`;
     case "badge": return `<span class="ext-badge${toneClass(node.tone)}">${html(node.label)}</span>`;
+    // Inert (ADR 0005, readers read): a page draws the label and runs nothing.
+    case "button": return `<span class="ext-button${toneClass(node.tone)}">${html(node.label)}</span>`;
     case "stat": return `<div class="ext-stat${toneClass(node.tone)}"><span class="ext-label">${html(node.label)}</span> <strong>${html(statText(node))}</strong></div>`;
     case "bar": return `<div class="ext-bar${toneClass(node.tone)}"><span class="ext-label">${html(node.label)}</span> <meter min="0" max="${node.max}" value="${node.value}">${node.value}/${node.max}</meter> ${node.value}/${node.max}</div>`;
     case "sparkline": return `<div class="ext-sparkline">${node.label ? `<span class="ext-label">${html(node.label)}</span> ` : ""}${sparkline(node.values)}</div>`;

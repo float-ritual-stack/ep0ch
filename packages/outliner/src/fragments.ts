@@ -1,6 +1,7 @@
 import { standaloneListItemText, markdownSourceTokens, type MarkdownListItem, type MarkdownSourceToken } from "./markdown-structure";
 
 import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch } from "@ep0ch/outline-core/link-syntax";
+import { outputHeader } from "@ep0ch/outline-core/output-region";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
@@ -209,7 +210,8 @@ function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
     // An anchor alone on the line after a component's `::` is the component's (PIE-580).
     const component = !content && componentsByEnd(lines, components).get(lineIndex - 1);
     // One at the end of a quote's last line is the whole quote's or callout's (PIE-592).
-    const quote = !component ? note.quotes.find(q => q.endLine === lineIndex) : undefined;
+    // An output region's anchor sits on its header (PIE-956): its slice is the whole callout whichever line it is on.
+    const quote = !component ? note.quotes.find(q => q.endLine === lineIndex || (q.startLine === lineIndex && outputHeader(line) !== null)) : undefined;
     const quoted = quote ? quoteFragment(lines, quote) : null;
     anchors.push({
       id: match[1]!,
@@ -248,7 +250,7 @@ export function resolveFragmentSlice(
   let endLine = anchor.lineIndex;
   if (anchor.kind === "quote" || anchor.kind === "callout") {
     // The whole quote or callout, every `>` line of it.
-    const q = parsedNote(text).quotes.find(q => q.endLine === anchor.lineIndex)!;
+    const q = parsedNote(text).quotes.find(q => q.endLine === anchor.lineIndex || (q.startLine === anchor.lineIndex && outputHeader(lines[q.startLine]!) !== null))!;
     startLine = q.startLine; endLine = q.endLine;
   } else if (anchor.kind === "component") {
     // The whole block, from its `::name` line to its `::`; the anchor's own line stays out of the slice.

@@ -103,6 +103,12 @@ describe("what a spec says, the desk does", () => {
     expect(d.render(a).lines.at(-1)!.replace(/\x1b\[[\d;]*m/g, "")).toContain("x marks");
   });
 
+  test("the board's S docks the outline from the lanes, and is a reader's own key (Sources) in a reader or preview (PIE-956, key audit)", () => {
+    const board = screenSpec("board")!, s = board.keys!.find(k => k.key === "S")!;
+    for (const kind of ["reader", "preview", "river.column", "echo.reader"]) expect(s.unless).toContain(kind);
+    expect(s.unless).not.toContain("query");
+  });
+
   test("a key map's alt+left runs on alt+← and on the mouse's back button alike", () => {
     const d = new Desk({ name: "back", title: "back", keys: [{ key: "alt+left", action: "keys.more" }], layout: { root: { t: "leaf", kind: "reader", name: "reader" } } }), a = app();
     a.push(d);

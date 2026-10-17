@@ -186,3 +186,28 @@ test("Detail lays a row side by side when each child gets its minWidth, stacks i
   const authored = sourceDocument(observeDocument({ kind: "block", blockId: "00000000-0000-4000-8000-000000000001" }, markdown));
   expect(AttributedMarkdown.compile(authored, theme, false)!.render(80).map((line) => line.trim())).toContain("```ep0ch-row 24");
 });
+
+test("a button, or a badge, text, card or table row, can carry an action line to press; every other target ignores it (PIE-957, PIE-981)", () => {
+  const act = "ttt-move at=5";
+  const view = validatePrimitive({ type: "stack", children: [
+    { type: "button", label: "Play", act: "layout.load name=review", tone: "accent" },
+    { type: "badge", label: "5", act },
+    { type: "text", text: "Play", act: "ext.script:ttt-move.run at=5" },
+    { type: "card", title: "Square", act },
+    { type: "table", columns: ["Square"], rows: [["1"], ["2"]], acts: [act, null] },
+  ] });
+  expect(JSON.stringify(view)).toContain('"act":"ttt-move at=5"');
+  for (const target of ["html", "markdown", "terminal"] as const) {
+    const body = renderComponent({ data: null, view } as ComponentOutput, target).body;
+    expect(body).toContain("Play");
+    expect(body).not.toContain("ttt-move");
+    expect(body).not.toContain("layout.load");
+  }
+  expect(renderComponent({ data: null, view } as ComponentOutput, "html").body).not.toContain("<button");
+  // Refused with a path: a link and an action on one card, a line that is no action line, one that names another actor.
+  expect(() => validatePrimitive({ type: "card", title: "x", link: "file:/a.md", act })).toThrow("view.act");
+  expect(() => validatePrimitive({ type: "badge", label: "x", act: "rm -rf /" })).toThrow("view.act");
+  expect(() => validatePrimitive({ type: "badge", label: "x", act: "go as=someone" })).toThrow("as=");
+  expect(() => validatePrimitive({ type: "button", label: "x" })).toThrow("view.act");
+  expect(() => validatePrimitive({ type: "table", columns: ["a"], rows: [["1"]], acts: [] })).toThrow("view.acts");
+});

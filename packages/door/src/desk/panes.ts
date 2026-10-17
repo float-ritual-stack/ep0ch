@@ -45,6 +45,8 @@ export interface DeskApi {
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
+  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it is newer. */
+  layoutUndoSeq?(): number | undefined;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
@@ -427,6 +429,7 @@ export class ReaderPane implements Pane {
       get entered() { return desk.isIn ? desk.isIn(pane) : undefined; },
       redraw: () => desk.redraw(),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
+      ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
       // link replaces its own note and moves nothing else; a following one moves the current note; alt+⏎ opens beside.
       navigate: (m, how) => desk.setCurrent(m, { reveal: true, from: this, ...how }),

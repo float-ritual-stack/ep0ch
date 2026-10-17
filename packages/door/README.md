@@ -2184,6 +2184,12 @@ The buttons above the table do the same. **Ctrl+Z** undoes and **Ctrl+S** saves.
 Markdown tables and static `::graph-table` flow-array rows work, including tables an agent streams into
 the draft. Query tables and other component formats keep raw editing as the escape hatch.
 Try `ep0ch --showcase`, `act section name=rich-edit`.
+
+Layout changes move (PIE-958): the tiles that moved glide from where they were to where they are, and then it is the layout. `act motion.set mode=full|calm|off` is the setting (`EP0CH_MOTION` over it): calm is a short plain glide whatever a script asked, off snaps. It is paint only: `peek`, `layout.get` and snapshots read the settled layout, and a key or click snaps what is in flight first. Try `act section name=motion` in the showcase.
+
+While a script run is rearranging the screen (a dance), **Esc**, or a click on the status bar's "■ stop the dance", stops it and puts the layout back (`layout.stop`); the status bar says "esc stops it" when it starts. With no run, Esc is the screen's own; a draft, an overlay, a ^W command or a drag keep theirs.
+
+A note can hold a button (PIE-957, PIE-981). `::button{label="Review" act="layout.load name=review"}` (or `of=<script>` with its slots, or the prose link `[review layout](act: layout.load name=review)`) runs one action line as you: a click, or ⏎ on it; it runs at once (the click is the consent; `ext.undo` and ctrl+z take it back), and `act` runs the same line. A view a render script returns can put `act` on a text, badge or card, or a `button` in it. A script you start by pressing may move your tiles while it runs, as one layout transaction: `layout.undo` (ctrl+z when the layout changed after your last trash, the tile menu's row) takes back the newest change to the screen's layout, anyone's (an agent undoes its own), and `ext.undo` takes a run's writes and layout back together. `txn=<id>` on any action joins a transaction; `layout.txn.end` closes it. While you edit a note, raw or rich, each handler line's last drawing stays under it, read-only. Try `act section name=press` in the showcase: a noughts-and-crosses board whose squares you click.
 The [adapter contract](docs/UI-GRAMMAR.md#rich-component-editing-pie-593) explains the door-side extension seam.
 
 ### Extensions in a note
@@ -2207,16 +2213,37 @@ draws a ticket (PIE-512):
   what the agent said, its reply, and who asked. Its edit lands in the note attributed to the extension
   (`ext:tidy`); one that would overwrite what you're typing becomes a proposal under the line.
 
-Under each line a row of controls: one per action the extension declares on that line (`[w ward]`), the
-built-in `[keep]` (the result written under the note as blocks), and `[r run again]` (`[r ask again]` for an
-agent). `[ ]` stops on the line's title and on each control; ⏎ or a click runs it (the title runs the line's
-first action, else runs it again). While the line is the current element its actions' keys work (`w`): one
+A generated region (an output, a component's view, an `@name` request, a `::use`, a written `[!output]` callout) reads as
+the note's own content (PIE-956): its words, table or figure flush with the text around it at the note's measure, with
+no box, no indent, no header and no bullet row. A region shows no mark until the `[ ]` position or a click reaches it (`[sources]` and `S` are the way in); then one dim `≡` in the reader's gutter beside its first row is the only sign
+it is generated, and what is behind it (its name, when it ran, and a control for each action the extension declares on that
+line (`[w ward]`), the built-in `[keep]` (the result written under the note as blocks) and `[r run again]` (`[r ask again]`
+for an agent)) shows as one dim row under it while the region is open: the `[ ]` position is on its mark (or a control in
+that row), or a click landed on the mark (a second click lets go). The door asks the terminal for button events, not motion,
+so there is no hover. What is wrong (a line not run yet, a failure, a stale result, an unknown option) stays in the flow
+as a dim row. `[ ]` stops on the mark and on each control; ⏎ or a click on a control runs it (⏎ on the mark runs the line's
+first action, else runs it again). While the mark is the current element its actions' keys work (`w`): one
 printable character each, never one the reader keeps for itself (`[ ] ( ) f u r y v i c m e j k h l q g` and
 the like) or its host does (the BBS reader's `n p t`, a following reader's `p`); such an action is still a
-click or `act` away. The footer names the keys that work there (`w ward · r again`). `r`
-runs the line again; `r` with no element current runs every line of the note (an `@name` request only by its
-line). Whatever an action writes is the extension's (`ext:<id>`), whoever asked; the status bar says who ran
-it. Agents run the same actions with `act ext.<id>.<action> block=<id>`.
+click or `act` away. The footer names the keys that work there (`w ward · r again`). `r` with no `[ ]` position runs
+the note's one line that runs, or, when it has several (handler lines, components, `@name` requests), none: it says which
+there are and what to do. Ticket regions (`jira::`, a kept record) are unchanged. The drawing is `src/output-region.ts`
+(`regionRows`, `regionTail`, the `RegionBook` the reader keeps); `extensionRegion`, `useRegion` and the callout branch of
+`renderDoc` call it, so a new kind of generated region draws the same way. Detail draws its own regions and is not changed.
+
+**Sources (PIE-956 S6b).** A page shows none of the mechanics behind a generated region. The header's `[sources]` (on a note
+that generates anything), `S`, or selected words in a region and then `a` `w` ("Where from" on the passage toolbar) open the
+Sources inspector beside the note (under it in a narrow tile): every generated region of the note (handler lines, `::=`,
+`::use`, figures, `::fields`, `::if`, written `[!output]` callouts) with when it last read. ⏎ or a click opens one, with three
+folds (1 2 3): **Query** (its parameters; `e` or ⏎ on one asks for a new value and writes it back onto the note's line,
+attributed, ctrl+z takes it back; handler slots and `::use` props, other kinds are written in the note), **Transform** (the
+script, template or figure YAML that shaped it; `g` jumps to its note) and **Result** (the rows; `y` copies them, then
+Outline, Read "live, as of …" and the Query). `r` in the list runs every line that runs on the note again and reads the
+answer again; on one source, only that line. It is drawn from the service's `site.sources`, so a published page's panel can
+draw the same answer; the door has no hover (button events only), so the way in from a value is the selection, not a
+pointer resting on it. Actions: `sources.open`, `sources.at line=`, `sources.pick`, `sources.enter`, `sources.fold`,
+`sources.refresh`, `sources.set param= value=`, `sources.copy part=`, `sources.jump`, `sources.back`, `sources.close`,
+`sources.undo`; an agent's `sources.open` and `sources.at` answer the same list and open nothing in the person's reader.
 
 The door asks the service which extensions it runs (`extensions.list`) when it starts and again whenever the
 service says they changed: an extension added or removed while the door runs shows up or goes away without a
@@ -2725,7 +2752,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `tree.move` | `tile=<outline tile>`; `n=` or `id=` (any note, shown in the tree or not); one of `step=up\|down\|in\|out`, `to=` (`inbox`, `root`, or an id, `((ref))`, `[[page]]`, Work ID; `position=` from 1), `before=`, `after=`, or `undo=true`; `revision=` refuses a note changed since it was read. With none the person is asked in the power bar. The outliner's `moveBlock`, the rule `outline_move` runs, for the person and an agent alike; an agent's never moves your selection | `alt+↑ alt+↓` (`K J`), `I`, `O`, `Z`, `ctrl+z`, a drag onto a row |
 | `column.move` | `tile=<river column>`; `id=` (default the selected card); the arguments of `note.move` | `alt+↑ alt+↓`, `Z` |
 | `tree.links`, `tree.pick` | `tile=<outline tile>` (the board: its outline dock); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
-| `projection.refresh` | `tile=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note), `line=` (one line: an extension's output or component runs again, an `@name` request is asked again, a record fetched). Without `line=`, every line, and every `@name` request not answered yet. Fetches its tickets and runs its extension lines now; the service writes as the extension (`ext:jira`, `ext:moon`), and whoever ran it is who asked (`asked by you`, `asked by an agent (<id>)`) | `r`, a click on a ticket's age or a line's `[r run again]` |
+| `projection.refresh` | `tile=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note's one line that runs), `line=` (one line: an extension's output or component runs again, an `@name` request is asked again, a record fetched). Without `line=`: the note's tickets, and its one line that runs; a note with several lines that run is refused, naming them (none runs). Fetches its tickets and runs its extension lines now; the service writes as the extension (`ext:jira`, `ext:moon`), and whoever ran it is who asked (`asked by you`, `asked by an agent (<id>)`) | `r`, a click on a ticket's age or on a line's run again control (behind its gutter mark) |
 | `extensions.install`, `extensions.uninstall` | `id=` (an extension's id); uninstall's `demo=keep\|remove` (no default: its demo notes never go silently). The service installs one of the repo's extensions (`ep0ch ext add`) and writes its page and demo notes under the outline's Extensions hub before answering; or removes one, its demo notes kept or moved to Trash (what someone changed is kept) | ⏎ or a click on its row in the power bar's extensions scope (`ctrl+k` then `&`) |
 | `ext.<extension>.<action>` | `block=` (the note with the handler line, or the block it acts on), `line=` (when the note has several of that handler's lines). An extension's action as the service lists it (`ext.fancy-horror.ward`, the built-in `ext.<id>.keep`); the service runs it and what it writes is `ext:<id>`. A tile's actions (`ext.tarot.draw`, `ext.tarot.keep`) are its tile kind's: `tile=<the tile>`, `block=` defaults to the tile's own | the action's key on its line (`w`), a click on its control (`[w ward]`); in a tile, the program's own keys |
 | `changes.machinery` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes machinery: what tools wrote for their own bookkeeping (notes stamped `[machine::…]`: tosses, file touches, deliveries, backup runs) and what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N machine` |

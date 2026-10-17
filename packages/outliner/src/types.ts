@@ -1173,6 +1173,8 @@ export interface OutlinerClientRegistration {
   clientId: string;
   role: OutlinerClientRole;
   contextId: string;
+  /** The program a client says it is (a door says `door`): what a script's `act()` looks for, not a clientId prefix. */
+  app?: "door";
   /** The host outline this pane is on; a hosted outline stamps its own name. */
   outline?: string;
   navigationProtection?: string | null;
@@ -1961,6 +1963,8 @@ export type OutlinerRequestAction =
   | ({ id: string; action: "site.answer" } & import("@ep0ch/outline-core/site").SiteAnswerRequest & WatchFields)
   /** The call a `::use` line makes (PIE-533 S4): the template, the props resolved and checked, the chain to draw its body in. Reads only. */
   | ({ id: string; action: "template.use" } & import("@ep0ch/outline-core/template-use").TemplateUseRequest & WatchFields)
+  /** Every generated region of a note with what it read, when, what shaped it and what it answered (PIE-956 S6b): the Sources inspector's one answer. Reads only. */
+  | ({ id: string; action: "site.sources" } & import("@ep0ch/outline-core/sources").SourcesRequest)
   /** The props a template declares, for asking for them before a stamp or a use. Reads only. */
   | { id: string; action: "template.props"; of: string }
   /** Each block's link facets (kind, stage, dates), as an Outlink's target carries them: the links model's children and query rows (PIE-693). Reads only. */
@@ -2453,7 +2457,7 @@ export type OutlinerRequestAction =
    */
   | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
   | { id: string; action: "scripts.stop"; run: string; mutation?: MutationProvenance }
-  | { id: string; action: "scripts.run"; blockId: string; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance }
+  | { id: string; action: "scripts.run"; blockId: string; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance; /** The door a script's `act` goes to (PIE-957); with none, the only door here, else a refusal naming them. */ door?: string }
   | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }
   /**
    * What an action asks for (its declared `args`, PIE-784), each with the choices it has on `blockId` and its value
@@ -2478,6 +2482,9 @@ export type OutlinerRequestAction =
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */
   | {
       id: string; action: "extensions.act"; extension: string; extensionAction: string; blockId?: string; line?: number; args?: Record<string, string>; passage?: import("@ep0ch/outline-core/passage").Passage; clientId?: string;
+      /** A press (PIE-957): the one-run invitation the door minted for it, and the button it pressed (the note and line). */
+      invitation?: string;
+      button?: { block: string; line?: number };
       /**
        * Capability `extensions.act.requester`: who asks (the person, or an agent with its actor id). The writes
        * stay `ext:<id>`'s; the change feed records this beside them as `requestedBy`. `author`/`provenance`
@@ -2807,6 +2814,10 @@ export interface OutlinerEvent {
   /** On a `draft` event: what the service asks the door holding the draft (PIE-501). */
   draft?: DraftHolderRequest;
   script?: import("@ep0ch/outline-core/protocol").ScriptActionCall;
+  /** On a `scripts.ended` event: the run that ended and how. */
+  ended?: import("@ep0ch/outline-core/protocol").ScriptEnded;
+  /** On a `scripts.undone` event: the run whose writes were taken back. */
+  undone?: { run: string };
   /** On a `queries.changed` event: the watches whose answer changed, or that were dropped. */
   changes?: QueryChange[];
   /**

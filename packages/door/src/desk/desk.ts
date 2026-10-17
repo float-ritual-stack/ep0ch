@@ -21,7 +21,12 @@ import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizing } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
+import { LayoutHistory, type LayoutEntry } from "./layout-history";
+import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
+import { TXN } from "../surface/txn";
+import { INVITES } from "../surface/invite";
+import { partyOf } from "../steps";
+import { ActionRefused, ActionSet, actionSet, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
@@ -146,6 +151,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * checked step per operation, `this.apply`). The desk keeps the tile instances, the gestures and the painting.
    */
   private state: LayoutState<number> = init({ tree: leaf(0), names: new Map() });
+  /**
+   * One history of the screen's shape for every actor (PIE-957, src/desk/layout-history.ts): each change recorded at the
+   * state setter with who made it and its transaction. `layout.undo` rebuilds from the newest.
+   */
+  readonly history = new LayoutHistory();
+  /** Who asked each answer the module gave, and what for: `commit` records the change as theirs. */
+  private asked = new WeakMap<object, { actor: Actor; op: string }>();
+  /** The layout is being put back (an undo, a transaction's end rule): that is no new entry. */
+  private replaying = false;
+  /**
+   * Motion (PIE-958): a change of shape draws its tiles on the way from where they were to where they are. `pending` is a
+   * change recorded and not yet laid out (the next paint knows where the tiles are now); `transition` is one running. They
+   * are paint only: the layout, `peek`, `viewState` and a snapshot read the settled state, and the first key or click settles it.
+   */
+  private pendingMotion: { from: Map<number, Rect>; plan: MotionPlan; floated: Set<number> } | null = null;
+  private transition: Transition | null = null;
+  /** The clock motion runs on (a test injects its own). */
+  clock: () => number = () => Date.now();
   /** The layout as the module last answered it: read it; it changes by `apply`. */
   private get layout(): LayoutState<number> { return this.state; }
   /** The layout tree as the module last answered it: read it, never change it (`apply` does). */
@@ -556,19 +579,29 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
       actor, area: this.area, tile: id => this.facts(id, actor),
-      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, {}), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
+      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}), ...(actor.kind === "agent" && INVITES.covers(actor.invitation, "screen", actor.run) ? { invited: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
   }
   /** What `op` would do, asked (nothing changes): the new state, or the refusal. */
-  private ask(op: Op<number>, actor: Actor = USER): Result<number> { return applyOp(this.layout, op, this.layoutCtx(actor)); }
+  private ask(op: Op<number>, actor: Actor = USER): Result<number> {
+    const r = applyOp(this.layout, op, this.layoutCtx(actor));
+    if (r.ok) this.asked.set(r, { actor, op: op.op });
+    return r;
+  }
   /** Take the module's answer: its state is the layout now, the keys go where it says; a refusal is thrown, nothing done. */
   private commit(r: Result<number>): Extract<Result<number>, { ok: true }> {
     if (!r.ok) throw new ActionRefused(r.refused);
     // An answer asked of an earlier state would undo what changed since: never taken (asks and commits are paired).
     if (r.base !== this.state) throw new Error("a layout answer was committed over a newer layout; ask again");
     const was = this.layout.collapsed;
+    // The shape it leaves against the last settled one (kept after every commit and build, so an operation that has already
+    // swapped a pane in can't leave us nothing to rebuild from): a change of shape is an entry, a focus move is none.
+    const by = this.asked.get(r), prior = this.settled ?? this.snapshotShape();
     this.state = r.state;
+    const now = this.snapshotShape();
+    if (!this.replaying && prior && now && now.shape !== prior.shape) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change");
+    this.settled = now;
     this.focus = r.focus;
     this.noteFocus();
     // A tile folded or opened is told (it keeps what it holds exactly).
@@ -577,6 +610,177 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** Apply one layout operation for `actor`: the layout changes as one checked step, or the refusal is thrown. */
   private apply(op: Op<number>, actor: Actor = USER): Extract<Result<number>, { ok: true }> { return this.commit(this.ask(op, actor)); }
+
+  // ── the layout's one history, undo and transactions (PIE-957, design §4.9) ────────
+
+  /** The shape as of the last commit or build: what the next change is recorded against. */
+  private settled: { shape: string; before: LayoutSpec } | null = null;
+
+  /** The screen's shape now, as text and as a spec to rebuild from; null when a pane the layout names is already gone (mid-operation). */
+  private snapshotShape(): { shape: string; before: LayoutSpec } | null {
+    try { return { shape: this.shapeNow(), before: this.layoutSpec() }; } catch { return null; }
+  }
+
+  /** A change of shape `by` made, recorded with the transaction its action named (src/surface/txn.ts), which it opens or joins. */
+  private recordChange(before: LayoutSpec, by: Actor, what: string) {
+    if (this.replaying) return;
+    const scope = TXN.getStore(), now = Date.now();
+    if (scope?.txn) this.history.join(scope.txn, by, before, now, scope.motion);
+    if (scope?.txn && by.kind === "agent" && by.id.startsWith("script:") && !this.announced.has(scope.txn)) { this.announced.add(scope.txn); this.ctx?.flash(`${by.id.slice(7)} is rearranging the screen · esc stops it`, 8000); }
+    this.history.record(before, by, what, now, scope?.txn);
+    this.startMotion(scope?.motion ?? (scope?.txn ? this.history.openTxn(scope.txn)?.motion : undefined), what);
+  }
+
+  /**
+   * A change of shape was just made: the next paint animates from where the tiles are drawn now, as the person's setting
+   * allows the actor's hint (src/motion.ts). A drag's own steps (a resize, a float moved by the pointer) are not animated:
+   * the pointer is the motion.
+   */
+  private startMotion(hint: string | undefined, what: string) {
+    // The drawer's desk is ticked by no screen of its own: it snaps (nothing could settle its frames).
+    if (this.ctx?.hostLayer?.isDrawer(this)) return;
+    if (what === "resize" || this.dragging || this.floatDrag || inResize()) return;
+    const plan = planMotion(hint, motionMode());
+    if (!plan) return;
+    const now = this.clock();
+    const from = this.transition ? this.transition.rectsNow(now, this.area) : new Map(this.hits);
+    if (!from.size) return;
+    const floated = new Set<number>([...this.floats.map(f => f.id), ...(this.transition?.floated ?? [])]);
+    this.transition = null;
+    this.pendingMotion = { from, plan, floated };
+  }
+
+  /** The script runs whose layout changes are open on this screen (a dance in flight): their run ids. */
+  runningScripts(): string[] {
+    return this.history.openIds().filter(id => { const by = this.history.openTxn(id)?.by; return by?.kind === "agent" && by.id.startsWith("script:"); });
+  }
+  /** A script run is rearranging this screen: the status bar offers to stop it. */
+  dancing(): boolean { return this.runningScripts().length > 0; }
+  /** The runs already announced ("esc stops it"), once each. */
+  private announced = new Set<string>();
+
+  /**
+   * `layout.stop` (Esc while a script run is rearranging the screen): stop the run (`scripts.stop`); the service says it ended
+   * and the transaction's end rule puts the layout back, as far as nothing else changed. One obvious key, for whoever's screen
+   * is moving.
+   */
+  async stopRuns(actor: Actor): Promise<{ stopped: string[] }> {
+    const runs = this.runningScripts();
+    if (!runs.length) throw new ActionRefused("no script run is rearranging this screen");
+    // The service answers { stopped: false } for a run that has already ended (or was started elsewhere): its transaction is
+    // closed here as stopped. A request that failed (the service unreachable, a refusal) stops nothing, and says so.
+    const failed: string[] = [];
+    const results = await Promise.all(runs.map(run => this.ctx.board.stopScript(run, actor).then(r => ({ run, ended: true as const, r }), (e: Error) => { failed.push(e.message); return { run, ended: false as const, r: null }; })));
+    const stopped: string[] = [];
+    for (const { run, ended } of results) if (ended) { try { this.endTxn(run, "stopped", actor); } catch { /* gone */ } stopped.push(run); }
+    asActor(this.ctx, actor).flash(failed.length ? `could not stop the dance: ${failed[0]}` : stopped.length ? "stopped the dance; the layout is put back" : "nothing to stop", failed.length ? 6000 : undefined);
+    this.redraw();
+    return { stopped };
+  }
+
+  /** Whether a change is drawing its way (a test and the status line ask). */
+  get moving(): boolean { return !!this.transition || !!this.pendingMotion; }
+  /** Snap to the settled layout: the first key or click, a peek, a snapshot. True when something was in flight. */
+  settle(): boolean { const was = this.moving; this.transition = null; this.pendingMotion = null; return was; }
+  /**
+   * `layout.undo` (and ctrl+z with nothing of a reader's to undo, when this is newer than a trash): take back the newest
+   * entry, for the person; an agent takes back its own (or what a script it asked for did) only. With a transaction, all of
+   * its entries, newest first. Each is refused with who changed the layout since ("undo that first"); the shape is rebuilt from
+   * the entry (tiles kept by name), checked through the module's `load` so a lock, the tile the person types in and a
+   * container's policy hold.
+   */
+  undoLayout(actor: Actor, txn?: string): { undone: string; what: string; steps: number; left?: string } {
+    const party = partyOf(actor);
+    let entries: LayoutEntry[];
+    if (txn) {
+      entries = this.history.entriesOf(txn).reverse();
+      if (!entries.length) throw new ActionRefused(`no layout change in transaction ${txn} (it was undone, or this desk restarted)`);
+      if (actor.kind === "agent" && !entries.every(e => e.party === party || e.owner === party)) throw new ActionRefused(`transaction ${txn} isn't yours: an agent undoes its own (or a script it asked for)`);
+    } else {
+      const mine = actor.kind === "agent" ? this.history.last(party) : this.history.newest();
+      if (!mine) throw new ActionRefused(actor.kind === "agent" && this.history.newest()
+        ? `the newest layout change is ${this.history.newest()!.party === "you" ? "the person's" : this.history.newest()!.party}'s; an agent undoes only its own`
+        : "nothing to undo on this screen's layout");
+      entries = [mine];
+    }
+    const r = this.undoEntries(entries, actor);
+    if (!r.done.length) throw new ActionRefused(r.blocked!);
+    this.save(); this.redraw();
+    return { undone: this.title, what: r.done[0]!.what, steps: r.done.reduce((n, e) => n + e.steps, 0), ...(r.blocked ? { left: r.blocked } : {}) };
+  }
+
+  /**
+   * Take back `entries` (newest first), one at a time: each must be the end of the history as far as other actors go
+   * (nobody undoes over someone else), and the module's `load` check must allow it (a lock, the tile the person types in).
+   * Stops at the first that doesn't, with why; what was undone is done.
+   */
+  private undoEntries(entries: LayoutEntry[], actor: Actor, keepFocus = false): { done: LayoutEntry[]; blocked?: string } {
+    const done: LayoutEntry[] = [];
+    for (const entry of entries) {
+      // Rebuilding clears what the person is in the middle of (an edit, a terminal): never under their typing.
+      if (this.holdsKeys()) return { done, blocked: "you are typing; ctrl+z (layout.undo) puts it back when you are done" };
+      // A change by someone else since (the same transaction's own steps are part of taking this one back): undoing under it would erase it.
+      const later = this.history.after(entry).find(e => e.party !== entry.party && (entry.txn === undefined || e.txn !== entry.txn));
+      if (later) return { done, blocked: `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` };
+      this.replaying = true;
+      try { this.apply({ op: "load", name: "the layout before" }, actor); }
+      catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; }
+      finally { this.replaying = false; }
+      this.rebuildTo(entry.before, keepFocus);
+      this.history.take(entry);
+      done.push(entry);
+    }
+    return { done };
+  }
+
+  /** Rebuild the shape `spec`, keeping the tiles it names (as `layout.load` does), and no new entry. */
+  private rebuildTo(spec: LayoutSpec, keepFocus = false) {
+    this.replaying = true;
+    this.startMotion(TXN.getStore()?.motion, "put back");
+    // A rollback nobody asked for (a run that ended early) leaves the keys where the person put them, when that tile is still there.
+    const here = keepFocus ? this.nameOf(this.focus) : undefined;
+    const names = here ? new Set(this.all().map(id => this.nameOf(id))) : null;
+    try { this.entered.clear(); this.ptyIn = null; this.build(here && names!.has(here) ? { ...spec, focus: here } : spec, true); } finally { this.replaying = false; }
+  }
+
+  /**
+   * A transaction ends (`layout.txn.end`, the run's end, a minute idle). Normally it is the settled state and says so once; one
+   * that ended early (stopped, refused, error, the door lost it, the deadline) rebuilds its start and says that.
+   */
+  endTxn(txn: string, reason: "done" | "stopped" | "failed" | "idle", actor: Actor = USER): { txn: string; ended: string; steps: number; putBack: boolean; left?: string } {
+    const t = this.history.close(txn);
+    if (!t) throw new ActionRefused(`no open transaction ${txn} on this screen (it ended, or never opened here: layout changes carrying txn=${txn} open it)`);
+    const entries = this.history.entriesOf(txn), steps = entries.reduce((n, e) => n + e.steps, 0);
+    const early = reason === "stopped" || reason === "failed";
+    if (early && entries.length) {
+      // Put back what it changed, newest first, as far as nothing else changed since and the screen allows (it may be locked now).
+      const r = this.undoEntries([...entries].reverse(), USER, true);
+      this.save(); this.redraw();
+      asActor(this.ctx, actor).flash(r.blocked ? `${txn} ${reason}; layout only partly put back: ${r.blocked}` : `${txn} ${reason}; layout put back`, r.blocked ? 8000 : undefined);
+      return { txn, ended: reason, steps, putBack: !r.blocked, ...(r.blocked ? { left: r.blocked } : {}) };
+    }
+    if (steps) asActor(this.ctx, actor).flash(`${steps === 1 ? "one layout change" : `${steps} layout changes`} · ctrl+z puts ${steps === 1 ? "it" : "them"} back`);
+    return { txn, ended: reason, steps, putBack: false };
+  }
+
+  scriptEnded(run: string, reason: "done" | "stopped" | "failed") {
+    if (!this.history.isOpen(run)) return;
+    try { this.endTxn(run, reason, USER); } catch { /* gone already */ }
+    this.redraw();
+  }
+  scriptUndone(run: string) {
+    if (!this.history.forTxn(run)) return;
+    try { this.undoLayout(USER, run); this.ctx.flash("the run's layout changes put back"); } catch (e) { this.ctx.flash(`layout not undone: ${e instanceof Error ? e.message : String(e)}`, 6000); }
+  }
+  scriptsLost() {
+    // Only the runs that were waiting on the service: a transaction opened by hand (txn=) has no run to lose.
+    for (const id of this.runningScripts()) try { this.endTxn(id, "failed", USER); } catch { /* gone already */ }
+  }
+
+  /** A transaction nothing has joined for a minute closes, and says so. */
+  private sweepTxns() {
+    for (const t of this.history.idle(Date.now())) { try { this.endTxn(t.id, "idle"); } catch { /* gone already */ } }
+  }
 
   // ── building a layout (PIE-474) ──────────────────────────────────────────
 
@@ -675,6 +879,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.focus = f !== undefined && ids.includes(f) ? f : ids[0]!;
     this.keysTo(this.focus);
     if (this.ctx) for (const id of fresh) this.startTile(id);
+    this.settled = this.snapshotShape();
   }
   /** The keys on tile `id`, as the person's own: shown in its tab set (nothing else moves). */
   private keysTo(id: number) { const r = this.ask({ op: "focus", tile: id, quiet: true }); if (r.ok) this.commit(r); }
@@ -1823,7 +2028,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A repaint, while the desk is the screen shown (kept in the background, its programs don't repaint the menu). */
   redraw() { if (this.onScreen) this.ctx?.redraw(); }
 
-  tick(): boolean { let any = false; for (const p of this.panes.values()) if (kindOf(p)?.tick?.(p)) any = true; return any; }
+  tick(): boolean {
+    this.sweepTxns();
+    let any = false;
+    // A running transition asks for a frame every tick, and one more when it lands.
+    if (this.pendingMotion) any = true;
+    if (this.transition) { any = true; if (this.transition.done(this.clock())) this.transition = null; } for (const p of this.panes.values()) if (kindOf(p)?.tick?.(p)) any = true; return any; }
 
   onEvent(e: OutlineEvent) {
     this.hear(e);
@@ -2616,6 +2826,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   unsaved() { return this.drafts().length > 0 || [...this.models.values()].some(m => m.unsaved?.()); }
   /** A reader's history changed, or the door is handing over: the layout is saved with it (PIE-643). */
   keepLayout() { this.save(); }
+  layoutUndoSeq(): number | undefined { return this.history.newest()?.seq; }
   keepPlace() { this.save(); }
   keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts()), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
   /** The edits open here, by tile: what a session's next daemon opens again (src/session/restore.ts). */
@@ -2755,12 +2966,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.pickReflows([...pinned, ...this.slid.flatMap(d => [...d.placed.rects]), ...floats]);
     // For the mouse: the top float first, then the top dock's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
+    // Motion (PIE-958): a change just made begins from where the tiles were; the tiles that move are drawn in flight, on top.
+    if (this.pendingMotion) {
+      const t = new Transition(this.pendingMotion.from, new Map(this.hits), this.clock(), this.pendingMotion.plan, this.pendingMotion.floated);
+      this.pendingMotion = null;
+      if (t.moves) this.transition = t;
+    }
+    const flying = this.transition && !this.transition.done(this.clock()) ? this.transition : null;
+    if (this.transition && !flying) this.transition = null;
+    const ghosts: [number, Rect][] = [];
     this.tileSpots = [];
     this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.linkChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.wireChips = []; this.holdButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
     const lay = (id: number, r: Rect, dock = false, float = false) => {
+      const at = flying ? flying.at(id, this.clock(), area) : "settled";
+      if (at !== "settled") { ghosts.push([id, at]); return; }
       const box = this.boxOf(id, r);
       placements = uncover(placements, box);
       this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, box));
@@ -2781,6 +3003,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (r.row + r.rows < area.row + area.rows) canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, cols - r.col - 1))) + RESET, cols);
       lay(id, r, false, true);
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
+    }
+    // In flight, a tile is drawn as it is, at the rectangle it is in (its contents move with it: nothing goes dark and comes
+    // back, so nothing pulses), on top of the rest; its pictures are taken away until it lands, so nothing bright slides over
+    // text (src/motion.ts). They land where the layout puts them.
+    // (A tile that was floating, or is, stays above the ones that were not: the floats were over the layout and still are.)
+    const above = (id: number) => (flying?.floated.has(id) || this.isFloat(id) ? 1 : 0);
+    for (const [id, r] of [...ghosts].sort((a, b) => above(a[0]) - above(b[0]))) {
+      placements = uncover(placements, r);
+      this.drawTile(canvas, id, r, false, this.isFloat(id));
     }
     this.drawEmpty(canvas);
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
@@ -2965,7 +3196,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile may say how its frame looks now (a lane a card is dragged over: what dropping it there would do).
     const own = pane.frameLook?.(focused) ?? null;
     // An edit armed in it (e, src/arm.ts) draws it in the edit's colour, frame and title, until ⏎ opens it or a key lets it go.
-    const armed = pane instanceof ReaderPane && !!this.ctx && this.ctx.armed?.()?.of === pane.surface;
+    const armedNow = pane instanceof ReaderPane && this.ctx ? this.ctx.armed?.() : null;
+    const armed = !!armedNow && armedNow.of === (pane as ReaderPane).surface;
     // Tiles picked to gather into a group (tile.select): the person's own in bright cyan, an agent's dimmer, each said in the title.
     const pickedMe = this.selected.get("person")?.has(id) ?? false;
     const pickedBy = [...this.selected].filter(([k, set]) => k !== "person" && set.has(id)).map(([k]) => k.slice(6));
@@ -3507,6 +3739,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   key(k: Key, ctx: Ctx): void {
+    // A key or a click first settles a transition in flight, so it lands where the tile is (PIE-958).
+    if (this.moving) { this.settle(); this.render(ctx); }
+    // Esc while a script run is rearranging the screen stops it (layout.stop): one obvious key. Only then; a prefix, a draft, an overlay or a drag keep their Esc.
+    if (k.kind === "esc" && this.runningScripts().length && !this.prefix && !this.holdsKeys() && !this.dragging && !this.floatDrag && ![...this.overlays.all()].length) return void this.run("layout.stop");
     // The band (the spec's): a press on it is its kind's. Only presses: a release or drag over it is the desk's, so a
     // border or tile drag still ends.
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }
@@ -3687,7 +3923,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // ctrl+z, with nothing of the tile's own to undo, brings back the note trashed last (note.untrash).
     if (!this.holdsKeys() && !pane?.typing?.()) {
       if (((k.kind === "char" && !k.ctrl && k.ch === "d") || k.kind === "delete") && pane?.subject?.()) return this.run("note.trash", {}, this.nameOf(this.focus));
-      if (k.kind === "char" && k.ctrl && k.ch === "z" && lastTrashed(this.ctx.board, USER)) return this.run("note.untrash", {}, this.nameOf(this.focus));
+      if (k.kind === "char" && k.ctrl && k.ch === "z") {
+        // The newest of a layout change and a trash (PIE-957): a layout change is taken back as a trash is brought back.
+        const trashed = lastTrashed(this.ctx.board, USER)?.seq, laid = this.history.newest()?.seq;
+        if (laid !== undefined && (trashed === undefined || laid > trashed)) return this.run("layout.undo", {}, this.nameOf(this.focus));
+        if (trashed !== undefined) return this.run("note.untrash", {}, this.nameOf(this.focus));
+      }
     }
     // Bare - folds the focused tile to a spine and + or = opens it (PIE-699), only now: a tile's own - + = (the tune
     // inspector's nudge, an image's size, a figure's density) took the key above, and nothing that takes text is here.
@@ -4759,7 +5000,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.entered.clear();
     this.ptyIn = null;
     const before = new Set(this.all());
+    const was = this.layoutSpec();
     this.build(found.spec, true);
+    this.recordChange(was, actor, `laid out ${name}`);
     this.layoutName = name;
     this.madeBase = madeScreen(name) ? { ...madeScreen(name)! } : null;
     this.savedAs = this.shapeNow();
@@ -5126,8 +5369,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * back (beside the tile the person has; one opened into a container goes back into it). Refused where policy keeps the
    * tile where it is, and to an agent for the tile the person is typing in.
    */
-  floatTile(sel: string | undefined, actor: Actor): TileDone {
+  floatTile(sel: string | undefined, actor: Actor, on?: boolean): TileDone {
     const t = this.tile(sel), p = this.panes.get(t.id)!;
+    // on=true|false (PIE-957): the state asked for, so a script that floats every tile never puts back one already floating.
+    if (on !== undefined && on === this.isFloat(t.id)) return { tile: t.name, pane: t.name, floated: on, now: t.name } as TileDone;
     if (this.ctx?.hostLayer?.isDrawer(this)) throw new ActionRefused(`${t.name} is in the drawer: it doesn't float there · ^W a puts it on the screen, where it floats`);
     const key = this.openedInto(t.id), c = key !== undefined ? node(this.root, key) : null;
     // A float opened into a container (the board's readers row) goes back into it, as its last tile there; a full one
