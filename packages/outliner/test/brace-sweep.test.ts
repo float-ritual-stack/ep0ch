@@ -22,6 +22,9 @@ test("the sweep turns each old form into the new grammar and leaves the rest", (
   expect(rule.text).toBe("Bay badges [rule-name::bay-badges] [rule-match::type=bay-job] [rule-decorate::badge] [rule-place::append] [rule-label::{{this.title}} · {{this.status}} · {{match[1]}} · {{match.text}} · {{match.level}}]");
   expect(rule.changes.map(c => c.form)).toEqual(["rule-place", "rule-label"]);
   expect(sweepText(SCRIPT).text).toBe("Plant beans [script::plant-beans] [effects::write]\n```actions\nblock.mark id=\"{{props.note}}\" reason=\"{{props.why}}\"\ntile.open kind=query query={{props.tag}}\n```");
+  // Every old placement word, in either property syntax.
+  expect(sweepText("A [rule-name::a] [rule-place::above]").text).toBe("A [rule-name::a] [rule-place::prepend]");
+  expect(sweepText("A [rule-name::a]\nrule-place:: below").text).toBe("A [rule-name::a]\nrule-place:: append");
   for (const text of UNTOUCHED) expect(sweepText(text)).toEqual({ text, changes: [] });
 });
 

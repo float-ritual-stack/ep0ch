@@ -10,9 +10,9 @@ import { closesCodeFence, codeBlocks, codeFenceOpen, fenceEnd, type CodeFence, t
 /**
  * The opening line: `::` and a component name, indented at most three spaces (four is code), with or without
  * arguments (`::links ((id))`), or with attributes straight after the name (`::box{pad=1 list.gap=1}`, PIE-549's
- * block attributes; group 3). One with attributes is a block: it closes with `::`, as one without arguments does.
+ * block attributes; group 3; a `{{ placeholder }}` may be inside them, `::status-card{status={{parent.status}}}`). One with attributes is a block: it closes with `::`, as one without arguments does.
  */
-export const COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{[^{}\n]*\}))?[ \t]*$/;
+export const COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\})*\}))?[ \t]*$/;
 /** The closing line: `::` alone. */
 export const COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 

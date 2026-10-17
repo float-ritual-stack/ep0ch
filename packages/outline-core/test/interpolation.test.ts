@@ -34,6 +34,12 @@ describe("the one placeholder grammar", () => {
     expect(interpolate(escapeInterpolation("a {{b}}"), () => ["x"])).toBe("a {{b}}");
   });
 
+  test("a ${{ expression }} (GitHub Actions, a shell) is not ours and stays as written", () => {
+    const src = "run: echo ${{ secrets.TOKEN }} and {{this.owner}}";
+    expect(interpolationSpans(src).map(s => s.path)).toEqual(["this.owner"]);
+    expect(interpolateWith(src, site)).toBe("run: echo ${{ secrets.TOKEN }} and evan");
+  });
+
   test("a missing value is the default, else kept or empty as the caller says; a list joins with commas", () => {
     expect(interpolateWith("{{this.nope || none}}|{{this.nope}}|{{props.week}}|{{match.text}}|{{match.level}}|{{match[1]}}|{{this.owner.count}}", site)).toBe("none|{{this.nope}}|41|sow beans|2|sow|1");
     expect(interpolateWith("[{{this.nope}}]", site, {}, { missing: "empty" })).toBe("[]");

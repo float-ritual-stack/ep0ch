@@ -42,7 +42,7 @@ export interface InterpolationSpan {
 /** Offsets where a placeholder may not start. */
 function literalRanges(text: string, policy: InterpolationPolicy): SourceRange[] {
   const regions = scanLiteralRegions(text).regions.map(r => ({ start: r.start, end: r.end }));
-  return policy.fences === "template" ? regions : [...protectedCodeRanges(text), ...regions];
+  return policy.fences === "template" ? regions : [...protectedCodeRanges(text, false), ...regions];
 }
 
 const OPEN = /\{\{([^\n]+?)\}\}/g;
@@ -65,7 +65,8 @@ export function interpolationSpans(text: string, policy: InterpolationPolicy = {
   const spans: InterpolationSpan[] = [];
   for (const m of text.matchAll(OPEN)) {
     const start = m.index!;
-    if (text[start - 1] === "\\" || offsetInRanges(start, literal)) continue;
+    // `\{{` is escaped; `${{` is someone else's (a GitHub Actions expression, a shell's), never ours.
+    if (text[start - 1] === "\\" || text[start - 1] === "$" || offsetInRanges(start, literal)) continue;
     const expression = m[1]!;
     if (!expression.trim()) continue;
     const parts = parseExpression(expression);
