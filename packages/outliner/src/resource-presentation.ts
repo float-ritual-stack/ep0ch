@@ -18,6 +18,7 @@ import {
   type ResourceRepresentationAdapter,
   isExtensionProvider,
 } from "./resources";
+import { interpolate } from "@ep0ch/outline-core/interpolation";
 import { resourceDirectiveProviderFor } from "./resource-references";
 
 const SURFACES = ["tui", "gui", "native", "external"] as const;
@@ -139,11 +140,11 @@ function externalUrl(description: ResourceDescription): string | null {
       `${source.boundary.origin.replace(/\/$/, "")}/`,
     ).href;
   }
-  // An extension's entity: the link its manifest gives (Jira's `browse/{key}`), at its Source's origin.
+  // An extension's entity: the link its manifest gives (Jira's `browse/{{key}}`, outline-core's one `{{ }}` grammar), at its Source's origin.
   if (isExtensionProvider(source.provider) && "key" in resource.address && "project" in source.boundary) {
     const link = resourceDirectiveProviderFor(source.provider)?.link;
     if (link) {
-      return new URL(link.replace("{key}", encodeURIComponent(resource.address.key)), `${source.boundary.origin.replace(/\/$/, "")}/`).href;
+      return new URL(interpolate(link, (span) => (span.path === "key" ? [encodeURIComponent(resource.address.key)] : undefined)), `${source.boundary.origin.replace(/\/$/, "")}/`).href;
     }
   }
   if (remoteEntity?.externalUrl) return remoteEntity.externalUrl;

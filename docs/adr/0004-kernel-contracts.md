@@ -172,7 +172,7 @@ Row = { id, revision, title, workId?, props: Record<string, string | string[]>, 
     `dropped: true`; the watch is gone and the client asks again to re-register. A connection's watches end with it.
   - Limits: a question returns at most 1000 rows (a handler's input, a figure). A list shows at most 200; a component's
     answer cuts each group to 200 with `more`.
-- **Handlers.** A handler in `extension.json` may declare `query: Question` (strings take `{argument}`, `{option}`
+- **Handlers.** A handler in `extension.json` may declare `query: Question` (strings take `{{argument}}`, `{{option}}`
   and `this`). Before `run`, the service evaluates it and passes `input.query` (the answer above). A `read` handler
   runs again when its question's answer changes (a watch the service holds); `spend` and `write` handlers never run by
   themselves (the `effects` table holds). This closes the README's first "Not yet".

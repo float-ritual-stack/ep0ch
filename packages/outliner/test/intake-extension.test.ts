@@ -118,7 +118,7 @@ if (word === "trellis") { console.error("archive offline"); process.exit(2); }
 if (!all.includes("cracked")) process.exit(1);
 console.log("notes/" + word + ".md");`);
     writeFileSync(join(dir, "answer.ts"), `await Bun.write(${JSON.stringify(join(dir, "asked"))}, "yes"); console.log("a model's words");`);
-    return { archive: ["bun", join(dir, "archive.ts"), "{word}"], answer: ["bun", join(dir, "answer.ts")] };
+    return { archive: ["bun", join(dir, "archive.ts"), "%word%"], answer: ["bun", join(dir, "answer.ts")] };
   });
   const act = (blockId: string) => client.request({ action: "extensions.act", extension: "intake", extensionAction: "prior-art", blockId, mutation: { author: "user" } });
   const trays = await create("Seed trays cracked again [type::request]");
