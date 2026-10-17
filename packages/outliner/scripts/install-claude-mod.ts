@@ -30,6 +30,10 @@ for(let i=2;i<process.argv.length;i++){
   const folder=process.argv[++i];
   if(!folder)throw Error(`--exclude needs a folder. ${usage}`);
   excluded.push(folder);
+ }else if(argument==='--project'){
+  const folder=process.argv[++i];
+  if(!folder||!isAbsolute(folder))throw Error(`--project needs an absolute folder. ${usage}`);
+  projectsArg.push(folder);
  }else if(argument==='--folder')toFolderMode=true;
  else if(argument==='--allowlist')allowlistFlag=true;
  else if(argument.startsWith('-'))throw Error(`Unknown option ${argument}. ${usage}`);
@@ -59,6 +63,7 @@ if(!settings||typeof settings!=='object'||Array.isArray(settings))throw Error(`$
 // A key already under the new name wins over the old one, and a rule the rename would list twice is kept once.
 const OLD_SERVER='mcp__pi-outliner';
 const renameRule=(rule:string)=>rule===OLD_SERVER||rule.startsWith(`${OLD_SERVER}__`)?`mcp__ep0ch${rule.slice(OLD_SERVER.length)}`:rule;
+const renameMatcher=(matcher:string)=>matcher.replace(/mcp__pi-outliner(?=__|\b|$)/g,'mcp__ep0ch');
 const renamePluginId=(id:string)=>id.startsWith('pi-outliner@')?`ep0ch@${id.slice('pi-outliner@'.length)}`:id;
 const PLUGIN_MAPS=new Set(['enabledPlugins','pluginConfigs','plugins']);
 const renameModIn=(value:unknown,key=''):unknown=>{
@@ -74,7 +79,7 @@ const renameModIn=(value:unknown,key=''):unknown=>{
   for(const [name,item] of entries){
    const renamedKey=PLUGIN_MAPS.has(key)?renamePluginId(name):name;
    if(renamedKey!==name&&entries.some(([other])=>other===renamedKey))continue;
-   out[renamedKey]=typeof item==='string'&&name==='matcher'?renameRule(item):renameModIn(item,name);
+   out[renamedKey]=typeof item==='string'&&name==='matcher'?renameMatcher(item):PLUGIN_MAPS.has(key)?item:renameModIn(item,name);
   }
   return out;
  }

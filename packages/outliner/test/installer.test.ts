@@ -188,25 +188,25 @@ test("Claude mod installer moves the mod's old name (pi-outliner) to ep0ch, leav
     await writeFile(join(directory, "settings.json"), JSON.stringify({
       permissions: { allow: ["mcp__pi-outliner", "mcp__pi-outliner__outline_read", "mcp__ep0ch__outline_read", "Bash(ls)", "Bash(echo mcp__pi-outliner__x)"], deny: ["mcp__pi-outliner__outline_trash"] },
       enabledPlugins: { "pi-outliner@inline": true, "other@inline": true },
-      pluginConfigs: { "pi-outliner@inline": { options: { mode: "folder" } }, "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"] } },
+      pluginConfigs: { "pi-outliner@inline": { options: { mode: "folder" } }, "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"], allow: ["mcp__pi-outliner__kept"] } },
     }));
     await writeFile(join(directory, "settings.local.json"), JSON.stringify({ permissions: { allow: ["mcp__pi-outliner__work_stage"] } }));
     const project = join(directory, "home/projects/ep0ch/.claude");
     await mkdir(project, { recursive: true });
-    await writeFile(join(project, "settings.local.json"), JSON.stringify({ permissions: { allow: ["mcp__pi-outliner__outline_find"] }, note: "mcp__pi-outliner__ stays in prose" }));
+    await writeFile(join(project, "settings.local.json"), JSON.stringify({ permissions: { allow: ["mcp__pi-outliner__outline_find"] }, hooks: { PreToolUse: [{ matcher: "Read|^mcp__pi-outliner__.*$" }] }, note: "mcp__pi-outliner__ stays in prose" }));
     await mkdir(join(directory, "plugins"), { recursive: true });
     await writeFile(join(directory, "plugins/installed_plugins.json"), JSON.stringify({ version: 2, plugins: { "pi-outliner@market": [{ scope: "user" }] } }));
 
-    const first = await runClaudeModInstaller(directory);
+    const first = await runClaudeModInstaller(directory, "--project", join(directory, "home/projects/ep0ch"));
     expect(first.exitCode).toBe(0);
     const settings = JSON.parse(await readFile(join(directory, "settings.json"), "utf8"));
     expect(settings.permissions).toEqual({ allow: ["mcp__ep0ch", "mcp__ep0ch__outline_read", "Bash(ls)", "Bash(echo mcp__pi-outliner__x)"], deny: ["mcp__ep0ch__outline_trash"] });
     expect(settings.enabledPlugins).toEqual({ "ep0ch@inline": true, "other@inline": true });
-    expect(settings.pluginConfigs).toEqual({ "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"] } });
+    expect(settings.pluginConfigs).toEqual({ "ep0ch@inline": {}, "other@inline": { args: ["--tag", "a", "--tag", "b"], allow: ["mcp__pi-outliner__kept"] } });
     expect(JSON.parse(await readFile(join(directory, "settings.local.json"), "utf8")).permissions.allow).toEqual(["mcp__ep0ch__work_stage"]);
     expect(JSON.parse(await readFile(join(directory, "plugins/installed_plugins.json"), "utf8")).plugins).toEqual({ "ep0ch@market": [{ scope: "user" }] });
 
-    expect(JSON.parse(await readFile(join(project, "settings.local.json"), "utf8"))).toEqual({ permissions: { allow: ["mcp__ep0ch__outline_find"] }, note: "mcp__pi-outliner__ stays in prose" });
+    expect(JSON.parse(await readFile(join(project, "settings.local.json"), "utf8"))).toEqual({ permissions: { allow: ["mcp__ep0ch__outline_find"] }, hooks: { PreToolUse: [{ matcher: "Read|^mcp__ep0ch__.*$" }] }, note: "mcp__pi-outliner__ stays in prose" });
     expect(first.stdout.match(/Renamed the mod/g)).toHaveLength(4);
 
     const again = await runClaudeModInstaller(directory);
