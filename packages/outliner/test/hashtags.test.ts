@@ -151,3 +151,8 @@ test("Detail keeps a metadata line's tags in the text, under the title, when its
   expect(propertyInspectorAuthoredText("Fence plan\n[status::draft] #fencing #timber\nThe fence wants posts.").split("\n").map(l => l.trim()))
     .toEqual(["Fence plan", "#fencing #timber", "The fence wants posts."]);
 });
+
+test("a tag edited to a hex-colour word stays a tag (a bracket, since #cafe reads as a colour)", () => {
+  const edited = patchPropertyText("Title #garden", [{ op: "replace", ordinal: 0, value: "cafe" }]);
+  expect(parseProperties(edited).map(p => `${p.key}=${p.value}`)).toEqual(["tag=cafe"]);
+});

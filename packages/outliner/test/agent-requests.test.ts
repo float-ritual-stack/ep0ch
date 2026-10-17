@@ -125,6 +125,12 @@ test("request lines: an answered @name at a line's start, outside code; unknown 
   expect(lines[0]!.requestKey).not.toBe(lines[1]!.requestKey);
 });
 
+test("request lines: only an answered @name at a line start wakes: another handle, an email address, a host, a capital and a mid-line @tidy are prose", () => {
+  const names = new Set(["tidy"]);
+  const pasted = "@e_p82 said the thing\nsam@tidy.example.com wrote\n@tidy.example.com is a host\n@tidy@mastodon.example\n@Tidy loud\nask @tidy later\n  - @tidy still";
+  expect(requestLines(pasted, names).map((line) => line.line)).toEqual([6]);
+});
+
 test("@tidy: a person's request tidies the paragraph above as an attributed edit, and says so under the line", async () => {
   const { store, client, create, agentOf } = await setup();
   const note = await create("Morning plan\n*  call the  printer people\n-   **  order  ** paper\n@tidy\nstill typing here");

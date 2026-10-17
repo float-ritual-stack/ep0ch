@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Grammar collisions: colours, dividers, `::` and `@name` (PIE-950, PIE-533)
+
+- A `#word` of exactly 3, 4, 6 or 8 hex digits (`#00e5ff`, `#fff`, `#1a2b3c`) is a colour, not a tag. Words made only of
+  hex letters (`#bad`, `#cafe`) read as colours too; `[tag::bad]` still says tag. The property parser version is 12, so
+  every outline reparses once.
+- A file whose first line is a `---` divider with a blank line before the next `---` is a divider, not empty front
+  matter (the front-matter block is the first paragraph, as PIE-684 says), so importing it no longer swallows the text
+  between the dividers.
+- Tests pin the other collisions: `---` as a figure fence, a rule or a table row; `std::vec` and `Foo::bar` mid-prose
+  are neither a component nor a property; an `@name` wakes an agent only at a line start and only for a name an agent answers (`@e_p82 said…`, `@tidy.host`, `me@tidy.host` and `ask @tidy` wake nothing).
+
 ### One placeholder grammar, `{{ path || default }}` (PIE-950, PIE-533)
 
 The three single-brace templates are one. A rule's label, an `actions` fence's slots and a component's `use` snippet all

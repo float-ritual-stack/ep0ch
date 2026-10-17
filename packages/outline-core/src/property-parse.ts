@@ -2,7 +2,7 @@
 // where it sits, its scope (block, line or inline) and its placement, in source order. The service's save-time parser
 // and every client or extension that reads a note's properties use this one; nobody copies it. Pure: no I/O.
 import { codeHides, literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "./code-ranges";
-import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches, type RawPropertyToken } from "./property-grammar";
+import { HASHTAG_VALUE_PATTERN, isEscapedAt, isHexColour, PROPERTY_KEY_SOURCE, propertyTokenMatches, type RawPropertyToken } from "./property-grammar";
 import { frontMatterLines, headerLine } from "./header-line";
 import { isMediaLine } from "./media-line";
 import { markTitleLine } from "./annotation-marks";
@@ -33,7 +33,7 @@ export interface PropertyRecord extends BlockProperty {
 const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*(?:[-*+][ \t]+)?)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
 const DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
 
-export const PROPERTY_PARSER_VERSION = 11;
+export const PROPERTY_PARSER_VERSION = 12;
 
 interface PropertyMatch {
   match: RawPropertyToken;
@@ -150,7 +150,7 @@ function hashtagCandidates(
   let lineIndex = 0;
   for (const match of text.matchAll(new RegExp(`#(${HASHTAG_VALUE_PATTERN.source})`, "gu"))) {
     const start = match.index;
-    if (!/\p{L}/u.test(match[1]!) || isEscapedAt(text, start) || offsetInRanges(start, excluded)) continue;
+    if (!/\p{L}/u.test(match[1]!) || isHexColour(match[1]!) || isEscapedAt(text, start) || offsetInRanges(start, excluded)) continue;
     let boundary = start;
     while (boundary > 0 && text[boundary - 1] === "\\") boundary -= 1;
     if (boundary > 0 && !/[\s([{"'“‘]/u.test(text[boundary - 1]!)) continue;
