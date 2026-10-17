@@ -2100,7 +2100,7 @@ export class NoteSurface {
     // How many embedded bodies and template bodies are being drawn inside one another: an embed starts a fresh `::use`
     // depth and a template body a fresh embed one, so a note that embeds a template that embeds it back is stopped here.
     let nest = 0;
-    const tooDeep = (): string[] => [`${fg(C.dark)}↺ drawn inside itself too many times${RESET}`];
+    const tooDeep = (): string[] => [`${fg(C.dark)}drawn inside itself too many times${RESET}`];
     const nested = <T>(draw: () => T, stop: () => T): T => {
       if (nest >= 8) return stop();
       nest++;
