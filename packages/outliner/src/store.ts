@@ -66,7 +66,7 @@ import type { FilterRow } from "@ep0ch/outline-core/resolve-path";
 import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { ReadMarks } from "./read-marks";
-import { formatProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
+import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
@@ -3471,6 +3471,11 @@ export class OutlinerStore {
       };
       load(targetId);
       orderedBlocks = rows.map(row => load(row.block_id)!);
+      // A reply's lifecycle follows its thread even when it is filed outside that thread's tree.
+      for (const block of orderedBlocks) {
+        const parentAnnotationId = getProperty(block.properties, "parent-annotation")?.trim();
+        if (parentAnnotationId) load(parentAnnotationId);
+      }
       const path = (block: Block): Block[] => block.parentId
         ? [...path(blocksById.get(block.parentId)!), block] : [block];
       const paths = new Map(orderedBlocks.map(block => [block.id, path(block)]));
