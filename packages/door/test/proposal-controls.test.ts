@@ -168,26 +168,23 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect((await board.get(id))!.text).not.toContain(`!((${proposal}))`);
   }, 30_000);
 
-  test("an agent dismisses only its own proposal, attributed; another agent is refused", async () => {
+  test("any agent dismisses another agent's proposal, attributed to the one who did", async () => {
     const { id, proposal } = await proposed();
     const { s, h } = await reading(id);
-    await expect(s.act("proposal.dismiss", { id: proposal }, h, OTHER)).rejects.toThrow("an agent dismisses only its own");
-    expect((await board.get(proposal))!.deleted).toBeFalsy();
-    const r = await s.act("proposal.dismiss", { id: proposal }, h, TIDY);
+    const r = await s.act("proposal.dismiss", { id: proposal }, h, OTHER);
     // Nothing to take out of the note: the proposal was beside it (PIE-725), and the note's last change is the person's.
     expect(r).toMatchObject({ outcome: "dismissed", proposalId: proposal, embedRemoved: null });
     expect((await board.get(proposal))!.deleted).toBe(true);
-    expect(flashes.at(-1)).toContain("an agent (tidy) · dismissed the proposal");
+    expect(flashes.at(-1)).toContain("an agent (sweep) · dismissed the proposal");
     expect(await lastChange(id)).toMatchObject({ kind: "edit", actor: { author: "user" } });
-    expect(await lastChange(proposal)).toMatchObject({ kind: "delete", actor: { author: "agent", actorId: "tidy" } });
+    expect(await lastChange(proposal)).toMatchObject({ kind: "delete", actor: { author: "agent", actorId: "sweep" } });
   }, 30_000);
 
   test("an agent's element.open on [dismiss] runs the dismissal as that agent", async () => {
     const { id, proposal } = await proposed();
     const { s, h } = await reading(id);
     const n = s.describeElements().find(e => e.control === "dismiss")!.n;
-    await expect(NOTE_ACTIONS.run("element.open", { n }, { surface: s, host: h }, OTHER)).rejects.toThrow("only its own");
-    await NOTE_ACTIONS.run("element.open", { n }, { surface: s, host: h }, TIDY);
+    await NOTE_ACTIONS.run("element.open", { n }, { surface: s, host: h }, OTHER);
     expect((await board.get(proposal))!.deleted).toBe(true);
     expect(current(s)).toBeUndefined();                                                   // the person's [ ] stays theirs
   }, 30_000);

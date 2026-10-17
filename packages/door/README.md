@@ -2672,16 +2672,18 @@ Each palette entry against the ground and the bar (WCAG 2 contrast; `C.*` and th
 | 14 yellow | `#e6ce78` | 12.21 | 7.67 | `#c8b46c` | 9.56 | 7.74 | 19.69 | 12.46 |
 | 15 white | `#e4e2dc` | 14.70 | 9.23 | `#bab8b2` | 9.92 | 8.04 | 21.00 | 13.29 |
 
-The tints under text (a selection, an agent's selection, the reading ruler, an open thread, an embed's band, an idle
+The tints under text (an agent's selection, an open thread, an embed's band, an idle
 selected row) are theme entries too (`tint` in `src/style.ts`); in calm and night grey, dark and every light accent
 read at 4.5:1 or more on each of them.
 
-**Two focus levels (PIE-969).** The container with the keys (a tile's frame, the ruler's tint over the figure, table or
-block the cursor is in: `tint.ruler`, `edge.focus`) and the row the cursor is on inside it (`item` in `src/theme.ts`: a
-dark band and a bar at the left edge, white text on it). Every list draws its cursor row through `selected()`
-(`src/style.ts`), and a reader draws a figure row or step through `ITEM_BG` (`src/surface/selection.ts`), so a theme
-overrides the one value. `test/theme-item-focus.test.ts` computes 4.5:1 for every text colour on the band from the
-theme's values.
+**Three focus tokens (PIE-969, `theme.focus` in `src/theme.ts`).** `container`: the tint under the figure, table or block
+the cursor is in (the reading ruler; the tile's frame is `edge.focus`). `item`: the row the cursor is on inside it, a
+dark band with a `▌` marker at its left edge (not colour alone), white text on it. `selection`: what is picked (a
+neutral slate in calm and night, apart from the other two). Every list draws its cursor row through `selected()`
+(`src/style.ts`), a reader draws a figure row or step through `ITEM_BG` and the marker. `test/theme-focus.test.ts`
+computes, from each theme's values, in calm and night (classic keeps its exact VGA palette and is not held to it), every text colour on all three at 4.5:1 and that the three are dark; in every theme the marker reads 3:1 on the band and on the
+container's tint, and the three differ from each other and the ground (a coarse channel-distance check, not a perceptual proof). (Two dark tints can't reach 3:1 between themselves under the
+dark cap, so the marker carries the 3:1.)
 
 ## Letting an agent see what you see, and do what you do
 
@@ -2795,7 +2797,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `revisions` | none: the note's revisions, the current one then the earlier texts the outline keeps, newest first (when saved, by whom, size, first line) | `ep0ch revisions <id>` |
 | `revision.restore` | `revision` (default: the one before what the edit holds; again goes further back): that revision's text into the edit as one undo step, written on `ctrl+s`. An agent's only in an edit it opened | the tile menu's `an earlier revision`; `ep0ch revisions <id> <n> --restore` from a shell |
 | `proposal.apply` | `id` (default: the proposal whose embed or control is the current element, else the note shown): apply anyway, as an edit by whoever runs it; refused on one marked `[proposal-applies::no]` | `A`, a click on `[apply]` |
-| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes an older proposal's embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; an agent dismisses only its own | `X`, a click on `[dismiss]` |
+| `proposal.dismiss` | `id` (default: the proposal whose embed or control is the current element, else the note shown): the service (`draft.proposal.dismiss`) takes an older proposal's embed line out of the note or the draft of it, marks it dismissed and puts it in Trash, all recorded as whoever runs it; any agent may dismiss any proposal | `X`, a click on `[dismiss]` |
 | `complete` | `text` ending in the token (`[[HOME-4`, `((beds`, `((plan#`, `[file::notes/`), or none for the draft's cursor; `insert=n` puts the nth into the draft (an agent's: only a draft it opened, or with `invitation=`) | `[[ (( [file::`, `Tab`, `Ctrl+Space`, `↑↓`, `Enter` |
 | `passage.select`, `comment.write`, `comment.send`, `comment.close`, `comment.reload` | `quote` (exact words), `near`; `body` (an agent's: only a comment it opened, never yours; `invitation`, `base`: an invited agent's reply); reload finds the quote again, or goes back to picking | `C`, `j k J K h l H L`, `Enter`, `Ctrl+S`, `Esc`, `Ctrl+R` |
 | `comment` | `quote`, `body` (select, write and send in one) | |

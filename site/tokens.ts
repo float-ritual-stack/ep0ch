@@ -19,8 +19,8 @@ function roles(t: Theme): Record<string, string> {
     "surface-sunk": hex(mix(ground, [0, 0, 0], 0.35)),  // a terminal or code well, below the ground
     "surface-raised": hex(t.tint.embed),                // a framed object: callout body, signature, step list
     "surface-bar": hex(c("blue")),                      // the status bar, a tile header's fill
-    "surface-select": hex(t.tint.select),               // the current chapter, a selected row
-    "surface-ruler": hex(t.tint.ruler),                 // the reading ruler: the step or line in focus
+    "surface-select": hex(t.focus.selection),               // the current chapter, a selected row
+    "surface-ruler": hex(t.focus.container),                 // the reading ruler: the step or line in focus
     "surface-agent": hex(t.tint.agent),                 // an agent's selection or row
     // Lines
     "line-frame": hex(mix(c("blue"), c("dark"), 0.25)), // tile and callout frames

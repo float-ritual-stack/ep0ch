@@ -15,15 +15,15 @@ export const surfaceBg = (role: Surface, strength: number) => { const c = surfac
 /** One of the theme's tints as a background: a selection, an agent's, the ruler, a thread, an embed, an idle row. */
 export const tint = (name: keyof Theme["tint"]) => bgRgb(theme().tint[name]);
 /** The theme's item-focus band (PIE-969): the row the cursor is on, as a background. */
-export const itemBg = () => bgRgb(theme().item.bg);
+export const itemBg = () => bgRgb(theme().focus.item.bg);
 /**
  * The one item-focus style (PIE-969): a list's selected row, its background and text. The theme's item band (white text
  * on it) while the list has the keys, on the idle tint (`idleRow` for a search's or the backlinks' rows) while it doesn't.
  * Every selectable list draws its cursor row through this; the reader's figure rows add `itemBar`'s edge marker.
  */
 export const selected = (keys = true, idle: "idle" | "idleRow" = "idle") => (keys ? itemBg() : tint(idle)) + fg(C.white);
-/** The marker at the left edge of the row the cursor is on in a reader (PIE-969): a bar in the theme's `item.bar`. */
-export const itemBar = () => fgRgb(theme().item.bar) + "▌" + RESET;
+/** The marker at the left edge of the row the cursor is on in a reader (PIE-969): a bar in the theme's `focus.item.bar`. */
+export const itemBar = () => fgRgb(theme().focus.item.bar) + theme().focus.item.glyph + RESET;
 /** A chip lighter than this (relative luminance) would be a bright patch: calm and night draw it as coloured text instead. */
 export const CHIP_MAX_LUMINANCE = 0.3;
 /**

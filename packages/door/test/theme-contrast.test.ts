@@ -145,7 +145,7 @@ describe.skipIf(!outliner)("the themes on real screens (WCAG 2 contrast)", () =>
       // What was drawn reached the bars, a selection, the reading ruler and an embed's band, not only the ground.
       const backs = new Set(text.map(p => p.bg.join()));
       const t = THEMES[name];
-      for (const c of [t.palette[1]!, t.tint.select, t.tint.ruler, t.tint.embed]) expect(backs).toContain(c.join());
+      for (const c of [t.palette[1]!, t.focus.selection, t.focus.container, t.tint.embed]) expect(backs).toContain(c.join());
       const low = text.filter(p => p.ratio < lim.min), high = text.filter(p => p.ratio > lim.max);
       const say = (ps: Pair[]) => [...new Map(ps.map(p => [`${p.fg}|${p.bg}`, `${p.ratio.toFixed(2)} ${p.fg} on ${p.bg}: ${p.where}: ${p.text}`])).values()];
       expect(say(low)).toEqual([]);
@@ -214,7 +214,7 @@ describe("the palettes themselves (every background, not only the ones these scr
       const ground = t.ground ?? VGA_RGB[0]!, e = t.external, cyan = t.palette[11]!;
       expect(contrast(e, ground), t.name).toBeGreaterThanOrEqual(4.5);
       if (t.name !== "classic") {
-        expect(contrast(e, t.tint.select), t.name).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(e, t.focus.selection), t.name).toBeGreaterThanOrEqual(4.5);
         expect(luminance(e), t.name).toBeLessThan(luminance([240, 240, 240]));
         expect(Math.max(...e), t.name).toBeLessThanOrEqual(235);
       }
