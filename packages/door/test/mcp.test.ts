@@ -1,7 +1,7 @@
 // PIE-520: the local stdio MCP server is bound to the outline the CLI can open, and serves canonical
 // ep0ch:// block resources plus read/find/links tools. Scratch service only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { usageShape } from "../src/mcp-usage";
@@ -44,6 +44,36 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     await scratch.dispose();
     for (const [k, v] of Object.entries(oldEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }, 20_000);
+
+  test("artifact upload accepts a folder over CLI and MCP writes obey the access level", async () => {
+    const folder = join(scratch.root, "built-site");
+    mkdirSync(join(folder, "assets"), { recursive: true });
+    writeFileSync(join(folder, "index.html"), "<h1>Moth garden</h1>");
+    const binary = Buffer.alloc(130_000, 255);
+    writeFileSync(join(folder, "assets", "pixel.bin"), binary);
+    const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/main.ts"), "artifact", "put", folder, "--name", "garden-site", "--ws", scratch.name], { env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe" });
+    const [output, error, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, error).toBe(0);
+    expect(JSON.parse(output).name).toBe("garden-site");
+    expect(readFileSync(join(scratch.outlines, ".artifacts/live/garden-site/assets/pixel.bin"))).toEqual(binary);
+    symlinkSync(join(folder, "index.html"), join(folder, "linked.html"));
+    const refused = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/main.ts"), "artifact", "put", folder, "--name", "garden-site", "--ws", scratch.name], { env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe" });
+    const [refusedCode, refusedError] = await Promise.all([refused.exited, new Response(refused.stderr).text(), new Response(refused.stdout).text()]);
+    expect(refusedCode).toBe(1);
+    expect(refusedError).toContain("without links");
+    expect(readFileSync(join(scratch.outlines, ".artifacts/live/garden-site/index.html"), "utf8")).toBe("<h1>Moth garden</h1>");
+    const call = async () => {
+      const lines: string[] = [];
+      await mcpCommand(["mcp"], { input: linesOf([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "artifact_put", arguments: { name: "mcp-garden", kind: "html", content: "<h1>Agent garden</h1>" } } })]), write: line => lines.push(line), err: line => lines.push(line) });
+      return JSON.parse(lines[0]!).result;
+    };
+    await board.configureMcpAccess("read");
+    expect((await call()).isError).toBe(true);
+    expect(existsSync(join(scratch.outlines, ".artifacts/live/mcp-garden"))).toBe(false);
+    await board.configureMcpAccess("full");
+    expect((await call()).isError).not.toBe(true);
+    expect(readFileSync(join(scratch.outlines, ".artifacts/live/mcp-garden/index.html"), "utf8")).toBe("<h1>Agent garden</h1>");
+  }, 30_000);
 
   test("MCP usage survives the server and reports bytes, redacted shapes and percentiles", async () => {
     await board.request("mcp.access.configure", { level: "read" });

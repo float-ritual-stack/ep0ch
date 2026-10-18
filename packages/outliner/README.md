@@ -1258,82 +1258,102 @@ out, every page is the sign-in page (dark, no script) and an API call is `401`; 
 
 #### Artifacts
 
-What claude.ai runs as an artifact runs here when its file is attached to a
-published block: download it from claude.ai, put it under a publish root, and
-give a block `[file::that/file.jsx] [publish::true]`. claude.ai downloads an
-artifact as `.html` (HTML), `.jsx` or `.tsx` (React), `.svg`, `.mermaid`, `.md`
-(documents) or its language's extension (code), and each of those is served
-above.
+An artifact is a plain folder, stored outside the outline. The main way in is a
+synced folder: each subfolder of `~/outlines/.artifacts/live/` is named for its
+artifact. Evan sets up the sync from his laptop:
 
-**Inline in a note** (PIE-793). A line of a note that is only `[artifact::path]`
-(or `artifact:: path`, floatty's form), with `[height::N]` (rows), `[size::…]`,
-`[align::…]` and `[alt::…]` beside it as an image line takes, runs the artifact
-in the note itself: no `[publish::]` or `[file::]` needed on the tailnet, and on
-a share or the public listener wherever that note is shown there. The page frames
-`/p/<id>/artifact/<line>`, which the publisher answers by reading the line again
-and serving its file as below; the frame is sandboxed (no `allow-same-origin`),
-`[height::N]` tall (`min(36rem, 75vh)` when not said), dark behind until the
-artifact draws, with its kind, its title (`[alt::]`, an HTML file's `<title>`,
-else its file's name) and an "open full page" link under it. The path is checked
-as an attachment's: a relative one is the outline's own folder
-(`~/outlines/<name>/`, a publish root whenever the host runs on this machine), so
-dropping a downloaded artifact in `~/outlines/<name>/artifacts/` and pointing at
-it works; one outside the roots, hidden, missing or climbing out with `..` is a
-card with its file's name, never its path. The door draws the line as a card that
-opens this page (`notes.address` gives it once the publisher knows where it is opened: the signed-in origin, `EP0CH_WEB_URL`, when set, else `--url`).
+```sh
+mutagen sync create ~/artifacts float-2:/home/evan/outlines/.artifacts/live
+```
 
-- **HTML** runs as authored in the sandbox; scripts and styles from CDNs such as
-  cdnjs load as they do on claude.ai.
-- **React** (`.jsx`/`.tsx`: one file whose default export is a component) is
-  bundled on the server with `Bun.build` into one script, inlined in a page that
-  mounts the component under an error boundary and loads Tailwind from its Play
-  CDN (pinned, 3.4.17), so its utility classes work without a config. The
-  artifact may import the packages claude.ai offers, pinned: `react` and
-  `react-dom` 18.3.1, `lucide-react`, `recharts`, `lodash`, `mathjs`,
-  `papaparse`, `d3` (and its `d3-*` modules), `three` (r128), `xlsx`
-  (SheetJS), `chart.js`, `plotly` (as `plotly.js-dist-min`), `tone`, `mammoth`,
-  `@tensorflow/tfjs`; and shadcn/ui from `@/components/ui/<name>` and `cn` from
-  `@/lib/utils`, which the publisher supplies as its own small versions (same
-  names, props and Tailwind look; no Radix). Versions are in
-  `ARTIFACT_PACKAGES` (`src/publish-artifacts.ts`).
-- Packages are fetched the first time an artifact needs them, with `bun add
-  --exact --ignore-scripts` into the artifact cache (`--artifact-cache`, default
-  `<outlines>/.publish/artifacts`, i.e. `~/outlines/.publish/artifacts`).
-  Compiled bundles are cached there by a hash of the source, the shims and the
-  Bun version (`builds/`, the 200 newest up to 256 MiB kept) and in memory, so
-  editing the file compiles it again and an unchanged file is served from the
-  cache. One build or fetch runs at a time, even after a build has run past its
-  60 seconds.
-- A compile error is a readable page (`422`) with the line and message, never a
-  stack trace or a path on this machine; `?view=source` shows the source. A fetch
-  that fails (offline) says so (`503`) and is tried again after 30 seconds.
-- **Compiling never runs the artifact's code.** `Bun.build` only bundles, with
-  macros off (a `with { type: "macro" }` import is the one way it would run code
-  while bundling; it is refused). A plugin decides every import the artifact
-  makes: a pinned package, a shadcn/ui shim, or nothing; a relative or absolute
-  path, a URL or any other package is refused with a message naming it. The
-  artifact is handed to the bundler in memory, so the build reads no file but it,
-  the shims and the package cache; a package the artifact names must be in the
-  cache itself, never in a `node_modules` above it. The bundle names no path on
-  this machine (`__dirname`, `import.meta.dir`, `module.id` and the like are
-  fixed values). The source is capped by `--max-bytes` and the bundle at 16 MiB;
-  a build is given 60 seconds.
-- **SVG** is served as `image/svg+xml`; **mermaid** is drawn by mermaid 11 from
-  jsDelivr with `securityLevel: "strict"`, and the diagram's text is escaped
-  into the page, never inserted as markup.
+Save on the laptop, reload the frame. Built sites retain their files and relative
+assets. A lone `.jsx` or `.tsx` compiles to `index.html` beside its source, using
+`publish-artifacts.ts`'s existing Bun.build compiler, pinned packages and cache
+(`~/outlines/.artifact-cache/`). The watcher compiles on saves; neither the static
+server nor a note request builds anything. Syntax errors keep the source and
+produce an HTML page explaining the error. An authored `index.html` is preserved.
+HTML, SVG, Mermaid and Markdown files are kept as given; Mermaid and Markdown
+sources are served as files, so upload a built HTML page to run a rendered version.
 
-**Storage.** Every artifact page has an opaque origin, as in claude.ai's frame,
-so `localStorage`, `sessionStorage`, IndexedDB and cookies throw a
-`SecurityError` when touched (claude.ai artifacts cannot use them either).
-claude.ai's own artifact storage API (`window.storage`) and `window.claude` do
-not exist here: an artifact that calls them fails at that call. In a React
-artifact the page shows "This artifact failed while running:" and the error in
-place of the component; an HTML artifact shows whatever it does on an uncaught
-error. State kept in React (`useState`) works and lasts until the page reloads.
+For a phone, chat, or another machine without sync:
 
-Not yet: claude.ai's `window.storage` and `window.claude.complete`, file uploads
-into an artifact from the conversation (`window.fs.readFile`), PDF artifacts,
-and packages outside the pinned set (claude.ai refuses those too).
+```sh
+ep0ch artifact put ./dist --name moth-site --ws pie --machine float-2
+ep0ch artifact put ./counter.jsx --name counter --ws pie --machine float-2
+ep0ch artifact snapshot moth-site --ws pie --machine float-2
+ep0ch artifact ls --ws pie --machine float-2
+ep0ch artifact show moth-site --ws pie --machine float-2
+ep0ch artifact versions moth-site --ws pie --machine float-2
+ep0ch artifact rm moth-site@1 --ws pie --machine float-2
+```
+
+The CLI streams a ustar archive through the outline service over its existing
+socket/SSH forward. MCP `artifact_put` accepts `{name, kind, content}` for one file
+(html, jsx, tsx, svg, mermaid, md), or `{name, files: {"index.html": "…", "assets/style.css": "…"}}`
+for a small UTF-8 site. It requires the MCP write access level. `artifact_list`
+and `artifact_versions {name}` require read access. These calls share one artifact
+root per machine; `--ws` chooses the service connection, not a separate namespace.
+Binary files go through CLI tar uploads. Puts replace the live folder; snapshot
+explicitly freezes it. Uploads and snapshots default to 64 MiB, configurable with
+`EP0CH_ARTIFACT_MAX_BYTES` on the host. Direct sync writes are ordinary filesystem
+writes; the cap is enforced when taking their snapshot.
+
+Write `[artifact::moth-site]` on its own note line for the live folder, or
+`[artifact::moth-site@1]` to pin snapshot 1. `artifact:: moth-site` also works.
+`[height::20]`, `[size::wide]`, `[align::center]` and `[alt::Moth site]` use the
+existing media layout. The note frames `<origin>/<unguessable id>/<name>/`;
+the door's card opens that same URL by Enter, mouse, or `artifact.open` (an agent
+receives the URL without opening the person's browser). Snapshots live under
+`.artifacts/snapshots/`, outside the synced tree, with a content hash and timestamp.
+Deleting one never reuses its version number. Removing the live folder leaves
+its snapshots available.
+
+The static server serves files and directory `index.html` pages, with media types,
+no directory listing, no cookies set, `nosniff`, and a CSP allowing local scripts,
+inline scripts and the pinned CDN scripts. Its own origin isolates it from notes;
+frames have no sandbox flags. Artifact URLs are unlisted bearer links, not a
+second copy of note permissions: notes only expose frames where those notes may
+appear, and someone holding the URL can open it directly. Browser storage belongs
+to the artifact origin. The server never reads an outline.
+
+For existing `[artifact::artifacts/file.jsx]` notes, run
+`ep0ch artifact import --ws <outline> --machine float-2` once per outline. It copies
+the old `artifacts/` entries into the shared store, compiles lone React files and
+records relative/absolute old paths as aliases. Original files and note text stay
+intact. Name collisions are reported rather than overwriting another artifact.
+Unimported paths no longer compile on note requests. Standalone `[file::…]`
+attachments retain their existing publisher behavior.
+
+**Deployment (deployer only, float-2).** This change uses protocol 216 (215 + 1 on
+its base); rebase and set it to main's next value when landing. No schema change.
+Run `ep0ch install --apply` on float-2 to update host and registered clients together;
+the laptop updates separately when it next uses this protocol. Then, from
+`~/projects/ep0ch` on float-2:
+
+```sh
+cp packages/outliner/systemd/ep0ch-artifacts.service ~/.config/systemd/user/
+cp packages/outliner/systemd/ep0ch-artifact-watch.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ep0ch-artifacts.service ep0ch-artifact-watch.service
+```
+
+Set `EP0CH_ARTIFACT_ORIGIN=https://artifacts.ep0ch.sh` in the outline host and each
+publisher's systemd environment, then restart those units. Point DNS for
+`artifacts.ep0ch.sh` at float-2's existing Caddy edge and add this Caddy site:
+
+```caddy
+artifacts.ep0ch.sh {
+    reverse_proxy 127.0.0.1:8796
+}
+```
+
+Validate and reload Caddy. The shipped listener is `127.0.0.1:8796`; override
+`EP0CH_ARTIFACT_HOST`/`EP0CH_ARTIFACT_PORT` for a different bind. Set
+`EP0CH_ARTIFACT_FRAME_ANCESTORS` to the space-separated publisher origins that may
+frame artifacts (the unit lists the current public, signed-in and tailnet origins).
+Import each outline's old artifacts, check a live and pinned URL, and update the
+infrastructure hub in the same deployment step. No live unit, DNS or route is
+changed by this PR. The sync command is run by Evan on his laptop.
 
 #### Before any public variant
 

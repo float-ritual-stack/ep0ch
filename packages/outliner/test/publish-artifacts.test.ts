@@ -1,5 +1,8 @@
+import { artifactResponse } from "../src/artifact-server";
+import { ArtifactStore } from "../src/artifact-store";
+import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -49,7 +52,7 @@ async function setup(options: { artifactCacheDirectory?: string | null } = {}) {
     writeFileSync(file, text);
     return file;
   };
-  return { root, workspace, store, get, write };
+  return { root, workspace, store, client, get, write, socket: paths.socket };
 }
 
 const HTML_WITH_CDN = `<!doctype html>
@@ -337,3 +340,64 @@ test("a bundle inlined in the page cannot close its script element", () => {
   expect(inlineScript('const tag = "</script><script>alert(1)</script>"; /<!--x/;'))
     .toBe('const tag = "<\\/script><script>alert(1)<\\/script>"; /<\\x21--x/;');
 });
+
+
+test("a named folder goes through the service and snapshots keep its earlier bytes", async () => {
+  const { root, store, client, get } = await setup();
+  const staticServer = Bun.serve({ port: 0, fetch: request => artifactResponse(join(root, ".artifacts"), request, "https://notes.example.test") });
+  const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
+  process.env.EP0CH_ARTIFACT_ORIGIN = staticServer.url.origin;
+  cleanups.push(() => { staticServer.stop(true); if (oldOrigin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = oldOrigin; });
+  const live = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "moth-site", files: { "index.html": '<h1>First night</h1><link rel="stylesheet" href="assets/theme.css">', "assets/theme.css": "body{color:purple}" } });
+  expect(await (await fetch(live.url!)).text()).toContain("First night");
+  const css = await fetch(new URL("assets/theme.css", live.url!));
+  expect(css.headers.get("content-type")).toContain("text/css");
+  expect(await css.text()).toBe("body{color:purple}");
+  const frozen = await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" });
+  expect(frozen.version).toBe(1);
+  await client.request({ action: "artifacts.put", name: "moth-site", files: { "index.html": "<h1>Second night</h1>" } });
+  expect(await (await fetch(live.url!)).text()).toContain("Second night");
+  expect(await (await fetch(frozen.url!)).text()).toContain("First night");
+  writeFileSync(join(root, ".artifacts/live/moth-site/index.html"), "Saved by sync");
+  expect(await (await fetch(live.url!)).text()).toBe("Saved by sync");
+  const response = await fetch(live.url!);
+  expect(response.headers.get("content-security-policy")).toContain("frame-ancestors https://notes.example.test");
+  expect(response.headers.get("set-cookie")).toBeNull();
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect((await fetch(new URL("assets/", live.url!))).status).toBe(404);
+  symlinkSync(join(root, "garden"), join(root, ".artifacts/live/moth-site/leak"));
+  expect((await fetch(new URL("leak/", live.url!))).status).toBe(404);
+  rmSync(join(root, ".artifacts/live/moth-site/leak"));
+  expect((await fetch(live.url!.replace(/\/[a-f0-9-]{36}\//, "/unknown/"))).status).toBe(404);
+  await expect(client.request({ action: "artifacts.put", name: "escape", files: { "../stolen.html": "bad" } })).rejects.toThrow("Unsafe artifact path");
+  const oldLimit = process.env.EP0CH_ARTIFACT_MAX_BYTES;
+  process.env.EP0CH_ARTIFACT_MAX_BYTES = "4";
+  try {
+    await expect(client.request({ action: "artifacts.put", name: "moth-site", files: { "index.html": "Too large" } })).rejects.toThrow("exceeds");
+    expect(await (await fetch(live.url!)).text()).toBe("Saved by sync");
+    await expect(client.request({ action: "artifacts.snapshot", name: "moth-site" })).rejects.toThrow("exceeds");
+  } finally { if (oldLimit === undefined) delete process.env.EP0CH_ARTIFACT_MAX_BYTES; else process.env.EP0CH_ARTIFACT_MAX_BYTES = oldLimit; }
+  const versions = await client.request<{ versions: { version: number; hash: string }[] }>({ action: "artifacts.versions", name: "moth-site" });
+  expect(versions.versions[0]?.hash).toMatch(/^[a-f0-9]{64}$/);
+  store.create("Moth exhibit [publish::moth-exhibit]\n[artifact::moth-site]");
+  const html = await (await get("/p/moth-exhibit?view=html")).text();
+  expect(html).toContain(`src="${live.url}"`);
+  expect(html.match(/<iframe[^>]*>/)?.[0]).not.toContain("sandbox");
+  await client.request({ action: "artifacts.rm", name: "moth-site@1" });
+  expect((await fetch(frozen.url!)).status).toBe(404);
+  expect((await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" })).version).toBe(2);
+});
+
+test("put compiles a lone React source, the watcher recompiles synced saves, and built folders stay exact", async () => {
+  const { root, client } = await setup();
+  const watcher = new ArtifactStore(root);
+  watcher.startWatcher(); cleanups.push(() => watcher.close());
+  await client.request({ action: "artifacts.put", name: "counter", files: { "counter.jsx": 'export default () => <p>First moth</p>' } }, 240_000);
+  const index = join(root, ".artifacts/live/counter/index.html");
+  expect(readFileSync(index, "utf8")).toContain("First moth");
+  writeFileSync(join(root, ".artifacts/live/counter/counter.jsx"), 'export default () => <p>Second moth</p>');
+  const end = Date.now() + 30_000;
+  while (!readFileSync(index, "utf8").includes("Second moth")) { if (Date.now() > end) throw new Error("Watcher did not compile the save"); await Bun.sleep(50); }
+  await client.request({ action: "artifacts.put", name: "built", files: { "index.html": "Authored HTML", "app.jsx": "a source file shipped beside the built page" } });
+  expect(readFileSync(join(root, ".artifacts/live/built/index.html"), "utf8")).toBe("Authored HTML");
+}, COMPILE_TIMEOUT);

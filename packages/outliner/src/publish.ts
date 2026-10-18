@@ -1,3 +1,4 @@
+import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { pageSources, SOURCES_STYLE } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -15,7 +16,7 @@ import { publishedValueWords, readPageValues } from "./publish-values";
 import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
 import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
-import { artifactKind, artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
@@ -589,13 +590,13 @@ const COMMON_HEADERS = {
   "referrer-policy": "no-referrer",
 };
 /** Pages the publisher renders itself run no script and embed nothing but images, and a note's artifacts (PIE-793) from here. */
-const RENDERED_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src * data:; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const RENDERED_CSP = `default-src 'none'; style-src 'unsafe-inline'; img-src * data:; frame-src 'self' ${process.env.EP0CH_ARTIFACT_ORIGIN ?? ''}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 /**
  * A tailnet note's page runs one script, the publisher's own marginalia reader (PIE-774), from this origin, and it
  * talks only to this origin. No inline script, no eval, nothing from elsewhere: the page's own text is Markdown with
  * authored HTML shown as text, so nothing in a note can add a script tag. Public pages keep RENDERED_CSP: no script.
  */
-const READER_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const READER_CSP = `default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src * data:; frame-src 'self' ${process.env.EP0CH_ARTIFACT_ORIGIN ?? ''}; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`;
 /** The shares and sessions pages: their forms post only to this origin, and the search box's script runs. */
 const SHARES_CSP = READER_CSP;
 /**
@@ -605,8 +606,6 @@ const SHARES_CSP = READER_CSP;
  * this publisher's index with the viewer's credentials.
  */
 const ATTACHED_HTML_CSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads";
-/** An artifact line's page that can't run (a compile error, no compiler): the publisher's own words, framed in its note (PIE-793). */
-const ARTIFACT_FAILED_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox";
 
 function respond(body: string, contentType: string, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(body, { status, headers: { ...COMMON_HEADERS, "content-type": contentType, ...extra } });
@@ -1881,38 +1880,16 @@ export class Publisher {
     return failed(body, status);
   }
 
-  /**
-   * The artifact line `line` of note `blockId` names (`/p/<id>/artifact/<line>`, PIE-793), run as its page, when a page
-   * here shows that note (serveMedia's rule: not locked; inside a share's scope; on the public listener, under a note that
-   * is public now). Its path is the note's, read again now, and checked as an attachment is (the publish roots, which hold
-   * the outline's own folder; nothing hidden; no link out); the URL never carries one.
-   */
-  private async serveArtifact(blockId: string, line: number, view: string | null, audience: PublishAudience, share?: PageShare): Promise<Response> {
-    const policy = this.requirePolicy();
-    if (policy.remoteService) return notFound();
+  // Existing note links keep their visibility checks before redirecting to the static origin.
+  private async serveArtifact(blockId: string, line: number, _view: string | null, audience: PublishAudience, share?: PageShare): Promise<Response> {
     if ((await this.lockedIds([blockId])).size) return notFound();
     if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
     if (audience === "public" && !share && !(await this.reachedFromPublic(blockId))) return notFound();
     const block = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["text"] })).blocks[0];
     const spec = block ? noteMediaLines(block.text ?? "").get(line) : undefined;
     if (!spec || spec.kind !== "artifact") return notFound();
-    const read = await this.readArtifact(spec, policy);
-    if (!read) return notFound();
-    const title = artifactTitle(spec, read.text);
-    const failed = (body: string, status: number) => renderedHtml(htmlPage(title, `<article>\n${body}</article>\n`, escapeHtml(title)), status, ARTIFACT_FAILED_CSP);
-    const sourceHref = `${share?.base ?? this.basePathFor(audience)}${artifactPagePath(blockId, line)}?view=source`;
-    return this.artifactResponse(title, read.type, read.path, read.text, view, sourceHref, failed);
-  }
-
-  /** An artifact line's file, when it may leave the machine and is a kind claude.ai runs: checked, then read through the service. */
-  private async readArtifact(spec: MediaSpec, policy: AttachmentPolicy): Promise<{ type: "html" | "react" | "svg" | "mermaid"; path: string; text: string } | null> {
-    if (!artifactKind(spec.path)) return null;
-    const check = checkAttachment(spec.path, policy);
-    if (!check.ok || (check.type !== "html" && check.type !== "react" && check.type !== "svg" && check.type !== "mermaid")) return null;
-    const contents = await this.client.request<FileContents>({ action: "files.read", path: check.path }).catch(() => null);
-    // The file read is the one checked: a file changed or swapped since (a link put in its place) is not served.
-    if (!contents || contents.absolutePath !== check.path || contents.revision.size !== String(check.size) || contents.revision.mtimeNs !== check.mtimeNs) return null;
-    return { type: check.type, path: check.path, text: contents.text };
+    const artifact = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: spec.path }).catch(() => null);
+    return artifact?.url ? Response.redirect(artifact.url, 302) : notFound();
   }
 
   private async pageSkin(blockId: string, audience: PublishAudience, index: PublishedIndex, share?: PageShare): Promise<{ css?: string; warning?: string } | undefined> {
@@ -2302,33 +2279,22 @@ export class Publisher {
       const uses = await this.usedLines(row.block.id, row.block.text ?? "", valueHost, components, { index: linked, basePath: base, pages, audience }, options.format ?? "html");
       if (uses.size) drawn.set(row.block.id, new Map([...(drawn.get(row.block.id) ?? []), ...uses]));
     }
-    // Its images: served from this page's address when the file may leave the machine, else their words. Its artifacts
-    // (PIE-793) the same, each read now for its title.
     const policy = this.policy;
     const artifacts = new Map<string, string>();
-    if (!linked.labelsOnly && policy) {
-      // Each file once a page, and only an HTML or SVG file without `[alt::]` read (for its <title>); never more than
-      // the page draws.
-      const titles = new Map<string, string | null>();
-      for (const row of rows) {
-        if (!/\[?artifact::/i.test(row.block.text ?? "")) continue;
-        for (const [line, spec] of noteMediaLines(row.block.text ?? "")) {
-          if (spec.kind !== "artifact" || artifacts.size >= MAX_PUBLISHED_COMPONENTS) continue;
-          const kind = artifactKind(spec.path), key = `${spec.path}\0${spec.alt ?? ""}`;
-          if (!titles.has(key)) {
-            const check = kind ? checkAttachment(spec.path, policy) : null;
-            const runs = !!check?.ok && (check.type === "html" || check.type === "react" || check.type === "svg" || check.type === "mermaid");
-            const read = runs && !spec.alt && (kind === "html" || kind === "svg") ? await this.readArtifact(spec, policy) : null;
-            titles.set(key, runs ? artifactTitle(spec, read?.text) : null);
-          }
-          const title = titles.get(key);
-          if (title) artifacts.set(`${row.block.id}:${line}`, title);
+    const artifactUrls = new Map<string, string>();
+    if (!linked.labelsOnly) {
+      for (const row of rows) for (const [line, spec] of noteMediaLines(row.block.text ?? "")) {
+        if (spec.kind !== "artifact" || artifacts.size >= MAX_PUBLISHED_COMPONENTS) continue;
+        const artifact = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: spec.path }).catch(() => null);
+        if (artifact?.url) {
+          artifacts.set(`${row.block.id}:${line}`, spec.alt ?? artifact.name);
+          artifactUrls.set(`${row.block.id}:${line}`, artifact.url);
         }
       }
     }
     drawNoteMedia(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), options.format ?? "html", components, drawn,
       (blockId, line, spec) => spec.kind === "artifact"
-        ? (artifacts.has(`${blockId}:${line}`) ? `${base}${artifactPagePath(blockId, line)}` : null)
+        ? (artifactUrls.get(`${blockId}:${line}`) ?? null)
         : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec));
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.

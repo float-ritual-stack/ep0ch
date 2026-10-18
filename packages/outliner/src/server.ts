@@ -1,3 +1,4 @@
+import { ArtifactStore } from "./artifact-store";
 import { moveNote } from "./note-move";
 import { isSqliteBusy } from "./sqlite-busy";
 import { OutlineSnapshots } from "./outline-snapshots";
@@ -427,6 +428,8 @@ export class OutlinerServer {
   /** Watched questions (ADR 0004): each connection's, evaluated again after changes (src/query-watches.ts). */
   readonly watches: QueryWatches;
 
+  private artifactStore?: ArtifactStore;
+
   constructor(
     readonly store: OutlinerStore,
     readonly socketPath: string,
@@ -784,6 +787,7 @@ export class OutlinerServer {
   }
 
   async close(): Promise<void> {
+    this.artifactStore?.close();
     this.stopping = true;
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
@@ -1904,6 +1908,14 @@ export class OutlinerServer {
     subscribedClient?: OutlinerClientRegistration,
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
+    if (request.action.startsWith("artifacts.")) {
+      try {
+        if (this.readOnly && !["artifacts.show", "artifacts.list", "artifacts.versions"].includes(request.action)) throw new Error("This outline is read-only.");
+        this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename));
+        const result = await this.artifactStore.request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot);
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence }; }
+    }
     request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (request.action === "site.answer" && request.sources) {
@@ -3423,6 +3435,18 @@ export class OutlinerServer {
         case "navigation.forward":
           result = this.store.navigateHistory("forward");
           break;
+        case "artifacts.put":
+        case "artifacts.show":
+        case "artifacts.snapshot":
+        case "artifacts.versions":
+        case "artifacts.rm":
+        case "artifacts.list":
+        case "artifacts.import":
+        case "artifacts.upload.begin":
+        case "artifacts.upload.chunk":
+        case "artifacts.upload.finish":
+        case "artifacts.upload.abort":
+          throw new Error("Artifact requests require asynchronous dispatch.");
         default: {
           const unsupportedAction: never = action;
           throw new Error(`Unsupported action: ${String(unsupportedAction)}`);

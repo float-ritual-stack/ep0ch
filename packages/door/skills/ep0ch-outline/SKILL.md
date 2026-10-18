@@ -603,6 +603,22 @@ declaration named like a built-in restyles it.
 If you add a new component kind, add it here and to the showcase. A component agents don't know about doesn't
 exist for them.
 
+## Artifacts stay outside notes
+
+Use `[artifact::<name>]` on its own line to frame a live artifact folder, or
+`[artifact::<name>@<n>]` for a snapshot. Upload through `ep0ch artifact put <file-or-dir>
+--name <name> --ws <outline>` (add `--machine` for its host), or MCP `artifact_put`
+with `{name, kind, content}` / `{name, files: {"index.html": "…"}}`. Put requires
+MCP write access; `artifact_list` and `artifact_versions` read. Keep the source
+out of the note: write the reference and optional `[alt::]` / `[height::]` instead.
+
+The primary input is Evan's synced `~/outlines/.artifacts/live/<name>/` on float-2.
+It serves live; lone JSX/TSX compiles on save. `ep0ch artifact snapshot <name>`
+freezes a version outside the sync tree. Names share one machine-wide store.
+Artifact URLs are unlisted bearer links on their own origin; the note's publishing
+rules decide where a frame appears. `artifact.open` gives agents the same URL.
+See the outliner README's **Artifacts** section for import, limits and deployment.
+
 ## Keys and secrets (for an extension that needs one)
 
 An extension that needs a token names it; the service hands it that one key, and only to a call that has the right.

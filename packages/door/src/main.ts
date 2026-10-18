@@ -136,6 +136,9 @@ ${BACKUP_USAGE}
 ${NOTES_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
+  ep0ch artifact put <file-or-folder> [--name <name>] [--ws <name>] [--machine <ssh-name>]
+  ep0ch artifact ls | show|versions|snapshot|rm <name> | import [--ws <name>]
+                                   live artifact folders and frozen snapshots, outside the outline
 ${SHARE_USAGE}
   ep0ch loki lease [--ttl 1h] | lease --revoke
                                    a read-only Loki URL, or end all leases; run on the publisher host over ssh
@@ -248,6 +251,7 @@ if (args[0] === "revisions") process.exit(await revisionsCommand(args));
 if (args[0] === "mcp") process.exit(await mcpCommand(args));
 if (args[0] === "new") process.exit(await newCommand(args));
 if (args[0] === "view") process.exit(await viewCommand(args));
+if (args[0] === "artifact") { const { artifactCommand } = await import("./artifact-cli"); process.exit(await artifactCommand(args)); }
 if (args[0] === "share" || args[0] === "reader") { const { shareCommand } = await import("./share-cli"); process.exit(await shareCommand(args)); }
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
 if (args[0] === "library") { const { libraryCommand } = await import("./library/cli"); process.exit(await libraryCommand(args)); }

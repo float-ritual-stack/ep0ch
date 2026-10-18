@@ -154,64 +154,39 @@ test("rendered in the service (no listener), an image is its alt text and its fi
   expect(rendered.text).toContain("*image: a luna moth* `luna-moth.png`");
 });
 
-test("an artifact line (PIE-793) runs inline: a sandboxed frame of its page from the outline's folder, titled from its file, its page sandboxed too", async () => {
-  const { store, get, workspace, elsewhere } = await setup();
+test("imported artifact paths frame their static URLs and keep files outside the outline", async () => {
+  const { store, client, get, workspace, elsewhere } = await setup();
+  const old = process.env.EP0CH_ARTIFACT_ORIGIN;
+  process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test";
+  cleanups.push(() => { if (old === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = old; });
   mkdirSync(join(workspace, "artifacts"));
   writeFileSync(join(workspace, "artifacts", "orbit-lamp.html"), "<!doctype html><title>Orbit lamp</title><canvas></canvas>");
-  writeFileSync(join(workspace, "artifacts", "tide.mermaid"), "graph LR; ebb --> flow");
-  writeFileSync(join(elsewhere, "secret.html"), "<title>Not this</title>");
-  const note = store.create([
-    "Desk toys [publish::public:desk-toys]",
-    "[artifact::artifacts/orbit-lamp.html] [height::20]",
-    "artifact:: artifacts/tide.mermaid",
-    `[artifact::${join(elsewhere, "secret.html")}]`,
-    "[artifact::artifacts/../artifacts/orbit-lamp.html]",
-  ].join("\n"));
-  const page = await get("/p/desk-toys?view=html");
-  const html = await page.text();
-  expect(page.headers.get("content-security-policy")).toContain("frame-src 'self'");
-  expect(html).toContain(`<iframe src="/p/${note.id}/artifact/1" title="Orbit lamp" sandbox="allow-scripts allow-popups`);
-  expect(html).not.toContain("allow-same-origin");
+  const imported = await client.request<{ imported: { url: string }[] }>({ action: "artifacts.import" });
+  const url = imported.imported[0]!.url;
+  const note = store.create(`Desk toys [publish::public:desk-toys]\n[artifact::artifacts/orbit-lamp.html] [height::20] [alt::Orbit lamp]\n[artifact::${join(elsewhere, "secret.html")}]`);
+  const html = await (await get("/p/desk-toys?view=html")).text();
+  expect(html).toContain(`<iframe src="${url}" title="Orbit lamp"`);
+  expect(html.match(/<iframe[^>]*>/)?.[0]).not.toContain("sandbox");
   expect(html).toContain("height:25.00rem");
-  expect(html).toContain(`<a href="/p/${note.id}/artifact/1" target="_blank" rel="noopener">open full page</a>`);
-  // Floatty's form is the same thing.
-  expect(html).toContain(`<iframe src="/p/${note.id}/artifact/2" title="tide.mermaid"`);
-  // One outside the publish roots, or climbing out with .., is a card with its words, never its path.
-  expect(html).toContain("HTML artifact</span> secret.html");
   expect(html).not.toContain(elsewhere);
-  expect(html).not.toContain(`/artifact/3"`);
-  expect(html).not.toContain(`/artifact/4"`);
-
   const frame = await get(`/p/${note.id}/artifact/1`);
-  expect(frame.status).toBe(200);
-  expect(frame.headers.get("content-security-policy")).toStartWith("sandbox allow-scripts");
-  expect(await frame.text()).toContain("<title>Orbit lamp</title>");
-  const source = await get(`/p/${note.id}/artifact/1?view=source`);
-  expect(source.headers.get("content-type")).toStartWith("text/plain");
-  const tide = await (await get(`/p/${note.id}/artifact/2`)).text();
-  expect(tide).toContain('<pre class="mermaid">graph LR; ebb --&gt; flow</pre>');
-  expect(await (await get(`/p/${note.id}/artifact/2?view=source`)).text()).toBe("graph LR; ebb --> flow");
-  for (const line of [0, 3, 4]) expect((await get(`/p/${note.id}/artifact/${line}`)).status).toBe(404);
-  // The public listener runs it, since the note is public; the Markdown links it.
-  expect((await get(`/share/p/${note.id}/artifact/1`, "public")).status).toBe(200);
-  expect(await (await get("/p/desk-toys?view=md")).text()).toContain(`*HTML artifact: Orbit lamp* ([open](/p/${note.id}/artifact/1))`);
+  expect(frame.status).toBe(302);
+  expect(frame.headers.get("location")).toBe(url);
+  expect((await get(`/p/${note.id}/artifact/2`)).status).toBe(404);
+  expect((await get(`/share/p/${note.id}/artifact/1`, "public")).status).toBe(302);
+  expect(await (await get("/p/desk-toys?view=md")).text()).toContain(`([open](${url}))`);
 });
 
 test("an artifact runs only where its note is shown: never under [publish::never], never publicly unless public", async () => {
-  const { store, get, workspace } = await setup();
-  writeFileSync(join(workspace, "lamp.html"), "<title>Lamp</title>");
-  const open = store.create("Open toys [publish::open-toys]\n[artifact::lamp.html]");
-  const locked = store.create("Locked toys [publish::never]\n[artifact::lamp.html]");
-  expect((await get(`/p/${open.id}/artifact/1`)).status).toBe(200);
+  const { store, client, get } = await setup();
+  const old = process.env.EP0CH_ARTIFACT_ORIGIN;
+  process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test";
+  cleanups.push(() => { if (old === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = old; });
+  await client.request({ action: "artifacts.put", name: "lamp", files: { "index.html": "<title>Lamp</title>" } });
+  const open = store.create("Open toys [publish::open-toys]\n[artifact::lamp]");
+  const locked = store.create("Locked toys [publish::never]\n[artifact::lamp]");
+  expect((await get(`/p/${open.id}/artifact/1`)).status).toBe(302);
   expect((await get(`/p/${locked.id}/artifact/1`)).status).toBe(404);
   expect((await get(`/share/p/${open.id}/artifact/1`, "public")).status).toBe(404);
-  // A React one this publisher can't compile (it has no artifact cache) says so in its frame: a page its note may frame.
-  writeFileSync(join(workspace, "pad.jsx"), "export default () => null;");
-  const pad = store.create("Pad [publish::pad]\n[artifact::pad.jsx]");
-  const failed = await get(`/p/${pad.id}/artifact/1`);
-  expect(failed.status).toBe(503);
-  expect(failed.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
-  expect(await failed.text()).toContain("Not compiled");
-  // An image route never runs an artifact, nor an artifact route an image.
   expect((await get(`/p/${open.id}/media/1`)).status).toBe(404);
 });

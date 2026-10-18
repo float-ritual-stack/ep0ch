@@ -857,7 +857,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "artifacts", need: "run a claude.ai artifact (a .jsx, .html, .svg or .mermaid file) from a note by pointing at it", part: "the media line's artifact kind (PIE-793, outline-core media-line.ts: [artifact::path] and floatty's artifact:: path, with [size::] [height::] [align::] [alt::]; artifactKind, artifactTitle, artifactPagePath): the publisher runs it inline in a sandboxed frame through the [file::] artifact pipeline (publish-artifacts.ts), the path checked as an attachment's (the outline's own folder is a root); renderDoc draws it as a card (src/artifacts.ts reads its title through files.read); artifact.open opens its page (notes.address's page)", files: "outline-core/src/media-line.ts, src/artifacts.ts, src/doc.ts, src/surface/note.ts, outliner/src/publish-media.ts, outliner/src/publish.ts",
+    key: "artifacts", need: "open a live artifact folder or a frozen snapshot without pasting source into notes", part: "the media line and NoteSurface artifact card; artifact.open asks artifacts.show for the same static URL the publisher frames; put and the watcher reuse publish-artifacts.ts", files: "outline-core/src/artifacts.ts, src/artifacts.ts, src/doc.ts, src/surface/note.ts, outliner/src/artifact-store.ts, outliner/src/artifact-server.ts, outliner/src/publish-media.ts",
     aside: "[ ] to a card, then ⏎, or a click on it or its [open ↗]: it opens running in the browser, on the note's web page · an agent: images lists them (kind artifact), artifact.open n=1 gives the address · + - and ← → size and place it as an image's (its frame on the web page) · no script runs in the terminal",
     stage(n, show) {
       const r = new ReaderPane();

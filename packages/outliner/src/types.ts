@@ -1934,6 +1934,7 @@ export interface ComputedExecutionResult {
 export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string };
 
 export type OutlinerRequestAction =
+  | ({ id: string } & import("@ep0ch/outline-core/artifacts").ArtifactRequest)
   | { id: string; action: "properties.preview"; text: string }
   | { id: string; action: "properties.inventory"; key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }
   | { id: string; action: "ping" }
