@@ -499,6 +499,9 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "paste", text: 'tile.open kind=query query="#seeds"' });
     expect((app as any).bar.describe().rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query query=#seeds" });
     press({ kind: "esc" });
+    expect((app as any).bar.describe().query).toBe("");
+    press({ kind: "esc" });
+    expect((app as any).bar).toBeNull();
     if (S().focus === "stage") press({ kind: "esc" });
   }, 30_000);
 

@@ -4,7 +4,7 @@
 //
 // It is a list picker (src/surface/picker.ts) with its line typed above the list, held by the App over whatever
 // screen is shown and the drawer, as the drawer is: it takes every key while it's open (the person is busy), and
-// esc or a click outside puts it away. What it lists is its sources' (src/bar/source.ts): with nothing typed, the
+// esc clears text, then closes an empty line; a click outside puts it away. What it lists is its sources' (src/bar/source.ts): with nothing typed, the
 // tiles and then what changed; typed, every source that answers in the main list, each under its heading; after a
 // prefix (`%` `/` `>` `+` `@`, an extension's) or alt+← alt+→, one source; tab fills the line with the lit row's words. A pick is the `bar.pick` action (⏎, a double click;
 // alt+⏎ or an alt-click is the alternate), which hands the row back to its source.
@@ -15,7 +15,9 @@ import { Canvas, type Rect } from "../canvas";
 import type { Ctx } from "../app";
 import type { Msg } from "../board";
 import { ListPicker, pickRow } from "../surface/picker";
-import { LineInput } from "../surface/line";
+import { Draft } from "../edit";
+import { editorLineKey } from "../surface/editor";
+import { Gesture, rowsOf, wordAt } from "../surface/selection";
 import { NoteSurface, draftPreview, type SurfaceHost } from "../surface/note";
 import { keyCaption } from "../surface/actions";
 import { MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
@@ -45,7 +47,8 @@ export function barRect(cols: number, rows: number): Rect {
 export class PowerBar {
   /** The source it's scoped to, or null: the main list. */
   scope: string | null;
-  readonly input: LineInput;
+  readonly input: Draft;
+  private readonly gesture = new Gesture();
   private readonly picker: ListPicker<BarItem, PowerBar>;
   items: BarItem[] = [];
   /** Each source's rows for the last query asked, and the sources still answering. */
@@ -79,10 +82,9 @@ export class PowerBar {
     this.quick = !!o.quick;
     this.scope = o.scope ? barSource(o.scope)?.id ?? null : null;
     // The query is plain words for every source (the service's search, a filter over rows): no outline-text completion.
-    this.input = new LineInput(o.query ?? "", false, { complete: false });
+    this.input = new Draft("power-bar", 0, o.query ?? "");
     this.picker = new ListPicker<BarItem, PowerBar>({
-      name: "power bar", items: () => this.items, input: this.input,
-      typed: () => this.refresh(),
+      name: "power bar", items: () => this.items,
       heading: (it, _i, w) => (it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
       row: (it, _i, on, w) => [this.rowText(it, on, w)],
       // ⏎ and a double click (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
@@ -131,11 +133,7 @@ export class PowerBar {
       return true;
     }
     if (k.kind === "tab" || k.kind === "backtab") {
-      const it = this.items[this.picker.sel];
-      if (k.kind === "tab" && it) {
-        const text = it.row.fill ?? it.row.label;
-        if (text !== this.input.text) { this.input.text = text; this.input.cursor = [...text].length; this.refresh(); }
-      }
+      if (k.kind === "tab") void this.host.dispatch.press("bar.edit", { op: "complete" });
       return true;
     }
     if (k.kind === "backspace" && !this.input.text && this.scope) { this.setScope(null); return true; }
@@ -144,15 +142,81 @@ export class PowerBar {
       if (s) { this.setScope(s.id); return true; }
     }
     if (k.kind === "alt-enter") { if (this.items.length) this.pick(this.picker.sel + 1, true); return true; }
-    return false;
+    if (k.kind === "char" && k.ctrl && ["u", "w", "x", "z"].includes(k.ch) && !k.shift) {
+      void this.host.dispatch.press("bar.edit", { op: k.ch === "u" ? "clear" : k.ch === "w" ? "delete-word" : k.ch === "x" ? "cut" : "undo" });
+      return true;
+    }
+    if (k.kind === "paste") { void this.host.dispatch.press("bar.edit", { op: "paste", text: k.text }); return true; }
+    const before = this.query;
+    const took = editorLineKey(this.input, k, text => this.host.ctx.copy?.(text));
+    if (this.query !== before) this.refresh();
+    return took;
   }
+
+  edit(op: string, o: { text?: string; from?: number; to?: number } = {}, clipboard = true) {
+    if (op === "select" || o.from !== undefined || o.to !== undefined) { this.input.place(0, o.from ?? 0); this.input.place(0, o.to ?? this.query.length, true); }
+    if (op === "complete") this.complete();
+    else if (op === "clear") this.clear();
+    else if (op !== "select") {
+      const k: Key = op === "paste" ? { kind: "paste", text: o.text ?? "" } : { kind: "char", ctrl: true, ch: op === "cut" ? "x" : op === "delete-word" ? "w" : "z" };
+      editorLineKey(this.input, k, text => { if (clipboard) this.host.ctx.copy?.(text); });
+      this.refresh();
+    }
+    this.host.ctx.redraw();
+  }
+
+  complete() {
+    const it = this.items[this.picker.sel];
+    if (!it) return;
+    const typed = this.query;
+    const fills = this.items.map(it => it.row.fill ?? it.row.label).filter(text => text.startsWith(typed));
+    let prefix = fills[0] ?? "";
+    for (const fill of fills.slice(1)) {
+      const a = [...prefix], b = [...fill];
+      let i = 0;
+      while (i < a.length && a[i] === b[i]) i++;
+      prefix = a.slice(0, i).join("");
+    }
+    const lit = it.row.fill ?? it.row.label;
+    const extendsTyped = (text: string) => text.startsWith(typed) && text.length > typed.length;
+    // A lone long title advances a word at a time; multiple rows can agree on a longer prefix.
+    const fill = fills.length > 1 && extendsTyped(prefix) ? prefix : lit.startsWith(typed)
+      ? typed + (lit.slice(typed.length).match(/^\s*\S+\s*/)?.[0] ?? "") : lit;
+    if (fill === typed) return;
+    const start = fill.startsWith(typed) ? typed.length : 0;
+    this.input.splice(0, typed.length, fill, {}, undefined, { start, end: fill.length });
+    this.refresh();
+  }
+
+  clear() { this.input.splice(0, this.query.length, ""); this.refresh(); }
 
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {
     const was = this.picker.sel;
+    if (k.kind === "esc" && this.query) { void this.host.dispatch.press("bar.edit", { op: "clear" }); return; }
     if (k.kind === "mouse") {
       const r = this.rect;
       if (!r) return;
+      const x = k.x - r.col - 3, y = k.y - r.row - 2;
+      if ((k.action === "down" && y === 0 && x >= 0 && x < Math.max(10, r.cols - 32)) || this.gesture.pressed) {
+        const d = this.input;
+        const select = (from: number, to = from) => { void this.host.dispatch.press("bar.edit", { op: "select", from, to }); };
+        if (k.action === "down") {
+          const n = this.gesture.press(k.x, k.y), p = d.posAt(x, 0);
+          select(p.col);
+          if (n > 1) {
+            const cs = [...d.text], col = [...d.text.slice(0, d.col)].length;
+            const selection = wordAt(rowsOf([d.text]), { row: 0, col });
+            select(n === 3 ? 0 : cs.slice(0, selection.start.col).join("").length,
+              n === 3 ? d.text.length : cs.slice(0, selection.end.col + 1).join("").length);
+          }
+        } else if (k.action === "drag" && this.gesture.drag(k.x, k.y)) {
+          const p = d.posAt(x, 0); select(d.anchor?.col ?? d.col, p.col);
+        } else if (k.action === "up" && this.gesture.release(k.x, k.y).copy) {
+          const text = d.selectedText(); if (text) ctx.copy?.(text);
+        }
+        ctx.redraw(); return;
+      }
       if (k.action === "up" || k.action === "drag") return;
       this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };
@@ -180,7 +244,7 @@ export class PowerBar {
     if (background) {
       // The outline changed: the notes the preview read are read again (the old one stays drawn until the new arrives).
       for (const id of [...this.notes.keys()]) this.readNote(id, true);
-      for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
+      for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host, this.scope); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
       return this.build(true);
     }
     const n = ++this.seq, q = this.query, sources = this.sources();
@@ -201,7 +265,7 @@ export class PowerBar {
       if (!alive()) return;
       this.asking.delete(s.id); this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.build(); this.host.ctx.redraw();
     };
-    const ask = (s: BarSource) => { try { const r = s.rows(q, this.host); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
+    const ask = (s: BarSource) => { try { const r = s.rows(q, this.host, this.scope); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
     const later = sources.filter(s => s.asks);
     for (const s of sources) { if (s.asks) this.asking.add(s.id); else { this.asking.add(s.id); ask(s); } }
     this.build();
@@ -272,7 +336,7 @@ export class PowerBar {
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
     const count = [`${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
-    const line = paint("|14› ") + this.input.show(Math.max(10, w - 30)) + paint(` |08${busy || count}`);
+    const line = paint("|14› ") + this.input.render(Math.max(10, w - 30), 1)[0] + paint(` |08${busy || count}`);
     const head = [tabs, line, fg(C.blue) + "─".repeat(w) + RESET];
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
@@ -281,7 +345,7 @@ export class PowerBar {
     const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
     return {
       rect, title: " power bar ",
-      foot: "↑↓ pick · ⏎ go · alt+⏎ zoom or new detail · ⇥ complete · alt+←→ scope · esc",
+      foot: "esc clears / empty closes · ^U clear · ↑↓ pick · ⏎ go · ⇥ complete · alt+←→ scope",
       head, ...(tail.length ? { tail } : {}),
       preview,
     };

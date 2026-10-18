@@ -70,9 +70,29 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       try { return await b.pickRow(at, !!alt, actor); } catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
     },
   }),
+  "bar.edit": def({
+    summary: "edit the power bar's shared line: clear, complete, paste, select, cut, delete-word or undo. An agent edits an unseen line supplied by query= and scope=",
+    keys: "esc with text, ctrl+u, tab, paste, shift+arrows, drag, double click, ctrl+x, ctrl+w, ctrl+z",
+    touches: "nothing", replay: "safe",
+    args: {
+      op: { type: "string", about: "clear, complete, paste, select, cut, delete-word or undo" },
+      text: { type: "string", optional: true, about: "text to paste" },
+      from: { type: "number", optional: true, about: "selection start, zero-based UTF-16 offset" },
+      to: { type: "number", optional: true, about: "selection end, zero-based UTF-16 offset" },
+      query: { type: "string", optional: true, about: "an agent's own line" },
+      scope: { type: "string", optional: true, about: "an agent's own scope" },
+    },
+    async run({ op, text, from, to, query, scope }, { on }, actor: Actor) {
+      if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
+      const b = actor.kind === "agent" ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();
+      if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
+      try { b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
+      finally { if (actor.kind === "agent") b.close(); }
+    },
+  }),
   "bar.close": def({
     summary: "put the power bar away, nothing picked. The person's: an agent never closes the bar the person has open",
-    keys: "esc, a click outside it",
+    keys: "esc on an empty line, a click outside it",
     touches: "nothing", replay: "safe",
     person: "the power bar is the person's while it's open; an agent lists and picks with its own (bar.open, bar.pick)",
     args: {},

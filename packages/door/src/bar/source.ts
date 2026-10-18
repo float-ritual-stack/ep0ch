@@ -76,7 +76,7 @@ export interface BarSource {
   /** The door's own, or the extension's id. */
   by: string;
   /** Rows for `query` (the prefix taken off). An answer that needs the service is a promise; the bar shows `…` meanwhile. */
-  rows(query: string, host: BarHost): BarRow[] | Promise<BarRow[]>;
+  rows(query: string, host: BarHost, scope: string | null): BarRow[] | Promise<BarRow[]>;
   /**
    * Asked once its rows came (the service's search, Jev re-ordering the same hits after a pause): the rows again with
    * a word for the bar's line (`jev ranked`), or null to keep them. The lit row stays lit.
