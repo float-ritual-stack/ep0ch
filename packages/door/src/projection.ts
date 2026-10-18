@@ -413,6 +413,11 @@ interface Entry { read: ResourceProjectionRead | null; failed: boolean; at: numb
 const cacheBy = new WeakMap<object, Map<string, Entry>>();
 const caches = new Set<WeakRef<Map<string, Entry>>>();
 
+/** A printed reader must not mistake a quiet spell for a projection's first result. */
+export function projectionsPending(board: object): boolean {
+  return [...(cacheBy.get(board)?.values() ?? [])].some(e => e.asking || e.read?.projections.some(p => p.fetching));
+}
+
 // Resource changes (`resource-catalog` events) have their own clock: they aren't outline changes.
 let rtick = 0, rAllAt = 0, rAnyAt = 0;
 const rChangedAt = new Map<string, number>();

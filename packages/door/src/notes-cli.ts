@@ -30,6 +30,7 @@ import { forwardTo } from "./machine";
 import { readMissing } from "./outlines";
 import { sh } from "./setup/links";
 import { summarySegments } from "./props";
+import { projectionsPending, resourceChanged } from "./projection";
 import { previewTitle, SocketBoard, type IndexBlock } from "./socket";
 import { readState } from "./state";
 import { MARKS, TAGS, visible } from "./style";
@@ -447,7 +448,7 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
       // The figures' answers, then a quiet spell for what else the reader reads (link titles, embeds, steps).
       await liveSettled(Math.max(0, end - Date.now()));
       await Bun.sleep(settle.quiet);
-      if (!arrived) break;
+      if (!arrived && !projectionsPending(board)) break;
       surface.render(width, tall, host);
     }
     // The last draw while the connection is still this outline's.
@@ -523,6 +524,9 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
   try {
     // The person's theme, as their door draws in it (EP0CH_THEME, else the one last chosen).
     if (!source) setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
+    if (!source && !site) board.subscribe(e => {
+      if (e.domain === "resource-catalog") resourceChanged(e.resourceId ?? null, e.resourceId ? undefined : e.blockId);
+    });
     let code = 0, shown = 0;
     const named = await resolveNotes(board, ids);
     for (const [at, id] of ids.entries()) {
