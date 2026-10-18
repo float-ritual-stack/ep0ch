@@ -20,7 +20,7 @@ import { dirname } from "node:path";
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
 import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
-import { parseEnvFile } from "./backup/config";
+import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { CAP_KEY, capSettings, MATRIX_DAYS, readMcpAccessFiles, type McpAccessFiles } from "@ep0ch/outliner/mcp-access-files";
 import { LEVELS, levelFor, mcpEnvFile, pathCapEntry, STDIO_SUBJECT, type McpCaller } from "./mcp-writes";
 import { readUsage, usageDir, type Usage } from "./mcp-usage";
@@ -125,7 +125,7 @@ export function buildMatrix(input: MatrixInput): AccessMatrix {
   for (const entry of input.capSpec.split(",")) {
     const [who = ""] = entry.split("=");
     const persona = who.trim().split("@")[0];
-    if (persona && /=/.test(entry)) { const c = seen(persona); c.via = "path"; personaOf.set(c.name.toLowerCase(), c.name); }
+    if (persona) { const c = seen(persona); c.via = "path"; personaOf.set(c.name.toLowerCase(), c.name); }
   }
   for (const row of recent) {
     const who = callerOfActor(row.actor), c = seen(who.name);
@@ -139,7 +139,8 @@ export function buildMatrix(input: MatrixInput): AccessMatrix {
   const cells = list.map(caller => outlines.map((g): MatrixCell => {
     const where = addrOf(g);
     const capOf = caller.via === "path" ? pathCapEntry(input.capSpec, personaOf.get(caller.name.toLowerCase()) ?? caller.name) : null;
-    const cap = capOf ? capOf(where) : null;
+    const parsedCap = capOf ? capOf(where) : null;
+    const cap = parsedCap ? { level: parsedCap.level, entry: parsedCap.entry } : null;
     const status = { level: g.level, ...(g.owner ? { owner: g.owner } : {}) };
     // Every principal the caller came in as; the highest is what it can do (the outline's owner is `full` in its own).
     const asked = (caller.principals.length ? caller.principals : [undefined]).map(p => {
@@ -154,17 +155,17 @@ export function buildMatrix(input: MatrixInput): AccessMatrix {
     const last = mine.reduce<string | null>((a, r) => !a || r.time > a ? r.time : a, null);
     const limitedBy = LEVELS.indexOf(level) > LEVELS.indexOf(g.level) ? "owner" : cap && LEVELS.indexOf(cap.level) < LEVELS.indexOf(g.level) ? "cap" : "grant";
     return { caller: caller.name, outline: g.outline, machine: g.machine, level, grant: g.level, cap, limitedBy, usage: usageHere ? { calls: mine.length, lastCall: last } : null,
-      why: whyOf(caller, g, level, cap) };
+      why: whyOf(caller, g, level, cap, parsedCap?.invalid) };
   }));
   return { callers: list, outlines, cells, localMachine: input.localMachine, readFrom: input.readFrom ?? input.localMachine, caps: { file: input.capFile, from: input.capFrom }, usage: { dir: input.usageDir, days: MATRIX_DAYS } };
 }
 
-function whyOf(caller: MatrixCaller, g: Grant, level: McpAccessLevel, cap: MatrixCell["cap"]): string {
+function whyOf(caller: MatrixCaller, g: Grant, level: McpAccessLevel, cap: MatrixCell["cap"], invalid = false): string {
   const o = `${g.outline}@${g.machine}`;
   if (g.error) return `${o} could not be read (${g.error}): nothing is assumed`;
   const grant = g.level === "none" ? `${o} has no MCP access set (it is none)` : `${o} allows ${g.level}${g.yolo ? " (the grant; yolo is on, so agents act as full for now)" : ""}`;
   if (!cap) return level === g.level ? `${grant}; ${caller.name} comes in as a client and is not capped` : `${grant}; ${caller.name} is the outline's owner, so it has ${level}`;
-  const capSays = cap.entry ? `EP0CH_MCP_PATH_ACCESS has ${cap.entry}=${cap.level}` : `no entry names it, so the default cap is propose`;
+  const capSays = invalid ? `EP0CH_MCP_PATH_ACCESS has an invalid entry for ${cap.entry}; access is none (fail closed)` : cap.entry ? `EP0CH_MCP_PATH_ACCESS has ${cap.entry}=${cap.level}` : `no entry names it, so the default cap is propose`;
   if (LEVELS.indexOf(cap.level) < LEVELS.indexOf(g.level)) return `${grant}; ${caller.name} is capped at ${cap.level} on its named path (${capSays})`;
   return `${grant}; ${caller.name}'s cap is ${cap.level === g.level ? "the same" : `${cap.level}, higher`} (${capSays}), so the outline's level is what it gets`;
 }

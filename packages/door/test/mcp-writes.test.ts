@@ -866,7 +866,7 @@ describe("personas: who a connection writes as", () => {
     expect([cap({ outline: "gurgle", machine: "float-2" }), cap({ outline: "float-hub", machine: "laptop" }), cap({ outline: "float-hub", machine: "box-c" }), cap({ outline: "pie", machine: "float-2" }), cap()])
       .toEqual(["full", "read", "propose", "propose", "propose"]);
     expect(pathCap("warp=none", "warp")({ outline: "pie", machine: "float-2" })).toBe("none");
-    expect(pathCap("bad=sideways", "bad")()).toBe("propose");
+    expect(pathCap("bad=sideways", "bad")()).toBe("none");
     // A stdio client names itself: the registered-name list is the gateway's, for OAuth clients.
     expect(actorOf({ sub: STDIO_SUBJECT, clientId: "qFictionalDcr01" }, { EP0CH_MCP_CLIENT_NAMES: "qFictionalDcr01=chatgpt" }, "box-a").actorId).toBe("mcp:qFictionalDcr01@box-a");
     const home = scratchDir("ep0ch-persona-");

@@ -58,6 +58,29 @@ describe.skipIf(!outliner)("the access view reads the gateway's machine (PIE-103
     return { out, err, code };
   }
 
+  test.each([
+    ['EP0CH_MCP_PATH_ACCESS = "gpty=read"', "read"],
+    ['EP0CH_MCP_PATH_ACCESS="gpty=read" ', "read"],
+    ['EP0CH_MCP_PATH_ACCESS=gpty=typo', "none"],
+    ['EP0CH_MCP_PATH_ACCESS=gpty', "none"],
+    ['EP0CH_MCP_PATH_ACCESS=', null],
+  ] satisfies Array<[string, "read" | "none" | null]>)("the matrix explains the file's cap: %s", async (line, level) => {
+    const file = join(far.config, "ep0ch/mcp.env");
+    writeFileSync(file, line + "\n");
+    try {
+      const r = await ep0ch(["mcp", "access", "--matrix", "--json", "--machine", "far-box"]);
+      expect(r.code).toBe(0);
+      const m = JSON.parse(r.out) as ReturnType<typeof buildMatrix>;
+      expect(m.caps.from).toBe("file");
+      if (level !== null) {
+        const bot = m.callers.findIndex(c => c.name === "gpty");
+        expect(bot).toBeGreaterThanOrEqual(0);
+        expect(m.cells[bot]![0]!.cap?.level).toBe(level);
+        if (level === "none") expect(m.cells[bot]![0]!.why).toContain("invalid");
+      }
+    } finally { writeFileSync(file, "EP0CH_MCP_PATH_ACCESS=far-bot=read\n"); }
+  }, 90_000);
+
   test("--machine: the caps and the usage are that machine's, and the matrix says which it read", async () => {
     const r = await ep0ch(["mcp", "access", "--matrix", "--json", "--machine", "far-box"]);
     expect(r.err).toBe("");

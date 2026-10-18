@@ -4,6 +4,7 @@
 // install`" line is the person's, said and left alone. restic and the secrets are the person's to add: install says
 // the commands. Gathering is read-only and needs no network: the units, the settings, `with-secrets --list` (names,
 // never values), and the job's own state and alert.
+import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,7 +12,7 @@ import type { Platform } from "../setup/model";
 import { type Alert, type BackupState, readAlert, readBackupState } from "./alert";
 import { plainReason } from "./plain";
 import { verdict } from "./verdict";
-import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machineNameOf, parseEnvFile } from "./config";
+import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machineNameOf } from "./config";
 
 export const UNIT_MARK = "Written by `ep0ch install`";
 export const SYSTEMD_UNITS = ["ep0ch-backup.service", "ep0ch-backup.timer"] as const;

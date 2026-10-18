@@ -18,6 +18,7 @@
 //                          It is also where a snapshot goes when the repository is out of reach (backup/relay.ts)
 //
 // Secrets never pass through here: restic gets them from `with-secrets <groups> --`, so they reach only restic.
+import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
@@ -64,16 +65,6 @@ export interface BackupConfig {
 
 /** The settings file: `$XDG_CONFIG_HOME/ep0ch/backup.env`. */
 export const configFileOf = (env: Env) => join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config"), "ep0ch", "backup.env");
-
-/** KEY=value lines (quotes taken off, # comments skipped). */
-export function parseEnvFile(text: string): Env {
-  const out: Env = {};
-  for (const line of text.split("\n")) {
-    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-    if (m && !line.trimStart().startsWith("#")) out[m[1]!] = m[2]!.replace(/^(["'])(.*)\1$/, "$2");
-  }
-  return out;
-}
 
 /** A machine's name as the backups say it: a short host name, lowercase. */
 export const machineNameOf = (host: string) => host.split(".")[0]!.toLowerCase().replace(/[^a-z0-9-]/g, "-");
