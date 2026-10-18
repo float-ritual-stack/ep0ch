@@ -209,10 +209,15 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
   test("edit (PIE-626): completion on every line: a property's value and a filter's words, through act, from the same completer", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "edit" }, as: "test-agent" })).toEqual({ section: SECTIONS.findIndex(s => s.key === "edit") + 1, key: "edit" });
+    screen();
     // The property panel's value for [heading::]: the schemas' values with this outline's own plot style among them.
     const value = await app.act({ action: "complete", args: { text: "pl", key: "heading" }, as: "test-agent" }) as any;
     expect(value).toMatchObject({ kind: "filter-value", query: "pl" });
     expect(value.items.map((i: any) => i.insertion)).toContain("plot");
+    const ready = await app.act({ action: "complete", args: { text: "::graph-meter" }, as: "test-agent" }) as any;
+    expect(ready.items[0].insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
+    const short = await app.act({ action: "complete", args: { text: "## Calls ::pl" }, as: "test-agent" }) as any;
+    expect(short.items[0].insertion).toBe("[heading::plot]");
     // A key in a draft: the same list [head offers while typing.
     const key = await app.act({ action: "complete", args: { text: "[heading-p" }, as: "test-agent" }) as any;
     expect(key.items.map((i: any) => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);

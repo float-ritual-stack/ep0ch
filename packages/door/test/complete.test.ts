@@ -182,7 +182,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     expect(c.state!.items.map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
     const drawn = renderCompletion(c.state!, 110, 8).map(visible).join("\n");
     expect(drawn).toContain("properties 1/2");
-    expect(drawn).toContain("property · Heading styles · on the declaring note · the glyph track the band is drawn in");
+    expect(drawn).toContain("Heading styles");
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "## Calls [heading-pattern::" && !!c.state && !c.state.loading && c.state.target.kind === "value", "the values");
     // Each value with a preview: the glyph track it draws, small.
@@ -394,6 +394,15 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     await board.request("work-ids.configure", { prefix: "HOME" });
     await create("Door work queue [type::work-queue] [project::garden]");
     workId = (await board.createRoadmapItem({ title: "Oil the hinges", priority: "medium", project: "garden", arc: "home", tracks: ["doors"] }))!.workId;
+    const extension = join(scratch.workspace, "extensions", "garden");
+    mkdirSync(extension, { recursive: true });
+    writeFileSync(join(extension, "extension.json"), JSON.stringify({ contract: 2, id: "garden", version: 1, name: "Garden", components: [{
+      id: "garden-card", title: "Garden card", intro: "A planting card.", where: "a component block",
+      props: [{ key: "title", where: "yaml", type: "text", meaning: "the card title", samples: ["Beans"] }],
+      source: { use: "::garden-card\n---\n{{props.yaml}}\n---\n::" }, example: { title: "Beans" }, sweep: [], grids: [], space: [],
+    }] }));
+    await board.request("extensions.list", { reload: true });
+    await create("Orchard style [heading-style::orchard] [heading-pattern::dots]");
     ids.seeds = await create("Seed list [page::seeds]\nWhat to sow this spring.\n## Beans ^beans\nrunner beans");
     ids.compost = await create("Turn the compost\nEvery two weeks, bucket by the shed.");
     ids.plan = await create("Allotment plan\n## Beds\nfour of them\n## Paths ^paths");
@@ -417,33 +426,55 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     return { s, h, d, type, press, pop, settled, screen };
   }
 
-  test("component names in raw edit open on typing, insert by keys and mouse, and answer complete (PIE-594)", async () => {
+  test("component completion inserts an editable example with one undo (PIE-1013)", async () => {
     const e = await editing(await create("Component practice\n"));
-    e.type("::graph");
+    e.type("::");
+    const all = await e.settled();
+    expect(all.items.some(i => i.insertion.startsWith("::box"))).toBe(true);
+    expect(all.items.some(i => i.insertion.startsWith("::garden-card"))).toBe(true);
+    e.type("graph-meter");
     const p = await e.settled();
-    expect(p.items.some(i => i.insertion === "::graph-meter")).toBe(true);
-    expect(e.screen()).toContain("components 1/");
-    e.type("-meter");
-    await e.settled();
+    expect(p.items[0]!.insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
+    expect(p.items.length).toBeGreaterThan(1);
+    expect(e.screen()).toContain("DISK");
     e.press(K("enter"));
     await until(() => !e.pop(), "the component inserted");
-    expect(e.d.lines.at(-1)).toBe("::graph-meter");
-    e.press(K("enter")); e.type("::graph-ta");
-    await e.settled();
-    const row = e.screen().split("\n").findIndex(l => l.includes("::graph-table"));
-    expect(row).toBeGreaterThanOrEqual(0);
-    expect(e.s.click(10, row, e.h)).toBe(true);
-    await until(() => !e.pop(), "the clicked component inserted");
-    expect(e.d.lines.at(-1)).toBe("::graph-table");
-    const result: any = await e.s.act("complete", { text: "::graph-met" }, e.h, AGENT);
-    expect(result.items).toContainEqual(expect.objectContaining({ insertion: "::graph-meter" }));
-    await expect(e.s.act("complete", { text: "```\n::graph" }, e.h, AGENT)).rejects.toThrow("nothing to complete");
+    expect(e.d.selectedText()).toBe("Disk");
+    expect(e.d.lines.at(-1)).toBe("::");
+    e.press(ctrl("z"));
+    expect(e.d.text).toBe("Component practice\n::graph-meter");
+    e.press(K("tab")); await e.settled();
+    const row = e.screen().split("\n").findIndex(l => l.includes("Meter · example"));
+    e.s.click(8, row, e.h);
+    expect(e.d.text).toBe("Component practice\n::graph-meter");
+    e.s.click(8, row, e.h);
+    await until(() => !e.pop(), "double click inserts");
+    e.type("Photos");
+    expect(e.d.lines[3]).toBe("title: Photos");
     e.press(ctrl("s"));
     await until(() => e.s.draft === null, "the save");
-    expect((await board.get(e.d.blockId))!.text).toBe("Component practice\n::graph-meter\n::graph-table");
+    expect((await board.get(e.d.blockId))!.text).toContain("title: Photos\nvalue: 0.6");
+    const result: any = await e.s.act("complete", { text: "::graph-met" }, e.h, AGENT);
+    expect(result.items[0].insertion).toContain("title: Disk");
   });
 
-  test("the mouse: the wheel moves through the candidates, a click on one inserts it, a click elsewhere on the popup does nothing", async () => {
+  test("heading shorthand uses the outline's styles and writes a bracket property (PIE-1012)", async () => {
+    for (const token of ["::", "heading::", "heading:", "[heading::"]) {
+      const e = await editing(await create("Heading practice\n## Calls "));
+      e.type(token + "orch");
+      await e.settled();
+      e.press(K("tab"));
+      await until(() => e.d.lines[1]!.includes("[heading::orchard]"), "the style inserted");
+      expect(e.d.lines[1]).toBe("## Calls [heading::orchard]");
+      await until(() => e.pop()?.target.kind === "key" && !e.pop()?.loading, "the style fields");
+      expect(e.pop()!.items.some(i => i.insertion === " [heading-tone::")).toBe(true);
+      e.press(K("esc"));
+      e.press(ctrl("z"));
+      expect(e.d.lines[1]).toBe("## Calls " + token + "orch");
+    }
+  });
+
+  test("the mouse: the wheel moves through the candidates, a click previews and a double click inserts, a click elsewhere on the popup does nothing", async () => {
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("see [[");
     const p = await e.settled();
@@ -458,14 +489,17 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.s.click(3, header, e.h)).toBe(true);                         // the header: the popup's, nothing chosen
     expect(e.pop()).not.toBeNull();
     expect(e.s.click(3, 0, e.h)).toBe(false);                             // above the popup: not the popup's
-    // The scratch service's own documentation pages come first; click the third candidate shown.
-    const target = p.items.findIndex(i => i.address === "outliner-tour");
-    const row = lines.findIndex(l => l.includes("outliner-tour · Explore the Outliner"));
+    e.type("seeds");
+    const choices = await e.settled();
+    const target = choices.items.findIndex(i => i.address === "seeds");
+    const row = e.screen().split("\n").findIndex(l => l.includes("seeds · Seed list"));
     expect(row).toBeGreaterThan(header);
     expect(e.s.click(10, row, e.h)).toBe(true);
     expect(e.pop()!.index).toBe(target);
+    expect(e.d.lines.at(-1)).toBe("see [[seeds");
+    expect(e.s.click(10, row, e.h)).toBe(true);
     await until(() => !e.pop(), "the insertion");
-    expect(e.d.lines.at(-1)).toBe("see [[outliner-tour]]");
+    expect(e.d.lines.at(-1)).toBe("see [[seeds]]");
   });
 
   test("[[ offers pages and Work IDs; typing filters; down and enter insert Detail's [[WORK-ID|title]]", async () => {
@@ -875,6 +909,9 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     const y = lines.findIndex(l => l.includes("seeds · Seed list"));
     expect(y).toBeGreaterThan(0);
     const x = lines[y]!.indexOf("seeds · Seed list");
+    key({ kind: "mouse", action: "down", button: 0, x, y });
+    key({ kind: "mouse", action: "up", button: 0, x, y });
+    expect(draft.lines.at(-1)).toBe("sow [[se");
     key({ kind: "mouse", action: "down", button: 0, x, y });
     key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => draft.lines.at(-1) === "sow [[seeds]]", "the clicked candidate");

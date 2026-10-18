@@ -4,6 +4,7 @@
 // chooses (a click moves the cursor there, RowView.press; in a menu, `clickChooses`, it chooses), and puts it away unless it
 // `stays`; esc, a closing letter or a click outside puts it away. A heading row (a menu's group) chooses nothing. Put away, it has
 // `ended` (its mode stack lets it go). A line typed above the list is a LineInput.
+import { listPreview, type PickerPreview } from "../bar/list-preview";
 import type { Canvas, Rect } from "../canvas";
 import { RowView } from "../scroll";
 import { bg, C, fg, pad, RESET, selectedRow } from "../style";
@@ -11,8 +12,8 @@ import { ch, isDown, isUp, type Key } from "../term";
 import { LineInput } from "./line";
 import type { Mode } from "./modes";
 
-/** Its box, title and foot, lines above and below the list, and lines beside a list `w` wide (the search's preview). */
-export interface PickerFrame { rect: Rect; title: string; foot: string; head?: string[]; tail?: string[]; side?: { w: number; lines: string[] } }
+/** Its box, title and foot, lines above and below the list, and a preview drawn beside or below the list. */
+export interface PickerFrame { rect: Rect; title: string; foot: string; head?: string[]; tail?: string[]; preview?: PickerPreview }
 
 /** How a picker was put away: esc, one of its closing letters (q), or a click outside it. */
 export type PickerClose = "esc" | "letter" | "click";
@@ -140,6 +141,8 @@ export class ListPicker<T, H> implements Mode<H> {
     return shown.map(r => r.text);
   }
 
+  itemAt(y: number): number | null { return this.hits.find(hit => hit.y === y)?.i ?? null; }
+
   /** Drawn in its frame over the screen. */
   draw(canvas: Canvas, area: Rect) {
     const f = this.spec.frame!(area, this.items.length), r = (this.box = f.rect), w = r.cols - 2, head = f.head ?? [], tail = f.tail ?? [];
@@ -147,11 +150,9 @@ export class ListPicker<T, H> implements Mode<H> {
     canvas.box(r, fg(C.yellow), fg(C.yellow) + f.title, fg(C.dark) + f.foot);
     head.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
     const room = Math.max(0, r.rows - 2 - head.length - tail.length), y0 = r.row + 1 + head.length;
-    const side = f.side, list = this.lines(side?.w ?? w, room, y0);
-    this.listW = side?.w ?? Infinity;
-    for (let i = 0; i < (side ? room : list.length); i++) {
-      canvas.text(r.col + 1, y0 + i, side ? (list[i] ?? " ".repeat(side.w)) + fg(C.blue) + " │ " + RESET + (side.lines[i] ?? "") : list[i]!, w);
-    }
+    const drawn = listPreview(this, w, room, f.preview, y0, r.cols);
+    this.listW = drawn.listWidth;
+    drawn.lines.forEach((line, i) => canvas.text(r.col + 1, y0 + i, line, w));
     tail.forEach((l, i) => canvas.text(r.col + 1, r.row + r.rows - 1 - tail.length + i, l, w));
   }
 }

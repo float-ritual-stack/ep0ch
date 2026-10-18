@@ -539,6 +539,7 @@ if (scenario === "complete") {
   press({ kind: "mouse", action: "wheel-up", button: 0, x: 20, y: rowOf("references") });
   press({ kind: "mouse", action: "down", button: 0, x: 20, y: rowOf("Fix the gate latch") });
   press({ kind: "mouse", action: "up", button: 0, x: 20, y: rowOf("Fix the gate latch") });
+  press({ kind: "enter" });
   await Bun.sleep(500);
   type(" and ((compo");
   await snap("3-blocks", 800);
@@ -549,6 +550,21 @@ if (scenario === "complete") {
   press({ kind: "enter" }); type("[file::notes/");
   await snap("6-files", 800);
   press({ kind: "esc" }); press({ kind: "esc" }); press({ kind: "esc" });
+  const example = await board.createBlock(null, "Completion examples\n");
+  const desk = openScreen("desk") as Desk;
+  app.push(desk); desk.setCurrent(example);
+  await Bun.sleep(300);
+  ch("e"); press({ kind: "enter" }); await Bun.sleep(300);
+  press({ kind: "down" }); press({ kind: "end" }); press({ kind: "enter" }); type("::graph-meter");
+  await snap("7-component-preview", 800);
+  press({ kind: "char", ch: "w", ctrl: true }); ch("z");
+  await snap("7b-component-wide", 300);
+  press({ kind: "char", ch: "w", ctrl: true }); ch("z");
+  press({ kind: "down" }); await snap("8-variation", 300);
+  press({ kind: "enter" }); await snap("9-ready-block", 300);
+  press({ kind: "char", ch: "z", ctrl: true });
+  press({ kind: "esc" }); press({ kind: "enter" }); type("## Calls ::");
+  await snap("10-heading-short", 500);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "select") {

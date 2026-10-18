@@ -45,7 +45,7 @@ export const SPLIT_MIN_W = 30, SPLIT_MIN_H = 12;
 export interface ComposerBox {
   lines: string[];
   frame: NonNullable<Draft["frame"]> | null;
-  popup: { row: number; items: (number | null)[] } | null;
+  popup: { row: number; col?: number; items: (number | null)[] } | null;
   width: number;
 }
 
@@ -87,7 +87,7 @@ export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number
   return {
     lines,
     frame: frame && { ...frame, row: frame.row + 1, col: frame.col + 1, controls: frame.controls.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })), ...(frame.links ? { links: frame.links.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })) } : {}), ...(frame.preview ? { preview: { ...frame.preview, row: frame.preview.row + 1, placements: frame.preview.placements?.map(p => ({ ...p, row: p.row + 1, col: p.col + 1 })) } } : {}) },
-    popup: c?.drawn ? { ...c.drawn, row: c.drawn.row + 1 } : null,
+    popup: c?.drawn ? { ...c.drawn, row: c.drawn.row + 1, col: (c.drawn.col ?? 0) + 1 } : null,
     width: iw + 2,
   };
 }
@@ -100,7 +100,7 @@ export function placeBox(d: Draft, box: ComposerBox, row: number, col: number) {
   const f = box.frame;
   d.frame = f && { ...f, row: f.row + row, col: f.col + col, controls: f.controls.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })), ...(f.links ? { links: f.links.map(x => ({ ...x, row: x.row + row, from: x.from + col, to: x.to + col })) } : {}), ...(f.preview ? { preview: { ...f.preview, row: f.preview.row + row, placements: f.preview.placements?.map(p => ({ ...p, row: p.row + row, col: p.col + col })) } } : {}) };
   const c = completerOf(d);
-  if (c) c.drawn = box.popup && { ...box.popup, row: box.popup.row + row };
+  if (c) c.drawn = box.popup && { ...box.popup, row: box.popup.row + row, col: (box.popup.col ?? 0) + col };
 }
 
 /** `box`'s rows laid over `lines` (each `w` cells) from `row`, `col`: what was under it is hidden, the rest stays. */

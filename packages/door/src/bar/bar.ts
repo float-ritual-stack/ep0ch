@@ -10,7 +10,7 @@
 // alt+⏎ or an alt-click is the alternate), which hands the row back to its source.
 //
 // The preview is drawn by the readers' renderers, never one of the bar's own: a note through a note surface, Markdown
-// through `draftPreview` (renderDoc), a terminal's screen as it is. Under 90 columns it isn't drawn.
+// through `draftPreview` (renderDoc), a terminal's screen as it is. The shared list-preview places it beside or below.
 import { Canvas, type Rect } from "../canvas";
 import type { Ctx } from "../app";
 import type { Msg } from "../board";
@@ -35,8 +35,6 @@ export interface BarItem { source: BarSource; row: BarRow; heading?: string }
  * their time in the bar).
  */
 const askMs = () => { const v = Number(process.env.EP0CH_BAR_ASK_MS?.trim() || NaN); return Number.isFinite(v) && v >= 0 && v <= 10_000 ? v : 150; };
-/** Below this many columns the bar draws no preview. */
-export const PREVIEW_COLS = 90;
 
 /** Where the bar sits over a screen `cols` by `rows` (the status bar not counted). */
 export function barRect(cols: number, rows: number): Rect {
@@ -264,17 +262,15 @@ export class PowerBar {
     const line = paint("|14› ") + this.input.show(Math.max(10, w - 30)) + paint(` |08${busy || count}`);
     const head = [tabs, line, fg(C.blue) + "─".repeat(w) + RESET];
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
-    const listRoom = rect.rows - 2 - head.length - tail.length;
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
     const hint = this.scope ? barSource(this.scope)?.about ?? "" : this.query.trim() ? "nothing here matches" : "nothing open yet";
-    const side = rect.cols >= PREVIEW_COLS ? Math.floor(w * 0.46) : 0;
-    const preview = side && it ? this.previewLines(it, w - side - 3, listRoom) : side && empty ? wrap(hint, w - side - 4).map(l => dim(l)) : [];
+    const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
     return {
       rect, title: " power bar ",
       foot: "↑↓ pick · ⏎ go · alt+⏎ zoom or new detail · ⇥ scope · esc",
       head, ...(tail.length ? { tail } : {}),
-      ...(side ? { side: { w: side, lines: preview } } : {}),
+      preview,
     };
   }
 

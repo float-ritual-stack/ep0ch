@@ -364,18 +364,24 @@ export class Draft {
 
   /**
    * A chosen completion: `[start,end)` of the cursor's line becomes `text` and the cursor lands after it;
-   * `lines` first replaces other whole lines (a heading given a fragment anchor). One change, by `by`.
+   * `lines` first replaces other whole lines (a heading given a fragment anchor). `selection` names offsets in the
+   * inserted text, so typing can replace an example value. One change, by `by`.
    */
-  splice(start: number, end: number, text: string, lines: Record<number, string> = {}, by: Actor = USER) {
+  splice(start: number, end: number, text: string, lines: Record<number, string> = {}, by: Actor = USER, selection?: { start: number; end: number }) {
     this.settle();
     this.record(USER, "a change");
     const before = this.text;
     for (const [i, l] of Object.entries(lines)) if (this.lines[Number(i)] !== undefined) this.lines[Number(i)] = l;
     const line = this.line;
-    this.lines[this.row] = line.slice(0, start) + text + line.slice(end);
-    // The cursor lands after the insert: a selection from before it is let go, or the next key would type over the insert.
-    this.col = start + text.length;
-    this.anchor = null; this.goal = null;
+    const row = this.row, head = line.slice(0, start);
+    this.lines.splice(row, 1, ...(head + text + line.slice(end)).split("\n"));
+    const position = (offset: number) => {
+      const parts = (head + text.slice(0, offset)).split("\n");
+      return { row: row + parts.length - 1, col: parts.at(-1)!.length };
+    };
+    const cursor = position(selection?.end ?? text.length);
+    this.row = cursor.row; this.col = cursor.col;
+    this.anchor = selection ? position(selection.start) : null; this.goal = null;
     this.discardArmed = false;
     this.note = "";
     if (this.text !== before) this.wrote(by, "the insert");
