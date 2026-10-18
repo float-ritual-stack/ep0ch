@@ -9,7 +9,7 @@ import { outlinerUriOf } from './references'
 
 /** One drawn piece of a line: prose with its inline style, or a reference to press. */
 export type LinePart =
-  | { text: string; style?: 'bold' | 'italic' | 'bold-italic' | 'code' }
+  | { text: string; style?: 'bold' | 'italic' | 'bold-italic' | 'code' | 'dim' }
   | { ref: string; label: string; external?: true }
 
 export type ReplyBlock =
@@ -25,8 +25,8 @@ const OPEN = '\uE000'
 const CLOSE = '\uE001'
 const SLOT = /\uE000(\d+)\uE001/g
 
-type Ref = { ref: string; label: string; external?: true }
-type Style = 'bold' | 'italic' | 'bold-italic' | 'code'
+type Ref = { ref: string; label: string; external?: true; bare?: true }
+type Style = 'bold' | 'italic' | 'bold-italic' | 'code' | 'dim'
 
 const EMPHASIS = /`([^`\n]+)`|(\*\*\*|\*\*|__)(?=\S)(.+?)(?<=\S)\2|(?<![\w*])([*_])(?=[^\s*_])([^\n]*?[^\s*_])\4(?![\w*])/g
 
@@ -41,7 +41,9 @@ function slots(text: string, refs: Ref[], style: Style | undefined): LinePart[] 
   let last = 0
   for (const match of text.matchAll(SLOT)) {
     if (match.index > last) parts.push({ text: text.slice(last, match.index), ...(style ? { style } : {}) })
-    parts.push({ ...refs[Number(match[1])]! })
+    const ref = refs[Number(match[1])]!
+    // Link's no-hyperlink fallback repeats its address beside its children. A bare URL is already the address.
+    parts.push(ref.bare ? { text: `${ref.label} »`, style: 'dim' } : { ...ref })
     last = match.index + match[0].length
   }
   if (last < text.length) parts.push({ text: text.slice(last), ...(style ? { style } : {}) })
@@ -83,7 +85,7 @@ function inlineOf(text: string): LinePart[] | null {
     }
     // A bare address: the text stays as written, trailing punctuation outside it.
     const [, url, tail] = /^(.*?)([.,;:!?]*)$/s.exec(whole)!
-    refs.push({ ref: url!, label: url!, external: true })
+    refs.push({ ref: url!, label: url!, external: true, bare: true })
     return `${OPEN}${refs.length - 1}${CLOSE}${tail}`
   })
   return refs.length ? styled(slotted, refs) : null
@@ -96,7 +98,7 @@ function lineOf(line: string): LinePart[] | null {
   const body = inlineOf(line.slice((heading ?? bullet)?.[0].length ?? 0))
   if (!body) return null
   const parts: LinePart[] = bullet ? [{ text: `${bullet[1]}• ` }, ...body] : body
-  return heading ? parts.map(part => 'ref' in part ? part : { ...part, style: part.style === 'italic' || part.style === 'bold-italic' ? 'bold-italic' as const : 'bold' as const }) : parts
+  return heading ? parts.map(part => 'ref' in part || part.style === 'dim' ? part : { ...part, style: part.style === 'italic' || part.style === 'bold-italic' ? 'bold-italic' as const : 'bold' as const }) : parts
 }
 
 const TABLE_ROW = /^\s*\|.*\|\s*$/
