@@ -418,6 +418,21 @@ describe("the drawer", () => {
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
+  test("host.tileOf by act names the drawer's tile a process runs in, silently, and none for a stranger (PIE-1043)", async () => {
+    const d = door();
+    try {
+      d.app.push(d.screen("main menu") as any);
+      d.key(ALT("a")); d.paint();
+      const tile = (d.app.describe() as any).drawer.tiles.find((t: any) => typeof t.pid === "number");
+      expect(tile).toBeDefined();
+      const found: any = await d.app.act({ action: "host.tileOf", args: { pid: tile.pid }, as: "claude-7" });
+      expect(found).toEqual({ tile: tile.name, id: tile.id, by: "pid" });
+      expect(d.A.message).not.toContain("claude-7");     // a query: nothing said on the person's screen
+      expect(await d.app.act({ action: "host.tileOf", args: { pid: 1 }, as: "claude-7" })).toEqual({ tile: null, id: null, by: null });
+      await expect(d.app.act({ action: "host.tileOf", args: {}, as: "claude-7" })).rejects.toThrow(/pid=<pid> or port/);
+    } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
+  });
+
   test("ep0ch where names the drawer as the tile a program in it runs in", async () => {
     const d = door();
     try {

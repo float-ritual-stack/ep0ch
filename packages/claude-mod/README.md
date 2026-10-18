@@ -122,7 +122,9 @@ A click, `show` and `door_open` share one open (`openNote` in
   (a bare one drawn as its PIE-n, page name or the note's title); other URLs are left as written.
   Emphasis spanning a reference and other text stays bold or italic, and a table with a reference in a cell is drawn
   whole by the mod, its references pressable (PIE-1043). A press opens in the door `ep0ch where` finds (the one the
-  door tools use), read at each press: a stale or missing `EP0CH_CONTROL` no longer sends it to the mentions pane.
+  door tools use), read at each press: a stale or missing `EP0CH_CONTROL` no longer sends it to the mentions pane. With no `EP0CH_TILE` (a Claude that came in over ssh) the press asks the
+  door which terminal tile holds its ssh connection (`host.tileOf port=<client port in SSH_CONNECTION>`) and opens from
+  that tile, so Alt+L from the Claude tile's wire is followed; no tile found, it opens where the screen's opens land.
 - A target the Outliner cannot resolve is a toast, never a new page.
 
 ### Where this Claude is bound

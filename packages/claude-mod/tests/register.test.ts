@@ -584,6 +584,28 @@ describe('register', () => {
       })
     }
 
+    for (const [name, json, expected] of [
+      ['opens from the tile the door finds for its ssh connection', '{"tile":"claude","id":"t3","by":"port"}', ['--from', 'claude']],
+      ['opens where the screen\'s opens land, silently, when the door finds no tile', '{"tile":null,"id":null,"by":null}', []],
+    ] as const) {
+      test(`a Claude that came in over ssh (no tile variables) ${name}`, async ($, on) => {
+        const asked: string[][] = []
+        const session = sessionIn(on, WORKSPACE, run => {
+          if (run.argv[1] === 'act') { asked.push(run.argv); return result(0, json, '') }
+          return answers(FOUND)(run)
+        }, '', { ...NOT_IN_HERDR, EP0CH_CONTROL: '', SSH_CONNECTION: '10.0.0.2 51234 10.0.0.3 22' })
+        on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
+        await session.begin(() => $.session.start(START))
+        const drawn = await mountReply($, 'See [[Daily notes]].')
+        await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+        await session.clock.settle()
+        expect(asked[0]!.slice(0, 4)).toEqual(['ep0ch', 'act', 'host.tileOf', 'port=51234'])
+        const opened = session.runs.find(run => run.argv.includes('door-open'))!
+        expect(opened.argv.slice(opened.argv.indexOf('--actor') + 2)).toEqual(expected)
+        expect(session.toasts).toEqual([])
+      })
+    }
+
     test('with no door answering the toast says so, with the command that starts one', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answers(MISSING), '', { ...NOT_IN_HERDR, EP0CH_CONTROL: STALE_SOCK })
       on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
