@@ -49,7 +49,7 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
   const sync = () => { if (input.text !== seen) { seen = input.text; rows = shown(); } return rows; };
   const caps = (rs: MenuRow[]) => rs.map(r => (r.key ? ` ${keyCaption(r.key)} ` : ""));
   const capW = Math.max(0, ...caps(all).map(width));
-  const textW = Math.max(width(o.title) + 2, ...all.map(r => width(r.label) + 2), ...all.map(r => width(r.group) + 4));
+  const textW = Math.max(width(o.title) + 2, ...all.map(r => width(r.label) + 3), ...all.map(r => width(r.group) + 4));
   // A refused row says why as any refused key or click does (the focused tile's frame and the status bar, PIE-727).
   const run = (r: MenuRow, h: H) => (r.refused ? refused(h.ctx, r.refused) : void h.dispatch.press(r.action, r.args, r.tile));
   // ^W, then the key after it: a row's chord (^W x closes).
@@ -63,7 +63,7 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
       const lit = litCells(r.label, input.text);
       const label = [...r.label].map((c, j) => (lit.has(j) ? fg(C.yellow) + c + fg(on ? C.white : r.refused ? C.dark : C.grey) : c)).join("");
       const capCell = cap ? (r.refused ? fg(C.dark) : chip(C.dark)) + cap + RESET : "";
-      return [(on ? selectedRow(` ${label}`, w - width(cap)) : fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET) + capCell];
+      return [(on ? selectedRow(`  ${label}`, w - width(cap)) : fg(r.refused ? C.dark : C.grey) + pad(`  ${label}`, w - width(cap)) + RESET) + capCell];
     },
     choose: (r, _i, h) => run(r, h),
     // A row's own chord runs it (the first that isn't refused; a refused one says why), unless it's a key the list moves by.
