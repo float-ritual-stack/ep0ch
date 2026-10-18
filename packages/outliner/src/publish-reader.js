@@ -36,10 +36,18 @@
 // set as text, never as HTML.
 (() => {
   "use strict";
+  let lease = window.__ep0chReaderLease;
+  delete window.__ep0chReaderLease;
+  if (lease && window.__ep0chLeaseReader) { window.__ep0chLeaseReader(lease); return; }
+  if (lease) {
+    const style = document.createElement("style");
+    style.textContent = lease.style;
+    document.head.append(style);
+  }
   // The WebMCP polyfill the publisher serves after this script answers an extension in this tab from this page's
   // origin only (its default is any origin), and never a page that frames this one (none may: frame-ancestors 'none').
   window.__webModelContextOptions = { transport: { tabServer: { allowedOrigins: [location.origin] }, iframeServer: false } };
-  const main = document.querySelector("main[data-marginalia]");
+  const main = lease ? document.body : document.querySelector("main[data-marginalia]");
   if (!main) return;
   const api = main.dataset.marginalia;
   const page = main.dataset.page;
@@ -76,7 +84,7 @@
     for (const kid of kids) if (kid) node.append(kid);
     return node;
   };
-  const article = () => main.querySelector("article");
+  const article = () => lease ? document.body : main.querySelector("article");
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const requestId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9_-]/g, "");
   const when = (iso) => (iso || "").slice(0, 16).replace("T", " ");
@@ -138,6 +146,11 @@
       if (!quote) return null;
       return { quote, prefix: before.toString().slice(-64), suffix: after.toString().slice(0, 64), in: words.dataset.mark };
     }
+    if (lease) {
+      if (range.startContainer.parentElement?.closest(".mg-ui") || range.endContainer.parentElement?.closest(".mg-ui")) return null;
+      const start = blockOf(range.startContainer), end = blockOf(range.endContainer);
+      return { quote: selection.toString(), ...(start && start === end ? { block: start } : {}) };
+    }
     const host = article();
     if (!host || !host.contains(range.commonAncestorContainer)) return null;
     const { before, inside, after } = around(range);
@@ -162,6 +175,8 @@
   }
   /** The block a node of the page is in: the last anchor before it. */
   function blockOf(node) {
+    const enclosed = (node instanceof Element ? node : node.parentElement)?.closest("[data-block]");
+    if (enclosed) return enclosed.dataset.block;
     let found = null;
     for (const { id, node: at } of blocks()) {
       if (at === node || at.contains(node) || at.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) found = id;
@@ -208,6 +223,7 @@
   let reporting = Promise.resolve();
   /** Says what's in front of the reader now, if that changed (or `extra`, a fold, goes with it); the service's answer. */
   function report(extra) {
+    if (lease) return Promise.resolve({});
     clearTimeout(sayTimer);
     const body = JSON.stringify({ ...snapshot(), ...(extra || {}), visitor });
     const run = reporting.then(async () => {
@@ -275,9 +291,9 @@
   // ---- Writing.
 
   async function send(body) {
-    const response = await fetch(`${api}/write`, {
+    const response = await fetch(lease ? lease.url : `${api}/write`, {
       method: "POST", headers: { "content-type": "application/json" }, cache: "no-store",
-      body: JSON.stringify({ page, ...(full ? { view: "full" } : {}), ...body }),
+      body: JSON.stringify(lease ? { ...body, source: location.href } : { page, ...(full ? { view: "full" } : {}), ...body }),
     });
     let answer;
     try { answer = await response.json(); } catch { answer = { ok: false, error: `the publisher answered ${response.status}` }; }
@@ -301,7 +317,7 @@
     const range = action === "highlight" && selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
     try {
       const answer = await send({ action, ...words, requestId: requestId() });
-      if (range && article()?.contains(range.commonAncestorContainer)) markRange(range, { kind: "highlight", tone: "default", id: answer.thread || "", placed: "pending" });
+      if (!lease && range && article()?.contains(range.commonAncestorContainer)) markRange(range, { kind: "highlight", tone: "default", id: answer.thread || "", placed: "pending" });
       letGo(words);
       say(answer.said || "done");
     } catch (error) {
@@ -344,6 +360,7 @@
   // completion rules: the page sends the line being written and where the cursor is in it, nothing else.
 
   function completing(input) {
+    if (lease) return;
     const pop = el("div", { class: "mg-complete", role: "listbox", hidden: "" });
     input.after(pop);
     // `asked` is the box as the shown list was asked for it: its text and cursor. Any change makes the list stale: it
@@ -423,7 +440,7 @@
     if (!opening()) return;
     hideBar();
     const id = requestId();
-    const input = el("textarea", { class: "mg-in", placeholder: action === "ask" ? `Ask @${agent || "margin"} about this passage (or leave it blank: what does this mean?)` : words && words.in ? "Comment on these words of the comment" : words ? "Comment on this passage" : "Comment on this note" });
+    const input = el("textarea", { class: "mg-in", placeholder: lease && action === "ask" ? "Ask about this passage; #pie-request routes as it does in a note" : action === "ask" ? `Ask @${agent || "margin"} about this passage (or leave it blank: what does this mean?)` : words && words.in ? "Comment on these words of the comment" : words ? "Comment on this passage" : "Comment on this note" });
     editor = input;
     const why = el("p", { class: "why", hidden: "" });
     const close = () => { sheet.remove(); editor = null; doneWriting(); };
@@ -459,6 +476,16 @@
     }
     say("copied, with where it's from");
   }
+
+  const activateLease = (next) => {
+    lease = next;
+    choices = [{ action: "highlight", label: "Highlight" }, { action: "comment", label: "Comment" }, { action: "ask", label: "Ask" }];
+    selected = readSelection();
+    showBar();
+    say("Reader ready: select words, then Highlight, Comment or Ask");
+  };
+  window.__ep0chLeaseReader = activateLease;
+  if (lease) { activateLease(lease); return; }
 
   // ---- Threads as cards.
 
@@ -1157,6 +1184,7 @@
 
   /** Writing's over: draw what changed meanwhile, and read again at once. */
   function doneWriting() {
+    if (lease) return;
     if (behind && !busy() && !readSelection()) catchUp();
     wake();
   }
@@ -1172,6 +1200,7 @@
     const response = await fetch(`${api}/threads?${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`threads: ${response.status}`);
     const data = await response.json();
+    if (lease) return false;
     const first = version === null;
     const changed = !first && data.version !== version;
     version = data.version;
@@ -1191,7 +1220,7 @@
   }
 
   (async () => {
-    for (let failures = 0; ; ) {
+    for (let failures = 0; !lease; ) {
       if (document.hidden) await new Promise((resolve) => document.addEventListener("visibilitychange", resolve, { once: true }));
       try {
         // A busy outline changes often: at most one read a second.

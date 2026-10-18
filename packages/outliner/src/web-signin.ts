@@ -95,6 +95,7 @@ export interface SignInGateOptions {
   /** The web client, answering a request the gate let through. */
   serve: (request: Request, signedIn: SignedIn) => Promise<Response>;
   snapshot?: (request: Request) => Promise<Response>;
+  readerWrite?: (request: Request) => Promise<Response>;
   /** The issuer's keys (a local set under test); else its JWKS, from discovery. */
   keys?: JWTVerifyGetKey;
   fetch?: typeof fetch;
@@ -165,6 +166,7 @@ export class SignInGate {
     if (!origin) return withGateHeaders(new Response("Host not allowed\n", { status: 421 }));
     const url = new URL(request.url);
     const path = url.pathname;
+    if (this.options.readerWrite && /\/_reader\/[A-Za-z0-9_-]+$/.test(path)) return this.options.readerWrite(request);
     const reading = request.method === "GET" || request.method === "HEAD";
     // A write comes from a page of the origin it was sent to (CSRF), signed in or not.
     if (!reading && request.headers.get("origin") !== origin) {

@@ -114,6 +114,7 @@ function gateFor(settings: Partial<SignInSettings> = {}) {
     settings: { origin: ORIGIN, issuer, clientId: CLIENT_ID, allowedSubjects: [PERSON], home: "/pub/", ...settings },
     request: (input) => homeClient.request(input as Parameters<typeof homeClient.request>[0]),
     serve: (request, signedIn) => web.handle(request, "tailnet", signedIn),
+    readerWrite: request => web.readerWrite(request),
     log: (line) => logged.push(line),
   });
 }
@@ -382,4 +383,28 @@ test("nothing logged holds a token, a code or a cookie", () => {
   const log = logged.join("\n");
   expect(secrets.length).toBeGreaterThan(5);
   for (const secret of secrets) expect(log).not.toContain(secret);
+});
+
+
+test("a signed-in bookmarklet writes to its named outline from another origin without a session cookie", async () => {
+  const gate = gateFor();
+  const { cookie } = await signIn(gate);
+  const mint = await at(gate, "/pub/o/orchard/reader/lease", { cookie, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" });
+  expect(mint.status).toBe(200);
+  const lease = await mint.json();
+  const path = new URL(lease.writeUrl).pathname;
+  expect(lease.writeUrl).toStartWith(`${ORIGIN}/pub/o/orchard/_reader/`);
+  const headers = { origin: "https://journal.example", "content-type": "application/json" };
+  expect((await at(gate, path, { method: "OPTIONS", headers })).status).toBe(204);
+  const saved = await at(gate, path, { method: "POST", headers, body: JSON.stringify({ action: "comment", quote: "The pears are ready", body: "Harvest tomorrow #pie-request", source: "https://journal.example/pears" }) });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toEqual({ ok: true, said: "Saved to the outline" });
+  const orchard = new OutlinerClient(outlineLayout(join(root, "outlines")).socket, 15_000, "orchard");
+  const date = new Date();
+  const address = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const day = await orchard.request<{ block: Block }>({ action: "pages.resolve", address });
+  const captures = await orchard.request<Block[]>({ action: "children", parentId: day.block.id });
+  expect(captures.some(b => b.text.includes("Harvest tomorrow #pie-request"))).toBe(true);
+  expect((await at(gate, path)).status).toBe(405);
+  expect((await at(gate, "/pub/o/orchard/reader/lease", { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" })).status).toBe(401);
 });

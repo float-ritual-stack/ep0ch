@@ -49,6 +49,8 @@ import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publ
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
 import { drawAnchors, lineAddresses, placeAnchor, replacementAddresses } from "./publish-anchors";
 import { drawSteps, placeStepSentinels, STEP_MENU_STYLE, STEP_STYLE, type PublishedStep } from "./publish-steps";
+import { ReaderLeases } from "./publish-reader-lease";
+import { READER_COMPOSE_STYLE } from "./publish-reader-style";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, webmcpScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
 import { completeAt, SEARCH_STYLE, searchForm, searchNotes, searchResultsHtml, searchScriptPath, summaryWords, type SearchHost } from "./publish-search";
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, extractAnnotationBody } from "./annotations";
@@ -459,16 +461,7 @@ main.browse [hidden],.mg-ui[hidden]{display:none!important}
 .shares button,.share-new button{font:14px/1 ui-sans-serif,system-ui,sans-serif;min-height:40px;padding:0 .8rem;border-radius:.4rem;border:1px solid var(--rule);background:#222220;color:var(--fg);cursor:pointer}
 .share-new label{display:block;margin:.5rem 0}
 .share-new select,.share-new input{font:15px ui-sans-serif,system-ui,sans-serif;background:#111110;color:var(--fg);border:1px solid var(--rule);border-radius:.3rem;padding:.3rem}
-.mg-ui{font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
-.mg-ui button{font:15px/1 ui-sans-serif,system-ui,sans-serif;min-height:44px;min-width:44px;padding:0 .9rem;border-radius:.5rem;border:1px solid var(--rule);background:#222220;color:var(--fg);cursor:pointer;flex:none}
-.mg-ui button:active{background:#2c2c2a}
-.mg-ui button.quiet{background:none;color:var(--dim)}
-#mg-bar{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;gap:.4rem;overflow-x:auto;padding:.5rem .75rem calc(.5rem + env(safe-area-inset-bottom));background:#1a1a19;border-top:1px solid var(--rule)}
-#mg-sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:#1a1a19;border-top:1px solid var(--rule);padding:.75rem .75rem calc(.75rem + env(safe-area-inset-bottom))}
-#mg-sheet .q{color:var(--dim);font-style:italic;max-height:4.5em;overflow:hidden;margin:0 0 .5rem}
-#mg-sheet .why{color:#e0b46a;margin:.4rem 0 0}
-textarea.mg-in{box-sizing:border-box;width:100%;min-height:5.5rem;font:16px/1.5 ui-sans-serif,system-ui,sans-serif;background:#111110;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.5rem}
-.mg-row{display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap;margin-top:.5rem}
+${READER_COMPOSE_STYLE}
 .mg-card{background:#171716;border:1px solid var(--rule);border-left:3px solid #4a4f5a;border-radius:.4rem;padding:.55rem .7rem;margin:.5rem 0 1rem;white-space:pre-wrap;overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
 .mg-card .who{font-size:12px;color:var(--dim)}
 .mg-card .q{color:var(--dim);font-style:italic}
@@ -539,7 +532,6 @@ main.reader[data-margin=off] #mg-leader{display:none}
 mark.ann[data-ann],mark.ann[data-sub]{cursor:pointer}
 mark.ann.on{outline:1px solid #6a7180}
 .mg-whole h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2rem 0 .4rem}
-#mg-toast{position:fixed;left:1rem;right:1rem;bottom:5.5rem;z-index:12;max-width:30rem;margin:0 auto;background:#222220;color:var(--fg);border:1px solid var(--rule);border-radius:.5rem;padding:.55rem .9rem}
 #mg-margin{display:none}
 #ep0ch-agent{position:fixed;top:.75rem;right:.75rem;left:auto;z-index:13;max-width:min(26rem,calc(100% - 1.5rem));background:#1d2026;color:var(--fg);border:1px solid #4a4f5a;border-radius:.5rem;padding:.45rem .8rem;font-size:14px}
 .line-anchor{scroll-margin-block:35vh}
@@ -724,6 +716,7 @@ export const DEFAULT_PUBLIC_BASE_PATH = "/share";
 
 export class Publisher {
   private readonly client: PublishClient;
+  private readonly readerLeases: ReaderLeases;
   readonly basePath: string;
   /** The web client's root (`/pub`): where the home outline is, and `<webRoot>/o/` the outlines. */
   readonly webRoot: string;
@@ -767,6 +760,10 @@ export class Publisher {
     this.compiler = options.artifactCacheDirectory
       ? new ArtifactCompiler({ cacheDirectory: options.artifactCacheDirectory, log: this.log })
       : null;
+    this.readerLeases = new ReaderLeases({
+      request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
+      writes: (fresh) => this.options.writes?.(fresh) ?? Promise.resolve(null),
+    }, READER_COMPOSE_STYLE);
     this.marginalia = new PageMarginalia({
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
       view: (page, full, share) => this.view(page, full, share),
@@ -1099,6 +1096,10 @@ export class Publisher {
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 
+  readerWrite(request: Request, token: string): Promise<Response> {
+    return this.readerLeases.write(request, token);
+  }
+
   private async answer(request: Request, audience: PublishAudience, tunnel?: string, signedIn?: SignedIn): Promise<Response> {
     // A tunnel's ingress answers its one share and nothing else; its Host is the tunnel's, whatever that is.
     if (tunnel !== undefined) {
@@ -1122,6 +1123,10 @@ export class Publisher {
     if (basePath && (path === basePath || path.startsWith(`${basePath}/`))) {
       path = path.slice(basePath.length) || "/";
       mount = basePath;
+    }
+    if (path.startsWith("/_reader/")) return this.readerLeases.write(request, path.slice("/_reader/".length));
+    if (audience === "tailnet" && (path === "/reader" || path.startsWith("/reader/"))) {
+      return this.readerLeases.owner(request, path, `${request.headers.get("origin") ?? url.origin}${this.basePath}/_reader`);
     }
     // A share link (share-sessions.ts): on the public listener, below `/s/<token>`, checked against the service on
     // every request, so an expiry or a revoke holds from the next one.

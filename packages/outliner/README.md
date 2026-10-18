@@ -742,7 +742,7 @@ also a light web client for the whole outline ([The whole outline on the
 tailnet](#the-whole-outline-on-the-tailnet)). It is a client of the service
 (`blocks.query`, `children`, `pages.resolve`, `files.read` and the content event
 feed) and listens on `127.0.0.1` only; exposing it is Tailscale's job. Its only
-writes are a tailnet page's highlights, comments, asks, replies and resolves.
+writes are the page reader's actions and the bookmarklet's leased comments and captures.
 
 ```sh
 bun run cli publish serve --ws pie --port 8790 --base-path /pub [--root ~/writing]… [--max-bytes 1048576] [--allow-host NAME]… [--artifact-cache DIR] [--public-port 8791 --public-url https://HOST.ts.net:8443/share]
@@ -750,6 +750,26 @@ bun run cli publish list --ws pie [--public-url URL] [--json]
 ```
 
 HTML pages keep `^anchor` destinations and heading slugs. Backlinks in `::links` open at their linking line; arriving scrolls to the passage and marks it without animation. The source-line addresses are carried through decorations, while Markdown exports stay plain. Explicit anchors keep their name; repeated headings receive numbered slugs.
+
+**Reader bookmarklet (PIE-974):** open `/pub/reader` in the web client, or
+`/pub/o/<outline>/reader` for another outline. This is also the demo page: make
+a bookmarklet, drag its link to the bookmarks bar, select its demo sentence,
+and click the bookmark. Then repeat on a published note. Highlight, Comment
+and Ask reuse the page reader's toolbar and composer. A selection on a block
+anchor becomes a quote comment; other selections become captures under today's
+`YYYY-MM-DD` page (created through the usual page placement rule if missing).
+Both carry the source URL and `via::reader:<lease id>`, authored by the person.
+Typed requests, including `#pie-request`, go through the ordinary note/comment
+path. An unmatched quote is saved on the block with a visible warning.
+
+The bookmarklet holds a one-hour lease for comments and captures only. Its
+responses contain receipts, never note text, threads or completion results.
+The installation page can revoke it; restarting its publisher ends it too.
+It posts to the same web-client origin that minted it, including the named
+outline's path. A tailnet bookmarklet needs tailnet access; a signed-in web
+client can mint one that works without a session cookie on the foreign page.
+Some sites' browser policies prevent bookmarklets or cross-origin sends; a
+failed send keeps the draft in the composer. A Chrome extension is deferred.
 
 **Page skins:** `[publish-skin::dispatch]` selects `skins/dispatch.css` inside the
 outline's own folder: `<outlines>/<name>/skins/dispatch.css`, beside

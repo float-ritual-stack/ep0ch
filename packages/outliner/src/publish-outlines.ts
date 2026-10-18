@@ -80,6 +80,17 @@ export class OutlinePublishers {
     return publisher.handle(new Request(url, request), audience, undefined, signedIn);
   }
 
+  /** Write leases reach the publisher that minted them, without opening an outline or granting reads. */
+  async readerWrite(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    const below = path.startsWith(`${this.webRoot}/`) ? path.slice(this.webRoot.length) : "";
+    const match = /^(?:\/o\/([^/]+))?\/_reader\/([A-Za-z0-9_-]+)$/.exec(below);
+    if (!match) return new Response("Not found", { status: 404 });
+    const publisher = match[1] ? await this.others.get(match[1]) : this.options.home;
+    if (!publisher) return new Response("Lease ended", { status: 410 });
+    return publisher.readerWrite(request, match[2]!);
+  }
+
   /** Only a snapshot token grants this route; it never opens pages or the outline index. */
   async snapshot(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;

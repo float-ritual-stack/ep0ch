@@ -3,7 +3,7 @@
 // asks, replies and resolves, which land through the service as the door's do. The public listener stays read-only
 // and shows marked notes only. One scratch service (with marginalia, whose @margin answers from the note) and one
 // publisher for the whole file; the outline is made up.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test, setSystemTime } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -746,4 +746,51 @@ test("a step's box on a page is its state, a button on the owner's page: Approve
   const open = await (await get(`/share/p/${log.id}?view=html`, browser, "public")).text();
   expect([...open.matchAll(/<span class="step s-(\w+)" role="img"/g)].map((m) => m[1])).toEqual(["approved", "rejected", "done", "rejected"]);
   expect(open).not.toContain("<button type=\"button\" class=\"step");
+});
+
+test("a reader lease comments without disclosing notes, captures under today, and stops when revoked", async () => {
+  const ownerPost = (path: string, body: unknown) => publisher.handle(new Request(`http://${HOST}/pub${path}`, {
+    method: "POST", headers: { origin: `http://${HOST}`, "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  const minted = await ownerPost("/reader/lease", {});
+  expect(minted.status).toBe(200);
+  const lease = await minted.json();
+  expect(lease.bookmarklet).toStartWith("javascript:");
+  const send = (body: unknown, method = "POST") => publisher.handle(new Request(lease.writeUrl, {
+    method, headers: { origin: "https://field.example", "content-type": "application/json" },
+    ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
+  }));
+  const source = "https://field.example/dispatch";
+  const comment = await send({ action: "comment", block: survey.id, quote: "elephant hawk-moths", body: "Count again #pie-request", source });
+  expect(comment.status).toBe(200);
+  expect(comment.headers.get("access-control-allow-origin")).toBe("*");
+  expect(await comment.json()).toEqual({ ok: true, said: "Saved to the outline" });
+  const threads = await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: survey.id } } });
+  const saved = threads.find(t => t.body === "Count again #pie-request")!;
+  expect(saved.block.author).toBe("user");
+  expect(saved.properties?.via).toEqual([`reader:${lease.id}`]);
+  expect(saved.properties?.source).toEqual([source]);
+  expect(saved.resolvedTarget?.anchor).toMatchObject({ exact: "elephant hawk-moths" });
+  const capture = await send({ action: "comment", quote: "A foreign passage", body: "Keep this #pie-request", source });
+  expect(capture.status).toBe(200);
+  const now = new Date();
+  const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const today = store.resolvePageAddress(day).block!;
+  const captured = store.children(today.id).find(b => b.text.includes("Keep this #pie-request"))!;
+  expect(captured.text).toContain("> A foreign passage");
+  expect(captured.text).toContain(`[source::${source}]`);
+  expect(captured.author).toBe("user");
+  expect(captured.text).toContain(`[via::reader:${lease.id}]`);
+  // A lease is no read capability, even when a caller knows a private block id.
+  const hidden = await send({ action: "comment", block: ledger.id, quote: "does not occur", body: "Keep my words", source });
+  expect(hidden.status).toBe(200);
+  expect(await hidden.json()).toEqual({ ok: true, said: "Saved on the block with your quote; the selection could not be anchored" });
+  try {
+    setSystemTime(new Date(Date.parse(lease.expiresAt) + 1));
+    expect((await send({ action: "highlight", quote: "Too late", source })).status).toBe(410);
+  } finally { setSystemTime(); }
+  expect((await send({}, "GET")).status).toBe(405);
+  expect((await send({ action: "update", block: survey.id, body: "replace it", source })).status).toBe(400);
+  expect((await ownerPost("/reader/revoke", { id: lease.id })).status).toBe(200);
+  expect((await send({ action: "highlight", quote: "No more", source })).status).toBe(410);
 });
