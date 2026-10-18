@@ -244,7 +244,7 @@ export class PowerBar {
     if (background) {
       // The outline changed: the notes the preview read are read again (the old one stays drawn until the new arrives).
       for (const id of [...this.notes.keys()]) this.readNote(id, true);
-      for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
+      for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host, this.scope); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
       return this.build(true);
     }
     const n = ++this.seq, q = this.query, sources = this.sources();
@@ -265,7 +265,7 @@ export class PowerBar {
       if (!alive()) return;
       this.asking.delete(s.id); this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.build(); this.host.ctx.redraw();
     };
-    const ask = (s: BarSource) => { try { const r = s.rows(q, this.host); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
+    const ask = (s: BarSource) => { try { const r = s.rows(q, this.host, this.scope); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
     const later = sources.filter(s => s.asks);
     for (const s of sources) { if (s.asks) this.asking.add(s.id); else { this.asking.add(s.id); ask(s); } }
     this.build();

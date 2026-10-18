@@ -57,12 +57,13 @@ const TILES: BarSource = {
   id: "tiles", title: "tiles", prefix: "%", by: "door",
   about: "the tiles open on every screen and in your drawer, indented as each screen's layout tree, with the note each shows; ⏎ goes to one (a spine opens, its screen comes up), alt+⏎ zooms it",
   main: { empty: true, typed: true, most: 8 },
-  rows(q, host) {
+  rows(q, host, scope) {
     const shown = host.screens().at(-1);
     const drawer = host.ctx.hostLayer?.desks().find(d => host.ctx.hostLayer!.isDrawer(d)) ?? null;
     const places: { desk: Desk; screen: Screen | null; group: string }[] = [];
     const add = (desk: Desk | null, screen: Screen | null, group: string) => { if (desk && !places.some(p => p.desk === desk)) places.push({ desk, screen, group }); };
     add(tilesOf(shown), shown ?? null, `${shown?.title ?? "this screen"} · here`);
+    if (!q.trim() && !scope) return places.flatMap(({ desk, screen, group }, at) => tileRows(desk, String(at), group, screen, false));
     add(drawer, null, "your drawer");
     for (const s of [...host.screens()].reverse()) if (s !== shown) add(tilesOf(s), s, `${s.title} · under this one`);
     for (const s of host.kept()) add(tilesOf(s), s, `${s.title} · kept`);

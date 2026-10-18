@@ -115,11 +115,15 @@ describe.skipIf(!outliner)("the showcase screen: search", () => {
       expect(d.rows[0].label).not.toBe("Allotment notebook");
       expect(d.rows[d.selected - 1].label).toBe("Allotment notebook");
       press({ kind: "esc" });
+      expect(bar().describe().query).toBe("");
+      press({ kind: "esc" });
+      expect(bar()).toBeNull();
       press({ kind: "esc" });
       expect(S().focus).toBe("index");
     } finally {
       board.searchBlocks = real;
       // Whatever failed above, the next test starts at the index with no bar open.
+      if ((app as any).bar?.query) press({ kind: "esc" });
       if ((app as any).bar) press({ kind: "esc" });
       if (S().focus === "stage") press({ kind: "esc" });
     }
