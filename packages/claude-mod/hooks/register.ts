@@ -27,7 +27,7 @@ import {
   outlinerUriFor,
   outlinerUriOf,
 } from './references'
-import { replyBlocks, type ReplyBlock } from './reply-lines'
+import { replyBlocks, tableWidths, type LinePart, type ReplyBlock } from './reply-lines'
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
@@ -545,37 +545,54 @@ export function register(on: On, options: PluginOptions): void {
     // here, as their labels (PIE-1042); the desktop draws the Markdown, whose links are real.
     const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
     const seen = new Map<string, number>()
+    const drawParts = (parts: LinePart[], at: string, allBold: boolean) => parts.flatMap((part, i) => {
+      if ('ref' in part) {
+        const count = (seen.get(part.ref) ?? 0) + 1
+        seen.set(part.ref, count)
+        return [Button({
+          key: count === 1 ? part.ref : `${part.ref}#${count}`,
+          plain: true,
+          onPress: press => open(part.ref, press.surface),
+          children: Text({ underline: true, color: 'suggestion', bold: allBold || undefined, children: part.label }),
+        })]
+      }
+      return (part.text.match(/\S+\s*|\s+/g) ?? []).map((word, w) =>
+        Text({
+          key: `${at}.t${i}.${w}`,
+          bold: allBold || part.style === 'bold' || part.style === 'bold-italic' || undefined,
+          italic: part.style === 'italic' || part.style === 'bold-italic' || undefined,
+          color: part.style === 'code' ? 'permission' : undefined,
+          children: word,
+        }))
+    })
     const body = blocks.map((block, n) => {
       if (block.kind === 'markdown') {
         return Markdown(block.text === text
           ? { key: 'outliner-references', text, pressableLinks: hrefs.slice(0, 256), onLinkPress: (link, press) => open(link.href, press.surface) }
           : { text: block.text })
       }
-      return Box({
-        key: `outliner-line-${n}`,
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        children: block.parts.flatMap((part, i) => {
-          if ('ref' in part) {
-            const count = (seen.get(part.ref) ?? 0) + 1
-            seen.set(part.ref, count)
-            return [Button({
-              key: count === 1 ? part.ref : `${part.ref}#${count}`,
-              plain: true,
-              onPress: press => open(part.ref, press.surface),
-              children: Text({ underline: true, color: 'suggestion', children: part.label }),
-            })]
-          }
-          return (part.text.match(/\S+\s*|\s+/g) ?? []).map((word, w) =>
-            Text({
-              key: `t${i}.${w}`,
-              bold: part.style === 'bold' || undefined,
-              italic: part.style === 'italic' || undefined,
-              color: part.style === 'code' ? 'permission' : undefined,
-              children: word,
-            }))
-        }),
-      })
+      if (block.kind === 'table') {
+        // A table drawn whole (PIE-1043): a row per Box, a fixed-width cell per column, pressable references inside.
+        const widths = tableWidths(block)
+        const row = (cells: LinePart[][], key: string, bold: boolean) => Box({
+          key,
+          flexDirection: 'row',
+          children: cells.flatMap((cell, c) => [
+            ...(c ? [Text({ key: `bar${c}`, dimColor: true, children: ' │ ' })] : []),
+            Box({ key: `c${c}`, width: widths[c], flexShrink: 0, flexDirection: 'row', flexWrap: 'wrap', children: drawParts(cell, `${key}.${c}`, bold) }),
+          ]),
+        })
+        return Box({
+          key: `outliner-table-${n}`,
+          flexDirection: 'column',
+          children: [
+            row(block.header, 'head', true),
+            Text({ key: 'rule', dimColor: true, children: widths.map(w => '─'.repeat(w)).join('─┼─') }),
+            ...block.rows.map((cells, r) => row(cells, `row${r}`, false)),
+          ],
+        })
+      }
+      return Box({ key: `outliner-line-${n}`, flexDirection: 'row', flexWrap: 'wrap', children: drawParts(block.parts, `l${n}`, false) })
     })
     return Box({
       flexDirection: 'row',
@@ -1300,7 +1317,7 @@ async function readPrefixes($: EngineInterface): Promise<void> {
  * it landed in), the Outliner Detail beside Claude in Herdr (`pane`), or the
  * mod's mentions pane here (`here`, and why the engine hasn't placed it yet).
  */
-type Shown = { title: string; place: 'door' | 'pane' | 'here'; reader?: string; waits?: string }
+type Shown = { title: string; place: 'door' | 'pane' | 'here'; reader?: string; waits?: string; noDoor?: string }
 
 /**
  * Neither a door nor Herdr took the note: the message says why, with the
@@ -1368,8 +1385,11 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
     $.env.get('EP0CH_TILE'),
     $.env.get('EP0CH_TILE_ID'),
   ])
-  // `door`: the door the caller resolved (door_open, PIE-715), which beats a stale EP0CH_CONTROL.
-  const control = door ?? given
+  // `door`: the door the caller resolved (door_open, PIE-715), which beats a stale EP0CH_CONTROL. Else the door that
+  // answers now, resolved as the door tools do (PIE-1043): a Claude resumed after its door restarted has a stale
+  // EP0CH_CONTROL, or none, and `ep0ch where` still reaches the folder's door. Read at each open, so a reload needs no restart.
+  const reach = door ? null : await doorReachFor($).catch(() => ({ control: null, text: '`ep0ch where` did not answer' }))
+  const control = door ?? reach?.control ?? given
   // Found on first use: outside a door and Herdr, a block id needs no installed Outliner to be named.
   let installed: Promise<string | null> | undefined
   const outliner = async (args: string[]) => {
@@ -1423,7 +1443,8 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
       if (blockId) return { id: blockId, title: undefined }
       throw error
     })
-    return showHere($, workspace, { uri, id, title: title ?? '' })
+    const here = await showHere($, workspace, { uri, id, title: title ?? '' })
+    return reach && !reach.control ? { ...here, noDoor: reach.text } : here
   }
   why += paneId && herdrWorkspace ? ", and its folder is not bound to an Outliner outline for a Herdr pane" : ', nor in Herdr'
   let found: { id: string; title?: string } | null
@@ -1757,7 +1778,7 @@ async function openUri($: EngineInterface, workspace: Workspace, uri: string, su
     const shown = await openNote($, workspace, uri, await actorFor($, {}))
     // Here, from a press the pane couldn't be seated by (a door that had quit): say where it went.
     if (shown.place === 'here' && shown.waits) {
-      $.ui.toast(`${shown.title || outlinerLabelOf(uri)} is open in the mentions pane, not on screen yet (${shown.waits}); /mentions pane shows it.`, { timeoutMs: 8000 })
+      $.ui.toast(`${shown.title || outlinerLabelOf(uri)} is open in the mentions pane, not on screen yet (${shown.waits}); no door answers: ${shown.noDoor ?? 'none reached'}; /mentions pane shows it.`, { timeoutMs: 8000 })
     }
     return null
   } catch (error) {

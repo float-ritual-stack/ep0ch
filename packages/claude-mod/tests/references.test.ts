@@ -116,4 +116,38 @@ describe('references', () => {
     })
     expect(JSON.stringify(blocks)).not.toContain('PIE-3](')
   })
+
+  test('replyBlocks: emphasis that spans a reference and other text draws as bold or italic, never the literal markers', async () => {
+    const { text } = linkifyReferences('**A bold line with PIE-1030 inside it**\nSome *italic PIE-2 words* and ***both PIE-3***', ['PIE'])
+    const blocks = replyBlocks(text)
+    expect(JSON.stringify(blocks)).not.toContain('*')
+    expect(blocks[0]).toEqual({
+      kind: 'line',
+      parts: [{ text: 'A bold line with ', style: 'bold' }, { ref: `${STAND_IN}work/PIE-1030`, label: 'PIE-1030' }, { text: ' inside it', style: 'bold' }],
+    })
+    expect(blocks[1]).toEqual({
+      kind: 'line',
+      parts: [
+        { text: 'Some ' }, { text: 'italic ', style: 'italic' }, { ref: `${STAND_IN}work/PIE-2`, label: 'PIE-2' }, { text: ' words', style: 'italic' },
+        { text: ' and ' }, { text: 'both ', style: 'bold-italic' }, { ref: `${STAND_IN}work/PIE-3`, label: 'PIE-3' },
+      ],
+    })
+  })
+
+  test('replyBlocks: a table with a reference in a row stays one table, its cells parts', async () => {
+    const { text } = linkifyReferences('Before\n| Ticket | What |\n| --- | --- |\n| PIE-1031 | **argument** forms |\n| plain | row |\nAfter', ['PIE'])
+    const blocks = replyBlocks(text)
+    expect(blocks.map(b => b.kind)).toEqual(['markdown', 'table', 'markdown'])
+    expect(blocks[0]).toEqual({ kind: 'markdown', text: 'Before' })
+    expect(blocks[2]).toEqual({ kind: 'markdown', text: 'After' })
+    const table = blocks[1]!
+    if (table.kind !== 'table') throw Error('not a table')
+    expect(table.header).toEqual([[{ text: 'Ticket' }], [{ text: 'What' }]])
+    expect(table.rows).toEqual([
+      [[{ ref: `${STAND_IN}work/PIE-1031`, label: 'PIE-1031' }], [{ text: 'argument', style: 'bold' }, { text: ' forms' }]],
+      [[{ text: 'plain' }], [{ text: 'row' }]],
+    ])
+    // A table with no reference stays the engine's.
+    expect(replyBlocks('| a | b |\n| - | - |\n| 1 | 2 |').map(b => b.kind)).toEqual(['markdown'])
+  })
 })

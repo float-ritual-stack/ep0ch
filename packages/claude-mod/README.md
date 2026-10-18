@@ -120,6 +120,9 @@ A click, `show` and `door_open` share one open (`openNote` in
   The desktop and VS Code keep the Markdown, whose links are real, on `https://pi-outliner.invalid/...` stand-ins.
   `https://my.ep0ch.sh/pub/p/<PIE-n|page|id>` that Claude writes, bare or as `[label](url)`, is the same reference
   (a bare one drawn as its PIE-n, page name or the note's title); other URLs are left as written.
+  Emphasis spanning a reference and other text stays bold or italic, and a table with a reference in a cell is drawn
+  whole by the mod, its references pressable (PIE-1043). A press opens in the door `ep0ch where` finds (the one the
+  door tools use), read at each press: a stale or missing `EP0CH_CONTROL` no longer sends it to the mentions pane.
 - A target the Outliner cannot resolve is a toast, never a new page.
 
 ### Where this Claude is bound
