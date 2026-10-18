@@ -59,11 +59,37 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   };
 
   test("a signed-in caller can mint a read-only Loki URL", async () => {
+    expect((await rpc("tools/list")).body.result.tools).toContainEqual(expect.objectContaining({ name: "loki_lease" }));
     const response = await rpc("tools/call", { name: "loki_lease", arguments: { ttl: "1h" } });
     expect(response.body.error).toBeUndefined();
     const lease = { isError: response.body.result.isError ?? false, text: response.body.result.content[0].text };
     expect(lease.isError).toBe(false);
     expect(JSON.parse(lease.text).url).toMatch(/^https:\/\/my\.ep0ch\.sh\/loki\/[A-Za-z0-9_-]+\/$/);
+  });
+
+  test.each(["grant", "named path"])("Loki listing and minting respect the %s denial", async denial => {
+    const previous = process.env.EP0CH_MCP_PATH_ACCESS;
+    try {
+      if (denial === "grant") await board.configureMcpAccess("none");
+      else process.env.EP0CH_MCP_PATH_ACCESS = "observer=none";
+      const url = new URL(denial === "grant" ? "/mcp" : "/observer/mcp", gateway.url);
+      const auth = await token({ aud: denial === "grant" ? RESOURCE : "https://mcp.example.test/observer/mcp" });
+      const request = async (method: string, params?: unknown) => {
+        const response = await fetch(url, { method: "POST", headers: { Host: HOST, Authorization: `Bearer ${auth}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }) });
+        expect(response.status).toBe(200);
+        return (await response.json()).result;
+      };
+      const refused = await request("tools/call", { name: "loki_lease", arguments: {} });
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0].text).toContain("read");
+      expect(refused.content[0].text).toContain("ep0ch mcp access read");
+      expect((await request("tools/list")).tools).not.toContainEqual(expect.objectContaining({ name: "loki_lease" }));
+    } finally {
+      await board.configureMcpAccess("read");
+      if (previous === undefined) delete process.env.EP0CH_MCP_PATH_ACCESS;
+      else process.env.EP0CH_MCP_PATH_ACCESS = previous;
+    }
   });
 
   beforeAll(async () => {
