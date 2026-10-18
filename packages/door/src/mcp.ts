@@ -1086,10 +1086,10 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   }
 }
 
-function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, scope?: ResponseScope): Promise<unknown> | unknown {
+function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, scope?: ResponseScope, transport: "stdio" | "http" = "stdio"): Promise<unknown> | unknown {
   switch (req.method) {
     case "initialize":
-      return { protocolVersion: protocolFor(objectFields(req.params)?.protocolVersion), capabilities: { tools: {}, resources: {} }, serverInfo: { name: "ep0ch", version: "0.0.0" } };
+      return { protocolVersion: protocolFor(objectFields(req.params)?.protocolVersion), capabilities: { tools: transport === "http" ? { listChanged: true } : {}, resources: {} }, serverInfo: { name: "ep0ch", version: "0.0.0" } };
     case "ping":
       return {};
     case "tools/list":
@@ -1143,7 +1143,7 @@ function parseRequest(line: string): ParsedMessage[] | { parseError: string } | 
 
 const responseError = (id: RpcId, code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
-async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: McpCaller, scope?: ResponseScope): Promise<unknown | null> {
+async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: McpCaller, scope?: ResponseScope, transport: "stdio" | "http" = "stdio"): Promise<unknown | null> {
   if ("invalidRequest" in req) return responseError(req.id, -32600, req.invalidRequest);
   if (req.id === undefined) return null;
   if (scope) scope.rpc = req.id;
@@ -1163,7 +1163,7 @@ async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: M
     return target;
   } } : outlines;
   let response: unknown;
-  try { response = { jsonrpc: "2.0", id: req.id, result: await resultFor(measuredOutlines, req, caller, scope) }; }
+  try { response = { jsonrpc: "2.0", id: req.id, result: await resultFor(measuredOutlines, req, caller, scope, transport) }; }
   catch (e) {
     response = e instanceof RpcError ? responseError(req.id, e.code, e.message)
       : responseError(req.id, -32603, outlines.internalError?.(e as Error) ?? (e as Error).message);
@@ -1190,7 +1190,7 @@ export interface McpAnswer { reply: unknown | null; methods: string[]; malformed
  * implementation both transports call: stdio a line at a time, the HTTP gateway a request body at a time. `caller`:
  * who the gateway's token names, to whom (and only to whom) the write tools are offered.
  */
-export async function answerMcp(outlines: McpOutlines, text: string, caller?: McpCaller): Promise<McpAnswer | null> {
+export async function answerMcp(outlines: McpOutlines, text: string, caller?: McpCaller, transport: "stdio" | "http" = "stdio"): Promise<McpAnswer | null> {
   const parsed = parseRequest(text);
   if (!parsed) return null;
   if ("parseError" in parsed) return { reply: responseError(null, -32700, parsed.parseError), methods: [], malformed: true };
@@ -1199,7 +1199,7 @@ export async function answerMcp(outlines: McpOutlines, text: string, caller?: Mc
   const responses: unknown[] = [];
   // One reply, one memory: a body a batch sent once is not sent again by a later call in it.
   const scope = new ResponseScope();
-  for (const req of parsed) { const r = await responseFor(outlines, req, caller, scope); if (r !== null) responses.push(r); }
+  for (const req of parsed) { const r = await responseFor(outlines, req, caller, scope, transport); if (r !== null) responses.push(r); }
   return { reply: responses.length ? (parsed.length === 1 ? responses[0] : responses) : null, methods };
 }
 

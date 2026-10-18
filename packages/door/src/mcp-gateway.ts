@@ -358,11 +358,12 @@ export function startGateway(opts: {
     return { release() { if (released) return; released = true; const next = waiting.shift(); if (next) next(); else inflight--; } };
   };
 
+  const streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const server = Bun.serve({
     hostname: opts.bind,
     port: opts.port,
     maxRequestBodySize: MAX_BODY,
-    async fetch(req) {
+    async fetch(req, server) {
       const url = new URL(req.url);
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       if (url.pathname === "/healthz" && req.method === "GET") return json(200, { ok: true });
@@ -387,8 +388,23 @@ export function startGateway(opts: {
         }
         return json(verdict.status, { error: verdict.status === 403 ? "forbidden" : "unavailable", error_description: verdict.description });
       }
-      // Stateless streamable HTTP: no server-sent stream and no session to end, so only POST carries messages.
-      if (req.method !== "POST") return json(405, { error: "method not allowed" }, { Allow: "POST" });
+      if (req.method === "GET") {
+        if (!req.headers.get("accept")?.includes("text/event-stream")) return json(406, { error: "Accept must include text/event-stream" });
+        server.timeout(req, 0);
+        let controller: ReadableStreamDefaultController<Uint8Array>;
+        const stream = new ReadableStream<Uint8Array>({
+          start(c) {
+            controller = c;
+            streams.add(c);
+            // A deploy drops the old stream. Every reconnect invalidates the client's cached tools,
+            // without keeping sessions or replay state across gateway processes.
+            c.enqueue(new TextEncoder().encode('event: message\ndata: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n'));
+          },
+          cancel() { streams.delete(controller); },
+        });
+        return new Response(stream, { headers: { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
+      }
+      if (req.method !== "POST") return json(405, { error: "method not allowed" }, { Allow: "GET, POST" });
       const slot = await admit();
       if (!slot) return json(503, { error: "busy", error_description: "too many requests at once; try again" }, { "Retry-After": "1" });
       let answer;
@@ -402,7 +418,7 @@ export function startGateway(opts: {
       const minted = !given && isInitialize(body) ? mintCallId() : undefined;
       const call = given ?? minted;
       const named = route.persona ? { persona: route.persona, cap: capOf(route.persona) } : {};
-      try { answer = await answerMcp(named.cap ? cappedOutlines(outlines, named.cap) : outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}), ...named }); }
+      try { answer = await answerMcp(named.cap ? cappedOutlines(outlines, named.cap) : outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}), ...named }, "http"); }
       finally { slot.release(); }
       // Read this to see whether a client opens a session per chat or reuses one: mcp-session-id= is what the client sent (- on its first request), call= the call it is served as, client= the OAuth client; new marks an id minted for an initialize.
       if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} client=${verdict.clientId ?? "-"}${route.persona ? ` path=/${route.persona}${mcpPath} default-cap=${named.cap?.()}` : ""} mcp-session-id=${sent ?? "-"} call=${call ?? "-"}${minted ? " (new)" : ""} ${answer.methods.join(", ")}`);
@@ -413,7 +429,11 @@ export function startGateway(opts: {
       return json(200, answer.reply, sessionHeader);
     },
   });
-  return { url: `http://${opts.bind}:${server.port}${mcpPath}`, port: server.port!, stop: () => server.stop(true) };
+  return { url: `http://${opts.bind}:${server.port}${mcpPath}`, port: server.port!, stop: () => {
+    for (const stream of streams) stream.close();
+    streams.clear();
+    server.stop(true);
+  } };
 }
 
 /**
