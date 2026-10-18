@@ -118,7 +118,9 @@ test("an external descriptor opened before a successful save remains recoverable
   const store = new OutlinerStore(join(root, "outline.sqlite"));
   let fd: number | undefined;
   try {
-    fs.writeFileSync(path, "ORIGINAL", { mode: 0o640 });
+    fs.writeFileSync(path, "ORIGINAL");
+    // writeFileSync's mode is masked by the umask (0077 under agent-env and box-test, giving 0600), so set it outright.
+    fs.chmodSync(path, 0o640);
     const resource = store.resources.internFilesystem({ path }).resource;
     const opened = store.resources.describe(resource.id, true).filesystem!;
     fd = fs.openSync(path, "r+");
