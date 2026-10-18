@@ -53,7 +53,7 @@ beforeAll(async () => {
   const orchard = new OutlinerStore(layout.database("orchard"), { workspaceRoot: root });
   orchard.create("Pruning plan\nThe old pear first, before the frost.", null, "user");
   orchard.close();
-  host = new OutlineHost({ outlinesFolder: layout.root, log: () => {} });
+  host = new OutlineHost({ outlinesFolder: layout.root, log: line => logged.push(line) });
   await host.start();
   homeClient = new OutlinerClient(layout.socket, 15_000, "garden");
   publisher = new Publisher({ client: homeClient, basePath: "/pub", log: (line) => logged.push(line) });
@@ -424,3 +424,81 @@ test("a signed-in bookmark creates a scoped iframe session on its named outline"
   expect((await at(gate, path, { headers })).status).toBe(405);
   expect((await at(gate, "/pub/o/orchard/reader/bookmark", { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" })).status).toBe(401);
 });
+
+// The upstream is an isolated Loki, with no live volumes or ports; run `docker pull grafana/loki:3.6.2` first.
+test.skipIf(!Bun.which("docker") || Bun.spawnSync(["docker", "image", "inspect", "grafana/loki:3.6.2"], { stdout: "ignore", stderr: "ignore" }).exitCode !== 0)("a CLI lease reads real Loki to a file, refuses writes, is limited, revoked and expires", async () => {
+  const { publishLoki } = await import("../src/publish-loki");
+  const docker = async (...args: string[]) => {
+    const child = Bun.spawn(["docker", ...args], { stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    if (code !== 0) throw new Error(`docker ${args[0]} exited ${code}: ${err}`);
+    return out.trim();
+  };
+  const container = await docker("run", "--rm", "-d", "--name", `ep0ch-loki-test-${crypto.randomUUID()}`, "-p", "127.0.0.1::3100", "grafana/loki:3.6.2", "-config.file=/etc/loki/local-config.yaml", "-ingester.min-ready-duration=0s");
+  let server: ReturnType<typeof Bun.serve> | undefined;
+  const cli = async (...args: string[]) => {
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "../../door/src/main.ts"), "loki", "lease", ...args], {
+      cwd: root, env: { ...process.env, EP0CH_SOCKET: host.socketPath, EP0CH_OUTLINES: join(root, "outlines"), XDG_CONFIG_HOME: join(root, "config") }, stdout: "pipe", stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, err).toBe(0);
+    return out.trim();
+  };
+  try {
+    const upstream = `http://${await docker("port", container, "3100/tcp")}`;
+    const deadline = Date.now() + 30_000;
+    while (true) {
+      try { if ((await fetch(`${upstream}/ready`)).ok) break; } catch {}
+      if (Date.now() > deadline) throw new Error(`scratch Loki never became ready: ${await docker("logs", container)}`);
+      await Bun.sleep(100);
+    }
+    const timestamp = `${Date.now()}000000`;
+    expect((await fetch(`${upstream}/loki/api/v1/push`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ streams: [{ stream: { service_name: "claude-code", event_name: "user_prompt" }, values: [[timestamp, "Fictional lantern survey"]] }] }) })).status).toBe(204);
+    const gate = new SignInGate({
+      settings: { origin: ORIGIN, issuer, clientId: CLIENT_ID, allowedSubjects: [PERSON], home: "/pub/" },
+      request: input => homeClient.request(input as Parameters<typeof homeClient.request>[0]),
+      serve: (request, signedIn) => web.handle(request, "tailnet", signedIn),
+      loki: request => publishLoki(request, homeClient, upstream, line => logged.push(line)),
+      log: line => logged.push(line),
+    });
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => gate.handle(request) });
+    const lease = await cli("--ttl", "1m");
+    const path = new URL(lease).pathname;
+    const get = (suffix: string, method = "GET") => fetch(`http://127.0.0.1:${server!.port}${path}${suffix}`, { method, headers: { host: new URL(ORIGIN).host }, redirect: "manual" });
+    const query = new URLSearchParams({ query: '{service_name="claude-code"}', start: `${Date.now() - 60_000}000000`, end: `${Date.now() + 1000}000000` });
+    const output = join(root, "loki-results.json");
+    const curl = Bun.spawn(["curl", "--fail", "--silent", "--show-error", "-H", `Host: ${new URL(ORIGIN).host}`, `http://127.0.0.1:${server.port}${path}/loki/api/v1/query_range?${query}`, "--output", output], { stderr: "pipe" });
+    const error = await new Response(curl.stderr).text();
+    expect(await curl.exited, error).toBe(0);
+    expect(readFileSync(output, "utf8")).toContain("Fictional lantern survey");
+    const calendar = await get(`loki/api/v1/query?${new URLSearchParams({ query: 'sum by (event_name) (count_over_time({service_name="claude-code"}[1d]))' })}`);
+    expect(calendar.status).toBe(200);
+    expect((await calendar.json()).data.result[0].value[1]).toBe("1");
+    for (const suffix of ["labels", "label/service_name/values", `series?${new URLSearchParams({ "match[]": '{service_name="claude-code"}' })}`]) {
+      const response = await get(`loki/api/v1/${suffix}`);
+      expect(response.status).toBe(200);
+      expect((await response.json()).status).toBe("success");
+    }
+    for (const [method, suffix] of [["POST", "push"], ["DELETE", "delete"], ["GET", "delete"], ["GET", "tail"], ["GET", "status/buildinfo"], ["POST", "query_range"]]) {
+      const response = await get(`loki/api/v1/${suffix}`, method);
+      expect(response.status).toBe(403);
+      expect(await response.text()).toContain("only Loki read queries");
+    }
+    for (let i = 5; i < 60; i++) { const response = await get("loki/api/v1/labels"); expect(response.status).toBe(200); await response.text(); }
+    const limited = await get("loki/api/v1/labels");
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("60");
+    await limited.text();
+    expect(logged.join("\n")).not.toContain(path.split("/")[2]!);
+    await cli("--revoke");
+    expect((await get("loki/api/v1/labels")).status).toBe(410);
+    const expiring = await cli("--ttl", "1m");
+    await Bun.sleep(60_100);
+    const expired = await fetch(`http://127.0.0.1:${server.port}${new URL(expiring).pathname}loki/api/v1/labels`, { headers: { host: new URL(ORIGIN).host } });
+    expect(expired.status).toBe(410);
+    expect(expired.headers.get("cache-control")).toBe("no-store");
+  } finally {
+    server?.stop(true);
+    await docker("rm", "-f", container);
+  }
+}, 120_000);

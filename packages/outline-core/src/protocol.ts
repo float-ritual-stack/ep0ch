@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the checklist box grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms, the date reader), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 215;
+export const PROTOCOL = 216;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -549,3 +549,7 @@ export interface NoteMoveReceipt {
   previousPosition: number;
   said: string;
 }
+
+/** A host-owned read-only Loki URL; restarting the host ends it. */
+export interface LokiLease { id: string; url: string; expiresAt: string }
+export interface LokiLeaseUse { status: number; id?: string }

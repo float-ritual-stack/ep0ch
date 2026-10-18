@@ -882,12 +882,13 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
   } catch (e) { return toolError((e as Error).message); }
 }
 
+const lokiDefinition = { name: "loki_lease", description: "Mint an hour-long read-only Loki query URL for curl/scripts. Keep it in LOKI_URL; do not publish it. A host restart ends leases too.", inputSchema: { type: "object", properties: { ttl: { type: "string", description: "Duration, default 1h (1m to 24h)" } }, additionalProperties: false } };
 /** outline_new and outline_archive: offered to a caller when the server can reach its machine's outline host. */
 const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => caller && outlines.admin ? outlineAdminDefinitions(outlines.admin.machine) : [];
 
 /** The tools a caller is offered: the reads, the writes and shares where the outline takes writes, and the outline admin. */
 const toolList = (outlines: McpOutlines, writes: boolean, caller: McpCaller | undefined) =>
-  [snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller)];
+  [snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller), ...(caller && outlines.admin ? [lokiDefinition] : [])];
 
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
@@ -980,6 +981,10 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
   if (params.name === "outline_components") return componentsTool(outlines, args);
+  if (params.name === "loki_lease" && caller && outlines.admin) {
+    try { return toolText(await outlines.admin.host("loki.lease.start", { ttl: args.ttl, by: actorOf(caller).actorId })); }
+    catch (error) { return toolError((error as Error).message); }
+  }
   if (params.name === "outline_snapshot") return shareTool(outlines, "outline_snapshot", args, caller);
   if (params.name === "reader_view") return shareTool(outlines, "reader_view", args, caller);
   if (isShareTool(params.name) && caller) return shareTool(outlines, params.name, args, caller);

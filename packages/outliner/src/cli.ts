@@ -1,3 +1,4 @@
+import { publishLoki } from "./publish-loki";
 import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
 import {inspectWorkspaceConnection} from './workspace-diagnostics';
@@ -108,6 +109,7 @@ Outlines
 Publishing and extensions
   publish serve [--port <n>] [--root <dir>]… [--public-url <url>] … | publish list [--json]
   ext …                                install and list extensions
+  loki lease [--ttl 1h] | lease --revoke
   web sessions [--json] | web revoke <id> | --all
                                        the signed-in web client's browsers (my.ep0ch.sh), and signing them out
 
@@ -250,6 +252,10 @@ if (process.argv[2] === "door-open") {
     console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(error instanceof DoorUnreachable ? 3 : 1);
   }
+}
+if (process.argv[2] === "loki") {
+  const { runLokiCommand } = await import("./loki-cli");
+  process.exit(await runLokiCommand(process.argv.slice(3)));
 }
 if (process.argv[2] === "web") {
   const { runWebCommand } = await import("./web-cli");
@@ -431,6 +437,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       if (!settings.allowedSubjects.length) console.error("web sign-in: EP0CH_MCP_ALLOWED_SUBJECTS is empty: every sign-in is refused, and its subject logged to pin");
       const host = createOutlinerClient(resolveClientPaths());
       const gate = new SignInGate({
+        loki: request => publishLoki(request, host, "http://127.0.0.1:3101", console.error),
         snapshot: request => web.snapshot(request),
         readerWrite: request => web.readerWrite(request),
         settings, request: input => host.request(input as Parameters<typeof host.request>[0]),

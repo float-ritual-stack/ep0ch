@@ -8,6 +8,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWTPayload
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { gatewayConfig, issuerFromPublishableKey, machineOutlines, mcpServeCommand, startGateway, verifyBearer, type Gateway } from "../src/mcp-gateway";
 import { canonicalLocalMachineName } from "../src/notes-cli";
+import { localAdmin } from "../src/mcp-outlines";
 import { hostRequest, SocketBoard } from "../src/socket";
 import { outliner, Scratch, scratchDir } from "./scratch";
 
@@ -57,6 +58,14 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     return { isError: !!result.isError, text: result.content[0]!.text };
   };
 
+  test("a signed-in caller can mint a read-only Loki URL", async () => {
+    const response = await rpc("tools/call", { name: "loki_lease", arguments: { ttl: "1h" } });
+    expect(response.body.error).toBeUndefined();
+    const lease = { isError: response.body.result.isError ?? false, text: response.body.result.content[0].text };
+    expect(lease.isError).toBe(false);
+    expect(JSON.parse(lease.text).url).toMatch(/^https:\/\/my\.ep0ch\.sh\/loki\/[A-Za-z0-9_-]+\/$/);
+  });
+
   beforeAll(async () => {
     const pair = await generateKeyPair("RS256", { extractable: true });
     signing = pair.privateKey;
@@ -80,7 +89,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
 
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: ` ${PERSON} ` });
     if ("error" in config) throw new Error(config.error);
-    const outlines = machineOutlines(undefined, line => logs.push(line));
+    const outlines = machineOutlines(undefined, line => logs.push(line), undefined, [], undefined, undefined, undefined, localAdmin());
     closeOutlines = outlines.close;
     gateway = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: line => logs.push(line) });
     const captureConfig = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER });

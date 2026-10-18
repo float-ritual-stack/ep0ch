@@ -1,3 +1,4 @@
+import { LokiLeases } from "./loki-leases";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
 import { PROTOCOL, type OutlineAbout } from "@ep0ch/outline-core/protocol";
@@ -80,7 +81,7 @@ export interface OutlineHostOptions {
 }
 
 // `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
-const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS]);
+const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use"]);
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
 const RELAY_WAIT_MS = 60_000;
 const RELAY_MAX_ANSWER = 64 * 2 ** 20;
@@ -189,6 +190,7 @@ export class OutlineHost {
   readonly outlinesFolder: string;
   readonly defaultOutline: string | undefined;
   private readonly layout: ReturnType<typeof outlineLayout>;
+  private readonly lokiLeases = new LokiLeases(message => this.log(message));
   private webSessions: WebSessions | undefined;
   private listener: Server | null = null;
   /** Each other machine's protocol, as its host last said (`relayProtocol`). */
@@ -871,6 +873,12 @@ export class OutlineHost {
       case "outlines.delete": return this.delete(request.name);
       case "outlines.archive": return this.archive(request.name);
       case "outlines.unarchive": return this.unarchive(request.name);
+      case "loki.lease.start":
+        return this.lokiLeases.start(request.ttl, typeof request.by === "string" ? request.by : "local");
+      case "loki.lease.revoke": return this.lokiLeases.revoke();
+      case "loki.lease.use":
+        if (typeof request.token !== "string" || typeof request.method !== "string" || typeof request.path !== "string") throw new Error("Loki use needs token, method and path");
+        return this.lokiLeases.use(request.token, request.method, request.path);
       case "web.sessions.start":
       case "web.sessions.resolve":
       case "web.sessions.list":

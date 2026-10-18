@@ -137,6 +137,8 @@ ${NOTES_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
 ${SHARE_USAGE}
+  ep0ch loki lease [--ttl 1h] | lease --revoke
+                                   a read-only Loki URL, or end all leases; run on the publisher host over ssh
   ep0ch web sessions [--json] | web revoke <id> | --all
                                    the browsers signed in to the web client (https://my.ep0ch.sh): each one's
                                    id, browser, who and last use; revoke signs one out now, --all every one.
@@ -252,9 +254,9 @@ if (args[0] === "library") { const { libraryCommand } = await import("./library/
 // The outline's extensions (PIE-754): ls (with each schedule's next and last run), add, remove, act and run, through
 // the outliner's own command (one implementation); --ws names the outline as for every command.
 // The signed-in web client's sessions: the outliner's own command (one implementation), asked of this machine's host.
-if (args[0] === "web") {
+if (args[0] === "web" || args[0] === "loki") {
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
-  const run = Bun.spawn([process.execPath, cli, "web", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  const run = Bun.spawn([process.execPath, cli, args[0], ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
 if (args[0] === "keys") {

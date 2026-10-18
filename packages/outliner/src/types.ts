@@ -1947,6 +1947,9 @@ export type OutlinerRequestAction =
   | { id: string; action: "outlines.delete"; name: string }
   | { id: string; action: "outlines.archive"; name: string }
   | { id: string; action: "outlines.unarchive"; name: string }
+  | { id: string; action: "loki.lease.start"; ttl?: string; by: string }
+  | { id: string; action: "loki.lease.revoke" }
+  | { id: string; action: "loki.lease.use"; token: string; method: string; path: string }
   /**
    * The signed-in web client's sessions (web-sessions.ts), answered by the outline host for every outline: `start` after
    * a sign-in (answers the cookie's token once), `resolve` a cookie's token on each request (renewing it), `list`, and
