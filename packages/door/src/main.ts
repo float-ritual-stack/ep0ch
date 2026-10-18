@@ -136,8 +136,9 @@ ${BACKUP_USAGE}
 ${NOTES_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
-  ep0ch artifact put <file-or-folder> [--name <name>] [--ws <name>] [--machine <ssh-name>]
-  ep0ch artifact ls | show|versions|snapshot|rm <name> | import [--ws <name>]
+  ep0ch artifact put <file-or-folder> [--name <name>] [--machine <ssh-name>]
+  ep0ch artifact ls | show|versions|snapshot|rm <name> [--machine <ssh-name>]
+  ep0ch artifact import --ws <name> [--machine <ssh-name>]
                                    live artifact folders and frozen snapshots, outside the outline
 ${SHARE_USAGE}
   ep0ch loki lease [--ttl 1h] | lease --revoke

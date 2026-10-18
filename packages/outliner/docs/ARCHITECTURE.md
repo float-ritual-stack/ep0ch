@@ -26,7 +26,8 @@ types") and draws extension tiles; the service owns what both show.
 
 ### Artifact files
 
-`artifacts.*` requests reach `ArtifactStore` through the existing outline service.
+`artifacts.*` requests reach `ArtifactStore` through the machine's host without an
+outline, or through the existing outline service for outline-relative aliases and import.
 One machine-wide `.artifacts/live/<name>/` tree accepts sync writes or streamed
 CLI tar uploads; snapshots and their hashes live outside that tree. Put and the
 watcher reuse `ArtifactCompiler` in `publish-artifacts.ts`. A separate read-only

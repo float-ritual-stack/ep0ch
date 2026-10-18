@@ -177,23 +177,38 @@ export class ArtifactStore {
       case "artifacts.import": {
         if (!workspace) throw new Error("Select an outline with --ws to import its artifacts folder.");
         const source = join(workspace, "artifacts"), imported: ArtifactInfo[] = [];
+        const alreadyThere: string[] = [], collided: { entry: string; name: string }[] = [];
+        const report = () => ({ imported, alreadyThere, collided,
+          counts: { imported: imported.length, alreadyThere: alreadyThere.length, collided: collided.length },
+          said: "Imported paths resolve to their artifact names. Collisions were skipped. Source files were kept." });
         const aliasFile = join(this.root, "aliases", basename(workspace));
         const aliases: Record<string, string> = existsSync(aliasFile) ? JSON.parse(readFileSync(aliasFile, "utf8")) : {};
         const sourceStat = lstatSync(source, { throwIfNoEntry: false });
-        if (!sourceStat) return { imported };
+        if (!sourceStat) return report();
         if (sourceStat.isSymbolicLink()) throw new Error(`Import refuses link ${source}.`);
         for (const entry of readdirSync(source)) {
           const path = join(source, entry), stat = lstatSync(path);
           if (stat.isSymbolicLink()) throw new Error(`Import refuses link ${entry}.`);
           const name = stat.isDirectory() ? entry : entry.slice(0, entry.length - extname(entry).length);
-          if (existsSync(join(this.live, name))) throw new Error(`Artifact ${name} already exists; move or rename it before importing ${entry}.`);
           const files = stat.isDirectory() ? Object.fromEntries(artifactFiles(path).map(p => [p, readFileSync(join(path, p))])) : { [entry]: readFileSync(path) };
+          const live = join(this.live, name);
+          if (existsSync(live)) {
+            // Compilation adds an index; only an unchanged generated index is outside the imported source.
+            const generated = join(this.root, "generated", name), index = join(live, "index.html");
+            const generatedIndex = !Object.hasOwn(files, "index.html") && existsSync(generated) && existsSync(index)
+              && readFileSync(generated, "utf8") === new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex");
+            const paths = artifactFiles(live).filter(p => !(generatedIndex && p === "index.html"));
+            if (aliases[path] === name && paths.length === Object.keys(files).length
+              && paths.every(p => files[p] !== undefined && readFileSync(join(live, p)).equals(files[p]!))) alreadyThere.push(entry);
+            else collided.push({ entry, name });
+            continue;
+          }
           imported.push(await this.put(name, files));
           aliases[`artifacts/${entry}`] = name; aliases[path] = name;
           mkdirSync(dirname(aliasFile), { recursive: true });
           writeFileSync(aliasFile, JSON.stringify(aliases));
         }
-        return { imported, said: "Old artifact paths now resolve to the imported folders. New notes can use [artifact::<name>]. Source files were kept." };
+        return report();
       }
       case "artifacts.put": return this.put(request.name, request.files);
       case "artifacts.show": {
