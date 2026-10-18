@@ -65,6 +65,19 @@ describe("one operation, one transaction", () => {
     expect(s.wires).toEqual([{ from: 1, verb: "select", to: 4 }, { from: 1, verb: "open", to: 2 }]);
     extra = {};
   });
+  test("alt rules resolve through landing, with a screen default and a first unheld reader", () => {
+    let s = ok(fresh(), { op: "link", tile: 1, to: 2 }).state;
+    expect(landing(s, 1, "alt", facts(1), facts)).toEqual({ beside: 2 });
+    for (const rule of ["tab", "beside", "tile"] as const) {
+      s = ok(s, { op: "link", tile: 1, to: 2, verb: "alt", rule }).state;
+      expect(landing(s, 1, "alt", facts(1), facts)).toEqual(rule === "tile" ? { to: 2 } : rule === "tab" ? { tab: 2 } : { beside: 2 });
+    }
+    s = ok(s, { op: "link", tile: 1, verb: "alt" }).state;
+    s = ok(s, { op: "policy", set: { altOpens: "first-unheld" }, clear: [] }).state;
+    extra = { 2: { held: true }, 3: { notes: true } };
+    try { expect(landing(s, 1, "alt", facts(1), facts)).toEqual({ to: 3 }); }
+    finally { extra = {}; }
+  });
   test("a refused operation changes nothing and says why; a done one answers a new state, the old one left as it was", () => {
     extra = {};
     const s = fresh();
@@ -699,6 +712,42 @@ describe("growth by room: readers opened beside fold the earlier ones, never the
       extra = {};
       for (let id = 6; id <= 25; id++) NAMES.delete(id);
     }
+  });
+
+  test("five alt opens preserve the working pair and stack back-one nearest; holding removes a reader from the pile", () => {
+    extra = { 1: { kind: "pty", notes: false } };
+    let s = fresh(splitOf("row", [leaf(1), leaf(2)], [53, 107]));
+    const open = (id: number) => {
+      const before = place(s, AREA).rects;
+      s = ok(s, { op: "open", tile: id, kind: "reader", at: { kind: "split", target: 2, dir: "right" }, keys: false, alt: true }).state;
+      s = ok(s, { op: "room", tile: id, before, alt: true }).state;
+      expect(place(s, AREA).rects.get(1)!.cols).toBe(53);
+    };
+    try {
+      for (let id = 5; id <= 9; id++) open(id);
+      expect(leaves(s.tree)).toEqual([1, 2, 9, 8, 7, 6, 5]);
+      expect(s.collapsed.has(8)).toBe(true);
+      s = ok(s, { op: "collapse", tile: 8, on: false }).state;
+      expect(place(s, AREA).rects.get(8)!.cols).toBeGreaterThanOrEqual(48);
+      s = ok(s, { op: "alt.hold", tile: 9 }).state;
+      open(10);
+      expect(s.collapsed.has(9)).toBe(false);
+    } finally { extra = {}; }
+  });
+
+  test("alt opens leave placed readers alone while the pile keeps the terminal's width", () => {
+    extra = { 1: { kind: "pty", notes: false } };
+    let s = fresh(splitOf("row", [leaf(1), leaf(2), leaf(5)], [53, 32, 75]), new Map([[1, "terminal"], [2, "detail a"], [5, "placed reader"]]));
+    try {
+      for (let id = 6; id <= 8; id++) {
+        const before = place(s, AREA).rects;
+        s = ok(s, { op: "open", tile: id, kind: "reader", at: { kind: "split", target: 2, dir: "right" }, keys: false, alt: true }).state;
+        s = ok(s, { op: "room", tile: id, before, alt: true }).state;
+        expect(s.collapsed.has(5)).toBe(false);
+        expect(place(s, AREA).rects.get(1)!.cols).toBeLessThanOrEqual(before.get(1)!.cols);
+      }
+      expect(s.collapsed.has(6)).toBe(true);
+    } finally { extra = {}; }
   });
 
   test("while a new one gets its readable width nothing folds; past it the earliest reader after the first does, then the next", () => {

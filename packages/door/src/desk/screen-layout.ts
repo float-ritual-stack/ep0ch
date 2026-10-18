@@ -1,3 +1,4 @@
+import type { AltRule } from "./layout";
 // The screen-layout module (PIE-513): the reducer in the door's one-way data flow. A screen's layout is one value
 // (its tree of containers and tiles, its floats, the tiles folded to a spine, the zoom, the links, the tiles' names,
 // the screen's policy and lock, its revision) and it changes only one way: `apply(state, op, ctx)`, which applies one
@@ -65,6 +66,7 @@ export interface LayoutState<I = number> {
   /** The tile filling the screen, if one does. */
   readonly zoom: I | null;
   readonly wires: readonly Wire<I>[];
+  readonly altReaders: ReadonlySet<I>;
   /** Each tile's name: what links, previews, `act tile=` and `peek` call it. */
   readonly names: ReadonlyMap<I, string>;
   /** What an agent may do to a tile of its own (PIE-639): wins over the containers' and the screen's default; absent, they say. */
@@ -84,7 +86,7 @@ export interface LayoutState<I = number> {
 }
 
 export type WireVerb = "select" | "open" | "alt";
-export type Wire<I = number> = { from: I; verb: WireVerb; to: I };
+export type Wire<I = number> = { from: I; verb: WireVerb; to: I; rule?: AltRule };
 export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt"];
 export const wireTarget = <I>(s: Pick<LayoutState<I>, "wires">, from: I, verb: WireVerb = "open"): I | undefined => s.wires.find(w => w.from === from && w.verb === verb)?.to;
 export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[] => s.wires.filter(w => w.from === from && w.verb === "select").map(w => w.to);
@@ -98,6 +100,7 @@ export interface TileFacts {
   tabs?: readonly string[];
   /** It takes notes: a link or an opens-into may name it. */
   notes?: boolean;
+  held?: boolean;
   /** Why it stays: a tile source supplies it (the board's lanes), so a close would come back. */
   keeps?: string;
   /** Its kind's own words for why its kind's policy keeps it (closable or draggable off), said whole in place of the policy's. */
@@ -159,7 +162,7 @@ export type At<I = number> = Place<I>
 
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
-  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb }
+  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb }
   | { op: "close"; tile: I; gone?: boolean }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
   | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb }
@@ -180,7 +183,8 @@ export type Op<I = number> =
   | { op: "slide"; tile: I; open?: boolean; container?: string }
   | { op: "collapse"; tile: I; on?: boolean; dir?: "v" | "h" }
   /** Growth by room (PIE-794): tile `tile` was just opened beside others; earlier readers in its row fold until it's readable. */
-  | { op: "room"; tile: I; before?: ReadonlyMap<I, Rect> }
+  | { op: "room"; tile: I; before?: ReadonlyMap<I, Rect>; alt?: boolean }
+  | { op: "alt.hold"; tile: I }
   | { op: "resize"; split?: string; path?: string; border: number; share: number }
   | { op: "shares"; split: string; shares: number[] }
   | { op: "grow"; tile: I; axis: Axis; by: number }
@@ -189,7 +193,7 @@ export type Op<I = number> =
   /** What an agent may do to tile `tile` (PIE-639): its own level, or (`level` null) the containers' and the screen's again. */
   | { op: "agents"; tile: I; level: AgentLevel | null }
   | { op: "policy"; tile?: I; node?: string; set: Policy; clear: string[] }
-  | { op: "link"; tile: I; to?: I; verb?: WireVerb; remove?: boolean }
+  | { op: "link"; tile: I; to?: I; verb?: WireVerb; remove?: boolean; rule?: AltRule }
   | { op: "focus"; tile: I; quiet?: boolean }
   | { op: "reveal"; tile: I }
   | { op: "tab"; tile: I; by?: number }
@@ -217,12 +221,12 @@ const refuse = (why: string | null | undefined): void => { if (why) throw new Re
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 
 interface Draft<I> {
-  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; wires: Wire<I>[]; names: Map<I, string>; agents: Map<I, AgentLevel>;
+  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; wires: Wire<I>[]; altReaders: Set<I>; names: Map<I, string>; agents: Map<I, AgentLevel>;
   policy: Policy; locks: Set<string>; remembered: Map<string, Policy | undefined>; focus: I; changed: boolean; answer: Record<string, unknown>;
 }
 const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
   tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom,
-  wires: s.wires.map(w => ({ ...w })), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
+  wires: s.wires.map(w => ({ ...w })), altReaders: new Set(s.altReaders), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
 });
 
 /** The leaf node of tile `id` where it stands alone (not a tab): what a group's tree replaces. */
@@ -262,7 +266,7 @@ function stamp<I>(tree: LNode<I>, policy: Policy, floats: readonly Float<I>[], p
 function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: string }): LayoutState<I> {
   const s = stamp(d.tree, d.policy, d.floats, prev);
   return freeze({
-    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, wires: d.wires, names: d.names, agents: d.agents, policy: d.policy,
+    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, wires: d.wires, altReaders: d.altReaders, names: d.names, agents: d.agents, policy: d.policy,
     locks: [...d.locks], remembered: d.remembered, rev: s.rev, nextNode: s.nextNode, shapeKey: s.shapeKey,
   });
 }
@@ -272,14 +276,14 @@ function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: s
  * blank, its containers given ids. `prev` goes on from an earlier state (its revision and ids, its agents' locks
  * and the docks' remembered policy), or from a saved revision and next id.
  */
-export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, Fold>; wires?: readonly Wire<I>[]; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
+export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, Fold>; wires?: readonly Wire<I>[]; altReaders?: ReadonlySet<I>; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
   prev?: LayoutState<I> | { rev: number; nextNode: number }, opts: { freshIds?: boolean } = {}): LayoutState<I> {
   const given = clone(parts.tree);
   // A layout loaded from elsewhere (not this screen's own save coming back) never hands out an id given here before.
   if (opts.freshIds) forgetIds(given, num => num < (prev?.nextNode ?? 1));
   const tree = normalise(given);
   const d: Draft<I> = {
-    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, wires: (parts.wires ?? []).map(w => ({ ...w })), names: new Map(parts.names), agents: new Map(parts.agents ?? []),
+    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), names: new Map(parts.names), agents: new Map(parts.agents ?? []),
     policy: policyOf(parts.policy), locks: new Set(prev && "locks" in prev ? prev.locks : []), remembered: new Map(prev && "remembered" in prev ? prev.remembered : []),
     focus: leaves(tree)[0]!, changed: true, answer: {},
   };
@@ -380,14 +384,22 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string): str
  * reader), else the open rule: the next column of its flow (`next`), or none (a reader is its own home: the note
  * replaces its own; anything else moves the current note).
  */
-export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | null {
-  const own = wireTarget(s, id, verb);
-  if (own !== undefined && s.names.has(own)) return { to: own };
+export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | { tab: I } | null {
+  const wire = s.wires.find(w => w.from === id && w.verb === verb && s.names.has(w.to));
   if (verb === "alt") {
     const open = landing(s, id, "open", facts);
-    if (open && ("into" in open || "next" in open)) return open;
-    return { beside: open && "to" in open ? open.to : id };
+    const rule = wire?.rule ?? (wire ? "tile" : s.policy.altOpens ?? "beside");
+    const target = wire?.to ?? (open && "to" in open ? open.to : id);
+    if (rule === "first-unheld") {
+      const available = leaves(s.tree).find(t => { const f = tile?.(t); return f?.notes && !f.follower && !f.held && !f.editing && !f.holds; });
+      if (available !== undefined) return { to: available };
+    }
+    if (rule === "tile") return { to: target };
+    if (rule === "tab") return { tab: target };
+    if (!wire && !s.policy.altOpens && open && ("into" in open || "next" in open)) return open;
+    return { beside: target };
   }
+  if (wire) return { to: wire.to };
   const e = policyAt(s, id, facts);
   const into = e.opensInto ? named(s, e.opensInto) : undefined;
   if (into !== undefined && into !== id) return { to: into };
@@ -650,7 +662,11 @@ class Step<I> {
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
       case "slide": return this.slide(op.tile, op.open, op.container);
       case "collapse": return this.collapse(op.tile, op.on, op.dir);
-      case "room": return this.room(op.tile, op.before);
+      case "room": return this.room(op.tile, op.before, op.alt);
+      case "alt.hold":
+        this.present(op.tile); this.shape(op.tile, "holding it out of the pile");
+        if (this.d.collapsed.has(op.tile)) this.collapse(op.tile, false);
+        this.d.altReaders.delete(op.tile); this.d.changed = true; return;
       case "resize": return this.keepsSize(() => this.resizeBorder(op));
       case "shares": return this.keepsSize(() => this.shares(op.split, op.shares));
       case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
@@ -658,7 +674,7 @@ class Step<I> {
       case "lock": return this.lock(op.on);
       case "agents": return this.setAgents(op.tile, op.level);
       case "policy": return this.setPolicy(op);
-      case "link": return this.link(op.tile, op.to, op.verb, op.remove);
+      case "link": return this.link(op.tile, op.to, op.verb, op.remove, op.rule);
       case "focus": return this.focus(op.tile, !!op.quiet);
       case "reveal": return this.reveal(op.tile);
       case "tab": return this.tab(op.tile, op.by);
@@ -703,6 +719,7 @@ class Step<I> {
         const nd = op.container ? nodeById(this.d.tree, op.container) : null;
         return each(under(nd?.t === "dock" ? nd : dockOf(this.d.tree, op.tile)), "sliding its dock", undefined);
       }
+      case "alt.hold": return no(op.tile, "holding it");
       case "collapse": return no(op.tile, "folding it");
       case "room": return;   // it folds only tiles an agent may fold (room checks each)
       case "grow": return no(op.tile, "resizing it", "off");
@@ -776,6 +793,7 @@ class Step<I> {
     const label = name ?? `a new ${op.kind} tile`;
     this.into(op.kind, label, op.at);
     this.d.names.set(op.tile, name ?? autoName(this.d, op.kind));
+    if (op.alt) this.d.altReaders.add(op.tile);
     if (op.at.kind === "float") {
       const r = op.at.rect ?? this.newFloatRect();
       this.d.floats.push({ id: op.tile, rect: this.onScreen({ ...r }) });
@@ -993,6 +1011,7 @@ class Step<I> {
     this.d.collapsed.delete(id); this.d.agents.delete(id);
     this.d.names.delete(id);
     this.d.wires = this.d.wires.filter(w => w.from !== id && w.to !== id);
+    this.d.altReaders.delete(id);
     if (this.d.zoom === id) this.d.zoom = null;
   }
 
@@ -1231,7 +1250,14 @@ class Step<I> {
     const name = this.name(id), was = this.d.collapsed.get(id), want = on ?? !was;
     if (dir !== undefined && dir !== "v" && dir !== "h") refuse(`tile.collapse: dir is v (a vertical spine) or h (a horizontal one), not ${dir}`);
     if (!want && !was) { this.d.changed = false; this.d.answer = { collapsed: false, changed: false }; return; }
-    if (!want) { for (const t of this.foldSet(id)) this.d.collapsed.delete(t); this.d.answer = { collapsed: false }; return; }
+    if (!want) {
+      const before = rects({ ...this.d, zoom: null }, this.ctx.area);
+      for (const t of this.foldSet(id)) this.d.collapsed.delete(t);
+      if (this.d.altReaders.has(id)) this.room(id, before, true);
+      this.d.changed = true;
+      this.d.answer = { ...this.d.answer, collapsed: false };
+      return;
+    }
     const p = parentOf(this.d.tree, id);
     const axis = p?.parent.t === "flow" ? undefined : p?.parent.dir;
     const fold: Fold = (dir ?? (axis === "col" ? "h" : "v")) === "h" ? { dir: "h" } : {};
@@ -1261,7 +1287,7 @@ class Step<I> {
    * A fold gives its room to the new reader and sits just after it, so untouched tiles never grow.
    * The answer names what folded.
    */
-  private room(id: I, prior?: ReadonlyMap<I, Rect>) {
+  private room(id: I, prior?: ReadonlyMap<I, Rect>, alt = false) {
     this.present(id);
     this.d.changed = false;
     const folded: string[] = [];
@@ -1273,11 +1299,24 @@ class Step<I> {
     const readers = p.parent.kids.map(k => (k.t === "leaf" ? k.id : k.t === "tabs" ? k.ids[k.active] : undefined)).filter((t): t is I => t !== undefined && !!this.facts(t).notes);
     // Readers opened before it, wherever they are in the row (a new one opens right beside the one it came from), but a
     // preview, which follows another tile: it isn't one of the readers that grew.
-    const may = (t: I) => t !== id && t !== readers[0] && !this.facts(t).follower && !this.facts(t).editing && !this.facts(t).holds && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
+    const may = (t: I) => t !== id && (alt ? this.foldSet(t).every(x => this.d.altReaders.has(x)) : t !== readers[0]) && !this.facts(t).follower && !this.facts(t).held && !this.facts(t).editing && !this.facts(t).holds && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
       && !(this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free"));
+    const giveRoom = (row: Line<I>, sizes: number[], to: number, from = -1) => {
+      const donors = row.kids.map((k, i) => ({ k, i, tiles: leaves(k) })).reverse();
+      const reader = (d: typeof donors[number]) => d.tiles.some(t => this.facts(t).notes);
+      const ordered = [...donors.filter(reader), ...donors.filter(d => !reader(d))];
+      if (alt) ordered.sort((a, b) => Number(b.i === to - 1) - Number(a.i === to - 1));
+      for (const { k, i, tiles } of ordered) {
+        if (sizes[to]! >= want) break;
+        if (i === from || i === to || tiles.some(t => this.d.collapsed.has(t) || this.facts(t).holds || this.facts(t).editing || t === this.ctx.person.typingIn
+          || this.policyAt(t).locked || !this.policyAt(t).resizable || (this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free")))) continue;
+        const give = Math.min(want - sizes[to]!, Math.max(0, sizes[i]! - (k.t === "leaf" ? MIN_COLS : k.policy?.min ?? MIN_COLS)));
+        sizes[i]! -= give; sizes[to]! += give;
+      }
+    };
     const by = byOf(this.ctx.actor);
     while (width() < want) {
-      const t = readers.find(may);
+      const t = (alt ? [...readers].reverse() : readers).find(may);
       if (t === undefined) break;
       const row: Line<I> = p.parent;
       const before = rects({ ...this.d, zoom: null }, this.ctx.area);
@@ -1290,23 +1329,14 @@ class Step<I> {
       sizes[to]! += sizes[from]! - SPINE;
       // Splitting an edit already borrowed its width. Return spare room once the new reader is readable.
       for (const [i, k] of row.kids.entries()) {
-        const held = leaves(k).find(t => this.facts(t).editing || this.facts(t).holds || t === this.ctx.person.typingIn || (this.agent && t === this.d.focus));
+        const held = leaves(k).find(t => (alt && !this.d.altReaders.has(t)) || this.facts(t).editing || this.facts(t).holds || t === this.ctx.person.typingIn || (this.agent && t === this.d.focus));
         const was = held === undefined ? undefined : prior?.get(held);
         if (was && i !== to && i !== from) {
           const give = Math.min(Math.max(0, was.cols - sizes[i]!), Math.max(0, sizes[to]! - want));
           sizes[i]! += give; sizes[to]! -= give;
         }
       }
-      // Spines spend the newest reader down to readable, then earlier readers, then other tiles last.
-      const donors = row.kids.map((k, i) => ({ k, i, tiles: leaves(k) })).reverse();
-      const reader = (d: typeof donors[number]) => d.tiles.some(t => this.facts(t).notes);
-      for (const { k, i, tiles } of [...donors.filter(reader), ...donors.filter(d => !reader(d))]) {
-        if (sizes[to]! >= want) break;
-        if (i === from || i === to || tiles.some(t => this.d.collapsed.has(t) || this.facts(t).holds || this.facts(t).editing || t === this.ctx.person.typingIn
-          || this.policyAt(t).locked || !this.policyAt(t).resizable || (this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free")))) continue;
-        const give = Math.min(want - sizes[to]!, Math.max(0, sizes[i]! - (k.t === "leaf" ? MIN_COLS : k.policy?.min ?? MIN_COLS)));
-        sizes[i]! -= give; sizes[to]! += give;
-      }
+      giveRoom(row, sizes, to, from);
       row.weights = sizes;
       for (const f of this.foldSet(t)) this.d.collapsed.set(f, { ...by });
       const [kid] = row.kids.splice(from, 1), [weight] = row.weights.splice(from, 1);
@@ -1314,6 +1344,30 @@ class Step<I> {
       row.kids.splice(beside, 0, kid!); row.weights.splice(beside, 0, weight!);
       folded.push(this.name(t));
       this.d.changed = true;
+    }
+    if (alt) {
+      const row = p.parent;
+      if (width() < want) {
+        const before = rects({ ...this.d, zoom: null }, this.ctx.area);
+        const sizes = row.kids.map(k => before.get(leaves(k)[0]!)?.cols ?? 0);
+        giveRoom(row, sizes, row.kids.findIndex(k => leaves(k).includes(id)));
+        row.weights = sizes;
+        this.d.changed = true;
+      }
+      const spines = row.kids.filter(k => leaves(k).every(t => this.d.altReaders.has(t) && this.d.collapsed.has(t)));
+      if (spines.length > 3) {
+        const old = spines.slice(2), ids = old.flatMap(k => leaves(k));
+        const before = rects({ ...this.d, zoom: null }, this.ctx.area);
+        const sizes = row.kids.map(k => before.get(leaves(k)[0]!)?.cols ?? 0);
+        const at = row.kids.indexOf(old[0]!);
+        const freed = old.reduce((n, k) => n + sizes[row.kids.indexOf(k)]!, 0) - SPINE;
+        sizes[row.kids.findIndex(k => leaves(k).includes(id))]! += freed;
+        for (const k of old.slice(1).reverse()) { const i = row.kids.indexOf(k); row.kids.splice(i, 1); sizes.splice(i, 1); }
+        row.kids[at] = { t: "tabs", ids, active: 0 };
+        sizes[at] = SPINE;
+        row.weights = sizes;
+        this.d.changed = true;
+      }
     }
   }
 
@@ -1402,7 +1456,7 @@ class Step<I> {
     this.d.answer = { node: name, policy };
   }
 
-  private link(id: I, to: I | undefined, verb: WireVerb = "open", remove = false) {
+  private link(id: I, to: I | undefined, verb: WireVerb = "open", remove = false, rule?: AltRule) {
     this.present(id);
     this.shape(id, `changing where ${this.name(id)}'s ${verb} lands`);
     if (to === undefined || remove) {
@@ -1412,7 +1466,10 @@ class Step<I> {
     }
     this.present(to);
     const f = this.facts(to);
-    this.linkTo(id, to, !!f.notes, f.kind, verb);
+    if (verb === "alt" && rule && rule !== "tile") {
+      this.d.wires = this.d.wires.filter(w => !(w.from === id && w.verb === verb));
+      this.d.wires.push({ from: id, verb, to, rule });
+    } else this.linkTo(id, to, !!f.notes, f.kind, verb);
     this.d.answer = { wire: this.name(to), verb };
   }
   private linkTo(id: I, to: I, notes: boolean, kind: string, verb: WireVerb = "open") {

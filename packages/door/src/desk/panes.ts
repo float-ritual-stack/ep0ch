@@ -46,6 +46,7 @@ export interface DeskApi {
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
+  holdReader?(pane: ReaderPane, actor: Actor): void;
   /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it is newer. */
   layoutUndoSeq?(): number | undefined;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
@@ -879,9 +880,11 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       { act: "reader.mode tile=replies mode=held", does: "keeps the replies tile on its note when the current note moves" },
       { act: "reader.mode tile=reader mode=pinned page=garden", does: "pins the reader to [[garden]], shown again each time it starts" },
     ],
-    run({ mode, page }, { pane, desk }) {
+    async run({ mode, page }, { pane, desk }, actor) {
       if (mode !== undefined && !(FOLLOW_MODES as readonly string[]).includes(mode)) throw new ActionRefused(`reader.mode: mode is follows, held or pinned, not ${mode}`);
-      return pane.setMode(mode as FollowMode | undefined, desk, page);
+      const result = await pane.setMode(mode as FollowMode | undefined, desk, page);
+      if (result.mode !== "follows") desk.holdReader?.(pane, actor);
+      return result;
     },
   }),
 });
