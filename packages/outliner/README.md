@@ -1286,9 +1286,11 @@ never picked up.
 
 A lone `.jsx` or `.tsx` compiles to `index.html` beside its source using the existing
 Bun.build compiler, pinned packages and cache (`~/outlines/.artifact-cache/`).
-Built folders keep their files and relative assets as given. Neither the static
-server nor a note request builds anything. HTML, SVG, Mermaid and Markdown files
-are kept as given; upload built HTML to run a rendered Mermaid or Markdown page.
+Lone Mermaid and Markdown files also get an `index.html` at put time: Mermaid
+uses the pinned CDN renderer and Markdown uses the outline's HTML renderer.
+Their source files are kept beside it. Built inbox folders keep their files and
+relative assets as given. The static server never builds anything. HTML and SVG
+are served as given.
 Direct puts retain their existing error-page behavior for invalid React source;
 inbox compile failures keep the previous live artifact and preserve the drop in `.failed/`.
 
@@ -1315,7 +1317,9 @@ uses an outline to locate its source folder.
 Binary files go through CLI tar uploads. Puts replace the live folder; snapshot
 explicitly freezes it. Uploads and snapshots default to 64 MiB, configurable with
 `EP0CH_ARTIFACT_MAX_BYTES` on the host and watcher. Inbox pickups enforce the cap
-before installation, including the compiled output.
+before reading source files and before installation, including the compiled output.
+`EP0CH_ARTIFACT_MAX_ENTRIES` (default 5000) caps file and directory entries through
+file maps, inbox drops, import and tar uploads.
 
 Write `[artifact::moth-site]` on its own note line for the live folder, or
 `[artifact::moth-site@1]` to pin snapshot 1. `artifact:: moth-site` also works.
@@ -1324,16 +1328,20 @@ existing media layout. The note frames `<origin>/<unguessable id>/<name>/`;
 the door's card opens that same URL by Enter, mouse, or `artifact.open` (an agent
 receives the URL without opening the person's browser). Snapshots live under
 `.artifacts/snapshots/`, outside the synced tree, with a content hash and timestamp.
-Deleting one never reuses its version number. Removing the live folder leaves
-its snapshots available.
+Each ref (the live name and every numbered snapshot) has its own unguessable URL.
+Deleting a ref revokes its URL; putting the live name again gets a new URL.
+Deleting a snapshot never reuses its version number. Removing the live folder
+leaves its snapshots and their URLs available.
 
 The static server serves files and directory `index.html` pages, with media types,
 no directory listing, no cookies set, `nosniff`, and a CSP allowing local scripts,
 inline scripts and the pinned CDN scripts. Its own origin isolates it from notes;
-frames have no sandbox flags. Artifact URLs are unlisted bearer links, not a
-second copy of note permissions: notes only expose frames where those notes may
-appear, and someone holding the URL can open it directly. Browser storage belongs
-to the artifact origin. The server never reads an outline.
+frames also use a sandbox allowing scripts, popups, forms, pointer lock and
+downloads, without same-origin access or top navigation. An artifact's
+`localStorage` does not persist in that frame. Artifact URLs are unlisted bearer
+links, not a second copy of note permissions: notes only expose frames where
+those notes may appear, and someone holding the URL can open it directly.
+The server never reads an outline.
 
 For existing `[artifact::artifacts/file.jsx]` notes, run
 `ep0ch artifact import --ws <outline> --machine float-2` once per outline. It copies
@@ -1341,8 +1349,14 @@ the old `artifacts/` entries into the shared store, compiles lone React files an
 records relative/absolute old paths as aliases. Original files and note text stay
 intact. Import skips and reports each name collision, recognises unchanged entries
 already aliased to the same content, and finishes with imported, already-there and
-collision counts. It can be rerun after a partial import.
-Unimported paths no longer compile on note requests. Standalone `[file::…]`
+collision counts, plus skipped entries with their reasons. Hidden entries are
+ignored, and invalid names are slugified when possible (`Pulse Pad.jsx` becomes
+`pulse-pad`). One invalid entry does not stop the import. It can be rerun after
+a partial import.
+When no store artifact or alias matches, `[artifact::path]` still serves the file
+through the publisher's existing file policy and cache, compiling React per
+request as before. This includes `notes/chart.jsx`, `./artifacts/x.html`, nested
+`artifacts/demos/x.jsx`, and absolute paths inside an allowed `--root`. Standalone `[file::…]`
 attachments retain their existing publisher behavior.
 
 **Deployment (deployer only, float-2).** This change uses protocol 216 (215 + 1 on

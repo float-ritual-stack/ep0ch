@@ -27,7 +27,7 @@ afterEach(async () => {
 const COMPILE_TIMEOUT = 180_000;
 const SANDBOX = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads";
 
-async function setup(options: { artifactCacheDirectory?: string | null } = {}) {
+async function setup(options: { artifactCacheDirectory?: string | null; roots?: string[] } = {}) {
   const root = mkdtempSync(join(tmpdir(), "outliner-publish-artifacts-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const workspace = join(root, "garden");
@@ -38,7 +38,7 @@ async function setup(options: { artifactCacheDirectory?: string | null } = {}) {
   await server.start();
   const client = new OutlinerClient(paths.socket);
   const cache = options.artifactCacheDirectory === undefined ? packageCache : options.artifactCacheDirectory;
-  const publisher = new Publisher({ client, ...(cache ? { artifactCacheDirectory: cache } : {}) });
+  const publisher = new Publisher({ client, roots: options.roots, ...(cache ? { artifactCacheDirectory: cache } : {}) });
   cleanups.push(async () => {
     await publisher.stop();
     await server.close();
@@ -382,7 +382,7 @@ test("a named folder goes through the service and snapshots keep its earlier byt
   store.create("Moth exhibit [publish::moth-exhibit]\n[artifact::moth-site]");
   const html = await (await get("/p/moth-exhibit?view=html")).text();
   expect(html).toContain(`src="${live.url}"`);
-  expect(html.match(/<iframe[^>]*>/)?.[0]).not.toContain("sandbox");
+  expect(html.match(/<iframe[^>]*>/)?.[0]).toContain('sandbox="allow-scripts allow-popups allow-forms allow-pointer-lock allow-downloads"');
   await client.request({ action: "artifacts.rm", name: "moth-site@1" });
   expect((await fetch(frozen.url!)).status).toBe(404);
   expect((await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" })).version).toBe(2);
@@ -399,7 +399,7 @@ test("import finishes past collisions and recognises unchanged aliases on a reru
   expect(result.imported.map(a => a.name)).toEqual(["cedar"]);
   expect(result.alreadyThere).toEqual(["amber.html"]);
   expect(result.collided).toEqual([{ entry: "birch.html", name: "birch" }]);
-  expect(result.counts).toEqual({ imported: 1, alreadyThere: 1, collided: 1 });
+  expect(result.counts).toEqual({ imported: 1, alreadyThere: 1, collided: 1, skipped: 0 });
   expect(readFileSync(join(root, ".artifacts/live/birch/index.html"), "utf8")).toBe("Existing birch");
   expect(readFileSync(join(root, ".artifacts/live/cedar/cedar.html"), "utf8")).toBe("Incoming cedar");
   write("artifacts/amber.html", "Changed amber");
@@ -533,3 +533,128 @@ test("settled inbox drops become versions and receipts, while bad drops keep the
   expect(readFileSync(receipts, "utf8").trim().split("\n")).toHaveLength(4);
 
 }, COMPILE_TIMEOUT);
+
+
+test("each artifact ref has its own capability and removing live revokes its old URL", async () => {
+  const { root, client } = await setup();
+  const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
+  process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test";
+  cleanups.push(() => { if (oldOrigin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = oldOrigin; });
+  const serve = (url: string) => artifactResponse(join(root, ".artifacts"), new Request(url), "*");
+  const live = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "capability", files: { "index.html": "Live" } });
+  const pinned = await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "capability" });
+  const second = await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "capability" });
+  expect(serve(live.url!.replace("/capability/", "/capability@1/")).status).toBe(404);
+  expect(serve(pinned.url!.replace("capability%401", "capability")).status).toBe(404);
+  expect(serve(pinned.url!.replace("capability%401", "capability%402")).status).toBe(404);
+  await client.request({ action: "artifacts.rm", name: "capability" });
+  const replacement = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "capability", files: { "index.html": "Replacement" } });
+  expect(replacement.url).not.toBe(live.url);
+  expect(serve(live.url!).status).toBe(404);
+  expect(await serve(pinned.url!).text()).toBe("Live");
+  await client.request({ action: "artifacts.rm", name: "capability@2" });
+  expect(serve(second.url!).status).toBe(404);
+});
+
+test("read-only copies can show, list and read versions of machine artifacts", async () => {
+  const { root, client } = await setup();
+  await client.request({ action: "artifacts.put", name: "lantern", files: { "index.html": "Lantern" } });
+  await client.request({ action: "artifacts.snapshot", name: "lantern" });
+  const paths = scratchOutline(join(root, "copy-host"), { folder: join(root, "copy") });
+  const store = new OutlinerStore(paths.database, { workspaceRoot: join(root, "copy") });
+  const server = new OutlinerServer(store, paths.socket, undefined, undefined, { readOnly: true, outlinesFolder: root });
+  await server.start();
+  cleanups.push(async () => { await server.close(); store.close(); });
+  const copy = new OutlinerClient(paths.socket);
+  expect((await copy.request<ArtifactInfo>({ action: "artifacts.show", name: "lantern" })).files).toContain("index.html");
+  expect((await copy.request<{ artifacts: ArtifactInfo[] }>({ action: "artifacts.list" })).artifacts.some(a => a.name === "lantern")).toBe(true);
+  expect((await copy.request<{ versions: ArtifactInfo[] }>({ action: "artifacts.versions", name: "lantern" })).versions[0]?.version).toBe(1);
+  await expect(copy.request({ action: "artifacts.rm", name: "lantern" })).rejects.toThrow(/read.only/i);
+});
+
+test("unimported artifact paths still render and recompile after a file edit", async () => {
+  const extraRoot = mkdtempSync(join(tmpdir(), "outliner-artifact-root-"));
+  cleanups.push(() => rmSync(extraRoot, { recursive: true, force: true }));
+  const { store, get, write } = await setup({ roots: [extraRoot] });
+  const absolute = join(extraRoot, "external.html");
+  writeFileSync(absolute, "<h1>Absolute page</h1>");
+  const paths = ["notes/chart.jsx", "./artifacts/x.html", "artifacts/demos/x.jsx", absolute];
+  write(paths[0]!, "export default () => <p>First chart</p>");
+  write("artifacts/x.html", "<h1>Relative page</h1>");
+  write(paths[2]!, "export default () => <p>Nested chart</p>");
+  const note = store.create(`Paths [publish::paths]\n${paths.map(path => `[artifact::${path}]`).join("\n")}`);
+  const html = await (await get("/p/paths?view=html")).text();
+  for (let line = 1; line <= paths.length; line++) {
+    const route = `/p/${note.id}/artifact/${line}`;
+    expect(html).toContain(`src="${route}"`);
+    expect((await get(route)).status).toBe(200);
+  }
+  write(paths[0]!, "export default () => <p>Changed chart</p>");
+  expect(await (await get(`/p/${note.id}/artifact/1`)).text()).toContain("Changed chart");
+}, COMPILE_TIMEOUT);
+
+test("mermaid and markdown puts serve rendered HTML beside their source", async () => {
+  const { root, client } = await setup();
+  const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
+  process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test";
+  cleanups.push(() => { if (oldOrigin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = oldOrigin; });
+  for (const [name, source, expected] of [["diagram.mermaid", MERMAID, MERMAID_MODULE], ["guide.md", "# Lantern guide", "<h1>Lantern guide</h1>"]]) {
+    const info = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "rendered", files: { [name!]: source! } });
+    expect(info.files).toContain("index.html");
+    const page = artifactResponse(join(root, ".artifacts"), new Request(info.url!), "*");
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(await page.text()).toContain(expected!);
+    expect(readFileSync(join(root, ".artifacts/live/rendered", name!), "utf8")).toBe(source!);
+  }
+});
+
+test("an interrupted snapshot does not prevent listing or creating complete versions", async () => {
+  const { root, client } = await setup();
+  await client.request({ action: "artifacts.put", name: "lantern", files: { "index.html": "Lantern" } });
+  mkdirSync(join(root, ".artifacts/snapshots/lantern/1/files"), { recursive: true });
+  writeFileSync(join(root, ".artifacts/snapshots/lantern/1/files/index.html"), "Incomplete");
+  mkdirSync(join(root, ".artifacts/sequences"), { recursive: true });
+  writeFileSync(join(root, ".artifacts/sequences/lantern"), "1");
+  expect((await client.request<{ versions: ArtifactInfo[] }>({ action: "artifacts.versions", name: "lantern" })).versions).toEqual([]);
+  const next = await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "lantern" });
+  expect(next.version).toBe(2);
+  expect((await client.request<{ versions: ArtifactInfo[] }>({ action: "artifacts.versions", name: "lantern" })).versions.map(v => v.version)).toEqual([2]);
+});
+
+test("import skips hidden entries and handles spaced names without losing later files", async () => {
+  const { client, write } = await setup();
+  write("artifacts/.DS_Store", "metadata");
+  write("artifacts/!!!.html", "No usable name");
+  write("artifacts/Pulse Pad.html", "Pulse pad");
+  write("artifacts/zebra.html", "Zebra");
+  const result = await client.request<{ imported: ArtifactInfo[]; skipped: { entry: string; reason: string }[] }>({ action: "artifacts.import" });
+  expect(result.imported.map(a => a.name)).toEqual(["pulse-pad", "zebra"]);
+  expect(result.skipped[0]?.entry).toBe("!!!.html");
+  expect(result.skipped[0]?.reason).toContain("artifact name");
+  expect((await client.request<ArtifactInfo>({ action: "artifacts.show", name: "artifacts/Pulse Pad.html" })).name).toBe("pulse-pad");
+});
+
+test("file maps, import and inbox drops enforce the same entry cap before installation", async () => {
+  const { root, client, write } = await setup();
+  const oldEnv = { ...process.env };
+  const inbox = join(root, "capped-inbox");
+  process.env.EP0CH_ARTIFACT_MAX_ENTRIES = "1";
+  process.env.EP0CH_ARTIFACT_INBOX = inbox;
+  process.env.EP0CH_ARTIFACT_SETTLE_MS = "10";
+  cleanups.push(() => { for (const key of ["EP0CH_ARTIFACT_MAX_ENTRIES", "EP0CH_ARTIFACT_INBOX", "EP0CH_ARTIFACT_SETTLE_MS"]) { if (oldEnv[key] === undefined) delete process.env[key]; else process.env[key] = oldEnv[key]; } });
+  await expect(client.request({ action: "artifacts.put", name: "crowded", files: { "a.html": "", "b.html": "" } })).rejects.toThrow(/entries.*cap/);
+  write("artifacts/crowded/a.html", ""); write("artifacts/crowded/b.html", "");
+  write("artifacts/zebra.html", "Zebra");
+  const imported = await client.request<{ imported: ArtifactInfo[]; skipped: { entry: string; reason: string }[] }>({ action: "artifacts.import" });
+  expect(imported.imported.map(a => a.name)).toEqual(["zebra"]);
+  expect(imported.skipped[0]?.reason).toMatch(/entries.*cap/);
+  mkdirSync(join(inbox, "crowded"), { recursive: true });
+  writeFileSync(join(inbox, "crowded/a.html"), ""); writeFileSync(join(inbox, "crowded/b.html"), "");
+  const watcher = new ArtifactStore(root);
+  watcher.startWatcher(); cleanups.push(() => watcher.close());
+  const reason = join(inbox, ".failed/crowded/reason.txt");
+  const until = Date.now() + 5000;
+  while (!existsSync(reason) && Date.now() < until) await Bun.sleep(20);
+  expect(readFileSync(reason, "utf8")).toMatch(/entries.*cap/);
+  expect(existsSync(join(root, ".artifacts/live/crowded"))).toBe(false);
+});

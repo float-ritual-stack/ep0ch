@@ -86,7 +86,7 @@ function artifactHtml(spec: MediaSpec, src: string | null, title: string): strin
   const w = width(spec);
   if (w) styles.push(`width:${w}`);
   return `<figure class="media artifact media-${align}"><div class="artifact-frame" style="${styles.join(";")}">` +
-    `<iframe src="${escapeHtml(src)}" title="${escapeHtml(title)}"  allow="autoplay; fullscreen; clipboard-write" ` +
+    `<iframe src="${escapeHtml(src)}" title="${escapeHtml(title)}" sandbox="allow-scripts allow-popups allow-forms allow-pointer-lock allow-downloads" allow="autoplay; fullscreen; clipboard-write" ` +
     `loading="lazy" referrerpolicy="no-referrer"></iframe></div>` +
     `<figcaption><span class="media-what">${escapeHtml(label)}</span> ${escapeHtml(title)} · ` +
     `<a href="${escapeHtml(src)}" target="_blank" rel="noopener">open full page</a></figcaption></figure>`;
