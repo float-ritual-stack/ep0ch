@@ -207,7 +207,7 @@ const ACTIONS: BarSource = {
       rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${a.summary.split(/[.:;(]/)[0]!.slice(0, 80)}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
-    const found = filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
+    const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
     const line = actionLine(q, host);
     return line ? [line, ...found] : found;
   },
@@ -251,7 +251,7 @@ function actionLine(q: string, host: BarHost): BarRow | null {
   const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
   const shown = [scripts.length === 1 ? scripts[0]!.extension.name! : req.action, ...Object.entries(req.args ?? {}).map(([k, v]) => `${k}=${said(String(v))}`), ...(req.tile !== undefined ? [`tile=${said(req.tile)}`] : [])].join(" ");
   return {
-    key: `line:${shown}`, label: `run ${shown}`, detail: info.summary.split(/[.:;(]/)[0]!.slice(0, 80), exact: true, ...(refused ? { refused } : {}),
+    key: `line:${shown}`, label: `run ${shown}`, fill: shown, detail: info.summary.split(/[.:;(]/)[0]!.slice(0, 80), exact: true, ...(refused ? { refused } : {}),
     data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: info.summary, keys: info.keys },
   };
 }

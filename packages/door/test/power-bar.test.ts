@@ -127,6 +127,12 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "backtab" });
     expect(peek().bar.scope).toBe("notes");
     key({ kind: "esc" });
+    // A typed action line keeps its command: tab never fills `run `.
+    key(ctrlK); type("tile.focus dir=right");
+    await until(() => peek().bar?.rows[0]?.label?.startsWith("run "), "the action line's row", 5000);
+    key({ kind: "tab" });
+    expect(peek().bar.query).toBe("tile.focus dir=right");
+    key({ kind: "esc" });
   });
 
   test("a note picked opens where opens land; alt+⏎ opens it in a new detail", async () => {
