@@ -150,9 +150,10 @@ export async function formRun(): Promise<unknown> {
   if (!w?.form) throw new ActionRefused("no form is open · pick an action that takes arguments in the power bar (ctrl+k then >)");
   const why = w.form.check?.(w.answers);
   if (why) throw new ActionRefused(why);
-  waiting = null;
-  unregisterBarSource(ASK_SCOPE);
-  return w.run(w.answers);
+  // The form is put away once its action ran; one the action refuses stays, its answers kept (`?` brings it back).
+  const out = await w.run(w.answers);
+  if (waiting === w) { waiting = null; unregisterBarSource(ASK_SCOPE); }
+  return out;
 }
 
 /** Fill a form from one of its examples (its n-th, from 0): its answers become the example's, the act line in focus. */
@@ -302,7 +303,11 @@ const ASK_SOURCE: BarSource = {
     return { markdown: [`**${waiting.title}** asks for **${q.label ?? q.name}**`, "", q.description ?? "", "", ...waiting.questions.map(x => `- ${x.label ?? x.name}: ${waiting!.answers[x.name] ?? (x === q ? "…" : "next")}`)].join("\n") };
   },
   async pick(row, host, how) {
-    if (waiting?.form) return formPick(row, host, how);
+    if (waiting?.form) {
+      // A form is the person's: an agent never answers it or runs the person's line (it runs the action itself).
+      if (how.actor.kind === "agent") throw new ActionRefused(`the form in the power bar is the person's; an agent runs ${waiting.form.action} itself with its arguments (ep0ch act ${waiting.form.action} …)`);
+      return formPick(row, host, how);
+    }
     const q = question();
     if (!q || !waiting) throw new ActionRefused("nothing is waiting on an answer");
     if (row.data === undefined) throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);

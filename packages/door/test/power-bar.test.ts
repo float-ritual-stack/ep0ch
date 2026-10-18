@@ -406,6 +406,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(r.fields.find((f: any) => f.name === "tile")).toMatchObject({ selector: true, kind: "tile", default: "focused" });
     expect(peek().bar).toBeUndefined();
     await expect(app.act({ action: "bar.form", args: { op: "run" }, as: "wren-agent" })).rejects.toThrow("the person's");
+    // Nor through a pick in the ask scope while the person's form is open.
+    key(ctrlK); type("tile.open"); key({ kind: "enter" });
+    await until(() => peek().bar?.form?.focus === "kind", "the person's form", 3000);
+    await expect(app.act({ action: "bar.pick", args: { scope: "ask", n: 1 }, as: "wren-agent" })).rejects.toThrow("the person's");
+    expect(peek().bar.form.fields.find((f: any) => f.name === "kind").value).toBeUndefined();
   });
 
   test("boolean action arguments in the power bar set yolo rather than toggle it (PIE-1004)", async () => {

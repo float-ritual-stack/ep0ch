@@ -13,8 +13,8 @@ import type { BarHost } from "./source";
 /** The name of the field that is tile=: the tile the action runs on. */
 export const SELECTOR = "tile";
 
-/** Whether an action runs on a tile (its tile= picks which): it touches a tile, the layout or a draft in one. */
-const onATile = (info: ActionInfo) => info.touches === "tile" || info.touches === "shape" || info.touches === "draft";
+/** Whether an action runs on a tile (its tile= picks which): it touches a tile, the layout or a draft in one, or it is a tile action (tile.focus moves the keys from one). */
+const onATile = (info: ActionInfo) => info.touches === "tile" || info.touches === "shape" || info.touches === "draft" || info.scope === "tile";
 
 /** One field: its argument's name and declaration; `selector`: it is tile=, not an argument. */
 export interface FormField { name: string; spec: ArgSpec; selector?: true }
