@@ -6,7 +6,7 @@
 // `ended` (its mode stack lets it go). A line typed above the list is a LineInput.
 import { listPreview, type PickerPreview } from "../bar/list-preview";
 import type { Canvas, Rect } from "../canvas";
-import { RowView } from "../scroll";
+import { RowView, wheelRows } from "../scroll";
 import { bg, C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { LineInput } from "./line";
@@ -43,6 +43,8 @@ export interface PickerSpec<T, H> {
   /** Esc clears what's typed first, and puts the picker away only with nothing typed (a filter, not a name). */
   escClears?: boolean;
   typed?(host: H): void;
+  /** A list taller than its room scrolls (PIE-1036): the wheel moves the view and the cursor goes to a row in it, and a thumb on the box's right edge shows how far down it is. Arrows still move the cursor. */
+  scrolls?: boolean;
   /** Its frame, for `n` items in `area`. */
   frame?(area: Rect, n: number): PickerFrame;
 }
@@ -57,6 +59,8 @@ export class ListPicker<T, H> implements Mode<H> {
   private per = 1;
   private listW = Infinity;
   private done = false;
+  /** All the list's rows (headings too), as last drawn: the thumb's length. */
+  private total = 0;
   constructor(readonly spec: PickerSpec<T, H>) {}
 
   ended() { return this.done; }
@@ -81,7 +85,7 @@ export class ListPicker<T, H> implements Mode<H> {
 
   key(k: Key, host: H): boolean {
     if (k.kind === "mouse") {
-      if (k.action === "wheel-up" || k.action === "wheel-down") this.move(k.action === "wheel-down" ? 1 : -1);
+      if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.spec.scrolls) this.view.scroll(wheelRows(k.action === "wheel-down" ? 1 : -1)); else this.move(k.action === "wheel-down" ? 1 : -1); }
       else if (k.action === "down") this.clickAt(k, host);
       return true;
     }
@@ -122,17 +126,31 @@ export class ListPicker<T, H> implements Mode<H> {
   lines(w: number, h: number, at = 0): string[] {
     const items = this.items;
     this.sel = Math.max(0, Math.min(this.sel, items.length - 1));
-    const rows: { text: string; i: number; inert?: true }[] = [];
-    let first = 0, last = 0;
-    items.forEach((it, i) => {
-      const head = this.spec.heading?.(it, i, w);
-      if (i === this.sel) first = rows.length;
-      if (head != null) rows.push({ text: head, i, inert: true });
-      for (const text of this.spec.row(it, i, i === this.sel, w)) rows.push({ text, i });
-      if (i === this.sel) last = rows.length - 1;
-    });
-    const top = this.view.place(items.length ? this.sel : null, rows.length, h, [first, last]);
+    const build = () => {
+      const rows: { text: string; i: number; inert?: true }[] = [];
+      let first = 0, last = 0;
+      items.forEach((it, i) => {
+        const head = this.spec.heading?.(it, i, w);
+        if (i === this.sel) first = rows.length;
+        if (head != null) rows.push({ text: head, i, inert: true });
+        for (const text of this.spec.row(it, i, i === this.sel, w)) rows.push({ text, i });
+        if (i === this.sel) last = rows.length - 1;
+      });
+      return { rows, first, last };
+    };
+    let { rows, first, last } = build();
+    let top = this.view.place(items.length ? this.sel : null, rows.length, h, [first, last]);
+    // The wheel moved the view and left the cursor behind it: it goes to the nearest row in view, so ⏎ never runs one that is off the screen.
+    if (this.spec.scrolls && items.length) {
+      const seen = rows.slice(top, top + h).filter(r => !r.inert).map(r => r.i);
+      if (seen.length && !seen.includes(this.sel)) {
+        this.sel = this.sel < seen[0]! ? seen[0]! : seen.at(-1)!;
+        ({ rows, first, last } = build());
+        top = this.view.place(this.sel, rows.length, h, [first, last]);
+      }
+    }
     const shown = rows.slice(top, top + h);
+    this.total = rows.length;
     // An item cut off at the bottom isn't shown in part (the mover's lane without what moving there would patch).
     const cut = shown.at(-1)?.i;
     if (cut !== undefined && rows[top + h]?.i === cut && shown[0]!.i !== cut) while (shown.at(-1)?.i === cut) shown.pop();
@@ -153,6 +171,7 @@ export class ListPicker<T, H> implements Mode<H> {
     const drawn = listPreview(this, w, room, f.preview, y0, r.cols);
     this.listW = drawn.listWidth;
     drawn.lines.forEach((line, i) => canvas.text(r.col + 1, y0 + i, line, w));
+    if (this.spec.scrolls) canvas.thumb({ col: r.col, row: y0 - 1, cols: r.cols, rows: room + 2 }, { top: this.view.top, room, total: this.total }, fg(C.yellow));
     tail.forEach((l, i) => canvas.text(r.col + 1, r.row + r.rows - 1 - tail.length + i, l, w));
   }
 }

@@ -55,7 +55,7 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
   // ^W, then the key after it: a row's chord (^W x closes).
   let chord = false;
   const p: ListPicker<MenuRow, H> = new ListPicker<MenuRow, H>({
-    name: "tile menu", items: sync, clickChooses: true, input, escClears: true,
+    name: "tile menu", items: sync, clickChooses: true, scrolls: true, input, escClears: true,
     typed: () => { chord = false; sync(); p.sel = 0; },
     heading: (r, i, w) => (i === 0 || rows[i - 1]!.group !== r.group ? fg(C.dark) + ` ${r.group} ${"─".repeat(Math.max(0, w - width(r.group) - 2))}` + RESET : null),
     row: (r, i, on, w) => {
