@@ -620,6 +620,11 @@ estimated tokens (bytes / 4), and duration. Use `--by actor` or `--by outline`, 
 recorded in the door state directory's `mcp-usage/YYYY-MM-DD.jsonl`, rotated daily
 with 30 days retained. Query values are elided; property keys remain visible.
 
+`ep0ch mcp access --matrix` (and the door's `access.open` tile) combines the same records with each outline's
+grant and each named path's cap (`EP0CH_MCP_PATH_ACCESS`) into one view of who can reach what, with each caller's
+calls in the last 7 days beside it; `--json` is the agent read, and the door's `mcp.access.matrix` action returns it
+too. Changing access stays the person's.
+
 `ep0ch mcp usage --census --ws <name> --json` asks the service for current live block
 sizes by latest actor, top-level branch and whole outline, calculated in SQL.
 These figures help tune the [MCP orient recipe](../door/README.md) against measured

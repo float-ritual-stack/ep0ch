@@ -53,6 +53,8 @@ import { findShowcase, KEPT, loadShowcase, LOGS, MARGIN_LINES, MARGINALIA_FILE, 
 import { openResource } from "../authored";
 import { RowView } from "../scroll";
 import { WaitingYouPane } from "../desk/waiting-you";
+import { AccessMatrixPane } from "../desk/access-matrix";
+import { accessDemoEnv, seedAccessFiles } from "./seed/access";
 import { WhatChangedPane } from "../desk/what-changed";
 import type { AgentLevel } from "../surface/agent-level";
 
@@ -390,6 +392,14 @@ export const SECTIONS: Section[] = [
     stage(_n, show) {
       const deploy = new PtyPane({ cmd: ["sh", "-c", STATUS_DEMO], label: "deploy" }), list = new WaitingYouPane();
       return deskOf({ title: "showcase · program status", panes: [deploy, list], names: ["deploy", "waiting"], layout: ([a, b]) => row(0.55, a!, b!) }, show, []);
+    },
+  },
+  {
+    key: "access", need: "see which agent (a named path, a stdio client) can reach which outline and how far, and change it", part: "who can reach what (PIE-1034, src/mcp-access-matrix.ts, src/desk/access-matrix.ts): one matrix over the three places the answer lives (each outline's grant, `ep0ch mcp access`; each named path's cap, EP0CH_MCP_PATH_ACCESS in mcp.env; the usage records, `ep0ch mcp usage`), the effective level the lower of the grant and the cap (the gateway's own levelFor), as a tile kind (access.open in the power bar, then % lists it), `ep0ch mcp access --matrix`, and mcp.access.matrix for an agent; a change is planned (it says the command and whom it affects) and applied by the person only (access.plan, access.apply)", files: "src/mcp-access-matrix.ts, src/desk/access-matrix.ts, src/mcp-writes.ts (pathCapEntry, levelFor), src/mcp-usage.ts (readUsage), src/mcp.ts (mcp access --matrix, --cap), src/drawer.ts (access.open, mcp.access.matrix)",
+    aside: "made-up callers on the showcase's private host: garden-bot (a named path, ⌁), seed-sorter (a path nobody has called yet), claude-code@float-2 and kitty-batch (clients: no cap) against the showcase, garden, rotfield, gurgle and vault outlines · each cell is a glyph and a word: ● full, ♦ propose, ○ read, ✗ none; under it, calls in the last 7 days and how long ago · h j k l or a click pick a cell and the line under the table says why (\"rotfield allows full; garden-bot is capped at propose\") · n r p f, or a click on the chips, plan a level: it says the command that would run and whom it affects (a client's cell is the outline's grant, so it affects every caller there), ⏎ applies it · the cap file here is the showcase's own, never your ~/.config · `act mcp.access.matrix` reads the same as an agent, `act access.plan` asks what a change would do, and `access.apply` is refused to agents (what they may reach is yours to set)",
+    stage(_n, show) {
+      seedAccessFiles();
+      return deskOf({ title: "showcase · who can reach what", panes: [new AccessMatrixPane(accessDemoEnv())], names: ["access"], layout: ([a]) => leaf(a!) }, show, []);
     },
   },
   {
