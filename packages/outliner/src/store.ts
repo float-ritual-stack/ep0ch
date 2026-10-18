@@ -1975,14 +1975,16 @@ export class OutlinerStore {
     mutation: MutationProvenance = { author: "system" },
     kind: "text" | "properties" = "text",
     identityChanges: readonly ChecklistIdentityChange[] = [],
+    // Generated registry pages and install rewrites retain the last authored date.
+    editedAt?: string,
   ): Block {
     const provenance = normalizeMutationProvenance(mutation);
     this.database.transaction(() => {
       const before = this.requireActive(id);
       const next = this.withTicketStage(before.text, stageMoveText(before.text, text, doneDay(new Date())));
-      const editedAt = this.writeBlockText(id, next, expectedRevision, undefined, identityChanges);
+      const savedAt = this.writeBlockText(id, next, expectedRevision, editedAt, identityChanges);
       this.replaceProperties(id, parsePropertyRecords(next));
-      this.recordActivity(id, provenance, kind, editedAt);
+      this.recordActivity(id, provenance, kind, savedAt);
       this.bumpSequence({ kind: "edit", blockId: id });
       this.followTicketStage(before.text, next, mutation);
     })();
@@ -2620,7 +2622,7 @@ export class OutlinerStore {
     const result = this.database.query(`
       UPDATE blocks SET text = ?, revision = revision + 1, updated_at = ?
       WHERE id = ? AND revision = ?
-    `).run(text, editedAt, id, expectedRevision);
+    `).run(text, text === current.text ? current.updatedAt : editedAt, id, expectedRevision);
     if (result.changes !== 1) throw new Error(`Block changed since editing began: ${id}`);
     // The text it replaced is kept (PIE-621): a saved note can go back to it.
     if (text !== current.text) {
@@ -2641,7 +2643,7 @@ export class OutlinerStore {
 
   /**
    * When a block's current text was written and by whom: its last text or property edit (a move or a trip to the Trash
-   * changes `updatedAt`, never the text), else when it was made and by whom. Read before the next write records its own.
+   * never changes the text), else when it was made and by whom. Read before the next write records its own.
    */
   private textSaved(block: Block): { savedAt: string; author?: BlockAuthor; actorId?: string } {
     const row = this.database.query(`SELECT edited_at, author, actor_id FROM block_edit_activity WHERE block_id = ? AND kind IN (${BLOCK_EDIT_ACTIVITY_KINDS.map(() => "?").join(", ")}) ORDER BY activity_id DESC LIMIT 1`)
@@ -2905,9 +2907,9 @@ export class OutlinerStore {
 
     this.database.transaction(() => {
       this.database.query("UPDATE blocks SET parent_id = ? WHERE id = ?").run(parentId, id);
-      const updatePosition = this.database.query("UPDATE blocks SET position = ?, updated_at = ? WHERE id = ?");
+      const updatePosition = this.database.query("UPDATE blocks SET position = ? WHERE id = ?");
       const now = new Date().toISOString();
-      siblings.forEach((sibling, index) => updatePosition.run(index, now, sibling.id));
+      siblings.forEach((sibling, index) => updatePosition.run(index, sibling.id));
       this.normalizePositions(block.parentId);
       if (provenance) this.recordActivity(id, provenance, "move", now);
       this.bumpSequence({ kind: "move", blockId: id, previousParentId: block.parentId });
@@ -2939,8 +2941,8 @@ export class OutlinerStore {
       const order = [...ids, ...all.filter((child) => child.effectiveDeletedRootId).map((child) => child.id)];
       const moved = ids.filter((id, index) => live[index]!.id !== id);
       const now = new Date().toISOString();
-      const updatePosition = this.database.query("UPDATE blocks SET position = ?, updated_at = ? WHERE id = ?");
-      order.forEach((id, index) => updatePosition.run(index, now, id));
+      const updatePosition = this.database.query("UPDATE blocks SET position = ? WHERE id = ?");
+      order.forEach((id, index) => updatePosition.run(index, id));
       for (const id of moved) {
         if (provenance) this.recordActivity(id, provenance, "move", now);
         this.bumpSequence({ kind: "move", blockId: id, previousParentId: parentId });

@@ -759,7 +759,7 @@ function toolsFor(outlines: McpOutlines) {
       name: "outline_query",
       description: `Run a query in ${which}, read-only, in the grammar the views use ([query::…], virtual branches, ::graph-table): clauses like type=outbox-item outbox=next, AND/OR/NOT, groups, updated >= -7d, any property compared as a date or number (due <= +3d, wait-until <= today, release-window = today, rating > 3), or a saved view by its block id. hint says a key no note has, or values a comparison couldn't read. ` +
         `The outline evaluates it, so the rows are the ones a view shows in the door. Answers block records (title, properties, revision, uri) with total and completeness; more says there are further rows, nextOffset is where to continue. Requires ${grant}. Give query or view. ` +
-        `To orient (what changed lately, in a few KB): query "updated >= -1d", sort "updated desc", fields "id,title,updated,actor,path", fold true; then outline_read the rows that are new, and pass seen on later reads. ` +
+        `To orient (what changed lately, in a few KB): query "updated >= -1d NOT type=peer-message", sort "updated desc", fields "id,title,updated,actor,path", fold true; then outline_read the rows that are new, and pass seen on later reads. ` +
         `The service sorts, so limit takes the newest first. A projected row (fields) never carries the body. fold collapses the proposals, comments and deliveries into their note: "PIE-637 · 3 changes (1 proposal, 2 comments)".`,
       inputSchema: { type: "object", properties: {
         query: { type: "string", description: "A query in the views' grammar: type=ticket NOT work-stage=done, due <= +3d" },
@@ -920,7 +920,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_read: { ref: "PIE-123" },
   outline_threads: { ref: "PIE-123" },
   outline_find: { query: "seed swap" },
-  outline_query: { query: "updated >= -1d", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true },
+  outline_query: { query: "updated >= -1d NOT type=peer-message", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true },
   outline_links: { ref: "PIE-123" },
   outline_components: { components: ["callout"] },
   ...Object.fromEntries(MCP_WRITE_TOOLS.flatMap(name => { const example = gatewayExample(name); return example ? [[name, example]] : []; })),

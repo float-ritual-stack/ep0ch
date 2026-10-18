@@ -1,7 +1,7 @@
 // PIE-451: who moved, trashed or restored a block. `move`, `delete` and `trash.restore` accept an
 // optional `mutation`, recorded like an update's in the change
 // feed and in activity. Without it, nothing changes for older clients.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -237,3 +237,24 @@ test("a restore whose page name was taken meanwhile says the new name, attribute
     expect(entries.map(entry => [entry.block.id, entry.kind, entry.actorId])).toEqual([[old.id, kind, "garden-agent"]]);
   }
 });
+
+for (const operation of ["move", "reparent", "reorder", "save", "stamp"] as const) {
+  test(`${operation} without a content change leaves recent edits and sibling timestamps alone`, async () => {
+    const { store, client } = await service();
+    try {
+      setSystemTime(new Date("2026-01-01T12:00:00Z"));
+      const root = store.create("Garden");
+      const first = store.create("Seeds [status::ready]", root.id);
+      const second = store.create("Tools", root.id);
+      setSystemTime(new Date("2026-01-03T12:00:00Z"));
+      if (operation === "move") await client.request({ action: "move", blockId: second.id, parentId: root.id, position: 0, mutation: gardenAgent });
+      if (operation === "reparent") await client.request({ action: "move", blockId: second.id, parentId: first.id, mutation: gardenAgent });
+      if (operation === "reorder") store.reorderChildren(root.id, [second.id, first.id], gardenAgent);
+      if (operation === "save") await client.request({ action: "update", blockId: first.id, text: first.text, expectedRevision: first.revision, mutation: gardenAgent });
+      if (operation === "stamp") await client.request({ action: "properties.patch", blockId: first.id, expectedRevision: first.revision, operations: [{ op: "replace", ordinal: 0, value: "ready" }], mutation: gardenAgent });
+      for (const block of [root, first, second]) expect(store.require(block.id).updatedAt).toBe(block.updatedAt);
+      const edited = await client.request<Block>({ action: "update", blockId: first.id, text: "Seeds [status::planted]", expectedRevision: store.require(first.id).revision, mutation: gardenAgent });
+      expect(edited.updatedAt.slice(0, 19)).toBe("2026-01-03T12:00:00");
+    } finally { setSystemTime(); }
+  });
+}

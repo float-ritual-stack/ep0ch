@@ -157,7 +157,7 @@ test("an area is a named view: its query, its children and the notes tagged with
   const view = await create("shack", "Recon [type::virtual-branch] [query::type=recon] [echo::recon]");
   const cron = await create("shack", "Recon: flaky cron on larder [type::recon]\n\nJitter of 40s, see ((00000000-0000-4000-8000-000000000001|the old note)).");
   await create("shack", "Recon: disk on kettle [type::recon] [page::kettle-disk] [publish::never]");
-  const posted = await create("shack", "The shed's cert expires Friday [echo::recon, ideas]");
+  const posted = await create("shack", "The shed's cert expires Friday [type::peer-message] [peer::gardener] [echo::recon, ideas]");
   const queue = await create("shack", "Recon: queue drops on restart [type::recon] [from::karen]\n\nIn the log: `((00000000-0000-4000-8000-000000000002))`.");
   await create("shack", "repro: send 50, restart at 25", queue.id);
   // Never a message: a note that is itself a copy from elsewhere, and the area's own view.
@@ -175,7 +175,7 @@ test("an area is a named view: its query, its children and the notes tagged with
   // An address the original owns is renamed; a note kept off the web stays off it.
   expect(titles[1]).toContain("[from-page::kettle-disk] [from-publish::never]");
   expect(titles[1]).toEndWith("[publish::never]");
-  expect(titles[2]).toContain(`The shed's cert expires Friday [source-echo::recon, ideas] [from::shack@${machine}/${posted.id}] [echo::recon]`);
+  expect(titles[2]).toContain(`The shed's cert expires Friday [type::peer-message] [peer::gardener] [source-echo::recon, ideas] [from::shack@${machine}/${posted.id}] [echo::recon]`);
   expect(titles[3]).toContain("[from::karen]".replace("from", "source-from"));
   expect(copies).toHaveLength(4);
   // Code is literal; a reference into the origin becomes an ep0ch:// link into it; the note under a message is a copy too.

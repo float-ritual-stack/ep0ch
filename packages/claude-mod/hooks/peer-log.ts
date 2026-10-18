@@ -22,7 +22,7 @@ export function stampOf(ms: number): string {
 /** One message as a note: its first line says which way, with whom and when; the text under it, cut past 4000 characters. */
 export function entryOf(direction: 'to' | 'from', peer: string, ms: number, body: string): string {
   const cut = body.length > MAX_CHARS ? `${body.slice(0, MAX_CHARS)}\n… cut at ${MAX_CHARS} characters` : body
-  return `${direction === 'to' ? '→ to' : '← from'} ${peer} · ${stampOf(ms)}\n\n${cut}`
+  return `${direction === 'to' ? '→ to' : '← from'} ${peer} · ${stampOf(ms)} [type::peer-message] [peer::${peer}]\n\n${cut}`
 }
 
 export const findPageArgv = (): string[] => ['ep0ch', 'find', '--query', `page = "${PEER_PAGE}"`, '--ids']

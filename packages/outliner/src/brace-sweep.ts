@@ -15,13 +15,15 @@
 // each outline in the step that hands it the new code, as it runs migrations; with the host stopped it opens the
 // database itself (a served file is refused), in one transaction and one attributed change (`brace-sweep`), so every
 // note's previous text is in its revisions and the install's backup is the rollback.
+// It also stamps old peer-message copies with their plain query keys. Maintenance retains updated timestamps.
 import { Database } from "bun:sqlite";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { patchPropertyText } from "./properties";
 import { RECORD_KEYS } from "@ep0ch/outline-core/resolve-path";
 
-export interface SweepChange { form: "rule-label" | "rule-place" | "action-slot" | "runbook-step"; before: string; after: string }
+export interface SweepChange { form: "rule-label" | "rule-place" | "action-slot" | "runbook-step" | "peer-message"; before: string; after: string }
 
 const SINGLE = /(?<!\{)\{([A-Za-z$][A-Za-z0-9_.$-]{0,63})\}(?!\})/g;
 /** Names that are already a head of the grammar: `{{now}}` is not a runbook value. */
@@ -120,17 +122,36 @@ export function sweepDiff(note: SweepNote): string {
   return out.join("\n");
 }
 
-const CANDIDATES = `SELECT id, text, revision FROM blocks WHERE effective_deleted_root_id IS NULL
-  AND (text LIKE '%rule-label::%' OR text LIKE '%rule-place::%' OR text LIKE '%script::%' OR text LIKE '%run::%') ORDER BY created_at, id`;
+const CANDIDATES = `SELECT id, parent_id, text, revision FROM blocks WHERE effective_deleted_root_id IS NULL
+  AND (text LIKE '%rule-label::%' OR text LIKE '%rule-place::%' OR text LIKE '%script::%' OR text LIKE '%run::%'
+    OR parent_id IN (SELECT block_id FROM block_properties WHERE key = 'page' AND value = 'peer-messages' AND scope = 'block')
+    OR id IN (SELECT block_id FROM block_properties WHERE key = 'echo' AND scope = 'block')) ORDER BY created_at, id`;
 
 /** What the sweep would change in `database`, read without opening it for writing (so a served file can be looked at). */
 export function planSweep(database: string): SweepReport {
   const db = new Database(database, { readonly: true });
   try {
-    const rows = db.query(CANDIDATES).all() as { id: string; text: string; revision: number }[];
+    const rows = db.query(CANDIDATES).all() as { id: string; parent_id: string | null; text: string; revision: number }[];
+    const peerPages = new Set((db.query("SELECT block_id FROM block_properties WHERE key = 'page' AND value = 'peer-messages' AND scope = 'block'").all() as { block_id: string }[]).map(p => p.block_id));
     const notes: SweepNote[] = [];
     for (const row of rows) {
       const swept = sweepText(row.text);
+      const peer = /^(?:← from|→ to) (.+?) · \d{4}-\d{2}-\d{2} \d{2}:\d{2}(?: |$)/.exec(row.text.split("\n")[0]!);
+      // A copy: under [[peer-messages]], or an EchoNet copy (it carries both [echo::] and the [from::] it came from);
+      // an original posting with [echo::] alone isn't one.
+      const own = parsePropertyRecords(row.text).filter(p => p.scope === "block");
+      const echoCopy = own.some(p => p.key === "echo") && own.some(p => p.key === "from");
+      if (peer && (peerPages.has(row.parent_id!) || echoCopy)) {
+        const properties = parsePropertyRecords(swept.text).filter(p => p.scope === "block");
+        // By key, not value: a [peer::] already there (trimmed or not) is kept, so a second sweep finds nothing to add.
+        const additions = [{ key: "type", value: "peer-message" }, { key: "peer", value: peer[1]!.trim() }]
+          .filter(p => p.key === "type" ? !properties.some(e => e.key === "type" && e.value.trim() === "peer-message") : !properties.some(e => e.key === "peer"));
+        if (additions.length) {
+          const before = swept.text;
+          swept.text = patchPropertyText(before, additions.map(p => ({ op: "append" as const, ...p })));
+          swept.changes.push({ form: "peer-message", before: before.split("\n")[0]!, after: swept.text.split("\n")[0]! });
+        }
+      }
       if (swept.changes.length) notes.push({ id: row.id, revision: row.revision, before: row.text, after: swept.text, changes: swept.changes });
     }
     return { database, applied: false, notes };
@@ -148,7 +169,7 @@ export async function applySweep(database: string): Promise<SweepReport> {
   try {
     const actor = { author: "system" as const, actorId: "brace-sweep" };
     store.changes.run(store.changes.attribution({ action: "brace-sweep", actor }), () => store.database.transaction(() => {
-      for (const note of plan.notes) store.update(note.id, note.after, note.revision, actor);
+      for (const note of plan.notes) store.update(note.id, note.after, note.revision, actor, "text", [], store.require(note.id).updatedAt);
     })());
   } finally {
     store.close();

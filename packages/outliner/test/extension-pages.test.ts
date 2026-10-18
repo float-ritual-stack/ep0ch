@@ -127,6 +127,7 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
 test("install from the repo, reinstall keeps your edits and adds nothing twice, uninstall asks what becomes of the demo", async () => {
   const { list, children, store, client } = await setup();
   const listed = await list();
+  const hub = store.require(listed.hub!);
   // A person edits a demo note.
   const [start] = await children(listed.pages.notify!);
   await client.request({ action: "update", blockId: start!.id, expectedRevision: start!.revision, text: `${start!.text}\n\nMy own line.`, mutation: { author: "user" } });
@@ -138,6 +139,7 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   expect(store.require(start!.id).text).toContain("My own line.");
   // A built-in from the repo: installed, with its page, and the hub says so.
   const moon = await client.request<{ page?: string; hub?: string; state?: string }>({ action: "extensions.install", extension: "moon" });
+  expect(store.require(moon.hub!).updatedAt).toBe(hub.updatedAt);
   expect(moon.state).toBe("active");
   expect(store.require(moon.page!).text.split("\n")[0]).toBe("Moon [ext.page::moon] [page::ext-moon]");
   expect(store.require(moon.hub!).text).toContain(`((${moon.page}|Moon)) \`moon\``);

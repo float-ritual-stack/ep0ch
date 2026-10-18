@@ -867,7 +867,7 @@ A write to an outline whose home is another machine answers `queued` with a `que
 - **Orient (PIE-674).** An agent arriving cold reads the outline's recent changes, not a separate context store. The
   recipe, per outline: compare `ep0ch mcp usage --by tool` and `ep0ch mcp usage --census --ws <name>`
   before and after tuning reads. (1) Run the orient query,
-  `outline_query {query: "updated >= -1d", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true}` (or a
+  `outline_query {query: "updated >= -1d NOT type=peer-message", sort: "updated desc", fields: "id,title,updated,actor,path", fold: true}` (or a
   saved view's id: its own `[sort::]` orders it); a busy outline answers a few KB of titles. (2) `outline_read` the rows that
   are new to you, by `ref`. (3) Pass `seen: ["<id>@<revision>", …]` (the id and revision of what you hold) on every later
   read, query and find: a block you hold comes back `{id, revision, unchanged: true}` and only the changed ones are
