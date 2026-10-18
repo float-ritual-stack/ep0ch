@@ -26,7 +26,6 @@ export interface CompletionTarget {
   /** A filter's word: a value with a space can't be written in it. */
   words?: boolean;
   headingShort?: boolean;
-  propertyGap?: boolean;
 }
 
 const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; closing: string }> = [
@@ -78,9 +77,8 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
     }
   }
   if (target) return target;
-  if (/^ {0,3}#{1,6}\s+.*\[heading::[^\]\n]+\]$/.test(beforeCursor)) return { kind: "key", start: end, end, query: "heading-", propertyGap: true };
-  const heading = /^ {0,3}#{1,6}\s+.+\s+(::|heading::?)([a-zA-Z0-9_-]*)$/.exec(beforeCursor);
-  if (heading) return { kind: "value", key: "heading", headingShort: true, start: end - heading[1]!.length - heading[2]!.length, end: end + /^[a-zA-Z0-9_-]*/.exec(line.slice(end))![0].length, query: heading[2]! };
+  const heading = /^ {0,3}#{1,6}\s+.+\s+(::)([a-zA-Z0-9_-]*)$/.exec(beforeCursor);
+  if (heading && end === line.length) return { kind: "value", key: "heading", headingShort: true, start: end - heading[1]!.length - heading[2]!.length, end, query: heading[2]! };
 
   const prop = propertyAtCursor(line, column);
   if (!prop) return null;

@@ -65,6 +65,7 @@ describe("every line completes by default, with an opt-out (a fake service)", ()
       await until(() => !!completionOf(line) && !completionOf(line)!.loading, "the popup");
       expect(completionOf(line)!.items.map(i => i.insertion)).toEqual(["((b2))"]);
       // ↓ and ⏎ are the popup's while it has candidates; the line's text is spliced in.
+      line.key(K("down"));
       expect(line.key(K("enter"))).toBe(true);
       await until(() => line.text === "see ((b2))", "the insertion");
       expect(completionOf(line)).toBeNull();
@@ -167,6 +168,7 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
     expect(completionOf(d)).toBeNull();
     for (const c of " ((bean") s.key(char(c), env);
     await until(() => completionOf(d)?.target.kind === "block" && !completionOf(d)!.loading && completionOf(d)!.items.length > 0, "the notes");
+    s.key(K("down"), env); s.key(K("up"), env);
     s.key(K("enter"), env);
     await until(() => d.text.endsWith(`((${beans.id}))`), "the block inserted");
     s.key(K("esc"), env); s.key(K("esc"), env);
@@ -221,6 +223,7 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
       expect(completionOf(d)!.target).toMatchObject({ kind: "key", query: "heading-p" });
       key(K("esc")); type(" [[se");
       await until(() => completionOf(d)?.target.kind === "page" && !completionOf(d)!.loading && completionOf(d)!.items.length > 0, "the pages");
+      key(K("down")); key(K("up"));
       key(K("enter"));
       await until(() => d.text.includes("[[seeds]]"), "the page");
       await desk.dispatch.press("tile.close", {}, f.tile);
