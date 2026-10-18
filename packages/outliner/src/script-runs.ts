@@ -1,3 +1,4 @@
+import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { createPatch } from "diff";
 import { slotPairs } from "@ep0ch/outline-core/action-line";
 import type { AgentToolsClient } from "./agent-tools";
@@ -10,10 +11,11 @@ import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
 import { textRecord } from "./block-records";
-import { answerSite } from "./site-answer";
+import { visibleMatches } from "./site-producers";
+import { bind, answerSite } from "./site-answer";
 import { scriptFence } from "./script-sources";
 import { MAX_DEADLINE_MS } from "./extension-manifest";
-import type { Address } from "@ep0ch/outline-core/site";
+import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
@@ -108,7 +110,7 @@ export class ScriptRuns {
    * notes it read and their revisions then (what it must be drawn again for). No run note, no undo step, and nothing
    * written: the API is read-only, and a refused write says so. Called by ExtensionCalls' one producer path.
    */
-  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }): Promise<ScriptRendered> {
+  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number; hidden?: string[]; site?: Pick<SiteAnswerRequest, "chain" | "props">; onCandidates?: (ids: string[]) => void }): Promise<ScriptRendered> {
     const reads = new Map<string, number | null>();
     const queries: ScriptRendered["queries"] = [];
     let untracked = false;
@@ -116,13 +118,28 @@ export class ScriptRuns {
     const props = slotProps(input.argument);
     // The script's own note redraws the line when edited (its code, `self`): a read to watch, not one a reader's view depends on (`own`).
     if (source.blockId) onRead([source.blockId]);
-    const site = this.bind(source, { blockId: input.blockId, line: input.line, props }, onRead);
+    const bound = input.hidden === undefined ? undefined : bind(this.store, { ...input.site, blockId: input.blockId, hidden: input.hidden }, Date.now);
+    const site = this.bind(source, { blockId: bound?.site.this?.id ?? input.blockId, line: input.line, props: { ...bound?.site.props, ...props } }, onRead);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(input.deadlineMs / 1000)}s)`)), input.deadlineMs);
     const signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal;
     try {
-      const api = hostApi(this.client, undefined, {
-        effects: "read", onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+      const select = (blocks: import("./types").VisibleBlock[], where?: string) => {
+        const visible = visibleMatches(this.store, bound!.world, blocks, where);
+        input.onCandidates?.([...bound!.world.deps]);
+        if (bound!.world.hiddenHits) untracked = true;
+        return visible;
+      };
+      const client: AgentToolsClient = bound ? {
+        requireCompatibleService: () => this.client.requireCompatibleService(),
+        request: async <T>(request: Parameters<AgentToolsClient["request"]>[0]): Promise<T> => {
+          if (request.action === "blocks.query") return this.store.queryBlocks({ ...request.query, machinery: request.query.machinery ?? DEFAULT_MACHINERY }, undefined, select) as T;
+          if (request.action === "views.read") return this.store.readSavedView(request.viewId, request, "full", select) as T;
+          return this.client.request<T>(request);
+        },
+      } : this.client;
+      const api = hostApi(client, undefined, {
+        effects: "read", cutQueries: !!bound, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (!result.ok) throw new Error(result.error.message);

@@ -3944,14 +3944,15 @@ export class OutlinerStore {
   }
 
   /** `binder`: what a `{{path}}` in the question reads, when the question sits in a Site the caller has already bound (a figure in a `::use`). */
-  queryBlocks(input: BlockSearchQuery, binder?: ValueBinder): VisibleBlockCollection {
+  queryBlocks(input: BlockSearchQuery, binder?: ValueBinder, select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): VisibleBlockCollection {
     const query = normalizeBlockSearchQuery(input, binder ?? this.valueBinder(input?.this?.trim() || undefined));
-    return this.database.transaction(() => this.queryNormalizedBlocksFromCurrentRead(query)).deferred();
+    return this.database.transaction(() => this.queryNormalizedBlocksFromCurrentRead(query, { select: select && (blocks => select(blocks, input.where)) })).deferred();
   }
 
   /** `query.limit` is normally 1..1000; sorted saved-view reads pass UNBOUNDED_VIEW_MATCHES to count every member. */
-  private queryNormalizedBlocksFromCurrentRead(query: NormalizedBlockSearchQuery, options: { overGraph?: boolean } = {}): VisibleBlockCollection {
-    return this.withMachineryHidden(query, this.queryNormalizedMatches(query, options));
+  private queryNormalizedBlocksFromCurrentRead(query: NormalizedBlockSearchQuery, options: { overGraph?: boolean; select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[] } = {}): VisibleBlockCollection {
+    const answer = this.queryNormalizedMatches(query, options);
+    return options.select ? answer : this.withMachineryHidden(query, answer);
   }
 
   /**
@@ -3971,32 +3972,33 @@ export class OutlinerStore {
     return { ...answer, machineryHidden: Math.min(hidden, 50), hint: [answer.hint, said].filter(Boolean).join(" · ") };
   }
 
-  private queryNormalizedMatches(query: NormalizedBlockSearchQuery, options: { overGraph?: boolean } = {}): VisibleBlockCollection {
+  private queryNormalizedMatches(query: NormalizedBlockSearchQuery, options: { overGraph?: boolean; select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[] } = {}): VisibleBlockCollection {
     if (query.subtreeRootId) this.require(query.subtreeRootId);
     const deletedMode = query.includeDeleted ?? "active";
     // Groups and facets count every match, so they read them all.
     const counted = !!(query.group || query.facets);
-    if (query.rankViewId && deletedMode === "active" && !query.predicate && !counted && !options.overGraph) {
+    if (query.rankViewId && deletedMode === "active" && !query.predicate && !counted && !options.overGraph && !options.select) {
       return this.queryRankedBlocksFromCurrentRead(query, query.rankViewId);
     }
     const ranked = query.rankViewId && deletedMode === "active" ? query.rankViewId : null;
     const graph = this.loadGraph();
-    const blocks = this.traverseLoadedGraph(graph, {
+    let blocks = this.traverseLoadedGraph(graph, {
       filters: query.filters,
       where: query.predicate,
       machinery: query.machinery,
       propertyScope: query.propertyScope,
       subtreeRootId: query.subtreeRootId,
       text: query.text,
-      stopAfterMatches: query.sort || ranked || counted ? undefined : query.limit + 1,
+      stopAfterMatches: query.sort || ranked || counted || options.select ? undefined : query.limit + 1,
       deletedMode,
     });
+    if (options.select) blocks = options.select(blocks);
     if (query.sort) sortQueriedBlocks(blocks, query.sort, scopedValue(graph, query.propertyScope));
     // Same order as ranked SQL: manual ranks first, then canonical preorder.
     if (ranked) sortByOccurrenceRank(blocks, this.virtualOccurrenceRanksFromCurrentRead().filter(entry => entry.viewId === ranked));
     const rows = blocks.length <= query.limit ? blocks : blocks.slice(0, query.limit);
     // Every match was read when nothing stopped the walk early: then the count is exact.
-    const everyMatch = !!(query.sort || ranked || counted);
+    const everyMatch = !!(query.sort || ranked || counted || options.select);
     const answer: VisibleBlockCollection = {
       blocks: rows,
       completeness: blocks.length <= query.limit ? { kind: "complete" }
@@ -4009,7 +4011,7 @@ export class OutlinerStore {
       if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
       if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key), query.facetValues, query.facetKeys);
       const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope))].filter(Boolean).join(" · ");
-      if (hint) answer.hint = hint;
+      if (hint && !options.select) answer.hint = hint;
     }
     return answer;
   }
@@ -4053,12 +4055,13 @@ export class OutlinerStore {
    * Evaluate a saved virtual branch in one read transaction: the same membership,
    * order and limit Tree projects, plus the exact eligible total for paging.
    */
-  readSavedView(viewId: string, options?: SavedViewReadOptions): SavedViewReadResult<VisibleBlock>;
-  readSavedView(viewId: string, options: SavedViewReadOptions, format: "tree"): SavedViewReadResult<TreeIndexBlock>;
+  readSavedView(viewId: string, options?: SavedViewReadOptions, format?: "full", select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): SavedViewReadResult<VisibleBlock>;
+  readSavedView(viewId: string, options: SavedViewReadOptions, format: "tree", select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): SavedViewReadResult<TreeIndexBlock>;
   readSavedView(
     viewId: string,
     options: SavedViewReadOptions = {},
     format: "full" | "tree" = "full",
+    select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[],
   ): SavedViewReadResult<VisibleBlock | TreeIndexBlock> {
     if (typeof viewId !== "string" || !viewId) throw new Error("View read requires a view block ID");
     const { limit, offset = 0, expectedRevision } = options;
@@ -4100,7 +4103,7 @@ export class OutlinerStore {
         const ranks = this.virtualOccurrenceRanksFromCurrentRead();
         // Over the loaded graph, ranked views too (PIE-625): Tree reads every view after each change, and the graph is
         // loaded once per change for all of them, where a ranked SQL walk of the whole outline ran for each.
-        const matches = this.queryNormalizedBlocksFromCurrentRead({ ...query, limit: UNBOUNDED_VIEW_MATCHES }, { overGraph: true });
+        const matches = this.queryNormalizedBlocksFromCurrentRead({ ...query, limit: UNBOUNDED_VIEW_MATCHES }, { overGraph: true, select: select && (blocks => select(blocks, parsed.config!.query)) });
         selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
         if (matches.machineryHidden) Object.assign(result, { machineryHidden: matches.machineryHidden });
       } catch (error) {

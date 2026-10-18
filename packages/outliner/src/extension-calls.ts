@@ -1,3 +1,4 @@
+import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { ExtensionBarResult, ExtensionBarRow } from "@ep0ch/outline-core/protocol";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 import {
@@ -75,7 +76,7 @@ export interface ExtensionCallsOptions {
    * A render-mode script drawn for a line (`ScriptRuns.render`): what it returns as Blockdown, and the notes it read with
    * their revisions. The producer path for a script is this handler line's, so it keeps its output where every handler does.
    */
-  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }) => Promise<{ markdown: string; view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; untracked?: true; own?: string }>;
+  readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number; hidden?: string[]; site?: Pick<SiteAnswerRequest, "chain" | "props">; onCandidates?: (ids: string[]) => void }) => Promise<{ markdown: string; view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; untracked?: true; own?: string }>;
   readonly now?: () => number;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
   readonly changed?: (blockId: string) => void;
@@ -581,6 +582,14 @@ export class ExtensionCalls {
     if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return null;
     const calls = [...handlerCalls(block.text, this.registry), ...pipelineCalls(block.text)];
     return { block, calls: calls.length > 1 ? calls.sort((a, b) => a.line - b.line) : calls };
+  }
+
+  async renderForSite(blockId: string, line: number, hidden: string[], onCandidates: (ids: string[]) => void, site?: Pick<SiteAnswerRequest, "chain" | "props">) {
+    const call = this.calls(blockId)?.calls.find(call => call.line === line);
+    const extension = call && this.serving(call);
+    if (!call || !extension?.script || !this.options.scriptRender) throw new Error("This line has no render script");
+    return this.options.scriptRender(call.handlerKey === PIPELINE ? { ...extension.script, code: `return (${call.argument});` } : extension.script,
+      { blockId, line, argument: call.handlerKey === PIPELINE ? null : call.argument, deadlineMs: extension.script.deadlineMs ?? this.deadline(extension, call.handlerKey), hidden, onCandidates, site });
   }
 
   /**

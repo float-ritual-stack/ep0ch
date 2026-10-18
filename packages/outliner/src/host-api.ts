@@ -40,6 +40,8 @@ export interface HostStep {
 
 export interface HostApiOptions {
   effects?: "read" | "write";
+  /** Query totals were computed after the Site’s visibility cut. */
+  cutQueries?: boolean;
   mcpAccess?: McpAccessLevel;
   act?(name: string, args: Record<string, unknown>): Promise<unknown>;
   /** The note this run is about (`this`): a query's `this` targets (`parent:this`) are bound to it. */
@@ -161,7 +163,7 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
         if (definition.name === "outline_find") {
           const near = await neighbourReads(client, String(checked.args.query ?? ""), result);
           for (const id of near.ids) reads.ids.add(id);
-          if (near.untracked || countsUnlisted(result)) reads.untracked = true;
+          if (near.untracked || (!options.cutQueries && countsUnlisted(result))) reads.untracked = true;
         }
         if (reads.ids.size) options.onRead([...reads.ids]);
         if (reads.untracked) options.onUntracked?.();

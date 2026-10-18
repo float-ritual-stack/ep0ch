@@ -156,12 +156,19 @@ if (request.input.request === "describe the beds") {
   await make(notes.scripts.id, "Seed count [script::seed-count]\n```js\nreturn (await q('script')).blocks.length;\n```");
   await make(notes.scripts.id, "Beds table [script::beds-table] [mode::render]\n```js\nconst owner = (await resolve('this.owner')).values[0];\nreturn view.table({ columns: ['Owner', 'Week', 'Crop'], rows: [[owner, props.week[0], this.title]] });\n```");
   notes.scriptsInPlace = await make(notes.root.id, [
-    `${SEED.scriptsInPlace} [owner::Sam] [crop::beans]`,
+    `${SEED.scriptsInPlace} [owner::Sam] [crop::beans] [publish::public:scripts-in-place]`,
     "A script written with [mode::render] draws where a line asks for it, and again when a note it read changes. It writes nothing: this note stays as you typed it.",
+    "[[showcase-published-script-lines|Published script lines]] demonstrates visible-only counts, embeds and ::use on its public page.",
     "beds-table:: week=42",
     "A ::= line is the same in one line, with this, props, q, read and resolve:",
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
   ].join("\n"));
+  const publicSeeds = await make(notes.root.id, "Showcase seeds [type::virtual-branch] [query::showcase-seed] [publish::public]");
+  await make(notes.root.id, "Bean packet [showcase-seed::yes] [publish::public]");
+  await make(notes.root.id, "Pea packet [showcase-seed::yes] [publish::never]");
+  await make(notes.scripts.id, `Published seed count [script::published-seed-count] [mode::render]\n\`\`\`js\nconst found = await tools.outline_find({ view: "${publicSeeds.id}", limit: 1 });\nreturn "Seeds shown here: " + found.total;\n\`\`\``);
+  const publishedCount = await make(notes.root.id, "Seed count template [page::showcase-seed-count] [publish::public:showcase-seed-count]\npublished-seed-count::");
+  await make(notes.root.id, `Published script lines [page::showcase-published-script-lines] [publish::public:published-script-lines]\nOn a published page each drawing says Seeds shown here: 1, although the outline holds two packets. The locked packet does not count. Both forms draw the script through the same handler as its own page.\n\n!((${publishedCount.id}))\n\n::use{of=[[showcase-seed-count]]}`);
   // A view that can be pressed (PIE-981): a render script draws the board, each free square a press that runs the move script.
   await make(notes.scripts.id, "Noughts board [script::ttt-board] [mode::render]\n```js\nconst b = (await resolve('this.board')).values[0] ?? '.........';\nconst square = i => b[i] === '.' ? view.badge({ label: String(i + 1), act: `ttt-move at=${i + 1}` }) : view.badge({ label: b[i], tone: b[i] === 'x' ? 'accent' : 'warn' });\nreturn view.stack({ children: [0, 3, 6].map(r => view.row({ minWidth: 4, children: [square(r), square(r + 1), square(r + 2)] })) });\n```");
   await make(notes.scripts.id, "Noughts move [script::ttt-move] [effects::write]\n```js\nconst at = Number(props.at[0]);\nconst b = [...(await resolve('this.board')).values[0]];\nif (!(at >= 1 && at <= 9) || b[at - 1] !== '.') return `square ${props.at[0]} is not free`;\nb[at - 1] = 'x';\nconst reply = b.indexOf('.');\nif (reply >= 0) b[reply] = 'o';\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: b.join(''), revision: this.revision });\nreturn `x on ${at}`;\n```");

@@ -1,3 +1,5 @@
+import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
+import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { blockTags, metadataLines } from "@ep0ch/outline-core/block-tags";
 import { linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { buttonCallAt } from "@ep0ch/outline-core/button-call";
@@ -13,7 +15,7 @@ import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
 import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
 import { artifactKind, artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
-import { validatePrimitive, viewImages } from "./component-primitives";
+import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
@@ -2221,6 +2223,8 @@ export class Publisher {
     if (embeds) {
       const embedded = Object.values(embeds.read.blocks).filter((b) => !embeds.locked.has(b.id) && !embeds.extensionHidden?.has(b.id) && (!embeds.shareable || embeds.shareable.has(b.id)));
       embeds.values = await readPageValues(valueHost, embedded.map((b) => ({ id: b.id, text: b.text ?? "" })));
+      const projections = await this.readProjections(embedded);
+      embeds.under = await this.handlerLines(projections.lines, new Map(embedded.map(b => [b.id, b.text])), options.format ?? "html", components, { index: linked, basePath: base, pages }, valueHost);
     }
     const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
     const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages }, valueHost);
@@ -2235,6 +2239,10 @@ export class Publisher {
       const inline = (text: string) => renderInlineHtml(publishedText(text, { index: linked, basePath: base, pages }));
       drawn = await drawNoteComponents(host, rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "", revision: row.block.revision ?? 0 })), components, { id: entry.blockId, title: entry.title }, { steps, inline });
       if (embeds) embeds.views = await this.embeddedViews(host, embeds, components);
+    }
+    for (const row of rows) {
+      const uses = await this.usedLines(row.block.id, row.block.text ?? "", valueHost, components, { index: linked, basePath: base, pages }, options.format ?? "html");
+      if (uses.size) drawn.set(row.block.id, new Map([...(drawn.get(row.block.id) ?? []), ...uses]));
     }
     // Its images: served from this page's address when the file may leave the machine, else their words. Its artifacts
     // (PIE-793) the same, each read now for its title.
@@ -2316,13 +2324,13 @@ export class Publisher {
    */
   private async handlerLines(
     lines: ReadonlyMap<string, readonly ResourceProjection[]>, texts: ReadonlyMap<string, string>, format: "markdown" | "html",
-    components: string[], context: TextContext, host: LiveHost,
+    components: string[], context: TextContext, host: LiveHost, site?: Pick<SiteAnswerRequest, "chain" | "props">,
   ): Promise<Map<string, Map<number, string>>> {
     const out = new Map<string, Map<number, string>>();
     // A section's callouts draw as the page's do.
     const callouts = lines.size && format === "html" ? await this.callouts() : BUILTIN_CALLOUT_REGISTRY;
     for (const [blockId, projections] of lines) {
-      const html = format === "html" && projections.some((projection) => projection.kind === "component" && hasResult(projection))
+      const html = format === "html" && projections.some((projection) => projection.kind === "component" && hasResult(projection) && !projection.output?.reads)
         ? await this.client.request<{ results: { line: number; rendered: { body: string } }[] }>({ action: "extensions.render", blockId, target: "html" })
           .then((answer) => answer.results, () => [])
         : [];
@@ -2333,12 +2341,35 @@ export class Publisher {
       const readIds = [...new Set(projections.flatMap((projection) => (hasResult(projection) ? projection.output?.reads?.ids ?? [] : [])))];
       const open = readIds.length ? await host.shown(readIds) : new Set<string>();
       for (const projection of projections) {
-        const line = projection.anchor.line, output = hasResult(projection) ? projection.output : undefined;
+        const line = projection.anchor.line;
+        let output = hasResult(projection) ? projection.output : undefined;
+        let scopedBody: string | undefined;
+        if (output?.reads) {
+          const hidden = new Set<string>();
+          let settled = false;
+          try {
+            for (let round = 0; round < 4; round++) {
+              const answer = await host.request<SiteAnswer>({ action: "site.answer", ...site, blockId, scriptLine: line, hidden: [...hidden] });
+              const visible = await host.shown(answer.deps);
+              const fresh = answer.deps.filter(id => !visible.has(id) && !hidden.has(id));
+              if (!fresh.length && answer.script) {
+                output = { ...output, markdown: answer.script.markdown, reads: answer.script.reads,
+                  ...(answer.script.view ? { component: { data: null, view: answer.script.view } } : {}) };
+                if (answer.script.view && format === "html") scopedBody = renderComponent({ data: null, view: validatePrimitive(answer.script.view) }, "html").body;
+                for (const id of visible) open.add(id);
+                settled = true;
+                break;
+              }
+              for (const id of fresh) hidden.add(id);
+            }
+          } catch { /* A failed script supplies no public output. */ }
+          if (!settled) { shown.set(line, placeholder("hidden here")); continue; }
+        }
         if (output?.reads?.untracked || output?.reads?.ids.some((id) => !open.has(id))) { shown.set(line, placeholder("hidden here")); continue; }
-        const body = projection.kind === "component" ? html.find((result) => result.line === line)?.rendered.body : undefined;
+        const body = scopedBody ?? (output?.reads ? undefined : projection.kind === "component" ? html.find((result) => result.line === line)?.rendered.body : undefined);
         if (body !== undefined && components.length < MAX_PUBLISHED_COMPONENTS) {
           // Its pictures as the page's own images (PIE-827): served from here when the file may leave the machine.
-          const images = this.componentImages(projection);
+          const images = this.componentImages({ ...projection, output });
           const policy = this.policy;
           components.push(readImages(readBlockdown(body, (source) => renderMarkdownHtml(publishedText(source, context), callouts)), (n) => {
             const node = images[n];
@@ -2354,6 +2385,28 @@ export class Publisher {
       out.set(blockId, shown);
     }
     return out;
+  }
+
+  private async usedLines(blockId: string, text: string, host: LiveHost, components: string[], context: TextContext, format: "markdown" | "html", chain: SiteLink[] = []): Promise<Map<number, DrawnComponent>> {
+    const drawn = new Map<number, DrawnComponent>();
+    for (const call of useCallsOf(text)) {
+      let markdown: string;
+      try {
+        const use = await host.request<TemplateUseAnswer>({ action: "template.use", block: blockId, line: call.line, chain });
+        const shown = await host.shown(use.deps);
+        if (use.deps.some(id => !shown.has(id))) markdown = placeholder("hidden here");
+        else if (!use.template || use.problems.length) markdown = lineSource(text.split("\n")[call.line]!);
+        else {
+          const note = use.template;
+          const projections = await this.readProjections([note]);
+          const under = await this.handlerLines(projections.lines, new Map([[note.id, note.text]]), format, components, context, host, { chain: use.chain, props: use.props });
+          const nested = await this.usedLines(note.id, note.text, host, components, context, format, use.chain);
+          markdown = publishedText(decoratedText(note.text, undefined, under.get(note.id), nested), context);
+        }
+      } catch { markdown = placeholder("use unavailable"); }
+      drawn.set(call.line, { end: call.line + 1, markdown });
+    }
+    return drawn;
   }
 
   /** A component line's image primitives, in the order its HTML numbers them; none when its view can't be read. */
@@ -2452,6 +2505,7 @@ export interface EmbedExpansion {
   views?: ReadonlyMap<string, string>;
   /** The `{{ }}` of the embedded notes, as the page may show them (publish-values.ts), by note id. */
   values?: ReadonlyMap<string, readonly SiteValue[]>;
+  under?: ReadonlyMap<string, ReadonlyMap<number, string>>;
   cursor: { next: number };
 }
 
@@ -2469,6 +2523,7 @@ interface EmbedSource {
   /** The whole note a fragment's text was sliced from, and its first line there (code is judged in the note). */
   note?: string;
   firstLine?: number;
+  under?: ReadonlyMap<number, string>;
 }
 
 function lineOf(text: string, offset: number): number {
@@ -2510,9 +2565,12 @@ function renderEmbed(node: TransclusionNode | undefined, context: TextContext): 
   const raw = node.fragment ? node.fragment.text : stripFragmentAnchors(from ? block.text.split("\n").slice(from).join("\n") : block.text);
   const values = expansion.values?.get(node.blockId);
   const text = values ? valuedText(raw, values) : raw;
-  return publishedText(text, context, {}, {
-    nodes: node.embeds ?? [], cursor: { next: 0 }, note: block.text, firstLine: node.fragment?.startLine ?? from,
-  }) || placeholder("empty note");
+  const firstLine = node.fragment?.startLine ?? from;
+  const under = new Map([...expansion.under?.get(node.blockId) ?? []].filter(([line]) => line >= firstLine && line < firstLine + raw.split("\n").length).map(([line, output]) => [line - firstLine, output]));
+  const rendered = publishedText(text, context, {}, {
+    nodes: node.embeds ?? [], cursor: { next: 0 }, note: block.text, firstLine, under,
+  });
+  return rendered || placeholder("empty note");
 }
 
 const quote = (markdown: string) => markdown.split("\n").map((line) => line ? `> ${line}` : ">").join("\n");
@@ -2538,6 +2596,7 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const match = matches[at]!;
     body = body.slice(0, match.index) + `\u0000${at}\u0000` + body.slice(match.index + match[0].length);
   }
+  if (source?.under?.size) body = decoratedText(body, undefined, source.under);
   // The block-level tags (PIE-880: the hashtags written on the metadata lines) are one row under the title, so taking the
   // properties out doesn't leave them as a stray line; outline-core's blockTags says which they are. Read first, before
   // anything rewrites a metadata line (a `[from::]` or `[file::]` there).

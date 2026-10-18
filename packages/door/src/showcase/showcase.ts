@@ -1021,7 +1021,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "scripts-in-place", need: "a script that knows its note and draws where it is written, live", part: "the Site's script globals (this, self, caller, props), render mode through ExtensionCalls' one producer path, and `::=` lines", files: "outliner/src/script-runs.ts, src/extension-calls.ts, src/script-runtime.ts",
-    aside: "beds-table:: week=42 draws the Beds table script's view under its line, and the ::= line draws a one-line script · both read this note's owner: edit [owner::Sam] (e, save) and they redraw · nothing is written for a drawing: no run note, the note's text stays yours · the script is [mode::render] and can't declare [effects::write] · Run seed-report from the other section runs with this note in front as `this` · scripts.stop run=<id> ends one run",
+    aside: "The Published script lines link demonstrates a visible-only seed count on its public page, embedded and through ::use · beds-table:: week=42 draws the Beds table script's view under its line, and the ::= line draws a one-line script · both read this note's owner: edit [owner::Sam] (e, save) and they redraw · nothing is written for a drawing: no run note, the note's text stays yours · the script is [mode::render] and can't declare [effects::write] · Run seed-report from the other section runs with this note in front as `this` · scripts.stop run=<id> ends one run",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · scripts in place", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.scriptsInPlace], [b, n.scripts]]);

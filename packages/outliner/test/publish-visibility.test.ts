@@ -214,12 +214,51 @@ test("a NOT over a relation to a note the page may not show says nothing, and an
   expect(await tailnet("bed-list")).toContain("Bean bed");
 });
 
-test("a script line in a note a page embeds is not drawn into the page: only the page's own lines go through the cut", async () => {
-  const { store, draw, tailnet } = await setup();
-  store.create("Marker [script::marker] [mode::render]\n```js\nreturn 'EMBED-MARK';\n```");
-  const inner = store.create("Inner [publish::public]\nmarker::");
+test("embedded and used script lines show safe output and hide private reads", async () => {
+  const { store, draw, tailnet, publicly } = await setup();
+  const locked = store.create("Locked [publish::never] [code::SECRET_EMBED_CODE]");
+  store.create("Marker [script::marker] [mode::render]\n```js\nreturn 'EMBED-MARK ' + this.title;\n```");
+  const inner = store.create(`Inner [page::inner] [publish::public]\nmarker::\n::= (await resolve('((${locked.id})).code')).values[0]`);
   await draw(inner.id);
-  await until("the inner line drawn", () => store.extensionOutputs(inner.id).filter(row => row.result).length === 1);
+  await until("the inner lines drawn", () => store.extensionOutputs(inner.id).filter(row => row.result).length === 2);
   store.create(`Outer [publish::public:outer]\n!((${inner.id}))`);
-  expect(await tailnet("outer")).not.toContain("EMBED-MARK");
+  store.create("Used [publish::public:used]\n::use{of=[[inner]]}");
+  for (const page of ["outer", "used"]) for (const read of [tailnet, publicly]) {
+    const html = await read(page);
+    expect(html).toContain(page === "used" ? "EMBED-MARK Used" : "EMBED-MARK Inner");
+    expect(html).toContain("hidden here");
+    expect(html).not.toContain("SECRET_EMBED_CODE");
+  }
+});
+
+test("a limited script search counts visible matches before applying its limit", async () => {
+  const { store, draw, tailnet, publicly } = await setup();
+  store.create("Visible seed [type::seed] [publish::public]");
+  store.create("Quiet seed [type::seed]");
+  store.create("Locked seed [type::seed] [publish::never]");
+  const view = store.create("Seeds [type::virtual-branch] [query::type=seed] [publish::public]");
+  store.create(`Counter [script::visible-count] [mode::render]\n\`\`\`js\nconst found = await tools.outline_find({ view: "${view.id}", limit: 1 });\nreturn "VISIBLE_COUNT=" + found.total + "; ROWS=" + found.blocks.length;\n\`\`\``);
+  const page = store.create("Count [publish::public:count]\nvisible-count::");
+  await draw(page.id);
+  await until("counter drawn", () => store.extensionOutputs(page.id).some(row => row.result));
+  expect(await publicly("count")).toContain("VISIBLE_COUNT=1; ROWS=1");
+  expect(await tailnet("count")).toContain("VISIBLE_COUNT=2; ROWS=1");
+  store.create(`All seeds [script::all-seeds] [mode::render]\n\`\`\`js\nconst found = await q("type=seed", { limit: 10 });\nreturn view.text({ text: "ALL_COUNT=" + found.blocks.length });\n\`\`\``);
+  const all = store.create("All [publish::public:all]\nall-seeds::");
+  await draw(all.id);
+  await until("all seeds drawn", () => store.extensionOutputs(all.id).some(row => row.result));
+  expect(await publicly("all")).toContain("ALL_COUNT=1");
+  expect(await tailnet("all")).toContain("ALL_COUNT=2");
+});
+
+test("the Site counts a limited figure's groups before taking its first row", async () => {
+  const { store, client } = await setup();
+  const page = store.create("Bed totals [publish::public]");
+  store.create("Beans [type::crop] [family::legume] [publish::public]");
+  const hidden = store.create("Peas [type::crop] [family::legume] [publish::never]");
+  const answer = await client.request<{ produced: { groups: { value: string; count: number }[] } }>({
+    action: "site.answer", blockId: page.id, hidden: [hidden.id],
+    produce: { kind: "figure", figure: "rank", props: { query: "type=crop", group: "family", limit: 1 } },
+  });
+  expect(answer.produced.groups).toEqual([expect.objectContaining({ value: "legume", count: 1 })]);
 });
