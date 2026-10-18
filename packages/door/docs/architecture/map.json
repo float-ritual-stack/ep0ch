@@ -780,7 +780,7 @@
       "built": "startControl sweeps dead sockets, listens in a folder that is the user's alone, chmods 0600, caps request lines; snap writes only under the state dir; the feed disconnects a subscriber that stops reading.",
       "refs": [
         { "r": "door", "p": "src/control.ts", "l": 163, "m": "export async function startControl" },
-        { "r": "door", "p": "src/control.ts", "l": 204, "m": "chmodSync(path, 0o600)" },
+        { "r": "door", "p": "src/control.ts", "l": 201, "m": "process.umask(0o177)" },
         { "r": "door", "p": "src/control.ts", "l": 118, "m": "req.cmd === \"peek\"" },
         { "r": "door", "p": "src/control.ts", "l": 92, "m": "export function feedWriter" }
       ],
