@@ -9,7 +9,8 @@ import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
-import { THEMES } from "../../src/theme";
+import { contrast, THEMES } from "../../src/theme";
+import { Mirror } from "../../src/mirror";
 import { hyperOn, useHyper } from "../../src/hyper";
 import { KeyDecoder, type Key } from "../../src/term";
 import { outliner, Scratch, until } from "../scratch";
@@ -57,6 +58,11 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       expect(cursor, name).toBeDefined();
       // Item focus: the row's band and its bar; the figure's other rows wear the container's tint only.
       expect(cursor).toContain(rgb(t.focus.item.bg));
+      const mirror = new Mirror(200, 1);
+      mirror.write(cursor);
+      const bandText = mirror.cells[0]!.filter(c => c.ch.trim() && c.bg?.join() === t.focus.item.bg.join());
+      expect(bandText.map(c => c.ch).join(" ")).toContain("s o w");
+      for (const c of bandText) expect(contrast([c.fg[0]!, c.fg[1]!, c.fg[2]!], t.focus.item.bg), `${name}: ${c.ch}`).toBeGreaterThanOrEqual(4.5);
       expect(cursor).toContain(`38;2;${t.focus.item.bar.join(";")}m▌`);
       expect(other).not.toContain(rgb(t.focus.item.bg));
       expect(other).toContain(rgb(t.focus.container));

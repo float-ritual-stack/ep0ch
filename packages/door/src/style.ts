@@ -16,12 +16,17 @@ export const surfaceBg = (role: Surface, strength: number) => { const c = surfac
 export const tint = (name: keyof Theme["tint"]) => bgRgb(theme().tint[name]);
 /** The theme's item-focus band (PIE-969): the row the cursor is on, as a background. */
 export const itemBg = () => bgRgb(theme().focus.item.bg);
+/** Classic's dark VGA inks cannot read on a dark band, so its item token supplies readable text too. */
+export const itemStyle = () => {
+  const { fg } = theme().focus.item;
+  return itemBg() + (fg ? fgRgb(fg) : "");
+};
 /**
- * The one item-focus style (PIE-969): a list's selected row, its background and text. The theme's item band (white text
- * on it) while the list has the keys, on the idle tint (`idleRow` for a search's or the backlinks' rows) while it doesn't.
+ * The one item-focus style (PIE-969): a list's selected row, its background and text. The theme's item band and text
+ * (white unless the token overrides it) while the list has the keys, on the idle tint (`idleRow` for a search's or the backlinks' rows) while it doesn't.
  * Every selectable list draws its cursor row through this; the reader's figure rows add `itemBar`'s edge marker.
  */
-export const selected = (keys = true, idle: "idle" | "idleRow" = "idle") => (keys ? itemBg() : tint(idle)) + fg(C.white);
+export const selected = (keys = true, idle: "idle" | "idleRow" = "idle") => fg(C.white) + (keys ? itemStyle() : tint(idle));
 /** The marker at the left edge of the row the cursor is on in a reader (PIE-969): a bar in the theme's `focus.item.bar`. */
 export const itemBar = () => fgRgb(theme().focus.item.bar) + theme().focus.item.glyph + RESET;
 /** A chip lighter than this (relative luminance) would be a bright patch: calm and night draw it as coloured text instead. */

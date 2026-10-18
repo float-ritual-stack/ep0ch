@@ -44,16 +44,17 @@ export interface Theme {
   };
   /**
    * The three levels of "this one" (PIE-969), apart from each other and from the ground, each, in themes with a ground of their own (calm, night), under every text colour at
-   * 4.5:1 (test/theme-focus.test.ts):
+   * 4.5:1 (test/theme-focus.test.ts). Item text meets that contrast in every theme:
    * - `container`: the tint under the figure, table or block the cursor is in (PIE-441's reading ruler; the tile's frame
    *   is `edge.focus`).
    * - `item`: the row the cursor is on inside it: `bg`, a dark band across the row, and `bar`, a marker (`glyph`) at its left
    *   edge, so the row isn't told by colour alone (WCAG 1.4.1); the bar reads 3:1 on both the band and the container's
    *   tint (1.4.11): two dark tints can't reach 3:1 between themselves under the dark cap, the marker carries it.
+   *   `fg` overrides row text where the palette cannot read on the band (classic); null keeps its own colours.
    * - `selection`: what is picked (text, or rows for a multi-action), a person's.
    * Dark-capped: no bright fill.
    */
-  focus: { container: Rgb; item: { bg: Rgb; bar: Rgb; glyph: string }; selection: Rgb };
+  focus: { container: Rgb; item: { bg: Rgb; fg: Rgb | null; bar: Rgb; glyph: string }; selection: Rgb };
   /**
    * The look's surfaces (PIE-675: a tile's or a box's `bg`, a header's `header.bg`, a list's zebra), as roles: `raised`
    * and `sunken` at their full strength, and `tone`, how much of a tone's colour (the callouts' families) is mixed into
@@ -93,7 +94,7 @@ const CLASSIC: Theme = {
     agent: [78, 40, 88], thread: [40, 52, 30], embed: [18, 24, 44],
     idle: [22, 30, 58], idleRow: VGA_RGB[8]!,
   },
-  focus: { container: [58, 50, 26], item: { bg: VGA_RGB[1]!, bar: VGA_RGB[11]!, glyph: "▌" }, selection: [46, 72, 132] },
+  focus: { container: [58, 50, 26], item: { bg: VGA_RGB[1]!, fg: VGA_RGB[7]!, bar: VGA_RGB[11]!, glyph: "▌" }, selection: [46, 72, 132] },
   surface: { raised: [28, 28, 48], sunken: [0, 0, 0], tone: 0.16 },
   edge: { tile: [112, 112, 136], focus: [232, 148, 48] },
   external: [140, 140, 255],
@@ -130,7 +131,7 @@ const CALM: Theme = {
     agent: [66, 40, 78], thread: [36, 50, 34], embed: [20, 26, 38],
     idle: [30, 38, 54], idleRow: [30, 38, 54],
   },
-  focus: { container: [56, 50, 30], item: { bg: [30, 52, 92], bar: [128, 206, 214], glyph: "▌" }, selection: [48, 52, 62] },
+  focus: { container: [56, 50, 30], item: { bg: [30, 52, 92], fg: null, bar: [128, 206, 214], glyph: "▌" }, selection: [48, 52, 62] },
   surface: { raised: [40, 46, 61], sunken: [6, 8, 12], tone: 0.2 },
   edge: { tile: [98, 112, 136], focus: [236, 152, 72] },
   external: [156, 150, 226],
@@ -166,7 +167,7 @@ const NIGHT: Theme = {
     agent: [50, 30, 58], thread: [28, 40, 28], embed: [16, 20, 28],
     idle: [24, 28, 38], idleRow: [24, 28, 38],
   },
-  focus: { container: [40, 36, 22], item: { bg: [22, 36, 64], bar: [110, 176, 184], glyph: "▌" }, selection: [30, 33, 44] },
+  focus: { container: [40, 36, 22], item: { bg: [22, 36, 64], fg: null, bar: [110, 176, 184], glyph: "▌" }, selection: [30, 33, 44] },
   surface: { raised: [31, 35, 45], sunken: [4, 5, 7], tone: 0.16 },
   edge: { tile: [86, 96, 114], focus: [206, 134, 66] },
   external: [140, 134, 200],
