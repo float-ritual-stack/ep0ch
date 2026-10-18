@@ -42,6 +42,8 @@ const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take
   take: (p, m, desk, by) => {
     const r = p as ReaderPane;
     if (r.holdsKeys || r.editing) return `holds ${sessionName(r)}`;
+    // An explicit open wins over a saved-history read still in flight.
+    if (r.wantNote() !== m.id) r.dropWant();
     if (r.follows && !r.holding) { r.surface.track(() => desk.setCurrent(m, { reveal: true, ...(by ? { by } : {}) })); return null; }
     r.surface.track(() => r.hold(m, desk));
     return null;

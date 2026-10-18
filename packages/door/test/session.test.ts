@@ -1356,7 +1356,7 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
     attached.send({ t: "detach" });
   });
 
-  test("an explicit control socket refuses a URI for another outline", async () => {
+  test("an explicit control socket opens another outline's note in its door and refuses an outline the host lacks", async () => {
     const uri = formatEp0chBlockUri({ outline: "garden", machine: canonicalLocalMachineName(), blockId: gardenNote });
     const p = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), "open", uri, "--json"], {
       cwd: none,
@@ -1368,9 +1368,23 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
     const out = await new Response(p.stdout).text();
     expect(await p.exited).toBe(0);
     const result = JSON.parse(out);
-    expect(result.opened).toBe(false);
-    expect(result.reason).toContain("that URI names garden");
-    expect(result.reason).toContain("but this door is orchard");
+    expect(result).toMatchObject({ opened: true, id: gardenNote });
+    const layout = await control(orchard.dir, { cmd: "act", action: "layout.get", as: "test-agent" });
+    expect(layout.tiles.some((tile: any) => tile.showing?.id === gardenNote)).toBe(true);
+    expect((await control(orchard.dir, { cmd: "peek" })).text.join("\n")).toContain("Mint bed");
+
+    const missing = formatEp0chBlockUri({ outline: "absent-garden", machine: canonicalLocalMachineName(), blockId: gardenNote });
+    const refused = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), "open", missing, "--json"], {
+      cwd: none,
+      env: { ...(process.env as Record<string, string>), EP0CH_CONTROL: join(orchard.dir, "door.sock") },
+      stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    const refusal = JSON.parse(await new Response(refused.stdout).text());
+    expect(await refused.exited).toBe(0);
+    expect(refusal).toMatchObject({ opened: false, reason: expect.stringContaining("absent-garden") });
+    expect(existsSync(join(host.root, "outlines", "absent-garden.sqlite"))).toBe(false);
+    const after = await control(orchard.dir, { cmd: "act", action: "layout.get", as: "test-agent" });
+    expect(after.tiles.some((tile: any) => tile.showing?.id === gardenNote)).toBe(true);
   });
 
   test("attaching names the outline: each terminal gets its own outline's session, and each desk saves in its own folder", async () => {

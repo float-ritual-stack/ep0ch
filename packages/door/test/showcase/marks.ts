@@ -47,6 +47,7 @@ export const marks: Record<string, string[]> = {
   screen: ["board ·", "· lanes", "HOME-003", "True the front wheel"],
   spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
   entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
+  "cross-outline": ["showcase-orchard", "Orchard journal", "Water the pear tree"],
   "select-open": ["tree, preview, detail from scratch", "select wires show the picked row"],
   "links-open": ["Bike shed", "links · Bike shed", "preview"],
   // The compost heap in a detail, the two notes under it listed in its links tile: what d d trashes.

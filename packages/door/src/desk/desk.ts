@@ -1090,6 +1090,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** A tile joins a live desk: it reads what it needs (its kind's `start`: a detail its note, a preview its source). */
   private startTile(id: number, moved = false) {
+    if (!this.ctx) return; // Unshown groups start their tiles when they enter.
     const p = this.panes.get(id)!;
     const env: TileEnv = {
       desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? "desk", home: this.home ?? this.spec.saves ?? null,
@@ -2958,6 +2959,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // ── drawing ────────────────────────────────────────────────────────────────
 
   render(ctx: Ctx): Frame {
+    if (!this.ctx) this.enter(ctx);
     const { cols, rows } = ctx.t;
     this.noteFocus();
     for (const m of this.models.values()) m.frame?.();
