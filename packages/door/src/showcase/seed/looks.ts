@@ -1,4 +1,5 @@
 // The showcase seed's looks (split out of seed.ts): its notes' text and fixtures. Exported through ../seed.ts as before.
+import { readFileSync } from "node:fs";
 import { SEED } from "./names";
 import { SHOWCASE_ASSETS } from "./media";
 
@@ -46,6 +47,9 @@ export const SPACING_LAB = [
   "## The header's picture",
   "Scroll this picture up under the title: the header takes it as its backdrop, cropped a little higher than its middle by the lab style's header.image.y, its own violet surface yielding to it.",
   `[img::${SHOWCASE_ASSETS}/evening-beds.jpg] [alt::the beds at dusk, the shed lit]`,
+  "",
+  "## The published look",
+  "[[Garden dispatch]] uses `[publish-skin::dispatch]` on the web: dark phosphor, a masthead and newsprint rules over the same publisher HTML. [[skins/dispatch]] holds its CSS. A child inherits the skin; its own publish-skin selects another. The terminal keeps its own look.",
   "",
   "The end of the lab.",
 ].join("\n");
@@ -101,4 +105,11 @@ export const HEADINGS = [
   "",
   "## Plain",
   "As Markdown writes it.",
+].join("\n");
+
+export const DISPATCH_SKIN = [
+  "Dispatch skin [page::skins/dispatch] [publish::public]",
+  "```css",
+  readFileSync(new URL("../assets/skins/dispatch.css", import.meta.url), "utf8"),
+  "```",
 ].join("\n");
