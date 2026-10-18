@@ -222,6 +222,8 @@ export interface PublisherOptions {
 /** A request the sign-in listener let through (web-signin.ts): which web session it came with. */
 export interface SignedIn {
   sessionId: string;
+  /** The external origin checked by the sign-in gate, even behind an HTTP proxy. */
+  origin?: string;
   /** Whether that session is still live now (not signed out, revoked, expired or taken off the list): a long answer asks again. */
   stillSignedIn?: () => Promise<boolean>;
 }
@@ -1127,7 +1129,8 @@ export class Publisher {
     }
     if (path.startsWith("/_reader/")) return this.readerLeases.handle(request, path.slice("/_reader/".length));
     if (audience === "tailnet" && (path === "/reader" || path.startsWith("/reader/"))) {
-      return this.readerLeases.owner(request, path, `${request.headers.get("origin") ?? url.origin}${this.basePath}/_reader`);
+      const ownerOrigin = signedIn?.origin ?? new URL(this.options.url ?? request.url).origin;
+      return this.readerLeases.owner(request, path, `${request.headers.get("origin") ?? url.origin}${this.basePath}/_reader`, ownerOrigin, signedIn?.sessionId);
     }
     // A share link (share-sessions.ts): on the public listener, below `/s/<token>`, checked against the service on
     // every request, so an expiry or a revoke holds from the next one.

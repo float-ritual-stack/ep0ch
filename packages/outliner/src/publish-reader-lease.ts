@@ -9,6 +9,7 @@ const escapeHtml = Bun.escapeHTML;
 
 interface Scope { id: string; expiresAt: number; ended: boolean; today: string; block?: string; writes: number[] }
 interface Lease { scope: Scope; source: string }
+interface Approval { session: string; origin: string; expiresAt: number }
 const headers = { "content-type": "application/json", "cache-control": "no-store", "referrer-policy": "no-referrer" };
 const answer = (status: number, body: unknown) => Response.json(body, { status, headers });
 
@@ -16,11 +17,12 @@ const answer = (status: number, body: unknown) => Response.json(body, { status, 
 export class ReaderLeases {
   private readonly leases = new Map<string, Lease>();
   private readonly scopes = new Map<string, Scope>();
+  private readonly approvals = new Map<string, Approval>();
   private readonly approvedOrigins = new Set<string>();
   constructor(private readonly host: Pick<PageHost, "request" | "writes"> & { published: (id: string) => Promise<boolean> }, private readonly style: string, private readonly outlineName: () => string) {}
 
-  async owner(request: Request, route: string, endpoint: string): Promise<Response> {
-    if (route === "/reader/approve") return this.approve(request);
+  async owner(request: Request, route: string, endpoint: string, ownerOrigin: string, sessionId?: string): Promise<Response> {
+    if (route === "/reader/approve") return this.approve(request, ownerOrigin, sessionId);
     if (request.method === "GET" && route === "/reader") {
       const origins = [...this.approvedOrigins].map(source => `<li>${escapeHtml(source)}<form method="post" action="reader/origin-revoke"><input type="hidden" name="source" value="${escapeHtml(source)}"><button>Revoke</button></form></li>`).join("");
       return this.page(`<h1>Reader on any page</h1><p>Make a one-hour bookmarklet for this outline. Select words on a page, then use Highlight, Comment or Ask. A block anchor receives a quote comment; other pages become captures under today, with their source URL. Type #pie-request as you would in a note.</p><form method="post" action="reader/bookmark"><label>Published block id (optional) <input name="block"></label><button>Make bookmarklet</button></form><h2>Approved origins</h2><p>Approvals last until revoked or the publisher restarts.</p><ul>${origins}</ul><h2>Try it</h2><p>On a page at another origin, select a passage and click the bookmark. Comment saves under today; on the chosen published page, a block anchor receives the comment. Use the built-in reader on this publisher’s own pages.</p>`);
@@ -106,14 +108,26 @@ export class ReaderLeases {
     return scope && scope.id === id && !scope.ended && scope.expiresAt > Date.now() ? scope : undefined;
   }
 
-  private async approve(request: Request): Promise<Response> {
+  private async approve(request: Request, ownerOrigin: string, sessionId?: string): Promise<Response> {
     if (request.method !== "GET" && request.method !== "POST") return answer(405, { ok: false });
-    if (request.method === "POST" && !sameOrigin(request)) return answer(403, { ok: false });
+    if (request.method === "POST" && request.headers.get("origin") !== ownerOrigin) return answer(403, { ok: false });
     const input = request.method === "GET" ? Object.fromEntries(new URL(request.url).searchParams)
       : request.headers.get("content-type")?.includes("application/json") ? await request.json() : Object.fromEntries(await request.formData());
     let source: URL;
     try { source = new URL(input.source); } catch { return answer(400, { ok: false }); }
-    if (!["http:", "https:"].includes(source.protocol) || source.origin === new URL(request.url).origin) return answer(403, { ok: false });
+    if (!["http:", "https:"].includes(source.protocol) || source.origin === ownerOrigin) return answer(403, { ok: false });
+    const cookieName = "ep0ch_reader_approval=";
+    const cookie = request.headers.get("cookie")?.split(";").map(part => part.trim()).find(part => part.startsWith(cookieName))?.slice(cookieName.length);
+    const session = sessionId ? `web:${sessionId}` : cookie ? `tailnet:${cookie}` : undefined;
+    const now = Date.now();
+    for (const [token, approval] of this.approvals) if (approval.expiresAt <= now) this.approvals.delete(token);
+    if (request.method === "POST") {
+      const approval = this.approvals.get(input.token);
+      if (!approval || approval.session !== session || approval.origin !== source.origin) {
+        return answer(403, { ok: false, error: "Open the reader popup again to approve this origin" });
+      }
+      this.approvals.delete(input.token);
+    }
     if (request.method === "POST" || this.approvedOrigins.has(source.origin)) {
       const allowed = request.method === "GET" || input.decision === "allow";
       if (allowed) this.approvedOrigins.add(source.origin);
@@ -122,7 +136,12 @@ export class ReaderLeases {
       response.headers.set("content-security-policy", `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'`);
       return response;
     }
-    return this.page(`<h1>Allow ${escapeHtml(source.origin)} to send highlights and comments to ${escapeHtml(this.outlineName())}?</h1><form method="post"><input type="hidden" name="source" value="${escapeHtml(source.origin)}"><button name="decision" value="allow">Allow</button><button name="decision" value="deny">Deny</button></form>`);
+    const token = randomBytes(32).toString("base64url");
+    const browserSession = cookie ?? randomBytes(32).toString("base64url");
+    this.approvals.set(token, { session: session ?? `tailnet:${browserSession}`, origin: source.origin, expiresAt: now + 300_000 });
+    const response = this.page(`<h1>Allow ${escapeHtml(source.origin)} to send highlights and comments to ${escapeHtml(this.outlineName())}?</h1><form method="post"><input type="hidden" name="token" value="${token}"><input type="hidden" name="source" value="${escapeHtml(source.origin)}"><button name="decision" value="allow">Allow</button><button name="decision" value="deny">Deny</button></form>`);
+    if (!sessionId) response.headers.set("set-cookie", `${cookieName}${browserSession}; Path=${new URL(request.url).pathname}; HttpOnly; SameSite=Strict; Max-Age=300${ownerOrigin.startsWith("https:") ? "; Secure" : ""}`);
+    return response;
   }
 
   private page(body: string): Response {

@@ -200,7 +200,7 @@ export class SignInGate {
       if (path === "/" || path === "") return redirect(this.settings.home, renewed);
       if (root && path.startsWith("/p/")) return redirect(`${root}${path}${url.search}`, renewed);
       const sessionId = found.session.id;
-      return withGateHeaders(await this.options.serve(request, { sessionId, stillSignedIn: () => this.stillSignedIn(sessionId) }), renewed);
+      return withGateHeaders(await this.options.serve(request, { sessionId, origin, stillSignedIn: () => this.stillSignedIn(sessionId) }), renewed);
     } catch (error) {
       this.log(redactSharePath(`web sign-in: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`));
       return withGateHeaders(plainPage("Not reachable", `<h1>The outline host could not be reached</h1>\n<p class="dim">Try again in a moment. On the server: <code>systemctl --user status outliner-host outliner-publish</code></p>\n`, 502));
