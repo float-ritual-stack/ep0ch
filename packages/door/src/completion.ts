@@ -25,6 +25,8 @@ export interface CompletionTarget {
   component?: string;
   /** A filter's word: a value with a space can't be written in it. */
   words?: boolean;
+  headingShort?: boolean;
+  propertyGap?: boolean;
 }
 
 const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; closing: string }> = [
@@ -76,6 +78,10 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
     }
   }
   if (target) return target;
+  if (/^ {0,3}#{1,6}\s+.*\[heading::[^\]\n]+\]$/.test(beforeCursor)) return { kind: "key", start: end, end, query: "heading-", propertyGap: true };
+  const heading = /^ {0,3}#{1,6}\s+.+\s+(::|heading::?)([a-zA-Z0-9_-]*)$/.exec(beforeCursor);
+  if (heading) return { kind: "value", key: "heading", headingShort: true, start: end - heading[1]!.length - heading[2]!.length, end: end + /^[a-zA-Z0-9_-]*/.exec(line.slice(end))![0].length, query: heading[2]! };
+
   const prop = propertyAtCursor(line, column);
   if (!prop) return null;
   return prop.kind === "key" ? { kind: "key", start: prop.start, end: prop.end, query: prop.query } : { kind: "value", start: prop.start, end: prop.end, query: prop.query, key: prop.key };
@@ -109,15 +115,6 @@ export function filterTargetAtCursor(line: string, column: number): CompletionTa
   if (colon < 0) return /^[A-Za-z][A-Za-z0-9_.-]*$/.test(word) ? { kind: "filter-key", start, end, query: word } : null;
   const key = word.slice(0, colon);
   return /^[A-Za-z][A-Za-z0-9_.-]*$/.test(key) ? { kind: "filter-value", start: start + colon + 1, end, query: word.slice(colon + 1), key } : null;
-}
-
-/** The rows of a list of `count` a window of `capacity` shows, keeping `selected` centred. */
-export function completionWindow(count: number, selected: number, capacity: number): { start: number; end: number } {
-  const n = Math.max(0, Math.min(count, capacity));
-  if (!n) return { start: 0, end: 0 };
-  const sel = Math.max(0, Math.min(selected, count - 1));
-  const start = Math.max(0, Math.min(sel - Math.floor(n / 2), count - n));
-  return { start, end: start + n };
 }
 
 // ── Work IDs ──────────────────────────────────────────────────────────────────

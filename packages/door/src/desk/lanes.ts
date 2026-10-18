@@ -253,7 +253,7 @@ export class Lanes implements SourceModel {
       if (k.action === "wheel-up" || k.action === "wheel-down") { if (pop) pop.move(k.action === "wheel-down" ? 1 : -1); else void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(k.action === "wheel-down" ? 1 : -1), preview: !!r && wheelTarget(d, k.x - r.col - 1, k.y - r.row - 1) === "preview" }, d, USER); this.host.redraw(); return true; }
       const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
       const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
-      if (r && pop && k.action === "down" && inText && pop.click(k.y - r.row - 1)) { this.host.redraw(); return true; }
+      if (r && pop && k.action === "down" && inText && pop.click(k.y - r.row - 1, k.x - r.col - 1)) { this.host.redraw(); return true; }
       // A drag (or a shift+click) selects; the button coming up copies what it selected (copy on select, as in a reader).
       if (k.action === "up" && this.composerDrag) { this.composerDrag = false; if (d.selectedText()?.trim() && copyOnSelect()) this.composerCommand("copy"); return true; }
       const shift = k.action === "down" && !!((k.mods ?? 0) & 4);

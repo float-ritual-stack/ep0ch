@@ -2578,6 +2578,7 @@ export class NoteSurface {
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
+      readerWidth: this.lastLook?.width,
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links, false, isOutlineNote(m) ? m.id : undefined), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
       ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
@@ -3223,7 +3224,7 @@ export class NoteSurface {
       key: (k, host) => this.panelKey(k, host),
       click: (x, y, host) => {
         // A value being typed keeps the reader's clicks, but for a candidate of its completion popup (PIE-626); a click on a row selects it (on its value, follows it).
-        if (P.field) return completerOf(P.field.input)?.click(y) ?? false;
+        if (P.field) return completerOf(P.field.input)?.click(y, x) ?? false;
         const h = this.hitAt(x, y);
         if (!h || !("prop" in h)) return undefined;
         if (P.card) {
@@ -3637,7 +3638,7 @@ export class NoteSurface {
     // Beside a composer's box (floating, popup, split: PIE-770) a click is nobody's: not a candidate, not the cursor.
     const f = d.frame;
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
-    if (completerOf(d)?.click(y)) return true;
+    if (completerOf(d)?.click(y, x)) return true;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
     this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0);
@@ -6615,7 +6616,7 @@ export class NoteSurface {
       // A click that did something (a link, a fold, a panel row) isn't the first half of a double click.
       const acted = this.click(x, y, host);
       // In a draft a click only places the cursor: the next on its cell is still a double click (the word).
-      if (acted && !this.editing) this.gesture.forget();
+      if (acted && (!this.editing || this.writingDraft && completionOf(this.writingDraft))) this.gesture.forget();
       return acted;
     }
     // In a draft: the draft's own selection, copied the same way (draft.copy), when the mouse made it (a double or

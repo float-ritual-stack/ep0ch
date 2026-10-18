@@ -693,7 +693,7 @@ export class RiverColumn extends ReaderPane {
     if (k.action !== "down") return true;
     this.seen();
     // A candidate of the filter's completion popup: chosen as ⏎ does.
-    if (this.mode === "filter" && completerOf(this.input)?.click(y)) { desk.redraw(); return true; }
+    if (this.mode === "filter" && completerOf(this.input)?.click(y, x)) { desk.redraw(); return true; }
     const row = y >= this.headRows ? this.rows[y - this.headRows] : this.sticky[y - (this.headRows - this.sticky.length)];
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);

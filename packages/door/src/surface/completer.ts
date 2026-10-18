@@ -13,15 +13,17 @@
 // anchor offered with the one it would get. Choosing one of those adds the anchor (`fragments.ensure`, attributed)
 // and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
 // triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
+import { ListPicker, pickRow } from "./picker";
+import { listPreview } from "../bar/list-preview";
 import { subject, type Msg } from "../board";
 import {
-  completionTargetAtCursor, completionWindow, filterTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
+  completionTargetAtCursor, filterTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
   type CompletionTarget,
 } from "../completion";
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type FragmentCandidate, type SocketBoard } from "../socket";
 import { lineCompletionHooks, type LineCompletion, type LineInput } from "./line";
-import { bg, C, chip, fg, pad, RESET } from "../style";
+import { bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
@@ -30,7 +32,8 @@ import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { calloutsReady, TONE } from "../callouts";
-import { keyCandidates, valueCandidates, variation, yamlKeyCandidates, type ComponentSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { keyCandidates, valueCandidates, variation, sweep, yamlKeyCandidates, type ComponentSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { headingStylesReady } from "../heading-styles";
 import { componentsReady } from "../component-schemas";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
@@ -43,11 +46,11 @@ export const COMPLETION_LIMIT = 20;
 export const SEARCH_JEV_PAUSE_MS = 300;
 /** Services that said Jev isn't configured there: not asked again this run (each ask is a round trip, and when configured, paid). */
 export const jevOff = new WeakSet<object>();
-/** The popup's tallest: a header, three candidates with the selected one's context, and the footer. */
-export const COMPLETION_ROWS = 8;
-export const COMPLETION_HINT = "up/down or wheel choose · enter/tab/click inserts · esc dismisses";
+/** Room for the list and a small reader-rendered example beneath it. */
+export const COMPLETION_ROWS = 14;
+export const COMPLETION_HINT = "up/down or wheel choose · enter/tab/double click inserts · esc dismisses";
 /** A `((` popup's: what a reference does once it's in (PIE-762). */
-export const REFERENCE_HINT = "up/down choose · enter/click inserts · then ^ or # searches inside it · esc dismisses";
+export const REFERENCE_HINT = "up/down choose · enter/double click inserts · then ^ or # searches inside it · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
 export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage">;
@@ -66,11 +69,14 @@ export interface CompletionField {
   note: string;
   /** What a line completes: a draft has none of this and completes text. */
   readonly complete?: LineCompletion;
-  splice(start: number, end: number, text: string, lines?: Record<number, string>, by?: Actor): void;
+  splice(start: number, end: number, text: string, lines?: Record<number, string>, by?: Actor, selection?: { start: number; end: number }): void;
 }
 
 export interface CompletionItem {
   label: string;
+  group?: string;
+  preview?: (w: number, h: number) => string[];
+  selection?: { start: number; end: number };
   /** Exactly what choosing it writes in place of the token. */
   insertion: string;
   kind: "page" | "work-id" | "alias" | "block" | "fragment" | "file" | "folder" | "callout" | string;
@@ -135,17 +141,33 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   } else if (target.kind === "key" || target.kind === "value" || target.kind === "yaml-key" || target.kind === "yaml-value") {
     // The component schemas (PIE-618): the same answer the library draws its pages from, no list of the completer's own.
     const src = { board, redraw: () => {} };
-    items = propertyCandidates(await componentsReady(src), target, src);
+    const [schemas] = await Promise.all([componentsReady(src), headingStylesReady(src), calloutsReady(src)]);
+    items = propertyCandidates(schemas, target, src);
     empty = "";
   } else if (target.kind === "component") {
-    const schemas = await componentsReady({ board, redraw: () => {} });
+    const src = { board, redraw: () => {} };
+    const schemas = await componentsReady(src);
     items = schemas.flatMap(schema => {
       const name = COMPONENT_OPEN.exec(schema.source.use.split("\n")[0]!)?.[1];
-      return name?.startsWith(target.query) ? [{ label: `::${name}`, insertion: `::${name}`, kind: "component", context: `${schema.title} · ${schema.where}` }] : [];
-    });
+      if (!name?.startsWith(target.query)) return [];
+      const examples = [{ v: variation(schema, {}), label: "example" }, ...schema.sweep.flatMap(axis => sweep(schema, axis).map(v => ({ v, label: `${axis}: ${v.values[axis]}` })))];
+      const seen = new Set<string>();
+      return examples.flatMap(({ v, label }) => {
+        if (seen.has(v.use)) return [];
+        seen.add(v.use);
+        const yaml = v.use.indexOf("\n---\n");
+        const first = yaml >= 0 ? /^([^:\n]+:[ \t]*)([^\n]+)$/m.exec(v.use.slice(yaml + 5)) : null;
+        const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
+        return [{ label: `${schema.title.replace(/ \(::.*\)$/, "")} · ${label}`, insertion: v.use, kind: "component", group: name.split("-")[0],
+          context: schema.intro.split(/\n|(?<=\.) /)[0]!.replace(/[`*_]/g, ""),
+          preview: (w: number, h: number) => drawVariation(v, w, src).slice(0, h),
+          ...(at >= 0 ? { selection: { start: at, end: at + first![2]!.length } } : {}),
+        }];
+      });
+    }).sort((a, b) => (a.group ?? "").localeCompare(b.group ?? ""));
   } else if (target.kind === "callout") {
     // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
-    items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query);
+    items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query, { board, redraw: () => {} });
     empty = `no callout type starts ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])`;
   } else if (target.kind === "agent") {
     // The extensions' agents (PIE-501), so a request is found by typing `@` (PIE-592): what each does and when it runs.
@@ -342,7 +364,9 @@ export function propertyCandidates(schemas: readonly ComponentSchema[], target: 
     : valueCandidates(schemas, target.key ?? "", target.query, false, target.component);
   return found.slice(0, COMPLETION_LIMIT).map(c => {
     const preview = c.value === undefined ? "" : valuePreview(schemas, c, src);
-    return { label: preview ? `${c.label}  ${preview}` : c.label, insertion: c.insertion, kind: target.kind.endsWith("key") ? "property" : "value", context: c.detail };
+    const schema = schemas.find(s => s.id === c.component);
+    return { label: preview ? `${c.label}  ${preview}` : c.label, insertion: target.headingShort ? `[heading::${c.insertion}` : target.propertyGap ? ` ${c.insertion}` : c.insertion,
+      ...(schema && c.value !== undefined ? { preview: (w: number, h: number) => drawVariation(variation(schema, { [c.key]: c.value! }, c.key), w, src).slice(0, h) } : {}), kind: target.kind.endsWith("key") ? "property" : "value", context: c.detail };
   });
 }
 
@@ -363,7 +387,7 @@ function valuePreview(schemas: readonly ComponentSchema[], c: PropertyCandidate,
  * The callout types for `> [!query`: the names and aliases that start with what's typed first (a name before its
  * aliases), then those that contain it; each written as `[!name]`, with its icon in its tone.
  */
-export function calloutCandidates(types: CalloutRegistry, query: string): CompletionItem[] {
+export function calloutCandidates(types: CalloutRegistry, query: string, src: ListSource | null = null): CompletionItem[] {
   const q = query.trim().toLowerCase();
   const score = (t: CalloutRegistry["types"][number]) => {
     if (!q) return 0;
@@ -375,6 +399,7 @@ export function calloutCandidates(types: CalloutRegistry, query: string): Comple
   return types.types.map(t => ({ t, s: score(t) })).filter(x => x.s >= 0).sort((a, b) => a.s - b.s).map(({ t }) => ({
     label: `${t.icon} ${t.name}${t.aliases.length ? ` (${t.aliases.join(", ")})` : ""}`,
     insertion: `[!${t.name}]`, kind: t.block ? "callout · this outline's" : "callout", icon: { glyph: t.icon, colour: TONE[t.tone] },
+    preview: (w: number, h: number) => drawVariation({ values: {}, use: `> [!${t.name}] ${t.title}\n> An example callout.` }, w, src).slice(0, h),
     context: `${t.title}${t.aliases.length ? ` · also ${t.aliases.map(a => `[!${a}]`).join(" ")}` : ""}`,
   }));
 }
@@ -419,12 +444,13 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
   }
   // Right before the splice, with no wait between: what the insert uses up (an invitation) is spent only when it lands.
   commit?.();
-  d.splice(target.start, target.end, item.insertion, item.anchor && own?.blockId === item.blockId ? { [item.anchor.lineIndex]: item.anchor.line } : {}, by);
+  d.splice(target.start, target.end, item.insertion, item.anchor && own?.blockId === item.blockId ? { [item.anchor.lineIndex]: item.anchor.line } : {}, by, by.kind === "user" ? item.selection : undefined);
   if (made) d.note = made;
   return true;
 }
 
 export interface CompletionState extends CompletionLookup {
+  listWidth?: number;
   target: CompletionTarget;
   index: number;
   loading: boolean;
@@ -546,23 +572,28 @@ export class Completer {
     try {
       const ctx = await this.board.blockContext(item.blockId);
       if (!this.current(generation) || this.state?.items[this.state.index] !== item) return;
+      if (ctx.selected) item.preview = (w, h) => drawVariation({ values: {}, use: ctx.selected!.text }, w, { board: this.board, redraw: this.redraw }).slice(0, h);
       item.context = ctx.selected ? [...ctx.ancestors.map(title), snippet(ctx.selected.text)].filter(Boolean).join(" » ") : "target unavailable";
       this.redraw();
     } catch { /* the snippet from the lookup stays */ }
   }
 
   /** Where the last render drew the popup, in the editor's rows: its first row and each row's candidate. */
-  drawn: { row: number; items: (number | null)[] } | null = null;
+  drawn: { row: number; col?: number; items: (number | null)[] } | null = null;
 
   /**
-   * A click on row `y` of the editor: on a candidate, it's chosen and inserted (as Enter does); anywhere
-   * else on the popup, nothing. True when the popup was there (the click is the popup's either way).
+   * A click selects and previews; a double click inserts. The preview and frame consume clicks without choosing.
    */
-  click(y: number): boolean {
+  click(y: number, x = 0): boolean {
     const s = this.shown, at = this.drawn;
     if (!s || !at || y < at.row || y >= at.row + at.items.length) return false;
+    if (x < (at.col ?? 0) || x >= (at.col ?? 0) + (s.listWidth ?? Infinity)) return true;
     const i = at.items[y - at.row];
-    if (i !== null && i !== undefined && s.items[i] && !s.loading) { s.index = i; this.redraw(); void this.accept(i); }
+    if (i !== null && i !== undefined && s.items[i] && !s.loading) {
+      const press = completionPicker(s).view.press(i, { mods: 0, button: 0 });
+      s.index = i; s.picked = true; this.redraw(); void this.enrich();
+      if (press === "open") void this.accept(i);
+    }
     return true;
   }
 
@@ -570,7 +601,10 @@ export class Completer {
     const s = this.state;
     if (!s?.items.length) return;
     s.picked = true;
-    s.index = Math.max(0, Math.min(s.items.length - 1, s.index + delta));
+    const picker = completionPicker(s);
+    picker.sel = s.index;
+    for (let i = 0; i < Math.abs(delta); i++) picker.key({ kind: delta < 0 ? "up" : "down" }, undefined);
+    s.index = picker.sel;
     this.redraw();
     void this.enrich();
   }
@@ -711,7 +745,7 @@ lineCompletionHooks.after = (i, k, took, was) => {
  * The popup as lines `w` wide, at most `h` tall: header, candidates (the selected one with its context),
  * footer. `rows`, when given, gets each line's candidate index (null for the header, context and footer).
  */
-export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = []): string[] {
+export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], readerWidth = w): string[] {
   rows.length = 0;
   if (h <= 0) return [];
   // Titles come from notes: text.ts's printable takes out what a terminal acts on, pad cuts by cells, and a glyph
@@ -719,24 +753,45 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   const line = (text: string, colour: string, back = "") => back + colour + pad(printable(text, " "), w) + RESET;
   if (!s.items.length) { rows.push(null); return [line(` ${s.message || "no matches"}`, fg(s.loading ? C.grey : C.yellow), bg(C.blue))]; }
   const header = h >= 3, footer = h >= 2;
-  const room = Math.max(1, h - Number(header) - Number(footer) - 1);
-  const win = completionWindow(s.items.length, s.index, room);
   const out: string[] = [];
   const heading = { component: "components", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
   if (header) rows.push(null), out.push(line(` ${s.heading ?? heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
-  for (let i = win.start; i < win.end; i++) {
-    const it = s.items[i]!, sel = i === s.index;
-    rows.push(i);
-    // A callout type's icon in its tone (on the lit row, the row's own colours).
-    const iconed = it.icon && it.label.startsWith(it.icon.glyph) && w > 4
-      ? (sel ? chip(C.cyan) + "» " + it.icon.glyph : bg(C.blue) + "  " + fg(it.icon.colour) + it.icon.glyph) + (sel ? "" : fg(C.grey)) + pad(printable(it.label.slice(it.icon.glyph.length), " "), w - 3) + RESET
-      : null;
-    out.push(iconed ?? (sel ? line(`» ${it.label}`, chip(C.cyan)) : line(`  ${it.label}`, fg(C.grey), bg(C.blue))));
-    if (sel && out.length < h - Number(footer)) rows.push(i), out.push(line(`    ${it.kind} · ${it.context || it.insertion}`, fg(C.lcyan), bg(C.blue)));
-  }
+  const picker = completionPicker(s);
+  picker.sel = s.index;
+  const selected = s.items[s.index]!;
+  const preview = (pw: number, ph: number) => {
+    if (selected.kind === "component" && selected.preview) return selected.preview(pw, ph);
+    const description = wholeWords(selected.context ?? selected.insertion, pw);
+    return [fg(C.lcyan) + pad(description, pw) + RESET, ...(selected.preview?.(pw, Math.max(0, ph - 1)) ?? [])].slice(0, ph);
+  };
+  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, readerWidth);
+  s.listWidth = drawn.listWidth;
+  rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
   const jev = s.jev === "ranked" ? "jev ranked · " : s.jev === "asking" ? "jev… · " : "";
   if (footer) rows.push(null), out.push(line(` ${jev}${s.message || (s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT)}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));
   rows.length = Math.min(rows.length, h);
   return out.slice(0, h);
+}
+
+function wholeWords(text: string, w: number): string {
+  const plain = printable(text, " ");
+  if (cells(plain) <= w) return plain;
+  const words = plain.split(/\s+/), kept: string[] = [];
+  for (const word of words) { if (cells([...kept, word].join(" ") + "…") > w) break; kept.push(word); }
+  return kept.join(" ") + "…";
+}
+
+const pickers = new WeakMap<CompletionState, ListPicker<CompletionItem, void>>();
+function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> {
+  let picker = pickers.get(s);
+  if (!picker) {
+    picker = new ListPicker({ name: "completion", items: () => s.items,
+      row: (it, _i, on, w) => [pickRow(` ${on ? "»" : " "} ${printable(it.label, " ")}`, on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
+      heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group}`, w) + RESET : null,
+      choose: () => {},
+    });
+    pickers.set(s, picker);
+  }
+  return picker;
 }
