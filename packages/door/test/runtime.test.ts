@@ -10,6 +10,7 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LINE_LIMIT } from "../src/control";
+import { ask } from "../src/jsonl";
 import { cttyPrefix } from "../src/desk/pty";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
@@ -56,7 +57,14 @@ class Door {
     void this.proc.exited.then(c => { this.code = c; });
   }
   get control() { return this.env.EP0CH_CONTROL!; }
-  async up() { await until(() => existsSync(this.control) || this.code !== null, "the door's control socket", 20_000); expect(this.code).toBeNull(); }
+  async up(path = this.control) {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && this.code === null) {
+      if ((await ask(path, { cmd: "peek" }, 1000))?.ok) return;
+      await Bun.sleep(20);
+    }
+    throw new Error(`the door did not answer peek (exit ${this.code}): ${this.out}`);
+  }
   async cli(...args: string[]) {
     // From its own home: no .ep0ch above it names an outline (the checkout's own would).
     const p = Bun.spawn(["bun", MAIN, ...args], { env: this.env, cwd: this.env.HOME, stdout: "pipe", stderr: "pipe" });
@@ -173,9 +181,9 @@ describe("the control socket (F2, F3)", () => {
     await door.up();
     expect(existsSync(stale)).toBe(false);
     const second = new Door({ ...env });
-    await until(() => files(ctl).some(f => f === `door-${second.proc.pid}.sock`) || second.code !== null, "the second door's socket", 20_000);
+    await second.up(join(ctl, `door-${second.proc.pid}.sock`));
     const third = new Door({ ...env });
-    await until(() => files(ctl).some(f => f === `door-${third.proc.pid}.sock`) || third.code !== null, "the third door's socket", 20_000);
+    await third.up(join(ctl, `door-${third.proc.pid}.sock`));
     expect(existsSync(join(ctl, `door-${second.proc.pid}.sock`))).toBe(true);
     for (const d of [door, second, third]) d.kill("SIGTERM");
     for (const d of [door, second, third]) await d.ended();
@@ -184,11 +192,31 @@ describe("the control socket (F2, F3)", () => {
 
   test("the socket is 0600 in a 0700 dir; a dir anyone else can reach is refused", async () => {
     const { dir, env } = sandbox();
-    const door = new Door(env);
-    await door.up();
-    expect(statSync(door.control).mode & 0o777).toBe(0o600);
-    expect(statSync(join(dir, "ctl")).mode & 0o777).toBe(0o700);
-    door.kill("SIGTERM"); await door.ended();
+    const probe = join(dir, "socket-mode.ts");
+    const observed = join(dir, "socket-mode.json");
+    // Observe the real bind before its caller can chmod: polling can miss the exposed interval.
+    writeFileSync(probe, `
+      import { Server } from "node:net";
+      import { statSync, writeFileSync } from "node:fs";
+      process.umask(0o022);
+      const listen = Server.prototype.listen;
+      Server.prototype.listen = function (...args) {
+        const result = listen.apply(this, args);
+        if (args[0] === process.env.EP0CH_CONTROL) {
+          writeFileSync(${JSON.stringify(observed)}, JSON.stringify(statSync(args[0]).mode & 0o777));
+        }
+        return result;
+      };
+    `);
+    const door = new Door(env, ["--screen", "desk"], probe);
+    try {
+      await door.up();
+      expect(JSON.parse(readFileSync(observed, "utf8"))).toBe(0o600);
+      expect(statSync(door.control).mode & 0o777).toBe(0o600);
+      expect(statSync(join(dir, "ctl")).mode & 0o777).toBe(0o700);
+    } finally {
+      door.kill("SIGTERM"); await door.ended();
+    }
 
     const open = join(dir, "open");
     mkdirSync(open); chmodSync(open, 0o775);
@@ -254,7 +282,7 @@ describe("EP0CH_STATE moves everything the door writes (F4)", () => {
     delete env.EP0CH_CONTROL;
     const door = new Door(env);
     // The control socket and the last call are the outline's: in its folder of the state dir.
-    await until(() => existsSync(join(outlineDir(env), "door.sock")) || door.code !== null, "the default socket in the outline's folder of the state dir", 20_000);
+    await door.up(join(outlineDir(env), "door.sock"));
     // No EP0CH_CONTROL and no outline named: `ep0ch snap` finds the only door running.
     const snapped = await door.cli("snap");
     expect(snapped.err).toBe("");

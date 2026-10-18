@@ -11,7 +11,7 @@
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
 import { referenceConflict, type ToolArgsSpec } from "@ep0ch/outline-core/tool-args";
 import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { sessionPersona } from "@ep0ch/outline-core/outline-location";
 import { connect, createServer, type Server } from "node:net";
@@ -195,13 +195,16 @@ export async function startControl(d: ControlDeps, at = servingSocket()): Promis
     });
     sock.on("error", () => {});
   });
-  const listen = (p: string) => new Promise<void>((res, rej) => { server.once("error", rej); server.listen(p, () => res()); });
+  const listen = (p: string) => new Promise<void>((res, rej) => {
+    server.once("error", rej);
+    // Unix bind creates the socket synchronously: restrict it from birth without holding umask across an await.
+    const mask = process.umask(0o177);
+    try { server.listen(p, () => res()); }
+    finally { process.umask(mask); }
+  });
   // Two doors starting at once can both find door.sock free: the one that loses takes door-<pid>.sock.
   try { await listen(path); }
   catch (e) { if ((e as NodeJS.ErrnoException).code !== "EADDRINUSE" || path === own) throw e; path = own; await listen(path); }
-  // 0600. No umask change for the moment before this: the folder is already the user's alone (checked above),
-  // and a process-wide umask would also apply to anything else the door made while it waited.
-  chmodSync(path, 0o600);
   controlPath = path;
   return { path, close: () => { server.close(); try { unlinkSync(path); } catch { /* gone */ } } };
 }
