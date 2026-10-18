@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the checklist box grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms, the date reader), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 208;
+export const PROTOCOL = 209;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -531,4 +531,20 @@ export interface BlockSizeCensus {
   outline: BlockSizeSummary;
   actors: (BlockSizeSummary & { key: string })[];
   branches: (BlockSizeSummary & { key: string })[];
+}
+
+/** A structural move resolves its destination under the same transaction as its revision check. Positions are zero-based. */
+export interface NoteMoveIntent {
+  to?: string;
+  parentId?: string | null;
+  before?: string;
+  after?: string;
+  step?: "up" | "down" | "in" | "out";
+  position?: number;
+}
+export interface NoteMoveReceipt {
+  outcome: "applied" | "unchanged";
+  previousParentId: string | null;
+  previousPosition: number;
+  said: string;
 }

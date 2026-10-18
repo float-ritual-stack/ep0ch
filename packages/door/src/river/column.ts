@@ -181,7 +181,7 @@ export class RiverColumn extends ReaderPane {
    */
   linksShown = true;
   private linkShut = new Set<LinkGroupName>();
-  private down: { row?: HitRow; link?: Link; fold?: number; same: boolean; fresh?: boolean; dragging: boolean } | null = null;
+  private down: { row?: HitRow; link?: Link; fold?: number; same: boolean; fresh?: boolean; dragging: boolean; move?: Msg } | null = null;
   private editDrag = false;
   /** The keys came here just now (a click that focuses it only focuses it). */
   private justFocused = false;
@@ -228,7 +228,7 @@ export class RiverColumn extends ReaderPane {
     if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${COMPLETION_HINT}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
     if (this.mode === "tags") return paint(this.tagChoices.length ? `|14same property|08 · ${this.tagChoices.map(([k, v], i) => `|15${i + 1}|08 ${k}:: |11${v}`).join("|08 · ")}|08 · |15esc|08 cancel` : "|14same property|08 · this note has no properties to follow · |15esc|08 back");
     if (this.surface.editing || this.linked()) return this.surface.hint();
-    return "j k notes and links · ⏎ open beside · space replies · b links · / filter this column · # same property · s split · v select";
+    return "j k notes · K/J reorder · I/O in/out · Z move · ⏎ open · space replies · / filter · v select";
   }
   override spine() {
     const hold = this.surface.draft ? "✎" : this.surface.session ? "¶" : "";
@@ -576,7 +576,7 @@ export class RiverColumn extends ReaderPane {
       }
       if (c === "s") { this.run(desk, "column.split"); return true; }
       // The selected card moves (PIE-943): alt+↑ alt+↓ among its siblings (as in the outline tile), Z asks where.
-      if (k.kind === "alt-up" || k.kind === "alt-down") { this.run(desk, "column.move", { step: k.kind === "alt-up" ? "up" : "down" }); return true; }
+      if (k.kind === "alt-up" || k.kind === "alt-down" || c === "K" || c === "J" || c === "I" || c === "O") { this.run(desk, "column.move", { step: k.kind === "alt-up" || c === "K" ? "up" : k.kind === "alt-down" || c === "J" ? "down" : c === "I" ? "in" : "out" }); return true; }
       if (c === "Z") { this.run(desk, "column.move"); return true; }
       if (k.kind === "char" && k.ctrl && k.ch === "z") {
         const id = [this.flat()[this.sel]?.m.id, this.lastMoved].find(x => x && MOVE_UNDO.last("you", x));
@@ -647,6 +647,10 @@ export class RiverColumn extends ReaderPane {
 
   // ── the mouse (every event inside the tile; x, y in it) ──
 
+  override claims(k: Key): boolean {
+    return (!this.typing() && !this.surface.holdsKeys && ["I", "O"].includes(ch(k))) || super.claims(k);
+  }
+
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     this.desk = desk;
     if (sideways(k)) return false;                                              // the flow's: its kind steps to the column beside
@@ -665,6 +669,7 @@ export class RiverColumn extends ReaderPane {
     if (k.action === "drag") {
       const d = this.down;
       if (!d || !this.gesture.drag(x, y) || !this.drawn) return true;
+      if (d.move) { d.dragging = true; return true; }
       // A drag off the pressed cell selects (PIE-419); from a link or a card it selects too, never opens.
       if (!d.dragging) { d.dragging = true; const a = pos(this.gesture.pressed!.x, this.gesture.pressed!.y); this.text = new Selection(a, { ...a }, false, this.drawn.w); }
       if (this.text) this.text.head = pos(x, y);
@@ -672,9 +677,14 @@ export class RiverColumn extends ReaderPane {
       return true;
     }
     if (k.action === "up") {
-      const d = this.down, r = this.gesture.release(x, y);
+      const d = this.down, fromY = this.gesture.pressed?.y ?? y, r = this.gesture.release(x, y);
       this.down = null;
-      if (d && r.click) this.click_(d, desk);
+      if (d?.move && d.dragging) {
+        const hit = this.rows[y - this.headRows], target = hit && this.flat()[hit.card]?.m;
+        if (target && target.id !== d.move.id) this.run(desk, "column.move", { id: d.move.id, revision: d.move.revision,
+          ...(x < 4 ? y > fromY ? { after: target.id } : { before: target.id } : { to: target.id }) });
+      }
+      else if (d && r.click) this.click_(d, desk);
       // A drag, a double or a triple click copies what it selected (copy on select), as y does.
       else if (d && r.copy && this.text?.text(this.selRows()).trim()) this.run(desk, "column.copy");
       this.justFocused = false;
@@ -699,7 +709,7 @@ export class RiverColumn extends ReaderPane {
     if (!(row && row.card >= 0 && !link)) this.presses.forget();                 // a press elsewhere: the next on a card starts afresh
     if (row && row.card >= 0 && !link) this.run(desk, "column.select", { n: row.card + 1, scroll: false });
     const fold = !link && row?.fold && x >= 1 && x <= row.fold.to ? row.fold.n : undefined;
-    this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, ...(g === "fresh" ? { fresh: true } : {}), dragging: false };
+    this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, ...(x < 4 && row && row.card >= 0 ? { move: this.flat()[row.card]?.m } : {}), ...(g === "fresh" ? { fresh: true } : {}), dragging: false };
     if (row && row.card >= 0) this.gesture.forget();
     const n = this.gesture.press(x, y);
     const rows = this.drawn && this.selRows();
@@ -935,7 +945,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.move": def({
     summary: "move the selected card of a river column, or id=, as note.move does (to=, before=, after=, step=up|down|in|out, position=, revision=): the shared move, recorded as who asks; with none of them the person is asked in the power bar. The column reads its notes again; an agent's never moves your selection",
-    keys: "alt+up alt+down (up, down among its siblings), Z (move to…), ctrl+z (undo)",
+    keys: "K J or alt+up alt+down (up, down), I O (in, out), Z (move to…), ctrl+z (undo), drag from the left mark",
     touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
     menu: { label: "move the card to…", group: "Column", key: "Z" },
     args: {
@@ -957,7 +967,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
         // The person's move: the selection follows the card (and ctrl+z can find it where it went). An agent's: it stays on the card it was on.
         if (actor.kind !== "agent") { c.followMoved = target; c.lastMoved = target; } else c.followMoved = c.flat()[c.sel]?.m.id ?? null;
         c.load(desk); desk.ctx.flash(done.said); return done; };
-      const go = async (a: MoveArgs) => finish(await moveNote(board, target, intentOf(a), actor, { revision: a.revision }));
+      const go = async (a: MoveArgs) => finish(await moveNote(board, target, intentOf(a), actor, { revision: a.revision ?? m?.revision }));
       if (undo) return finish(await undoMove(board, actor, target));
       if ([where.to, where.before, where.after, where.step].some(x => x !== undefined)) return go(args);
       if (actor.kind === "agent") throw new ActionRefused("say where: to=<inbox, root, or a note's id, ((ref)), [[page]], Work ID>, before=, after= or step=up|down|in|out");

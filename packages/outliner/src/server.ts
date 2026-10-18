@@ -1,3 +1,4 @@
+import { moveNote } from "./note-move";
 import { isSqliteBusy } from "./sqlite-busy";
 import { OutlineSnapshots } from "./outline-snapshots";
 import { DEFAULT_MACHINERY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
@@ -3211,7 +3212,7 @@ export class OutlinerServer {
           );
           break;
         case "move":
-          result = this.store.move(request.blockId, request.parentId, request.position, request.mutation);
+          result = moveNote(this.store, request.blockId, request, request.expectedRevision, request.mutation);
           break;
         case "delete":
           result = this.store.delete(request.blockId, request.mutation, { revision: request.expectedRevision, ifEmpty: request.ifEmpty });
@@ -4231,7 +4232,6 @@ export class OutlinerServer {
       return false;
     });
     if (held) throw new Error(`${held.blockId === block.id ? block.id : `a block under ${block.id}`} has a draft open in a door; ${verb} it once the person has saved or closed it`);
-    if (action === "move" && as.parentId !== null && typeof as.parentId !== "string") throw new Error("move needs parentId (a block id, or null for the top level)");
     return { ...as, mutation: actor } as unknown as OutlinerRequest;
   }
 

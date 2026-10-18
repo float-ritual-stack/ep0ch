@@ -76,7 +76,7 @@ Writing
   create --text <text> [--parent <id>]   capture --text <text> | --stdin
   new [--text <text>] [--near <id>]    a note where new notes go: under --near, else the top of the Inbox
   update --id <id> --text <text> --expected <revision>
-  move --id <id> --parent <id|root> [--position <n>]
+  move --id <id> --expected <revision> (--parent <ref|root|inbox> [--position <n>] | --before <ref> | --after <ref> | --step up|down|in|out)
   delete --id <id> [--expected <revision>] [--if-empty] | restore --id <id>
   purge --id <id> --confirm <work id or the id's first 8>
                                        delete a Trash root and what is under it for good
@@ -1038,17 +1038,23 @@ switch (command) {
         id: { type: "string" },
         parent: { type: "string" },
         position: { type: "string" },
+        expected: { type: "string" },
+        before: { type: "string" },
+        after: { type: "string" },
+        step: { type: "string" },
         author: { type: "string" },
         actor: { type: "string" },
         session: { type: "string" },
       },
       strict: true,
     });
-    if (!values.id || !values.parent) throw new Error("move requires --id and --parent");
+    if (!values.id) throw new Error("move requires --id and --expected (the revision you read)");
     request = {
       action: "move",
       blockId: values.id,
-      parentId: values.parent === "root" ? null : values.parent,
+      to: values.parent,
+      before: values.before, after: values.after, step: values.step as "up" | "down" | "in" | "out" | undefined,
+      expectedRevision: parseRevision(values.expected),
       position: values.position ? Number(values.position) : undefined,
       mutation: writerMutation(values),
     };

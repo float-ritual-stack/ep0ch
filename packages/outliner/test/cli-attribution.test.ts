@@ -62,7 +62,7 @@ test("every CLI write form: --actor alone is an agent, nothing is the person, --
       { form: "work set", args: ["work", "set", item.workId, "arc", `paths${n}`], block: item.blockId },
       { form: "work stage", args: ["work", "stage", stageItem.workId, n % 2 ? "doing" : "queued"], block: stageItem.blockId },
       { form: "update", args: ["update", "--id", note.id, "--text", `Compost rota ${n}`, "--expected", String(store.require(note.id).revision)], block: note.id },
-      { form: "move", args: ["move", "--id", moving.id, "--parent", n % 2 ? other.id : "root"], block: moving.id },
+      { form: "move", args: ["move", "--id", moving.id, "--expected", String(moving.revision), "--parent", n % 2 ? other.id : "root"], block: moving.id },
     ];
     // Each form owns its target so concurrent writes cannot race revisions or overwrite attribution.
     await Promise.all([

@@ -1183,7 +1183,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       }
       // Keep the receipt until the move succeeds, so retry cannot create a second child.
       await effects.request({
-        action: "move", blockId: draft.created.id, parentId: draft.parent.canonicalId, position: 0,
+        action: "move", blockId: draft.created.id, expectedRevision: draft.created.revision, parentId: draft.parent.canonicalId, position: 0,
         mutation: TREE_MUTATION,
       });
       setCollapsed(draft.parent, false);
@@ -1214,6 +1214,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         action: "move",
         mutation: TREE_MUTATION,
         blockId: created.id,
+        expectedRevision: created.revision,
         parentId: selected.canonicalId,
         position: 0,
       });
@@ -1234,6 +1235,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         action: "move",
         mutation: TREE_MUTATION,
         blockId: created.id,
+        expectedRevision: created.revision,
         parentId: canonical.parentId,
         position: canonical.position + 1,
       });
@@ -1773,68 +1775,22 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   }
 
   async function indent(selected: PhysicalTreeRow): Promise<void> {
-    for (let index = selectedIndex - 1; index >= 0; index--) {
-      const candidate = rows[index];
-      if (candidate.depth < selected.depth) break;
-      if (
-        candidate.kind === "physical" &&
-        candidate.depth === selected.depth &&
-        candidate.block.parentId === selected.block.parentId
-      ) {
-        await effects.request({
-          action: "move",
-          mutation: TREE_MUTATION,
-          blockId: selected.canonicalId,
-          parentId: candidate.canonicalId,
-        });
-        return;
-      }
+    // A filtered projection must show a sibling before offering an indent into one.
+    if (!rows.slice(0, selectedIndex).some(row => row.kind === "physical" && row.depth === selected.depth && row.block.parentId === selected.block.parentId)) {
+      status = "No previous sibling to indent beneath";
+      return;
     }
-    status = "No previous sibling to indent beneath";
+    await effects.request({ action: "move", blockId: selected.canonicalId, expectedRevision: selected.block.revision, step: "in", mutation: TREE_MUTATION });
   }
 
   async function outdent(selected: PhysicalTreeRow): Promise<void> {
-    const canonical = await effects.request<Block>({
-      action: "get",
-      blockId: selected.canonicalId,
-    });
-    if (!canonical.parentId) return;
-    const parent = await effects.request<Block>({ action: "get", blockId: canonical.parentId });
-    await effects.request({
-      action: "move",
-      mutation: TREE_MUTATION,
-      blockId: canonical.id,
-      parentId: parent.parentId,
-      position: parent.position + 1,
-    });
+    await effects.request({ action: "move", blockId: selected.canonicalId, expectedRevision: selected.block.revision, step: "out", mutation: TREE_MUTATION });
   }
 
   async function moveSibling(selected: PhysicalTreeRow, offset: -1 | 1): Promise<string> {
-    const canonical = await effects.request<Block>({
-      action: "get",
-      blockId: selected.canonicalId,
-    });
-    const siblings = await effects.request<Block[]>({
-      action: "children",
-      parentId: canonical.parentId,
-    });
-    const currentIndex = siblings.findIndex((sibling) => sibling.id === canonical.id);
-    const targetIndex = currentIndex + offset;
-    if (currentIndex < 0 || targetIndex < 0) {
-      status = "Already first sibling";
-    } else if (targetIndex >= siblings.length) {
-      status = "Already last sibling";
-    } else {
-      await effects.request({
-        action: "move",
-        mutation: TREE_MUTATION,
-        blockId: canonical.id,
-        parentId: canonical.parentId,
-        position: targetIndex,
-      });
-      status = offset < 0 ? "Moved up among siblings" : "Moved down among siblings";
-    }
-    return canonical.id;
+    await effects.request({ action: "move", blockId: selected.canonicalId, expectedRevision: selected.block.revision, step: offset < 0 ? "up" : "down", mutation: TREE_MUTATION });
+    status = offset < 0 ? "Moved up among siblings" : "Moved down among siblings";
+    return selected.canonicalId;
   }
 
   async function moveOccurrenceSibling(

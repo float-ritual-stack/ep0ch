@@ -459,16 +459,16 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const board = boardOn(here, "garden-notes", HERE);
     const parentOf = async (key: string) => (await board.request<{ parentId: string | null }>("get", { blockId: ids[key] })).parentId;
 
-    const moved = await tool("outline_move", { uri: uri("plan"), parent: ids.day, position: 0 });
+    const moved = await tool("outline_move", { uri: uri("plan"), revision: (await tool("outline_read", { uri: uri("plan") })).json.revision, parent: ids.day, position: 0 });
     expect(moved.json).toMatchObject({ outcome: "applied", uri: uri("plan"), by: "chat.example.test", detail: { parentId: ids.day, position: 0 } });
     expect(await parentOf("plan")).toBe(ids.day!);
-    const beside = await tool("outline_move", { uri: uri("dup"), after: ids.plan });
+    const beside = await tool("outline_move", { uri: uri("dup"), revision: (await tool("outline_read", { uri: uri("dup") })).json.revision, after: ids.plan });
     expect(beside.json).toMatchObject({ outcome: "applied", detail: { parentId: ids.day, position: 1 } });
     expect((await board.request<{ id: string }[]>("children", { parentId: ids.day })).map(b => b.id)).toEqual([ids.plan!, ids.dup!]);
-    const inside = await tool("outline_move", { uri: uri("day"), parent: ids.plan });
+    const inside = await tool("outline_move", { uri: uri("day"), revision: (await tool("outline_read", { uri: uri("day") })).json.revision, parent: ids.plan });
     expect(inside.isError).toBe(true);
     expect(inside.text).toContain("inside itself");
-    expect((await tool("outline_move", { uri: uri("dup"), parent: ids.day, before: ids.plan })).text).toContain("exactly one of parent");
+    expect((await tool("outline_move", { uri: uri("dup"), revision: (await tool("outline_read", { uri: uri("dup") })).json.revision, parent: ids.day, before: ids.plan })).text).toContain("exactly one of parent");
     expect((await tool("outline_move", { uri: uri("dup"), parent: "root", revision: 99 })).text).toContain("changed since you read it");
 
     const read = (await tool("outline_read", { uri: uri("dup") })).json;
@@ -488,7 +488,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     await make("pond-notes", "shore", "Shore");
     const uri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: ids.reeds! });
     const board = boardOn(here, "pond-notes", HERE);
-    const move = await tool("outline_move", { uri, parent: ids.shore });
+    const move = await tool("outline_move", { uri, revision: (await tool("outline_read", { uri })).json.revision, parent: ids.shore });
     expect(move.json).toMatchObject({ outcome: "proposed", uri });
     expect((await board.request<{ parentId: string | null }>("get", { blockId: ids.reeds })).parentId).toBeNull();
     const trash = await tool("outline_trash", { uri, revision: (await textOf(here, "pond-notes", HERE, ids.reeds!)).revision });

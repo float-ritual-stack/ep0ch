@@ -149,7 +149,7 @@ async function setup(extra: Record<string, unknown> = {}) {
   const threads = (outline: string, blockId: string) =>
     call<Array<{ block: Block; body: string; properties?: Record<string, string[]>; resolvedTarget: { quote?: string; exact?: string } | null }>>(outline,
       { action: "annotations.list", query: { subject: { kind: "block", blockId }, includeResolved: true } });
-  return { root, fake, socket, call, act, create, children, threads };
+  return { root, host, fake, socket, call, act, create, children, threads };
 }
 
 /** A publisher for one outline, connected as `publish serve` is: it tells the service where it is opened. */
@@ -686,3 +686,35 @@ test("library: a finished full pass marks what Reader no longer has; a partial o
   // d3 was out of the mirrored locations, not gone: it is still there, and stamped as seen.
   expect((await find('reader.id="d3" AND NOT reader.deleted')).length).toBe(1);
 });
+
+
+for (const timing of ["after placement read", "before move"] as const) {
+  test(`a thread move surfaces a concurrent edit ${timing} and leaves the tweet in place`, async () => {
+    const { host, fake, call, act } = await setup();
+    const tweet = (id: number): FakeHighlight => ({ id, text: `Tweet ${id}`, location: id, location_type: "order" });
+    const book: FakeBook = { user_book_id: 50, title: "Pond thread", category: "tweets", highlights: [tweet(502), tweet(503)] };
+    fake.state.pages = [[book]];
+    await act("garden", "pull");
+    const [head] = (await call<{ blocks: Block[] }>("readwise", { action: "blocks.query", query: { where: "readwise.highlight=502" } })).blocks;
+    const { server } = await host.open("readwise");
+    const handle = server.handleAsync.bind(server);
+    let edited = false;
+    const edit = async () => {
+      edited = true;
+      await call("readwise", { action: "update", blockId: head!.id, text: head!.text + "\nKeep this here", expectedRevision: head!.revision, author: "user" });
+    };
+    server.handleAsync = async (...args) => {
+      const [request] = args;
+      if (!edited && timing === "before move" && request.action === "move" && request.blockId === head!.id) await edit();
+      const result = await handle(...args);
+      if (!edited && timing === "after placement read" && request.action === "children" && request.parentId === head!.parentId) await edit();
+      return result;
+    };
+    fake.state.pages = [[{ ...book, highlights: [tweet(501)] }]];
+    const result = await act("garden", "pull");
+    expect(edited).toBe(true);
+    expect(result.message).toMatch(/saved since|changed since/);
+    expect(result.message).toContain("read");
+    expect(await call<Block>("readwise", { action: "get", blockId: head!.id })).toMatchObject({ parentId: head!.parentId, text: head!.text + "\nKeep this here" });
+  });
+}

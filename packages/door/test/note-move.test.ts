@@ -6,8 +6,9 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
+import type { ReaderPane } from "../src/desk/panes";
 import type { TreePane } from "../src/desk/tree";
-import { MainMenu } from "../src/screens";
+import { MainMenu, MessageList } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until as untilQuick } from "./scratch";
@@ -135,9 +136,9 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     await until(() => reader.msg?.id === peas.id, "the reader on Peas");
     await D().dispatch.press("tile.focus", {}, readerName);
     const before = (await order(garden.id)).join();
-    key({ kind: "alt-up" } as Key);
+    letter("K");
     await waitFor(async () => (await order(garden.id)).join() !== before, "Peas moved by alt+↑ in the reader");
-    key({ kind: "alt-down" } as Key);
+    letter("J");
     await waitFor(async () => (await order(garden.id)).join() === before, "Peas back by alt+↓");
     // Z asks in the power bar (the note's parent first); esc puts the bar away and nothing moves.
     key({ kind: "char", ch: "Z" });
@@ -160,11 +161,23 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     const you = (args: Record<string, unknown>) => D().dispatch.press("column.move", args, col);
     const selected = () => D().pane(col).flat()[D().pane(col).sel]?.m.id;
     await D().pane(col).pick({ id: first.id }, desk);
-    await you({ step: "down" });
+    await D().dispatch.press("tile.focus", {}, col);
+    letter("J");
     await waitFor(async () => (await order(garden.id)).join() !== start, "the person's move");
     await waitFor(async () => selected() === first.id && D().pane(col).flat()[1]?.m.id === first.id, "the selection on the moved card");
     await you({ undo: true });
     await waitFor(async () => (await order(garden.id)).join() === start, "undo");
+    const second = (await board.children(garden.id))[1]!;
+    await waitFor(async () => D().pane(col).flat().some((r: any) => r.m.id === second.id), "river rows restored");
+    D().render(D().ctx);
+    const pane = D().pane(col);
+    const yOf = (id: string) => pane.headRows + pane.rows.findIndex((r: any) => r && pane.flat()[r.card]?.m.id === id);
+    const fromY = yOf(first.id), toY = yOf(second.id);
+    const dragInColumn = (action: "down" | "drag" | "up", x: number, y: number) => pane.mouse({ kind: "mouse", action, button: 0, x, y, mods: 0 }, x, y, desk);
+    dragInColumn("down", 1, fromY); dragInColumn("drag", 20, toY); dragInColumn("up", 20, toY);
+    await waitFor(async () => (await board.get(first.id))?.parentId === second.id, "river drag nests");
+    await you({ id: first.id, undo: true });
+    await waitFor(async () => (await order(garden.id)).join() === start, "undo river drag");
     // An agent's, by id: attributed, and the column's selection is left alone.
     expect(await app.act({ action: "column.move", tile: col, args: { id: first.id, step: "down" }, as: "gardener" })).toMatchObject({ moved: first.id, parent: garden.id });
     expect((await order(garden.id)).join()).not.toBe(start);
@@ -190,4 +203,90 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     expect(await you({ id: beans.id, undo: true })).toMatchObject({ moved: beans.id });
     expect((await board.get(beans.id))!.parentId).toBe(null);
   }, 60_000);
+  test("BBS child rows move with J, I, O and a modifier-free drag", async () => {
+    const parent = await board.createBlock(null, "Reply garden");
+    const alpha = await board.createBlock(parent.id, "Alpha reply");
+    const beta = await board.createBlock(parent.id, "Beta reply");
+    const list = new MessageList("Replies", () => board.children(parent.id), "", false);
+    app.push(list);
+    await until(() => list.listRows()?.length === 2, "reply rows");
+    letter("J");
+    await untilOrder(parent.id, "Beta reply,Alpha reply");
+    expect(list.listRows()?.map(r => r.id)).toEqual([beta.id, alpha.id]);
+    letter("I");
+    await waitFor(async () => (await board.get(alpha.id))?.parentId === beta.id, "indent reply");
+    await app.act({ action: "note.move", args: { id: alpha.id, step: "out" }, as: "gardener" });
+    await untilOrder(parent.id, "Beta reply,Alpha reply");
+    list.render(list.ctx!);
+    mouse("down", 30, 5); mouse("drag", 30, 6); mouse("up", 30, 6);
+    await waitFor(async () => (await board.get(beta.id))?.parentId === alpha.id, "drag reply under row");
+    key({ kind: "char", ch: "z", ctrl: true });
+    await waitFor(async () => (await board.get(beta.id))?.parentId === parent.id, "undo reply drag");
+    app.pop();
+  }, 60_000);
+
+  test("the reader thread's selected reply reorders, indents and drags through note.move", async () => {
+    const parent = await board.createBlock(null, "Orchard replies");
+    const alpha = await board.createBlock(parent.id, `Alpha [replyto::${parent.id}]`);
+    const beta = await board.createBlock(parent.id, `Beta [replyto::${parent.id}]`);
+    await D().dispatch.press("open", { id: parent.id });
+    await until(() => [...D().panes.values()].some((p: any) => p.surface?.msg?.id === parent.id), "reader");
+    const reader: ReaderPane = [...D().panes.values()].find((p: any) => p.surface?.msg?.id === parent.id);
+    const readerName = D().nameOfPane(reader);
+    await D().dispatch.press("tile.focus", {}, readerName);
+    letter("t");
+    await until(() => !!reader.surface.replyLinks, "thread panel");
+    const draw = () => D().render(D().ctx);
+    const pick = async (id: string) => {
+      draw();
+      const mode = reader.surface.replyLinks!;
+      const at = mode.rowsAt.findIndex(r => r.kind === "child" && r.child.block.id === id);
+      expect(at).toBeGreaterThanOrEqual(0);
+      await D().dispatch.press("note.thread.pick", { n: at + 1 }, readerName);
+    };
+    await pick(alpha.id);
+    letter("J");
+    await waitFor(async () => (await board.children(parent.id))[1]?.id === alpha.id, "reply down");
+    await until(() => reader.surface.replyLinks?.thread.replies[1]?.block.id === alpha.id, "visible reply order");
+    letter("I");
+    await waitFor(async () => (await board.get(alpha.id))?.parentId === beta.id, "reply in");
+    letter("O");
+    await waitFor(async () => (await board.get(alpha.id))?.parentId === parent.id, "reply out");
+    await pick(beta.id);
+    const mode = reader.surface.replyLinks!;
+    const rowY = (id: string) => mode.rect.y + 1 + mode.rowsAt.findIndex(r => r.kind === "child" && r.child.block.id === id) - mode.top;
+    const x = mode.rect.x + 12, y = rowY(beta.id), target = rowY(alpha.id);
+    reader.surface.press(x, y, reader.host(desk));
+    reader.surface.drag(x, target, reader.host(desk));
+    reader.surface.release(x, target, reader.host(desk));
+    await waitFor(async () => (await board.get(beta.id))?.parentId === alpha.id, "thread drag nests");
+    letter("t");
+  }, 60_000);
+
+  test("undo refuses a changed note and keeps the receipt for another attempt", async () => {
+    const note = await board.createBlock(garden.id, "Carrots");
+    const act = (args: Record<string, unknown>) => app.act({ action: "tree.move", tile: treeName(), args, as: "undo-gardener" });
+    await act({ id: note.id, to: shed.id, revision: note.revision });
+    const moved = (await board.get(note.id))!;
+    await board.request("update", { blockId: note.id, text: "Carrots, keep in shed", expectedRevision: moved.revision });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(act({ id: note.id, undo: true })).rejects.toThrow("changed since");
+      expect((await board.get(note.id))!.parentId).toBe(shed.id);
+    }
+  }, 60_000);
+
+  test("undo keeps its receipt when the original parent is in Trash", async () => {
+    const parent = await board.createBlock(null, "Cold frame");
+    const note = await board.createBlock(parent.id, "Radishes");
+    const act = (args: Record<string, unknown>) => app.act({ action: "tree.move", tile: treeName(), args, as: "undo-gardener" });
+    await act({ id: note.id, to: shed.id, revision: note.revision });
+    const fresh = (await board.get(parent.id))!;
+    await board.request("delete", { blockId: parent.id, expectedRevision: fresh.revision });
+    await expect(act({ id: note.id, undo: true })).rejects.toThrow("Trash");
+    await board.request("trash.restore", { blockId: parent.id });
+    await act({ id: note.id, undo: true });
+    expect((await board.get(note.id))!.parentId).toBe(parent.id);
+    await expect(act({ id: note.id, undo: true })).rejects.toThrow("no move");
+  }, 60_000);
+
 });

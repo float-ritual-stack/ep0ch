@@ -70,7 +70,7 @@ export const PI_REF_TOOLS: Readonly<Record<string, PiRefTool>> = {
   outliner_checklist_update: { inner: "blockId", example: { ref: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", target: { itemId: "step-1" }, expectedEvidence: "- [ ] Bring labels", change: { kind: "ensure-id" } } },
   outliner_property_patch: { inner: "blockId", example: { ref: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", expectedRevision: 3, operations: [] } },
   outliner_work_id: { inner: "blockId", example: { operation: "allocate", ref: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", expectedRevision: 3 } },
-  outliner_move: { inner: "blockId", example: { ref: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", parentId: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", position: 0 } },
+  outliner_move: { inner: "blockId", example: { ref: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", expectedRevision: 3, parentId: "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11", position: 0 } },
   outliner_view: { inner: "viewId", example: { ref: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", limit: 50 } },
   outliner_branch_rank: { inner: "viewId", example: { ref: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", orderedBlockIds: ["2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11"] } },
   outliner_page: { inner: "blockId", example: { operation: "rename", address: "Seed Swap", ref: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" } },

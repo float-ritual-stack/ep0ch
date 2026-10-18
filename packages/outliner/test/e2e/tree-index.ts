@@ -109,7 +109,7 @@ const result = await runHerdrScenario({
       mutation: { author: "agent", actorId: "pie-269-fixture-writer" },
       text: long.text.replace("EXPANDED BODY CHECKPOINT", "REMOTE BODY CHECKPOINT") });
     await session.waitVisible(remote.tree, "REMOTE BODY CHECKPOINT");
-    await session.client.request({ action: "move", blockId: card.id, parentId: root.id, position: 0 });
+    await session.client.request({ action: "move", blockId: card.id, expectedRevision: card.revision, parentId: root.id, position: 0 });
     await selected(long.id);
     await session.waitVisible(remote.tree, "REMOTE BODY CHECKPOINT");
     assert.equal((await session.client.request<Block>({ action: "get", blockId: long.id })).revision, updated.revision);

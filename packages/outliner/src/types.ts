@@ -2512,7 +2512,7 @@ export type OutlinerRequestAction =
   /** The open proposals beside a note, each with the line it is drawn after (PIE-725, `DraftProposalsBeside`). */
   | { id: string; action: "draft.proposals.list"; blockId: string }
   /** `mutation` needs capability `mutations.provenance`; without it the change is unattributed. */
-  | { id: string; action: "move"; blockId: string; parentId: string | null; position?: number; mutation?: MutationProvenance }
+  | ({ id: string; action: "move"; blockId: string; expectedRevision: number; mutation?: MutationProvenance } & import("@ep0ch/outline-core/protocol").NoteMoveIntent)
   /**
    * `expectedRevision`: trash only the block as read; a block changed since is refused and stays. `ifEmpty`: trash
    * only a block with no text and no children ("Block is not empty"); a child added doesn't change the revision.

@@ -227,9 +227,9 @@ async function subtree(root: Block, name: string): Promise<Block[]> {
   return out;
 }
 
-async function update(block: Block, text: string, name: string): Promise<void> {
-  if (block.text === text) return;
-  await outline({ action: "update", blockId: block.id, expectedRevision: block.revision, text }, name);
+async function update(block: Block, text: string, name: string): Promise<Block> {
+  if (block.text === text) return block;
+  return outline<Block>({ action: "update", blockId: block.id, expectedRevision: block.revision, text }, name);
 }
 
 // ── send ─────────────────────────────────────────────────────────────────
@@ -505,13 +505,13 @@ async function ontoThread(home: Block, children: Block[], book: Book, highlights
         block = await outline<Block>({ action: "create", parentId, text: wanted }, BOARD);
         tally.created++;
       } else if (block.text !== wanted) {
-        await update(block, wanted, BOARD);
+        block = await update(block, wanted, BOARD);
         tally.updated++;
       }
     }
     if (block && block.parentId !== parentId) {
-      // A tweet placed under the wrong one (an earlier tweet arrived late): move it when the service lets an extension.
-      await outline({ action: "move", blockId: block.id, parentId }, BOARD).catch(() => {});
+      // Placement uses this read (or our own update receipt), never a newer revision that hides another edit.
+      await outline({ action: "move", blockId: block.id, parentId, expectedRevision: block.revision }, BOARD);
     }
     if (block) { placed.push(block); head ??= block; }
   }

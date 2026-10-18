@@ -85,7 +85,7 @@ test("move, delete and restore --author agent --actor record the agent, and acti
   const agent = ["--author", "agent", "--actor", "garden-agent", "--session", "s-2"];
   const kinds = ["activity", "--limit", "20", "--author", "agent", "--kinds", "move,delete,restore"];
 
-  expect((await runCli(["move", "--id", garlic.id, "--parent", bed.id, ...agent], env)).exitCode).toBe(0);
+  expect((await runCli(["move", "--id", garlic.id, "--expected", String(garlic.revision), "--parent", bed.id, ...agent], env)).exitCode).toBe(0);
   expect(store.get(garlic.id)!.parentId).toBe(bed.id);
   let entry = entryFor(JSON.parse((await runCli(kinds, env)).stdout), garlic.id);
   expect([entry.kind, entry.author, entry.actorId, entry.sessionId]).toEqual(["move", "agent", "garden-agent", "s-2"]);
@@ -105,7 +105,7 @@ test("move and delete without --author stay the person's, through the CLI", asyn
   const { env, store } = await setup();
   const shelf = store.create("Potting shelf");
   const twine = store.create("Twine");
-  expect((await runCli(["move", "--id", twine.id, "--parent", shelf.id], env)).exitCode).toBe(0);
+  expect((await runCli(["move", "--id", twine.id, "--expected", String(twine.revision), "--parent", shelf.id], env)).exitCode).toBe(0);
   const entry = entryFor(JSON.parse((await runCli(["activity", "--kinds", "move"], env)).stdout), twine.id);
   expect([entry.kind, entry.author, entry.actorId]).toEqual(["move", "user", "cli"]);
   const bad = await runCli(["delete", "--id", twine.id, "--author", "robot"], env);
@@ -121,7 +121,7 @@ test("--author agent without --actor is refused for every write, before anything
   const cases = [
     ["create", "--text", "Unsigned note", "--author", "agent"],
     ["update", "--id", gloves.id, "--text", "Gloves, mended", "--expected", String(gloves.revision), "--author", "agent"],
-    ["move", "--id", gloves.id, "--parent", bench.id, "--author", "agent"],
+    ["move", "--id", gloves.id, "--expected", String(gloves.revision), "--parent", bench.id, "--author", "agent"],
     ["delete", "--id", gloves.id, "--author", "agent"],
     ["restore", "--id", gloves.id, "--author", "agent", "--actor", " "],
   ];

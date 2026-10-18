@@ -43,10 +43,10 @@ test("two aliases for different blocks are refused, the same block spelt two way
     expect(tool.prepareArguments!({ ...example, id: ref }), name).toEqual(example);
     expect(tool.prepareArguments!({ ...example, ref: `((${ref}))`, id: ref }), name).toEqual({ ...example, ref: `((${ref}))` });
   }
-  const typo = (() => { try { tools.get("outliner_move")!.prepareArguments!({ refe: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", parentId: null }); } catch (e) { return String((e as Error).message); } return ""; })();
+  const typo = (() => { try { tools.get("outliner_move")!.prepareArguments!({ refe: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", expectedRevision: 3, parentId: null }); } catch (e) { return String((e as Error).message); } return ""; })();
   expect(typo).toContain("`refe` is not an argument of outliner_move; did you mean `ref`?");
-  expect(typo).toContain("Arguments: ref (string, required) · parentId (string|null, required)");
-  expect(typo).toContain('Call it as: outliner_move {"ref":"7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34","parentId":null}');
+  expect(typo).toContain("Arguments: ref (string, required) · expectedRevision (integer >= 1, required) · parentId (string|null, required)");
+  expect(typo).toContain('Call it as: outliner_move {"ref":"7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34","expectedRevision":3,"parentId":null}');
 });
 
 test("a call by ref, ((ref)) or the old name reaches the service as the same block", async () => {

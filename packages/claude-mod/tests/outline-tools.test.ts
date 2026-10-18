@@ -122,7 +122,7 @@ const CALLS: Array<{ tool: string; input: Record<string, unknown>; operation: st
     json: { ref: NOTE, key: 'crop', value: 'leek', revision: 3 } },
   { tool: 'outline_assign_id', input: { ref: NOTE, revision: 3 }, operation: 'assign-id', json: { ref: NOTE, revision: 3 } },
   { tool: 'outline_move', input: { ref: NOTE, parent: 'PIE-12', position: 0, revision: 3 }, operation: 'move', json: { ref: NOTE, parent: 'PIE-12', position: 0, revision: 3 } },
-  { tool: 'outline_move', input: { ref: NOTE, after: 'PIE-12' }, operation: 'move', json: { ref: NOTE, after: 'PIE-12' } },
+  { tool: 'outline_move', input: { ref: NOTE, after: 'PIE-12', revision: 3 }, operation: 'move', json: { ref: NOTE, after: 'PIE-12', revision: 3 } },
   { tool: 'outline_trash', input: { ref: NOTE, revision: 3 }, operation: 'trash', json: { ref: NOTE, revision: 3 } },
   { tool: 'outline_restore', input: { ref: NOTE }, operation: 'restore', json: { ref: NOTE } },
 ]

@@ -267,7 +267,7 @@ export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{
  * and the door's person all come here): under `parent` (a ref, or `root`) at `position`, `before` or `after` a sibling, or
  * one `step`; with `revision`, only the note as it was read. `actor.author` is who asked ("user" for the person).
  */
-export async function moveWithRules(board: WriteBoard, input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision?: number; step?: string }, actor: WriteActor & { author?: "user" | "agent" }): Promise<{ outcome: "applied" | "unchanged"; said: string; parentId?: string | null; position: number; previousParentId?: string | null; previousPosition: number } & Record<string, unknown>> {
+export async function moveWithRules(board: WriteBoard, input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision: number; step?: string }, actor: WriteActor & { author?: "user" | "agent" }): Promise<{ outcome: "applied" | "unchanged"; said: string; parentId?: string | null; position: number; revision: number; previousParentId?: string | null; previousPosition: number } & Record<string, unknown>> {
   return (await loadAgentTools()).moveBlock(clientOf(board), input, actor) as never;
 }
 

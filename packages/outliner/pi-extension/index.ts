@@ -3250,6 +3250,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     promptSnippet: "Move a shared outliner block",
     parameters: Type.Object({
       blockId: Type.String(),
+      expectedRevision: Type.Integer({ minimum: 1 }),
       parentId: Type.Union([Type.String(), Type.Null()]),
       position: Type.Optional(Type.Integer({ minimum: 0 })),
     }),

@@ -1691,9 +1691,13 @@ A block moved under `parentId` (`null`: the top level), at `position` among its 
 | Field | Type | |
 |---|---|---|
 | `blockId` | `string` |  |
-| `parentId` | `string \| null` |  |
-| `position?` | `number` |  |
+| `parentId?` | `string \| null` |  |
 | `expectedRevision` | `number` | The block's revision as you read it (`get`): a block saved since is refused. |
+| `to?` | `string` |  |
+| `before?` | `string` |  |
+| `after?` | `string` |  |
+| `step?` | `"up" \| "down" \| "in" \| "out"` |  |
+| `position?` | `number` |  |
 
 Answers `Block`.
 

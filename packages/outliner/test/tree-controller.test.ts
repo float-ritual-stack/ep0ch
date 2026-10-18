@@ -1164,47 +1164,50 @@ describe("createTreeController", () => {
   });
 
   test("reorders through rebound keys and menu actions without legacy keys moving data or opening panes", async () => {
-    const first = block("first");
-    const second = block("second", { position: 1 });
-    const siblings = [first, second];
-    const fake = harness((input) => {
-      if (input.action === "tree.index") return snapshot(siblings, second);
-      if (input.action === "children") return siblings;
-      if (input.action === "move") {
-        const index = siblings.findIndex(block => block.id === input.blockId);
-        const [moved] = siblings.splice(index, 1);
-        siblings.splice(input.position!, 0, moved!);
-        return moved;
-      }
-      return undefined;
-    });
-    fake.effects = { ...fake.effects, actionKeymap: new OutlinerActionKeymap("<test>", {
-      "tree.reorder.up": ["z"],
-      "tree.reorder.down": ["y"],
-    }) };
-    const controller = createTreeController(fake.effects);
-    await controller.initialize();
-    await controller.handleKeypress("z", { name: "z" }, "pass");
-    expect(siblings.map(block => block.id)).toEqual(["second", "first"]);
-    expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { OutlinerServer } = await import("../src/server");
+    const { OutlinerClient } = await import("../src/client");
+    const root = mkdtempSync(join(tmpdir(), "tree-reorder-"));
+    const store = new OutlinerStore(join(root, "outline.sqlite"), { workspaceRoot: root });
+    const server = new OutlinerServer(store, join(root, "service.sock"));
+    await server.start();
+    const client = new OutlinerClient(join(root, "service.sock"));
+    const parent = store.create("Siblings");
+    store.create("First", parent.id, "user", undefined, { id: "first" });
+    const second = store.create("Second", parent.id, "user", undefined, { id: "second" });
+    store.setSelection(second.id);
+    const fake = harness(input => client.request(input));
+    try {
+      fake.effects = { ...fake.effects, actionKeymap: new OutlinerActionKeymap("<test>", {
+        "tree.reorder.up": ["z"],
+        "tree.reorder.down": ["y"],
+      }) };
+      const controller = createTreeController(fake.effects);
+      await controller.initialize();
+      await controller.handleKeypress("z", { name: "z" }, "pass");
+      expect(store.children(parent.id).map(block => block.id)).toEqual(["second", "first"]);
+      expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
 
-    await controller.handleAction("tree.menu.open");
-    expect(controller.view().actionMenuItems).toContainEqual(expect.objectContaining({
-      id: "tree.reorder.down", binding: "y",
-    }));
-    await controller.handlePaste("Move item down");
-    await controller.handleKeypress("", { name: "return" }, "pass");
-    expect(siblings.map(block => block.id)).toEqual(["first", "second"]);
-    expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+      await controller.handleAction("tree.menu.open");
+      expect(controller.view().actionMenuItems).toContainEqual(expect.objectContaining({
+        id: "tree.reorder.down", binding: "y",
+      }));
+      await controller.handlePaste("Move item down");
+      await controller.handleKeypress("", { name: "return" }, "pass");
+      expect(store.children(parent.id).map(block => block.id)).toEqual(["first", "second"]);
+      expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
 
-    fake.calls.length = 0;
-    await controller.handleKeypress("", { name: "up", meta: true }, "pass");
-    await controller.handleKeypress("", { name: "up", shift: true }, "pass");
-    await controller.handleKeypress("", { name: "down", shift: true }, "pass");
-    await controller.handleKeypress("d", { name: "d" }, "pass");
-    await controller.handleKeypress("D", { name: "d", shift: true }, "pass");
-    expect(fake.calls.some(call => call.action === "move")).toBe(false);
-    expect(fake.createdDetails).toEqual([]);
+      fake.calls.length = 0;
+      await controller.handleKeypress("", { name: "up", meta: true }, "pass");
+      await controller.handleKeypress("", { name: "up", shift: true }, "pass");
+      await controller.handleKeypress("", { name: "down", shift: true }, "pass");
+      await controller.handleKeypress("d", { name: "d" }, "pass");
+      await controller.handleKeypress("D", { name: "d", shift: true }, "pass");
+      expect(fake.calls.some(call => call.action === "move")).toBe(false);
+      expect(fake.createdDetails).toEqual([]);
+    } finally { await server.close(); store.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
   test("opens right and lower Details while Delete retains confirmation", async () => {
@@ -1949,6 +1952,7 @@ describe("createTreeController", () => {
     ]);
     expect(fake.calls.find((call) => call.action === "move")).toEqual({
       action: "move",
+      expectedRevision: 1,
       blockId: "child",
       parentId: "parent",
       position: 0,
@@ -3302,7 +3306,7 @@ describe("createTreeController", () => {
         if (input.action === "update") return store.update(input.blockId, input.text, input.expectedRevision) as T;
         if (input.action === "move") {
           if (++moves === 1) throw new Error("Transient move failure");
-          return store.move(input.blockId, input.parentId, input.position) as T;
+          return store.move(input.blockId, input.parentId!, input.position) as T;
         }
         return fallback(input);
       };

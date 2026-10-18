@@ -66,6 +66,16 @@ export async function readChildren(board: Pick<SocketBoard, "children" | "facets
   return kids.map(block => (facets[block.id] ? { block, facets: facets[block.id] } : { block }));
 }
 
+/** Keep unrelated replies in their reading order, while siblings use the positions the service moved. */
+function orderSiblings<T>(rows: T[], note: (row: T) => Msg): T[] {
+  const groups = new Map<string | null, T[]>();
+  for (const row of rows) { const key = note(row).parentId; const group = groups.get(key) ?? []; group.push(row); groups.set(key, group); }
+  for (const group of groups.values()) group.sort((a, b) => (note(a).position ?? 0) - (note(b).position ?? 0));
+  const offsets = new Map<string | null, number>();
+  for (let i = 0; i < rows.length; i++) { const key = note(rows[i]!).parentId, at = offsets.get(key) ?? 0; rows[i] = groups.get(key)![at]!; offsets.set(key, at + 1); }
+  return rows;
+}
+
 /** Conversation membership is a query: moved replies keep their link; conference children count too. */
 export async function readReplies(board: Pick<SocketBoard, "queryNotes" | "facets">, id: string, conference = false) {
   const membership = conference ? `(parent:${id} OR replyto=${id})` : `replyto=${id}`;
@@ -74,6 +84,7 @@ export async function readReplies(board: Pick<SocketBoard, "queryNotes" | "facet
   const unseen = new Set(unread.notes.map(n => n.id));
   const notes = [...new Map(all.notes.map(n => [n.id, n])).values()];
   notes.sort((a, b) => Number(unseen.has(b.id)) - Number(unseen.has(a.id)) || b.createdAt - a.createdAt);
+  orderSiblings(notes, m => m);
   const { facets } = await board.facets(notes.map(n => n.id));
   return { children: notes.map(block => ({ block, facets: facets[block.id] })), truncated: all.truncated || unread.truncated };
 }
@@ -112,7 +123,7 @@ export async function readThread(board: Pick<SocketBoard, "get" | "ancestors" | 
     chain.unshift(parent); at = parent;
   }
   const [replies, ...levels] = await Promise.all([readReplies(board, note.id, conference), ...chain.slice(1).map((_, i) => readReplies(board, chain[i]!.id, conference))]);
-  const oldest = (xs: ChildLink[]) => [...xs].sort((a, b) => a.block.createdAt - b.block.createdAt);
+  const oldest = (xs: ChildLink[]) => orderSiblings([...xs].sort((a, b) => a.block.createdAt - b.block.createdAt), c => c.block);
   return {
     chain: chain.map(block => ({ block })),
     levels: [[{ block: chain[0]! }], ...levels.map((l, i) => oldest(l.children.some(c => c.block.id === chain[i + 1]!.id) ? l.children : [...l.children, { block: chain[i + 1]! }]))],

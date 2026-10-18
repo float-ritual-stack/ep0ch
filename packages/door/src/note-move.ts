@@ -1,9 +1,4 @@
-// Moving a note to a new parent or a new place among its siblings (PIE-943): the one step `note.move` (the reader, the
-// menu, the power bar's "Move to…", `act`), `tree.move` (the outline tile's keys and drags) and `column.move` run. The
-// door passes only intent (under a note, beside a sibling, or one step); where the note lands, what is refused and how a
-// stale revision reads are the outliner's `moveBlock`, the rule outline_move runs for an agent, so the person and an agent
-// can't be given two answers. This adds only what a client owns: who asked, the words, and ctrl+z (the service keeps no
-// undo token for a move, so the place it came from is kept here, in the shared UndoHistory).
+// Actions share the service's atomic move; the door keeps its receipt for local undo.
 import { recordedActorId, type Actor } from "./socket";
 import { ActionRefused } from "./surface/actions";
 import { UndoHistory, partyOf } from "./steps";
@@ -20,10 +15,10 @@ export type MoveIntent =
 /** The arguments the actions take (all optional strings and numbers, as `act` gives them), read as one intent. */
 export interface MoveArgs { to?: string; before?: string; after?: string; step?: string; position?: number; revision?: number }
 
-export interface MoveDone { moved: string; parent: string | null; position: number; previousParent: string | null; unchanged?: true; said: string }
+export interface MoveDone { moved: string; parent: string | null; position: number; previousParent: string | null; revision: number; unchanged?: true; said: string }
 
 /** A move made, to put back: where the note was. */
-interface MoveUndo { by: string; context: string; id: string; parent: string | null; position: number }
+interface MoveUndo { by: string; context: string; block: string; parent: string | null; position: number; previousRevision: number; at: { revision: number } }
 /** The moves made here, for ctrl+z (`context`: the moved note's id, what the reader or tree shows). */
 export const MOVE_UNDO = new UndoHistory<MoveUndo>();
 
@@ -43,12 +38,9 @@ export function intentOf(a: MoveArgs): MoveIntent {
 }
 
 /** The `moveBlock` input for an intent: a person's `to` goes first under the note (position 0) unless a position says. */
-async function inputOf(board: WriteBoard, intent: MoveIntent): Promise<{ parent?: string; before?: string; after?: string; position?: number; step?: "up" | "down" | "in" | "out" }> {
+function inputOf(intent: MoveIntent) {
   if ("step" in intent || "before" in intent || "after" in intent) return intent;
-  const to = intent.to.trim();
-  const parent = to === "inbox" ? await board.inboxId().catch(() => null) : to;
-  if (!parent) throw new ActionRefused("this outline has no Inbox to put it in: to=<a note's id>");
-  return { parent, position: intent.position === undefined ? 0 : intent.position - 1 };
+  return { parent: intent.to, position: intent.position === undefined ? 0 : intent.position - 1 };
 }
 
 /** moveBlock's words name notes as ((id|title)); said to a person they read as the title (a bare ((id)) as "that note"). */
@@ -59,21 +51,26 @@ const plainly = (said: string) => said.replace(/\(\([0-9a-f-]{36}(?:\|([^)]*))?\
  * remembered for ctrl+z unless `undoable` is false (putting back isn't a move to put back).
  */
 export async function moveNote(board: WriteBoard, id: string, intent: MoveIntent, actor: Actor, opts: { revision?: number; undoable?: boolean } = {}): Promise<MoveDone> {
-  const input = { ref: id, ...(await inputOf(board, intent)), ...(opts.revision !== undefined ? { revision: opts.revision } : {}) };
+  const revision = opts.revision ?? (await board.get(id))!.revision!;
+  const input = { ref: id, ...inputOf(intent), revision };
   const r = await moveWithRules(board, input, { actorId: recordedActorId(actor), author: actor.kind });
   const parent = r.parentId ?? null;
-  if (r.outcome === "unchanged") return { moved: id, parent, position: r.position, previousParent: parent, unchanged: true, said: plainly(r.said) };
+  if (r.outcome === "unchanged") return { moved: id, parent, position: r.position, revision: r.revision, previousParent: parent, unchanged: true, said: plainly(r.said) };
   const before = { parent: r.previousParentId ?? null, position: r.previousPosition };
-  if (opts.undoable !== false && before.position >= 0) MOVE_UNDO.push({ by: partyOf(actor), context: id, id, ...before });
-  return { moved: id, parent, position: r.position, previousParent: before.parent, said: plainly(r.said) };
+  if (opts.undoable !== false && before.position >= 0) MOVE_UNDO.push({ by: partyOf(actor), context: id, block: id, previousRevision: revision, at: { revision: r.revision }, ...before });
+  return { moved: id, parent, position: r.position, revision: r.revision, previousParent: before.parent, said: plainly(r.said) };
 }
 
 /** Put back the move `by` last made of the note `context`: where it was. Refuses with nothing to undo. */
 export async function undoMove(board: WriteBoard, by: Actor, context: string): Promise<MoveDone> {
   const e = MOVE_UNDO.last(partyOf(by), context);
   if (!e) throw new ActionRefused("no move of this note to undo");
-  MOVE_UNDO.drop(e);
-  const done = await moveNote(board, e.id, e.parent === null ? { to: "root", position: e.position + 1 } : { to: e.parent, position: e.position + 1 }, by, { undoable: false });
+  const done = await moveNote(board, e.block, e.parent === null ? { to: "root", position: e.position + 1 } : { to: e.parent, position: e.position + 1 }, by, { revision: e.at.revision, undoable: false });
+  if (!done.unchanged) {
+    MOVE_UNDO.drop(e);
+    // Undo restored the place an earlier receipt observed, at the revision just returned.
+    MOVE_UNDO.advance(e.block, e.previousRevision, done.revision);
+  }
   return { ...done, said: `put the note back${done.unchanged ? " (it was already there)" : ""}` };
 }
 

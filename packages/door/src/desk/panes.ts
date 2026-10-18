@@ -575,7 +575,7 @@ export class ReaderPane implements Pane {
     if (this.follows && !this.editing && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.mode", {}, { pane: this, desk }); return true; }
     if (this.follows && !this.editing && ch(k) === "P") { this.pickSource(desk); return true; }
     // O: a reader beside this one where its links open (the desk's tile.preview), so this one never navigates away.
-    if (!this.editing && ch(k) === "O" && desk.perform) { void desk.perform("tile.preview", {}, undefined, this); return true; }
+    if (!this.holdsKeys && ch(k) === "O" && desk.perform) { void desk.perform("tile.preview", {}, undefined, this); return true; }
     return this.surface.key(k, this.host(desk));
   }
 

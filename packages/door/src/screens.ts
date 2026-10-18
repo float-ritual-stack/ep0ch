@@ -1,3 +1,5 @@
+import { moveNote, intentOf, moveQuestion, undoMove, type MoveArgs } from "./note-move";
+import { askInBar } from "./bar/ask";
 import { MOTION_MODES, motionMode, motionOf, useMotion } from "./motion";
 import { readingRuler, useReadingRuler } from "./surface/selection";
 import { readReplies } from "./links";
@@ -942,6 +944,25 @@ const rowAt = (list: BbsList, n: number) => {
 
 /** The lists' actions: j k ↑↓ PgUp PgDn and the wheel run list.select, ⏎ and a click on the lit row list.open. */
 export const LIST_ACTIONS = actionSet<ListOn>()("list", {
+  "note.move": def({
+    summary: "move the selected message, or id=, using the service's revision-checked move",
+    keys: "K J, alt+up alt+down, I O, Z, drag a row",
+    touches: "nothing", replay: "ask",
+    args: {
+      id: { type: "string", optional: true, about: "the note to move; default selected" },
+      undo: { type: "boolean", optional: true, about: "put the last move back" },
+      to: { type: "string", optional: true, about: "the destination note, inbox or root" },
+      before: { type: "string", optional: true, about: "place before this note" },
+      after: { type: "string", optional: true, about: "place after this note" },
+      step: { type: "string", optional: true, about: "up, down, in or out" },
+      position: { type: "number", optional: true, about: "position under to, from 1" },
+      revision: { type: "number", optional: true, about: "revision read" },
+    },
+    async run(args: MoveArgs & { id?: string; undo?: boolean }, { list, ctx }, actor) {
+      if (!(list instanceof MessageList)) throw new ActionRefused("this list has no notes to move");
+      return list.move(args, ctx, actor);
+    },
+  }),
   "list.select": def({
     summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: "j k ↑↓ PgUp PgDn Home End, a click, the wheel",
     touches: "screen", replay: "safe", says: out => `· lit row ${out.selected}: ${out.row.title.slice(0, 50)}`,
@@ -1063,6 +1084,44 @@ function mergeOverlays(list: Overlay[]): Overlay[] {
 
 export class MessageList extends BbsList {
   private items: Msg[] | null = null;
+  private lastMoved?: string;
+  private moveDown: { msg: Msg; y: number } | null = null;
+  async move(args: MoveArgs & { id?: string; undo?: boolean }, ctx: Ctx, actor: Actor) {
+    const selected = this.items?.[this.sel];
+    const id = args.id ?? selected?.id;
+    if (!id) throw new ActionRefused("select a note to move");
+    const revision = args.revision ?? this.items?.find(m => m.id === id)?.revision;
+    const go = async (where: MoveArgs) => {
+      const done = args.undo ? await undoMove(ctx.board, actor, id) : await moveNote(ctx.board, id, intentOf(where), actor, { revision });
+      if (actor.kind === "user") this.lastMoved = id;
+      const current = this.items?.[this.sel]?.id;
+      const keep = actor.kind === "user" && current === selected?.id ? id : current;
+      this.items = await this.load(400);
+      const at = this.items.findIndex(m => m.id === keep);
+      this.sel = at >= 0 ? at : Math.min(this.sel, Math.max(0, this.items.length - 1));
+      ctx.flash(done.said); ctx.redraw(); return done;
+    };
+    if (args.undo || [args.to, args.before, args.after, args.step].some(x => x !== undefined)) return go(args);
+    if (actor.kind === "agent") throw new ActionRefused("say where: to=, before=, after= or step=up|down|in|out");
+    return askInBar(ctx as never, "Move the note", [moveQuestion(id)], {}, actor, answers => go({ ...args, to: answers.to! }));
+  }
+  key(k: Key, ctx: Ctx) {
+    if (k.kind === "mouse" && k.button === 0) {
+      const at = this.ptr.at(k.x, k.y)?.index;
+      if (k.action === "down") this.moveDown = at === undefined || !this.items?.[at] ? null : { msg: this.items[at]!, y: k.y };
+      if (k.action === "up") {
+        const from = this.moveDown; this.moveDown = null;
+        const target = at === undefined ? undefined : this.items?.[at];
+        if (from && target && from.msg.id !== target.id) {
+          this.press("note.move", { id: from.msg.id, revision: from.msg.revision,
+            ...(k.x < 9 ? k.y > from.y ? { after: target.id } : { before: target.id } : { to: target.id }) });
+          return;
+        }
+      }
+    }
+    super.key(k, ctx);
+  }
+
   private error = "";
   private receiving: { started: number; limit: number } | null = null;
   /** `paged` loaders take a limit: a quick first page, then the full scan behind it. */
@@ -1102,13 +1161,16 @@ export class MessageList extends BbsList {
       lines.push(n === this.sel ? selected() + pad(row, w) + RESET : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(authorName(m.author), 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
     });
     while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · ", ["|15Q|08 back", char("q")]]));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · K/J reorder · I/O in/out · ", ["|15Z|08 move to…", char("Z")], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
   }
   protected override page(ctx: Ctx) { return ctx.t.rows - 10; }
   /** T: the lit row's replies (list.thread); an empty list takes every other key quietly. */
   protected override ownKey(k: Key) {
+    if (k.kind === "char" && k.ctrl && k.ch === "z" && this.lastMoved) { this.press("note.move", { id: this.lastMoved, undo: true }); return true; }
     if (!this.items?.length) return true;
+    const c = ch(k), step = k.kind === "alt-up" || c === "K" ? "up" : k.kind === "alt-down" || c === "J" ? "down" : c === "I" ? "in" : c === "O" ? "out" : undefined;
+    if (step || c === "Z") { this.press("note.move", step ? { step } : {}); return true; }
     if (k.kind !== "char" || k.ctrl || k.ch.toLowerCase() !== "t") return false;
     this.press("list.thread", {});
     return true;

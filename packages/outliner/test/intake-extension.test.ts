@@ -89,9 +89,9 @@ test("a burst of requests is one call; each gets its prior art from @prior-art, 
   // Nothing more runs: the notes aren't requests, and a request that has its note is skipped (a person moving one out
   // of the inbox and back starts it matching again).
   const elsewhere = await create("Elsewhere");
-  await client.request({ action: "move", blockId: hose.id, parentId: elsewhere.id, mutation: { author: "user" } });
+  await client.request({ action: "move", blockId: hose.id, expectedRevision: hose.revision, parentId: elsewhere.id, mutation: { author: "user" } });
   await Bun.sleep(300);
-  await client.request({ action: "move", blockId: hose.id, parentId: inbox.id, mutation: { author: "user" } });
+  await client.request({ action: "move", blockId: hose.id, expectedRevision: hose.revision, parentId: inbox.id, mutation: { author: "user" } });
   await Bun.sleep(1_500);
   expect((await list()).rules.find((entry) => entry.name === "intake-prior-art")!.ranToday).toBe(1);
   expect(store.children(hose.id)).toHaveLength(1);
