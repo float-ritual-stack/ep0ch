@@ -1,5 +1,6 @@
 // Palette styling for real terminal text, plus width-safe padding. Every UI colour comes through the active
 // theme (src/theme.ts); ANSI art keeps true VGA (artLines).
+import { OSC8_ALL } from "./hyperlink";
 import { glyph, VGA_RGB, type Cell } from "./ansi";
 import { contrast, luminance, surfaceRgb, theme, type Rgb, type Theme } from "./theme";
 import type { Surface } from "@ep0ch/outline-core/style-cascade";
@@ -125,7 +126,7 @@ export const LINK_END = String.fromCodePoint(TAG_END);
 export const stripTags = (s: string) => s.replace(TAGS, "");
 const isTag = (ch: string) => { const c = ch.codePointAt(0)!; return c >= TAG0 && c <= TAG_END; };
 
-export const visible = (s: string) => s.replace(ANSI_RE, "").replace(TAGS, "").replace(MARKS, "");
+export const visible = (s: string) => s.replace(ANSI_RE, "").replace(OSC8_ALL, "").replace(TAGS, "").replace(MARKS, "");
 
 // ── terminal cells (PIE-510) ──
 // A terminal lays text out in cells, not code points: a CJK character or an emoji takes two, a combining mark

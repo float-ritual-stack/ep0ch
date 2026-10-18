@@ -9,6 +9,7 @@
 // Keys go to the program while the person is in the tile (clicking in it, or e / ⏎ on it); ctrl+] hands
 // them back to the door, as telnet's escape does. The mouse goes to the program when it asked for it
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
+import { OSC8_CLOSE } from "../hyperlink";
 import { inLoginShell, isAgentCmd, programName } from "./drawer-program";
 import { inResize } from "../resize";
 import { MOUSE_ALT, MOUSE_SHIFT, scrolled, wheelRows } from "../scroll";
@@ -33,6 +34,8 @@ import type { SessionMark } from "./agent-sessions";
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
 interface XCell {
+  extended: { urlId: number };
+  hasExtendedAttrs(): number;
   getChars(): string; getWidth(): number;
   isFgRGB(): boolean; isFgPalette(): boolean; getFgColor(): number;
   isBgRGB(): boolean; isBgPalette(): boolean; getBgColor(): number;
@@ -40,6 +43,8 @@ interface XCell {
 }
 interface XLine { getCell(x: number, cell?: XCell): XCell | undefined; translateToString(trim?: boolean): string }
 interface XTermLike {
+  // xterm 6 retains OSC 8 on CellData, but does not expose its destination lookup in the public API.
+  _core: { _oscLinkService: { getLinkData(id: number): { id?: string; uri: string } | undefined } };
   cols: number; rows: number;
   buffer: { active: { baseY: number; cursorX: number; cursorY: number; length: number; type: string; getLine(y: number): XLine | undefined; getNullCell(): XCell } };
   modes: { applicationCursorKeysMode: boolean; mouseTrackingMode: "none" | "x10" | "vt200" | "drag" | "any"; bracketedPasteMode: boolean };
@@ -123,7 +128,8 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
   for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
   // EP0CH_IN_DOOR: a shell in a tile is already in the door, so a login shell's landing guard (float-2's
   // ~/.bashrc starts the door on an interactive ssh login) doesn't open a second door in it.
-  Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0" });
+  // supports-hyperlinks (including Claude Code) reads this advertisement instead of guessing from TERM.
+  Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0", FORCE_HYPERLINK: "1" });
   // The door speaks the Program Status Protocol (OSC 7501): its xterm-256color says so (`Pst`), found ahead of the rest.
   const pst = terminfoWithPst(stateDir());
   if (pst) out.TERMINFO_DIRS = `${pst}:${env.TERMINFO_DIRS ?? ""}`;
@@ -575,7 +581,10 @@ export class PtyPane implements Pane {
     for (let y = 0; y < h; y++) {
       const line = b.getLine(top + y);
       const cy = !this.back && cursor && !hidden && this.exited === null && y === b.cursorY ? b.cursorX : -1;
-      lines.push(line ? rowOf(line, cell, w, cy) : "");
+      lines.push(line ? rowOf(line, cell, w, cy, id => {
+        const link = t._core._oscLinkService.getLinkData(id);
+        return link ? `\x1b]8;${link.id ? `id=${link.id}` : ""};${link.uri}\x1b\\` : "";
+      }) : "");
     }
     if (this.sel) for (let y = 0; y < h; y++) { const span = this.sel.span(top + y, w); if (span && lines[y]) lines[y] = paintRange(lines[y]!, span[0], span[1], SELECT_BG); }
     if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ⏎ runs it again${this.closesBy} · ctrl+] back to the door\x1b[0m`;
@@ -707,10 +716,12 @@ function rgb(isRGB: boolean, isPal: boolean, c: number): number[] | null {
  * swapped here so a snapshot shows it. A wide character keeps its second cell as a zero-width space, so
  * the tile's right border stays where it is. `cursor`: the column the cursor is drawn at (inverse), or -1.
  */
-function rowOf(line: XLine, cell: XCell, w: number, cursor: number): string {
-  let out = "", last = "";
+function rowOf(line: XLine, cell: XCell, w: number, cursor: number, linkOf: (id: number) => string = () => ""): string {
+  let out = "", last = "", link = "";
   for (let x = 0; x < w; x++) {
     const c = line.getCell(x, cell);
+    const nextLink = c?.hasExtendedAttrs() && c.extended.urlId ? linkOf(c.extended.urlId) : "";
+    if (nextLink !== link) { out += nextLink || OSC8_CLOSE; link = nextLink; }
     if (!c) { out += x === cursor ? "\x1b[0m\x1b[7m \x1b[0m" : " "; last = x === cursor ? "" : last; continue; }
     const width = c.getWidth();
     if (width === 0) { out += "​"; continue; }
@@ -723,7 +734,7 @@ function rowOf(line: XLine, cell: XCell, w: number, cursor: number): string {
     const ch = c.isInvisible() ? " " : c.getChars() || " ";
     out += ch;
   }
-  return out + "\x1b[0m";
+  return out + (link ? OSC8_CLOSE : "") + "\x1b[0m";
 }
 
 // ── keys and the mouse, as a terminal sends them ─────────────────────────────

@@ -556,7 +556,7 @@ export function register(on: On, options: PluginOptions): void {
           return [Link({
             key: count === 1 ? part.ref : `${part.ref}#${count}`,
             href: part.ref,
-            children: [Text({ key: 'label', color: 'inactive', bold: allBold || undefined, children: part.label }), Text({ key: 'arrow', color: 'inactive', children: ' ↗' })],
+            children: [Text({ key: 'label', color: 'inactive', bold: allBold || undefined, children: part.label }), Text({ key: 'arrow', color: 'inactive', children: ' »' })],
           })]
         }
         return [Button({
@@ -571,7 +571,7 @@ export function register(on: On, options: PluginOptions): void {
           key: `${at}.t${i}.${w}`,
           bold: allBold || part.style === 'bold' || part.style === 'bold-italic' || undefined,
           italic: part.style === 'italic' || part.style === 'bold-italic' || undefined,
-          color: part.style === 'code' ? 'permission' : undefined,
+          color: part.style === 'code' ? 'permission' : part.style === 'dim' ? 'inactive' : undefined,
           children: word,
         }))
     })

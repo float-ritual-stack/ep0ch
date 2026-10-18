@@ -406,22 +406,23 @@ describe('register', () => {
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', `pi-outliner://block/${BLOCK}`])
   })
 
-  test('an external link in a reply is a dim Link with a trailing arrow, apart from the underlined references that open in the door (PIE-1043)', async ($, on) => {
+  test('an external link in a reply is a dim Link with a CP437 marker, apart from the underlined references that open in the door (PIE-1043)', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'Read [the docs](https://example.com/a) and https://example.com/b. Also `https://example.com/c` and PIE-7.\n\nOnly [a link](https://example.com/d) here.')
     const shown = (await drawn.find({ type: 'Box' }))?.text ?? ''
     expect(shown).not.toMatch(/\]\(|pi-outliner\.invalid/)
     expect(shown).toContain('. Also https://example.com/c and PIE-7.')
-    // Each link's own text is its label then a dim arrow (the harness also prints a Link's address before it).
+    // A bare URL is text: Link's fallback would print the same address a second time.
     const links = await drawn.findAll({ type: 'Link' })
     const link = async (href: string) => links.find(l => l.props.href === href)
-    expect((await link('https://example.com/a'))?.text).toContain('the docs ↗')
-    expect((await link('https://example.com/b'))?.text).toContain('https://example.com/b ↗')
-    expect((await link('https://example.com/d'))?.text).toContain('a link ↗')
-    expect((await drawn.find({ type: 'Text', text: '↗' }))?.props.color ?? (await drawn.find({ type: 'Text', text: ' ↗' }))?.props.color).toBe('inactive')
+    expect((await link('https://example.com/a'))?.text).toContain('the docs »')
+    expect(shown.split('https://example.com/b').length - 1).toBe(1)
+    expect((await drawn.find({ type: 'Text', text: 'https://example.com/b' }))?.props.color).toBe('inactive')
+    expect((await link('https://example.com/d'))?.text).toContain('a link »')
+    expect((await drawn.find({ type: 'Text', text: '»' }))?.props.color ?? (await drawn.find({ type: 'Text', text: ' »' }))?.props.color).toBe('inactive')
     expect(await link('https://example.com/a')).toBeDefined()
-    expect(await link('https://example.com/b')).toBeDefined()
+    expect(await link('https://example.com/b')).toBeUndefined()
     expect(await link('https://example.com/c')).toBeUndefined()
     expect(await link('https://example.com/d')).toBeDefined()
     // The internal reference is still a pressable, underlined Button, never a Link.

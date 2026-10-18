@@ -506,7 +506,7 @@ export class Term extends Rows {
  * whole row first left it black until the text arrived, and a terminal could show that (PIE-462). Autowrap
  * is off, so an erase from the last column would take the last character: a row that fills the width gets
  * none. Filling is measured in terminal cells (wide and joined characters, combining marks), not characters.
- * Every row goes through `paintable`: the door's own SGR styling reaches the terminal, nothing else that acts
+ * Every row goes through `paintable`: the door's SGR styling and OSC 8 links reach the terminal, nothing else that acts
  * on it does (an escape in a note title or an error message, PIE-510).
  */
 export function rowBytes(r: number, raw: string, cols: number): string {
