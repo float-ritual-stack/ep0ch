@@ -32,6 +32,32 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("tree, preview, detail from scratch: select stays in the preview, Enter opens, alt opens a new reader", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "select-open" }, as: "test-agent" });
+    const index = SECTIONS.findIndex(s => s.key === "select-open");
+    screen();
+    await until(() => !!S().stages.get(index), "the select/open stage");
+    const d = S().stages.get(index).top as any;
+    const act = (action: string, args: Record<string, unknown> = {}, tile = "tree") => d.dispatch.act({ action, args, tile }, { kind: "user" });
+    await until(() => !!d.pane("tree-preview") && d.layoutGet().tiles.find((t: any) => t.name === "tree")?.link === "detail", "the default preview and open wire");
+    const before = d.pane("detail").msg.id;
+    await act("tree.pick", { id: seeded.notes.root.id });
+    await until(() => d.pane("tree-preview").msg?.id === seeded.notes.root.id, "the tree selection in its preview");
+    expect(d.pane("detail").msg.id).toBe(before);
+    expect(d.current.id).toBe(before);
+    await act("tree.pick", { id: seeded.notes.root.id, open: true });
+    await until(() => d.pane("detail").msg?.id === seeded.notes.root.id, "Enter in the linked detail");
+    const count = d.layoutGet().tiles.length;
+    await act("tree.pick", { id: seeded.notes.shed.id, fresh: true });
+    await until(() => d.layoutGet().tiles.length === count + 1, "alt-open's new reader");
+    expect(d.pane("detail").msg.id).toBe(seeded.notes.root.id);
+    expect(d.layoutGet().tiles.some((t: any) => t.name !== "detail" && t.kind === "reader" && t.showing?.id === seeded.notes.shed.id)).toBe(true);
+    await act("tile.link", { verb: "select" });
+    await act("tree.pick", { id: seeded.notes.shed.id });
+    await until(() => d.pane("detail").msg?.id === seeded.notes.shed.id, "without select targets the current note follows the tree");
+  }, 20_000);
+
   test("terminal: the tile's program copies (OSC 52), and the door passes it on to the person's terminal, said as the tile's", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "terminal" }, as: "test-agent" })).toMatchObject({ key: "terminal" });

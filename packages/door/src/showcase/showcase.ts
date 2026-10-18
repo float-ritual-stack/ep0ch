@@ -115,7 +115,7 @@ function stageDesk(st: Stage): Desk {
   st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
-  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
+  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
   return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
 }
 /** A stage whose readers show `notes` (one each, in order) once it opens. */
@@ -486,8 +486,22 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "links-open", need: "open a picked link for real, not as a preview: in the reader it came from, or in a new detail", part: "the links tile's open (backlinks.open: ⏎ and a double click in its home reader or the tile linked to it as a target, alt+⏎ and an alt-click in a new detail beside it; the list keeps its subject until b) over one preview following its selection; a tile link's role (tile.link role=preview|target), said on the header", files: "src/desk/backlinks-pane.ts, src/desk/desk.ts (setCurrent, showFrom, openFrom), src/desk/screen-layout.ts (landing, defaultLinkRole)",
-    aside: "each backlink row quotes the line that links here and the anchor it names; opening it lands on that line (marked, esc lets go) · the stage is what `b` makes in a detail: j k flip through the previews, ⏎ opens the pick in the detail (the list keeps the shed's links: ⏎ again opens the next row; b, in the detail or the list, aims it at what the detail shows now), alt+⏎ opens it in a new detail beside; tile.link role=target on a reader linked to the list keeps it still while the preview flips, and ⏎ lands in it · the header's Kind, Stage and Sort (K w s, or a click) narrow and order all three groups (a link's target decides: its kind, stage and dates), the counters X with →outlinks ♦resources ←backlinks beside it, and each control stays in its slot whatever its value · an agent's open is the same action, attributed, and never takes your keys",
+    key: "select-open", need: "tree, preview, detail from scratch", part: "select wires show the picked row; open wires take Enter or double-click; alt-open makes a reader beside the open target", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/desk/tree.ts, src/scroll.ts",
+    aside: "Built with tile.preview (the tree's ^W V) and tile.link (alt+l, then click detail). Click or j k selects into the preview; Enter or double-click opens in detail; alt+Enter or alt-click opens beside it. A slow second click still selects. Unlink the select wire and selections move the current note again.",
+    stage(n, show) {
+      const tree = new TreePane(), detail = new ReaderPane(true);
+      return deskOf({ title: "showcase · tree, preview, detail from scratch", panes: [tree, detail], names: ["tree", "detail"], layout: ([a, b]) => row(0.4, a!, b!) }, show, [], d => {
+        void (async () => {
+          if (n.shed) { await tree.reveal(n.shed, d); d.setCurrent(n.shed); }
+          await d.previewTile("tree", "down", USER);
+          d.linkTile("tree", "detail", USER);
+        })();
+      });
+    },
+  },
+  {
+    key: "links-open", need: "open a picked link for real, not as a preview: in the reader it came from, or in a new detail", part: "the links tile's open (backlinks.open: ⏎ and a double click in its home reader or the tile linked to it as a target, alt+⏎ and an alt-click in a new detail beside it; the list keeps its subject until b) over one preview following its selection; independent select and open wires (tile.link verb=select|open), said on the header", files: "src/desk/backlinks-pane.ts, src/desk/desk.ts (setCurrent, showFrom, openFrom), src/desk/screen-layout.ts (landing, selectTargets)",
+    aside: "each backlink row quotes the line that links here and the anchor it names; opening it lands on that line (marked, esc lets go) · the stage is what `b` makes in a detail: j k flip through the previews, ⏎ opens the pick in the detail (the list keeps the shed's links: ⏎ again opens the next row; b, in the detail or the list, aims it at what the detail shows now), alt+⏎ opens it in a new detail beside; tile.link verb=open to a reader from the list keeps it still while the preview flips, and ⏎ lands in it · the header's Kind, Stage and Sort (K w s, or a click) narrow and order all three groups (a link's target decides: its kind, stage and dates), the counters X with →outlinks ♦resources ←backlinks beside it, and each control stays in its slot whatever its value · an agent's open is the same action, attributed, and never takes your keys",
     stage(n, show) {
       const d = detailPane(), links = new BacklinksPane("detail", true), p = new PreviewPane({ tile: "backlinks" });
       return deskOf({ title: "showcase · links-open", panes: [d, links, p], layout: ([a, b, c]) => pair("col", 0.4, leaf(a!), row(0.5, b!, c!)) }, show, [], dsk => { if (n.shed) d.hold(n.shed, dsk); });

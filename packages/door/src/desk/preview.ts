@@ -47,7 +47,7 @@ export class PreviewPane extends ReaderPane {
   quote = "";
   override title() {
     const f = this.fileNow();
-    const what = this.quote ? `"${this.quote}"` : this.label ?? `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`;
+    const what = this.quote ? `"${this.quote}"` : this.label ?? ("tile" in this.source && !this.source.tile && !f ? "preview" : `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`);
     return [what, this.surface.state()].filter(Boolean).join(" · ");
   }
   override hint() { return this.fileNow() ? "follows the file as it's saved · links open where this tile's go" : super.hint(); }
@@ -104,6 +104,7 @@ export class PreviewPane extends ReaderPane {
     if (!this.msg) {
       if (!("tile" in this.source)) return { lines: [fg(C.dark) + "reading…" + RESET] };
       // Where its notes come from: the tile it follows (gone from this screen: it says so) and any whose opens land here.
+      if (!this.source.tile) return { lines: wrap("Selections sent here show in this preview · tile.link verb=select sets a source", Math.max(10, w - 1)).map(l => fg(C.dark) + l + RESET) };
       const src = this.source.tile, there = !desk?.pane || !!desk.pane(src);
       const say = there ? `follows ${src}: what's picked there shows here${this.landsFrom.length ? `, and what you open in ${this.landsFrom.join(" or ")} lands here` : ""}` : `follows tile ${src}, which isn't on this screen any more · ^W x closes it, or ^W v on another tile opens a preview of that one`;
       return { lines: wrap(say, Math.max(10, w - 1)).map(l => fg(C.dark) + l + RESET) };
@@ -120,5 +121,5 @@ export class PreviewPane extends ReaderPane {
     return super.key(k, desk);
   }
 
-  spec() { return { source: sourceName(this.source), ...this.marginSpec() }; }
+  spec() { return { ...("file" in this.source ? { source: sourceName(this.source) } : {}), ...this.marginSpec() }; }
 }

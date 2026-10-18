@@ -64,10 +64,7 @@ export interface LayoutState<I = number> {
   readonly collapsed: ReadonlyMap<I, Fold>;
   /** The tile filling the screen, if one does. */
   readonly zoom: I | null;
-  /** Where a tile's opens land (PIE-473): tile → tile. */
-  readonly links: ReadonlyMap<I, I>;
-  /** What a link does (PIE-646): a preview also follows the source's selection; a target is only opened into. Every link has one. */
-  readonly linkRoles: ReadonlyMap<I, LinkRole>;
+  readonly wires: readonly Wire<I>[];
   /** Each tile's name: what links, previews, `act tile=` and `peek` call it. */
   readonly names: ReadonlyMap<I, string>;
   /** What an agent may do to a tile of its own (PIE-639): wins over the containers' and the screen's default; absent, they say. */
@@ -86,16 +83,11 @@ export interface LayoutState<I = number> {
   readonly shapeKey: string;
 }
 
-/**
- * What a link does (PIE-646). `preview`: the tile follows the source's selection as it moves, and is opened into too.
- * `target`: it is only opened into (⏎, `open from=`), so a selection can be previewed elsewhere meanwhile.
- */
-export type LinkRole = "preview" | "target";
-export const LINK_ROLES: readonly LinkRole[] = ["preview", "target"];
-/** A new link's role when none is said: a preview tile previews; else what the source's kind gives (the links tile: target), else preview (as links always were). */
-export function defaultLinkRole(from: Pick<TileFacts, "linkRole">, to: Pick<TileFacts, "follower">): LinkRole {
-  return to.follower ? "preview" : from.linkRole ?? "preview";
-}
+export type WireVerb = "select" | "open" | "alt";
+export type Wire<I = number> = { from: I; verb: WireVerb; to: I };
+export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt"];
+export const wireTarget = <I>(s: Pick<LayoutState<I>, "wires">, from: I, verb: WireVerb = "open"): I | undefined => s.wires.find(w => w.from === from && w.verb === verb)?.to;
+export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[] => s.wires.filter(w => w.from === from && w.verb === "select").map(w => w.to);
 
 /** What a tile is, as the layout's rules need it: the desk's tile instances answer it. */
 export interface TileFacts {
@@ -116,8 +108,6 @@ export interface TileFacts {
   running?: string;
   /** Its kind shows what a tile it follows picks (a preview): a link to it is a preview unless said otherwise. */
   follower?: boolean;
-  /** The role its kind gives a new link from it (the links tile: `target`, a selection previews and only ⏎ opens); absent, `preview`. */
-  linkRole?: LinkRole;
   /** Its home (PIE-794): the reader its opens land in when no link or container says (the links tile's): a name. */
   home?: string;
   /** It only holds a place (the blank tile): an agent may replace it under the person's keys. */
@@ -169,10 +159,10 @@ export type At<I = number> = Place<I>
 
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
-  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; at: At<I>; keys?: false; link?: I }
+  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb }
   | { op: "close"; tile: I; gone?: boolean }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
-  | { op: "replace"; tile: I; with: I; kind: string; name?: string }
+  | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb }
   /** A tile leaves this layout whole, to go on elsewhere (your drawer, PIE-498): moved, not closed. */
   | { op: "take"; tile: I; heir?: { id: I; name?: string } }
   /**
@@ -181,7 +171,7 @@ export type Op<I = number> =
    */
   | { op: "group"; tile?: I; node?: string; take?: I[]; with: I; kind: string; name?: string }
   /** A group tile `tile` spills back (PIE-651): `tree`, its tiles under new ids with their `names`, takes its place. */
-  | { op: "ungroup"; tile: I; tree: LNode<I>; names: [I, string][]; folds?: [I, Fold][]; agents?: [I, AgentLevel][]; links?: [I, I, LinkRole | undefined][] }
+  | { op: "ungroup"; tile: I; tree: LNode<I>; names: [I, string][]; folds?: [I, Fold][]; agents?: [I, AgentLevel][]; wires?: Wire<I>[] }
   | { op: "move"; tile: I; to: Place<I> }
   | { op: "swap"; tile: I; with: I }
   | { op: "float"; tile: I; at?: At<I> }
@@ -199,7 +189,7 @@ export type Op<I = number> =
   /** What an agent may do to tile `tile` (PIE-639): its own level, or (`level` null) the containers' and the screen's again. */
   | { op: "agents"; tile: I; level: AgentLevel | null }
   | { op: "policy"; tile?: I; node?: string; set: Policy; clear: string[] }
-  | { op: "link"; tile: I; to?: I; role?: LinkRole }
+  | { op: "link"; tile: I; to?: I; verb?: WireVerb; remove?: boolean }
   | { op: "focus"; tile: I; quiet?: boolean }
   | { op: "reveal"; tile: I }
   | { op: "tab"; tile: I; by?: number }
@@ -227,12 +217,12 @@ const refuse = (why: string | null | undefined): void => { if (why) throw new Re
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 
 interface Draft<I> {
-  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; links: Map<I, I>; linkRoles: Map<I, LinkRole>; names: Map<I, string>; agents: Map<I, AgentLevel>;
+  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; wires: Wire<I>[]; names: Map<I, string>; agents: Map<I, AgentLevel>;
   policy: Policy; locks: Set<string>; remembered: Map<string, Policy | undefined>; focus: I; changed: boolean; answer: Record<string, unknown>;
 }
 const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
   tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom,
-  links: new Map(s.links), linkRoles: new Map(s.linkRoles), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
+  wires: s.wires.map(w => ({ ...w })), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
 });
 
 /** The leaf node of tile `id` where it stands alone (not a tab): what a group's tree replaces. */
@@ -272,7 +262,7 @@ function stamp<I>(tree: LNode<I>, policy: Policy, floats: readonly Float<I>[], p
 function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: string }): LayoutState<I> {
   const s = stamp(d.tree, d.policy, d.floats, prev);
   return freeze({
-    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, links: d.links, linkRoles: d.linkRoles, names: d.names, agents: d.agents, policy: d.policy,
+    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, wires: d.wires, names: d.names, agents: d.agents, policy: d.policy,
     locks: [...d.locks], remembered: d.remembered, rev: s.rev, nextNode: s.nextNode, shapeKey: s.shapeKey,
   });
 }
@@ -282,14 +272,14 @@ function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: s
  * blank, its containers given ids. `prev` goes on from an earlier state (its revision and ids, its agents' locks
  * and the docks' remembered policy), or from a saved revision and next id.
  */
-export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, Fold>; links?: ReadonlyMap<I, I>; linkRoles?: ReadonlyMap<I, LinkRole>; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
+export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, Fold>; wires?: readonly Wire<I>[]; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
   prev?: LayoutState<I> | { rev: number; nextNode: number }, opts: { freshIds?: boolean } = {}): LayoutState<I> {
   const given = clone(parts.tree);
   // A layout loaded from elsewhere (not this screen's own save coming back) never hands out an id given here before.
   if (opts.freshIds) forgetIds(given, num => num < (prev?.nextNode ?? 1));
   const tree = normalise(given);
   const d: Draft<I> = {
-    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, links: new Map(parts.links ?? []), linkRoles: new Map(parts.linkRoles ?? []), names: new Map(parts.names), agents: new Map(parts.agents ?? []),
+    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, wires: (parts.wires ?? []).map(w => ({ ...w })), names: new Map(parts.names), agents: new Map(parts.agents ?? []),
     policy: policyOf(parts.policy), locks: new Set(prev && "locks" in prev ? prev.locks : []), remembered: new Map(prev && "remembered" in prev ? prev.remembered : []),
     focus: leaves(tree)[0]!, changed: true, answer: {},
   };
@@ -390,9 +380,14 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string): str
  * reader), else the open rule: the next column of its flow (`next`), or none (a reader is its own home: the note
  * replaces its own; anything else moves the current note).
  */
-export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "links" | "names">, id: I, facts?: TileFacts): { to: I } | { into: string } | { next: true } | null {
-  const own = s.links.get(id);
+export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | null {
+  const own = wireTarget(s, id, verb);
   if (own !== undefined && s.names.has(own)) return { to: own };
+  if (verb === "alt") {
+    const open = landing(s, id, "open", facts);
+    if (open && ("into" in open || "next" in open)) return open;
+    return { beside: open && "to" in open ? open.to : id };
+  }
   const e = policyAt(s, id, facts);
   const into = e.opensInto ? named(s, e.opensInto) : undefined;
   if (into !== undefined && into !== id) return { to: into };
@@ -663,7 +658,7 @@ class Step<I> {
       case "lock": return this.lock(op.on);
       case "agents": return this.setAgents(op.tile, op.level);
       case "policy": return this.setPolicy(op);
-      case "link": return this.link(op.tile, op.to, op.role);
+      case "link": return this.link(op.tile, op.to, op.verb, op.remove);
       case "focus": return this.focus(op.tile, !!op.quiet);
       case "reveal": return this.reveal(op.tile);
       case "tab": return this.tab(op.tile, op.by);
@@ -802,7 +797,7 @@ class Step<I> {
       if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds)); }
     }
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
-    if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind);
+    if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     this.d.answer = { tile: this.d.names.get(op.tile), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
@@ -874,6 +869,7 @@ class Step<I> {
     this.forget(id);
     this.d.names.set(op.with, newName ?? autoName(this.d, op.kind));
     if (had) this.d.focus = op.with;
+    if (op.link !== undefined) this.linkTo(op.link, op.with, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     this.d.answer = { tile: this.d.names.get(op.with), replaced: name };
   }
   /**
@@ -972,7 +968,7 @@ class Step<I> {
     // What the group's layout said of each tile comes with it: its spine, what an agent may do to it, its links among them.
     for (const [t, f] of op.folds ?? []) if (fresh.includes(t)) this.d.collapsed.set(t, { ...f });
     for (const [t, l] of op.agents ?? []) if (fresh.includes(t)) this.d.agents.set(t, l);
-    for (const [t, to, role] of op.links ?? []) if (fresh.includes(t) && fresh.includes(to)) { this.d.links.set(t, to); if (role) this.d.linkRoles.set(t, role); }
+    for (const w of op.wires ?? []) if (fresh.includes(w.from) && fresh.includes(w.to)) this.d.wires.push({ ...w });
     if (had) this.d.focus = fresh[0]!;
     this.d.answer = { tile: name, spilled: fresh.map(t => this.d.names.get(t)) };
   }
@@ -995,8 +991,8 @@ class Step<I> {
   private forget(id: I) {
     this.d.floats = this.d.floats.filter(f => f.id !== id);
     this.d.collapsed.delete(id); this.d.agents.delete(id);
-    this.d.names.delete(id); this.d.links.delete(id); this.d.linkRoles.delete(id);
-    for (const [from, to] of this.d.links) if (to === id) { this.d.links.delete(from); this.d.linkRoles.delete(from); }
+    this.d.names.delete(id);
+    this.d.wires = this.d.wires.filter(w => w.from !== id && w.to !== id);
     if (this.d.zoom === id) this.d.zoom = null;
   }
 
@@ -1406,33 +1402,26 @@ class Step<I> {
     this.d.answer = { node: name, policy };
   }
 
-  private link(id: I, to: I | undefined, role?: LinkRole) {
+  private link(id: I, to: I | undefined, verb: WireVerb = "open", remove = false) {
     this.present(id);
-    if (to === undefined) {
-      // No `to`: the link is taken away, or (`role` given) its role is changed.
-      if (role !== undefined) {
-        const own = this.d.links.get(id);
-        if (own === undefined) refuse(`${this.name(id)} links nowhere: nothing to make a ${role} · alt+l, then a click on a reader, links it first`);
-        this.shape(id, `changing what ${this.name(id)}'s link does`);
-        this.d.linkRoles.set(id, role);
-        this.d.answer = { link: this.name(own as I), role };
-        return;
-      }
-      this.shape(id, `changing where ${this.name(id)}'s opens land`); this.d.links.delete(id); this.d.linkRoles.delete(id); this.d.answer = { link: null }; return;
+    this.shape(id, `changing where ${this.name(id)}'s ${verb} lands`);
+    if (to === undefined || remove) {
+      this.d.wires = this.d.wires.filter(w => !(w.from === id && w.verb === verb && (to === undefined || w.to === to)));
+      this.d.answer = { wire: null, verb };
+      return;
     }
     this.present(to);
     const f = this.facts(to);
-    this.linkTo(id, to, !!f.notes, f.kind, role);
-    this.d.answer = { link: this.name(to), role: this.d.linkRoles.get(id) };
+    this.linkTo(id, to, !!f.notes, f.kind, verb);
+    this.d.answer = { wire: this.name(to), verb };
   }
-  /** Tile `id`'s opens land in `to` (of `kind`, which takes notes or not): the one rule for a link, set by link or an open. */
-  private linkTo(id: I, to: I, notes: boolean, kind: string, role?: LinkRole) {
+  private linkTo(id: I, to: I, notes: boolean, kind: string, verb: WireVerb = "open") {
     this.present(id);
-    this.shape(id, `changing where ${this.name(id)}'s opens land`);
+    this.shape(id, `changing where ${this.name(id)}'s ${verb} lands`);
     if (to === id) refuse(`${this.name(id)} can't open into itself · leave to= out to unlink`);
     if (!notes) refuse(`${this.name(to)} is a ${kind} tile: opens land in a tile that takes notes${this.ctx.kinds ? ` (${this.ctx.kinds.notes.join(", ")})` : ""}`);
-    this.d.links.set(id, to);
-    this.d.linkRoles.set(id, role ?? defaultLinkRole(this.facts(id), this.facts(to)));
+    this.d.wires = this.d.wires.filter(w => !(w.from === id && w.verb === verb && (verb !== "select" || w.to === to)));
+    this.d.wires.push({ from: id, verb, to });
   }
 
   private focus(id: I, quiet: boolean) {

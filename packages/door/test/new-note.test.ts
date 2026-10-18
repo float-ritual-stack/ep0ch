@@ -111,7 +111,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect(new Set(outside.replies)).toEqual(new Set([linked.id, both.id]));
   });
 
-  test("the thread panel's rows (PIE-944): a click only selects; a second click on the selected row opens it", async () => {
+  test("the thread panel's rows (PIE-944): a click only selects; only a double click opens it", async () => {
     const parent = (await board.newNote("Hedge plans", undefined)).note;
     const first = (await board.newNote(`Lay it in March [replyTo::${parent.id}]`, parent.id)).note;
     const second = (await board.newNote(`Or October [replyTo::${parent.id}]`, parent.id)).note;
@@ -133,8 +133,11 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect(reader.surface.msg!.id).toBe(parent.id);
     await Bun.sleep(450);
     click(second.id);
+    expect(reader.surface.msg!.id).toBe(parent.id);
+    expect(reader.surface.replyLinks).not.toBeNull();
+    click(second.id);
     const top = () => app.screens().at(-1) as MessageReader;
-    await until(() => top() !== reader && top().surface.msg?.id === second.id, "the second click on the selected row opens it in a reader of its own");
+    await until(() => top() !== reader && top().surface.msg?.id === second.id, "the double click opens it in a reader of its own");
     expect(reader.surface.replyLinks).toBeNull();
   });
 

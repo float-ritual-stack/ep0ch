@@ -262,7 +262,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await spill(g);
   }, 30_000);
 
-  test("locked screens refuse cross-group link creation, replacement, role changes and removal without changing saved links", async () => {
+  test("locked screens refuse cross-group link creation, replacement, wire changes and removal without changing saved links", async () => {
     await fresh();
     const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
     await me("tile.open", { kind: "detail", name: "peer" }, `${g}/reader`);
@@ -273,7 +273,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
       const before = get();
       try {
         for (const run of [me, act]) {
-          for (const args of [{ to: `${g}/reader` }, { to: `${g}/peer` }, ...(linked ? [{ role: "target" }] : []), {}]) {
+          for (const args of [{ to: `${g}/reader` }, { to: `${g}/peer` }, ...(linked ? [{ verb: "open" }] : []), {}]) {
             await expect(run("tile.link", args, "tree")).rejects.toThrow(/locked/);
             expect(get()).toEqual(before);
           }
@@ -282,12 +282,12 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
         await me("layout.lock", { on: false });
       }
     }
-    expect(await me("tile.link", { role: "target" }, "tree")).toMatchObject({ role: "target" });
-    expect(await me("tile.link", {}, "tree")).toMatchObject({ link: null });
+    expect(await me("tile.link", { verb: "open" }, "tree")).toMatchObject({ verb: "open" });
+    expect(await me("tile.link", {}, "tree")).toMatchObject({ wire: null });
     await spill(g);
   }, 30_000);
 
-  test("a locked group refuses links to its outside and preserves their role and target", async () => {
+  test("a locked group refuses links to its outside and preserves their verb and target", async () => {
     await fresh();
     const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
     await me("tile.open", { kind: "detail", name: "outside" }, "tree");
@@ -295,7 +295,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await me("layout.lock", { on: true }, `${g}/replies`);
     const before = get();
     try {
-      for (const args of [{ to: "../outside" }, { role: "target" }, {}]) {
+      for (const args of [{ to: "../outside" }, { verb: "open" }, {}]) {
         await expect(me("tile.link", args, `${g}/replies`)).rejects.toThrow(/locked/);
         expect(get()).toEqual(before);
       }
@@ -333,11 +333,11 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await me("layout.move", { into: g, beside: "activity" }, "pv");
     render();
     expect(inner(g, "pv")).toBeDefined();
-    // The tree's selection moves to b: the preview in the group follows it, and so does the reader the link previews in.
+    // The tree's selection moves to b: the preview in the group follows it, the open target stays on its note.
     D().showFrom(D().pane("tree"), await board.get(b));
     render();
     expect(inner(g, "pv").showing?.id).toBe(b);
-    expect(inner(g, "reader").showing?.id).toBe(b);
+    expect(inner(g, "reader").showing?.id).toBe(a);
     // A tile of the group opening into one outside: reader -> a detail beside the tree, by `../` path.
     await act("tile.open", { kind: "detail", name: "det" }, "tree");
     render();
@@ -351,7 +351,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     const there = (n: string) => again.layoutGet().tiles.find((x: any) => x.name === n);
     expect(there("tree")).toMatchObject({ link: `${g}/reader`, linkAcross: "true" });
     expect(there(g).mount.layout.tiles.find((x: any) => x.name === "activity")).toMatchObject({ link: "../det" });
-    expect(there(g).mount.layout.tiles.find((x: any) => x.name === "pv").source).toBe("tile:../tree");
+    expect(there("tree").wires).toContainEqual({ verb: "select", to: `${g}/pv` });
     app.pop();
     // Moved out again: the preview and the tree are on one desk, the link is the layout's own.
     await me("layout.move", { out: true, beside: "tree", where: "down" }, `${g}/pv`);

@@ -32,17 +32,19 @@ describe("a press on a list's row escalates as the keys do", () => {
     expect(p.press(3, { now: 1000 + DOUBLE_MS + 50 })).toBe("select");          // a third press starts afresh
     expect(p.press(4, { now: 1000 + DOUBLE_MS + 100 })).toBe("select");         // another row: not a double
     expect(p.press(4, { now: 1000 + 3 * DOUBLE_MS })).toBe("select");           // too slow: two single clicks
+    expect(p.press(4, { now: 1000 + 5 * DOUBLE_MS, selected: true })).toBe("select");
   });
 
-  test("the press that gives the list the keys only selects, whatever it carries; its second press is still a double click", () => {
+  test("an ordinary press that gives the list the keys selects; its second press is still a double click", () => {
     const p = new RowPresses();
-    expect(p.press(1, { focusing: true, mods: 8, now: 0 })).toBe("focus");
+    expect(p.press(1, { focusing: true, now: 0 })).toBe("focus");
     expect(p.press(1, { now: 100 })).toBe("open");
   });
 
   test("an alt- or ctrl-click, or the middle button, is alt+⏎; shift isn't (terminals keep it for their own selection)", () => {
     const p = new RowPresses();
-    expect(p.press(1, { mods: 8, now: 0 })).toBe("fresh");
+    expect(p.press(1, { focusing: true, mods: 8, now: 0 })).toBe("fresh");
+    expect(p.press(1, { mods: 8, now: 100 })).toBe("fresh");
     expect(p.press(2, { mods: 16, now: 1000 })).toBe("fresh");
     expect(p.press(3, { button: 1, now: 2000 })).toBe("fresh");
     expect(p.press(4, { mods: 4, now: 3000 })).toBe("select");

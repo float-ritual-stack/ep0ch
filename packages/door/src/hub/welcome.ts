@@ -661,8 +661,8 @@ export function welcomeSpec(): ScreenSpec {
           { t: "tabs", tabs: [{ t: "leaf", kind: "welcome.list", name: "welcome" }], active: 0, policy: { max: 30 } },
           {
             t: "split", dir: "col", weights: [0.7, 0.3], kids: [
-              { t: "leaf", kind: "welcome.detail", name: "detail", source: "tile:welcome", link: "preview" },
-              { t: "tabs", tabs: [{ t: "leaf", kind: "backlinks", name: "backlinks", source: "tile:detail", groups: "open", subject: "follows" }], active: 0, policy: { min: 7, max: 12 } },
+              { t: "leaf", kind: "welcome.detail", name: "detail", source: "tile:welcome", wires: [{ verb: "select", to: "preview" }, { verb: "open", to: "preview" }] },
+              { t: "tabs", tabs: [{ t: "leaf", kind: "backlinks", name: "backlinks", source: "tile:detail", groups: "open", subject: "follows", wires: [{ verb: "select", to: "preview" }] }], active: 0, policy: { min: 7, max: 12 } },
             ],
           },
           // Its own links open in it: its link is itself.

@@ -8,7 +8,7 @@ import { TXN } from "../surface/txn";
 import type { Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, type ArgsOf } from "../surface/actions";
 import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
-import { EDGE_WORD, isDir, LINK_ROLES, type Axis, type Dir, type LinkRole, type Policy } from "./screen-layout";
+import { EDGE_WORD, isDir, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "../note-trash";
 import { subject } from "../board";
@@ -245,20 +245,23 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.link": def({
-    summary: "where tile=<tile>'s opens land: a link followed in it, the tree's ⏎, a list's pick opens in tile to=<tile> (a detail, a reader or a preview). role=preview also follows the source's selection as it moves; role=target takes only what is opened into it (⏎), so a selection can be previewed elsewhere (the links tile's default). role= alone changes the role of the link it has. No to= and no role= unlinks. Alt+⏎ or a ctrl- or alt-click still opens beside",
-    keys: "alt+l then click the tile, h j k l or 1-9 (the tile itself unlinks); a click on the link's role on the header (⏎ target, ◌ preview)",
-    touches: "shape", replay: "safe", says: (r, a) => (a.role && !a.to ? `${r.tile}'s link is a ${a.role}` : a.to ? `linked ${r.tile} → ${a.to}` : `unlinked ${r.tile}`),
+    summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Select may have several targets. No to= removes that verb's wires; remove=true removes just the named target.",
+    keys: "alt+l then click the tile, h j k l or 1-9 (the tile itself unlinks)",
+    touches: "shape", replay: "safe", says: (r, a) => a.to ? `${r.tile}: ${a.verb ?? "open"} → ${a.to}` : `unlinked ${r.tile}'s ${a.verb ?? "open"}`,
     args: {
-      to: { type: "string", optional: true, kind: "tile", about: "the tile its opens land in; left out, the link is taken away (or, with role=, kept)" },
-      role: { type: "string", optional: true, choices: ["preview", "target"], about: "preview (the linked tile follows the selection) or target (it takes only what is opened into it); default the source kind's: the links tile's is target" },
+      to: { type: "string", optional: true, kind: "tile", about: "target tile; absent removes this verb's wires" },
+      verb: { type: "string", optional: true, choices: ["select", "open", "alt"], about: "select, open (default), alt" },
+      role: { type: "string", optional: true, choices: ["preview", "target"], about: "script shorthand: preview selects, target opens; verb takes precedence" },
+      remove: { type: "boolean", optional: true, about: "remove only this target" },
     },
     examples: [
-      { act: "tile.link tile=tree to=reader role=preview", does: "makes the reader follow the tree's selection as it moves" },
-      { act: "tile.link tile=tree", does: "takes the tree's link away, so its opens land where they did before" },
+      { act: "tile.link tile=tree to=reader", does: "makes the reader where the tree's opens (enter, double click) land" },
+      { act: "tile.link tile=tree to=preview verb=select", does: "makes the preview show the tree's selection as it moves" },
+      { act: "tile.link tile=tree verb=open", does: "takes the tree's open wires away, so its opens land where they did before" },
     ],
-    run({ to, role }, { d, reader }, actor) {
-      if (role !== undefined && !(LINK_ROLES as readonly string[]).includes(role)) throw new ActionRefused(`tile.link: role is preview or target, not ${role}`);
-      return d.linkTile(reader, to, actor, role as LinkRole | undefined);
+    run({ to, verb, role, remove }, { d, reader }, actor) {
+      if (verb !== undefined && !(WIRE_VERBS as readonly string[]).includes(verb)) throw new ActionRefused(`tile.link: verb is select, open or alt, not ${verb}`);
+      return d.linkTile(reader, to, actor, (verb ?? (role === "preview" ? "select" : "open")) as WireVerb, remove);
     },
   }),
   "tile.focus": def({
@@ -458,11 +461,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.preview": def({
-    summary: "a reader beside tile=<tile> where its opens land (opened and linked as one step): a link followed in it, the tree's ⏎, a list's pick show there, and the tile itself never navigates away. A tile that reads notes gets a detail; a terminal tile a preview of the file it edits (re-read on each save); the board one of its card (its own preview strip collapses); anything else a preview following its selection. Its opens already land in a tile (a link, or its container's opensInto naming one): that one is shown instead, where= aside (the person's keys go to it, an agent's leave them). Refused on a flow's column, whose opens already open the next column. where=right, down, left or up; default beside it if it's wide, else below. tile.link unlinks",
+    summary: "Open a preview beside or below a list, connected by a select wire; selections show there without moving the current note. On a reader, open a detail where its opens land, connected by an open wire. A terminal's preview follows its file. Again reveals the existing target. where=right, down, left or up.",
     keys: "O in a reader; ^W v beside, ^W V below",
     // Said to the person too (confirms): ^W v on a tile already linked shows the one there, which looked like nothing happening.
     touches: "shape", replay: "safe", confirms: true,
-    says: r => (r.existing ? `${r.from} already opens into ${r.tile}: showed it · alt+l then click ${r.tile} to unlink` : `opened ${tileNoun(String(r.kind), r.tile)} where ${r.from}'s opens land`),
+    says: r => (r.existing ? r.verb === "open" ? `${r.from} already opens into ${r.tile}: showed it · alt+l then click ${r.tile} to unlink` : `${r.from} already selects into ${r.tile}: showed it` : `opened ${tileNoun(String(r.kind), r.tile)} ${r.verb === "open" ? `where ${r.from}'s opens land` : `for ${r.from}'s selections`}`),
     // Beside it and below it: where its opens land (a flow's column opens the next column instead).
     menu: [
       { label: "preview beside", group: TILE, key: "ctrl+w v", args: { where: "right" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).inDrawer ? { hide: true } : null) },
