@@ -1086,7 +1086,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "snapshot", need: "take a SQLite copy for analysis", part: "ShareSessions tokens, OutlineSnapshots copies, publisher downloads and the shell ActionSet", files: "outliner/src/outline-snapshots.ts, outliner/src/share-sessions.ts, src/screens.ts",
-    aside: "ctrl+k → > outline.snapshot copies a one-time link. The note shows the local CLI path and a SQLite query; no database bytes enter chat.",
+    aside: "ctrl+k → > outline.snapshot copies a one-time link. The note shows the local CLI path, a SQLite query and how remote MCP clients refresh tools after a deploy; no database bytes enter chat.",
     stage(n, show) {
       const reader = new ReaderPane();
       return deskOf({ title: "showcase · SQLite snapshots", panes: [reader] }, show, [[reader, n.snapshot]]);

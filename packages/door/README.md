@@ -344,9 +344,11 @@ a retry within its TTL. The `[machine::snapshot]` note records each attempt’s 
 method, bytes sent to the HTTP sink and outcome (complete, aborted or refused), without the token.
 MCP asks agents to show the curl command and URL inside a code block to avoid chat link previews.
 
-The MCP gateway uses handwritten JSON-RPC over stateless, POST-only HTTP, without an MCP SDK or
-server notification stream. It cannot send `notifications/tools/list_changed`; clients must refresh
-their tool list after a deploy.
+The MCP gateway shares the stdio JSON-RPC handlers and advertises `tools.listChanged` over HTTP.
+An authenticated GET with `Accept: text/event-stream` opens its notification stream and receives
+`notifications/tools/list_changed`. A deploy closes the old stream; when the client reconnects, the
+new gateway sends the notification again so it can refresh its tools without restarting the chat client.
+This requires a client that listens and reconnects to the stream; POST calls remain stateless.
 
 The kitchen sink has a **snapshot** section with this local journey:
 

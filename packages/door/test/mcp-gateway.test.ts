@@ -21,7 +21,7 @@ const STRANGER = "user_fictional_b";
 type Key = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
 let signing: Key, other: Key, keys: ReturnType<typeof createLocalJWKSet>;
 
-async function token(over: { claims?: JWTPayload; typ?: string; key?: Key; aud?: string | null; iss?: string; exp?: string; sub?: string } = {}) {
+async function token(over: { claims?: JWTPayload; typ?: string; key?: Key; aud?: string | null; iss?: string; exp?: string | number; sub?: string } = {}) {
   let jwt = new SignJWT({ client_id: "client_fictional", scope: "profile", ...over.claims })
     .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: over.typ ?? "at+jwt" })
     .setIssuer(over.iss ?? ISSUER)
@@ -40,10 +40,11 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   let board: SocketBoard, machine = "", note = { id: "", uri: "" }, quiet = { id: "", uri: "" };
   let nextId = 1;
 
-  const call = async (body: unknown, opts: { auth?: string | null; at?: Gateway; method?: string } = {}) => {
+  const call = async (body: unknown, opts: { auth?: string | null; at?: Gateway; method?: string; session?: string } = {}) => {
     const headers: Record<string, string> = { Host: HOST, "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
     const auth = opts.auth === undefined ? `Bearer ${await token()}` : opts.auth;
     if (auth) headers.Authorization = auth;
+    if (opts.session) headers["Mcp-Session-Id"] = opts.session;
     return fetch((opts.at ?? gateway).url, { method: opts.method ?? "POST", headers, ...(opts.method && opts.method !== "POST" ? {} : { body: JSON.stringify(body) }) });
   };
   const rpc = async (method: string, params?: unknown, auth?: string | null) => {
@@ -218,7 +219,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     }
   });
 
-  test("an allowed token speaks MCP: initialize, a notification (202), tools/list; GET is 405", async () => {
+  test("an allowed token speaks MCP: initialize, a notification (202), tools/list and a notification stream that survives a gateway restart", async () => {
     const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "fictional-client", version: "1" } });
     expect(init.status).toBe(200);
     expect(init.body.result).toMatchObject({ protocolVersion: "2025-06-18", serverInfo: { name: "ep0ch" } });
@@ -227,13 +228,113 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const listed = await rpc("tools/list");
     expect((listed.body.result.tools as { name: string }[]).map(t => t.name)).toContain("outline_read");
     expect((listed.body.result.tools as { name: string }[]).map(t => t.name)).not.toContain("outline_patch");
-    expect((await call(null, { method: "GET" })).status).toBe(405);
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    if ("error" in config) throw new Error(config.error);
+    const outlines = machineOutlines();
+    let restarted = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
+    const port = restarted.port;
+    try {
+      const initialized = await call({ jsonrpc: "2.0", id: nextId++, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "fictional-client", version: "1" } } }, { at: restarted });
+      const session = initialized.headers.get("mcp-session-id")!;
+      await initialized.json();
+      expect(session).toBeTruthy();
+      for (let boot = 0; boot < 2; boot++) {
+        const response = await call(null, { at: restarted, method: "GET", session });
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toContain("text/event-stream");
+        const reader = response.body!.getReader();
+        try {
+          let frame = "";
+          while (!frame.includes("\n\n")) {
+            const chunk = await reader.read();
+            expect(chunk.done).toBe(false);
+            frame += new TextDecoder().decode(chunk.value);
+          }
+          const data = frame.split("\n").find(line => line.startsWith("data: "))!;
+          expect(JSON.parse(data.slice(6))).toEqual({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+          const listed = await call({ jsonrpc: "2.0", id: nextId++, method: "tools/list" }, { at: restarted, session });
+          expect((await listed.json() as { result: { tools: { name: string }[] } }).result.tools).toContainEqual(expect.objectContaining({ name: "outline_snapshot" }));
+          restarted.stop();
+          expect((await reader.read().catch(() => ({ done: true }))).done).toBe(true);
+        } finally { await reader.cancel().catch(() => {}); }
+        if (boot === 0) restarted = startGateway({ config, outlines, port, bind: "127.0.0.1", keys, log: () => {} });
+      }
+    } finally { restarted.stop(); outlines.close(); }
+    expect(init.body.result.capabilities.tools.listChanged).toBe(true);
     const malformed = await fetch(gateway.url, { method: "POST", headers: { Host: HOST, Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" }, body: "{not json" });
     expect(malformed.status).toBe(400);
     const batch = Array.from({ length: 17 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "ping" }));
     expect((await call(batch)).status).toBe(400);
     expect((await call(batch.slice(0, 2))).status).toBe(200);
   });
+
+  test.each(["client", "gateway"])("notification streams enforce the %s limit", async limit => {
+    const readers: ReadableStreamDefaultReader<Uint8Array>[] = [];
+    const open = async (client: string, nonce = "") => {
+      const res = await call(null, { method: "GET", auth: `Bearer ${await token({ claims: { client_id: client, jti: nonce } })}` });
+      if (res.status === 200) {
+        const reader = res.body!.getReader();
+        readers.push(reader);
+        expect(new TextDecoder().decode((await reader.read()).value)).toContain("notifications/tools/list_changed");
+      }
+      return res;
+    };
+    try {
+      for (let i = 0; i < 4; i++) expect((await open("stream-client", String(i))).status).toBe(200);
+      expect((await open("stream-client", "replacement")).status).toBe(200);
+      if (limit === "client") {
+        expect(await Promise.race([readers[0]!.read(), Bun.sleep(1000).then(() => "still open")])).toMatchObject({ done: true });
+        return;
+      }
+      for (let i = 0; i < 60; i++) expect((await open(`stream-client-${i}`)).status).toBe(200);
+      const overflow = await open("overflow-client");
+      expect(overflow.status).toBe(503);
+      expect(overflow.headers.get("retry-after")).toBe("1");
+      expect((await rpc("ping")).status).toBe(200);
+      // Replacement still works at capacity; cancellation makes room for a different client.
+      expect((await open("stream-client", "at-capacity")).status).toBe(200);
+      expect(await readers[1]!.read()).toMatchObject({ done: true });
+      await readers.at(-1)!.cancel();
+      let admitted = 503;
+      for (let i = 0; i < 20 && admitted === 503; i++) {
+        await Bun.sleep(10);
+        admitted = (await open("overflow-client")).status;
+      }
+      expect(admitted).toBe(200);
+    } finally { await Promise.all(readers.map(r => r.cancel())); }
+  }, 15_000);
+
+  test("notification streams close at token expiry, including a token inside clock tolerance", async () => {
+    for (const exp of [Math.floor(Date.now() / 1000) + 2, Math.floor(Date.now() / 1000) - 1]) {
+      const res = await call(null, { method: "GET", auth: `Bearer ${await token({ exp })}` });
+      const reader = res.body!.getReader();
+      try {
+        expect(res.status).toBe(200);
+        await reader.read();
+        expect(await Promise.race([reader.read(), Bun.sleep(3000).then(() => "still open")])).toMatchObject({ done: true });
+      } finally { await reader.cancel(); }
+    }
+  }, 10_000);
+
+  test.each(["keep-alive", "revocation"])("notification streams handle %s", async behavior => {
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON, EP0CH_MCP_ALLOWED_CLIENTS: "client_fictional,other-client" });
+    if ("error" in config) throw new Error(config.error);
+    const outlines = machineOutlines();
+    const at = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
+    const res = await call(null, { method: "GET", at });
+    const reader = res.body!.getReader();
+    try {
+      await reader.read();
+      if (behavior === "keep-alive") {
+        const heartbeat = await Promise.race([reader.read().then(r => new TextDecoder().decode(r.value)), Bun.sleep(27_000).then(() => "no keep-alive")]);
+        expect(heartbeat).toMatch(/^:.*\n\n$/);
+        return;
+      }
+      config.allowedClients.splice(0, 1);
+      expect((await call({ jsonrpc: "2.0", id: 1, method: "ping" }, { at })).status).toBe(403);
+      expect(await Promise.race([reader.read(), Bun.sleep(1000).then(() => "still open")])).toMatchObject({ done: true });
+    } finally { await reader.cancel(); at.stop(); outlines.close(); }
+  }, 30_000);
 
   test("an allowed token on an outline granted read reads it, by URI and by outline name", async () => {
     const read = await tool("outline_read", { uri: note.uri });
