@@ -570,46 +570,10 @@ Beans [qty::5] [price::2]
 
 #### Fantasia: a button, a transaction, motion, undo (needs a door)
 
-**Body line:** below a title, write `::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 layout=focus motion=fantasia}` in a note, and save this script as `[script::fantasia] [effects::write]`. First save the `focus` screen as described below. For a dance left floating to undo, replace `layout=focus` with `stay=1`; stay takes precedence if both are present. With neither, the script undoes its own layout at the end.
+**Body line:** below a title, write `::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 layout=focus motion=fantasia}` in a note, and save the complete script note linked below. First save the `focus` screen as described below. For a dance left floating to undo, replace `layout=focus` with `stay=1`; stay takes precedence if both are present. With neither, the script undoes its own layout at the end.
 It is the acceptance test of the self-reference wave: one click runs the whole chain. It needs several tiles the person isn't holding to show anything, and unlike examples 1 to 5 it needs a connected door (it moves tiles), so it is not pasted by the scripts-docs test; the showcase's *fantasia* section runs it live.
 
-```js
-const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));
-const tempo = Math.max(150, Math.min(3000, Number(props.tempo && props.tempo[0]) || 500));
-const style = (props.motion && props.motion[0]) || 'fantasia';
-const home = (props.layout && props.layout[0]) || '';
-const stay = !!(props.stay && props.stay[0]);
-const before = await act('layout.get');
-if (before.locked) return 'fantasia: the screen is locked; alt+k unlocks it, then run again';
-const dancers = (before.tiles || []).filter(t => t.shown && t.kind !== 'drawer.own').map(t => ({ id: t.id, name: t.name }));
-const notes = [], floated = [];
-for (const d of dancers) {
-  try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r && r.now && r.now !== d.name ? r.now : d.id, name: d.name }); }
-  catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }
-}
-if (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');
-const drift = [[7, -2], [-5, 3], [6, 2], [-8, -3], [4, 4], [-4, -4], [9, 1], [-6, 2]];
-for (let beat = 0; beat < beats; beat++) {
-  for (let i = 0; i < floated.length; i++) {
-    const [dx, dy] = drift[(beat + i * 3) % drift.length];
-    try { await act('float.place', { tile: floated[i].id, dx: i % 2 ? -dx : dx, dy, motion: style }); }
-    catch (e) { notes.push('beat ' + (beat + 1) + ', ' + floated[i].name + ': ' + (e && e.message || e)); }
-  }
-  await wait(tempo);
-}
-let settled = '';
-if (stay) settled = 'and left where they danced (layout.undo puts them back)';
-if (!settled && home) {
-  try { await act('layout.load', { name: home, motion: 'settle' }); settled = 'into the screen ' + home; }
-  catch (e) { notes.push('layout.load ' + home + ': ' + (e && e.message || e)); }
-}
-if (!settled) {
-  // No layout asked: the run's own changes are taken back, so the screen is as it began.
-  try { await act('layout.undo'); settled = 'the layout as it began'; } catch (e) { notes.push('layout.undo: ' + (e && e.message || e)); }
-}
-if (!settled) settled = 'left where they danced (layout.undo, or ctrl+z, puts them back)';
-return 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\nnotes: ' + notes.join('; ') : '');
-```
+Save the [complete Fantasia note in task 5](PROGRAMMABLE-NOTES.md#5-fantasia-settles-into-a-saved-screen), including its title and `js` fence.
 
 **Prepare the settle target:** `ep0ch act screen.open name=desk`, arrange several tiles, then `ep0ch act screen.save name=focus`.
 **Settle:** put `layout=focus` on the button and omit `stay=1`; run it on the Desk (or a blank screen), since Detail keeps its own layout.

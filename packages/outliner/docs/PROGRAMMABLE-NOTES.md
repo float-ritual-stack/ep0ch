@@ -55,14 +55,15 @@
 ## Scratch setup for all five tasks
 
 **Worktree:** run from the repository root; every command below uses this checkout, not the installed `ep0ch`.
-**Fresh shells:** each agent command runs in a fresh shell. Define `e()` again in every shell that uses it, or replace `e` with `scripts/agent-env notes-guide -- bun packages/door/src/main.ts --ws garden`. Keep the printed scratch path and host PID; set `work=<that-path>` and `host_pid=<that-pid>` in later shells that need them.
+**Fresh shells:** each agent command runs in a fresh shell. Define `e()` again in every shell that uses it, or replace `e` with `scripts/agent-env notes-guide -- bun packages/door/src/main.ts --ws garden`. Keep the printed scratch path; set `work=<that-path>` in later shells. The host PID is saved in `$work/host.pid`.
 **Isolation:** use one agent-env name for the host, door and commands; its outlines and control socket are private.
-**Ready:** the host prints `{"status":"ready","pid":…, …}` only after listening; wait for that line before creating the outline, and keep its PID for cleanup.
+**Ready:** the host prints `{"status":"ready","pid":…, …}` only after listening; wait for that line before creating the outline, and use the saved PID file for cleanup.
 
 ```sh
 work=$(mktemp -d /tmp/ep0ch-agent-$(id -u)/notes-XXXXXX)
 scripts/agent-env notes-guide -- env XDG_CONFIG_HOME="$work/config" bun packages/outliner/src/host-main.ts >"$work/host.log" 2>"$work/host.err" &
 host_pid=$!
+printf '%s\n' "$host_pid" >"$work/host.pid"
 printf 'work=%s host_pid=%s\n' "$work" "$host_pid"
 until rg -q '"status":"ready"' "$work/host.log"; do
   kill -0 "$host_pid" || { cat "$work/host.err"; break; }
@@ -73,7 +74,7 @@ e() { scripts/agent-env notes-guide -- bun packages/door/src/main.ts --ws garden
 e outline create garden
 ```
 
-**Saving examples:** write each `blockdown` example below into its own file under `$work`, then `e new "$(cat "$work/file")" --json`.
+**Saving examples:** write the inside of each `blockdown` wrapper below into its own file under `$work`, then `e new "$(cat "$work/file")" --json`. Omit the outer opening and closing backtick lines (including the four-backtick wrappers); keep the title and any inner `js` fence.
 **Finding notes:** `e find --query 'page=beds' --ids` returns the ID; use the full ID wherever a command below says `<id>`.
 **Readback:** `e show <id>` checks the drawing; `e show --source <id>` checks the stored source.
 
@@ -180,7 +181,7 @@ return await tools.outline_edit({
 ```
 ````
 
-**Find its action:** `e ext ls` lists append-log beside `script-<hash>`; use that ID below, not `ext.append-log.run`.
+**Find its action:** `e ext ls` shows `script-<hash>` rows with `@name` in the SERVES column; there is no name column. Find `@append-log` in SERVES and use that row's `script-<hash>` ID below, not `ext.append-log.run`.
 **Open a door:** substitute the target ID, then start your own pane.
 
 ```sh
@@ -195,13 +196,54 @@ e act edit
 **Type below the target:** move to the final paragraph by source line, checking `e peek`'s `cursor.line` (zero-based: line 4 in this example). Wrapped headers make a fixed count of Down presses unreliable; check after moving, then use End and `tmux send-keys -t notes-guide -l ' Still typing.'`. Leave the draft open.
 **Run:** `e ext act script-<hash> run --block <target-id> --actor gardener`; wait for its run note to finish and read it with `e show --source <run-note-id>`. This service CLI route also works outside a door; the held draft requires the scratch door above.
 **First result:** the receipt says `outcome: applied`, the draft contains the output and the person's words, and `e show --source <target-id>` still shows the saved version.
-**Conflict:** copy the receipt's `anchor`, use the pane's arrow keys to put the person's cursor inside the new output body, and run `e ext act script-<hash> run --block <target-id> --arg target=^<anchor> --actor gardener`.
+**Conflict:** copy the receipt's `anchor`. Inspect `e peek`'s text to locate the output region's body lines containing `Sowed beans.` and `Watered the bed.`, below its `> [!output]` header. For saved output, `e show --source <target-id>` also shows those lines; it does not include the unsaved held draft. Use the pane's arrow keys to put the person's cursor on one of those body lines, then check `e peek`'s zero-based `cursor.line` against the source before running `e ext act script-<hash> run --block <target-id> --arg target=^<anchor> --actor gardener`.
 **Second result:** the receipt says `outcome: proposed`; the draft keeps the person's text, and the proposal can be applied or dismissed later.
 **Finish the edit:** Ctrl+S in your own pane saves the combined draft before task 5.
 
 ## 5. Fantasia settles into a saved screen
 
-**Script:** save the complete Fantasia script from [scripts.md](scripts.md#fantasia-a-button-a-transaction-motion-undo-needs-a-door) as a note titled `Fantasia [script::fantasia] [effects::write]`, with its closed `js` fence.
+**Script:** save this whole note, including the title and the inner `js` fence.
+
+````blockdown
+Fantasia [script::fantasia] [effects::write]
+```js
+const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));
+const tempo = Math.max(150, Math.min(3000, Number(props.tempo && props.tempo[0]) || 500));
+const style = (props.motion && props.motion[0]) || 'fantasia';
+const home = (props.layout && props.layout[0]) || '';
+const stay = !!(props.stay && props.stay[0]);
+const before = await act('layout.get');
+if (before.locked) return 'fantasia: the screen is locked; alt+k unlocks it, then run again';
+const dancers = (before.tiles || []).filter(t => t.shown && t.kind !== 'drawer.own').map(t => ({ id: t.id, name: t.name }));
+const notes = [], floated = [];
+for (const d of dancers) {
+  try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r && r.now && r.now !== d.name ? r.now : d.id, name: d.name }); }
+  catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }
+}
+if (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');
+const drift = [[7, -2], [-5, 3], [6, 2], [-8, -3], [4, 4], [-4, -4], [9, 1], [-6, 2]];
+for (let beat = 0; beat < beats; beat++) {
+  for (let i = 0; i < floated.length; i++) {
+    const [dx, dy] = drift[(beat + i * 3) % drift.length];
+    try { await act('float.place', { tile: floated[i].id, dx: i % 2 ? -dx : dx, dy, motion: style }); }
+    catch (e) { notes.push('beat ' + (beat + 1) + ', ' + floated[i].name + ': ' + (e && e.message || e)); }
+  }
+  await wait(tempo);
+}
+let settled = '';
+if (stay) settled = 'and left where they danced (layout.undo puts them back)';
+if (!settled && home) {
+  try { await act('layout.load', { name: home, motion: 'settle' }); settled = 'into the screen ' + home; }
+  catch (e) { notes.push('layout.load ' + home + ': ' + (e && e.message || e)); }
+}
+if (!settled) {
+  // No layout asked: the run's own changes are taken back, so the screen is as it began.
+  try { await act('layout.undo'); settled = 'the layout as it began'; } catch (e) { notes.push('layout.undo: ' + (e && e.message || e)); }
+}
+if (!settled) settled = 'left where they danced (layout.undo, or ctrl+z, puts them back)';
+return 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\nnotes: ' + notes.join('; ') : '');
+```
+````
 **Button:** save this note; the button is on a body line, since the first line is the title.
 
 ```blockdown
@@ -209,11 +251,11 @@ Dance controls [page::dance-controls]
 ::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 layout=focus motion=fantasia}
 ```
 
-**Desk:** `e act screen.open name=desk` leaves Detail, whose layout is fixed.
+**Desk:** `e act screen.open name=desk` leaves Detail, whose layout is fixed. If Desk is already open, it answers “the desk is already open”; to reset the layout, use `e act layout.load name=desk`.
 **Arrange:** `e act tile.open kind=detail note=<button-note-id>` and open two more readers for the Beds and Tools pages.
 **Undo reader:** before saving, also open the Fantasia definition with `e act tile.open kind=detail note=<script-note-id>` and keep the returned tile name for `ext.undo`.
 **Save:** `e act screen.save name=focus` creates the settle target, including that undo reader; `layout=focus` can now load it.
-**Person's press:** click the Fantasia chip in your own pane, or select it and press Enter; the invitation lets the run move the held tile as well.
+**Person's press:** this needs a person: click the Fantasia chip, or select it and press Enter, then use Ctrl+Z to undo. The invitation lets the run move the held tile as well. An agent tests only the agent path below (`button.press --as` and `ext.undo`) and stops there; it does not perform this person-only check.
 **Variant:** `stay=1` instead of `layout=focus` leaves the tiles where they danced for an undo demonstration; do not combine them, since stay takes precedence. With neither, Fantasia undoes its own layout before finishing.
 **Done:** tiles float, wait between beats, settle into focus, and one Ctrl+Z (`layout.undo`) puts the original layout back.
 **Agent's press:** `e act button.press note=<button-note-id> label=Fantasia --as gardener` runs the same script without an invitation; the person's held tile stays put, said in the run note.
@@ -223,10 +265,12 @@ Dance controls [page::dance-controls]
 
 ## Cleanup
 
-**Only your processes:** stop the pane and host you started, then remove your scratch files.
+**Only your processes:** stop the pane and host you started, using the PID saved at startup, then remove your scratch files. Never pick a host from `pgrep`: other people's hosts run on the same machine.
 
 ```sh
 tmux kill-session -t notes-guide
+host_pid=$(cat "$work/host.pid")
+pstree -p "$host_pid"
 kill "$host_pid"
 # In the shell that launched the host, also: wait "$host_pid"
 scripts/scratch-clean "$work"
