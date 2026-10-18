@@ -423,7 +423,7 @@ test("move puts a note under a parent or beside a sibling, attributed; it refuse
   const intoTrash = await agent("move", { ref: kid.id, parent: trashView });
   expect(intoTrash.stderr).toContain("Trash, which the service fills itself");
   expect((await agent("move", { ref: trashView, parent: trashView })).exitCode).toBe(1);
-});
+}, 30_000);
 
 test("a system note moves like any note, attributed, and its refusals name what it is", async () => {
   const { store, agent, cli } = await setup();

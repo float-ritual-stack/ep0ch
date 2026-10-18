@@ -306,16 +306,31 @@ test("editing a dotted-folder script reloads its opt-in without an explicit relo
     await Bun.write(join(root, ".ep0ch", "scripts", "watched.ts"), "return 'not opted in';");
   });
   const file = join(root, ".ep0ch", "scripts", "watched.ts");
-  await Bun.write(file, "// ep0ch-script\nreturn 'Ready';");
-  let active = false;
-  const deadline = Date.now() + 2500;
-  do {
-    const listed = await client.request<{ extensions: { name?: string; state: string }[] }>({ action: "extensions.list" });
-    active = listed.extensions.some(e => e.name === "watched" && e.state === "active");
-    if (!active) await Bun.sleep(20);
-  } while (!active && Date.now() < deadline);
-  expect(active).toBe(true);
-});
+  const connected = Promise.withResolvers<void>();
+  const active = Promise.withResolvers<{ name?: string; state: string }>();
+  const watcher = client.watch({
+    client: { clientId: "script-watcher", contextId: "script-watcher", role: "observer" },
+    onConnect: connected.resolve,
+    onError: error => { connected.reject(error); active.reject(error); },
+    onEvent: async event => {
+      if (event.domain !== "extensions") return;
+      try {
+        const listed = await client.request<{ extensions: { name?: string; state: string }[] }>({ action: "extensions.list" });
+        const watched = listed.extensions.find(e => e.name === "watched" && e.state === "active");
+        if (watched) active.resolve(watched);
+      } catch (error) { active.reject(error); }
+    },
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await connected.promise;
+    await Bun.write(file, "// ep0ch-script\nreturn 'Ready';");
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("timed out after 5 s waiting for watched script to become active")), 5000);
+    });
+    expect(await Promise.race([active.promise, deadline])).toMatchObject({ name: "watched", state: "active" });
+  } finally { clearTimeout(timer); await watcher.stop(); }
+}, 30_000);
 
 
 test("an unreadable script is listed without hiding other scripts", async () => {

@@ -61,7 +61,7 @@ beforeAll(async () => {
   for (const f of ["ssh", "ep0ch"]) chmodSync(join(root, "bin", f), 0o755);
   Object.assign(env, {
     PATH: process.env.PATH, HOME: join(root, "home"), EP0CH_SSH: join(root, "bin", "ssh"), FAKE_SSH_LOG: join(root, "ssh.log"),
-    FAKE_SSH_HOME: join(root, "far", "home"), FAKE_SSH_OUTLINES: far.root, FAKE_SSH_BIN: join(root, "bin"),
+    FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(root, "far", "home"), FAKE_SSH_OUTLINES: far.root, FAKE_SSH_BIN: join(root, "bin"),
   });
   const home = new Publisher({ client: new OutlinerClient(here.socket, 15_000, "garden"), basePath: "/pub", log: (line) => logged.push(line) });
   await home.start();

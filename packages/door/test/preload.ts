@@ -7,6 +7,7 @@ import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import "../../../scripts/fake-ssh-owner";
 
 for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER") delete process.env[k];
 // A test's budget is its own waits' (until()'s, 5 s and up), not Bun's 5 s default: under a loaded runner (CI's

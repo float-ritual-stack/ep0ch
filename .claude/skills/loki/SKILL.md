@@ -72,6 +72,9 @@ what needs him or what changed; if nothing changed and nothing's wrong, one line
    include `~/.bun/bin`, `~/.local/bin` and `/opt/homebrew/bin`).
 4. **float-2 health:** load; disk free (warn under 3G, and find who's filling it); the outline host, the publishers,
    the MCP gateway and the backup timer active; `ep0ch echo status` (a stale tosser exits 1).
+   On float-2 and float-box, run `bun scripts/fake-ssh-check.ts` from the checkout: more than 10 forwards is a
+   leak (exit 1). Find the owning runs; stop only your own. `scripts/agent-env <name> --clean` sweeps that agent's
+   old forwards as well as its scratch folders.
 5. **Deploys:** read `ep0ch find --ws pie --query "type=deploy machine=install created >= -40m" --json`
    on float-2. Compare the records' Who and Session with your actor and session and the installs you ran since the
    last check-in. Flag any deploy you did not run (including one by another session with the same persona), link

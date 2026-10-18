@@ -39,7 +39,7 @@ describe.skipIf(!RESTIC || !outliner)("the relay through the hub", () => {
     HOME: join(dir, "laptop-home"), PATH: process.env.PATH!, EP0CH_OUTLINES: join(dir, "laptop-outlines"), EP0CH_STATE: join(dir, "laptop-state"),
     EP0CH_MCP_MIRROR_DIR: join(dir, "laptop-mirrors"), EP0CH_BACKUP_MACHINE: "laptop", EP0CH_BACKUP_REPO: join(dir, "repos", "{machine}"),
     RESTIC_PASSWORD: "fictional-test-password", EP0CH_RESTIC: RESTIC!, EP0CH_MCP_HUB: "hub-box", EP0CH_SSH: join(dir, "bin", "ssh"),
-    FAKE_SSH_HOME: join(dir, "hub-home"), FAKE_SSH_OUTLINES: join(dir, "hub-outlines"), FAKE_SSH_BIN: join(dir, "bin"), FAKE_SSH_LOG: join(dir, "ssh.log"), ...extra,
+    FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(dir, "hub-home"), FAKE_SSH_OUTLINES: join(dir, "hub-outlines"), FAKE_SSH_BIN: join(dir, "bin"), FAKE_SSH_LOG: join(dir, "ssh.log"), ...extra,
   });
   const laptopWith = (extra: Record<string, string> = {}) => { const c = backupConfig(laptopEnv(extra)); if ("error" in c) throw new Error(c.error); return c; };
   const say = () => {};

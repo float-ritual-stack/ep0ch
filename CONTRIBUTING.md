@@ -42,6 +42,10 @@ Before a PR claims a change works:
      killed whole on exit, Ctrl-C, TERM, timeout and a dead ssh, then anything still tied to its run dir (environment or
      working folder, so a daemon that left the group too) is killed, and a survivor fails the run
      (exit 97, "LEAK"); before each run, processes of runs whose dir is gone are swept (and counted in the output).
+     Finished run directories are swept only when no guard holds them and the directory, `kept` marker and
+     `guard.lock` are older than 15 minutes. Kept directories also need 24 hours without activity anywhere inside
+     before they are swept. Uploading runs keep the marker until their guard takes the directory lock; `--keep`
+     retains it after the run.
    - **On boxd** (PIE-597) the script
      forks the golden box (the repo cloned, `bun install` done), checks out your commit (unpushed is fine: it goes
      up as a bundle), streams the output, exits with the first failing suite's code and removes the fork (one it
