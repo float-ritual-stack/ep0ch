@@ -482,10 +482,54 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   }, 30_000);
 
 
+  test("hero look (PIE-1055): tune changes the displayed hero and note properties win", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "style" }, as: "test-agent" });
+    await until(() => screen().includes("Spacing lab"), "the style reader");
+    app.video = "kitty";
+    const hero = () => sc.render(app).placements?.find(p => p.key.includes("hero:img:"));
+    await until(() => !!hero(), "the sharp hero");
+    const pixels = () => {
+      const image = hero()!.image;
+      if (!("png" in image)) throw new Error("the hero should be a cached PNG");
+      return image.png;
+    };
+    const sharp = pixels();
+    expect(await app.act({ action: "tune.set", args: { row: "header.image.blur", value: "4", level: "page" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "4" });
+    await until(() => !!hero() && !pixels().equals(sharp), "the blurred pixels");
+    const fullWidth = hero()!.cols;
+    await app.act({ action: "tune.set", args: { row: "header.image.bleed", value: "measure", level: "page" }, tile: "tune", as: "test-agent" });
+    await until(() => !!hero() && hero()!.cols < fullWidth, "the hero inside the text measure");
+    await app.act({ action: "tune.set", args: { row: "header.image.height", value: "6", level: "page" }, tile: "tune", as: "test-agent" });
+    await until(() => !!hero() && hero()!.rows <= 6, "the six-row hero");
+    await app.act({ action: "tune.set", args: { row: "header.image.bleed", value: "full", level: "page" }, tile: "tune", as: "test-agent" });
+    await app.act({ action: "tune.set", args: { row: "header.image.height", value: "33%", level: "page" }, tile: "tune", as: "test-agent" });
+    expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: true });
+    expect((await board.get(seeded.notes.spacingLab.id))!.text).toContain("[style.header.image.blur::4]");
+    await app.act({ action: "tune.set", args: { row: "header.image.blur", value: "0", level: "page" }, tile: "tune", as: "test-agent" });
+    await app.act({ action: "tune.save", tile: "tune", as: "test-agent" });
+    await until(() => !!hero() && pixels().equals(sharp), "the sharp cached picture restored");
+    await app.act({ action: "section", args: { name: "hero" }, as: "test-agent" });
+    await until(() => !!hero(), "the hero showcase");
+    const pinned = hero()!;
+    await app.act({ action: "scroll", args: { by: 10 }, as: "test-agent" });
+    expect(hero()).toMatchObject({ col: pinned.col, row: pinned.row, cols: pinned.cols, rows: pinned.rows });
+    await app.act({ action: "tile.tune", as: "test-agent" });
+    screen();
+    await until(() => !!hero(), "the hero beside its inspector");
+    const beside = pixels();
+    await app.act({ action: "tune.set", args: { row: "header.image.blur", value: "0", level: "tile" }, tile: "tune", as: "test-agent" });
+    await until(() => !!hero(), "the line's blur after the tune change");
+    expect(pixels().equals(beside)).toBe(true);
+    await app.act({ action: "tile.close", tile: "tune", as: "test-agent" });
+    await app.act({ action: "scroll", args: { to: "top" }, as: "test-agent" });
+    app.video = "cells";
+  });
+
   test("hero header (PIE-598): the opening picture, scrolled under the header, becomes its dimmed background; reader.hero on=false keeps it plain", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "hero" }, as: "test-agent" })).toMatchObject({ key: "hero" });
-    await until(() => screen().includes("▣ evening-beds.jpg") && !screen().includes("loading…"), "the hero note, its picture read", 8000);
+    await until(() => screen().includes("header evening-beds.jpg") && !screen().includes("loading…"), "the hero note, its picture read", 8000);
     const reader = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes[0]; };
     const raw = () => sc.render(app).lines as string[];
     // The title rows inside the tiles (not a frame's label): the reader's is the row's first, the column's beside it.

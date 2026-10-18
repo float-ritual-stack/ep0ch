@@ -42,7 +42,7 @@ export type Crop = { x: number; y: number; w: number; h: number };
  * brightest part), over the part `crop` shows; `mute`d (desaturated and softened) and only `alpha` opaque (the ground
  * showing through the rest) as a header's backdrop (PIE-598).
  */
-export interface Look { dim?: number; crop?: Crop; mean?: number; peak?: number; mute?: boolean; alpha?: number }
+export interface Look { dim?: number; crop?: Crop; mean?: number; peak?: number; mute?: boolean; alpha?: number; blur?: number; tint?: number; tone?: Rgb; fade?: number; width?: number; ground?: Rgb }
 
 /** The longest edge, in pixels, an image is kept at. */
 const MAX_PX = 1600;
@@ -257,14 +257,14 @@ const limited = (look: Look) => look.mean !== undefined || look.peak !== undefin
 const MUTE_SATURATION = 0.12;
 
 /** What a look names in a cache file: its dim (or auto, and its limits), its crop, rounded, and whether it's muted. */
-const lookKey = (look: Look) => `${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}${look.mean !== undefined ? `m${Math.round(look.mean * 1000)}` : ""}${look.peak !== undefined ? `p${Math.round(look.peak * 1000)}` : ""}${look.mute ? "u" : ""}${look.alpha !== undefined && look.alpha < 1 ? `o${Math.round(look.alpha * 100)}` : ""}`;
+const lookKey = (look: Look) => `${look.blur ? `b${look.blur}_` : ""}${look.tint ? `t${look.tint}_${look.tone?.join("_")}_` : ""}${look.fade ? `f${look.fade}_${look.ground?.join("_")}_` : ""}${look.width ? `w${look.width}_` : ""}${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}${look.mean !== undefined ? `m${Math.round(look.mean * 1000)}` : ""}${look.peak !== undefined ? `p${Math.round(look.peak * 1000)}` : ""}${look.mute ? "u" : ""}${look.alpha !== undefined && look.alpha < 1 ? `o${Math.round(look.alpha * 100)}` : ""}`;
 
 /**
  * A look's key without its crop: a PNG is always the whole image (the crop is its placement's), so one made for another
  * crop draws this one too, its brightness worked out for that one.
  */
-const looseKey = (look: Look) => lookKey({ ...look, crop: undefined });
-const looseOf = (job: string) => (job.split("\0")[2] ?? "").replace(/c\d+_\d+_\d+_\d+/, "");
+const looseKey = (look: Look) => lookKey({ ...look, crop: undefined, width: undefined });
+const looseOf = (job: string) => (job.split("\0")[2] ?? "").replace(/c\d+_\d+_\d+_\d+/, "").replace(/w\d+_/, "");
 
 /**
  * The PNG of `s` with its longest edge at most `edge`, drawn as `look` says: its brightness worked out from the part
@@ -276,7 +276,7 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   const f = look.dim !== undefined && !limited(look) ? brightness(0, look.dim) : brightnessOf(await lightOf(s, look.crop), look);
   const ref = `${s.key}-${edge}-${lookKey(look)}`;
   const alpha = look.alpha !== undefined && look.alpha < 1 ? Math.max(0, look.alpha) : 1;
-  if (s.png && f === 1 && !look.mute && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}`, ...(look.crop ? { crop: look.crop } : {}) };
+  if (s.png && f === 1 && !look.mute && !look.blur && !look.tint && !look.fade && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}`, ...(look.crop ? { crop: look.crop } : {}) };
   const out = await cached(join(mediaCache(), `${ref}.png`), async tmp => {
     mediaWork.scaled++;
     const sharp = await lib();
@@ -284,10 +284,24 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
     // A header's backdrop: most of its colour gone and its detail softened, so the header's text reads over it.
     if (look.mute) p = p.modulate({ brightness: f, saturation: MUTE_SATURATION }).blur(Math.max(1, edge / 160));
     else if (f < 1) p = p.modulate({ brightness: f });
-    if (alpha < 1) {
+    if (look.blur) p = p.blur(look.blur);
+    if (alpha < 1 || look.tint || look.fade) {
       // Partly opaque: the terminal draws the ground through it (a backdrop coming in by steps).
       const { data, info } = await p.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      for (let i = 3; i < data.length; i += 4) data[i] = Math.round(data[i]! * alpha);
+      const crop = look.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+      for (let i = 0; i < data.length; i += 4) {
+        if (look.tint && look.tone) {
+          const y = 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
+          for (let c = 0; c < 3; c++) data[i + c] = Math.round(data[i + c]! * (1 - look.tint) + y * look.tone[c]! / 255 * look.tint);
+        }
+        const y = (Math.floor(i / 4 / info.width) + 0.5) / info.height;
+        const fade = look.fade ? Math.max(0, Math.min(1, (crop.y + crop.h - y) / (crop.h * look.fade))) : 1;
+        if (look.fade && look.ground) {
+          const a = data[i + 3]! / 255 * fade;
+          for (let c = 0; c < 3; c++) data[i + c] = Math.round(data[i + c]! * a + look.ground[c]! * (1 - a));
+          data[i + 3] = Math.round(255 * alpha);
+        } else data[i + 3] = Math.round(data[i + 3]! * alpha * fade);
+      }
       p = sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } });
     }
     await p.png().toFile(tmp);
@@ -438,11 +452,17 @@ function stretch(g: CellGrid, cols: number, rows: number): CellGrid {
 
 async function gridOf(s: Source, cols: number, rows: number, look: Look): Promise<CellGrid> {
   mediaWork.grids++;
-  const { data } = await (await cropped(s, look.crop)).resize({ width: cols, height: rows, fit: "fill" }).flatten({ background: "#000" }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  let pixels = await cropped(s, look.crop);
+  if (look.blur) pixels = pixels.blur(look.blur);
+  const { data } = await pixels.resize({ width: cols, height: rows, fit: "fill" }).flatten({ background: "#000" }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const px: [number, number, number][] = [];
   for (let i = 0; i + 2 < data.length; i += 3) {
     const [r, g, b] = [data[i]!, data[i + 1]!, data[i + 2]!], y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     px.push(look.mute ? [y + (r - y) * MUTE_SATURATION, y + (g - y) * MUTE_SATURATION, y + (b - y) * MUTE_SATURATION] : [r, g, b]);
+  }
+  if (look.tint && look.tone) for (const c of px) {
+    const y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    for (let k = 0; k < 3; k++) c[k] = c[k]! * (1 - look.tint) + y * look.tone[k]! / 255 * look.tint;
   }
   const lum = px.map(([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255);
   const f = brightnessOf({ mean: lum.reduce((a, b) => a + b, 0) / Math.max(1, lum.length), peak: Math.max(0, ...lum) }, look);

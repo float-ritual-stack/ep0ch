@@ -288,6 +288,7 @@ export class ReaderPane implements Pane {
   readonly measured = true;
   readonly surface = new NoteSurface();
   gutterCols = 0;
+  heroBounds?: { col: number; row: number; cols: number };
   /** The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it. */
   beside() { return this.surface.marginBeside(); }
   private held = false;
@@ -422,6 +423,7 @@ export class ReaderPane implements Pane {
     const pane = this;
     const h: SurfaceHost = {
       externalGutter: this.gutterCols,
+      heroBounds: this.heroBounds,
       ctx: desk.ctx,
       // Whether the person's keys are here: an agent's fragment link is revealed only in a reader they aren't in.
       get focused() { return desk.hasFocus ? desk.hasFocus(pane) : undefined; },

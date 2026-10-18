@@ -3236,6 +3236,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const inner = contentRect({ ...framed, col: framed.col + gutter, cols: framed.cols - gutter }, look, !!pane.measured, pane.beside?.() ?? 0);
     if (gutter) this.gutters.set(id, { col: framed.col, row: inner.row, cols: gutter, rows: inner.rows });
     else this.gutters.delete(id);
+    if (reader) reader.heroBounds = { col: framed.col - inner.col, row: framed.row - inner.row, cols: framed.cols };
     this.contents.set(id, inner);
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
@@ -3401,7 +3402,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     for (const s of view.spots ?? []) if (s.row < inner.rows && s.from < inner.cols) this.tileSpots.push({ y: inner.row + s.row, from: inner.col + s.from, to: inner.col + Math.min(s.to, inner.cols), key: s.key, tile: id });
     if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(focused ? C.lcyan : C.cyan));
-    for (const p of view.placements ?? []) out.push({ ...p, key: `p${id}:${p.key}`, col: p.col + inner.col, row: p.row + inner.row, cols: Math.min(p.cols, inner.cols), rows: Math.min(p.rows, inner.rows) });
+    for (const p of view.placements ?? []) out.push({ ...p, key: `p${id}:${p.key}`, col: p.col + inner.col, row: p.row + inner.row, cols: Math.min(p.cols, framed.col + framed.cols - (inner.col + p.col)), rows: Math.min(p.rows, framed.row + framed.rows - (inner.row + p.row)) });
     return out;
   }
 

@@ -1,3 +1,4 @@
+import { heroLook } from "./surface/hero-look";
 import { isArtifactName } from "@ep0ch/outline-core/artifacts";
 import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-core/table-shape";
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
@@ -28,7 +29,7 @@ import { BORDER_BOXES } from "./canvas";
 import { dividerLine, gapSlots } from "./list-look";
 import { zebraBg } from "./surface/selection";
 import { theme } from "./theme";
-import { headingComponentLayer, listLayers, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
+import { BASE_STYLE, headingComponentLayer, listLayers, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { STEP_BOX, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
 
 export interface DocEnv {
@@ -162,6 +163,7 @@ export interface DocEnv {
    * header image is drawn where it is written, the full width, cropped to at most `maxImageRows`.
    */
   hero?: boolean;
+  heroLine?: number;
   /**
    * Tag `text` as a control of the image on body line `line` (its caption's − + ◂ ▸ ▀), so a click runs that
    * change. Without it (an embed, a draft's preview, `ep0ch show`) the caption has no controls.
@@ -188,7 +190,7 @@ export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolea
  * An image laid out on the body's rows: `col` cells in, `cols` × `rows` cells; `crop` the part of it shown, as
  * fractions of the image (a header's cover crop).
  */
-export interface DocImage { line: number; col: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }>; crop?: { x: number; y: number; w: number; h: number }; dim?: number }
+export interface DocImage { line: number; col: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }>; crop?: { x: number; y: number; w: number; h: number }; dim?: number; look?: import("./media").Look }
 /**
  * A media line as drawn: the file, its kind, the row naming it (its caption), the body line it's on, what the line says
  * of its layout, and `image`, its index in `Doc.images` when it's laid out there.
@@ -669,7 +671,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const entry = media(spec.path, spec.kind);
       const ref: DocMedia = { path: entry.path, kind: spec.kind, row: out.length, line: i, spec };
       mediaRefs.push(ref);
-      if (spec.layout === "hero" && env.hero) {
+      if (env.heroLine !== undefined ? i === env.heroLine : spec.layout === "hero" && env.hero) {
         hero = { ...ref, media: entry };
         out.push(caption(entry, spec, W, env, i, true));
         continue;
@@ -898,11 +900,12 @@ const colsFor = (m: { width: number; height: number }, rows: number, env: DocEnv
 export function mediaRows(spec: MediaSpec, W: number, env: DocEnv, line: number, entry: Media = media(spec.path, spec.kind === "video" ? "video" : "img")): { lines: string[]; caption: number; entry: Media; image?: DocImage } {
   const lines: string[] = [];
   const isHero = spec.layout === "hero";
+  const hero = isHero ? heroLook(spec, env.look?.values ?? BASE_STYLE) : null;
   const size = entry.state === "ready" ? entry : entry.state === "loading" && entry.width && entry.height ? { width: entry.width, height: entry.height } : null;
   let image: DocImage | undefined;
   if (size && env.graphics) {
-    const box = isHero ? heroBox(size, spec, W, Math.min(spec.height ?? Infinity, env.maxImageRows), env.cellW, env.cellH) : imageBox(size, spec, W, env);
-    if (entry.state === "ready") image = { line: 0, media: entry, ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box };
+    const box = isHero ? heroBox(size, hero!, W, Math.min(hero!.height ?? env.maxImageRows, env.maxImageRows), env.cellW, env.cellH) : imageBox(size, spec, W, env);
+    if (entry.state === "ready") image = { line: 0, media: entry, ...(hero ? { look: { ...hero.pixels, width: W } } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box };
     for (let r = 0; r < box.rows; r++) lines.push("");
   }
   lines.push(caption(entry, spec, W, env, line, isHero));

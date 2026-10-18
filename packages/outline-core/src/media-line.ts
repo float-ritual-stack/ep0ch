@@ -25,14 +25,15 @@ export type MediaSize = { cells: number } | { percent: number } | "full";
 export interface MediaSpec {
   kind: MediaKind; path: string;
   size?: MediaSize; height?: number; align?: Align; layout?: "hero"; fit?: "cover" | "contain"; dim?: number; focus?: Focus; alt?: string;
+  blur?: number; bleed?: "full" | "measure"; heightShare?: number; tint?: number; fade?: number; title?: "below" | "over"; scroll?: "scroll" | "pinned";
   problems: string[];
 }
 /** A point in an image, as fractions of it across and down. */
 export type Focus = { x: number; y: number };
-export type MediaAttr = "size" | "height" | "align" | "layout" | "fit" | "dim" | "hero-focus" | "alt";
+export type MediaAttr = "size" | "height" | "align" | "layout" | "fit" | "dim" | "hero-focus" | "alt" | "blur" | "bleed" | "tint" | "fade" | "title" | "scroll";
 const MEDIA_KEY = /^(img|image|video|artifact)$/i;
 /** The layout properties a media line takes beside its path: what the library's image schemas must document. */
-export const MEDIA_ATTRS: readonly MediaAttr[] = ["size", "height", "align", "layout", "fit", "dim", "hero-focus", "alt"];
+export const MEDIA_ATTRS: readonly MediaAttr[] = ["size", "height", "align", "layout", "fit", "dim", "hero-focus", "alt", "blur", "bleed", "tint", "fade", "title", "scroll"];
 const ATTRS = new Set<string>(MEDIA_ATTRS);
 const LEAD = /^\s*(?:[-*]\s+)?/;
 /** A block anchor ending a line (` ^beds`), kept as it is when the line is rewritten. */
@@ -72,7 +73,7 @@ function tokens(line: string): { lead: string; toks: Tok[]; block: boolean; anch
   // `img:: path`, perhaps followed by the layout tokens: the path is what comes before them.
   const blockForm = /^(img|image|video|artifact)::\s*(.*)$/i.exec(rest);
   if (blockForm) {
-    const tail = /(?:^|\s)(\[(?:size|height|align|layout|fit|dim|hero-focus|alt)::.*)$/i.exec(blockForm[2]!);
+    const tail = /(?:^|\s)(\[(?:size|height|align|layout|fit|dim|hero-focus|alt|blur|bleed|tint|fade|title|scroll)::.*)$/i.exec(blockForm[2]!);
     const path = (tail ? blockForm[2]!.slice(0, tail.index) : blockForm[2]!).trim();
     const more = tail ? scanTokens(tail[1]!) : [];
     if (!path || path.startsWith("[") || !more) return null;
@@ -105,7 +106,8 @@ export function parseMediaLine(line: string): MediaSpec | null {
       const size = parseSize(v);
       if (size) spec.size = size; else spec.problems.push(`size::${value} isn't a size (cells, N% or full)`);
     } else if (k === "height") {
-      if (/^\d{1,3}$/.test(v) && +v > 0) spec.height = +v; else spec.problems.push(`height::${value} isn't a number of rows`);
+      if (/^\d{1,2}%$/.test(v) && parseInt(v) > 0 && parseInt(v) <= 50) spec.heightShare = parseInt(v) / 100;
+      else if (/^\d{1,3}$/.test(v) && +v > 0) spec.height = +v; else spec.problems.push(`height::${value} isn't a number of rows`);
     } else if (k === "align") {
       if ((ALIGNS as readonly string[]).includes(v)) spec.align = v as Align; else spec.problems.push(`align::${value} isn't left, center or right`);
     } else if (k === "layout") {
@@ -115,6 +117,17 @@ export function parseMediaLine(line: string): MediaSpec | null {
     } else if (k === "dim") {
       const d = parseDim(v);
       if (d !== null) spec.dim = d; else spec.problems.push(`dim::${value} isn't a number from 0 to 1`);
+    } else if (k === "blur") {
+      if (/^\d+$/.test(v) && +v <= 24) spec.blur = +v; else spec.problems.push(`blur::${value} must be 0 to 24`);
+    } else if (k === "tint" || k === "fade") {
+      const n = parseDim(v);
+      if (n !== null) spec[k] = n; else spec.problems.push(`${k}::${value} must be 0 to 1`);
+    } else if (k === "bleed") {
+      if (v === "full" || v === "measure") spec.bleed = v; else spec.problems.push(`bleed::${value} must be full or measure`);
+    } else if (k === "title") {
+      if (v === "below" || v === "over") spec.title = v; else spec.problems.push(`title::${value} must be below or over`);
+    } else if (k === "scroll") {
+      if (v === "scroll" || v === "pinned") spec.scroll = v; else spec.problems.push(`scroll::${value} must be scroll or pinned`);
     } else if (k === "hero-focus") {
       const f = parseFocus(v);
       if (f) spec.focus = f; else spec.problems.push(`hero-focus::${value} isn't a point (x,y: 0 to 1, or percents)`);

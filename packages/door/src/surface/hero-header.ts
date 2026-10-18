@@ -54,18 +54,18 @@ export type Backdrop = { step: number; placement: Placement } | { step: number; 
  * reaches it, and one not ready yet is drawn as the nearest that is), else a colour per cell, mixed with the ground
  * by the step. None ready: null, and the header stays plain until one is (never a bright frame).
  */
-export function backdrop(m: ReadyMedia, focus: Focus | undefined, dim: number | undefined, step: number, cols: number, rows: number, cellW: number, cellH: number, graphics: boolean, over: { grid?: CellGrid; z?: number } = {}): Backdrop | null {
+export function backdrop(m: ReadyMedia, focus: Focus | undefined, dim: number | undefined, step: number, cols: number, rows: number, cellW: number, cellH: number, graphics: boolean, over: { grid?: CellGrid; z?: number; look?: Look } = {}): Backdrop | null {
   if (step <= 0 || cols < 1 || rows < 1) return null;
   const crop = coverCrop(m, cols * cellW, rows * cellH, focus);
   const steps = Array.from({ length: HERO_STEPS }, (_, i) => i + 1).sort((a, b) => Math.abs(a - step) - Math.abs(b - step) || a - b);
   if (!graphics) {
-    const full = cellColours(m, cols, rows, lookAt(crop, dim));
+    const full = cellColours(m, cols, rows, { ...over.look, ...lookAt(crop, dim), fade: 0 });
     if (!full) return null;
     // Mixed by the step with what's under it: the picture before it (follow), else the ground.
     const g = groundOf(), a = step / HERO_STEPS;
     return { step, grid: full.map((row, r) => row.map((c, k) => { const u = over.grid?.[r]?.[k] ?? g; return c.map((v, i) => Math.round(u[i]! + (v - u[i]!) * a)) as unknown as Rgb; })) };
   }
-  const made = steps.map(n => [n, sized(m, cols * cellW, rows * cellH, lookAt(crop, dim, n))] as const);
+  const made = steps.map(n => [n, sized(m, cols * cellW, rows * cellH, { ...over.look, ...lookAt(crop, dim, n), fade: 0 })] as const);
   const hit = made.find(([, p]) => p);
   if (!hit) return null;
   const [n, png] = hit as [number, NonNullable<(typeof made)[number][1]>];
