@@ -37,6 +37,7 @@ export const marks: Record<string, string[]> = {
   // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
   status: ["a fake deploy, saying what it does with OSC 7501", "waiting on you"],
   // Two made-up agent sessions (PIE-737): moss docked here, fern pinned to the drawer, the panel listing both.
+  access: ["who can reach what", "garden-bot", "● full"],
   sessions: ["moss, a demo agent (made up for the showcase)", "demo-agent · moss", "demo-agent · fern"],
   changes: ["what changed", "garden-agent edited the three log notes"],
   // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.

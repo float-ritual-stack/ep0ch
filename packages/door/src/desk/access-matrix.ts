@@ -115,7 +115,7 @@ export class AccessMatrixPane implements Pane {
     const body = Math.max(2, h - lines.length - FOOT);
     const callerLines = m.callers.flatMap((c, r) => {
       const cells = m.cells[r]!;
-      const head = pad(` ${c.name}${c.via === "path" ? " ⌁" : ""}`, name);
+      const head = pad(` ${c.name}${c.via === "path" ? " »" : ""}`, name);
       const first = head + cells.slice(this.colTop, this.colTop + fit).map((x, k) => this.cellText(x, r === this.row && this.colTop + k === this.col, focused, true)).join("");
       const second = pad(`  ${c.lastCall ? `last ${ago(Date.parse(c.lastCall))}` : "no calls"}`, name) + cells.slice(this.colTop, this.colTop + fit).map((x, k) => this.cellText(x, r === this.row && this.colTop + k === this.col, focused, false)).join("");
       return [pad(first, w), dim(pad(second, w)).replaceAll(RESET + RESET, RESET)];
