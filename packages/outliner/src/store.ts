@@ -2750,7 +2750,7 @@ export class OutlinerStore {
     actorId?: string;
     /** Only blocks whose latest matching entry is below this cursor: the next, older page of a cut one. */
     beforeCursor?: number;
-  } = {}): BlockEditActivityPage {
+  } = {}, selectIds?: (ids: string[]) => string[]): BlockEditActivityPage {
     const afterCursor = options.afterCursor ?? 0;
     if (!Number.isSafeInteger(afterCursor) || afterCursor < 0) {
       throw new Error("Activity cursor must be a non-negative safe integer");
@@ -2787,14 +2787,23 @@ export class OutlinerStore {
     // The actor id is bound as the clause's last parameter, after the kinds.
     const actor = options.actorId === undefined ? [] : [options.actorId.trim()];
     const [machineClause, ...machineParameters] = options.machinery === undefined ? [""] : machineryClause(parseMachineryMode(options.machinery), "block_edit_activity.block_id");
-    const kindClause = `kind IN (${kinds.map(() => "?").join(", ")})${machineClause}${
+    let kindClause = `kind IN (${kinds.map(() => "?").join(", ")})${machineClause}${
       options.extensions === "exclude" ? " AND (actor_id IS NULL OR actor_id NOT LIKE 'ext:%')"
         : options.extensions === "only" ? " AND actor_id LIKE 'ext:%'" : ""}${actor.length ? " AND actor_id = ?" : ""}`;
+    // Published scripts count and page only the notes their reader can see.
+    const visible: string[] = [];
+    if (selectIds) {
+      const candidates = this.database.query(`SELECT DISTINCT block_id FROM block_edit_activity
+        WHERE activity_id > ? AND author = ? AND edited_at >= ? AND ${kindClause}`)
+        .all(afterCursor, author, since, ...kinds, ...machineParameters, ...actor) as { block_id: string }[];
+      visible.push(JSON.stringify(selectIds(candidates.map(row => row.block_id))));
+      kindClause += " AND block_id IN (SELECT value FROM json_each(?))";
+    }
     const cursorRow = this.database.query(`
       SELECT COALESCE(MAX(activity_id), ?) AS cursor
       FROM block_edit_activity
       WHERE activity_id > ? AND author = ? AND edited_at >= ? AND ${kindClause}
-    `).get(afterCursor, afterCursor, author, since, ...kinds, ...machineParameters, ...actor) as { cursor: number };
+    `).get(afterCursor, afterCursor, author, since, ...kinds, ...machineParameters, ...actor, ...visible) as { cursor: number };
     const rows = this.database.query(`
       SELECT activity_id, block_id, author, actor_id, session_id, task_id, kind, edited_at
       FROM block_edit_activity
@@ -2806,7 +2815,7 @@ export class OutlinerStore {
       )${before.length ? " AND activity_id < ?" : ""}
       ORDER BY activity_id DESC, block_id ASC
       LIMIT ?
-    `).all(afterCursor, author, since, ...kinds, ...machineParameters, ...actor, ...before, limit) as BlockEditActivityRow[];
+    `).all(afterCursor, author, since, ...kinds, ...machineParameters, ...actor, ...visible, ...before, limit) as BlockEditActivityRow[];
     const entries = rows.flatMap((row): BlockEditActivity[] => {
       const block = this.get(row.block_id);
       if (!block) return [];

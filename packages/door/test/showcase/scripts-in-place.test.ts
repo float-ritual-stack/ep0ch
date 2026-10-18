@@ -38,7 +38,8 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
     const deadline = Date.now() + 10_000;
     for (;;) {
       const rendered = await board.request<{ text: string }>("notes.render", { blockId: page.block!.id, format: "html", audience: "public" });
-      if ((rendered.text.match(/Seeds shown here: 1/g) ?? []).length >= 3) {
+      if ((rendered.text.match(/Seeds shown here: 1/g) ?? []).length >= 3 &&
+        (rendered.text.match(/Shelf complete: true; children: 0/g) ?? []).length === 2) {
         expect(rendered.text).not.toContain("Seeds shown here: 2");
         expect(rendered.text).not.toContain("hidden here");
         expect(rendered.text).toContain("not shared");

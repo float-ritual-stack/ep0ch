@@ -142,7 +142,7 @@ export class ScriptRuns {
     const timer = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(input.deadlineMs / 1000)}s)`)), input.deadlineMs);
     const signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal;
     try {
-      const select = (blocks: import("./types").VisibleBlock[], where?: string) => {
+      const select = <B extends { id: string }>(blocks: B[], where?: string) => {
         const visible = visibleMatches(this.store, bound!.world, blocks, where);
         input.onCandidates?.([...bound!.world.deps]);
         if (bound!.world.hiddenHits) untracked = true;
@@ -156,6 +156,16 @@ export class ScriptRuns {
             hiddenQueryRoot = true;
             throw new Error("not shared");
           }
+          if (request.action === "children") return select(this.store.children(request.parentId)) as T;
+          if (request.action === "blocks.read") {
+            const read = this.store.readBlocks(request.ids, request.fields);
+            for (const block of read.blocks) if (block.hasChildren !== undefined) {
+              block.hasChildren = select(this.store.children(block.id)).length > 0;
+            }
+            return read as T;
+          }
+          if (request.action === "activity.recent") return this.store.recentEditActivity(request, ids =>
+            select(ids.map(id => ({ id }))).map(block => block.id)) as T;
           if (request.action === "blocks.query") return this.store.queryBlocks({ ...request.query, machinery: request.query.machinery ?? DEFAULT_MACHINERY }, undefined, select) as T;
           if (request.action === "views.read") return this.store.readSavedView(request.viewId, request, "full", select) as T;
           return this.client.request<T>(request);
