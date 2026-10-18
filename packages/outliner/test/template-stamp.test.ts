@@ -85,11 +85,10 @@ describe("stamp as=new", () => {
     expect(text(store, out.stamped[0]!.id)).toBe(`Meeting Jay [type::meeting] [from-template::((${template.id}))]\ngood with Jay on 2026-10-17`);
   });
 
-  test("an unreadable template, into= and as= other than new are refused with where to go", () => {
+  test("an unreadable template and as= other than new are refused with where to go", () => {
     const store = scratch();
     daily(store);
     expect(() => stamp(store, { of: "[[daily-templat]]" })).toThrow(/No block \[\[daily-templat\]\]/);
-    expect(() => stamp(store, { of: "[[daily-template]]", into: "((abcd1234^weekly))" })).toThrow(/place\(\)/);
     expect(() => stamp(store, { of: "[[daily-template]]", as: "old" })).toThrow(/as=new/);
     expect(() => stamp(store, { of: "[[daily-template]]", freeze: "some" })).toThrow(/freeze=all/);
   });

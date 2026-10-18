@@ -121,6 +121,8 @@ export interface SiteAnswerRequest {
   hidden?: string[];
   /** Re-evaluate this render-script line with the reader’s query cut, without changing stored output. */
   scriptLine?: number;
+  /** Include the page Sources inspector, using this same visibility cut. */
+  sources?: boolean;
 }
 
 /**
@@ -213,6 +215,7 @@ export interface SiteValue {
 
 /** `site.answer`'s answer. `deps` are the notes it was computed from: it changes only when one of them does. */
 export interface SiteAnswer {
+  sources?: import("./sources").SourcesAnswer;
   script?: { markdown: string; view?: unknown; reads: { ids: string[]; untracked?: true } };
   blockId: string;
   revision: number;

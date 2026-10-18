@@ -1177,3 +1177,13 @@ Replies are notes; whole-note comments and patch notes keep their existing behav
 | `Z` in a reader, the outline tile, a river column, the reply panel or BBS message list | ask where it goes | The selected child row moves in a list; otherwise the reader’s note moves. `>` was the first choice and is the board screen's widen-tile and the power bar's actions prefix; `P` picks a follower's source and steps the BBS list; `m` is the thread list |
 | `ctrl+z` in a reader or the outline tile | puts the last move of that note back | In a reader it joins the chain (callout, image, step, extension, move: whichever came last). In the tile only for a row with a move newer than the last trash; otherwise the desk's untrash |
 | a drag in the outline tile | onto a row: under it (first); onto its `▸` mark at the left edge: above it (it started below) or below it | A press on a row selects; double-click opens. A match of a view's row doesn't drag (it's a copy) and says so; a drop outside the tile or inside the note itself moves nothing |
+
+
+### Sources downloads (PIE-956)
+
+Inside the Sources inspector only, `c` downloads the selected source as CSV and `J` as JSON.
+Both have clickable rows and `sources.download format=csv|json source=<number> [path=<new file>]`.
+The default destination is the door's outline state `downloads/` directory; the action reports the path.
+These keys were unbound in Sources; other reader and screen bindings do not move. Enter opens a source,
+then Enter on a download row runs the same action. The published Sources panel uses the same `site.answer`
+and row serialization, with native file downloads and read-only parameters.

@@ -3,7 +3,7 @@
 // folds, as the claude.ai artifact's data panel does: Query (its parameters, each editable and written back to the note's
 // line), Transform (the script, template or figure YAML that shaped it, with a jump to its note) and Result (the raw rows,
 // copyable, then Outline, Read and the Query). Drawn from the service's one answer (`site.sources`, outline-core sources.ts),
-// the one a published page's panel will draw too (a follow-up, PIE-996). State and drawing only: the reader's mode (src/surface/note.ts) keeps it.
+// the one a published page's panel draws too. State and drawing only: the reader's mode (src/surface/note.ts) keeps it.
 import type { SourceEntry, SourcesAnswer } from "@ep0ch/outline-core/sources";
 import { relativeAge } from "../projection";
 import { BOLD, C, ellipsize, fg, pad, RESET, UNBOLD, width } from "../style";
@@ -36,6 +36,7 @@ export type PanelItem =
   | { kind: "fold"; fold: SourcesFold }
   | { kind: "param"; key: string; value: string }
   | { kind: "jump"; block: string }
+  | { kind: "download"; format: "csv" | "json" }
   | { kind: "copy"; part: "query" | "transform" | "result" };
 
 export interface PanelHit { row: number; from: number; to: number; action: string; args: Record<string, unknown> }
@@ -50,7 +51,7 @@ export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): Pa
   out.push({ kind: "fold", fold: "transform" });
   if (folds.transform) { if (s.transform.block) out.push({ kind: "jump", block: s.transform.block }); if (s.transform.text !== undefined) out.push({ kind: "copy", part: "transform" }); }
   out.push({ kind: "fold", fold: "result" });
-  if (folds.result) out.push({ kind: "copy", part: "result" });
+  if (folds.result) out.push({ kind: "copy", part: "result" }, { kind: "download", format: "csv" }, { kind: "download", format: "json" });
   return out;
 }
 
@@ -144,6 +145,8 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
       if (table.length > Math.max(3, h - 22)) put(`    ${dim(`… ${s.result.rows - Math.max(3, h - 22)} more · copy has them all`)}`);
     } else for (const l of s.result.text.split("\n").slice(0, 8)) put(`    ${fg(C.grey)}${cut(l, w - 6)}${RESET}`);
     row(i, `  ${fg(C.lcyan)}[y copy result]${RESET}`, "sources.copy", { part: "result" }); i++;
+    row(i, `  ${fg(C.lcyan)}[c download CSV]${RESET}`, "sources.download", { format: "csv" }); i++;
+    row(i, `  ${fg(C.lcyan)}[J download JSON]${RESET}`, "sources.download", { format: "json" }); i++;
     put("");
     put(` ${dim("Outline")}  ${fg(C.white)}${p.outline || "this outline"}${RESET}`);
     put(` ${dim("Read")}     ${fg(C.white)}${s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written"}${RESET}`);

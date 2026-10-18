@@ -35,12 +35,12 @@ Deploy the demo widget [type::runbook] [env::scratch]
 - `--mode=apply` steps are the person's: an agent's request is recorded as refused. Who asked is the action's
   `requestedBy`. They also need
   `confirm=<word>` (`--confirm=<word>` on the line; default `apply`).
-- A run is a child of the step: `[run.status::ok|failed|refused]`, `[run.exit::N]`, `[run.at::…]`, `[run.by::person|agent:<id>]`,
+- A step run is an output region after its command, written through `outputs.place` and the draft router: `[run.status::ok|failed|refused]`, `[run.exit::N]`, `[run.at::…]`, `[run.by::person|agent:<id>]`,
   and the last 15 lines of output. The step carries `[run.last::<status>]`, so `run.last=failed` finds the steps that failed.
 
 Actions: `ext.runbook.run-step` (on a `run::` line; `outliner ext act runbook run-step --block <id> --arg confirm=ship`)
 and `ext.runbook.run-all` (on the runbook note: steps in order, stopping at the first that fails or is refused, with a
-summary child on the note). In the door: `act ext.runbook.run-all block=<id>`.
+machinery summary child on the note). In the door: `act ext.runbook.run-all block=<id>`.
 
 `config.json`: `{ "config": { "timeoutSeconds": 120 } }`. Groups are read where `with-secrets` reads them
 (`~/.config/secrets`, or the service's `WITH_SECRETS_DIR`).

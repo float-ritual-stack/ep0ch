@@ -3,6 +3,7 @@
 // then a prop in the picker of its kind) and opened, a refusal that names the fix. Scratch service, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { App } from "../src/app";
 import { asked, propQuestion } from "../src/template-stamp";
 import { SocketBoard } from "../src/socket";
@@ -60,7 +61,12 @@ describe.skipIf(!outliner)("template.stamp through act (PIE-533 S4)", () => {
     expect((await board.get(out.stamped[0].id))!.text).toStartWith("Meeting Jay [type::meeting]");
     await expect(act({ of: "[[meeting-tpl]]", with: "not json" })).rejects.toThrow(/with= is JSON/);
     await expect(act({})).rejects.toThrow(/needs of=/);
-    await expect(act({ of: "[[meeting-tpl]]", into: "((abcd1234^weekly))", with: JSON.stringify({ with: "Jay" }) })).rejects.toThrow(/place\(\)/);
+    const target = await mk("Journal\n\n## Meetings ^weekly\n\nMy paragraph stays.");
+    const placed = await act({ of: "[[meeting-tpl]]", into: `((${target.id}^weekly))`, with: JSON.stringify({ with: "Jay" }) });
+    const saved = (await board.get(target.id))!;
+    expect(findOutputRegions(saved.text)[0]?.body).toContain("Meeting Jay");
+    expect(saved.text).toContain("My paragraph stays.");
+    expect(placed.said).toContain("weekly");
   });
 
   test("for= stamps once per match; a second run adds nothing", async () => {

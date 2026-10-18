@@ -3050,3 +3050,9 @@ The wheel and PgUp/PgDn keep the line where it was; an edge marker names it when
 The gutter chevron folds, and a folded line's trailing … opens it. `reader.ruler on=false` turns the
 highlight off (on by default). EchoNet's { } step messages; [ ] now has the same meaning in every
 reader. The board's former { } resize shortcuts use ^W < > or border dragging instead.
+
+
+Sources (`S` in a reader) lists a note's generated regions. Open one with Enter for Query, Transform and Result.
+Within Sources, `c` saves CSV and `J` saves JSON; the download rows are clickable. Agents use
+`act sources.download tile=<reader> source=1 format=csv` and receive the saved file's path.
+`template.stamp of='[[daily-template]]' into='((id^log))' writes a template at an anchor through the same output-region placement as scripts.

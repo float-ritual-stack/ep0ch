@@ -13,7 +13,7 @@
 // missing, or one from anywhere else that could build a command, does not run. `--secrets` names with-secrets groups, never
 // a value: the service reads each group when the step runs (`secrets.group`, allowed by the manifest's secretGroups),
 // the command gets the values in its environment (wrap.ts runs it), and the service scrubs them from everything this
-// extension writes or answers. Each run is a child block of the step (status, exit code, when, who, an output tail).
+// extension writes or answers. Each step run is an output region after the command (status, exit code, when, who, an output tail).
 // An apply step is the person's: an agent's request is recorded as refused. Every command and name here is made up.
 import { join } from "node:path";
 import { outline } from "./outline";
@@ -100,7 +100,6 @@ async function fillCommand(template: string, step: Block, root: { id: string } |
 // ── The record of a run ──────────────────────────────────────────────────
 
 interface Outcome { status: "ok" | "failed" | "refused"; exit?: number; by: string; at: string; ms?: number; excerpt: string; why?: string }
-const runs = (children: Context["children"]) => children.map((child) => ({ ...child, status: valuesOf(child, "run.status")[0] })).filter((child) => child.status && child.status !== "running");
 const tail = (output: string) => { const kept = output.trimEnd().split("\n").slice(-15).join("\n"); return kept.length > 1200 ? `…${kept.slice(-1200)}` : kept; };
 const inertFence = (text: string) => text.replaceAll("```", "'''");
 function recordText(title: string, outcome: Outcome): string {
@@ -125,9 +124,15 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
   const title = titleOf(step.text);
   const line = runLine(step.text);
   const at = new Date().toISOString();
+  const place = async (content: string, anchor?: string) => {
+    const result = await outline<{ outcome: string; anchor: string; message: string }>({ action: "outputs.place", blockId: step.id,
+      producer: { id: step.id, name: title }, content, ...(anchor ? { at: anchor, mode: "replace" } : { here: "end" }) });
+    if (!anchor && result.outcome !== "applied") throw new Error(result.message);
+    return result;
+  };
   const refuse = async (why: string): Promise<StepResult> => {
     const outcome: Outcome = { status: "refused", by, at, excerpt: "", why };
-    await outline({ action: "create", parentId: step.id, text: recordText(title, outcome) });
+    await place(recordText(title, outcome));
     await mark(step.id, "refused");
     return { title, outcome };
   };
@@ -145,8 +150,19 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
     if (args.confirm !== word) return refuse(`an apply step needs its confirmation: run it again with confirm=${word}. The command: ${command}`);
   }
   // A started record first, so a run that is cut off still shows it began.
-  const started = await outline<Block>({ action: "create", parentId: step.id, text: `Running ${title} [run.status::running] [run.at::${at}]` });
-  const settle = async (outcome: Outcome): Promise<StepResult> => { await outline({ action: "update", blockId: started.id, expectedRevision: started.revision, text: recordText(title, outcome) }); await mark(step.id, outcome.status); return { title, outcome }; };
+  const started = await place(`Running ${title} [run.status::running] [run.at::${at}]`);
+  const settle = async (outcome: Outcome): Promise<StepResult> => {
+    try {
+      const placed = await place(recordText(title, outcome), started.anchor);
+      if (placed.outcome === "proposed") {
+        outcome.why = [outcome.why, "its output went to a proposal because the region changed"].filter(Boolean).join("; ");
+      }
+    } finally {
+      // The command finished even when its output can no longer replace the person's edited region.
+      await mark(step.id, outcome.status);
+    }
+    return { title, outcome };
+  };
 
   // Each group by name, read by the service now; the service scrubs its values from all this run writes and answers.
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
@@ -176,18 +192,16 @@ if (request.operation === "run") {
   const line = runLine(context.block.text);
   const template = commandOf(context.block.text);
   const root = runbookOf(context.block, context.ancestors);
-  const all = runs(context.children);
-  const last = all.at(-1);
-  const ok = last?.status === "ok";
+  const status = valuesOf(context.block, "run.last")[0];
+  const ok = status === "ok";
   const filled = template ? await fillCommand(template, context.block, root, {}) : null;
-  const lastExit = last ? valuesOf(last, "run.exit")[0] : undefined;
   say({
     title: titleOf(context.block.text),
-    data: { mode: line?.mode ?? "dry", secrets: line?.secrets ?? [], status: last?.status ?? "not-run", runs: all.length },
+    data: { mode: line?.mode ?? "dry", secrets: line?.secrets ?? [], status: status ?? "not-run" },
     view: {
       type: "card", title: titleOf(context.block.text),
       subtitle: `${line?.mode ?? "dry"} step${line?.secrets.length ? ` · secrets from ${line.secrets.join(", ")} (by name)` : ""}`,
-      badge: { label: last ? (ok ? "ok" : `${last.status}${lastExit ? ` (exit ${lastExit})` : ""}`) : "not run", tone: ok ? "good" : last ? "bad" : "dim" },
+      badge: { label: status ?? "not run", tone: ok ? "good" : status ? "bad" : "dim" },
       children: [
         { type: "text", text: !template ? "No command: put one in a code fence." : filled!.missing.length ? `${filled!.command}\nStill needs: ${filled!.missing.join("; ")}` : filled!.unsafe ? `${filled!.command}\nWill not run: ${filled!.unsafe}` : filled!.command },
         { type: "checklist", items: [{ label: ok ? "ran ok" : "run it", done: ok }] },
@@ -215,11 +229,11 @@ if (request.operation === "run") {
       for (const { block: step, ancestors } of steps) {
         if (Date.now() - began + (config.timeoutSeconds ?? 120) * 1000 > budget) { stopped = `stopped before ${titleOf(step.text)}: not enough of this call's time left; run it again to continue`; break; }
         const result = await runStep(step, { ...input.context, ancestors }, input.args ?? {}, config, askedBy(input.requestedBy));
-        done.push(`${result.title}: ${result.outcome.status}`);
+        done.push(`${result.title}: ${result.outcome.status}${result.outcome.why ? `: ${result.outcome.why}` : ""}`);
         if (result.outcome.status !== "ok") { stopped = `stopped at ${result.title}: ${result.outcome.why ?? `exit ${result.outcome.exit}`}`; break; }
       }
       const summary = stopped || `all ${steps.length} steps ran ok`;
-      if (steps.length) await outline({ action: "create", parentId: root.id, text: `Run of this runbook: ${summary.replace(/\n/g, " ")} [run.status::${stopped ? "failed" : "ok"}] [run.at::${new Date().toISOString()}]\n${done.map((item) => `- ${item}`).join("\n")}` });
+      if (steps.length) await outline({ action: "create", parentId: root.id, text: `Run of this runbook: ${summary.replace(/\n/g, " ")} [machine::runbook] [run.status::${stopped ? "failed" : "ok"}] [run.at::${new Date().toISOString()}]\n${done.map((item) => `- ${item}`).join("\n")}` });
       fail(steps.length ? summary : "no steps: a step is a block with a run:: line");
     }
   }

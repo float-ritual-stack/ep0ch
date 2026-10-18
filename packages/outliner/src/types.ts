@@ -2444,6 +2444,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "drafts.answer"; requestId: string; clientId: string; answer?: DraftHolderAnswer; error?: string }
   /** A note's text as its live draft has it now, or as saved when no door holds one (capability `drafts.read`). */
   | { id: string; action: "drafts.read"; blockId: string }
+  | ({ id: string; action: "outputs.place" } & import("./place").PlaceInput)
   /** Capability `extensions.list`. `reload` reads the folders now instead of waiting for the watcher. */
   | { id: string; action: "extensions.list"; reload?: boolean }
   /**

@@ -1,3 +1,4 @@
+import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -142,7 +143,7 @@ test("figures draw live from the service, links list the note's links, and an em
   expect(html).not.toContain("Compost secret recipe");
   // No raw component source for the drawn ones.
   expect(html).not.toContain("::graph-tabs");
-  expect(html).not.toContain("::graph-decision");
+  expect(html.split("<article>")[1]!.split("</article>")[0]).not.toContain("::graph-decision");
 });
 
 test("a figure written without its --- lines says so on the page (PIE-941)", async () => {
@@ -188,7 +189,7 @@ test("every kind a page draws draws from its Markdown rows, never its source", a
     const html = await page(`/p/${note.id}`);
     expect(html, kind).toContain(`<figure class="fig fig-${kind}">`);
     expect(html, kind).not.toContain("not drawn here yet");
-    expect(html, kind).not.toContain(`::graph-${kind}`);
+    expect(html.split("<article>")[1]!.split("</article>")[0], kind).not.toContain(`::graph-${kind}`);
   }
 });
 
@@ -232,8 +233,8 @@ test("PIE-533 S3 on a page: one figure on two project pages lists each page's ow
   expect(html).toContain("live · 2 occurrences");
   expect(html).toContain("shown when active");
   expect(html).not.toContain("shown when paused");
-  expect(html).not.toContain("::if");
-  expect(html).not.toContain("::fields");
+  expect(html.split("<article>")[1]!.split("</article>")[0]).not.toContain("::if");
+  expect(html.split("<article>")[1]!.split("</article>")[0]).not.toContain("::fields");
 });
 
 test("on a public page a stat counts only the notes the page may show", async () => {
@@ -282,4 +283,54 @@ test("a button is its label on a page and runs nothing: ::button{…} and [label
   expect(html).toContain("In code");
   // An indented code example keeps its link as written.
   expect(html).toContain("[start over](act: ttt-reset) in an indented example");
+});
+
+
+test("published Sources exposes query, transform and downloadable visible rows", async () => {
+  const { store, publisher } = await setup();
+  const shown = store.create("Sow peas [crop::peas] [publish::public]");
+  const hidden = store.create("PRIVATE_HARVEST [crop::peas]");
+  const note = store.create('Garden [publish::public]\n\nBefore the table.\n\n::graph-table\n---\nquery: crop=peas\n---\n::\n\nAfter the table.');
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`, { headers: { accept: "text/html" } }), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain('class="sources-panel"');
+  expect(html).toContain("Query");
+  expect(html).toContain("Transform");
+  expect(html).toContain("Result");
+  expect(html).toContain('download="graph-table.csv"');
+  expect(html).toContain('download="graph-table.json"');
+  const json = /download="graph-table.json" href="data:application\/json;charset=utf-8,([^"]+)"/.exec(html)!;
+  expect(JSON.parse(decodeURIComponent(json[1]!))).toEqual([{ id: shown.id, title: "Sow peas [crop::peas] [publish::public]" }]);
+  expect(html).toContain(shown.id);
+  expect(html).not.toContain(hidden.id);
+  expect(html).not.toContain("PRIVATE_HARVEST");
+});
+
+
+test("published Sources withholds an unpublished output producer's id", async () => {
+  const { store, publisher } = await setup();
+  const producer = store.create("Private producer");
+  const region = outputRegionText({ label: "Harvest", producer: producer.id, anchor: "out-harvest", body: "Public harvest" });
+  const note = store.create(`Harvest report [publish::public]\n${region}`);
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain("Public harvest");
+  expect(html).toContain("not shared");
+  expect(html).not.toContain(producer.id);
+});
+
+test("published Sources omits outputs inside a false conditional, including downloads", async () => {
+  const { store, publisher } = await setup();
+  const region = (label: string, body: string) => outputRegionText({ label, anchor: `out-${label}`, body });
+  const note = store.create(['Harvest [publish::public] [season::spring]',
+    '::if{where="season=winter"}', region("Winter", "HIDDEN_HARVEST"), '::',
+    '::if{where="season=spring"}', region("Spring", "VISIBLE_HARVEST"), '::'].join("\n"));
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain('download="Spring.json"');
+  expect(html).not.toContain("HIDDEN_HARVEST");
+  expect(html).not.toContain('download="Winter.');
 });

@@ -67,6 +67,7 @@ export function calloutExtension(registry: () => CalloutRegistry): TokenizerAndR
       const type = registry().style(header.type);
       const title = header.title || type.title;
       const inner = this.parser.parse(tokens);
+      if (header.type === "output") return `<div class="output-region">${inner}</div>\n`;
       const open = `class="callout ${toneClass(type.tone)}" data-callout="${esc(type.name)}"`;
       const heading = `<span class="callout-icon" aria-hidden="true">${esc(type.icon)}</span><span class="callout-title">${esc(title)}</span>`;
       const content = `<div class="callout-body">${inner}</div>`;

@@ -2,6 +2,7 @@
 
 ## 4 (2026-10-17)
 
+- Step results now sit in output regions after the command, with attributed patches and draft conflict proposals. The running region is replaced when the command finishes; no result child is made. Whole-run summaries remain machinery notes (PIE-956).
 - **Breaking.** A step's `{{name}}` is no longer the runbook note's property of that name. It is the outline's one
   `{{ }}` grammar, filled by the service (`site.answer` with `interpolate`), and the Site names where a value is from:
   `{{self.name}}` (the runbook note's own; trusted), `{{props.name}}` (what the run is given; checked for the shell),

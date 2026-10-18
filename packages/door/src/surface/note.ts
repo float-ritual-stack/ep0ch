@@ -1,3 +1,7 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { outlineState } from "../state";
+import { sourceDownload } from "@ep0ch/outline-core/sources";
 import { ReaderPosition, PositionRows } from "../reader-position";
 import { elementEdit, type ElementOperation } from "./element-editor";
 // The note surface: one note, shown, edited and commented on the same way wherever it is hosted — the
@@ -951,7 +955,7 @@ export class NoteSurface {
    * The mode the person is in, as hosts track it (Entered): the edit, else the comment, else the panel. A status
    * choice opened over one of them isn't a session: it holds no note.
    */
-  private sessionMode() { return this.modes.get("draft") ?? this.modes.get("comment") ?? this.modes.get("panel") ?? this.modes.get("replies"); }
+  private sessionMode() { return this.modes.get("draft") ?? this.modes.get("comment") ?? this.modes.get("panel") ?? this.modes.get("replies") ?? this.modes.get("sources"); }
   /** What the person is in here, by name ("edit", "comment", "property panel"), or null while reading. */
   sessionWord(): string | null { return this.sessionMode()?.word ?? null; }
   /** Typed text that isn't saved or sent: an edit, a comment being written, a property value. */
@@ -5860,6 +5864,7 @@ export class NoteSurface {
     if (it.kind === "fold") return this.foldSource(it.fold, host);
     if (it.kind === "param") return this.setSourceParam(undefined, it.key, undefined, host, actor);
     if (it.kind === "jump") return this.jumpSource(host, actor);
+    if (it.kind === "download") return this.downloadSource(it.format, host);
     return this.copySource(it.part, host, actor);
   }
 
@@ -5943,6 +5948,16 @@ export class NoteSurface {
     return { part, text, ...(actor.kind === "user" ? { copied: true } : {}) };
   }
 
+  async downloadSource(format: "csv" | "json", host: SurfaceHost, source?: string, path?: string) {
+    const { s } = await this.sourceFor(host, source);
+    const destination = path ?? join(outlineState(), "downloads", `${s.name.replace(/[^a-zA-Z0-9_-]/g, "-")}-${crypto.randomUUID()}.${format}`);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, sourceDownload(s.result, format), { mode: 0o600, flag: "wx" });
+    host.ctx.flash(`saved ${s.name}: ${destination}`);
+    host.redraw();
+    return { path: destination, format, rows: s.result.rows };
+  }
+
   /** The transform's note, opened in this reader (the person's; an agent reads it with outline_read). */
   async jumpSource(host: SurfaceHost, actor: Actor) {
     const P = this.requireSources(), s = P.answer?.sources[P.open ?? -1];
@@ -6017,6 +6032,7 @@ export class NoteSurface {
         else if (k.kind === "enter") run("sources.enter");
         else if (c === "e") run("sources.set");
         else if (c === "y") run("sources.copy");
+        else if (c === "c" || c === "J") run("sources.download", { format: c === "c" ? "csv" : "json" });
         else if (c === "g") run("sources.jump");
         else if (c === "r") run("sources.refresh", { all: P.open === null });
         else if (c === "1") run("sources.fold", { fold: "query" });
@@ -6034,7 +6050,7 @@ export class NoteSurface {
       },
       wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("sources.scroll", { by: dir * 3 }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
-      hint: () => (P.open === null ? "j k select · ⏎ open · r read all again · esc close" : "j k move · ⏎ fold or edit · e edit · y copy · g jump · r run again · esc back"), state: () => "sources",
+      hint: () => (P.open === null ? "j k select · ⏎ open · r read all again · esc close" : "j k move · ⏎ fold or edit · e edit · y copy · c CSV · J JSON · g jump · r run again · esc back"), state: () => "sources",
       describe: () => ({ block: P.block, view: P.open === null ? "list" : "source", ...(P.answer ? { readAt: P.answer.readAt, sources: P.answer.sources.map((s, i) => ({ n: i + 1, name: s.name, kind: s.kind, ...(i === P.open ? { open: true, folds: { ...P.folds }, item: P.item + 1 } : {}), ...(i === P.sel ? { selected: true } : {}) })) } : {}), ...(P.error ? { error: P.error } : {}), loading: P.loading }),
     };
     return mode;
@@ -10042,6 +10058,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const which = part ?? (at?.kind === "copy" ? at.part : "result");
       if (which !== "query" && which !== "transform" && which !== "result") throw new ActionRefused("part is query, transform or result");
       return surface.copySource(which, host, actor, source);
+    },
+  }),
+  "sources.download": def({
+    summary: "save the source's raw rows as CSV or JSON; returns the file path", keys: "c for CSV, J for JSON in Sources, or a click on download",
+    touches: "nothing", replay: "ask",
+    args: { format: { type: "string", about: "csv or json" }, source: { type: "string", optional: true, about: "source number or key; default the open source" }, path: { type: "string", optional: true, about: "new file path; default the door's downloads folder" } },
+    run({ format, source, path }, { surface, host }) {
+      if (format !== "csv" && format !== "json") throw new ActionRefused("format is csv or json");
+      return surface.downloadSource(format, host, source, path);
     },
   }),
   "sources.jump": def({
