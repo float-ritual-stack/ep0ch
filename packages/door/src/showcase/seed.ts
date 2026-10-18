@@ -362,6 +362,7 @@ if (request.input.request === "describe the beds") {
   for (const job of TEST_PLAN_JOBS) await make(notes.testPlan.id, job);
   // Notes that read themselves (PIE-533 S2): the fixture under a project, with the notes its placeholders read from.
   // Templates (PIE-533 S4): the meeting template, three pages that use it live, the daily template and where its stamp lands.
+  await make(notes.root.id, "Meeting greeting [page::meeting-greeting] [type::template]\n[form-field::with text required]\nWelcome {{props.with}} to {{this.title}}.");
   notes.templateMeeting = await make(notes.root.id, MEETING_TEMPLATE);
   notes.templateDaily = await make(notes.root.id, DAILY_TEMPLATE);
   notes.dailyNotes = await make(notes.root.id, DAILY_NOTES);

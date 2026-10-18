@@ -1,7 +1,5 @@
-// PIE-982: `ep0ch show` prints a handler line as written and draws nothing under it (the door's open asks the service for
-// the drawing; show doesn't), as the scripts reference says in its traps.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { drawNote } from "../src/notes-cli";
+import { join } from "node:path";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
 
@@ -11,12 +9,16 @@ describe.skipIf(!outliner)("show and a render script's line", () => {
   beforeAll(async () => { await scratch.start(); board = new SocketBoard(scratch.sock); await board.info(); }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
-  test("the line prints as written, with none of what its script returns", async () => {
+  test("a cold show draws the render script through the note surface", async () => {
     await board.createBlock(null, "Hello [script::hello] [mode::render]\n```js\nreturn 'DRAWN ' + this.title;\n```", { kind: "user" });
     await Bun.sleep(300);
     const note = await board.createBlock(null, "Host note\nhello::", { kind: "user" });
-    const shown = (await drawNote(board, note.id, 80))!.join("\n");
+    const child = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), "show", note.id, "--ws", "scratch"], {
+      env: { ...process.env, EP0CH_SOCKET: scratch.sock }, stdout: "pipe", stderr: "pipe",
+    });
+    const [shown, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect({ code, err }).toEqual({ code: 0, err: "" });
     expect(shown).toContain("hello::");
-    expect(shown).not.toContain("DRAWN");
+    expect(shown).toContain("DRAWN Host note");
   }, 30_000);
 });

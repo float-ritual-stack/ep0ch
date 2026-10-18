@@ -25,7 +25,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     // One key in every form, each row with its line: the header chip (1), two front-matter lines (2, 3: the list is a row each), the inline chip (5) and the line of its own (6).
     expect(text()).toContain("EVERY CONNECTTO IN THIS NOTE");
     for (const [row, line] of [["in the header", 1], ["in the front matter", 2], ["a list", 3], ["is a row each", 3], ["inline in a sentence", 5], ["a line of its own", 6]] as const) {
-      expect(text().split("\n").find((l: string) => l.includes(row) && l.includes("∙")) ?? "").toContain(`line ${line}`);
+      expect(text().split("\n").find((l: string) => l.includes(row) && l.includes(" · line ")) ?? "").toContain(`line ${line}`);
     }
     // The hashtags are the key tag: the header's and the body's.
     await until(() => text().includes("live · 2 occurrences"), "the hashtag rows", 8000);
@@ -76,7 +76,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     expect(after.text.split("\n").filter(l => /\^[a-z0-9-]+$/.test(l))).toHaveLength(1);
     expect(after.text.split("\n")[anchored.noteLine - 1]).toContain(`^${anchored.anchor}`);
     // Again, once the list has been read from the anchored text: already anchored, nothing more written.
-    await until(() => { screen(); const d = fieldsDrawn(rail.id, "connectTo"); return "found" in d && d.found.revision === after.revision; }, "the list read again", 8000);
+    await until(() => { screen(); const d = fieldsDrawn(reader().surface.fieldsDrawing, "connectTo"); return "found" in d && d.found.revision === after.revision; }, "the list read again", 8000);
     expect(await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 6 }, ...agent })).toMatchObject({ created: false, anchor: anchored.anchor });
     await expect(app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 9 }, ...agent })).rejects.toThrow(/has rows 1 to/);
 
@@ -84,6 +84,14 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     const now = (await board.get(rail.id))!;
     await board.update(rail.id, now.text.replace("[status::active]", "[status::paused]"), now.revision!);
     await until(() => text().includes("drawn only while the note is paused") && !text().includes("drawn only while the note is active"), "the paused body", 8000);
+    const replacement = await board.createBlock(null, "Replacement rail\n\n- new row [connectTo::new bed]", { kind: "user" });
+    const current = (await board.get(rail.id))!;
+    await board.update(rail.id, current.text.replace(/::fields\{key=connectTo[^}]*\}/, `::fields{key=connectTo of=((${replacement.id}))}`), current.revision!);
+    await until(() => text().includes("new bed"), "the replacement fields", 8000);
+    const moved = await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 1 }, ...agent }) as any;
+    expect(moved.block).toBe(replacement.id);
+    expect((await board.get(replacement.id))!.text).toContain(`^${moved.anchor}`);
+
     // The clicks put the person in the section; back on the index, an agent can move again.
     for (let i = 0; i < 4 && S().focus === "stage"; i++) h.press({ kind: "esc" });
   }, 40_000);

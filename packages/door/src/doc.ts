@@ -10,7 +10,7 @@ import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-c
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv, type RowInline } from "./graphs";
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";
 import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
-import { ifProblemLines, ifState, renderFields } from "./site-blocks";
+import { ifProblemLines, ifState, renderFields, type FieldsDrawing } from "./site-blocks";
 import { regionTail, type RegionBook } from "./output-region";
 import { outputHeader, type OutputRegion } from "@ep0ch/outline-core/output-region";
 import { useCallAt, type UseCall } from "@ep0ch/outline-core/template-use";
@@ -31,6 +31,7 @@ import { headingComponentLayer, listLayers, parseStyleAttrs, resolveStyle, style
 import { STEP_BOX, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
 
 export interface DocEnv {
+  fields?: FieldsDrawing;
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
   /**
    * The look (PIE-673): its list rows (gap, divider, zebra) and heading spacing, and the layers it came from, which a
@@ -599,7 +600,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // answer. An `::if` whose query holds draws its body in place of its two lines; any other state draws nothing.
     const sb = siteBlockAt(src, i, componentAt);
     if (sb?.kind === "fields") {
-      out.push(...renderFields(sb.spec, env.note, W, env.tag, env.site));
+      out.push(...renderFields(sb.spec, env.note, W, env.tag, env.site, env.fields));
       i = sb.end;
       continue;
     }
