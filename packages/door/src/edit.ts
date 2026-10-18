@@ -81,6 +81,7 @@ export class Draft {
   get scrollFigure() { return { top: this.top, room: this.shown.h, total: this.shown.rows.length }; }
   /** The screen row of the cursor in the last render (the completion popup opens under it). */
   cursorRow = 0;
+  cursorCol = 0;
   readonly asks = new Map<string, import("@ep0ch/outline-core/protocol").AskProgress>();
   onAskSelected: ((ask: string, fold?: string) => void) | null = null;
   private foldCache: { text: string; points: FoldPoint[] } | null = null;
@@ -1105,6 +1106,7 @@ export class Draft {
     }
     // An incoming answer can require more blank room below than the usual overscroll limit.
     this.top = Math.max(0, Math.min(this.top, this.follow && this.anchoredRow !== null ? Math.max(0, at.vi) : lastTop(rows.length, h)));
+    this.cursorCol = at.x;
     this.cursorRow = Math.max(0, Math.min(h - 1, at.vi - this.top));
     const out: string[] = [];
     // Agents' patches just landed: their text lit, and who made it at the end of their last row.

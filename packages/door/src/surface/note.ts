@@ -97,7 +97,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard } from "./completer";
+import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -374,7 +374,7 @@ interface Laid {
 }
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
-export interface SurfaceView { gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
+export interface SurfaceView { completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
 /** The density after `d`, round again: compact, cozy, comfortable. */
@@ -1520,7 +1520,7 @@ export class NoteSurface {
     // An edit or a comment session draws in place of the note (a reply that landed has let its session go).
     this.use(host);
     const covered = this.modes.rows(w, h, host);
-    if (covered) return { lines: covered, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
+    if (covered) return { lines: covered, completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -2578,7 +2578,6 @@ export class NoteSurface {
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
-      readerWidth: this.lastLook?.width,
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links, false, isOutlineNote(m) ? m.id : undefined), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
       ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
@@ -3635,10 +3634,10 @@ export class NoteSurface {
   /** A click in text being written (an edit's or a comment's): a completion candidate, the preview control, or the cursor placed. */
   private writeClick(d: Draft, x: number, y: number, host: SurfaceHost): boolean {
     if (d.busy) return false;
+    if (completerOf(d)?.click(y, x)) return true;
     // Beside a composer's box (floating, popup, split: PIE-770) a click is nobody's: not a candidate, not the cursor.
     const f = d.frame;
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
-    if (completerOf(d)?.click(y, x)) return true;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
     this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("comment.place", {}, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0);

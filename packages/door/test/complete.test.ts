@@ -444,10 +444,12 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(ctrl("z"));
     expect(e.d.text).toBe("Component practice\n::graph-meter");
     e.press(K("tab")); await e.settled();
-    const row = e.screen().split("\n").findIndex(l => l.includes("Meter · example"));
-    e.s.click(8, row, e.h);
+    const shown = e.screen().split("\n");
+    const row = shown.findIndex(l => l.includes("Meter · example"));
+    const col = shown[row]!.indexOf("Meter · example");
+    e.s.click(col, row, e.h);
     expect(e.d.text).toBe("Component practice\n::graph-meter");
-    e.s.click(8, row, e.h);
+    e.s.click(col, row, e.h);
     await until(() => !e.pop(), "double click inserts");
     e.type("Photos");
     expect(e.d.lines[3]).toBe("title: Photos");
@@ -492,12 +494,14 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.type("seeds");
     const choices = await e.settled();
     const target = choices.items.findIndex(i => i.address === "seeds");
-    const row = e.screen().split("\n").findIndex(l => l.includes("seeds · Seed list"));
+    const shown = e.screen().split("\n");
+    const row = shown.findIndex(l => l.includes("seeds · Seed list"));
+    const col = shown[row]!.indexOf("seeds · Seed list");
     expect(row).toBeGreaterThan(header);
-    expect(e.s.click(10, row, e.h)).toBe(true);
+    expect(e.s.click(col, row, e.h)).toBe(true);
     expect(e.pop()!.index).toBe(target);
     expect(e.d.lines.at(-1)).toBe("see [[seeds");
-    expect(e.s.click(10, row, e.h)).toBe(true);
+    expect(e.s.click(col, row, e.h)).toBe(true);
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe("see [[seeds]]");
   });
@@ -893,6 +897,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
 
 describe.skipIf(!outliner)("a click on a candidate, through each host (board, desk, river)", () => {
   const scratch = new Scratch();
+  const size = { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false };
   let board: SocketBoard, app: App, key: (k: Key) => void = () => {}, hub: any, beans: any;
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const top = () => (app as any).stack.at(-1);
@@ -928,11 +933,49 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     await create(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
     beans = await create(null, "Stake the beans [stage::queued]\nCanes along the fence.");
     await create(null, "Seed list [page::seeds]\nWhat to sow this spring.");
-    const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: size, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
+
+  test("completion fills a wide tile beyond its narrow text measure (PIE-1026)", async () => {
+    const note = await create(null, "Completion practice [style.measure::40] [style.pad::2]\n");
+    await create(null, "Greenhouse planting calendar [page::greenhouse-calendar]\nSow beans after the frost.");
+    const desk = openScreen("detail", { note: note.id, persist: false }) as Desk;
+    app.push(desk);
+    try {
+      await until(() => screen().some(l => l.includes("Completion practice")), "the measured reader");
+      key(char("e")); key(K("enter"));
+      const rd = [...(desk as any).panes.values()].find((p: any) => "surface" in p) as ReaderPane;
+      await until(() => !!rd.draft, "the edit");
+      key(K("down")); key(K("end")); type("[[greenhouse");
+      await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "the popup");
+      const lines = screen();
+      const label = "greenhouse-calendar · Greenhouse planting calendar";
+      const y = lines.findIndex(l => l.includes(label));
+      expect(y).toBeGreaterThan(0);
+      expect(lines[y]).toContain(" │ ");
+      expect(lines.some(l => l.includes(COMPLETION_HINT))).toBe(true);
+      const previewX = lines[y]!.indexOf(" │ ") + 4;
+      for (let n = 0; n < 2; n++) {
+        key({ kind: "mouse", action: "down", button: 0, x: previewX, y });
+        key({ kind: "mouse", action: "up", button: 0, x: previewX, y });
+      }
+      expect(rd.draft!.text).not.toContain("[[greenhouse-calendar]]");
+      size.cols = 80;
+      expect(screen().some(l => l.includes("↑↓ ⏎ tab esc"))).toBe(true);
+      size.cols = 160;
+      screen();
+      const x = lines[y]!.indexOf(label);
+      for (let n = 0; n < 2; n++) {
+        key({ kind: "mouse", action: "down", button: 0, x, y });
+        key({ kind: "mouse", action: "up", button: 0, x, y });
+      }
+      await until(() => rd.draft!.text.includes("[[greenhouse-calendar]]"), "the candidate outside the measure inserts");
+      key(K("esc")); key(K("esc"));
+    } finally { size.cols = 160; app.pop(); }
+  });
 
   test("the board's preview", async () => {
     const b = boardScreen(hub.id), B: any = BV.view(b);

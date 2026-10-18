@@ -565,6 +565,13 @@ if (scenario === "complete") {
   press({ kind: "char", ch: "z", ctrl: true });
   press({ kind: "esc" }); press({ kind: "enter" }); type("## Calls ::");
   await snap("10-heading-short", 500);
+  const measured = await board.createBlock(null, "Completion practice [style.measure::40] [style.pad::2]\n");
+  await board.createBlock(null, "Greenhouse planting calendar [page::greenhouse-calendar]\nSow beans after the frost.");
+  app.push(openScreen("detail", { note: measured.id, persist: false }) as Desk);
+  await Bun.sleep(400);
+  ch("e"); press({ kind: "enter" }); await Bun.sleep(300);
+  press({ kind: "down" }); press({ kind: "end" }); type("[[greenhouse");
+  await snap("11-full-frame-narrow-measure", 500);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "select") {

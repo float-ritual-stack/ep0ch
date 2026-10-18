@@ -1,5 +1,6 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
 import { headedTitle } from "../board";
+import type { Completer } from "../surface/completer";
 import type { Look, TileLooks } from "../look";
 import { MARGIN_MODES, type MarginMode } from "../surface/margin";
 import type { StyleLayer } from "@ep0ch/outline-core/style-cascade";
@@ -26,7 +27,7 @@ import { newNoteOffer, type KeySpot } from "../new-note";
 import { prop } from "../props";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
-export interface PaneView { gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
+export interface PaneView { completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
 
 export interface DeskApi {
   ctx: Ctx;

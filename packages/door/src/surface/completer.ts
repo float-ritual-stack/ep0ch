@@ -451,6 +451,7 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
 
 export interface CompletionState extends CompletionLookup {
   listWidth?: number;
+  listCol?: number;
   target: CompletionTarget;
   index: number;
   loading: boolean;
@@ -579,7 +580,7 @@ export class Completer {
   }
 
   /** Where the last render drew the popup, in the editor's rows: its first row and each row's candidate. */
-  drawn: { row: number; col?: number; items: (number | null)[] } | null = null;
+  drawn: { row: number; col?: number; cols?: number; anchor?: number; items: (number | null)[] } | null = null;
 
   /**
    * A click selects and previews; a double click inserts. The preview and frame consume clicks without choosing.
@@ -587,7 +588,8 @@ export class Completer {
   click(y: number, x = 0): boolean {
     const s = this.shown, at = this.drawn;
     if (!s || !at || y < at.row || y >= at.row + at.items.length) return false;
-    if (x < (at.col ?? 0) || x >= (at.col ?? 0) + (s.listWidth ?? Infinity)) return true;
+    if (at.cols !== undefined && (x < (at.col ?? 0) || x >= (at.col ?? 0) + at.cols)) return false;
+    if (x < (at.col ?? 0) + (s.listCol ?? 0) || x >= (at.col ?? 0) + (s.listWidth ?? Infinity)) return true;
     const i = at.items[y - at.row];
     if (i !== null && i !== undefined && s.items[i] && !s.loading) {
       const press = completionPicker(s).view.press(i, { mods: 0, button: 0 });
@@ -595,6 +597,15 @@ export class Completer {
       if (press === "open") void this.accept(i);
     }
     return true;
+  }
+
+  /** Repaint in the host's frame, keeping hit columns relative to its measured text. */
+  inFrame(w: number, col: number): string[] {
+    const at = this.drawn, s = this.shown;
+    if (!at || !s) return [];
+    at.col = col;
+    at.cols = w;
+    return renderCompletion(s, w, at.items.length, at.items, (at.anchor ?? 0) - col);
   }
 
   move(delta: number): void {
@@ -745,7 +756,7 @@ lineCompletionHooks.after = (i, k, took, was) => {
  * The popup as lines `w` wide, at most `h` tall: header, candidates (the selected one with its context),
  * footer. `rows`, when given, gets each line's candidate index (null for the header, context and footer).
  */
-export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], readerWidth = w): string[] {
+export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0): string[] {
   rows.length = 0;
   if (h <= 0) return [];
   // Titles come from notes: text.ts's printable takes out what a terminal acts on, pad cuts by cells, and a glyph
@@ -764,12 +775,17 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
     const description = wholeWords(selected.context ?? selected.insertion, pw);
     return [fg(C.lcyan) + pad(description, pw) + RESET, ...(selected.preview?.(pw, Math.max(0, ph - 1)) ?? [])].slice(0, ph);
   };
-  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, readerWidth);
+  const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label, " ")) + 3));
+  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, w, { col: anchor, width: labelWidth });
+  s.listCol = drawn.listCol;
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
   const jev = s.jev === "ranked" ? "jev ranked · " : s.jev === "asking" ? "jev… · " : "";
-  if (footer) rows.push(null), out.push(line(` ${jev}${s.message || (s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT)}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));
+  const hint = s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT;
+  const keys = "↑↓ ⏎ tab esc";
+  const fitted = cells(` ${jev}${hint}`) <= w ? hint : keys;
+  if (footer) rows.push(null), out.push(line(` ${jev}${s.message || fitted}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));
   rows.length = Math.min(rows.length, h);
   return out.slice(0, h);
 }

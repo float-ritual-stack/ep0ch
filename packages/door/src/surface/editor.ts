@@ -17,8 +17,6 @@ import { agentLabel } from "./actions";
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 
 export interface EditFrame {
-  /** The reader before its text measure, for the shared preview breakpoint. */
-  readerWidth?: number;
   /** What is being written, after the `»`: "editing · <note>", "comment · <note>", "reply to x · <note>". */
   title: string;
   /** Status lines under the title (already coloured): revision and state, the last thing that happened. */
@@ -100,9 +98,9 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   const cph = Math.min(COMPLETION_ROWS, Math.max(0, room - 1));
   const text = d.render(Math.max(1, w - 2), Math.max(1, room - cph)).map(l => " " + l);
   const at = Math.min(text.length, d.cursorRow + 1), rows: (number | null)[] = [];
-  const popup = renderCompletion(pop, w, cph, rows, f.readerWidth);
+  const popup = renderCompletion(pop, w, cph, rows, 1 + d.cursorCol);
   // Where it went, so a click on a candidate can choose it (NoteSurface.click).
-  c.drawn = { row: top.length + at, items: rows.slice(0, Math.max(0, room - at)) };
+  c.drawn = { row: top.length + at, cols: w, anchor: 1 + d.cursorCol, items: rows.slice(0, Math.max(0, room - at)) };
   const mid = [...text.slice(0, at), ...popup, ...text.slice(at)].slice(0, room);
   return [...top, ...mid, ...(below.length ? pad0(room - mid.length) : []), ...below];
 }
