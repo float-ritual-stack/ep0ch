@@ -177,7 +177,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     target: "ref",
     description:
       "Rewrite {note}, checked against the revision you read with outline_read: its whole `text`, one " +
-      "`replaceSection` (the text under a heading, subheadings included, as Detail folds it), or an `append` at the end. Give exactly one. " +
+      "`replaceSection` (the text under a heading, subheadings included, as Detail folds it), or an `append` at the end. Give exactly one. With append, `at: \"^log\"` adds an output region after that anchor through placement: a held draft gets it in place, or outcome: proposed at a conflict; it returns the placement receipt instead of a diff. " +
       "Refused before anything is written: an empty or whitespace-only result, a stale revision (read again, then " +
       "edit), and dropping a [page::…] property or an ^anchor other notes link to (pass allowStructural: true only " +
       "when removing them is the point). Returns the new revision and a short diff. Use it for rewriting your own " +
@@ -196,6 +196,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
         additionalProperties: false,
       },
       append: { type: "string", description: "Added as a new paragraph at the end (start it with a newline to join the last line)" },
+      at: { type: "string", description: "With append: ^anchor to add an output region after, through the held draft; returns outcome applied or proposed" },
       allowStructural: { type: "boolean" },
     },
     required: ["ref", "expectedRevision"],
@@ -206,7 +207,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       if (modes.length !== 1) return "Give exactly one of text, replaceSection or append.";
       if (modes[0] === "text" && !nonEmpty(input.text)) return "The new text is empty; an edit never blanks a note.";
       if (modes[0] === "append" && !nonEmpty(input.append)) return "The text to append is empty.";
-      return { operation: "edit", input: inputOf(input, ["ref", "expectedRevision", "text", "replaceSection", "append", "allowStructural"]) };
+      return { operation: "edit", input: inputOf(input, ["ref", "expectedRevision", "text", "replaceSection", "append", "at", "allowStructural"]) };
     },
   },
   {
@@ -357,7 +358,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "default) has outline_edit's guard (allowStructural likewise); `prose` keeps every link, anchor and property. " +
       "If the note was saved since you read it, the patch applies on the newer text when every observed span is still there " +
       "once and nobody rewrote its line (the answer says rebasedFrom: the revision you read); it becomes one proposal for the " +
-      "person (outcome: proposed) when a span is gone, changed or ambiguous, when the note is open in a draft, or when prose refuses. " +
+      "person (outcome: proposed) when a span is gone, changed or ambiguous, when it touches the paragraph, list item or heading at the cursor or selection endpoint, the draft is busy or unavailable, or when prose refuses. With mark, spans must also stay above the mark and above the cursor block when the cursor is before that mark. This leaves the passage being typed in alone; an unmarked patch can land above or below it. " +
       "A proposal sits beside the note and never changes its text or revision; sending the same patch again while yours is open " +
       "returns that proposal (deduped: true) instead of a second copy.",
     properties: {

@@ -521,6 +521,8 @@ export interface EditInput {
   replaceSection?: { heading: string; body: string };
   /** Added after the text, as a new paragraph unless it starts with a newline. */
   append?: string;
+  /** Append an output region at this anchor through the held-draft route. */
+  at?: string;
   /** Allow dropping a `[page::…]` or an anchor other notes link to. */
   allowStructural?: boolean;
 }
@@ -601,7 +603,7 @@ async function referenceOnlyWarnings(client: AgentToolsClient, text: string, nea
  * revision, and (unless `allowStructural`) dropping a `[page::…]` or an anchor
  * other notes link to are refused before anything is written.
  */
-export async function editBlock(client: AgentToolsClient, input: EditInput, actor: AgentActor): Promise<EditResult> {
+export async function editBlock(client: AgentToolsClient, input: EditInput, actor: AgentActor): Promise<EditResult | (DraftPatchResult & { id: string; ref: string; anchor?: string; message: string })> {
   const expectedRevision = requireRevision(input.expectedRevision);
   const modes = [input.text !== undefined, input.replaceSection !== undefined, input.append !== undefined].filter(Boolean).length;
   if (modes !== 1) throw new WorkToolRefusal("Give exactly one of text, replaceSection or append");
@@ -610,6 +612,14 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
     throw new WorkToolRefusal(
       `${block.id} is at revision ${block.revision}, not ${expectedRevision}: it changed since you read it. Read it again, then edit`,
     );
+  }
+  if (input.at !== undefined) {
+    if (input.append === undefined) throw new WorkToolRefusal("at takes append: { append: \"One more entry\", at: \"^log\" }");
+    const result = await client.request<DraftPatchResult & { anchor?: string; message: string }>({
+      action: "outputs.place", blockId: block.id, at: input.at, mode: "append", content: input.append,
+      producer: { id: block.id, name: actor.actorId }, mutation: mutationOf(actor),
+    });
+    return { ...result, id: block.id, ref: `((${block.id}))` };
   }
   let next: string;
   let section: EditResult["section"];

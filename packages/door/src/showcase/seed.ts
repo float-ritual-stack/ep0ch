@@ -159,6 +159,7 @@ if (request.input.request === "describe the beds") {
     `${SEED.scriptsInPlace} [owner::Sam] [crop::beans] [publish::public:scripts-in-place]`,
     "A script written with [mode::render] draws where a line asks for it, and again when a note it read changes. It writes nothing: this note stays as you typed it.",
     "[[showcase-published-script-lines|Published script lines]] demonstrates visible-only counts, embeds and ::use on its public page.",
+    "To write at an anchor instead: tools.outline_edit({ ref: this.id, expectedRevision: this.revision, append: \"One more entry\", at: \"^log\" }) uses output-region placement, including a held draft (Scripts: PROGRAMMABLE-NOTES.md task 4).",
     "beds-table:: week=42",
     "A ::= line is the same in one line, with this, props, q, read and resolve:",
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",

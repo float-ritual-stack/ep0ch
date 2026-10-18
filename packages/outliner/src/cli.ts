@@ -39,16 +39,21 @@ colourOnlyToATerminal();
 
 /**
  * `outliner --ws <name> <command> …` (or `--ws=<name>`) is `EP0CH_WS=<name>`: the command talks to that outline.
- * Like `tmux -L` or `herdr --session`, it is a global flag before the command, so it is never taken from another
- * flag's value (`--text --ws`). Plain commands never create the outline; `init` and the session openers (Herdr,
+ * It precedes the command, or appears anywhere in an agent command; another flag's value (`--text --ws`)
+ * stays literal. Plain commands never create the outline; `init` and the session openers (Herdr,
  * the door) do.
  */
-while (process.argv[2] === "--ws" || process.argv[2]?.startsWith("--ws=")) {
-  const argument = process.argv[2]!;
-  const value = argument === "--ws" ? process.argv[3] : argument.slice("--ws=".length);
-  if (!value || value.startsWith("-")) throw new Error("--ws requires an outline name");
-  process.env.EP0CH_WS = value;
-  process.argv.splice(2, argument === "--ws" ? 2 : 1);
+// Agent flags have known arity, so --json's literal value is never mistaken for --ws.
+for (let i = 2; i < process.argv.length;) {
+  const argument = process.argv[i]!;
+  if (argument === "--ws" || argument.startsWith("--ws=")) {
+    const value = argument === "--ws" ? process.argv[i + 1] : argument.slice("--ws=".length);
+    if (!value || value.startsWith("-")) throw new Error("--ws requires an outline name");
+    process.env.EP0CH_WS = value;
+    process.argv.splice(i, argument === "--ws" ? 2 : 1);
+  } else if (process.argv[2] === "agent") {
+    i += ["--json", "--actor", "--session"].includes(argument) ? 2 : 1;
+  } else break;
 }
 const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> | close <name> | archive <name> | unarchive <name> | delete <name>   (each with --json); init [<name>] [--folder <dir>] [--create]";
 

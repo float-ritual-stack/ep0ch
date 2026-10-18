@@ -4,6 +4,7 @@
 // every key but ctrl+]; a tile slides over as a dock and pins back; layouts save, load and keep running
 // programs; the river's open rule adds columns. Every one of them is an action an agent can call, and an
 // agent's never takes the person's focus or keys. Scratch services, fictional notes, `sh` and `tail` only.
+import { openScreen } from "../src/desk/screen-specs";
 import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -92,6 +93,15 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     board?.close();
     await scratch.dispose();
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR", "EP0CH_NOW_PAGE"]) delete process.env[k];
+  });
+
+  test("Detail's layout refusal names the Desk and how to save the settle target", async () => {
+    const detail = await openScreen("detail", { note: notes.shed.id });
+    app.push(detail);
+    try {
+      await expect(app.dispatch.act({ action: "layout.load", args: { name: "daily" } }, { kind: "user" })).rejects.toThrow("act screen.open name=desk");
+      await expect(app.dispatch.act({ action: "layout.load", args: { name: "daily" } }, { kind: "user" })).rejects.toThrow("screen.save name=daily");
+    } finally { app.pop(); }
   });
 
   test("daily: now on the left (the agent is the host layer's, beside it), the tree and its preview over middle, the editor over side; tree, now and side open into middle", () => {

@@ -241,6 +241,29 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     return { id, s, h, d, type };
   }
 
+  test("anchored append through the agent CLI lands in a held draft or proposes at its cursor", async () => {
+    const e = await editing("Garden\n\nLog entry. ^log\n\nTyping here.");
+    const saved = (await board.get(e.id))!;
+    e.type(" More words.");
+    const append = async (at = "^log") => {
+      const p = Bun.spawn(["bun", "src/cli.ts", "agent", "edit", "--actor", "gardener", "--json", JSON.stringify({ ref: e.id, expectedRevision: saved.revision, append: "Another entry\nSecond line", at })], {
+        cwd: outliner!, stdout: "pipe", stderr: "pipe", env: { ...process.env, ...scratch.env, EP0CH_SOCKET: scratch.sock },
+      });
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect(err).toBe("");
+      expect(code).toBe(0);
+      return JSON.parse(out);
+    };
+    const first = await append();
+    expect(first).toMatchObject({ outcome: "applied" });
+    expect(e.d.text).toContain("Another entry");
+    expect(e.d.text).toContain("Typing here. More words.");
+    expect((await board.get(e.id))!.text).toBe(saved.text);
+    await NOTE_ACTIONS.run("draft.place", { line: e.d.lines.findIndex(l => l.includes("Another entry")) + 1, col: 5 }, { surface: e.s, host: e.h }, USER);
+    expect(await append(`^${first.anchor}`)).toMatchObject({ outcome: "proposed" });
+    e.s.dispose();
+  });
+
   test("Evan keeps typing; the tidy above lands in his draft, nothing jumps, the saved note waits for his save", async () => {
     const e = await editing(`Morning plan [page::morning plan]\nThe beans   go along  the fence. ^deep-link\nwater  them\n\n${tidyMark}\n`);
     const saved = (await board.get(e.id))!;

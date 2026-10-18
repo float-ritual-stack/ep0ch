@@ -23,7 +23,7 @@ import { MCP_USAGE, mcpCommand } from "./mcp";
 import { AGENT_USAGE, agentCommand } from "./agent-cli";
 import { BACKUP_USAGE } from "./backup/usage";
 import { showcaseTry } from "./showcase/route";
-import { checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
+import { COMMANDS, checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
@@ -31,6 +31,17 @@ import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 colourOnlyToATerminal();
 
 let args = process.argv.slice(2);
+// Bind a leading outline flag before dispatch, including commands whose arguments do not take --ws.
+let commandAt = 0;
+while (args[commandAt] === "--ws" || args[commandAt] === "--machine") commandAt += 2;
+if (commandAt && (COMMANDS as readonly string[]).includes(args[commandAt] ?? "")) {
+  const flags: string[] = [];
+  for (let i = 0; i < commandAt; i += 2) {
+    if (args[i] === "--ws") process.env.EP0CH_WS = args[i + 1]!;
+    else flags.push(args[i]!, args[i + 1]!);
+  }
+  args = [args[commandAt]!, ...args.slice(commandAt + 1), ...flags];
+}
 const USAGE = `ep0ch: a BBS door into an outline
 
   ep0ch [--ws <name>] [--machine <ssh-name> [--create] | --here]

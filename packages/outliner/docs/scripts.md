@@ -71,6 +71,10 @@ A script's arguments are `slot=value` words (`week=42`). The power bar offers th
 | `propsUsed` | `packages/outliner/src/script-sources.ts:22` |
 | `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:416` |
 
+**Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
+**Find the action:** `ep0ch ext ls --ws <ws>` lists each name and ID; a script ID is `script-` plus the first 24 SHA-256 hex characters of its identity (note ID or file path), not its name.
+**Example:** copy the ID beside `weekly`, then `ep0ch act ext.<id>.run block=<note-id> --as <actor>`.
+
 ## Globals
 
 The code is the body of an async function: `await` and `return` work at the top. These names exist; nothing else does
@@ -127,21 +131,21 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 | `tools.outline_find` | reads | text, property, hasKey, query, view, under, limit, machinery | Find blocks (no `ref` needed) by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view grammar… | `packages/outline-core/src/agent-tool-definitions.ts:103` |
 | `tools.outline_resolve` | reads | **ref** | Resolve `ref` ([[page]], ((id)), a Work ID or an id) to its block id, title and revision, without reading the whole note. | `packages/outline-core/src/agent-tool-definitions.ts:130` |
 | `tools.outline_site` | reads | **ref**, paths, draft, chain, props, line | Read what the note `ref`'s `{{ }}` placeholders say, and any `paths` you ask, the way the person's screen reads them (the outline's one resolver). | `packages/outline-core/src/agent-tool-definitions.ts:146` |
-| `tools.outline_edit` | writes | **ref**, **expectedRevision**, text, replaceSection, append, allowStructural | Rewrite the note `ref`, checked against the revision you read with outline_read: its whole `text`, one `replaceSection` (the text under a heading,… | `packages/outline-core/src/agent-tool-definitions.ts:183` |
-| `tools.outline_create` | writes | **parent**, **text**, position | Create a block under `parent` (a ref, or root), at `position` among its siblings (0 is first; default last). | `packages/outline-core/src/agent-tool-definitions.ts:223` |
-| `tools.outline_comment` | writes | **ref**, body, quote, whole, start, near, kind, properties, prefix, suffix, requestId, from, revision | Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, near, prefix or suffix when the quote repeats),… | `packages/outline-core/src/agent-tool-definitions.ts:243` |
-| `tools.outline_reply` | writes | thread, **body**, requestId, edit, observed | Reply in a comment thread, as you. | `packages/outline-core/src/agent-tool-definitions.ts:278` |
-| `tools.outline_resolve_thread` | writes | **thread**, **resolved** | Resolve a comment thread (resolved: true), or reopen it (false), as you. | `packages/outline-core/src/agent-tool-definitions.ts:297` |
-| `tools.view_order` | writes | **ref**, ids | Read or set the hand-set order of the view `ref` (a view with no [sort::] is ordered by hand: the order its board lanes, figures and Tree show). | `packages/outline-core/src/agent-tool-definitions.ts:310` |
-| `tools.outline_changes` | reads | **since**, author, actor, limit, before, machinery | What changed since a point: an ISO time, or the `cursor` an earlier call returned. | `packages/outline-core/src/agent-tool-definitions.ts:333` |
-| `tools.outline_patch` | writes | **ref**, **revision**, **patches**, mark, policy, allowStructural | Small edits to the note `ref` the person may be typing in, without waiting for their save (draft.patch); for rewriting your own pages, such as a… | `packages/outline-core/src/agent-tool-definitions.ts:357` |
-| `tools.outline_proposal_apply` | writes | **ref** | Apply draft proposal the note `ref` by id, without a reader, under the agent's normal patch comparison and policy. | `packages/outline-core/src/agent-tool-definitions.ts:410` |
-| `tools.outline_proposal_dismiss` | writes | **ref** | Dismiss your own draft proposal the note `ref` by id, without a reader: mark it dismissed and put it in Trash. | `packages/outline-core/src/agent-tool-definitions.ts:410` |
-| `tools.outline_set_property` | writes | **ref**, **key**, **value**, **revision** | Set one [key::value] property on the header line of the note `ref` (the chips that end its first line): the value replaced where the key is, or the… | `packages/outline-core/src/agent-tool-definitions.ts:426` |
-| `tools.outline_assign_id` | writes | **ref**, **revision** | Give the note `ref` the outline's next work id (outliner work-id-allocate), against the `revision` outline_read returned: the id is stamped on the… | `packages/outline-core/src/agent-tool-definitions.ts:450` |
-| `tools.outline_move` | writes | **ref**, parent, before, after, position, **revision** | Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among its children (0 is first; default… | `packages/outline-core/src/agent-tool-definitions.ts:469` |
-| `tools.outline_trash` | writes | **ref**, **revision** | Put the note `ref` in Trash, with what is under it, against the `revision` outline_read returned: a note that changed since is refused and stays. | `packages/outline-core/src/agent-tool-definitions.ts:500` |
-| `tools.outline_restore` | writes | **ref** | Bring the note `ref` back from Trash, with what went under it, to where it was. | `packages/outline-core/src/agent-tool-definitions.ts:518` |
+| `tools.outline_edit` | writes | **ref**, **expectedRevision**, text, replaceSection, append, at, allowStructural | Rewrite the note `ref`, checked against the revision you read with outline_read: its whole `text`, one `replaceSection` (the text under a heading,… | `packages/outline-core/src/agent-tool-definitions.ts:183` |
+| `tools.outline_create` | writes | **parent**, **text**, position | Create a block under `parent` (a ref, or root), at `position` among its siblings (0 is first; default last). | `packages/outline-core/src/agent-tool-definitions.ts:224` |
+| `tools.outline_comment` | writes | **ref**, body, quote, whole, start, near, kind, properties, prefix, suffix, requestId, from, revision | Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, near, prefix or suffix when the quote repeats),… | `packages/outline-core/src/agent-tool-definitions.ts:244` |
+| `tools.outline_reply` | writes | thread, **body**, requestId, edit, observed | Reply in a comment thread, as you. | `packages/outline-core/src/agent-tool-definitions.ts:279` |
+| `tools.outline_resolve_thread` | writes | **thread**, **resolved** | Resolve a comment thread (resolved: true), or reopen it (false), as you. | `packages/outline-core/src/agent-tool-definitions.ts:298` |
+| `tools.view_order` | writes | **ref**, ids | Read or set the hand-set order of the view `ref` (a view with no [sort::] is ordered by hand: the order its board lanes, figures and Tree show). | `packages/outline-core/src/agent-tool-definitions.ts:311` |
+| `tools.outline_changes` | reads | **since**, author, actor, limit, before, machinery | What changed since a point: an ISO time, or the `cursor` an earlier call returned. | `packages/outline-core/src/agent-tool-definitions.ts:334` |
+| `tools.outline_patch` | writes | **ref**, **revision**, **patches**, mark, policy, allowStructural | Small edits to the note `ref` the person may be typing in, without waiting for their save (draft.patch); for rewriting your own pages, such as a… | `packages/outline-core/src/agent-tool-definitions.ts:358` |
+| `tools.outline_proposal_apply` | writes | **ref** | Apply draft proposal the note `ref` by id, without a reader, under the agent's normal patch comparison and policy. | `packages/outline-core/src/agent-tool-definitions.ts:411` |
+| `tools.outline_proposal_dismiss` | writes | **ref** | Dismiss your own draft proposal the note `ref` by id, without a reader: mark it dismissed and put it in Trash. | `packages/outline-core/src/agent-tool-definitions.ts:411` |
+| `tools.outline_set_property` | writes | **ref**, **key**, **value**, **revision** | Set one [key::value] property on the header line of the note `ref` (the chips that end its first line): the value replaced where the key is, or the… | `packages/outline-core/src/agent-tool-definitions.ts:427` |
+| `tools.outline_assign_id` | writes | **ref**, **revision** | Give the note `ref` the outline's next work id (outliner work-id-allocate), against the `revision` outline_read returned: the id is stamped on the… | `packages/outline-core/src/agent-tool-definitions.ts:451` |
+| `tools.outline_move` | writes | **ref**, parent, before, after, position, **revision** | Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among its children (0 is first; default… | `packages/outline-core/src/agent-tool-definitions.ts:470` |
+| `tools.outline_trash` | writes | **ref**, **revision** | Put the note `ref` in Trash, with what is under it, against the `revision` outline_read returned: a note that changed since is refused and stays. | `packages/outline-core/src/agent-tool-definitions.ts:501` |
+| `tools.outline_restore` | writes | **ref** | Bring the note `ref` back from Trash, with what went under it, to where it was. | `packages/outline-core/src/agent-tool-definitions.ts:519` |
 
 <!-- generated:tools:end -->
 
@@ -339,7 +343,7 @@ Each of these cost someone an hour.
   `read(this.id)`. The same for `links` and `backlinks`.
 - **A `q` row has no properties.** `(await q("parent:this")).blocks[0].qty` is `undefined`: `read(row.id)` and look in `properties`.
 - **Properties are `[{ key, values }]`, not an object**, and `props.x` is a list: `props.week[0]`, not `props.week`.
-- **`line` counts from 0**, in `fields[].line`, `tasks[].line`, `caller.line` and a handler line's index. The first line of a
+- **`line` counts from 0**, in `fields[].line`, `tasks[].line`, `caller.line` and a handler line's index. The drawn `::fields` figure labels lines from **1**; its API offsets stay zero-based. The first line of a
   note is line 0, the header chips' line.
 - **A render script redraws for what it read, not for what it could have** (the list under *Render mode*). `this`
   and `self` are snapshots taken when the line is drawn, and `this.children` is always empty: use `q("parent:this")` or
@@ -355,6 +359,19 @@ Each of these cost someone an hour.
 - **`function () { this }` loses `this`.** Use arrows.
 - **Saving a script that fails to load is allowed.** `ep0ch ext ls` is where the error shows; the note itself is fine.
 - **Files need the opt-in line** (`// ep0ch-script` first) and live under `.ep0ch/scripts/`; the old `scripts/` folder is ignored.
+
+## Anchored append and held drafts
+
+**Append:** `await tools.outline_edit({ ref: this.id, expectedRevision: this.revision, append: "One more entry", at: "^log" })` appends an output region after the anchor's region; without `at`, append remains end-of-note.
+**Placement:** it uses PIE-956's placement planner and draft router; at a heading it follows the output regions directly beneath the heading, before the person's prose.
+**Receipt:** anchored append returns `outcome: "applied"` or `"proposed"`, an `anchor`, and the placement message; it does not return the whole-note edit's diff.
+**A held draft:** `outline_patch` lands at its observed passage in the live draft, as one attributed edit; without a draft it edits the saved note.
+**A proposal:** a missing, changed or ambiguous observed span, a patch touching the paragraph, list item or heading at the cursor or selection endpoint, or a busy or unavailable draft leaves a proposal instead.
+**The cursor matters:** an unmarked patch can land above or below the block being typed in; with `mark`, spans must stay above the mark and above the cursor's block when the cursor is before it.
+**Placement marks:** anchored append uses a mark below its target, so type in a later paragraph for the non-conflicting run.
+**Save:** the saved note waits for the person's save when the edit landed in their draft.
+**Script-owned output:** `place("Report", { at: "^weekly", mode: "upsert" })` creates or replaces this script's own region; a person's edit inside that region makes replacement a proposal.
+**Worked run:** [task 4](PROGRAMMABLE-NOTES.md#4-append-while-a-person-holds-a-draft) drives append and the conflicting cursor on a scratch door.
 
 ## Worked examples
 
@@ -553,46 +570,15 @@ Beans [qty::5] [price::2]
 
 #### Fantasia: a button, a transaction, motion, undo (needs a door)
 
-`::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia stay=1}` in a note (`stay=1` leaves the tiles where they danced, so `layout.undo` has something to take back; without it the script undoes itself at the end), and this script as `[script::fantasia] [effects::write]`.
+**Body line:** below a title, write `::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 layout=focus motion=fantasia}` in a note, and save the complete script note linked below. First save the `focus` screen as described below. For a dance left floating to undo, replace `layout=focus` with `stay=1`; stay takes precedence if both are present. With neither, the script undoes its own layout at the end.
 It is the acceptance test of the self-reference wave: one click runs the whole chain. It needs several tiles the person isn't holding to show anything, and unlike examples 1 to 5 it needs a connected door (it moves tiles), so it is not pasted by the scripts-docs test; the showcase's *fantasia* section runs it live.
 
-```js
-const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));
-const tempo = Math.max(150, Math.min(3000, Number(props.tempo && props.tempo[0]) || 500));
-const style = (props.motion && props.motion[0]) || 'fantasia';
-const home = (props.layout && props.layout[0]) || '';
-const stay = !!(props.stay && props.stay[0]);
-const before = await act('layout.get');
-if (before.locked) return 'fantasia: the screen is locked; alt+k unlocks it, then run again';
-const dancers = (before.tiles || []).filter(t => t.shown && t.kind !== 'drawer.own').map(t => ({ id: t.id, name: t.name }));
-const notes = [], floated = [];
-for (const d of dancers) {
-  try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r && r.now && r.now !== d.name ? r.now : d.id, name: d.name }); }
-  catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }
-}
-if (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');
-const drift = [[7, -2], [-5, 3], [6, 2], [-8, -3], [4, 4], [-4, -4], [9, 1], [-6, 2]];
-for (let beat = 0; beat < beats; beat++) {
-  for (let i = 0; i < floated.length; i++) {
-    const [dx, dy] = drift[(beat + i * 3) % drift.length];
-    try { await act('float.place', { tile: floated[i].id, dx: i % 2 ? -dx : dx, dy, motion: style }); }
-    catch (e) { notes.push('beat ' + (beat + 1) + ', ' + floated[i].name + ': ' + (e && e.message || e)); }
-  }
-  await wait(tempo);
-}
-let settled = '';
-if (stay) settled = 'and left where they danced (layout.undo puts them back)';
-if (!settled && home) {
-  try { await act('layout.load', { name: home, motion: 'settle' }); settled = 'into the screen ' + home; }
-  catch (e) { notes.push('layout.load ' + home + ': ' + (e && e.message || e)); }
-}
-if (!settled) {
-  // No layout asked: the run's own changes are taken back, so the screen is as it began.
-  try { await act('layout.undo'); settled = 'the layout as it began'; } catch (e) { notes.push('layout.undo: ' + (e && e.message || e)); }
-}
-if (!settled) settled = 'left where they danced (layout.undo, or ctrl+z, puts them back)';
-return 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\nnotes: ' + notes.join('; ') : '');
-```
+Save the [complete Fantasia note in task 5](PROGRAMMABLE-NOTES.md#5-fantasia-settles-into-a-saved-screen), including its title and `js` fence.
+
+**Prepare the settle target:** `ep0ch act screen.open name=desk`, arrange several tiles, then `ep0ch act screen.save name=focus`.
+**Settle:** put `layout=focus` on the button and omit `stay=1`; run it on the Desk (or a blank screen), since Detail keeps its own layout.
+**Agent press:** `act button.press` is an agent action and gets no invitation; only a person's click or Enter invites the run to move the held tile.
+**Undo:** prepare a reader of the script definition before running, and include it in the saved settle layout (the receipt calls that note `undoOn`); then `act ext.undo tile=<that reader>` as the actor that ran it; it takes no `run=`. `layout.undo txn=<undo id>` takes back just the layout.
 
 What happens, step by step:
 

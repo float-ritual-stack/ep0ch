@@ -5551,21 +5551,23 @@ export class NoteSurface {
     if (!e) throw new ActionRefused(actor.kind === "agent" ? "no extension action or quote you ran on this note to undo" : "no extension action or quote run on this note to undo");
     const say = asActor(host.ctx, actor);
     try {
+      host.ctx.scriptUndos?.add(e.undo);
       const r = await host.ctx.board.undoExtension(e.undo, actor);
       EXT_UNDO.drop(e);
       outlineChanged(r.written);
       // The layout the run changed goes back with its writes (PIE-957, one undo id for both): the answer says which parts were
       // undone and which were refused.
       const dispatch = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
-      let layout: { undone: true; steps: number } | { refused: string } | null = null;
+      let layout: { undone: true; steps: number; screen: string; left?: string } | { refused: string } | null = null;
       if (dispatch) {
-        try { const l = await dispatch.act({ action: "layout.undo", args: { txn: e.undo } }, actor) as { steps: number }; layout = { undone: true, steps: l.steps }; }
+        try { const l = await dispatch.act({ action: "layout.undo", args: { txn: e.undo } }, actor) as { steps: number; screen: string; left?: string }; layout = { undone: true, steps: l.steps, screen: l.screen, ...(l.left ? { left: l.left } : {}) }; }
         catch (err) { const why = err instanceof Error ? err.message : String(err); if (!/no layout change in transaction/.test(why)) layout = { refused: why }; }
       }
-      say.flash(`undid ${e.label.toLowerCase()}${layout && "refused" in layout ? ` · layout not undone: ${layout.refused}` : layout ? " · and its layout changes" : ""}`);
+      say.flash(`undid ${e.label.toLowerCase()}${layout && "refused" in layout ? ` · layout not undone: ${layout.refused}` : layout ? ` · layout restored to ${layout.screen}${layout.left ? ` · remaining: ${layout.left}` : ""}` : ""}`);
       host.redraw();
       return { undone: e.undo, action: r.action, written: r.written, ...(layout ? { layout } : {}) };
     } catch (err) {
+      host.ctx.scriptUndos?.delete(e.undo);
       const why = `couldn't undo ${e.label.toLowerCase()}: ${err instanceof Error ? err.message : String(err)}`;
       // Gone from the service (undone elsewhere, or the host restarted): it can't be undone here either.
       if (/No extension change/.test(why)) EXT_UNDO.drop(e);

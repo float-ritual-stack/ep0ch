@@ -3434,7 +3434,12 @@ export class OutlinerStore {
     })();
   }
   resolveBlockReferences(text: string): ResolvedBlockReferences {
-    const resolved = resolveBlockReferencesWithStatus(text, (blockId) => this.get(blockId));
+    const resolved = resolveBlockReferencesWithStatus(text, (blockId) => {
+      const exact = this.get(blockId);
+      if (exact) return exact;
+      const found = this.lookupBlockRef(blockId);
+      return found.kind === "found" ? found.block : null;
+    });
     const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
     const ticketPrefixes = this.workIdAllocatorStatusFromCurrentRead().prefixesInUse;
     return { ...resolved, ...(workIdPrefix ? { workIdPrefix } : {}), ...(ticketPrefixes.length ? { ticketPrefixes } : {}) };

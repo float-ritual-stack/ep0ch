@@ -714,3 +714,22 @@ for (const destination of ["missing Inbox", "trashed parent", "trashed before", 
     expect(store.require(note.id).parentId).toBeNull();
   });
 }
+
+ test("a resolved eight-character reference saves without a false warning", async () => {
+  const { store, agent } = await setup();
+  const target = store.create("Trellis");
+  const note = store.create("Links");
+  const saved = await agent("edit", { ref: note.id, expectedRevision: note.revision, append: `((${target.id.slice(0, 8)}))` });
+  expect(saved.exitCode).toBe(0);
+  expect(saved.json.warnings ?? []).toEqual([]);
+ });
+
+ test("agent accepts the outline flag on either side of its command", async () => {
+  const { store, cli } = await setup();
+  const note = store.create("Flag order");
+  for (const args of [["--ws", "scratch", "agent", "read"], ["agent", "--ws", "scratch", "read"], ["agent", "read", "--ws", "scratch"]]) {
+    const r = await cli([...args, "--json", JSON.stringify({ ref: note.id })]);
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout).text).toBe("Flag order");
+  }
+ });

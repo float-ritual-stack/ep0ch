@@ -179,7 +179,7 @@ function tokenAt(text: string, offset: number, line: string): string {
 }
 
 function fields(store: ProducerStore, tools: SiteTools, key: string, of: string | undefined, draft?: { id: string; text: string }): SiteProduced {
-  const path = `${of ? `((${of}))` : "this"}.fields.${key}`;
+  const path = `${of === "parent" ? "parent" : of ? (of.startsWith("((") ? of : `((${of}))`) : "this"}.fields.${key}`;
   const read = tools.read(path);
   if (read.problem) return { kind: "fields", key, from: of ?? "", revision: 0, rows: [], problem: read.problem };
   const from = read.from ?? of ?? "";

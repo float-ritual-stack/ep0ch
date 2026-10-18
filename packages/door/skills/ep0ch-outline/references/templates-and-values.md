@@ -113,3 +113,11 @@ call that works) and the `missing` props; a write also warns about the same afte
 | A figure or `::fields` that reads each page it is drawn on | `::use` (`this` is the host) |
 | A note to start from and then change | `template.stamp as=new` |
 | One note per client, ticket or day | `template.stamp … for=` / `as=new` with `title={{now.date}}` |
+
+
+## Fields and scope
+
+**Roll up:** `::fields{key=connectTo}` lists this note's occurrences; `of=parent` lists its parent's, and `of=<id>` or `of=((id))` names another note (full ID or its first eight characters).
+**Positions:** the figure labels lines from 1; the API's `fields[].line` counts from 0.
+**Bare field:** `connectTo:: value` starts a line; inside prose use `[connectTo::value]`.
+**Worked examples:** [Programmable notes](../../../../outliner/docs/PROGRAMMABLE-NOTES.md) walks through parent fields, live templates, scripts and held drafts on a scratch outline.

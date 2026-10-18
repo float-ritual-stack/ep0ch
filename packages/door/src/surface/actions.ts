@@ -491,7 +491,7 @@ export async function parseActArgs(words: string[], stdin: () => Promise<string>
   const read: string[] = [];
   for (let i = 0; i < words.length; i++) {
     const w = words[i]!, eq = w.indexOf("="), v = eq > 0 ? w.slice(eq + 1) : "";
-    if (i > 0 && (w === "--as" || w === "--tile")) { read.push(w); if (i + 1 < words.length) read.push(words[++i]!); continue; }
+    if (w === "--as" || w === "--tile") { read.push(w); if (i + 1 < words.length) read.push(words[++i]!); continue; }
     if (i === 0 || !v.startsWith("@") || v.length < 2) { read.push(w); continue; }
     const text = v === "@-" ? await stdin() : await Bun.file(v.slice(1)).text();
     read.push(`${w.slice(0, eq)}=${text.replace(/\n$/, "")}`);

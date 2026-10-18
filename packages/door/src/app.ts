@@ -114,6 +114,8 @@ export function pressOf(k: Key): string | null {
 export const TEST_APPS = Symbol.for("ep0ch.test.apps");
 
 export interface Ctx {
+  /** Local extension undo owns the layout receipt; consume its broadcast without undoing twice. */
+  readonly scriptUndos?: Set<string>;
   agentPointers?: AgentPointers;
   t: TermInfo;
   /** The host layer's drawer, where a tile goes to travel across screens (absent: none here). */
@@ -891,12 +893,14 @@ export class App implements Ctx {
     finally { this.away = null; this.redraw(); }
   }
 
+  readonly scriptUndos = new Set<string>();
+
   private scriptEvent(e: OutlineEvent) {
     const screens = [...this.stack, ...this.background];
     if (e.ended) {
       INVITES.spendRun(e.ended.run);
       for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.reason);
-    } else if (e.undone) for (const s of screens) s.scriptUndone?.(e.undone.run);
+    } else if (e.undone && !this.scriptUndos.delete(e.undone.run)) for (const s of screens) s.scriptUndone?.(e.undone.run);
     this.redraw();
   }
 

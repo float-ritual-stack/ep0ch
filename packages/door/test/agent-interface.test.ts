@@ -177,14 +177,16 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       c.on("data", d => { buf += d.toString(); const i = buf.indexOf("\n"); if (i >= 0) { c.end(); res(JSON.parse(buf.slice(0, i))); } });
       c.on("error", rej);
     });
-    const env = { control: process.env.EP0CH_CONTROL, agent: process.env.EP0CH_AGENT };
+    const env = { control: process.env.EP0CH_CONTROL, agent: process.env.EP0CH_AGENT, actor: process.env.OUTLINER_ACTOR, claude: process.env.CLAUDECODE };
     process.env.EP0CH_CONTROL = control.path;
     delete process.env.EP0CH_AGENT;
+    delete process.env.OUTLINER_ACTOR;
+    delete process.env.CLAUDECODE;
     const log = console.log, err = console.error;
     console.log = () => {}; console.error = () => {};
     try {
       const focus = person().focus;
-      expect(await controlClient(["open", notes.shed.id, "--as", "opener-510"])).toBe(0);
+      expect(await controlClient(["act", "--as", "opener-510", "open", `id=${notes.shed.id}`])).toBe(0);
       expect(said.some(m => m.includes("an agent (opener-510)"))).toBe(true);
       expect(person().focus).toBe(focus);                           // an agent's open never moves the keys
       await until(() => desk.layoutGet().tiles.some(t => t.showing?.id === notes.shed.id), "the note shown");
@@ -208,7 +210,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       expect(await controlClient(["open"])).toBe(1);
     } finally {
       console.log = log; console.error = err;
-      for (const [k, v] of [["EP0CH_CONTROL", env.control], ["EP0CH_AGENT", env.agent]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+      for (const [k, v] of [["EP0CH_CONTROL", env.control], ["EP0CH_AGENT", env.agent], ["OUTLINER_ACTOR", env.actor], ["CLAUDECODE", env.claude]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     }
     expect(await raw({ cmd: "open", id: notes.shed.id, as: "raw-opener-510" })).toMatchObject({ ok: false, error: expect.stringContaining("unknown command open") });
     // One `open` in the list: the desk's (the shell's is for screens without one).
