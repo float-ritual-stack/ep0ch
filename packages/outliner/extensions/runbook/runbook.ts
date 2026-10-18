@@ -127,8 +127,8 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
   const place = async (content: string, anchor?: string) => {
     const result = await outline<{ outcome: string; anchor: string; message: string }>({ action: "outputs.place", blockId: step.id,
       producer: { id: step.id, name: title }, content, ...(anchor ? { at: anchor, mode: "replace" } : { here: "end" }) });
-    if (result.outcome !== "applied") throw new Error(result.message);
-    return result.anchor;
+    if (!anchor && result.outcome !== "applied") throw new Error(result.message);
+    return result;
   };
   const refuse = async (why: string): Promise<StepResult> => {
     const outcome: Outcome = { status: "refused", by, at, excerpt: "", why };
@@ -151,7 +151,18 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
   }
   // A started record first, so a run that is cut off still shows it began.
   const started = await place(`Running ${title} [run.status::running] [run.at::${at}]`);
-  const settle = async (outcome: Outcome): Promise<StepResult> => { await place(recordText(title, outcome), started); await mark(step.id, outcome.status); return { title, outcome }; };
+  const settle = async (outcome: Outcome): Promise<StepResult> => {
+    try {
+      const placed = await place(recordText(title, outcome), started.anchor);
+      if (placed.outcome === "proposed") {
+        outcome.why = [outcome.why, "its output went to a proposal because the region changed"].filter(Boolean).join("; ");
+      }
+    } finally {
+      // The command finished even when its output can no longer replace the person's edited region.
+      await mark(step.id, outcome.status);
+    }
+    return { title, outcome };
+  };
 
   // Each group by name, read by the service now; the service scrubs its values from all this run writes and answers.
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
@@ -218,7 +229,7 @@ if (request.operation === "run") {
       for (const { block: step, ancestors } of steps) {
         if (Date.now() - began + (config.timeoutSeconds ?? 120) * 1000 > budget) { stopped = `stopped before ${titleOf(step.text)}: not enough of this call's time left; run it again to continue`; break; }
         const result = await runStep(step, { ...input.context, ancestors }, input.args ?? {}, config, askedBy(input.requestedBy));
-        done.push(`${result.title}: ${result.outcome.status}`);
+        done.push(`${result.title}: ${result.outcome.status}${result.outcome.why ? `: ${result.outcome.why}` : ""}`);
         if (result.outcome.status !== "ok") { stopped = `stopped at ${result.title}: ${result.outcome.why ?? `exit ${result.outcome.exit}`}`; break; }
       }
       const summary = stopped || `all ${steps.length} steps ran ok`;

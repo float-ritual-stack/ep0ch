@@ -1,10 +1,10 @@
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { sourceDownload, type SourcesAnswer } from "@ep0ch/outline-core/sources";
-import type { LiveHost } from "./publish-live";
+import type { DrawnComponent, LiveHost } from "./publish-live";
 import { escapeHtml } from "./publish";
 
 /** Sources follows the page's existing visibility cut, including dependencies discovered while reading. */
-export async function pageSources(host: LiveHost, blockId: string, outline: string, text: string): Promise<string> {
+export async function pageSources(host: LiveHost, blockId: string, outline: string, text: string, drawn: ReadonlyMap<number, DrawnComponent>): Promise<string> {
   const hidden = new Set<string>();
   let sources: SourcesAnswer | undefined;
   for (let round = 0; round < 4; round++) {
@@ -20,7 +20,10 @@ export async function pageSources(host: LiveHost, blockId: string, outline: stri
   const offsets: number[] = [];
   let at = 0;
   for (const line of text.split("\n")) { offsets.push(at); at += line.length + 1; }
-  const entries = sources.sources.map((s, i) => {
+  // Use the article's actual cuts, so a hidden body's text cannot reappear in the panel or its downloads.
+  const visible = sources.sources.filter(s => ![...drawn].some(([start, region]) =>
+    !region.markdown && s.line > start && s.line < region.end));
+  const entries = visible.map((s, i) => {
     const download = (format: "csv" | "json") => `<a download="${e(s.name.replace(/[^a-zA-Z0-9_-]/g, "-"))}.${format}" href="data:${format === "csv" ? "text/csv" : "application/json"};charset=utf-8,${encodeURIComponent(sourceDownload(s.result, format))}">${format.toUpperCase()}</a>`;
     const read = s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written";
     return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"><summary>${e(s.name)} <small>${e(s.readAt ?? "as written")}</small></summary>

@@ -215,3 +215,34 @@ test("only the runbook note's own value is trusted: a value from anywhere else t
   const plain = await create("Plain\nrun:: --mode=dry\n```sh\necho {{now.date}}\n```", book.id);
   expect((await act(plain.id, "run-step", PERSON)).message).toContain("ok");
 });
+
+
+test("editing a running output keeps the edit and records the completed outcome with a proposal", async () => {
+  const { create, book, act, client, root } = await setup();
+  const release = join(root, "release");
+  const step = await create(`Wait for the gardener [run.last::failed]\nrun:: --mode=dry\n\`\`\`sh\nwhile [ ! -f '${release}' ]; do sleep 0.02; done\necho harvest complete\n\`\`\``, book.id);
+  const running = act(step.id, "run-step", PERSON);
+  try {
+    const deadline = Date.now() + 5000;
+    let current: Block;
+    for (;;) {
+      current = await client.request<Block>({ action: "get", blockId: step.id });
+      if (current.text.includes("[run.status::running]")) break;
+      if (Date.now() > deadline) throw new Error("the step never started");
+      await Bun.sleep(20);
+    }
+    await client.request({ action: "update", blockId: step.id, expectedRevision: current.revision,
+      text: current.text.replace("[run.status::running]", "[run.status::running] My observation"), mutation: PERSON });
+  } finally { writeFileSync(release, "go"); }
+  const done = await running;
+  const saved = await client.request<Block>({ action: "get", blockId: step.id });
+  expect(saved.text).toContain("My observation");
+  expect(saved.text).toContain("[run.last::ok]");
+  expect(done.message).toContain("ok (exit 0)");
+  expect(done.message).toContain("its output went to a proposal because the region changed");
+  const { proposals } = await client.request<{ proposals: Array<{ id: string }> }>({ action: "draft.proposals.list", blockId: step.id });
+  expect(proposals).toHaveLength(1);
+  const proposal = await client.request<Block>({ action: "get", blockId: proposals[0]!.id });
+  expect(proposal.text).toContain("harvest complete");
+  expect(proposal.text).toContain("[run.status::ok]");
+});

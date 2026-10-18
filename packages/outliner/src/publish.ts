@@ -1553,7 +1553,7 @@ export class Publisher {
       // A step's box changes from the owner's own page (PIE-811); a share's and a public page's are drawn, read-only.
       const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
       const sourceText = (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text;
-      const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText);
+      const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map());
       if (!browse) return renderedHtml(this.page(entry, sources + article, audience), 200, READER_CSP);
       const crumbs = await this.crumbs(entry, index, true, share);
       return renderedHtml(htmlPage(entry.title, `${sources}<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId } }), 200, READER_CSP);
@@ -1570,11 +1570,13 @@ export class Publisher {
   private async serveFolder(entry: PublishedEntry | null, index: PublishedIndex, share?: PageShare): Promise<Response> {
     const base = share?.base ?? this.basePath;
     let article = `<h1>${escapeHtml(this.rootLabel())}</h1>\n`;
+    let sourceRegions = new Map<number, DrawnComponent>();
     if (entry) {
       if ((await this.lockedIds([entry.blockId])).size) return notFound();
       const whole = await this.noteWithAnnotations(entry.blockId, !share || share.comments);
       if (!whole) return notFound();
       const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, owner: !share, anchors: [], ...(share ? { share } : {}) });
+      sourceRegions = rendered.drawn.get(entry.blockId) ?? new Map();
       article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, true), rendered.anchors), rendered.steps, !share), rendered.index, base);
     }
     const listedHere = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
@@ -1616,7 +1618,7 @@ export class Publisher {
       : "";
     const bookmarks = system.find((block) => getProperty(block.properties, "system-view")?.toLowerCase() === "bookmarks");
     const top = share ? "" : `<footer>${bookmarks ? `<a href="${escapeHtml(`${base}/p/${bookmarks.id}`)}">bookmarks</a> · ` : ""}<a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
-    const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text) : "";
+    const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text, sourceRegions) : "";
     const body = `${sources}<article>\n${article}</article>\n${lanes}${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
     const crumbs = entry ? await this.crumbs(entry, index, false, share) : `<nav class="crumbs">${escapeHtml(this.rootLabel())}</nav>`;
     const title = entry?.title ?? this.outlineName ?? "outline";
@@ -2190,7 +2192,7 @@ export class Publisher {
   private async blockMarkdown(
     entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean,
     options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; owner?: boolean; format?: "markdown" | "html"; share?: PageShare; anchors?: string[] } = {},
-  ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[]; anchors: string[]; steps: PublishedStep[] }> {
+  ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[]; anchors: string[]; steps: PublishedStep[]; drawn: Map<string, Map<number, DrawnComponent>> }> {
     const { share } = options;
     // The owner's own pages (the tailnet, signed in): `[publish::false]` and extensions' data aren't held back there.
     const owner = !!options.owner && !share;
@@ -2282,7 +2284,7 @@ export class Publisher {
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
     const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse, values);
-    return { markdown, marks: order, index: linked, components, anchors: anchors ?? [], steps };
+    return { markdown, marks: order, index: linked, components, anchors: anchors ?? [], steps, drawn };
   }
 
   /**

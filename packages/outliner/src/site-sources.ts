@@ -132,7 +132,10 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
   for (const source of out) {
     if (source.transform.block) {
       deps.depend?.([source.transform.block]);
-      if (request.hidden?.includes(source.transform.block)) source.transform = { kind: "none", label: "not shared" };
+      if (request.hidden?.includes(source.transform.block)) {
+        source.transform = { kind: "none", label: "not shared" };
+        if (source.kind === "output") source.query.text = source.name;
+      }
     }
   }
   out.sort((a, b) => a.line - b.line);

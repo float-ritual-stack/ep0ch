@@ -1,3 +1,4 @@
+import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -304,4 +305,32 @@ test("published Sources exposes query, transform and downloadable visible rows",
   expect(html).toContain(shown.id);
   expect(html).not.toContain(hidden.id);
   expect(html).not.toContain("PRIVATE_HARVEST");
+});
+
+
+test("published Sources withholds an unpublished output producer's id", async () => {
+  const { store, publisher } = await setup();
+  const producer = store.create("Private producer");
+  const region = outputRegionText({ label: "Harvest", producer: producer.id, anchor: "out-harvest", body: "Public harvest" });
+  const note = store.create(`Harvest report [publish::public]\n${region}`);
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain("Public harvest");
+  expect(html).toContain("not shared");
+  expect(html).not.toContain(producer.id);
+});
+
+test("published Sources omits outputs inside a false conditional, including downloads", async () => {
+  const { store, publisher } = await setup();
+  const region = (label: string, body: string) => outputRegionText({ label, anchor: `out-${label}`, body });
+  const note = store.create(['Harvest [publish::public] [season::spring]',
+    '::if{where="season=winter"}', region("Winter", "HIDDEN_HARVEST"), '::',
+    '::if{where="season=spring"}', region("Spring", "VISIBLE_HARVEST"), '::'].join("\n"));
+  const response = await publisher.handle(new Request(`http://127.0.0.1/p/${note.id}?view=html`), "public");
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain('download="Spring.json"');
+  expect(html).not.toContain("HIDDEN_HARVEST");
+  expect(html).not.toContain('download="Winter.');
 });
