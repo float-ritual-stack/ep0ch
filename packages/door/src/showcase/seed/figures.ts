@@ -5,7 +5,7 @@ import { SEED } from "./names";
 export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "tabs", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree", "quadrant", "matrix", "compare", "flow"] as const;
 
 /** The kinds the Markdown figures note shows (src/figures/), each in its Markdown form; the keys note has `keys`. */
-export const MARKDOWN_KINDS = ["decision", "chat", "uptime", "activity", "calendar", "annotate"] as const;
+export const MARKDOWN_KINDS = ["decision", "chat", "uptime", "activity", "calendar", "annotate", "props", "example"] as const;
 
 export const fig = (kind: string, yaml: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", "::", ""];
 
@@ -106,6 +106,9 @@ export function markdownFiguresText(figureBlockId: string): string {
       "```sh", "close the tap        # (1)", "unscrew the fitting", "wrap the thread      # (2)", "screw it back", "```",
       "1. a quarter turn past snug", "2. three turns of PTFE tape, clockwise",
     ]),
+    // An action's page draws its arguments and examples with these two (PIE-1032); `ep0ch actions --doc layout.move`.
+    ...mdFig("props", ["title: Planting a bed"], ["- **bed**: a name — the bed it goes in", "- depth: a number · 2 — how deep, in centimetres", "- cloche: true or false · false — covered against the frost"]),
+    ...mdFig("example", ["title: Try it", "prompt: ep0ch act"], ["- `bar.open scope=notes query=beans` → lists the notes about beans; nothing opens (safe)", "- `layout.move tile=tree where=edge-down` → lays the tree along the bottom of the screen"]),
     ...mdFig("timeline", ["title: The plot's year"], ["- Feb: dig over", "- **Mar: seed potatoes** — after the frost", "- *Apr: beans*"]),
     ...mdFig("rank", ["title: Weeds pulled"], ["- bindweed: 40", "- **couch grass: 25**", "- *nettles: 6*"]),
     ...mdFig("stat", ["title: The shed"], ["- forks: 2", "- **trowels: 5**", "- seed tins: 9"]),
