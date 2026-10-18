@@ -18,6 +18,8 @@ import { connect, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { listening } from "../jsonl";
+import { resolveTarget } from "../discover";
+import { readMissing } from "../outlines";
 import { forwardTo } from "../machine";
 import { appendNest, nestLayers } from "../nest";
 import { stateDir } from "../state";
@@ -151,6 +153,13 @@ export async function sessionCommand(args: string[]): Promise<number> {
     const path = sessionSocket(place.dir);
     if (!(await (wait ? waitFor(path, wait * 1000) : listening(path)))) {
       if (orStart && !watch) return attachDoor(pinned(rest, place));
+      if (watch) {
+        const target = resolveTarget(pinned(rest, place));
+        if ("outline" in target) {
+          const missing = await readMissing({ ...target, command: ["session", "attach", "--watch", ...rest] });
+          if (missing) { console.error(`ep0ch: ${missing}`); return 1; }
+        }
+      }
       console.error(`ep0ch: no session runs for ${placeLabel(place)} · \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` starts one`);
       return 1;
     }

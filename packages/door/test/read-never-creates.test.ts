@@ -50,7 +50,7 @@ async function ep0ch(args: string[], extra: Record<string, string> = {}) {
 const made = (name: string) => existsSync(join(local.outlines, `${name}.sqlite`)) || existsSync(join(local.outlines, name));
 
 describe("a read of a name this machine doesn't have", () => {
-  for (const args of [["show", "--ws", "garden", "abc12345"], ["find", "--ws", "garden", "beds"], ["export", "--ws", "garden", "abc12345"]]) {
+  for (const args of [["show", "--ws", "garden", "abc12345"], ["find", "--ws", "garden", "beds"], ["export", "--ws", "garden", "abc12345"], ["peek", "--ws", "garden"], ["session", "attach", "--watch", "--ws", "garden"]]) {
     test(`ep0ch ${args[0]}: nothing is made; it says which machine has it and the command that reads it there`, async () => {
       const r = await ep0ch(args);
       expect(r.code).not.toBe(0);
@@ -62,6 +62,25 @@ describe("a read of a name this machine doesn't have", () => {
       expect(r.err).not.toContain("ep0ch init");  // init would make the empty outline the reader was told not to
     }, 60_000);
   }
+
+  test("peek without a control socket finds the named outline's machine", async () => {
+    const r = await ep0ch(["peek", "--ws", "garden"], { EP0CH_CONTROL: "" });
+    expect(r.code).toBe(1);
+    expect(made("garden")).toBe(false);
+    expect(r.err).toContain("far-box has it:");
+    expect(r.err).toContain("ep0ch peek --ws garden --machine far-box");
+  }, 60_000);
+
+  test("an existing outline with no door still says how to start its door", async () => {
+    await local.create("orchard");
+    for (const args of [["peek", "--ws", "orchard"], ["session", "attach", "--watch", "--ws", "orchard"]]) {
+      const r = await ep0ch(args, { EP0CH_CONTROL: "" });
+      expect(r.code).toBe(1);
+      expect(r.err).toContain("ep0ch --ws orchard");
+      expect(r.err).toContain("starts one");
+      expect(r.err).not.toContain("no outline orchard");
+    }
+  }, 60_000);
 
   test("a name no machine has says so, and the command that makes one on purpose", async () => {
     const r = await ep0ch(["show", "--ws", "nowhere", "abc12345"]);

@@ -20,16 +20,16 @@ export interface DoorResolution {
 
 const NOT_TILE = "you are not in a tile of it, so your keys are not the person's: act as an agent (`--as <your name>`), never as their keys";
 
-export async function resolveDoor(env: Record<string, string | undefined> = process.env, cwd = process.cwd()): Promise<DoorResolution> {
+export async function resolveDoor(env: Record<string, string | undefined> = process.env, cwd = process.cwd(), args: readonly string[] = []): Promise<DoorResolution> {
   const given = env.EP0CH_CONTROL?.trim() || null;
   const reached = await reachControl(env).catch(() => null);
   if (reached?.path && await listening(reached.path)) {
     return { rule: "control", path: reached.path, outline: null, text: `reached the door on EP0CH_CONTROL${reached.stale ? ` (${reached.stale})` : ""}` };
   }
   const gone = given ? `EP0CH_CONTROL (${given}) has no door now; ` : "";
-  const found = await controlFor(env, cwd);
+  const found = await controlFor(env, cwd, args);
   if (typeof found === "object") return { rule: "none", path: null, outline: null, text: `${gone}${found.error}` };
-  const named = placeFor([], env, cwd);
+  const named = placeFor(args, env, cwd);
   if (named && !("error" in named)) {
     return { rule: "folder", path: found, outline: named.outline, text: `${gone}reached ${placeLabel(named)}'s door session by folder (the outline this folder names); ${NOT_TILE}` };
   }
