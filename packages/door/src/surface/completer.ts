@@ -787,7 +787,7 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
   let picker = pickers.get(s);
   if (!picker) {
     picker = new ListPicker({ name: "completion", items: () => s.items,
-      row: (it, _i, on, w) => [pickRow(` ${printable(it.label, " ")}`, on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
+      row: (it, _i, on, w) => [pickRow(` ${on ? "»" : " "} ${printable(it.label, " ")}`, on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
       heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group}`, w) + RESET : null,
       choose: () => {},
     });
