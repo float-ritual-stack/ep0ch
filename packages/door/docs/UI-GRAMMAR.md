@@ -808,8 +808,10 @@ From a look at shiki, strata and mirador (all MIT). Where each fits:
 means beside that tile. Esc cancels. The source itself clears that verb. A frame's wire chip and
 ^W P's **Select shows in**, **⏎ opens in**, **alt opens** rows start this same mode through
 `tile.link ask=true verb=…`; the panel's × and `x` clear only that row's wire. No target-name picker.
-Frames shorten words to **◌ target · ⏎ target · ⤴ target**, then glyphs alone; link mode names the targets
-in the hint row and draws a line to connected tiles. The old tree preview/target role toggle is gone.
+Frames shorten words to **○ target · ⏎ target · ⤴ target**, then glyphs alone; link mode names the targets
+in the hint row and draws a line to connected tiles. A reader's state folds to ■ (stays put),
+→ (current note), or ▣ (page lock) when its words do not fit; the glyph still opens the policy panel.
+The old tree preview/target role toggle is gone.
 
 **Key audit.** Plain `s`, `o` and `a` are consumed only while link mode is active, before tile keys.
 The tree, links, reader, board and river keep their ordinary bindings outside that mode; editors and terminal

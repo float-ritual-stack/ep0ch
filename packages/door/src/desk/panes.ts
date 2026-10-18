@@ -396,7 +396,7 @@ export class ReaderPane implements Pane {
     if (!this.holding) return ["reader", st].filter(Boolean).join(" · ");
     return this.msg ? ["detail", st].filter(Boolean).join(" · ") : "detail · empty";
   }
-  hint() { return this.surface.hint(this.follows ? (this.holding ? "p current note · " : "p stays put · ") : ""); }
+  hint() { return this.surface.hint(this.follows ? (this.holding ? "p follow · " : "p hold · ") : ""); }
   /**
    * The frame and policy panel share the words for the reader's state.
    */
@@ -408,7 +408,7 @@ export class ReaderPane implements Pane {
     if (!this.follows) return null;
     const press = () => this.pickSource(desk);
     const ways = this.followMode === "pinned" ? [this.stateLabel(), "▣ stays put", "▣"]
-      : this.holding ? [this.stateLabel()] : [this.stateLabel(), "current note"];
+      : this.holding ? [this.stateLabel(), "■"] : [this.stateLabel(), "current note", "→"];
     const text = ways.find(w => width(w) <= room);
     return text ? [{ text, sgr: fg(this.holding ? C.yellow : C.grey), press, chip: true as const }] : null;
   }

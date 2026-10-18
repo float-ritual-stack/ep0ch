@@ -429,8 +429,8 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     frame();
     key({ kind: "pgdn" });
     const lines = frame(), r = rect("detail0"), pv = rect("preview");
-    expect(lines[r.row]).toMatch(/detail 1 · held · \d+%/);
-    expect(lines[pv.row]).toMatch(/preview · follows the board · \d+%/);
+    expect(lines[r.row]!.slice(r.col, r.col + r.cols)).toMatch(/detail 1 · stays put[^\n]* · \d+%/);
+    expect(lines[pv.row]!.slice(pv.col, pv.col + pv.cols)).toMatch(/preview · follows the board[^\n]* · \d+%/);
     const border = Array.from({ length: r.rows - 2 }, (_, i) => lines[r.row + 1 + i]![r.col + r.cols - 1]).join("");
     expect(border).toContain("█");
     expect(border.indexOf("█")).toBeGreaterThan(0);                             // scrolled: the thumb isn't at the top

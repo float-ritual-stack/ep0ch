@@ -233,7 +233,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("tree.pick", { id: notes.beans.id }, "tree");
     await until(() => tile("side").showing?.id === notes.beans.id, "selection lands in the mouse-wired reader");
     const tr = rect("tree"), header = visible(render().lines[tr.row]!);
-    const chip = header.indexOf("◌", tr.col);
+    const chip = header.indexOf("○", tr.col);
     expect(chip).toBeGreaterThan(tr.col);
     mouse("down", chip, tr.row);
     mouse("down", tr.col + 3, tr.row + 3);

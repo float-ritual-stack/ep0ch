@@ -114,7 +114,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     expect(pane("keeps").msg?.id).toBe(notes.plan.id);
     D().setCurrent(notes.shed, {});
     expect(pane("keeps").msg?.id).toBe(notes.plan.id);
-    expect(pane("keeps").hint()).toContain("p current note");
+    expect(pane("keeps").hint()).toContain("p follow");
   });
 
   test("reader.mode works on every reader, a former detail too, and the 'for readers' refusal is gone", async () => {
@@ -149,7 +149,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     await mine("tile.focus", {}, "keeps");
     key(char("p"));
     await until(() => tile("keeps").mode === "follows", "p lets a pinned reader follow");
-    expect(pane("keeps").hint()).toContain("p stays put");
+    expect(pane("keeps").hint()).toContain("p hold");
     await act("reader.mode", { mode: "held" }, "keeps");
   });
 

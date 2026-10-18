@@ -94,7 +94,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     await until(() => (desk.render(D().ctx).lines as string[]).map(plain).some(l => l.includes("Bring the spare key.")), "the note drawn");
     if (tile.kind === "welcome.preview") await until(() => plain(reader.surface.render(100, 30, reader.host(desk)).lines[0]!).includes("top level"), "breadcrumb");
     const all = (desk.render(D().ctx).lines as string[]).map(plain);
-    if ("cols" in tile) expect(all[0]).toContain("held");
+    if ("cols" in tile) expect(all[0]).toContain("■");
     expect(all.join("\n").match(/The orchard gate/g)?.length).toBe(1);
     const titleRow = all.findIndex(l => l.includes("The orchard gate"));
     expect(all[titleRow + 1]).toContain("[comment]");
@@ -103,7 +103,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
       expect(all.join("\n")).toContain("read here");
     }
     if ("cols" in tile) {
-      const x = all[0]!.indexOf("held") + 1;
+      const x = all[0]!.indexOf("■");
       key({ kind: "mouse", action: "down", button: 0, x, y: 0 });
       key({ kind: "mouse", action: "up", button: 0, x, y: 0 });
       expect(D().overlaid()).toBe(true);

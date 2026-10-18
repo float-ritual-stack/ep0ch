@@ -1193,7 +1193,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | click a tab; drag a tab | show it; move it out, or to another place among its tabs |
 | drag a border | resize |
 | `alt+l`, then click a tile | pick this tile's open target on screen. In link mode, `s` picks select, `o` open, `a` alt; click a tile, use `h j k l` or its number. An edge or gap in alt mode sets beside that tile. Clicking the source clears only that verb; Esc cancels. |
-| frame's `select →`, `⏎ →`, `alt →` chip | pick that verb's target in the same link mode. Narrow frames shorten to `◌ ⏎ ⤴` and then glyphs alone; link mode names the targets in the hint row and draws a connecting line. |
+| frame's `select →`, `⏎ →`, `alt →` chip | pick that verb's target in the same link mode. Narrow frames shorten to `○ ⏎ ⤴` and then glyphs alone; link mode names the targets in the hint row and draws a connecting line. |
 | `^W P` | Select shows in, ⏎ opens in, alt opens: click or Enter picks on screen; × or `x` clears that row's wire. A select with no target says current note. |
 | ctrl-click or alt-click a link | open it beside, not in the link target |
 | click a dock's handle (`⇤ tree`, hint row) | slide it open |

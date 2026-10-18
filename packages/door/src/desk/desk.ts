@@ -3436,7 +3436,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const room = Math.max(1, max - xNow() - chips - 18);
       put(pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
       this.putMarks(id, put, xNow, r.row);
-      return this.headerEnd(id, put, xNow, max, r.row);
+      return this.headerEnd(id, put, xNow, max, r.row, focused);
     } else if (this.noteOf(id)) {
       // NoteSurface owns the full title; the frame identifies the tile and keeps its mode controls reachable.
       const m = this.noteOf(id)!, named = workIdTitle(subject(m), prop(m, "work-id"));
@@ -3449,7 +3449,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
       const room = Math.max(0, max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 10 - chips);
       put(width(label) <= room ? label : headOf(label, Math.max(0, room - 1)).trimEnd() + (room ? "…" : ""), fg(C.dark), id);
-      return this.headerEnd(id, put, xNow, max, r.row);
+      return this.headerEnd(id, put, xNow, max, r.row, focused);
     } else {
       this.putStatus(id, put, true);
       put(`${this.numLabel(id)}${this.displayTitle(id)}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
@@ -3457,14 +3457,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.putMarks(id, put, xNow, r.row);
     const label = this.panes.get(id)!.headLabel?.();
     if (label) put(` ${label}`, "");
-    return this.headerEnd(id, put, xNow, max, r.row);
+    return this.headerEnd(id, put, xNow, max, r.row, focused);
   }
 
   /**
    * Controls the tile puts on its header where they fit (the backlinks' status, who's online's refresh), each a click;
    * room is kept for the dock's own glyph and [×] and how far down it is. Then the header's tail.
    */
-  private headerEnd(id: number, put: (text: string, sgr: string) => void, xNow: () => number, max: number, row: number): string {
+  private headerEnd(id: number, put: (text: string, sgr: string) => void, xNow: () => number, max: number, row: number, focused: boolean): string {
     const ctl = this.panes.get(id)!.headControls?.(max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 18, this) ?? null;
     if (ctl?.length) {
       // A chip (a reader's mode) is a label with a click, not the tile's keys: the frame still says those.
@@ -3472,7 +3472,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       put(" ·", fg(C.dark));
       ctl.forEach((c, i) => { if (i) put(" ·", fg(C.dark)); const from = xNow() + 1; put(` ${c.text}`, c.sgr); if (c.press) this.headPresses.push({ id, row, from, to: xNow(), press: c.press }); });
     }
-    return this.headerTail(id, put, xNow, row, max);
+    return this.headerTail(id, put, xNow, row, max, focused);
   }
 
   /**
@@ -3605,22 +3605,33 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.openLandingReader(USER)?.name ?? null;
   }
 
-  private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number): string {
+  private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number, focused: boolean): string {
     // A list a #tag opened (PIE-855) follows its reader's tags until held: ◄ and the reader, a click opens ^W P's follows row.
     const p = this.panes.get(id)!, home = kindOf(p)?.home?.(p);
     if (home && kindOf(p)?.hold?.held(p) === false) { const from = xNow(); put(` ◄ ${home}`, fg(C.lmagenta)); this.wireChips.push({ id, row, from: from + 1, to: xNow(), wire: "follows" }); }
+    const dr = dockOf(this.root, id);
+    // A click on it undocks it where it is (tile.dock on=false).
+    if (dr) {
+      const from = xNow(); put(` ${EDGE_GLYPH[dr.edge]} docked`, fg(C.brown)); this.dockLabels.push({ id, row, from: from + 1, to: xNow() });
+      // A dock that slides shut says how, by mouse: [×] closes it as Esc in it does.
+      if (dr.open && policyOfNode(this.layout, dr).collapsible) { const x = xNow(); put(" [×]", fg(C.grey)); this.dockCloses.push({ id, row, from: x + 1, to: xNow() }); }
+    }
     const verbs = ["select", "open", "alt"] as const;
-    const glyphs = { select: "◌", open: "⏎", alt: "⤴" };
+    const glyphs = { select: "○", open: "⏎", alt: "⤴" };
     const words = verbs.map(verb => this.wireWords(id, verb));
     const wide = verbs.map((verb, i) => ` ${verb === "open" ? "⏎" : verb} → ${words[i]}`);
     const short = verbs.map((verb, i) => ` ${glyphs[verb]} ${words[i]}`);
-    const room = max - xNow() - 12;
+    const room = max - xNow() - 14;
     const labels = wide.reduce((n, x) => n + width(x), 0) <= room ? wide : short.reduce((n, x) => n + width(x), 0) <= room ? short : verbs.map(verb => ` ${glyphs[verb]}`);
-    if (kindOf(p)?.previews || kindOf(p)?.accepts?.notes) verbs.forEach((verb, i) => {
-      const from = xNow() + 1;
-      put(labels[i]!, fg(C.lmagenta));
-      this.wireChips.push({ id, row, from, to: xNow(), wire: verb });
-    });
+    if (kindOf(p)?.previews || kindOf(p)?.accepts?.notes) {
+      // Wire controls are separate from the tile's identity and dock state.
+      put(focused ? " ═" : " ─", fg(C.dark));
+      verbs.forEach((verb, i) => {
+        const from = xNow() + 1;
+        put(labels[i]!, fg(C.lmagenta));
+        this.wireChips.push({ id, row, from, to: xNow(), wire: verb });
+      });
+    }
     // The chain it is in (PIE-700): the tiles whose links end here, and, for the reader an open from outside (the drawer's
     // what-changed list, `ep0ch open`) lands in, that it is that one: "reader10 ← reader9", "reader9 ⏎ drawer → reader10".
     const chain = this.chainWords(id);
@@ -3630,13 +3641,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (ag !== "free") {
       const room = max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 8, full = ` ${AGENT_GLYPH[ag]} ${AGENT_WORDS[ag]}`, text = full.length <= room ? full : ` ${AGENT_GLYPH[ag]}`;
       const from = xNow(); put(text, fg(ag === "off" ? C.lred : C.yellow)); this.agentChips.push({ id, row, from: from + 1, to: xNow() });
-    }
-    const dr = dockOf(this.root, id);
-    // A click on it undocks it where it is (tile.dock on=false).
-    if (dr) {
-      const from = xNow(); put(` ${EDGE_GLYPH[dr.edge]} docked`, fg(C.brown)); this.dockLabels.push({ id, row, from: from + 1, to: xNow() });
-      // A dock that slides shut says how, by mouse: [×] closes it as Esc in it does.
-      if (dr.open && policyOfNode(this.layout, dr).collapsible) { const x = xNow(); put(" [×]", fg(C.grey)); this.dockCloses.push({ id, row, from: x + 1, to: xNow() }); }
     }
     if (this.linking && id !== this.linking.from) put(" ⌖ click to link here", fg(C.lmagenta));
     return this.headOut;
