@@ -6,7 +6,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
-import type { Desk } from "../../src/desk/desk";
+import { Desk } from "../../src/desk/desk";
 import { RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, type Seeded } from "../../src/showcase/seed";
 import { gardenRound, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
@@ -33,6 +33,72 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+
+  test("tile titles follow their notes, keep written templates through toggles and restore from the layout", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "panes" }, as: "test-agent" });
+    await until(() => !!S().stages.get(S().sel), "the panes section");
+    const d = S().stages.get(S().sel).top as Desk;
+    await until(() => d.layoutGet().tiles.some(t => t.showing?.id === seeded.notes.notebook.id), "the notebook reader");
+    const tile = d.layoutGet().tiles.find(t => t.kind === "reader")!.name;
+    const info = () => d.layoutGet().tiles.find(t => t.name === tile)!;
+    await app.act({ action: "tile.title", tile, args: { text: "" }, as: "test-agent" });
+    expect(info().title).toBe(subject(seeded.notes.notebook));
+    await app.act({ action: "tile.title", tile, args: { text: "Reading {{this.title}} · {{tile.kind}} {{tile.n}} · {{this.title-colour || unset}}" }, as: "test-agent" });
+    expect(info().title).toContain(`Reading ${subject(seeded.notes.notebook)} · reader`);
+    expect(screen()).toContain("Reading");
+    expect(d.tileOutline().find(t => t.name === tile)!.title).toBe(info().title);
+    const writtenTitle = info().title;
+    await app.act({ action: "tile.title.mode", tile, as: "test-agent" });
+    expect(info().title).toBe(subject(seeded.notes.notebook));
+    const saved = d.layoutSpec();
+    await app.act({ action: "tile.title.mode", tile, as: "test-agent" });
+    expect(info().title).toBe(writtenTitle);
+    const restored = new Desk({ name: "titles", title: "titles", layout: saved });
+    restored.enter(app);
+    try {
+      await until(() => restored.layoutGet().tiles.find(t => t.name === tile)?.showing?.id === seeded.notes.notebook.id, "the restored notebook");
+      expect(restored.layoutGet().tiles.find(t => t.name === tile)!.title).toBe(subject(seeded.notes.notebook));
+      await restored.dispatch.press("tile.title.mode", {}, tile);
+      expect(restored.layoutGet().tiles.find(t => t.name === tile)!.title).toBe(writtenTitle);
+    } finally { restored.dispose(); }
+
+    await app.act({ action: "open", tile, args: { id: seeded.notes.shed.id }, as: "test-agent" });
+    await until(() => info().title.includes(subject(seeded.notes.shed)), "the title following its note");
+    expect(info().name).toBe(tile);
+    const shed = (await board.get(seeded.notes.shed.id))!;
+    const coloured = await board.update(shed.id, shed.text.replace("\n", " [title-colour::amber]\n"), shed.revision!);
+    await until(() => info().title.endsWith("amber"), "the title following an external property change");
+    await board.update(shed.id, shed.text, coloured.revision!);
+    await d.dispatch.press("tile.focus", {}, tile);
+    press({ kind: "enter" });
+    press({ kind: "char", ch: "w", ctrl: true }); ch("n");
+    await until(() => S().stages.get(S().sel).top.overlays.top()?.name === "tile title", "rename from the key");
+    press({ kind: "char", ch: "u", ctrl: true });
+    press({ kind: "enter" });
+    await until(() => !S().stages.get(S().sel).top.overlays.top(), "empty title saved");
+    expect(info().title).toBe(subject(seeded.notes.shed));
+    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("4 Visitors"));
+    expect(y).toBeGreaterThan(0);
+    const x = lines[y]!.indexOf("Visitors") + 1;
+    for (let i = 0; i < 2; i++) {
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+    }
+    expect(screen()).toContain("Rename tile");
+    expect(d.layoutGet().focus).toBe("activity");
+    press({ kind: "paste", text: "Garden visitors and callers" });
+    press({ kind: "enter" });
+    const frame = screen().split("\n").find(l => l.includes("4 Garden"));
+    expect(frame).toContain("[name]");
+    const chipY = screen().split("\n").indexOf(frame!), chipX = frame!.indexOf("[name]") + 1;
+    press({ kind: "mouse", action: "down", button: 0, x: chipX, y: chipY });
+    press({ kind: "mouse", action: "up", button: 0, x: chipX, y: chipY });
+    expect(d.layoutGet().tiles.find(t => t.name === "activity")!.title).toBe("last callers · live");
+    press({ kind: "esc" });
+    press({ kind: "esc" });
+
+  }, 30_000);
 
   test("the esc section: three nested things open (a zoom, a lit link, the tile menu); each Esc closes one, innermost first, then the keys come back to the index, then nothing to close, and the screen stays", async () => {
     (app as any).lastInput = 0;
@@ -256,10 +322,10 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const bar = () => { (app as any).paint(); return plain(h.painted.at(-1) ?? ""); };
     // Working, with its progress, on its header (an earlier visit to the section may have found it further on).
     await until(() => ["working", "blocked"].includes(deploy()?.status.urgent()?.state), "it reports", 8000);
-    if (deploy().status.urgent().state === "working") expect(screen()).toMatch(/[◴◷◶◵] (20|60)% \d deploy/);
+    if (deploy().status.urgent().state === "working") expect(screen()).toMatch(/[◴◷◶◵] (20|60)% \d sh/);
     // Blocked on a permission: the header's ◆, the list's row, the status bar's count, peek and status.list.
     await until(() => deploy()?.status.urgent()?.state === "blocked", "blocked", 8000);
-    await until(() => /◆ \d deploy/.test(screen()) && screen().includes("deploy · needs you · Deploy v2.4.1 to production?"), "the header and the list", 5000);
+    await until(() => /◆ \d sh/.test(screen()) && screen().includes("deploy · needs you · Deploy v2.4.1 to production?"), "the header and the list", 5000);
     expect(bar()).toContain("◆1 on you");
     const listed = await app.act({ action: "status.list", args: {}, as: "test-agent" }) as any;
     expect(listed.waiting[0]).toMatchObject({ n: 1, name: "deploy", state: "blocked", kind: "permission", app: "deploy", msg: "Deploy v2.4.1 to production?" });
@@ -269,7 +335,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     // The agent answers the program itself (tile.type), and it rolls out, then finishes done.
     await app.act({ action: "tile.type", tile: "deploy", args: { text: "y\\n" }, as: "test-agent" });
     await until(() => deploy()?.status.urgent()?.state === "done", "done", 8000);
-    await until(() => /✓ \d deploy/.test(screen()) && screen().includes("deploy · done · Deployed v2.4.1 to 3 regions"), "done on the header and the list", 5000);
+    await until(() => /✓ \d sh/.test(screen()) && screen().includes("deploy · done · Deployed v2.4.1 to 3 regions"), "done on the header and the list", 5000);
     expect(bar()).toContain("✓1 on you");
     // alt+w: the same list in your drawer.
     (app as any).lastInput = 0;
@@ -408,10 +474,10 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await until(() => !!stage().tileOutline().find(t => t.name === "pears")?.collapsed, "the second detail folded");
     // An agent's: the rows, nothing opened.
     const r = await app.act({ action: "bar.open", args: { scope: "tiles" }, as: "test-agent" }) as any;
-    const row = (name: string) => r.rows.find((x: any) => x.label.startsWith(`${name} ·`));
+    const row = (name: string) => r.rows.find((x: any) => x.key.endsWith(`:${name}`));
     expect(row("outline").depth ?? 0).toBe(0);
     expect(row("reader").depth).toBe(1);
-    expect(row("pears")).toMatchObject({ depth: 2, label: "pears · Allotment notebook" });
+    expect(row("pears")).toMatchObject({ depth: 2, label: "Allotment notebook" });
     expect(row("pears").detail).toContain("a spine");
     expect((app as any).bar).toBeNull();
     // / with nothing typed: the notes changed most recently, newest first, none twice; typed, the one search finds a work item by its id.

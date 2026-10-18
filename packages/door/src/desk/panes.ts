@@ -168,6 +168,8 @@ export interface Pane {
   /** Its kind in the tile-kind registry; "exhibit" (unregistered): a pane a host gives a screen of its own (the showcase's exhibits), never saved to desk.json. */
   readonly kind: TileKindName;
   title(): string;
+  /** The note a written tile title reads values from, when it differs from the selection. */
+  readonly titleNote?: Msg | null;
   hint(): string;
   /** The note the tile points at (a reader's note, a list's or the tree's selected row): what `note.trash` takes by default. Null: none. */
   subject?(): string | null;
@@ -210,6 +212,8 @@ export interface Pane {
   spec?(): Record<string, unknown>;
   /** This tile's own look (PIE-675, the tune inspector's "this tile"): field key → value, saved in its tile spec as `look`. */
   instanceLook?: Record<string, string>;
+  writtenTitle?: string;
+  systemTitle?: boolean;
   /** The tile is going away for good (closed, or its layout replaced): a program is ended. */
   dispose?(): void;
   /** What its header says after its name, already coloured (a lane: its count), instead of its title. */

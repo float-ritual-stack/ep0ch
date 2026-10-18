@@ -811,6 +811,8 @@ never takes the person's focus, keys or shown tab.
 
 ### Hit areas (Replit's splits, floatty's outer edges)
 
+Tile display titles (PIE-1015) come from `Desk.displayTitle`: frames, tabs, the `%` power-bar scope, peek and the drawer share it. `writtenTitle` and `systemTitle` travel in the saved `TileSpec`; tile addressing names stay unchanged. `tile.title` (`^W n`, Rename… in the menu, double click the title) writes or clears it; `tile.title.mode` (`^W N`, the frame's name/sys chip, menu) toggles without discarding it. The shared `^W` table had neither n nor N on any desk-hosted screen; no binding moves. Editors, prompts and terminal input still take their own keys first. Interpolation uses outline-core's grammar and property values.
+
 | Where the header is dropped | What happens | Action |
 |---|---|---|
 | another tile's header, or its centre (the middle ~28% each way) | it joins that tile's tabs, before the tab under the pointer | `layout.move where=tabs index=<n>` |

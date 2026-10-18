@@ -10,11 +10,12 @@
 import { nothingToClose, refused, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
-import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
+import { valuesOf } from "@ep0ch/outline-core/block-record";
+import { interpolate } from "@ep0ch/outline-core/interpolation";
 import { headedTitle, subject, type Msg } from "../board";
 import { BORDER_BOXES, Canvas, DOTTED_BOX, NO_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
-import { MOUSE_RIGHT, sideways, SidewaysWheel, type RowPress } from "../scroll";
+import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
@@ -433,6 +434,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Attention marks (door-local until PIE-423's service store; only the desk's are saved). */
   private marksStore: MarkStore;
   private headOut = "";
+  private titlePresses = new RowPresses();
   /** Tiles the host made itself (the showcase's exhibits), by the name the spec gives them: built as given, never saved. */
   private readonly given: ReadonlyMap<string, Pane>;
 
@@ -828,6 +830,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           fresh.push(id);
         }
       }
+      this.panes.get(id)!.writtenTitle = l.writtenTitle;
+      this.panes.get(id)!.systemTitle = l.systemTitle;
       used.add(id);
       // A kind nobody has registered (an extension not loaded yet) says so in its place; its spec is kept as saved.
       // A tile the host gave (an exhibit) is its own kind, never one waiting for its extension.
@@ -1105,6 +1109,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       ...(kept ? (({ link: _l, linkRole: _r, ...rest }) => rest)(kept) : {}),
       t: "leaf", kind: kept?.kind ?? p.kind, name: this.nameOf(id), id: this.tileId(id), ...(kept ? {} : (k?.save ? k.save(p) : p.spec?.()) ?? {}),
+      ...(p.writtenTitle !== undefined ? { writtenTitle: p.writtenTitle, systemTitle: p.systemTitle ?? false } : {}),
       ...this.sourceAcross(p),
       ...(link !== undefined && this.panes.has(link) ? { link: this.nameOf(link), ...(this.linkRoleIsDefault(id, link) ? {} : { linkRole: this.layout.linkRoles.get(id)! }) } : this.extSpec(id)),
       ...(this.collapsed.has(id) ? { collapsed: this.collapsed.get(id)!.dir === "h" ? "h" as const : true as const } : {}),
@@ -2922,7 +2927,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const link = this.layout.links.get(id), into = this.linkOf(id);
     const m = this.showing(p);
     return {
-      n, name: this.nameOf(id), id: this.tileId(id), kind: p.kind, ...(this.unregistered.has(id) ? { unregistered: this.unregistered.get(id)!.kind } : {}), title: p.title(), focused: id === this.focus, rect: r, shown: visible(this.root).includes(id) || this.isFloat(id),
+      n, name: this.nameOf(id), id: this.tileId(id), kind: p.kind, ...(this.unregistered.has(id) ? { unregistered: this.unregistered.get(id)!.kind } : {}), focused: id === this.focus, rect: r, shown: visible(this.root).includes(id) || this.isFloat(id),
       ...(this.isFloat(id) ? { float: true } : {}), ...(this.collapsed.has(id) ? { collapsed: true, ...(this.collapsed.get(id)!.dir === "h" ? { collapsedDir: "h" } : {}), ...(this.collapsed.get(id)!.by ? { collapsedBy: this.collapsed.get(id)!.by } : {}) } : {}),
       ...(this.cover(id) ? { cover: this.cover(id) } : {}),
       ...this.pickView(id),
@@ -2932,6 +2937,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...this.dockView(id),
       ...this.policyView(id),
       ...(kindOf(p)?.describe?.(p, true) ?? {}),
+      title: this.displayTitle(id),
       showing: m ? { id: m.id, title: subject(m) } : undefined,
       agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined,
       editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined,
@@ -3252,7 +3258,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const holdK = kindOf(pane)?.hold, listHeld = menus && !float && r.cols >= 24 && holdK ? holdK.held(pane) : null;
     const holdX = (foldDir ? foldX : menuX) - 2;
     // With the controls, the title ends a cell before them; what follows the title (how far down, "e enters") gives way first.
-    const fits = Math.max(1, (listHeld !== null ? holdX : foldDir ? foldX : menuX) - r.col - 4);
+    const titleModeX = menus && pane.writtenTitle && r.cols >= 28 ? (listHeld !== null ? holdX : foldDir ? foldX : menuX) - 7 : null;
+    const fits = Math.max(1, (titleModeX ?? (listHeld !== null ? holdX : foldDir ? foldX : menuX)) - r.col - 4);
     // Without it, as before: a float's long subject is cut so how far down it is still shows.
     const floatFits = Math.max(1, r.cols - 5 - width(tail));
     const title = !menus ? (float && width(head) > floatFits ? pad(head, floatFits) : head) + tail : width(head) + width(tail) <= fits ? head + tail
@@ -3262,6 +3269,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // (PIE-815): the header inside shows it wrapped, and tile.info gives it to an agent.
     // A ◄ or → mark cut off by the title's end isn't a click (PIE-855): past it is the border, or the corner's controls.
     const titleEnd = r.col + 3 + width(title);
+    this.headPresses = this.headPresses.filter(c => c.id !== id || c.to <= titleEnd);
     this.wireChips = this.wireChips.flatMap(c => (c.id !== id || c.to <= titleEnd ? [c] : c.from < titleEnd - 1 ? [{ ...c, to: titleEnd - 1 }] : []));
     const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.titleNote!) : null;
     if (shownTitle && !visibleText(title).includes(shownTitle)) this.cutTitles.add(id); else this.cutTitles.delete(id);
@@ -3308,6 +3316,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (foldDir) {
       canvas.text(foldX, r.row, `${fg(focused ? C.grey : C.dark)}${foldDir === "h" ? "▾" : "◂"}${RESET}`, 1);
       this.foldButtons.push({ id, row: r.row, from: foldX, to: foldX + 1 });
+    }
+    if (titleModeX !== null) {
+      const label = pane.systemTitle ? "[sys]" : "[name]";
+      canvas.text(titleModeX, r.row, fg(C.grey) + label + RESET, label.length);
+      this.headPresses.push({ id, row: r.row, from: titleModeX, to: titleModeX + label.length, press: () => this.run("tile.title.mode", {}, this.nameOf(id)) });
     }
     if (listHeld !== null) {
       canvas.text(holdX, r.row, `${fg(listHeld ? C.yellow : focused ? C.grey : C.dark)}${listHeld ? "●" : "○"}${RESET}`, 1);
@@ -3405,49 +3418,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // A tab's program status (OSC 7501) shows on the tab itself, so a terminal behind another tab still says it.
         const st = this.panes.get(t)?.headStatus?.();
         if (st) put(` ${st.glyph}`, on ? selected(focused, "idleRow") + st.sgr : st.sgr, t);
-        put(` ${this.numLabel(t)}${this.panes.get(t)?.headName?.() ?? this.nameOf(t)} `, on ? selected(focused, "idleRow") : fg(C.grey), t);
+        put(pad(` ${this.numLabel(t)}${this.displayTitle(t)} `, Math.max(4, Math.floor((max - r.col - 18) / set.ids.length))).trimEnd() + " ", on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
-    } else if (this.noteOf(id)) {
-      // NoteSurface owns the full title; the frame identifies the tile and keeps its mode controls reachable.
-      const m = this.noteOf(id)!, named = workIdTitle(subject(m), prop(m, "work-id"));
-      if (this.numbered) put(`${this.numberOf(id)} `, fg(focused ? C.white : C.dark), id);
-      this.putMarks(id, put, xNow, r.row);
-      this.putStatus(id, put);
-      if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
-      const p = this.panes.get(id)!, name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
-      const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
-      const kindWord = kindOf(p)?.word ?? p.kind;
-      const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
-      const tileLabel = this.plainName(id) || word === name ? word : `${name} · ${word}`;
-      const label = p instanceof ReaderPane && !p.surface.titleShown(r.rows - 2)
-        ? [p.surface.state(), named.title].filter(Boolean).join(" · ") : tileLabel;
-      // The mode chip is a mouse control; a long tile label gives way before it does.
-      const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
-      const room = Math.max(0, max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 10 - chips);
-      put(width(label) <= room ? label : headOf(label, Math.max(0, room - 1)).trimEnd() + (room ? "…" : ""), fg(C.dark), id);
-      return this.headerEnd(id, put, xNow, max, r.row);
-    } else if (this.plainName(id)) {
-      // A tile named only by its kind reads as its number, then its title.
-      if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
-      this.putMarks(id, put, xNow, r.row);
-      this.putStatus(id, put);
-      put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.cyan), id);
-      return this.headerEnd(id, put, xNow, max, r.row);
     } else {
       this.putStatus(id, put, true);
-      put(`${this.numLabel(id)}${this.panes.get(id)!.headName?.() ?? this.nameOf(id)}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
+      const p = this.panes.get(id)!;
+      const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
+      const room = Math.max(1, max - xNow() - chips - (p.writtenTitle ? 18 : 10));
+      put(pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
     }
     this.putMarks(id, put, xNow, r.row);
-    const p = this.panes.get(id)!;
-    // A tile that says what follows its name (a lane: its count) says it; a file shown read-only (a preview of
-    // one) is named by its title alone.
-    const label = p.headLabel?.();
-    // The reader's own header leads with the note's title (PIE-657), so its frame bar doesn't say it again; when the
-    // tile is too short to show the header, the frame bar carries the title as it always did.
-    const frameCarries = p instanceof ReaderPane && p.msg && !p.msg.id.startsWith("file:") && !p.surface.titleShown(r.rows - 2);
-    const what = label !== undefined ? null : frameCarries ? `${p.title()} · ${subject((p as ReaderPane).msg!)}` : p.title();
+    const label = this.panes.get(id)!.headLabel?.();
     if (label) put(` ${label}`, "");
-    else if (what && what !== this.nameOf(id)) put(` ${what}`, fg(focused ? C.lcyan : C.cyan));
     return this.headerEnd(id, put, xNow, max, r.row);
   }
 
@@ -3456,6 +3438,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * room is kept for the dock's own glyph and [×] and how far down it is. Then the header's tail.
    */
   private headerEnd(id: number, put: (text: string, sgr: string) => void, xNow: () => number, max: number, row: number): string {
+    const titled = this.panes.get(id)!;
+    if (this.noteOf(id) && max - xNow() > 16) put(` · ${kindOf(titled)?.word ?? titled.kind}`, fg(C.dark));
     const ctl = this.panes.get(id)!.headControls?.(max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 8, this) ?? null;
     if (ctl?.length) {
       // A chip (a reader's mode) is a label with a click, not the tile's keys: the frame still says those.
@@ -3501,16 +3485,46 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Tiles are numbered in their headers (what 1-9 focus), unless the view keeps the digits for itself. */
   private get numbered() { return this.spec.digits !== false; }
   private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
-  /** The note a reader tile shows, for its short border label: a block, not a file or a Resource. */
+  /** Display only: addressing and links keep the tile name. */
+  displayTitle(id: number): string {
+    const p = this.panes.get(id)!;
+    const shownNote = this.noteOf(id);
+    const note = p.titleNote ?? shownNote ?? this.showing(p);
+    const system = shownNote ? subject(shownNote) : p.headName?.() ?? p.title();
+    if (!p.writtenTitle || p.systemTitle) return system;
+    return interpolate(p.writtenTitle, span => {
+      const missing = () => span.default === undefined ? [`⚠ {{${span.expression}}}`] : undefined;
+      if (span.path === "tile.kind") return [p.kind];
+      if (span.path === "tile.n") return [String(this.numberOf(id))];
+      const path = span.parsed;
+      if (!note || path?.head !== "this" || path.steps.length !== 1 || !("key" in path.steps[0]!)) return missing();
+      const key = path.steps[0].key;
+      if (key === "title") return [subject(note)];
+      const values = valuesOf(note, key);
+      return values.length ? values : missing();
+    });
+  }
+
+  titleTile(sel: string | undefined, text: string | undefined, toggle: boolean, actor: Actor): TileDone {
+    const t = this.tile(sel), p = this.panes.get(t.id)!;
+    if (toggle) p.systemTitle = !p.systemTitle;
+    else if (text !== undefined) { p.writtenTitle = text || undefined; p.systemTitle = false; }
+    else {
+      if (actor.kind !== "user") throw new ActionRefused("tile.title needs text=<title>; text= clears it");
+      this.overlay(linePrompt<Desk>({ name: "tile title", title: "Rename tile", text: p.writtenTitle ?? "", prefilled: true, verbatim: true,
+        doing: () => "⏎ saves · empty uses the system title · {{this.title}} follows the note",
+        done: (text, d) => { d.run("tile.title", { text }, t.name); },
+      }));
+      return { tile: t.name, prompt: true };
+    }
+    this.save(); this.redraw();
+    return { tile: t.name, title: this.displayTitle(t.id), writtenTitle: p.writtenTitle ?? "", systemTitle: !!p.systemTitle };
+  }
+
   private noteOf(id: number): Msg | null {
     const p = this.panes.get(id);
     // Not a list that only has a note selected (the river's Library, a #tag column): its border names the list.
     return p instanceof ReaderPane && p.msg && isOutlineNote(p.msg) && !p.msg.id.startsWith("file:") && !kindOf(p)?.lists?.(p) ? p.titleNote : null;
-  }
-  private plainName(id: number) {
-    const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id);
-    // A held reader the desk named a detail (detail, detail2: the glossary's word, PIE-705) is named for what it is too.
-    return n === k || new RegExp(`^${k}\\d+$`).test(n) || (p instanceof ReaderPane && p.kind === "reader" && /^detail\d*$/.test(n));
   }
 
   /** The tiles whose links end at `pane` (on this desk, or across the host layer's edge): their names, as the header says them. */
@@ -5130,7 +5144,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.panes.get(id);
       if (!p) return;
       const m = this.showing(p);
-      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, title: p.title(), showing: m ? { id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}), ...(prop(m, "page") ? { page: prop(m, "page") } : {}) } : null,
+      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, title: this.displayTitle(id), showing: m ? { id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}), ...(prop(m, "page") ? { page: prop(m, "page") } : {}) } : null,
         focused: id === this.focus, collapsed: this.collapsed.has(id), float: this.isFloat(id), docked: !!how.docked, tab: !!how.tab, shown: how.shown ?? true, ...(p instanceof ReaderPane && p.follows ? { mode: p.followMode } : {}) });
     };
     const walk = (n: LNode, depth: number, docked: boolean) => {
@@ -6267,6 +6281,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // ◄ → ⏎ marks on a header (PIE-855): ^W P opens on that row (what it follows, where its opens land).
       const wc = this.wireChips.find(at);
       if (wc) return this.openWires(wc.id, wc.wire);
+      const titleHit = this.heads.find(h => h.row === k.y && k.x >= h.from && k.x < h.to && !!hit && (h.id === hit[0] || !!tabsOf(this.root, hit[0])?.ids.includes(h.id)));
+      if (titleHit && this.titlePresses.press(titleHit.id) === "open") {
+        this.floatDrag = null; this.dragging = null; this.headPress = null;
+        if (titleHit.id !== this.focus) this.run("tile.focus", {}, this.nameOf(titleHit.id));
+        return this.run("tile.title", {}, this.nameOf(titleHit.id));
+      }
       // A float: a press gives it the keys and brings it to the top; its title moves it, its ◢ corner sizes it.
       if (hit && this.isFloat(hit[0])) {
         const [id, r] = hit;

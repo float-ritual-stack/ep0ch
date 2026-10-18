@@ -166,6 +166,7 @@ export class BacklinksPane implements Pane {
   private get childrenOnly() { return this.groups.length === 1 && this.groups[0] === "children"; }
 
   subject() { const r = this.rows()[this.sel]; return r?.kind === "backlink" ? r.source.blockId : r?.kind === "child" ? r.child.block.id : null; }
+  get titleNote() { return this.target; }
   title() {
     const word = this.childrenOnly ? "children" : this.every ? "links" : `links (${this.groups.join(", ")})`;
     if (!this.target) return `${word} · of ${this.source}`;

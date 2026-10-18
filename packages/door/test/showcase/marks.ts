@@ -26,7 +26,7 @@ export const marks: Record<string, string[]> = {
   proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[dismiss]"],
   // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
-  panes: ["outline", "children", "│ 4 activity", "Kitchen sink"],
+  panes: ["outline", "children", "Visitors", "Kitchen sink"],
   folds: ["outline", "children", "◂", "▾"],
   screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
   kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
@@ -43,7 +43,7 @@ export const marks: Record<string, string[]> = {
   agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
   preview: ["preview · tree", "outline"],
   "reader-modes": ["outline", "· held", "· pinned"],
-  screen: ["board ·", "· lanes", "HOME-003 · card", "True the front wheel"],
+  screen: ["board ·", "· lanes", "HOME-003", "True the front wheel"],
   spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
   entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
   "links-open": ["Bike shed", "links · Bike shed", "preview"],

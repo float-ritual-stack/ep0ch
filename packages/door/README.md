@@ -1237,6 +1237,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | a click on a header's `⇤ docked` | undock it where it is (the dock goes, its tiles back in the layout) |
 | `Ctrl+W` then `P` | the policy panel: the containers over this tile (the screen first) and what each allows: locked, draggable, droppable, resizable, accepts, opens into, fixed/min/max size, and a dock's collapsible, overlay, stays and edge (`⏎` or a click changes a row, `h l` picks the container, `+ -` change a size) |
 | `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
+| `Ctrl+W` then `n` / `N` | rename the tile / toggle written and system titles; double click its title or use its menu to rename; the `[name]` / `[sys]` chip toggles. Empty clears. `{{this.title}}`, `{{this.<property>}}`, `{{tile.kind}}`, `{{tile.n}}` follow what it shows. Names used by `act tile=` stay the same. |
 | `Ctrl+W` then `.` | this tile's menu (`tile.menu`), as its `⋯` and a right-click in it open it |
 | `Ctrl+W` then `!` | drop to shell: your login shell in this terminal, the desk back as it was when it exits (the menu's `!`); for a shell in a tile beside the notes, `^W o s` |
 | in a terminal tile: `ctrl+]` | back to the door's keys (every other key, `ctrl+c`, `^W`, F-keys, shift- and ctrl-arrows and pastes included, is the program's); `ctrl+]` twice sends a `ctrl+]` to the program |

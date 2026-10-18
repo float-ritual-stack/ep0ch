@@ -123,6 +123,7 @@ export class QueryPane implements Pane {
     const r = this.read;
     return `${fg(C.dark)}${this.items ? this.items.length : "…"}${r?.truncated ? fg(C.yellow) + ` of ${r.limit}+` : ""}${r && r.status !== "ready" ? fg(C.lred) + " " + r.status : ""}${hasUnsent(`card:${this.view}`) ? fg(C.dark) + " ■ card kept" : ""}`;
   }
+  get titleNote() { return this.def; }
   title() { return `${this.name} ${this.items ? this.items.length : "…"}`; }
   subject() { return this.items?.[this.sel]?.id ?? null; }
   /** Its header names the view as written ("Reading now"), not the tile (`Reading-now`). */

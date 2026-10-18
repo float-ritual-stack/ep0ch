@@ -78,6 +78,8 @@ export const W_KEYS = [
   { key: "v", group: "open", action: "tile.preview", how: run("tile.preview", { where: "right" }), label: "preview beside", short: "preview" },
   { key: "V", group: "open", action: "tile.preview", how: run("tile.preview", { where: "down" }), label: "preview below" },
   { key: "x", group: "open", action: "tile.close", how: run("tile.close"), short: "close" },
+  { key: "n", group: "open", action: "tile.title", how: run("tile.title"), short: "rename" },
+  { key: "N", group: "open", action: "tile.title.mode", how: run("tile.title.mode"), short: "title mode" },
   { key: ".", group: "open", action: "tile.menu", how: run("tile.menu"), label: "this tile's menu", short: "menu" },
 
   { key: " ", group: "mounts & groups", action: "tile.select", how: run("tile.select"), label: "pick this tile to gather, or let it go" },

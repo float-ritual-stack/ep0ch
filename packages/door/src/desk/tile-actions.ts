@@ -401,6 +401,24 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return await d.previewTile(reader, where as Dir | undefined, actor);
     },
   }),
+  "tile.title": def({
+    summary: "rename a tile's display title; text= clears it. Supports {{this.title}}, {{this.<property>}}, {{tile.kind}} and {{tile.n}}. Without text the person gets the rename prompt",
+    keys: "^W n; double click a frame title or tab; Rename… in the tile menu",
+    touches: "nothing", replay: "safe",
+    says: r => r.prompt ? null : `title: ${r.title}`,
+    menu: { label: "Rename…", group: TILE, key: "ctrl+w n" },
+    args: { text: { type: "string", optional: true, about: "display title; empty clears" } },
+    run({ text }, { d, reader }, actor) { return d.titleTile(reader, text, false, actor); },
+  }),
+  "tile.title.mode": def({
+    summary: "toggle between the written tile title and the system title without losing the written title",
+    keys: "^W N; the frame's name/sys chip; the tile menu",
+    touches: "nothing", replay: "safe",
+    says: r => `title: ${r.title}`,
+    menu: { label: "toggle written / system title", group: TILE, key: "ctrl+w N" },
+    args: {},
+    run(_, { d, reader }, actor) { return d.titleTile(reader, undefined, true, actor); },
+  }),
   "tile.menu": def({
     summary: "tile=<tile>'s menu (PIE-492): every action its sets offer there (the tile operations, its kind's, a reader's note actions, a board's lane actions), each with its arguments, label, group, key and, when it would be refused now, why. An agent's answers the rows (rows=) and draws nothing; the person's opens the menu over the screen, under the tile's ⋯ or at at=<col,row>, where one click, ⏎ or a row's own key runs it as theirs",
     keys: "^W .; a click on a tile's ⋯; a right-click in a tile (not where its program asked for the mouse, or on a step's box)",

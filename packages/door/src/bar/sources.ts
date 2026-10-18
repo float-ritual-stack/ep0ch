@@ -43,10 +43,10 @@ function tileRows(desk: Desk, at: string, group: string, screen: Screen | null, 
   return desk.tileOutline().flatMap(t => {
     const path = `${prefix}${t.name}`, p = desk.pane(t.name);
     const row: BarRow = {
-      key: `${at}:${path}`, fill: path, label: t.showing ? `${path} · ${withWorkId(t.showing.workId, t.showing.title)}` : `${path} · ${t.title}`, depth: base + t.depth, group,
+      key: `${at}:${path}`, fill: path, label: t.title, depth: base + t.depth, group,
       mark: t.focused ? "●" : t.collapsed ? "▸" : t.float ? "⧉" : t.docked ? "⇤" : t.tab && !t.shown ? "⋯" : " ",
       detail: [t.kind, t.mode ?? "", t.collapsed ? "a spine" : "", t.float ? "floating" : "", t.docked ? "docked" : "", t.tab && !t.shown ? "a tab behind" : "", mounts.length ? "in a mount" : ""].filter(Boolean).join(" · "),
-      data: { desk, name: t.name, screen, drawer, shows: t.showing?.id ?? null, kind: t.kind, path, mounts, find: t.showing ? identityFields(t.showing.workId, t.showing.page, t.showing.title) : [] } satisfies TileAt,
+      data: { desk, name: t.name, screen, drawer, shows: t.showing?.id ?? null, kind: t.kind, path, mounts, find: [path, ...(t.showing ? identityFields(t.showing.workId, t.showing.page, t.showing.title) : [])] } satisfies TileAt,
     };
     const inner = p instanceof ScreenTile ? p.inner : null;
     return [row, ...(inner ? tileRows(inner, at, group, screen, drawer, base + t.depth + 1, `${path}/`, [...mounts, { desk, name: t.name }]) : [])];
