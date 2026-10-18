@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { scratchOutline } from "./scratch-outline";
-import { accentWorkId, assignPaths, checkPublicBind, parsePublicUrl, publishIntent, Publisher, renderMarkdownHtml, renderSubtreeMarkdown, servePublisher, slugify, type PublishedIndex } from "../src/publish";
+import { redactSharePath, accentWorkId, assignPaths, checkPublicBind, parsePublicUrl, publishIntent, Publisher, renderMarkdownHtml, renderSubtreeMarkdown, servePublisher, slugify, type PublishedIndex } from "../src/publish";
 import { drawAnchors, placeAnchor } from "../src/publish-anchors";
 import { canonicalPublishRoots, checkAttachment, type AttachmentPolicy } from "../src/publish-attachments";
 import { OutlinerServer } from "../src/server";
@@ -1435,4 +1435,8 @@ test("a value that only turns up once a hidden ancestor is left out is checked t
   expect(body).not.toContain("Zed");
   expect(body).not.toContain("shadow");
   expect(body).toContain("Guide:");
+});
+
+test("reader security: legacy lease paths are redacted in logs", () => {
+  expect(redactSharePath("POST /pub/o/garden/_reader/secret-token failed")).toBe("POST /pub/o/garden/_reader/… failed");
 });

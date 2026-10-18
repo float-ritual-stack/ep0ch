@@ -386,16 +386,22 @@ test("nothing logged holds a token, a code or a cookie", () => {
 });
 
 
-test("a signed-in bookmarklet writes to its named outline from another origin without a session cookie", async () => {
+test("a signed-in bookmark creates a scoped iframe session on its named outline", async () => {
   const gate = gateFor();
   const { cookie } = await signIn(gate);
-  const mint = await at(gate, "/pub/o/orchard/reader/lease", { cookie, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" });
+  const mint = await at(gate, "/pub/o/orchard/reader/bookmark", { cookie, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" });
   expect(mint.status).toBe(200);
   const lease = await mint.json();
-  const path = new URL(lease.writeUrl).pathname;
-  expect(lease.writeUrl).toStartWith(`${ORIGIN}/pub/o/orchard/_reader/`);
-  const headers = { origin: "https://journal.example", "content-type": "application/json" };
-  expect((await at(gate, path, { method: "OPTIONS", headers })).status).toBe(204);
+  expect(lease.token).toBeUndefined();
+  expect(mint.headers.get("set-cookie")).toContain("HttpOnly");
+  const session = mint.headers.get("set-cookie")!.split(";")[0]!;
+  const minted = await at(gate, "/pub/o/orchard/_reader/lease", { cookie: session, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ source: "https://journal.example/pears" }) });
+  expect(minted.status).toBe(200);
+  const token = (await minted.json()).token;
+  const path = "/pub/o/orchard/_reader/write";
+  const headers = { origin: ORIGIN, authorization: `Bearer ${token}`, "content-type": "application/json" };
+  expect((await at(gate, path, { method: "POST", headers: { ...headers, origin: "https://journal.example" }, body: "{}" })).status).toBe(403);
+  expect((await at(gate, `/pub/o/orchard/_reader/${token}`, { method: "POST", headers, body: "{}" })).status).toBe(404);
   const saved = await at(gate, path, { method: "POST", headers, body: JSON.stringify({ action: "comment", quote: "The pears are ready", body: "Harvest tomorrow #pie-request", source: "https://journal.example/pears" }) });
   expect(saved.status).toBe(200);
   expect(await saved.json()).toEqual({ ok: true, said: "Saved to the outline" });
@@ -405,6 +411,6 @@ test("a signed-in bookmarklet writes to its named outline from another origin wi
   const day = await orchard.request<{ block: Block }>({ action: "pages.resolve", address });
   const captures = await orchard.request<Block[]>({ action: "children", parentId: day.block.id });
   expect(captures.some(b => b.text.includes("Harvest tomorrow #pie-request"))).toBe(true);
-  expect((await at(gate, path)).status).toBe(405);
-  expect((await at(gate, "/pub/o/orchard/reader/lease", { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" })).status).toBe(401);
+  expect((await at(gate, path, { headers })).status).toBe(405);
+  expect((await at(gate, "/pub/o/orchard/reader/bookmark", { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" })).status).toBe(401);
 });

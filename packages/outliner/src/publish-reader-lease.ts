@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { sameOrigin } from "./publish-page";
+import { MAX_WRITE_BYTES, sameOrigin } from "./publish-page";
 import { findDrawnPassage } from "./publish-passage";
 import { createBlockComment } from "./block-comments";
 import type { PageHost } from "./publish-page";
@@ -7,65 +7,126 @@ import type { Block, PageAddressFollowResult } from "./types";
 
 const escapeHtml = Bun.escapeHTML;
 
-interface Lease { id: string; expiresAt: number; ended: boolean }
-const headers = { "content-type": "application/json", "cache-control": "no-store", "referrer-policy": "no-referrer", "access-control-allow-origin": "*", "access-control-allow-methods": "POST, OPTIONS", "access-control-allow-headers": "content-type" };
+interface Scope { id: string; expiresAt: number; ended: boolean; today: string; block?: string; writes: number[] }
+interface Lease { scope: Scope; source: string }
+const headers = { "content-type": "application/json", "cache-control": "no-store", "referrer-policy": "no-referrer" };
 const answer = (status: number, body: unknown) => Response.json(body, { status, headers });
-let script: Promise<string> | undefined;
-function readerScript(): Promise<string> {
-  return script ??= Bun.build({ entrypoints: [new URL("./publish-reader.js", import.meta.url).pathname], minify: true, target: "browser" }).then(async build => {
-    if (!build.success) throw new Error("Reader script could not be built");
-    return build.outputs[0]!.text();
-  });
-}
 
 /** A publisher owns these one-hour write leases; restarting it ends them too. No lease grants a read. */
 export class ReaderLeases {
   private readonly leases = new Map<string, Lease>();
-  constructor(private readonly host: Pick<PageHost, "request" | "writes">, private readonly style: string) {}
+  private readonly scopes = new Map<string, Scope>();
+  constructor(private readonly host: Pick<PageHost, "request" | "writes"> & { published: (id: string) => Promise<boolean> }, private readonly style: string) {}
 
   async owner(request: Request, route: string, endpoint: string): Promise<Response> {
     if (request.method === "GET" && route === "/reader") {
-      return this.page(`<h1>Reader on any page</h1><p>Make a one-hour bookmarklet for this outline. Select words on a page, then use Highlight, Comment or Ask. A block anchor receives a quote comment; other pages become captures under today, with their source URL. Type #pie-request as you would in a note.</p><form method="post" action="reader/lease"><button>Make bookmarklet</button></form><h2>Demo</h2><p>Select these words after installing the bookmarklet: a seed worth keeping.</p><p>This page has no block anchor, so its selection lands under today. Try a published note next to comment on its block.</p>`);
+      return this.page(`<h1>Reader on any page</h1><p>Make a one-hour bookmarklet for this outline. Select words on a page, then use Highlight, Comment or Ask. A block anchor receives a quote comment; other pages become captures under today, with their source URL. Type #pie-request as you would in a note.</p><form method="post" action="reader/bookmark"><label>Published block id (optional) <input name="block"></label><button>Make bookmarklet</button></form><h2>Try it</h2><p>On a page at another origin, select a passage and click the bookmark. Comment saves under today; on the chosen published page, a block anchor receives the comment. Use the built-in reader on this publisher’s own pages.</p>`);
     }
     if (request.method !== "POST") return answer(405, { ok: false });
     if (!sameOrigin(request)) return answer(403, { ok: false });
     if (route === "/reader/revoke") {
       const input = request.headers.get("content-type")?.includes("application/json") ? await request.json() : Object.fromEntries(await request.formData());
-      for (const lease of this.leases.values()) if (lease.id === input.id) lease.ended = true;
+      for (const scope of this.scopes.values()) if (scope.id === input.id) scope.ended = true;
       return answer(200, { ok: true });
     }
-    if (route !== "/reader/lease") return answer(404, { ok: false });
+    if (route !== "/reader/bookmark") return answer(404, { ok: false });
     const why = await this.host.writes(true);
     if (why) return answer(403, { ok: false, error: why });
-    for (const [token, lease] of this.leases) if (lease.ended || lease.expiresAt <= Date.now()) this.leases.delete(token);
-    const token = randomBytes(32).toString("base64url");
-    const lease = { id: crypto.randomUUID(), expiresAt: Date.now() + 3_600_000, ended: false };
-    this.leases.set(token, lease);
-    const writeUrl = `${endpoint}/${token}`;
-    const code = `(function(){window.__ep0chReaderLease=${JSON.stringify({ url: writeUrl, style: this.style })};${await readerScript()}})();`;
+    for (const [token, lease] of this.leases) if (lease.scope.ended || lease.scope.expiresAt <= Date.now()) this.leases.delete(token);
+    for (const [key, scope] of this.scopes) if (scope.ended || scope.expiresAt <= Date.now()) this.scopes.delete(key);
+    const input = request.headers.get("content-type")?.includes("application/json") ? await request.json() : Object.fromEntries(await request.formData());
+    if (input.block && (typeof input.block !== "string" || !await this.host.published(input.block))) return answer(403, { ok: false, error: "Choose a published page" });
+    const date = new Date();
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const today = await this.host.request<PageAddressFollowResult>({ action: "pages.follow", address: day, author: "user" });
+    if (!today.block || today.status !== "resolved") return answer(422, { ok: false, error: "Today is unavailable" });
+    const session = randomBytes(32).toString("base64url");
+    const scope: Scope = { id: crypto.randomUUID(), expiresAt: Date.now() + 3_600_000, ended: false, today: today.block.id, block: input.block || undefined, writes: [] };
+    this.scopes.set(session, scope);
+    const code = `${await Bun.file(new URL("./publish-reader-bookmark.js", import.meta.url)).text()}(${JSON.stringify(endpoint)},${JSON.stringify(this.style)});`;
     const bookmarklet = `javascript:${encodeURIComponent(code)}`;
-    if (request.headers.get("content-type")?.includes("application/json")) return answer(200, { id: lease.id, expiresAt: new Date(lease.expiresAt).toISOString(), writeUrl, bookmarklet });
-    return this.page(`<h1>Reader on any page</h1><p>Drag <a href="${escapeHtml(bookmarklet)}">ep0ch reader</a> to your bookmarks. It expires ${escapeHtml(new Date(lease.expiresAt).toISOString())}. Select words on any page and click the bookmark.</p><p>Pages that block bookmarklets or cross-origin connections cannot use this reader. A failed send keeps your words in the box.</p><form method="post" action="revoke"><input type="hidden" name="id" value="${lease.id}"><button>End this lease</button></form><p>Demo: select this sentence to capture it under today.</p>`);
+    const response = request.headers.get("content-type")?.includes("application/json")
+      ? answer(200, { id: scope.id, expiresAt: new Date(scope.expiresAt).toISOString(), bookmarklet })
+      : this.page(`<h1>Reader on any page</h1><p>Drag <a href="${escapeHtml(bookmarklet)}">ep0ch reader</a> to your bookmarks. Select words on a page at another origin and click the bookmark.</p><p>Expires ${escapeHtml(new Date(scope.expiresAt).toISOString())}. Pages must allow frames and the publisher's cookie. A failed send keeps your words in the box. On the publisher's own pages use their reader controls.</p><form method="post" action="revoke"><input type="hidden" name="id" value="${scope.id}"><button>End this lease</button></form>`);
+    const url = new URL(endpoint);
+    response.headers.set("set-cookie", `ep0ch_reader=${session}; Path=${url.pathname}; HttpOnly; Max-Age=3600; ${url.protocol === "https:" ? "SameSite=None; Secure" : "SameSite=Lax"}`);
+    return response;
+  }
+
+  async handle(request: Request, route: string): Promise<Response> {
+    if (route === "write") return this.write(request);
+    const url = new URL(request.url);
+    if (route === "frame" && request.method === "GET") {
+      let source: URL;
+      try { source = new URL(url.searchParams.get("source") ?? ""); } catch { return answer(400, { ok: false }); }
+      if (!["http:", "https:"].includes(source.protocol) || source.origin === url.origin) return answer(403, { ok: false });
+      const nonce = randomBytes(16).toString("base64url");
+      const response = this.page(`<p>Connecting…</p><script nonce="${nonce}">${await Bun.file(new URL("./publish-reader-frame.js", import.meta.url)).text()}</script>`);
+      response.headers.set("content-security-policy", `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors ${source.origin}`);
+      return response;
+    }
+    if (route !== "lease") return answer(404, { ok: false });
+    if (request.method !== "POST") return answer(405, { ok: false });
+    if (!sameOrigin(request)) return answer(403, { ok: false });
+    const session = request.headers.get("cookie")?.split(";").map(part => part.trim()).find(part => part.startsWith("ep0ch_reader="))?.slice("ep0ch_reader=".length);
+    const scope = session ? this.scopes.get(session) : undefined;
+    if (!scope || scope.ended || scope.expiresAt <= Date.now()) return answer(410, { ok: false, error: "Open the outline's /reader page to make a new bookmark; allow its cookie in this frame" });
+    let source: URL;
+    try { source = new URL((await request.json()).source); } catch { return answer(400, { ok: false }); }
+    if (!["http:", "https:"].includes(source.protocol) || source.origin === url.origin) return answer(403, { ok: false });
+    const token = randomBytes(32).toString("base64url");
+    this.leases.set(token, { scope, source: source.href });
+    return answer(200, { token });
   }
 
   private page(body: string): Response {
     return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Reader on any page</title><style>body{background:#111;color:#ddd;font:18px/1.5 system-ui;max-width:42rem;margin:2rem auto;padding:1rem}a{color:#bcd}</style>${body}`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" } });
   }
 
-  async write(request: Request, token: string): Promise<Response> {
-    const lease = this.leases.get(token);
+  private async write(request: Request): Promise<Response> {
+    const token = request.headers.get("authorization")?.match(/^Bearer ([A-Za-z0-9_-]+)$/)?.[1];
+    const issued = token ? this.leases.get(token) : undefined;
+    const lease = issued?.scope;
     if (!lease || lease.ended || lease.expiresAt <= Date.now()) return answer(410, { ok: false, error: "Lease ended: make a new bookmarklet on the outline's /reader page" });
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
     if (request.method !== "POST") return answer(405, { ok: false });
+    if (!sameOrigin(request)) return answer(403, { ok: false });
     let input;
-    try { input = await request.json(); } catch { return answer(400, { ok: false, error: "Send JSON" }); }
+    const decoder = new TextDecoder();
+    let raw = "";
+    let bytes = 0;
+    const reader = request.body?.getReader();
+    if (reader) {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > MAX_WRITE_BYTES) {
+          await reader.cancel();
+          return answer(413, { ok: false, error: "That's too long to send at once" });
+        }
+        raw += decoder.decode(value, { stream: true });
+      }
+    }
+    raw += decoder.decode();
+    try { input = JSON.parse(raw); } catch { return answer(400, { ok: false, error: "Send JSON" }); }
     if (!input || !["highlight", "comment", "ask"].includes(input.action) || typeof input.source !== "string" || typeof input.quote !== "string" || (input.body !== undefined && typeof input.body !== "string") || (input.block !== undefined && typeof input.block !== "string")) return answer(400, { ok: false, error: "Send a highlight, comment or ask with its quote and source URL" });
+    if (input.block && input.block !== lease.block && input.block !== lease.today) return answer(403, { ok: false, error: "This lease cannot write to that target" });
     let source: string;
     try {
       const url = new URL(input.source);
-      if (!["https:", "http:"].includes(url.protocol)) throw new Error();
+      if (url.href !== issued!.source) throw new Error();
       source = url.href.replace(/\[/g, "%5B").replace(/\]/g, "%5D");
     } catch { return answer(400, { ok: false, error: "Source must be the page's http(s) URL" }); }
+    const now = Date.now();
+    const minute = lease.writes.filter(at => at > now - 60_000);
+    const waitUntil = lease.writes.length >= 60 ? lease.expiresAt : minute.length >= 10 ? minute[0]! + 60_000 : 0;
+    if (waitUntil) {
+      const response = answer(429, { ok: false, error: "This lease's write limit was reached; keep your words and send later" });
+      response.headers.set("retry-after", String(Math.max(1, Math.ceil((waitUntil - now) / 1000))));
+      return response;
+    }
+    // Reserve before awaiting the service so concurrent requests share the same budget.
+    lease.writes.push(now);
     const why = await this.host.writes(true);
     if (why) return answer(403, { ok: false, error: "This outline is not taking writes; your text is still here" });
     if (lease.ended || lease.expiresAt <= Date.now()) return answer(410, { ok: false, error: "Lease ended: make a new bookmarklet" });
@@ -84,11 +145,7 @@ export class ReaderLeases {
           ...(found.ok ? { passage: { quote: found.passage.quote, start: found.passage.start } } : {}),
         } });
       } else {
-        const date = new Date();
-        const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-        const today = await this.host.request<PageAddressFollowResult>({ action: "pages.follow", address: day, author: "user" });
-        if (!today.block || today.status !== "resolved") throw new Error("Today is unavailable");
-        await this.host.request({ action: "notes.create", text: `Web capture [source::${source}] [via::reader:${lease.id}]\n\n${quoted}\n\n${body}`, intent: { kind: "note", near: today.block.id, nearOnly: true }, author: "user" });
+        await this.host.request({ action: "notes.create", text: `Web capture [source::${source}] [via::reader:${lease.id}]\n\n${quoted}\n\n${body}`, intent: { kind: "note", near: lease.today, nearOnly: true }, author: "user" });
       }
       return answer(200, { ok: true, said });
     } catch {

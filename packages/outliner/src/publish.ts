@@ -639,7 +639,7 @@ const SHARE_PATH = /^\/s\/([A-Za-z0-9_-]{16,128})(\/.*)?$/;
 
 /** A path as it may be logged: a share's token is never written anywhere. */
 export function redactSharePath(path: string): string {
-  return path.replace(/\/s\/[^/?#]+/g, "/s/…");
+  return path.replace(/\/(s|_reader)\/[^/?#\s]+/g, "/$1/…");
 }
 
 /** Every public response also asks search engines not to list it: the link is the invitation. */
@@ -761,6 +761,7 @@ export class Publisher {
       ? new ArtifactCompiler({ cacheDirectory: options.artifactCacheDirectory, log: this.log })
       : null;
     this.readerLeases = new ReaderLeases({
+      published: async (id) => (await this.readIndex()).entries.some(entry => entry.blockId === id && !!entry.public),
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
       writes: (fresh) => this.options.writes?.(fresh) ?? Promise.resolve(null),
     }, READER_COMPOSE_STYLE);
@@ -1096,8 +1097,8 @@ export class Publisher {
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 
-  readerWrite(request: Request, token: string): Promise<Response> {
-    return this.readerLeases.write(request, token);
+  readerWrite(request: Request, route: string): Promise<Response> {
+    return this.readerLeases.handle(request, route);
   }
 
   private async answer(request: Request, audience: PublishAudience, tunnel?: string, signedIn?: SignedIn): Promise<Response> {
@@ -1124,7 +1125,7 @@ export class Publisher {
       path = path.slice(basePath.length) || "/";
       mount = basePath;
     }
-    if (path.startsWith("/_reader/")) return this.readerLeases.write(request, path.slice("/_reader/".length));
+    if (path.startsWith("/_reader/")) return this.readerLeases.handle(request, path.slice("/_reader/".length));
     if (audience === "tailnet" && (path === "/reader" || path.startsWith("/reader/"))) {
       return this.readerLeases.owner(request, path, `${request.headers.get("origin") ?? url.origin}${this.basePath}/_reader`);
     }

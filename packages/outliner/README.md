@@ -752,24 +752,31 @@ bun run cli publish list --ws pie [--public-url URL] [--json]
 HTML pages keep `^anchor` destinations and heading slugs. Backlinks in `::links` open at their linking line; arriving scrolls to the passage and marks it without animation. The source-line addresses are carried through decorations, while Markdown exports stay plain. Explicit anchors keep their name; repeated headings receive numbered slugs.
 
 **Reader bookmarklet (PIE-974):** open `/pub/reader` in the web client, or
-`/pub/o/<outline>/reader` for another outline. This is also the demo page: make
-a bookmarklet, drag its link to the bookmarks bar, select its demo sentence,
-and click the bookmark. Then repeat on a published note. Highlight, Comment
-and Ask reuse the page reader's toolbar and composer. A selection on a block
-anchor becomes a quote comment; other selections become captures under today's
-`YYYY-MM-DD` page (created through the usual page placement rule if missing).
+`/pub/o/<outline>/reader` for another outline. Optionally choose a public block
+id, make a bookmarklet, and drag its link to the bookmarks bar. On another
+origin, select words and click the bookmark. Highlight, Comment and Ask use
+the shared composer styling and ordinary comment/capture writers. A selection
+with the chosen block's anchor becomes a quote comment; unanchored selections
+become captures under the `YYYY-MM-DD` page bound when the bookmark was made.
 Both carry the source URL and `via::reader:<lease id>`, authored by the person.
 Typed requests, including `#pie-request`, go through the ordinary note/comment
-path. An unmatched quote is saved on the block with a visible warning.
+path. An unmatched quote is saved on the allowed block with a visible warning.
 
-The bookmarklet holds a one-hour lease for comments and captures only. Its
-responses contain receipts, never note text, threads or completion results.
-The installation page can revoke it; restarting its publisher ends it too.
-It posts to the same web-client origin that minted it, including the named
-outline's path. A tailnet bookmarklet needs tailnet access; a signed-in web
-client can mint one that works without a session cookie on the foreign page.
-Some sites' browser policies prevent bookmarklets or cross-origin sends; a
-failed send keeps the draft in the composer. A Chrome extension is deferred.
+The bookmark contains no credential. Its sandboxed publisher-origin iframe
+mints and holds a token using an HttpOnly publisher cookie; the host page sends
+selection and comment text through origin-checked messages and receives only
+receipts. Writes use an Authorization header, never a token URL. The scope
+lasts one hour, permits only the bound day and chosen public block, and allows
+10 writes per minute and 60 total, including across reopened frames. Bodies
+are limited to 64 KiB before parsing; rate refusals include Retry-After.
+The installation page can revoke the scope; restarting its publisher ends it.
+
+A tailnet bookmarklet needs tailnet access. Cross-site use requires HTTPS and
+the browser allowing the publisher's third-party cookie and frame. On the
+publisher's own origin use the page's built-in reader controls. A refused send
+keeps the draft, and invoking the bookmark again preserves an open draft.
+The scratch browser journey demonstrates this web-only flow; the terminal
+showcase cannot host a browser origin boundary. A Chrome extension is deferred.
 
 **Page skins:** `[publish-skin::dispatch]` selects `skins/dispatch.css` inside the
 outline's own folder: `<outlines>/<name>/skins/dispatch.css`, beside

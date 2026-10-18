@@ -752,25 +752,23 @@ test("a reader lease comments without disclosing notes, captures under today, an
   const ownerPost = (path: string, body: unknown) => publisher.handle(new Request(`http://${HOST}/pub${path}`, {
     method: "POST", headers: { origin: `http://${HOST}`, "content-type": "application/json" }, body: JSON.stringify(body),
   }));
-  const minted = await ownerPost("/reader/lease", {});
-  expect(minted.status).toBe(200);
-  const lease = await minted.json();
+  const lease = await mintReader();
   expect(lease.bookmarklet).toStartWith("javascript:");
   const send = (body: unknown, method = "POST") => publisher.handle(new Request(lease.writeUrl, {
-    method, headers: { origin: "https://field.example", "content-type": "application/json" },
+    method, headers: { origin: `http://${HOST}`, authorization: `Bearer ${lease.token}`, "content-type": "application/json" },
     ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
   }));
   const source = "https://field.example/dispatch";
-  const comment = await send({ action: "comment", block: survey.id, quote: "elephant hawk-moths", body: "Count again #pie-request", source });
+  const comment = await send({ action: "comment", block: letter.id, quote: "allotment committee", body: "Count again #pie-request", source });
   expect(comment.status).toBe(200);
-  expect(comment.headers.get("access-control-allow-origin")).toBe("*");
+  expect(comment.headers.get("access-control-allow-origin")).toBeNull();
   expect(await comment.json()).toEqual({ ok: true, said: "Saved to the outline" });
-  const threads = await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: survey.id } } });
+  const threads = await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: letter.id } } });
   const saved = threads.find(t => t.body === "Count again #pie-request")!;
   expect(saved.block.author).toBe("user");
   expect(saved.properties?.via).toEqual([`reader:${lease.id}`]);
   expect(saved.properties?.source).toEqual([source]);
-  expect(saved.resolvedTarget?.anchor).toMatchObject({ exact: "elephant hawk-moths" });
+  expect(saved.resolvedTarget?.anchor).toMatchObject({ exact: "allotment committee" });
   const capture = await send({ action: "comment", quote: "A foreign passage", body: "Keep this #pie-request", source });
   expect(capture.status).toBe(200);
   const now = new Date();
@@ -783,14 +781,67 @@ test("a reader lease comments without disclosing notes, captures under today, an
   expect(captured.text).toContain(`[via::reader:${lease.id}]`);
   // A lease is no read capability, even when a caller knows a private block id.
   const hidden = await send({ action: "comment", block: ledger.id, quote: "does not occur", body: "Keep my words", source });
-  expect(hidden.status).toBe(200);
-  expect(await hidden.json()).toEqual({ ok: true, said: "Saved on the block with your quote; the selection could not be anchored" });
+  expect(hidden.status).toBe(403);
+  expect(await hidden.json()).toEqual({ ok: false, error: "This lease cannot write to that target" });
   try {
     setSystemTime(new Date(Date.parse(lease.expiresAt) + 1));
     expect((await send({ action: "highlight", quote: "Too late", source })).status).toBe(410);
   } finally { setSystemTime(); }
   expect((await send({}, "GET")).status).toBe(405);
-  expect((await send({ action: "update", block: survey.id, body: "replace it", source })).status).toBe(400);
+  expect((await send({ action: "update", block: letter.id, body: "replace it", source })).status).toBe(400);
   expect((await ownerPost("/reader/revoke", { id: lease.id })).status).toBe(200);
   expect((await send({ action: "highlight", quote: "No more", source })).status).toBe(410);
+});
+
+async function mintReader() {
+  const response = await publisher.handle(new Request(`http://${HOST}/pub/reader/bookmark`, {
+    method: "POST", headers: { origin: `http://${HOST}`, "content-type": "application/json" }, body: JSON.stringify({ block: letter.id }),
+  }));
+  expect(response.status).toBe(200);
+  const bookmark = await response.json();
+  const minted = await publisher.handle(new Request(`http://${HOST}/pub/_reader/lease`, {
+    method: "POST", headers: { origin: `http://${HOST}`, cookie: response.headers.get("set-cookie")!.split(";")[0]!, "content-type": "application/json" },
+    body: JSON.stringify({ source: "https://field.example/dispatch" }),
+  }));
+  expect(minted.status).toBe(200);
+  return { ...bookmark, token: (await minted.json()).token, writeUrl: `http://${HOST}/pub/_reader/write` };
+}
+const sendReader = (lease: { token: string; writeUrl: string }, body: unknown) => publisher.handle(new Request(lease.writeUrl, {
+  method: "POST", headers: { origin: `http://${HOST}`, authorization: `Bearer ${lease.token}`, "content-type": "application/json" }, body: JSON.stringify(body),
+}));
+const readerCapture = { action: "comment", source: "https://field.example/dispatch", quote: "A seed", body: "Keep it" };
+
+test("reader security: unrelated targets give one refusal without writing", async () => {
+  const lease = await mintReader();
+  for (const block of [ledger.id, survey.id, crypto.randomUUID()]) {
+    for (const quote of ["What the plots cost.", "absent words"]) {
+      const response = await sendReader(lease, { ...readerCapture, block, quote });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ ok: false, error: "This lease cannot write to that target" });
+    }
+  }
+});
+
+test("reader security: oversized bodies are rejected before parsing", async () => {
+  const lease = await mintReader();
+  const response = await sendReader(lease, { ...readerCapture, body: "é".repeat(33_000) });
+  expect(response.status).toBe(413);
+});
+
+test("reader security: lease write budgets have Retry-After", async () => {
+  const lease = await mintReader();
+  const start = Date.now();
+  try {
+    for (let minute = 0; minute < 6; minute++) {
+      setSystemTime(new Date(start + minute * 61_000));
+      for (let i = 0; i < 10; i++) expect((await sendReader(lease, readerCapture)).status).toBe(200);
+      const response = await sendReader(lease, readerCapture);
+      expect(response.status).toBe(429);
+      expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    }
+    setSystemTime(new Date(start + 6 * 61_000));
+    const response = await sendReader(lease, readerCapture);
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(60);
+  } finally { setSystemTime(); }
 });

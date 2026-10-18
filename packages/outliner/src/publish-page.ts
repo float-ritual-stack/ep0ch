@@ -61,7 +61,7 @@ const WEBMCP_TAG = WEBMCP_SCRIPT ? new Bun.CryptoHasher("sha256").update(WEBMCP_
 /** The route the page's script reads and writes through, below the listener's base path. */
 export const PAGE_ROUTE = "/_marginalia";
 
-const MAX_WRITE_BYTES = 64 * 1024;
+export const MAX_WRITE_BYTES = 64 * 1024;
 const MAX_POLL_MS = 20_000;
 /** A change wakes a waiting page this long after it, so a burst of writes elsewhere is one look, not one each. */
 const SETTLE_MS = 1_000;
