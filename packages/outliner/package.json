@@ -9,6 +9,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./env-file": "./src/env-file.ts",
     "./snapshot-database": "./src/snapshot-database.ts",
     "./outline-binding": "./src/outline-binding.ts",
     "./agent-tools": "./src/agent-tools.ts",

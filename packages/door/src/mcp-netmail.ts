@@ -22,6 +22,7 @@
 // already made), a new block already under its parent with that text is taken as made, and a patch that landed meets
 // the note's new revision and becomes a proposal, never a second change. A failure the service didn't answer (a
 // timeout, a closed socket) leaves the entry waiting; only the service's own refusal settles it as refused.
+import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -29,7 +30,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
-import { configFileOf, parseEnvFile, type Env } from "./backup/config";
+import { configFileOf, type Env } from "./backup/config";
 import { applyWrite, isWriteTool, type McpWrite, type McpWriteTool, type WriteOutcome } from "./mcp-writes";
 import { boardFor, type NotesBoard } from "./notes-cli";
 import { Refused } from "./socket";

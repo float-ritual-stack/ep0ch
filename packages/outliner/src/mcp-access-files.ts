@@ -7,7 +7,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { canonicalLocalMachineName } from "./machine-name";
-import { groupValues } from "./extension-secrets";
+import { parseEnvFile } from "./env-file";
 
 export const CAP_KEY = "EP0CH_MCP_PATH_ACCESS";
 const DAY = 86_400_000;
@@ -24,7 +24,7 @@ export function mcpSetting(env: Record<string, string | undefined>, key: string)
   if (value !== undefined) return value;
   try {
     const file = mcpEnvFile(env);
-    return existsSync(file) ? groupValues(readFileSync(file, "utf8"))[key] : undefined;
+    return existsSync(file) ? parseEnvFile(readFileSync(file, "utf8"))[key] : undefined;
   } catch { return undefined; }
 }
 

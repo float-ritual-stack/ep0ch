@@ -2,12 +2,13 @@
 // staleness alert (announced once), the restore and the drill, install's plan for the units, and the door's mark.
 // Scratch outlines (fictional notes) and local restic repositories in a temp folder only: no bucket, no real outline,
 // no real unit. The restic parts are skipped where restic isn't installed.
+import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS } from "../src/backup/alert";
-import { backupConfig, type BackupConfig, parseEnvFile, parseMirrors } from "../src/backup/config";
+import { backupConfig, type BackupConfig, parseMirrors } from "../src/backup/config";
 import { backupCommand, parseAt, pick } from "../src/backup/cli";
 import { changeSeq, followersOf, mirror, newer, runAll, schemaVersion, snapshot, snapshotNewer, takeLock } from "../src/backup/jobs";
 import { parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";

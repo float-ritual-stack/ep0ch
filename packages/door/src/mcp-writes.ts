@@ -177,14 +177,17 @@ export function pathCap(spec: string, persona: string): (where?: BoardAddress) =
 }
 
 /** `pathCap`, with the entry it took the level from (`gpty@gurgle`), or null when the default `propose` applies. */
-export function pathCapEntry(spec: string, persona: string): (where?: BoardAddress) => { level: McpAccessLevel; entry: string | null } {
-  const entries = new Map<string, McpAccessLevel>();
+export function pathCapEntry(spec: string, persona: string): (where?: BoardAddress) => { level: McpAccessLevel; entry: string | null; invalid?: boolean } {
+  const entries = new Map<string, { level: McpAccessLevel; invalid: boolean }>();
   for (const entry of spec.split(",")) {
-    const [who = "", level = ""] = entry.split("=").map(x => x.trim());
-    if ((LEVELS as readonly string[]).includes(level)) entries.set(who.toLowerCase(), level as McpAccessLevel);
+    const [who = "", level = "", ...extra] = entry.split("=").map(x => x.trim());
+    if (!who) continue;
+    // A misspelled cap must never restore the more permissive default.
+    const invalid = extra.length > 0 || !(LEVELS as readonly string[]).includes(level);
+    entries.set(who.toLowerCase(), { level: invalid ? "none" : level as McpAccessLevel, invalid });
   }
   const name = persona.toLowerCase();
-  const found = (key: string) => entries.has(key) ? { level: entries.get(key)!, entry: key } : undefined;
+  const found = (key: string) => entries.has(key) ? { ...entries.get(key)!, entry: key } : undefined;
   return where => (where ? found(`${name}@${where.outline}@${where.machine}`.toLowerCase()) ?? found(`${name}@${where.outline}`.toLowerCase()) : undefined)
     ?? found(name) ?? { level: "propose", entry: null };
 }

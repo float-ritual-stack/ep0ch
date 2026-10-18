@@ -2,7 +2,7 @@
 // are signed here with a test key set and a fake Clerk issuer; outlines are a scratch host's, with fictional notes.
 // Real HTTP throughout: a hand-rolled client against the gateway on a loopback port.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWTPayload } from "jose";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -86,6 +86,41 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
       expect(refused.content[0].text).toContain("ep0ch mcp access read");
       expect((await request("tools/list")).tools).not.toContainEqual(expect.objectContaining({ name: "loki_lease" }));
     } finally {
+      await board.configureMcpAccess("read");
+      if (previous === undefined) delete process.env.EP0CH_MCP_PATH_ACCESS;
+      else process.env.EP0CH_MCP_PATH_ACCESS = previous;
+    }
+  });
+
+  test.each([
+    ['EP0CH_MCP_PATH_ACCESS = "gpty=read"', "read"],
+    ['EP0CH_MCP_PATH_ACCESS="gpty=read" ', "read"],
+    ['EP0CH_MCP_PATH_ACCESS=gpty=typo', "none"],
+    ['EP0CH_MCP_PATH_ACCESS=gpty=read=full', "none"],
+    ['EP0CH_MCP_PATH_ACCESS=gpty', "none"],
+  ])("mcp.env caps gateway requests: %s", async (line, level) => {
+    const file = join(scratch.env.XDG_CONFIG_HOME!, "ep0ch/mcp.env");
+    const previous = process.env.EP0CH_MCP_PATH_ACCESS;
+    delete process.env.EP0CH_MCP_PATH_ACCESS;
+    mkdirSync(join(scratch.env.XDG_CONFIG_HOME!, "ep0ch"), { recursive: true });
+    writeFileSync(file, line + "\n");
+    await board.configureMcpAccess("full");
+    try {
+      const auth = await token({ aud: "https://mcp.example.test/gpty/mcp" });
+      const request = async (name: string, args: Record<string, unknown>) => {
+        const response = await fetch(new URL("/gpty/mcp", gateway.url), {
+          method: "POST", headers: { Host: HOST, Authorization: `Bearer ${auth}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }),
+        });
+        expect(response.status).toBe(200);
+        return (await response.json()).result;
+      };
+      const read = await request("outline_read", { uri: note.uri });
+      expect(!!read.isError).toBe(level === "none");
+      const write = await request("outline_comment", { uri: note.uri, whole: true, body: "A forbidden comment." });
+      expect(write.isError).toBe(true);
+    } finally {
+      unlinkSync(file);
       await board.configureMcpAccess("read");
       if (previous === undefined) delete process.env.EP0CH_MCP_PATH_ACCESS;
       else process.env.EP0CH_MCP_PATH_ACCESS = previous;
