@@ -486,9 +486,9 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     },
   }),
   "library.select": def({
-    summary: "select a variation: n=<from 1> or by=1/-1; text= returns matching drawn words without changing the person’s selection or clipboard",
+    summary: "select a variation: n=<from 1> or by=1/-1; text= returns matching drawn words without changing the person's selection or clipboard",
     keys: "j k ↓ ↑, or a click on a variation; drag, double/triple click selects text", touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
-    args: { text: { type: "string", optional: true, about: "words as drawn; returns them without changing the person’s selection or clipboard" }, n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
+    args: { text: { type: "string", optional: true, about: "words as drawn; returns them without changing the person's selection or clipboard" }, n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     run({ n, by, text }, { pane }) {
       whole("n", n); whole("by", by);
       const p = libraryOf(pane);
