@@ -119,13 +119,15 @@ export class PowerBar {
   }
 
   /**
-   * The keys it takes before the list's: alt+← alt+→ through the scopes, tab to complete the line (as a shell does: the
+   * The keys it takes before the list's: alt+← alt+→ (or ESC b, ESC f: Option+arrows in some terminals) through the scopes, tab to complete the line (as a shell does: the
    * lit row's words, the bar stays open), a prefix typed first, backspace out of a scope, alt+⏎.
    */
   private ownKey(k: Key): boolean {
-    if (k.kind === "alt-left" || k.kind === "alt-right") {
+    // Terminals that send Option+←/→ as word jumps (ESC b, ESC f) reach the same scopes.
+    const step = k.kind === "alt-left" || (k.kind === "alt" && k.ch === "b") ? -1 : k.kind === "alt-right" || (k.kind === "alt" && k.ch === "f") ? 1 : 0;
+    if (step) {
       const all = this.scopes(), at = all.indexOf(this.scope);
-      this.setScope(all[(at + (k.kind === "alt-right" ? 1 : -1) + all.length) % all.length]!);
+      this.setScope(all[(at + step + all.length) % all.length]!);
       return true;
     }
     if (k.kind === "tab" || k.kind === "backtab") {

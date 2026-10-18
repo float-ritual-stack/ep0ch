@@ -110,6 +110,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "alt-left" });
     key({ kind: "alt-left" });
     expect(peek().bar.scope).toBe("notes");
+    // Option+→ / Option+← in terminals that send them as ESC f / ESC b (word jumps) reach the scopes too.
+    key({ kind: "alt", ch: "f" });
+    expect(peek().bar.scope).toBe("actions");
+    key({ kind: "alt", ch: "b" });
+    expect(peek().bar.scope).toBe("notes");
     key({ kind: "backspace" });
     expect(peek().bar.scope).toBe("all");
     key({ kind: "esc" });
