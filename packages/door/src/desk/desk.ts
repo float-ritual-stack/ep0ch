@@ -3333,6 +3333,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return out;
     }
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
+    const completion = view.completion;
+    if (completion?.drawn) {
+      const row = inner.row + completion.drawn.row;
+      completion.inFrame(framed.cols, framed.col - inner.col).slice(0, framed.row + framed.rows - row)
+        .forEach((line, i) => canvas.text(framed.col, row + i, line, framed.cols));
+    }
     const lineEnds = new Map<number, number>();
     if (pane instanceof ReaderPane) for (const p of pointers) {
       if (p.line === undefined || (p.note && p.note !== pane.msg?.id)) continue;
@@ -5521,6 +5527,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private local(id: number, r: Rect, x: number, y: number): { x: number; y: number } {
     const c = this.origin(id, r), gutter = this.gutters.get(id);
+    const popup = this.views.get(id)?.view.completion?.drawn;
+    if (popup && y - c.row >= popup.row && y - c.row < popup.row + popup.items.length) return { x: x - c.col, y: y - c.row };
     if (gutter && x >= gutter.col && x < gutter.col + gutter.cols) return { x: x - gutter.col - gutter.cols, y: y - c.row };
     return { x: Math.max(0, Math.min(c.cols - 1, x - c.col)), y: Math.max(0, Math.min(c.rows - 1, y - c.row)) };
   }
@@ -5991,7 +5999,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // In the tile's content (its padding and measure, PIE-673): a press in the padding is the nearest cell; a drag and
     // its release go where they are, as a reader's do.
     const o = this.origin(at![0], hit), near = this.local(at![0], hit, k.x, k.y);
-    const { x, y } = k.action === "down" ? near : this.pressedAt(o, k);
+    const popup = this.views.get(at![0])?.view.completion?.drawn;
+    const overPopup = popup && near.y >= popup.row && near.y < popup.row + popup.items.length;
+    const { x, y } = k.action === "down" || overPopup ? near : this.pressedAt(o, k);
     // The release of a press made in the edit is its, wherever it comes up: a click there (a control, a completion), or
     // the end of a drag, which copies what it selected (copy on select, as in a reader).
     // An alt- or ctrl-click on a link in it opens the link beside (PIE-592), as ctrl+l does: in the detail the last one
