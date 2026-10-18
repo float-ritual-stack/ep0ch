@@ -318,6 +318,96 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(drawn).toContain("→ puts the activity tile");
   });
 
+  test("an action that takes arguments opens its form: a field each, the tiles to pick from, the act line under them; ⏎ on it runs (PIE-1031)", async () => {
+    const outline = desk.tileOutline().filter(t => t.shown && !t.float && !t.docked);
+    const [mover, beside] = [outline.find(t => !t.focused)!, outline.find(t => t.focused)!];
+    expect(mover && beside).toBeTruthy();
+    key(ctrlK); type(">layout.move");
+    expect(peek().bar.rows[0]).toMatchObject({ label: "layout.move" });
+    key({ kind: "enter" });
+    await until(() => peek().bar?.scope === "ask", "layout.move's form", 3000);
+    const form = () => peek().bar.form;
+    // A field per argument: tile= first (nothing is needed), the rest as layout.move declares them.
+    expect(form().fields.map((f: any) => f.name)).toEqual(["tile", "to", "where", "index", "into", "out", "beside"]);
+    expect(form()).toMatchObject({ action: "layout.move", focus: "tile", line: "layout.move" });
+    await (app as any).bar.settled();
+    let drawn = frame().join("\n");
+    expect(drawn).toContain("ep0ch act layout.move");
+    expect(drawn).toMatch(/▸ tile\s+\(focused\)/);
+    // The tile field lists the screen's tiles, leaving it out first; typed words filter them.
+    expect(peek().bar.rows[0]).toMatchObject({ label: "leave it out" });
+    type(mover.name);
+    await until(() => peek().bar.rows.some((r: any) => r.key === `answer:${mover.name}`), "the tile listed", 3000);
+    expect(peek().bar.rows[0].key).toBe(`answer:${mover.name}`);
+    key({ kind: "enter" });
+    await until(() => form()?.focus === "to", "on to to=", 3000);
+    expect(form().line).toBe(`layout.move tile=${mover.name}`);
+    type(beside.name);
+    await until(() => peek().bar.rows[0]?.key === `answer:${beside.name}`, "the other tile", 3000);
+    key({ kind: "enter" });
+    await until(() => form()?.focus === "where", "on to where=", 3000);
+    // where= takes its declared choices only: typing filters them, nothing typed is offered as an answer.
+    type("tab");
+    await until(() => peek().bar.rows[0]?.key === "answer:tabs", "tabs offered", 3000);
+    expect(peek().bar.rows.some((r: any) => r.detail === "as typed")).toBe(false);
+    key({ kind: "enter" });
+    await until(() => form()?.focus === "index", "on to index=", 3000);
+    // shift+tab goes back a field, the answer kept; a click on the act line goes there, and ⏎ runs it.
+    key({ kind: "backtab" });
+    await until(() => form()?.focus === "where", "back to where=", 3000);
+    expect(form().line).toBe(`layout.move tile=${mover.name} to=${beside.name} where=tabs`);
+    drawn = frame().join("\n");
+    const y = painted.findIndex(l => plain(l).includes("ep0ch act layout.move tile="));
+    const x = plain(painted[y]!).indexOf("ep0ch act") + 2;
+    key({ kind: "mouse", action: "down", x, y, button: 0 } as Key);
+    key({ kind: "mouse", action: "up", x, y, button: 0 } as Key);
+    await until(() => form()?.focus === "run", "the act line in focus", 3000);
+    expect(peek().bar.rows[0]).toMatchObject({ key: "run", label: `run layout.move tile=${mover.name} to=${beside.name} where=tabs` });
+    key({ kind: "enter" });
+    // Run as the person: the tile is a tab beside the other now.
+    const tabbed = () => { const t = desk.tileOutline(); return !!t.find(x => x.name === mover.name)?.tab && !!t.find(x => x.name === beside.name)?.tab; };
+    await until(tabbed, "moved into the other tile's tabs", 3000);
+    expect(peek().bar).toBeUndefined();
+    await app.dispatch.press("layout.move", { to: beside.name, where: "right" }, mover.name);
+  });
+
+  test("a form's example fills it, a typed line starts it, alt+⏎ runs at once, and an agent reads its fields (PIE-1031)", async () => {
+    // tile.open alone: its form on kind=, the one it needs, listing the tile kinds.
+    key(ctrlK); type("tile.open");
+    key({ kind: "enter" });
+    await until(() => peek().bar?.form?.focus === "kind", "tile.open's form on kind=", 3000);
+    await (app as any).bar.settled();
+    expect(peek().bar.rows.some((r: any) => r.key === "answer:tree")).toBe(true);
+    expect(frame().join("\n")).toMatch(/kind\s+needed/);
+    // Its act line can't run yet: said on the line and on its run row.
+    expect(peek().bar.form.refused).toContain("kind");
+    // An example picked fills the form, the act line in focus.
+    const ex = peek().bar.rows.findIndex((r: any) => r.key === "example:0");
+    expect(ex).toBeGreaterThanOrEqual(0);
+    await app.dispatch.press("bar.pick", { n: ex + 1 });
+    await until(() => peek().bar?.form?.focus === "run", "the example filled", 3000);
+    expect(peek().bar.form.refused).toBeUndefined();
+    closeBar();
+    // A line typed with some of its arguments starts the form with them answered; alt+⏎ answers and runs.
+    const tiles = (desk as any).all().length;
+    key(ctrlK); type("tile.open where=right");
+    key({ kind: "enter" });
+    await until(() => peek().bar?.form?.focus === "kind", "the form, where= answered", 3000);
+    expect(peek().bar.form.fields.find((f: any) => f.name === "where").value).toBe("right");
+    type("tree");
+    await until(() => peek().bar.rows[0]?.key === "answer:tree", "tree first", 3000);
+    key({ kind: "alt-enter" });
+    await until(() => (desk as any).all().length === tiles + 1, "a tree tile opened", 5000);
+    expect(peek().bar).toBeUndefined();
+    // An agent reads the same fields, with their kinds and choices, and nothing opens.
+    const r = await app.act({ action: "bar.form", args: { op: "open", line: "layout.move to=notes" }, as: "wren-agent" }) as any;
+    expect(r.fields.find((f: any) => f.name === "to")).toMatchObject({ kind: "tile", value: "notes" });
+    expect(r.fields.find((f: any) => f.name === "where").choices).toContain("edge-left");
+    expect(r.fields.find((f: any) => f.name === "tile")).toMatchObject({ selector: true, kind: "tile", default: "focused" });
+    expect(peek().bar).toBeUndefined();
+    await expect(app.act({ action: "bar.form", args: { op: "run" }, as: "wren-agent" })).rejects.toThrow("the person's");
+  });
+
   test("boolean action arguments in the power bar set yolo rather than toggle it (PIE-1004)", async () => {
     try {
       for (const on of [true, true, false, false]) {
@@ -348,10 +438,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query colour=red" });
     expect(peek().bar.rows[0].refused).toContain("colour");
     closeBar();
-    // The name alone of one that needs arguments says what it needs.
+    // The name alone of one that needs arguments says what it needs, and ⏎ opens its form there (PIE-1031).
     key(ctrlK); type("tile.open");
     expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open" });
-    expect(peek().bar.rows[0].refused).toContain("kind");
+    expect(peek().bar.rows[0].refused).toBeUndefined();
+    expect(peek().bar.rows[0].detail).toContain("needs kind=");
     closeBar();
     // An argument the bar asks for takes a paste the same way.
     let answered: Record<string, string> | null = null;

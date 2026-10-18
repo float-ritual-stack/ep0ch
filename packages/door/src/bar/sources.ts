@@ -21,6 +21,10 @@ import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
 import { extensionList, scriptActions } from "../extensions";
+import { openActionForm } from "./form";
+
+/** The arguments action `name` declares, as the door lists it now. */
+const actionArgs = (host: BarHost, name: string) => host.dispatch.list().actions.find(a => a.name === name)?.args ?? {};
 
 /** The tiles a screen holds: a desk, or the desk inside it (the showcase's section). */
 export function tilesOf(s: Screen | undefined): Desk | null { return s instanceof Desk ? s : s?.tilesHere?.() ?? null; }
@@ -52,6 +56,16 @@ function tileRows(desk: Desk, at: string, group: string, screen: Screen | null, 
     const inner = p instanceof ScreenTile ? p.inner : null;
     return [row, ...(inner ? tileRows(inner, at, group, screen, drawer, base + t.depth + 1, `${path}/`, [...mounts, { desk, name: t.name }]) : [])];
   });
+}
+
+/**
+ * The tiles of the screen shown (its mounts' too, by their `mount/tile` path) matching `q`: what `tile=` and an
+ * argument that names a tile (ArgKind `tile`) reach. The form's tile fields list these (src/bar/arg-kinds.ts).
+ */
+export function shownTileRows(host: BarHost, q: string): BarRow[] {
+  const shown = host.screens().at(-1), desk = tilesOf(shown);
+  if (!desk) return [];
+  return filtered(tileRows(desk, "0", `${shown?.title ?? "this screen"} · here`, shown ?? null, false), q, r => [r.label, ...(r.data as TileAt).find, r.detail ?? ""]);
 }
 
 const TILES: BarSource = {
@@ -157,6 +171,10 @@ const NOTES: BarSource = {
 const firstKey = (keys: string | undefined) => [...declaredKeys(keys)].find(k => k !== "click" && k !== "drag" && k !== "wheel" && !k.includes(" "));
 /** An action anyone can run with no arguments, from the bar (the bar's own aren't listed). */
 const bare = (a: ActionInfo) => !a.name.startsWith("bar.") && Object.values(a.args).every(s => s.optional);
+/** An action the bar lists: any but its own; one that takes arguments opens its form (PIE-1031). */
+const listed = (a: ActionInfo) => !a.name.startsWith("bar.");
+/** It takes arguments: picked, its form opens (src/bar/form.ts). */
+const takesArgs = (a: ActionInfo) => Object.keys(a.args).length > 0;
 
 /** `^W` typed first in the actions scope (or `ctrl+w`): the desk's ^W keys, what's after it filtering them. */
 const W_QUERY = /^\s*(?:\^w|ctrl\+w)\s*(.*)$/i;
@@ -190,7 +208,7 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
 
 const ACTIONS: BarSource = {
   id: "actions", title: "actions", prefix: ">", by: "door",
-  about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's that needs no argument, each with its key, found by its name or what it does; ⏎ runs it as that key would",
+  about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's, each with its key, found by its name or what it does; ⏎ runs one that takes nothing as its key would, and opens the form of one that takes arguments (alt+⏎ runs it as it is when it needs none)",
   main: { empty: false, typed: true, most: 6 },
   rows(q, host) {
     const top = host.screens().at(-1);
@@ -202,11 +220,11 @@ const ACTIONS: BarSource = {
     const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, fill: m.action, detail: `${m.group} · ${m.action}${hy(m.action).length ? ` · ${hy(m.action).join(" ")}` : ""}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
     const seen = new Set(menu.map(m => m.action));
     for (const a of host.dispatch.list().actions) {
-      if (seen.has(a.name) || !bare(a)) continue;
+      if (seen.has(a.name) || !listed(a)) continue;
       seen.add(a.name);
       const k = firstKey(a.keys);
       const script = scriptActions().find(s => s.action.name === a.name);
-      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${a.summary.split(/[.:;(]/)[0]!.slice(0, 80)}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys } });
+      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${a.summary.split(/[.:;(]/)[0]!.slice(0, 80)}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys, form: takesArgs(a), bare: bare(a) } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
@@ -223,9 +241,15 @@ const ACTIONS: BarSource = {
   },
   async pick(row, host, how) {
     if (row.refused) throw new ActionRefused(row.refused);
-    const d = row.data as { action: string; args: Record<string, unknown>; tile?: string };
+    const d = row.data as { action: string; args: Record<string, unknown>; tile?: string; form?: boolean; bare?: boolean; missing?: string[] };
     const top = host.screens().at(-1);
     if (row.key.startsWith("w:")) return pickW(row, host, how);
+    // One that takes arguments opens its form (PIE-1031), a line typed with some of them answered; alt+⏎ runs one that needs none as it is.
+    if (d.form && !(how.alt && d.bare)) {
+      if (how.actor.kind === "agent") {
+        if (d.missing?.length || !d.bare) throw new ActionRefused(`${d.action} needs ${(d.missing?.length ? d.missing : Object.entries(actionArgs(host, d.action)).filter(([, s]) => !s.optional).map(([k]) => k)).map(k => `${k}=`).join(" ")}: an agent runs it with them (ep0ch act ${d.action} …; bar.form op=open action=${d.action} answers its fields)`);
+      } else return openActionForm(host, { action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor);
+    }
     // A menu row runs in its tile on the screen's dispatcher, as its ⋯ menu runs it; the rest on the door's.
     const on = d.tile !== undefined && top?.dispatch ? top.dispatch : host.dispatch;
     return how.actor.kind === "agent" ? on.act({ action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor) : on.press(d.action, d.args, d.tile);
@@ -247,15 +271,20 @@ function actionLine(q: string, host: BarHost): BarRow | null {
   const info = host.dispatch.list().actions.find(a => a.name === req.action);
   // A name alone that needs nothing is the action's own row already.
   if (!info || (words.length < 2 && bare(info) && !scripts.length)) return null;
-  // An argument it doesn't take, one of the wrong type or one it needs: the row says which, as `ep0ch act` would.
+  // An argument it doesn't take or one of the wrong type: the row says which, as `ep0ch act` would. One it needs and
+  // wasn't given opens its form (PIE-1031), the rest answered as typed.
   let refused: string | undefined;
+  const missing = Object.entries(info.args).filter(([k, s]) => !s.optional && req.args?.[k] === undefined).map(([k]) => k);
   if (req.as !== undefined) refused = "the power bar runs it as you: leave out as=";
-  else try { req.args = coerceActionArgs(req.action, info.args, req.args ?? {}); } catch (e) { refused = e instanceof Error ? e.message : String(e); }
+  else try {
+    const spec = Object.fromEntries(Object.entries(info.args).map(([k, s]) => [k, missing.includes(k) ? { ...s, optional: true } : s]));
+    req.args = coerceActionArgs(req.action, spec, req.args ?? {});
+  } catch (e) { refused = e instanceof Error ? e.message : String(e); }
   const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
   const shown = [scripts.length === 1 ? scripts[0]!.extension.name! : req.action, ...Object.entries(req.args ?? {}).map(([k, v]) => `${k}=${said(String(v))}`), ...(req.tile !== undefined ? [`tile=${said(req.tile)}`] : [])].join(" ");
   return {
-    key: `line:${shown}`, label: `run ${shown}`, fill: shown, detail: info.summary.split(/[.:;(]/)[0]!.slice(0, 80), exact: true, ...(refused ? { refused } : {}),
-    data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: info.summary, keys: info.keys },
+    key: `line:${shown}`, label: `run ${shown}`, fill: shown, detail: missing.length && !refused ? `needs ${missing.map(k => `${k}=`).join(" ")} · ⏎ its form` : info.summary.split(/[.:;(]/)[0]!.slice(0, 80), exact: true, ...(refused ? { refused } : {}),
+    data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: info.summary, keys: info.keys, ...(missing.length ? { form: true, missing } : {}) },
   };
 }
 

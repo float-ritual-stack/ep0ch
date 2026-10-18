@@ -38,8 +38,23 @@ function facts(summary: string): string[] {
   return summary.split(/(?<=[.;])\s+(?=[A-Za-z(`])/).map(s => s.trim().replace(/;$/, "")).filter(Boolean);
 }
 
-/** What an argument takes, in words: a tile, text, a number, true or false. */
-const valuesOf = (s: ArgSpec) => (s.tile ? "a tile" : s.type === "number" ? "a number" : s.type === "boolean" ? "true or false" : "text");
+/** Each kind of thing an argument names, in words (ArgKind). */
+const KIND_WORDS: Record<NonNullable<ArgSpec["kind"]>, string> = {
+  tile: "a tile", note: "a note", page: "a page", screen: "a screen", view: "a saved view", key: "a property", value: "a property's value", "tile-kind": "a tile kind",
+};
+/** What an argument takes, in words: its choices, a tile, a note, text, a number, true or false. */
+export const valuesOf = (s: ArgSpec): string => {
+  const kind = s.kind ? KIND_WORDS[s.kind] : null;
+  if (s.choices?.length) return `${s.choices.join(", ")}${kind ? ` or ${kind}` : ""}`;
+  return kind ?? (s.type === "number" ? "a number" : s.type === "boolean" ? "true or false" : "text");
+};
+
+/** What a left-out optional argument means, when it says: its `default`, or a short "(default x)" ending what it means. */
+export function argDefault(s: ArgSpec): { value?: string; about: string } {
+  const said = s.default === undefined ? /\s*\(default ([^()]{1,24})\)\s*$/.exec(s.about) : null;
+  const value = s.default ?? said?.[1];
+  return { ...(value !== undefined ? { value } : {}), about: said ? s.about.slice(0, said.index) : s.about };
+}
 
 /** Whether an agent may run an example as it is: it says so, or the action only reads or changes the door's own view. */
 export function exampleSafe(info: Pick<ActionInfo, "touches" | "replay" | "person">, ex: ActionExample): boolean {
@@ -69,8 +84,7 @@ export function actionPage(info: ActionInfo, extras: PageExtras = {}): string {
   if (args.length) {
     out.push("", figure("props", { title: "arguments" }, args.map(([name, s]) => {
       // A short "(default x)" at the end of what it means is its default column.
-      const said = s.default === undefined ? /\s*\(default ([^()]{1,24})\)\s*$/.exec(s.about) : null;
-      const dflt = s.default ?? said?.[1], about = said ? s.about.slice(0, said.index) : s.about;
+      const { value: dflt, about } = argDefault(s);
       const values = valuesOf(s) + (dflt !== undefined ? ` · ${dflt}` : "");
       return `- ${s.optional ? name : `**${name}**`}: ${values} — ${inert(about.replace(/ — /g, ", "), false)}`;
     })));

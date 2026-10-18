@@ -538,6 +538,7 @@ export class App implements Ctx {
       return b;
     },
     close: () => { this.bar?.close(); this.bar = null; this.redraw(); },
+    host: () => this.barHost(),
   };
   /** Where the status bar's ^K sits, for a click (bar.open). */
   private barAt: { from: number; to: number; row: number } | null = null;

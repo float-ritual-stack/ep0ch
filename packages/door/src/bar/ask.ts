@@ -3,10 +3,21 @@
 // its choices as rows (the value it has now first); a number or text is what's typed; a note is a choice or any note
 // the outline's search finds as the person types. ⏎ answers it; the next question opens, or the action runs.
 // An agent is never asked: it names what it means, or the action takes its default.
-import { ActionRefused } from "../surface/actions";
+//
+// An action's form (PIE-1031, gum's input, choose and filter as the model) is the same prompt with every field shown:
+// one per argument (src/bar/form.ts builds them from the action's ArgSpecs), each with what it means and its answer so
+// far, the act line it will run under them. The field in focus lists its values (a kind of thing in the system: its
+// values are src/bar/arg-kinds.ts's; its choices; true or false), typed words filter them, ⏎ answers it and goes on, and
+// the act line's own rows run it or copy it; alt+⏎ answers and runs at once; shift+tab (or backspace on an empty line)
+// goes back a field; a click on a field or on the act line goes there. The action's examples are rows too: one picked
+// fills the form. Moving between fields, answering, copying and running are `bar.form`, an action, as every key is.
+import { ActionRefused, type ActionExample } from "../surface/actions";
+import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import type { Actor } from "../socket";
 import { noteLabel } from "../board";
-import { registerBarSource, unregisterBarSource, type BarRow, type BarSource } from "./source";
+import { C, fg, headOf, pad, RESET, width } from "../style";
+import { argKind } from "./arg-kinds";
+import { registerBarSource, unregisterBarSource, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 
 /** One question: an extension's argument with its choices, or the door's own. */
 export interface BarQuestion {
@@ -33,17 +44,40 @@ export interface BarQuestion {
   found?: string;
   /** A text or number the action needs: without it, nothing typed offers "leave it empty" (a note's form, PIE-828). */
   required?: boolean;
+  /** The kind of thing its value names (ArgKind): its values are that kind's (src/bar/arg-kinds.ts), after `choices`. */
+  kind?: string;
+  /** `kind: "value"`: the question whose answer is the property this one is a value of. */
+  of?: string;
+  /** What leaving it out means, said on its "leave it out" row and its field (`right`, `focused`). */
+  default?: string;
+}
+
+/**
+ * What makes the questions an action's form (PIE-1031): the action whose act line they make, its examples (a row
+ * each: picked, it fills the form), its page (the preview beside values that have none of their own), and why the
+ * line as answered can't run (a field it needs, a value of the wrong type), or null when it can.
+ */
+export interface AskForm {
+  action: string;
+  /** The question that is the dispatcher's tile= (the tile it runs on), not one of the action's arguments. */
+  selector?: string;
+  examples?: readonly ActionExample[];
+  page?: string;
+  check?(answers: Record<string, string>): string | null;
 }
 
 /** One answer a question's `suggest` offers: the whole value, and how it's shown. */
 export interface BarSuggestion { value: string; label?: string; detail?: string }
 
 const ASK_SCOPE = "ask";
-/** The action waiting on the person's answers: the next question is the first not answered. */
-let waiting: { title: string; questions: BarQuestion[]; answers: Record<string, string>; run: (answers: Record<string, string>) => Promise<unknown> } | null = null;
+/**
+ * The action waiting on the person's answers: the next question is the first not answered; in a form, the one in
+ * focus (`focus`, an index; one past the last is the act line).
+ */
+let waiting: { title: string; questions: BarQuestion[]; answers: Record<string, string>; run: (answers: Record<string, string>) => Promise<unknown>; form?: AskForm; focus: number } | null = null;
 
-/** The question asked now, or null. */
-const question = () => waiting?.questions.find(q => waiting!.answers[q.name] === undefined) ?? null;
+/** The question asked now, or null (a form's act line). */
+const question = () => (waiting?.form ? waiting.questions[waiting.focus] ?? null : waiting?.questions.find(q => waiting!.answers[q.name] === undefined) ?? null);
 
 /** The bar's host as asking needs it: the person's dispatcher, to open the bar. */
 interface AskCtx { dispatch?: { act(req: { action: string; args: Record<string, unknown> }, actor: Actor): Promise<unknown> } }
@@ -52,13 +86,156 @@ interface AskCtx { dispatch?: { act(req: { action: string; args: Record<string, 
  * Ask the person, in the power bar, each of `questions` not in `given`, then `run` with every answer. Answers at once
  * with what it's asking; the action runs when the last is answered (or never, when the bar is put away).
  */
-export async function askInBar<R>(ctx: AskCtx, title: string, questions: readonly BarQuestion[], given: Record<string, string>, actor: Actor, run: (answers: Record<string, string>) => Promise<R>): Promise<R | { asking: string; action: string }> {
+export async function askInBar<R>(ctx: AskCtx, title: string, questions: readonly BarQuestion[], given: Record<string, string>, actor: Actor, run: (answers: Record<string, string>) => Promise<R>, form?: AskForm): Promise<R | { asking: string; action: string }> {
   const open = questions.filter(q => given[q.name] === undefined);
-  if (actor.kind !== "user" || !open.length || !ctx.dispatch) return run(given);
-  waiting = { title, questions: [...questions], answers: { ...given }, run: answers => run(answers) };
+  // A form opens even with every field answered (a line typed whole, an action with nothing it needs): it is read, then run.
+  if (actor.kind !== "user" || (!open.length && !form) || !ctx.dispatch) return run(given);
+  // A form starts at the first field it needs that isn't answered, else at its first field.
+  const need = questions.findIndex(q => q.required && given[q.name] === undefined);
+  waiting = { title, questions: [...questions], answers: { ...given }, run: answers => run(answers), ...(form ? { form } : {}), focus: form ? Math.max(0, need) : 0 };
   registerBarSource(ASK_SOURCE);
   await ctx.dispatch.act({ action: "bar.open", args: { scope: ASK_SCOPE } }, actor);
-  return { asking: open[0]!.name, action: title };
+  return { asking: question()?.name ?? "run", action: title };
+}
+
+/** The form open in the ask scope now, or null (nothing asked, or questions that aren't a form). */
+export const formOpen = (): boolean => !!waiting?.form;
+
+/** A value as an act line writes it: bare, or quoted when it has a space or a quote in it (or is empty). */
+const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
+
+/** The act line a form's answers make: the action, its tile= first, then each answer in the fields' order. */
+function lineOf(w: NonNullable<typeof waiting>): string {
+  const f = w.form!, sel = f.selector;
+  const parts = [f.action, ...(sel && w.answers[sel] !== undefined ? [`tile=${said(w.answers[sel]!)}`] : [])];
+  for (const q of w.questions) if (q.name !== sel && w.answers[q.name] !== undefined) parts.push(`${q.name}=${said(w.answers[q.name]!)}`);
+  return parts.join(" ");
+}
+
+/** What a form says of itself, for `peek`, `bar.form` and a test: its action, fields, the one in focus and its act line. */
+export function formState(): Record<string, unknown> | null {
+  const w = waiting;
+  if (!w?.form) return null;
+  return {
+    action: w.form.action, line: lineOf(w), focus: w.questions[w.focus]?.name ?? "run", ...(w.form.check?.(w.answers) ? { refused: w.form.check(w.answers) } : {}),
+    fields: w.questions.map(q => ({ name: q.name, ...(w.answers[q.name] !== undefined ? { value: w.answers[q.name] } : {}), ...(q.required ? { required: true } : {}), ...(q.kind ? { kind: q.kind } : {}), ...(q.default !== undefined ? { default: q.default } : {}) })),
+  };
+}
+
+/** Move a form's focus: to field `field` (by name; `run` is the act line), or back a field (`back`). */
+export function formFocus(field: string | "back"): void {
+  const w = waiting;
+  if (!w?.form) throw new ActionRefused("no form is open · pick an action that takes arguments in the power bar (ctrl+k then >)");
+  if (field === "back") { w.focus = Math.max(0, w.focus - 1); return; }
+  const at = field === "run" ? w.questions.length : w.questions.findIndex(q => q.name === field);
+  if (at < 0) throw new ActionRefused(`${w.form.action}'s form has no field ${field}; its fields: ${w.questions.map(q => q.name).join(", ")}, or run`);
+  w.focus = at;
+}
+
+/** Answer a form's field (`value` undefined: take its answer back, leaving it out); `advance`: then go on to the next. */
+export function formSet(field: string, value: string | undefined, advance = false): void {
+  const w = waiting;
+  if (!w?.form) throw new ActionRefused("no form is open · pick an action that takes arguments in the power bar (ctrl+k then >)");
+  const at = w.questions.findIndex(q => q.name === field);
+  if (at < 0) throw new ActionRefused(`${w.form.action}'s form has no field ${field}; its fields: ${w.questions.map(q => q.name).join(", ")}`);
+  if (value === undefined) delete w.answers[field]; else w.answers[field] = value;
+  if (!advance) return;
+  // On to the first field it needs that isn't answered, else the next; past the last, the act line.
+  const need = w.questions.findIndex(q => q.required && w.answers[q.name] === undefined);
+  w.focus = need >= 0 && need !== at ? need : Math.min(w.questions.length, at + 1);
+}
+
+/** The act line a form's answers make now, or null with none open. */
+export const formLine = (): string | null => (waiting?.form ? lineOf(waiting) : null);
+
+/** Run the form open now, as answered: refused (and kept open) when the line can't run. */
+export async function formRun(): Promise<unknown> {
+  const w = waiting;
+  if (!w?.form) throw new ActionRefused("no form is open · pick an action that takes arguments in the power bar (ctrl+k then >)");
+  const why = w.form.check?.(w.answers);
+  if (why) throw new ActionRefused(why);
+  waiting = null;
+  unregisterBarSource(ASK_SCOPE);
+  return w.run(w.answers);
+}
+
+/** Fill a form from one of its examples (its n-th, from 0): its answers become the example's, the act line in focus. */
+function fillFrom(w: NonNullable<typeof waiting>, n: number) {
+  const ex = w.form?.examples?.[n];
+  if (!ex) throw new ActionRefused(`no example ${n + 1}`);
+  const req = actRequestOf(lineWords(ex.act));
+  w.answers = Object.fromEntries(Object.entries(req.args ?? {}).map(([k, v]) => [k, String(v)]));
+  if (req.tile !== undefined && w.form!.selector) w.answers[w.form!.selector] = req.tile;
+  w.focus = w.questions.length;
+}
+
+/** The previews of the rows a form's kinds gave (a tile's note, a note), by row key: asked again with every rows. */
+const kindPreviews = new Map<string, BarPreview>();
+
+/** How many fields a form shows at once: around the one in focus, the rest said as a count. */
+const FIELDS_SHOWN = 8;
+/** The form's head as drawn last: which field (or `run`, the act line) each of its lines is, for a click. */
+let headSpots: (string | null)[] = [];
+
+/** The form's lines above its rows: the action, a line per field (name, answer, meaning), the act line. */
+function formHead(w: NonNullable<typeof waiting>, width_: number): string[] {
+  const f = w.form!, qs = w.questions, nameW = Math.min(14, Math.max(...qs.map(q => width(q.name)), 4));
+  const lines: string[] = [fg(C.dark) + headOf(` ${w.title}`, width_) + RESET];
+  headSpots = [null];
+  let from = 0, to = qs.length;
+  if (qs.length > FIELDS_SHOWN) { from = Math.max(0, Math.min(w.focus - Math.floor(FIELDS_SHOWN / 2), qs.length - FIELDS_SHOWN)); to = from + FIELDS_SHOWN; }
+  if (from > 0) { lines.push(fg(C.dark) + `   … ${from} more above` + RESET); headSpots.push(qs[from - 1]!.name); }
+  const valueW = Math.max(10, Math.min(28, Math.floor(width_ * 0.3)));
+  for (let i = from; i < to; i++) {
+    const q = qs[i]!, on = i === w.focus, v = w.answers[q.name];
+    const shown = v !== undefined ? fg(C.white) + pad(headOf(v || '""', valueW), valueW)
+      : q.required ? fg(C.lred) + pad("needed", valueW) : fg(C.dark) + pad(headOf(q.default !== undefined ? `(${q.default})` : "-", valueW), valueW);
+    const name = (on ? fg(C.lcyan) + "▸ " : "  ") + (q.required ? fg(C.yellow) : fg(C.grey)) + pad(q.name, nameW) + RESET;
+    lines.push(` ${name} ${shown}${RESET} ${fg(C.dark)}${headOf(q.description ?? "", Math.max(0, width_ - nameW - valueW - 6))}${RESET}`);
+    headSpots.push(q.name);
+  }
+  if (to < qs.length) { lines.push(fg(C.dark) + `   … ${qs.length - to} more below` + RESET); headSpots.push(qs[to]!.name); }
+  const why = f.check?.(w.answers), line = lineOf(w), on = w.focus >= qs.length;
+  const tail = why ? `  ✕ ${why}` : "  ⏎ runs it";
+  lines.push(` ${on ? fg(C.lcyan) + "▸ " : "  "}${fg(C.dark)}ep0ch act ${fg(why ? C.grey : C.lgreen)}${headOf(line, Math.max(10, width_ - 16 - Math.min(width(tail), 40)))}${fg(why ? C.lred : C.dark)}${headOf(tail, Math.max(0, width_ - width(line) - 16))}${RESET}`);
+  headSpots.push("run");
+  return lines;
+}
+
+/** The rows of a kind's values for what's typed, as answers under `head`, their previews kept for the preview. */
+async function kindRows(q: BarQuestion, typed: string, host: BarHost, head: string): Promise<BarRow[]> {
+  const values = argKind(q.kind!);
+  if (!values) return [];
+  const of = q.of ? waiting?.answers[q.of] : undefined;
+  const found = await Promise.resolve(values(typed, host, { ...(of !== undefined ? { of } : {}) })).catch(() => []);
+  return found.map(v => {
+    const key = `answer:${v.value}`;
+    if (v.preview) kindPreviews.set(key, v.preview);
+    return { key, label: v.label, ...(v.detail ? { detail: v.detail } : {}), ...(v.depth ? { depth: v.depth } : {}), ...(v.mark ? { mark: v.mark } : {}), group: head, data: v.value };
+  });
+}
+
+/** A field's rows in a form: its choices, then its kind's values; what's typed as typed when it takes a free value. */
+async function fieldRows(q: BarQuestion, typed: string, host: BarHost, head: string): Promise<BarRow[]> {
+  const words = typed.trim().toLowerCase();
+  const choices = (q.choices ?? []).filter(c => !words || c.toLowerCase().includes(words) || q.says?.[c]?.toLowerCase().includes(words))
+    .map((c): BarRow => ({ key: `answer:${c}`, label: q.says?.[c] ?? c, ...(c === q.default ? { detail: "the default" } : {}), group: head, data: c }));
+  const kinds = q.kind ? await kindRows(q, typed, host, head) : [];
+  const rows = [...choices, ...kinds.filter(k => !choices.some(c => c.key === k.key))];
+  if (q.free && typed.trim() && !rows.some(r => r.data === typed.trim())) rows.unshift({ key: `answer:${typed.trim()}`, label: typed.trim(), detail: "as typed", group: head, data: typed.trim() });
+  if (!q.required && !words) rows.unshift({ key: "leave", label: "leave it out", detail: q.default !== undefined ? `the default: ${q.default}` : "not given", group: head });
+  if (!rows.length) rows.push({ key: "type", label: `type the ${q.label ?? q.name}`, detail: q.type === "number" ? "a number" : "then ⏎", group: head });
+  return rows;
+}
+
+/** A form's rows: the focused field's values (or, on the act line, running and copying it), then its examples, then running it. */
+async function formRows(w: NonNullable<typeof waiting>, typed: string, host: BarHost): Promise<BarRow[]> {
+  kindPreviews.clear();
+  const f = w.form!, q = question(), why = f.check?.(w.answers) ?? undefined, line = lineOf(w);
+  const run: BarRow = { key: "run", label: `run ${line}`, fill: line, detail: "as you, through the dispatcher", group: "run", ...(why ? { refused: why } : {}) };
+  const examples = (f.examples ?? []).map((ex, i): BarRow => ({ key: `example:${i}`, label: ex.act, detail: ex.does, group: "examples · fill the form" }));
+  if (!q) return [run, { key: "copy", label: "copy the act line", detail: line, group: "run" }, ...examples];
+  return [...await fieldRows(q, typed, host, `${q.name} · ${q.description ?? ""}`.slice(0, 80)), ...examples, run];
 }
 
 /** A note's parents (nearest first, three) and the notes changed lately (the `/` scope's own list), then the choices: where a note can go before anything is typed. */
@@ -77,7 +254,17 @@ const ASK_SOURCE: BarSource = {
   id: ASK_SCOPE, title: "ask", prefix: "?", by: "door", alone: true,
   about: "what an action you ran asks for (a sort's by and order, where a quote goes): ⏎ on a choice answers it, then the next, then the action runs",
   main: { empty: false, typed: false },
+  head(w) { return waiting?.form ? formHead(waiting, w) : []; },
+  headClick(i, host) {
+    const at = headSpots[i];
+    if (!waiting?.form || !at) return false;
+    void host.dispatch.press("bar.form", { op: "focus", field: at });
+    return true;
+  },
+  foot: () => (waiting?.form ? "⏎ pick and go on · alt+⏎ pick and run · ⇧⇥ back a field · a click on a field · esc closes" : null),
+  state: () => formState(),
   rows(query, host) {
+    if (waiting?.form) return formRows(waiting, query, host);
     const q = question();
     if (!q || !waiting) return [];
     const head = `${waiting.title} · ${q.label ?? q.name}`;
@@ -112,12 +299,14 @@ const ASK_SOURCE: BarSource = {
     ]);
   },
   preview(row) {
+    if (waiting?.form) return kindPreviews.get(row.key) ?? (waiting.form.page ? { markdown: waiting.form.page } : null);
     const q = question();
     if (!q || !waiting) return null;
     if (q.type === "note" && !(q.choices ?? []).includes(String(row.data))) return { note: String(row.data) };
     return { markdown: [`**${waiting.title}** asks for **${q.label ?? q.name}**`, "", q.description ?? "", "", ...waiting.questions.map(x => `- ${x.label ?? x.name}: ${waiting!.answers[x.name] ?? (x === q ? "…" : "next")}`)].join("\n") };
   },
   async pick(row, host, how) {
+    if (waiting?.form) return formPick(row, host, how);
     const q = question();
     if (!q || !waiting) throw new ActionRefused("nothing is waiting on an answer");
     if (row.data === undefined) throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);
@@ -129,3 +318,25 @@ const ASK_SOURCE: BarSource = {
     return done.run(done.answers);
   },
 };
+
+/** A form's row picked: a value answers its field and goes on (alt: and runs), an example fills it, the act line's rows run or copy it. */
+async function formPick(row: BarRow, host: BarHost, how: { alt: boolean; actor: Actor }): Promise<unknown> {
+  const w = waiting!;
+  const again = (out: Record<string, unknown>) => how.actor.kind === "agent" ? out : host.dispatch.press("bar.open", { scope: ASK_SCOPE }).then(() => out);
+  // A line that can't run yet: said, and the form stays open on it.
+  const refused = async () => { const why = w.form!.check?.(w.answers); if (why) { await again({}); throw new ActionRefused(why); } };
+  if (row.key === "run") { await refused(); return formRun(); }
+  if (row.key === "copy") {
+    const line = lineOf(w);
+    host.ctx.copy?.(`ep0ch act ${line}`);
+    host.ctx.flash(`copied: ep0ch act ${line}`);
+    return again({ copied: `ep0ch act ${line}` });
+  }
+  if (row.key.startsWith("example:")) { fillFrom(w, Number(row.key.slice(8))); return again({ filled: lineOf(w) }); }
+  const q = question();
+  if (!q) throw new ActionRefused("pick run, or a field first");
+  if (row.key === "type") throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);
+  formSet(q.name, row.key === "leave" ? undefined : String(row.data), true);
+  if (how.alt) { await refused(); return formRun(); }
+  return again({ answered: q.name, line: lineOf(w) });
+}

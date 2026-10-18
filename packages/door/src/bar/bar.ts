@@ -27,6 +27,7 @@ import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
+import { formOpen } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
@@ -132,6 +133,9 @@ export class PowerBar {
       this.setScope(all[(at + step + all.length) % all.length]!);
       return true;
     }
+    // In an action's form (PIE-1031) shift+tab, and backspace on an empty line, go back a field.
+    const form = this.scope === "ask" && formOpen();
+    if (form && (k.kind === "backtab" || (k.kind === "backspace" && !this.input.text))) { void this.host.dispatch.press("bar.form", { op: "back" }); return true; }
     if (k.kind === "tab" || k.kind === "backtab") {
       if (k.kind === "tab") void this.host.dispatch.press("bar.edit", { op: "complete" });
       return true;
@@ -227,7 +231,12 @@ export class PowerBar {
     ctx.redraw();
   }
 
+  /** What the source it's scoped to draws above its rows (an action's form), as drawn last. */
+  private sourceHead: string[] = [];
+
   private clickTab(x: number, y: number): boolean {
+    // A line of the scoped source's head (a form's field, its act line): under the bar's line.
+    if (y >= 3 && y < 3 + this.sourceHead.length) { const s = this.scope ? barSource(this.scope) : undefined; return !!s?.headClick?.(y - 3, this.host); }
     if (y !== 1) return false;
     const t = this.tabSpots.find(s => x >= s.from && x < s.to);
     if (t) this.setScope(t.scope);
@@ -337,7 +346,9 @@ export class PowerBar {
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
     const count = [`${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
     const line = paint("|14› ") + this.input.render(Math.max(10, w - 30), 1)[0] + paint(` |08${busy || count}`);
-    const head = [tabs, line, fg(C.blue) + "─".repeat(w) + RESET];
+    const scoped = this.scope ? barSource(this.scope) : undefined;
+    this.sourceHead = scoped?.head?.(w, this.host) ?? [];
+    const head = [tabs, line, ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
@@ -345,7 +356,7 @@ export class PowerBar {
     const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
     return {
       rect, title: " power bar ",
-      foot: "esc clears / empty closes · ^U clear · ↑↓ pick · ⏎ go · ⇥ complete · alt+←→ scope",
+      foot: scoped?.foot?.() ?? "esc clears / empty closes · ^U clear · ↑↓ pick · ⏎ go · ⇥ complete · alt+←→ scope",
       head, ...(tail.length ? { tail } : {}),
       preview,
     };
@@ -416,6 +427,7 @@ export class PowerBar {
   describe(): Record<string, unknown> {
     return {
       scope: this.scope ?? "all", query: this.query, selected: this.items.length ? this.picker.sel + 1 : null,
+      ...(() => { const st = this.scope ? barSource(this.scope)?.state?.() : null; return st ? { form: st } : {}; })(),
       ...(this.asking.size ? { asking: [...this.asking] } : {}), ...(this.said.size ? { said: Object.fromEntries(this.said) } : {}), ...(this.problems.size ? { problems: Object.fromEntries(this.problems) } : {}),
       rows: this.items.map((it, i) => rowFacts(it, i + 1)),
     };

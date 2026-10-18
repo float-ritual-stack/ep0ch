@@ -82,6 +82,16 @@ export interface BarSource {
    * a word for the bar's line (`jev ranked`), or null to keep them. The lit row stays lit.
    */
   later?(query: string, rows: BarRow[], host: BarHost, alive: () => boolean): Promise<{ rows: BarRow[]; said?: string } | null> | null;
+  /**
+   * Lines it draws above its rows, under the bar's line, while the bar is scoped to it (the ask scope's form: its
+   * fields and the act line, PIE-1031); `headClick` hears a click on its `i`-th (true when it was its).
+   */
+  head?(w: number, host: BarHost): string[];
+  headClick?(i: number, host: BarHost): boolean;
+  /** Its keys for the bar's foot while scoped to it, in place of the bar's own; null keeps the bar's. */
+  foot?(): string | null;
+  /** What `peek` and `bar.open` say of it beside its rows while scoped to it (a form's fields and act line). */
+  state?(): Record<string, unknown> | null;
   /** What the bar draws on its right while the row is lit. */
   preview(row: BarRow, host: BarHost): BarPreview | Promise<BarPreview>;
   /** Pick it: through the shared paths, as `how.actor`. */
