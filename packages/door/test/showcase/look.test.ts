@@ -503,7 +503,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await app.act({ action: "tune.set", args: { row: "header.image.height", value: "6", level: "page" }, tile: "tune", as: "test-agent" });
     await until(() => !!hero() && hero()!.rows <= 6, "the six-row hero");
     await app.act({ action: "tune.set", args: { row: "header.image.bleed", value: "full", level: "page" }, tile: "tune", as: "test-agent" });
-    await app.act({ action: "tune.set", args: { row: "header.image.height", value: "33%", level: "page" }, tile: "tune", as: "test-agent" });
+    await app.act({ action: "tune.set", args: { row: "header.image.height", value: "auto", level: "page" }, tile: "tune", as: "test-agent" });
     expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: true });
     expect((await board.get(seeded.notes.spacingLab.id))!.text).toContain("[style.header.image.blur::4]");
     await app.act({ action: "tune.set", args: { row: "header.image.blur", value: "0", level: "page" }, tile: "tune", as: "test-agent" });

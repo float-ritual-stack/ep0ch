@@ -42,7 +42,7 @@ export type Crop = { x: number; y: number; w: number; h: number };
  * brightest part), over the part `crop` shows; `mute`d (desaturated and softened) and only `alpha` opaque (the ground
  * showing through the rest) as a header's backdrop (PIE-598).
  */
-export interface Look { dim?: number; crop?: Crop; mean?: number; peak?: number; mute?: boolean; alpha?: number; blur?: number; tint?: number; tone?: Rgb; fade?: number; width?: number; ground?: Rgb }
+export interface Look { dim?: number; crop?: Crop; mean?: number; peak?: number; mute?: boolean; alpha?: number; blur?: number; tint?: number; tone?: Rgb; fade?: number; ground?: Rgb }
 
 /** The longest edge, in pixels, an image is kept at. */
 const MAX_PX = 1600;
@@ -257,14 +257,14 @@ const limited = (look: Look) => look.mean !== undefined || look.peak !== undefin
 const MUTE_SATURATION = 0.12;
 
 /** What a look names in a cache file: its dim (or auto, and its limits), its crop, rounded, and whether it's muted. */
-const lookKey = (look: Look) => `${look.blur ? `b${look.blur}_` : ""}${look.tint ? `t${look.tint}_${look.tone?.join("_")}_` : ""}${look.fade ? `f${look.fade}_${look.ground?.join("_")}_` : ""}${look.width ? `w${look.width}_` : ""}${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}${look.mean !== undefined ? `m${Math.round(look.mean * 1000)}` : ""}${look.peak !== undefined ? `p${Math.round(look.peak * 1000)}` : ""}${look.mute ? "u" : ""}${look.alpha !== undefined && look.alpha < 1 ? `o${Math.round(look.alpha * 100)}` : ""}`;
+const lookKey = (look: Look) => `${look.blur ? `b${look.blur}_` : ""}${look.tint ? `t${look.tint}_${look.tone?.join("_")}_` : ""}${look.fade ? `f${look.fade}_${look.ground?.join("_")}_` : ""}${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}${look.mean !== undefined ? `m${Math.round(look.mean * 1000)}` : ""}${look.peak !== undefined ? `p${Math.round(look.peak * 1000)}` : ""}${look.mute ? "u" : ""}${look.alpha !== undefined && look.alpha < 1 ? `o${Math.round(look.alpha * 100)}` : ""}`;
 
 /**
  * A look's key without its crop: a PNG is always the whole image (the crop is its placement's), so one made for another
  * crop draws this one too, its brightness worked out for that one.
  */
-const looseKey = (look: Look) => lookKey({ ...look, crop: undefined, width: undefined });
-const looseOf = (job: string) => (job.split("\0")[2] ?? "").replace(/c\d+_\d+_\d+_\d+/, "").replace(/w\d+_/, "");
+const looseKey = (look: Look) => lookKey({ ...look, crop: undefined });
+const looseOf = (job: string) => (job.split("\0")[2] ?? "").replace(/c\d+_\d+_\d+_\d+/, "");
 
 /**
  * The PNG of `s` with its longest edge at most `edge`, drawn as `look` says: its brightness worked out from the part

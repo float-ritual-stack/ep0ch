@@ -8,7 +8,7 @@ export function heroLook(spec: MediaSpec, v: StyleValues) {
   const tint = spec.tint ?? Number(v["header.image.tint"]);
   return {
     ...spec,
-    height: spec.height ?? (spec.heightShare === undefined && !height.endsWith("%") ? Number(height) : undefined),
+    height: spec.height ?? (spec.heightShare === undefined && height !== "auto" && !height.endsWith("%") ? Number(height) : undefined),
     heightShare: spec.heightShare ?? (spec.height === undefined && height.endsWith("%") ? parseInt(height) / 100 : undefined),
     fit: spec.fit ?? v["header.image.fit"],
     focus: spec.focus ?? { x: 0.5 + v["header.image.x"] / 100, y: 0.5 + v["header.image.y"] / 100 },

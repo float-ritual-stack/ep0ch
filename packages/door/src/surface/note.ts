@@ -1296,7 +1296,7 @@ export class NoteSurface {
     if (!ref) return null;
     const look = heroLook(ref.spec, values);
     const bounds = look.bleed === "full" ? host.heroBounds : undefined;
-    const cols = bounds?.cols ?? Math.max(1, w - this.bx - this.bxRight);
+    const cols = look.bleed === "full" ? bounds?.cols ?? w : Math.max(1, w - this.bx - this.bxRight);
     const entry = media(ref.path, ref.spec.kind === "video" ? "video" : "img");
     if (entry.state === "error") return null;
     const cap = Math.max(1, Math.min(look.height ?? Math.floor(h * (look.heightShare ?? 1 / 3)), Math.floor(h / 2)));
@@ -1308,8 +1308,8 @@ export class NoteSurface {
       return { line: ref.line, box, placement: null, loading: true, name, look };
     }
     const box = heroBox(entry, look, cols, cap, cw, chh);
-    const [placement] = imagePlacements([{ line: 0, media: entry, look: { ...look.pixels, width: cols }, ...box }], 0, cw, chh);
-    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}`, col: placement.col + (bounds?.col ?? this.bx), row: bounds?.row ?? 0, rows: placement.rows - (bounds?.row ?? 0) } : null, loading: false, name, look };
+    const [placement] = imagePlacements([{ line: 0, media: entry, look: look.pixels, ...box }], 0, cw, chh);
+    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}`, col: placement.col + (bounds?.col ?? (look.bleed === "full" ? 0 : this.bx)), row: bounds?.row ?? 0, rows: placement.rows - (bounds?.row ?? 0) } : null, loading: false, name, look };
   }
 
   /**

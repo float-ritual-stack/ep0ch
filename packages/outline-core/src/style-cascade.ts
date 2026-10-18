@@ -108,11 +108,11 @@ export const STYLE_TOKENS = {
   "header.image.y": { base: 0, what: "the header picture's crop moved down, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
   "header.image.blur": { base: 0, what: "soften the header picture, from sharp (0) to strong (24)", type: { kind: "int", min: 0, max: 24, step: 1 } },
   "header.image.bleed": { base: "full", what: "full spans the tile inside its frame; measure follows the text column", type: { kind: "enum", values: ["full", "measure"] } },
-  "header.image.height": { base: "33%", what: "rows or a share of the tile, capped at half its height", type: { kind: "text", max: 8, presets: ["6", "10", "16", "25%", "33%", "50%"] } },
+  "header.image.height": { base: "auto", what: "auto: at most a third of the tile; rows or a share, capped at half its height", type: { kind: "text", max: 8, presets: ["auto", "6", "10", "16", "25%", "33%", "50%"] } },
   "header.image.fit": { base: "cover", what: "cover crops around x/y; contain keeps the whole picture", type: { kind: "enum", values: ["cover", "contain"] } },
   "header.image.dim": { base: "auto", what: "darken from 0 to 1; auto caps bright pictures before drawing", type: { kind: "text", max: 8, presets: ["auto", "0", "0.2", "0.4", "0.6", "0.8", "1"] } },
   "header.image.tint": { base: "0", what: "duotone toward the tile tone, from 0 (original) to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
-  "header.image.fade": { base: "0.5", what: "bottom share fading into the reader background, from 0 to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
+  "header.image.fade": { base: "0", what: "bottom share fading into the reader background, from 0 to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
   "header.image.scroll": { base: "scroll", what: "scroll away with the body, or stay pinned above it", type: { kind: "enum", values: ["scroll", "pinned"] } },
   "header.title": { base: "below", what: "title below the picture, or over its bottom-left fade", type: { kind: "enum", values: ["below", "over"] } },
   "heading.margin": { base: BASE_HEADING.margin, what: "rows above, columns beside and rows below a heading", type: { kind: "margin" } },
@@ -182,7 +182,7 @@ export function parseStyleValue(token: StyleToken, raw: string): { value: StyleV
   const spec: StyleTokenSpec = STYLE_TOKENS[token], v = raw.trim().toLowerCase();
   const type = spec.type;
   if (["header.image.dim", "header.image.tint", "header.image.fade"].includes(token) && !(token === "header.image.dim" && v === "auto") && !/^(0|1|0?\.\d+|1\.0+)$/.test(v)) return { problem: `${token} is 0 to 1${token === "header.image.dim" ? " or auto" : ""}` };
-  if (token === "header.image.height" && !(/^[1-9]\d{0,2}$/.test(v) || (/^\d{1,2}%$/.test(v) && parseInt(v) > 0 && parseInt(v) <= 50))) return { problem: `${token} is rows or 1% to 50%` };
+  if (token === "header.image.height" && v !== "auto" && !(/^[1-9]\d{0,2}$/.test(v) || (/^\d{1,2}%$/.test(v) && parseInt(v) > 0 && parseInt(v) <= 50))) return { problem: `${token} is auto, rows or 1% to 50%` };
 
   if (type.kind === "int") {
     if (!/^-?\d+$/.test(v)) return { problem: `${token} ${JSON.stringify(raw)} is a whole number, ${type.min} to ${type.max}` };
