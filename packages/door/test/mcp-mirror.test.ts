@@ -3,7 +3,7 @@
 // is a VACUUM INTO of its database into the mirrors folder. Fictional notes throughout.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { answerMcp, type McpOutlines } from "../src/mcp";
@@ -13,6 +13,7 @@ import { hostRequest, SocketBoard } from "../src/socket";
 import { outliner, ScratchHost, scratchDir } from "./scratch";
 
 const FAR = "far-box";
+const SCHEMA_VERSION = Number(/^export const SCHEMA_VERSION = (\d+);/m.exec(readFileSync(join(outliner!, "src/schema.ts"), "utf8"))![1]);
 
 /** `list_outlines` through a gateway of its own. */
 const answerList = async (outlines: McpOutlines) => {
@@ -190,15 +191,15 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     rmSync(join(mirrorsFolder, ".restic"), { recursive: true, force: true });
   }, 30_000);
 
-  /** A copy as it was at schema 5 (before the reference index), at `path`. */
-  const asSchema5 = (name: string, path: string) => {
+  /** A copy as it was at schema 6 (before revision tasks), at `path`. */
+  const asSchema6 = (name: string, path: string) => {
     rmSync(path, { force: true });
     const source = new Database(join(home.outlines, `${name}.sqlite`), { readonly: true });
     try { source.run("VACUUM INTO ?", [path]); } finally { source.close(); }
     const db = new Database(path);
     try {
-      db.exec("DROP TABLE block_reference_candidates;");
-      db.run("PRAGMA user_version = 5");
+      db.exec("ALTER TABLE block_revisions DROP COLUMN task_id;");
+      db.run(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
     } finally { db.close(); }
   };
   const version = (path: string) => { const db = new Database(path, { readonly: true }); try { return (db.query("PRAGMA user_version").get() as { user_version: number }).user_version; } finally { db.close(); } };
@@ -207,18 +208,18 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const dir = join(here, "behind");
     mkdirSync(join(dir, FAR), { recursive: true });
     const file = join(dir, FAR, "garden-notes.sqlite");
-    asSchema5("garden-notes", file);
+    asSchema6("garden-notes", file);
     const mirror = new OutlineMirror("garden-notes", FAR, dir, line => logs.push(line), () => clock, async () => null);
     try {
       const read = await mirror.read();
       expect("error" in read).toBe(false);
-      expect((read as { migrated?: unknown }).migrated).toEqual({ from: 5, to: 6 });
-      expect(version(file)).toBe(5);
+      expect((read as { migrated?: unknown }).migrated).toEqual({ from: SCHEMA_VERSION - 1, to: SCHEMA_VERSION });
+      expect(version(file)).toBe(SCHEMA_VERSION - 1);
       expect(logs.join("\n")).toContain("migrated the served copy");
       const gateway = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local host" }), [mirror], async () => []);
       const row = (JSON.parse((await answerList(gateway)).text).outlines as { note?: string; source: string }[])[0]!;
       expect(row.source).toBe("mirror");
-      expect(row.note).toContain("migrated its own working copy from schema 5 to 6");
+      expect(row.note).toContain(`migrated its own working copy from schema ${SCHEMA_VERSION - 1} to ${SCHEMA_VERSION}`);
     } finally { await mirror.close(); }
   }, 60_000);
 
@@ -226,7 +227,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const dir = join(here, "ancient");
     mkdirSync(join(dir, FAR), { recursive: true });
     const file = join(dir, FAR, "garden-notes.sqlite");
-    asSchema5("garden-notes", file);
+    asSchema6("garden-notes", file);
     await garden.configureMcpAccess("full");
     try {
       const copy = new Database(file); copy.run("PRAGMA user_version = 3"); copy.close();
@@ -250,7 +251,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     mkdirSync(join(dir, FAR), { recursive: true });
     mkdirSync(join(dir, ".restic", FAR), { recursive: true });
     const follower = join(dir, FAR, "garden-notes.sqlite"), restic = join(dir, ".restic", FAR, "garden-notes.sqlite");
-    asSchema5("garden-notes", follower);
+    asSchema6("garden-notes", follower);
     const current = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
     try { current.run("VACUUM INTO ?", [restic]); } finally { current.close(); }
     const mirror = new OutlineMirror("garden-notes", FAR, dir, line => logs.push(line), () => clock, async () => null);
@@ -262,7 +263,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
       rmSync(follower); rmSync(restic);
       const f = new Database(join(home.outlines, "garden-notes.sqlite"), { readonly: true });
       try { f.run("VACUUM INTO ?", [follower]); } finally { f.close(); }
-      asSchema5("garden-notes", restic);
+      asSchema6("garden-notes", restic);
       clock += 16_000;
       expect((await mirror.read() as { copy: { file: string } }).copy.file).toBe(`${FAR}/garden-notes.sqlite`);
     } finally { await mirror.close(); }

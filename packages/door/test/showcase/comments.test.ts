@@ -783,6 +783,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     // The note's earlier revision (the seed saved it twice), into its own edit as one step, and taken back.
     expect(await app.act({ action: "revision.restore", tile: "reader", as: "test-agent" })).toMatchObject({ revision: 1, current: 2 });
     expect(draft().text).toBe(LABELS_BEFORE);
+    expect(screen()).toContain("by cowboy · for evan · via yolo");
     await app.act({ action: "draft.undo", tile: "reader", as: "test-agent" });
     expect(draft().text.split("\n")[0]).toEndWith("(wiped Sunday)");
     await app.act({ action: "edit.close", tile: "reader", args: { discard: true }, as: "test-agent" });

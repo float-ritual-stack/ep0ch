@@ -1156,7 +1156,7 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
   });
 
   test("an outline too old for the step, or a step whose script was deleted: refused before the checkout moves, with the import route", () => {
-    for (const [f, said] of [[bumped({ "float-hub": 1 }), "0003-drop-agent-tables.ts takes schema 2 to 3 only"],
+    for (const [f, said] of [[bumped({ "float-hub": 1 }), "no migration script takes schema 1 to 2"],
       [bumped({ "float-hub": 2 }, { upstream: code(3, {}) }), "no migration script takes schema 2 to 3"]] as const) {
       const plan = buildPlan(f, opts());
       // The managed plugin, refreshed from main, would be the new code too: held back with the checkout.
@@ -1234,11 +1234,11 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     mkdirSync(folder, { recursive: true });
     const at = (name: string, version: number) => { const db = new Database(join(folder, `${name}.sqlite`)); db.exec(`CREATE TABLE seeds (x); PRAGMA user_version = ${version}`); db.close(); };
     at("allotment", 2); at("greenhouse", 2); at("orchard", 3);
-    const m = { from: 2, to: 3, script: "/s/0003-x.ts", stopsHost: true, copyDir: "/b/20260314T092653Z",
-      outlines: [{ name: "allotment", path: join(folder, "allotment.sqlite"), copy: "/b/20260314T092653Z/allotment.schema-2.sqlite" }] };
+    const m = { from: 2, to: 3, scripts: { 3: "/s/0003-x.ts" }, stopsHost: true, copyDir: "/b/20260314T092653Z",
+      outlines: [{ name: "allotment", version: 2, path: join(folder, "allotment.sqlite"), copy: "/b/20260314T092653Z/allotment.schema-2.sqlite" }] };
     expect(outlinesToMigrate(m, folder)).toEqual({ blocked: [], outlines: [
-      { name: "allotment", path: join(folder, "allotment.sqlite"), copy: "/b/20260314T092653Z/allotment.schema-2.sqlite" },
-      { name: "greenhouse", path: join(folder, "greenhouse.sqlite"), copy: "/b/20260314T092653Z/greenhouse.schema-2.sqlite" }] });
+      { name: "allotment", version: 2, path: join(folder, "allotment.sqlite"), copy: "/b/20260314T092653Z/allotment.schema-2.sqlite" },
+      { name: "greenhouse", version: 2, path: join(folder, "greenhouse.sqlite"), copy: "/b/20260314T092653Z/greenhouse.schema-2.sqlite" }] });
     at("seed-bank", 1);
     expect(outlinesToMigrate(m, folder).blocked).toEqual([{ name: "seed-bank", path: join(folder, "seed-bank.sqlite"), version: 1 }]);
   });
@@ -1269,7 +1269,7 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     db.exec("CREATE TABLE seeds (x); PRAGMA user_version = 2");
     db.close();
     expect(outlineSchema({ name: "pie", path: join(folder, "pie.sqlite") })).toMatchObject({ empty: true });
-    const m = { from: 2, to: 3, script: "/s/0003-x.ts", stopsHost: true, outlines: [{ name: "allotment", path: join(folder, "allotment.sqlite") }] };
+    const m = { from: 2, to: 3, scripts: { 3: "/s/0003-x.ts" }, stopsHost: true, outlines: [{ name: "allotment", version: 2, path: join(folder, "allotment.sqlite") }] };
     const found = outlinesToMigrate(m, folder);
     expect(found.blocked).toEqual([]);
     expect(found.outlines.map(o => o.name)).toEqual(["allotment"]);

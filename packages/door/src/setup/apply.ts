@@ -360,14 +360,16 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
           try { mkdirSync(dirname(o.copy), { recursive: true, mode: 0o700 }); backupDatabase(o.path, o.copy); }
           catch (e) { throw new StepFailed(`copying ${o.name} before its migration failed: ${(e as Error).message}`, `${o.name} wasn't migrated; ${migrationRecovery(f, m, null, done)}`); }
         }
-        const r = await run([process.execPath, m.script, o.path], { cwd: f.repo.outliner, env, timeoutMs: 600_000, onLine: child });
-        const now = outlineSchema(o).version;
-        if (r.code !== 0 || now !== m.to) {
-          const said = r.code !== 0 ? withoutProgress(r.err) || r.out || `exit ${r.code}` : `the script ended, but ${o.name} is schema ${now ?? "unreadable"}, not ${m.to}`;
-          throw new StepFailed(`migrating ${o.name} (schema ${m.from} → ${m.to}) failed: ${said}`, migrationRecovery(f, m, { ...o, now }, done));
+        for (let to = o.version + 1; to <= m.to; to++) {
+          const r = await run([process.execPath, m.scripts[to]!, o.path], { cwd: f.repo.outliner, env, timeoutMs: 600_000, onLine: child });
+          const now = outlineSchema(o).version;
+          if (r.code !== 0 || now !== to) {
+            const said = r.code !== 0 ? withoutProgress(r.err) || r.out || `exit ${r.code}` : `the script ended, but ${o.name} is schema ${now ?? "unreadable"}, not ${to}`;
+            throw new StepFailed(`migrating ${o.name} (schema ${to - 1} → ${to}) failed: ${said}`, migrationRecovery(f, m, { ...o, now }, done));
+          }
         }
         done.push(o);
-        say(`${o.name}: schema ${m.from} → ${m.to}`);
+        say(`${o.name}: schema ${o.version} → ${m.to}`);
       }
       return;
     }
@@ -431,13 +433,13 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
 
 /**
  * The outlines to migrate, read again once the host is stopped (PIE-617): every `<name>.sqlite` in the folder at the
- * step's `from` (one the plan didn't see too, copied into the same folder as the rest), and `blocked`, any below the
+ * planned range (one the plan didn't see too, copied into the same folder as the rest), and `blocked`, any below the
  * step or unreadable, which stop the step before anything is changed. One already at `to` or newer is left alone.
  */
 export function outlinesToMigrate(m: Migration, folder: string): { outlines: Migration["outlines"]; blocked: OutlineSchema[] } {
   const all = databases(folder).map(outlineSchema).filter(o => !o.empty);
-  const outlines = all.filter(o => o.version === m.from).map(o => ({ name: o.name, path: o.path,
-    ...(m.outlines.find(p => p.path === o.path)?.copy ? { copy: m.outlines.find(p => p.path === o.path)!.copy } : m.copyDir ? { copy: join(m.copyDir, `${o.name}.schema-${m.from}.sqlite`) } : {}) }));
+  const outlines = all.filter(o => o.version !== null && o.version >= m.from && o.version < m.to).map(o => ({ name: o.name, path: o.path, version: o.version!,
+    ...(m.outlines.find(p => p.path === o.path)?.copy ? { copy: m.outlines.find(p => p.path === o.path)!.copy } : m.copyDir ? { copy: join(m.copyDir, `${o.name}.schema-${o.version}.sqlite`) } : {}) }));
   return { outlines, blocked: all.filter(o => o.version === null || o.version < m.from) };
 }
 

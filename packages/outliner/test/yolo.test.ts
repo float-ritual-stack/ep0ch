@@ -36,7 +36,7 @@ async function service() {
   const activity = async (blockId: string) => (await client.request<{ entries: Array<{ block: { id: string }; actorId?: string; taskId?: string }> }>({
     action: "activity.recent", since: "2000-01-01T00:00:00.000Z", author: "agent", limit: 100, kinds: ["text", "properties", "move", "delete", "restore"],
   })).entries.filter(entry => entry.block.id === blockId);
-  return { store, client, door, activity };
+  return { store, client, door, activity, socket: join(directory, "outliner.sock") };
 }
 
 const spanOf = (text: string, observed: string, replacement: string): DraftPatchSpan => {
@@ -50,6 +50,26 @@ const status = (client: OutlinerClient) => client.request<McpAccessStatus>({ act
 const eventually = async (check: () => Promise<boolean>) => { for (let i = 0; i < 50 && !(await check()); i += 1) await Bun.sleep(20); };
 
 describe("yolo in the service", () => {
+  test("revisions keep a yolo writer after another save, and the CLI names whose permission it used", async () => {
+    const { store, client, door, socket } = await service();
+    const note = store.create("Seed ledger");
+    const mine = await door("history-door");
+    await client.request({ action: "agents.yolo", clientId: mine.clientId, on: true });
+    await client.request({ action: "update", blockId: note.id, text: "Seed ledger\nBeans", expectedRevision: 1, mutation: { author: "agent", actorId: "cowboy", taskId: "seed-order" } });
+    const revisions = () => client.request<import("@ep0ch/outline-core/protocol").BlockRevisions>({ action: "block.revisions", blockId: note.id });
+    expect((await revisions()).revisions[0]).toMatchObject({ author: "agent", actorId: "cowboy", taskId: "seed-order+via:yolo" });
+    await client.request({ action: "agents.yolo", clientId: mine.clientId, on: false });
+    await client.request({ action: "update", blockId: note.id, text: "Seed ledger\nBeans and peas", expectedRevision: 2, mutation: { author: "user" } });
+    expect((await revisions()).revisions[1]).toMatchObject({ author: "agent", actorId: "cowboy", taskId: "seed-order+via:yolo" });
+    const process = Bun.spawn(["bun", "packages/door/src/main.ts", "revisions", note.id], {
+      cwd: join(import.meta.dir, "../../.."),
+      env: { ...Bun.env, EP0CH_SOCKET: socket, EP0CH_WS: "scratch" }, stdout: "pipe", stderr: "pipe",
+    });
+    const output = await new Response(process.stdout).text();
+    expect(await process.exited).toBe(0);
+    expect(output).toContain("by cowboy · for evan · via yolo");
+  });
+
   test("only a connected door turns it on; an agent can't", async () => {
     const { client, door } = await service();
     await expect(client.request({ action: "agents.yolo", clientId: "ghost", on: true })).rejects.toThrow("subscribe with that clientId first");

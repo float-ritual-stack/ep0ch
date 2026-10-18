@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
-import { insertOutlineInstanceId, OUTLINE_INSTANCE_ID_KEY, REFERENCE_INDEX_SQL } from "../../src/schema";
+import { insertOutlineInstanceId, OUTLINE_INSTANCE_ID_KEY } from "../../src/schema";
+import { REFERENCE_INDEX_SQL_6 } from "./schema-6";
 import { replaceReferenceIndex } from "../../src/reference-index";
 import { acquireWorkspaceOwnership } from "../../src/workspace-ownership";
 
@@ -21,7 +22,7 @@ export function migrateReferenceIndex(path: string): { migrated: boolean; repair
         return { migrated: false, repaired: true, outlineInstanceId: insertOutlineInstanceId(db) };
       }
       if (version.user_version !== 5) throw new Error(`Expected schema 5, found ${version.user_version}`);
-      db.exec(REFERENCE_INDEX_SQL);
+      db.exec(REFERENCE_INDEX_SQL_6);
       for (const row of db.query("SELECT id, text FROM blocks").all() as { id: string; text: string }[]) {
         replaceReferenceIndex(db, row.id, row.text);
       }

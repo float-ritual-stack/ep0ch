@@ -116,3 +116,9 @@ export function parseSessionId(sessionId: string | undefined | null): { subject:
 
 /** The call a `sessionId` carries, or undefined. */
 export const callOf = (sessionId: string | undefined | null): string | undefined => parseSessionId(sessionId).call;
+
+/** Revision bylines retain the agent's identity when it used Evan's yolo permission. */
+export function revisionByline(write: { author?: string; actorId?: string; taskId?: string }): string {
+  const by = write.author === "agent" ? `by ${actorLabel(write.actorId) || "an agent"}` : write.author === "user" ? "by you" : "";
+  return by + (isViaYolo(write.taskId) ? " · for evan · via yolo" : "");
+}

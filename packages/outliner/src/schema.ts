@@ -25,7 +25,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (workflows, agent mentions), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -807,6 +807,7 @@ export const SCHEMA_SQL = `
     saved_at TEXT NOT NULL,
     author TEXT,
     actor_id TEXT,
+    task_id TEXT,
     replaced_at TEXT NOT NULL,
     PRIMARY KEY (block_id, revision)
   );

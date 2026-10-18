@@ -515,9 +515,9 @@ exits 1), and · for information:
    outline's `user_version`, and the plan says it: "schema 3 → 4: will migrate 2 outlines (pie, pie-hole) with
    0004-block-revisions.ts". Applying, it stops the host through its unit (`systemctl --user stop`, `launchctl
    bootout`), copies each outline behind it again (exact, with nothing serving it, beside the backup as
-   `<name>.schema-<N-1>.sqlite`) and runs the step's script on it (one transaction; the script refuses a served
-   file), and the next step starts the host. One step only (N-1 → N, the script for N): an outline older than that, or
-   a step whose script was deleted, is imported instead, and install doesn't update the checkout until it's moved
+   `<name>.schema-<starting-version>.sqlite`) and runs the retained scripts in version order (one transaction per
+   script; each refuses a served file), and the next step starts the host. For example, schema 5 takes 0006 then
+   0007 to reach 7. If a required script was deleted, the outline is imported instead, and install doesn't update the checkout until it's moved
    aside, saying the commands. So does a host it can't stop (outside a unit, or another process at its socket). When a
    migration fails it stops there, naming the outline, its copy and the way back (each command only after the one before it worked), and leaves the
    host stopped: started on the new code it would serve only the outlines already migrated, and on the code before

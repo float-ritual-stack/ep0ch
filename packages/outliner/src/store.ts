@@ -2627,8 +2627,8 @@ export class OutlinerStore {
     // The text it replaced is kept (PIE-621): a saved note can go back to it.
     if (text !== current.text) {
       const saved = this.textSaved(current);
-      this.database.query("INSERT OR REPLACE INTO block_revisions (block_id, revision, text, saved_at, author, actor_id, replaced_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(id, expectedRevision, current.text, saved.savedAt, saved.author ?? null, saved.actorId ?? null, editedAt);
+      this.database.query("INSERT OR REPLACE INTO block_revisions (block_id, revision, text, saved_at, author, actor_id, task_id, replaced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, expectedRevision, current.text, saved.savedAt, saved.author ?? null, saved.actorId ?? null, saved.taskId ?? null, editedAt);
       // The newest REVISIONS_KEEP rows a block has, by row: a save that left the text as it was moved the revision on
       // without a row, so a cut by revision number would drop real history.
       this.database.query("DELETE FROM block_revisions WHERE block_id = ? AND revision NOT IN (SELECT revision FROM block_revisions WHERE block_id = ? ORDER BY revision DESC LIMIT ?)")
@@ -2645,11 +2645,11 @@ export class OutlinerStore {
    * When a block's current text was written and by whom: its last text or property edit (a move or a trip to the Trash
    * never changes the text), else when it was made and by whom. Read before the next write records its own.
    */
-  private textSaved(block: Block): { savedAt: string; author?: BlockAuthor; actorId?: string } {
-    const row = this.database.query(`SELECT edited_at, author, actor_id FROM block_edit_activity WHERE block_id = ? AND kind IN (${BLOCK_EDIT_ACTIVITY_KINDS.map(() => "?").join(", ")}) ORDER BY activity_id DESC LIMIT 1`)
-      .get(block.id, ...BLOCK_EDIT_ACTIVITY_KINDS) as { edited_at: string; author: BlockAuthor; actor_id: string | null } | null;
-    if (!row) return { savedAt: block.createdAt, author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
-    return { savedAt: row.edited_at, author: row.author, ...(row.actor_id ? { actorId: row.actor_id } : {}) };
+  private textSaved(block: Block): { savedAt: string; author?: BlockAuthor; actorId?: string; taskId?: string } {
+    const row = this.database.query(`SELECT edited_at, author, actor_id, task_id FROM block_edit_activity WHERE block_id = ? AND kind IN (${BLOCK_EDIT_ACTIVITY_KINDS.map(() => "?").join(", ")}) ORDER BY activity_id DESC LIMIT 1`)
+      .get(block.id, ...BLOCK_EDIT_ACTIVITY_KINDS) as { edited_at: string; author: BlockAuthor; actor_id: string | null; task_id: string | null } | null;
+    if (!row) return { savedAt: block.createdAt, author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}), ...(block.taskId ? { taskId: block.taskId } : {}) };
+    return { savedAt: row.edited_at, author: row.author, ...(row.actor_id ? { actorId: row.actor_id } : {}), ...(row.task_id ? { taskId: row.task_id } : {}) };
   }
 
   /**
@@ -2658,12 +2658,12 @@ export class OutlinerStore {
    */
   revisions(id: string): BlockRevisions {
     const block = this.require(id);
-    const entry = (revision: number, text: string, saved: { savedAt: string; author?: BlockAuthor | null; actorId?: string | null }): BlockRevisionEntry => ({
-      revision, savedAt: saved.savedAt, ...(saved.author ? { author: saved.author } : {}), ...(saved.actorId ? { actorId: saved.actorId } : {}),
+    const entry = (revision: number, text: string, saved: { savedAt: string; author?: BlockAuthor | null; actorId?: string | null; taskId?: string | null }): BlockRevisionEntry => ({
+      revision, savedAt: saved.savedAt, ...(saved.author ? { author: saved.author } : {}), ...(saved.actorId ? { actorId: saved.actorId } : {}), ...(saved.taskId ? { taskId: saved.taskId } : {}),
       chars: [...text].length, lines: text.split("\n").length, firstLine: text.split("\n")[0]!.slice(0, 120),
     });
-    const rows = this.database.query("SELECT revision, text, saved_at, author, actor_id FROM block_revisions WHERE block_id = ? ORDER BY revision DESC").all(id) as Array<{ revision: number; text: string; saved_at: string; author: BlockAuthor | null; actor_id: string | null }>;
-    return { blockId: id, revision: block.revision, revisions: [entry(block.revision, block.text, this.textSaved(block)), ...rows.map(r => entry(r.revision, r.text, { savedAt: r.saved_at, author: r.author, actorId: r.actor_id }))] };
+    const rows = this.database.query("SELECT revision, text, saved_at, author, actor_id, task_id FROM block_revisions WHERE block_id = ? ORDER BY revision DESC").all(id) as Array<{ revision: number; text: string; saved_at: string; author: BlockAuthor | null; actor_id: string | null; task_id: string | null }>;
+    return { blockId: id, revision: block.revision, revisions: [entry(block.revision, block.text, this.textSaved(block)), ...rows.map(r => entry(r.revision, r.text, { savedAt: r.saved_at, author: r.author, actorId: r.actor_id, taskId: r.task_id }))] };
   }
 
   /** One revision's whole text: the block's own for the current one, else the one kept (PIE-621). */

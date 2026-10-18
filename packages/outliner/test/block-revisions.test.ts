@@ -1,8 +1,13 @@
 // PIE-621: a block's earlier texts, kept when a save replaces them, so a saved note can go back (block.revisions).
+import { Database } from "bun:sqlite";
+import { migrateRevisionTasks } from "../scripts/migrations/0007-revision-tasks";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ownerLockOf } from "../src/workspace-ownership";
+import { SCHEMA_SQL_6 } from "../scripts/migrations/schema-6";
+import { schemaShape } from "../scripts/migrations/0001-stamp";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore, REVISIONS_KEEP } from "../src/store";
@@ -87,4 +92,39 @@ test("through the service: block.revisions lists them, and with revision= answer
     await server.close();
     store.close();
   }
+});
+
+
+test("schema 6 revision texts survive the offline upgrade and subsequent yolo saves", () => {
+  const path = join(root(), "outliner.sqlite");
+  let store = new OutlinerStore(path);
+  const note = store.create("Ledger");
+  store.update(note.id, "Ledger\nBeans", 1, { author: "user" });
+  const before = store.revisionText(note.id, 1);
+  store.close();
+  const old = new Database(path);
+  old.exec("ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 6");
+  const frozen = new Database(":memory:");
+  frozen.exec(SCHEMA_SQL_6);
+  expect(schemaShape(old)).toEqual(schemaShape(frozen));
+  frozen.close();
+  old.close();
+  const original = readFileSync(path);
+  const held = new Database(ownerLockOf(path).path);
+  held.exec("BEGIN IMMEDIATE");
+  try {
+    expect(() => migrateRevisionTasks(path)).toThrow("already owned");
+    expect(readFileSync(path)).toEqual(original);
+  } finally { held.close(); }
+  migrateRevisionTasks(path);
+  store = new OutlinerStore(path);
+  try {
+    expect(store.revisionText(note.id, 1)).toEqual(before);
+    store.update(note.id, "Ledger\nPeas", 2, { author: "agent", actorId: "cowboy", taskId: "via:yolo" });
+    store.update(note.id, "Ledger\nPeas and beans", 3, { author: "user" });
+    expect(store.revisionText(note.id, 3)).toMatchObject({ text: "Ledger\nPeas", actorId: "cowboy", taskId: "via:yolo" });
+  } finally { store.close(); }
+  const migrated = readFileSync(path);
+  expect(() => migrateRevisionTasks(path)).toThrow("Expected schema 6, found 7");
+  expect(readFileSync(path)).toEqual(migrated);
 });

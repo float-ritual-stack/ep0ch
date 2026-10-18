@@ -22,8 +22,9 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import {
-  insertOutlineInstanceId, OUTLINE_INSTANCE_ID_KEY, READ_MARKS_SQL, REMOTE_ENTITY_PROVIDER_CHECK, RESOURCE_PROVIDER_CHECK, REFERENCE_INDEX_SQL, SCHEMA_SQL,
+  insertOutlineInstanceId, OUTLINE_INSTANCE_ID_KEY, READ_MARKS_SQL, REMOTE_ENTITY_PROVIDER_CHECK, RESOURCE_PROVIDER_CHECK,
 } from "../../src/schema";
+import { SCHEMA_SQL_6, REFERENCE_INDEX_SQL_6 } from "./schema-6";
 import { acquireWorkspaceOwnership } from "../../src/workspace-ownership";
 import { schemaDifferences, schemaShape, type SchemaShape } from "./0001-stamp";
 
@@ -35,7 +36,7 @@ const V4_RESOURCE_CHECK = "CHECK (provider IN ('filesystem', 'web', 'github', 'a
 const V4_REMOTE_ENTITY_CHECK = "CHECK (provider IN ('jira', 'linear'))";
 
 /** The schema at version 4: this one with the provider checks as they were, and no read marks. */
-const SCHEMA_SQL_5 = SCHEMA_SQL.replace(REFERENCE_INDEX_SQL, "");
+const SCHEMA_SQL_5 = SCHEMA_SQL_6.replace(REFERENCE_INDEX_SQL_6, "");
 export const SCHEMA_SQL_4 = SCHEMA_SQL_5.replace(READ_MARKS_SQL, "").replaceAll(RESOURCE_PROVIDER_CHECK, V4_RESOURCE_CHECK).replaceAll(REMOTE_ENTITY_PROVIDER_CHECK, V4_REMOTE_ENTITY_CHECK);
 
 /** A version-4 database's shape. */

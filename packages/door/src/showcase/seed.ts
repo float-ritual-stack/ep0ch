@@ -379,7 +379,7 @@ if (request.input.request === "describe the beds") {
   notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.
   for (const [key, line] of LOGS) notes[key] = await make(notes.root.id, `${SEED[key]}\n${line} 0`);
-  const labels = await make(notes.root.id, LABELS_BEFORE);
+  const labels = await board.request<{ id: string; revision: number }>("create", { parentId: notes.root.id, text: LABELS_BEFORE, author: "agent", provenance: { actorId: "cowboy", taskId: "via:yolo" } });
   notes.labels = await board.update(labels.id, LABELS, labels.revision!);
   {
     // Through the gateway's own write path, at propose: a patch that becomes a proposal, and a comment.
