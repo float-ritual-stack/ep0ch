@@ -41,6 +41,8 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
       if ((rendered.text.match(/Seeds shown here: 1/g) ?? []).length >= 3) {
         expect(rendered.text).not.toContain("Seeds shown here: 2");
         expect(rendered.text).not.toContain("hidden here");
+        expect(rendered.text).toContain("not shared");
+        expect(rendered.text).not.toContain("PRIVATE_SCRIPT_SECRET");
         break;
       }
       if (Date.now() > deadline) throw new Error(`The published showcase did not draw both counts: ${rendered.text}`);

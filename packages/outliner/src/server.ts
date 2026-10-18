@@ -1911,7 +1911,7 @@ export class OutlinerServer {
         const answer = answerSite(this.store, request);
         const deps = new Set(answer.deps);
         const rendered = await this.extensionCalls.renderForSite(answer.blockId, request.scriptLine, request.hidden, ids => { for (const id of ids) deps.add(id); }, request);
-        const ids = rendered.reads.map(read => read.id).filter(id => id !== rendered.own);
+        const ids = rendered.reads.map(read => read.id);
         for (const id of ids) deps.add(id);
         return { id: request.id, ok: true, result: { ...answer, deps: [...deps], script: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}), reads: { ids, ...(rendered.untracked ? { untracked: true } : {}) } } }, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }

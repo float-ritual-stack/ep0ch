@@ -42,6 +42,8 @@ export interface HostApiOptions {
   effects?: "read" | "write";
   /** Query totals were computed after the Site’s visibility cut. */
   cutQueries?: boolean;
+  /** A parent reference under the reader’s visibility cut; records the check even when withheld. */
+  visibleId?(id: string): string | null;
   mcpAccess?: McpAccessLevel;
   act?(name: string, args: Record<string, unknown>): Promise<unknown>;
   /** The note this run is about (`this`): a query's `this` targets (`parent:this`) are bound to it. */
@@ -99,13 +101,19 @@ export function noteIds(result: unknown, out: Reads = { ids: new Set(), untracke
   if (typeof result === "string") { if (result.length <= MAX_REFERENCE) for (const found of result.matchAll(NOTE_ID)) out.ids.add(found[0].toLowerCase()); }
   else if (Array.isArray(result)) for (const item of result) noteIds(item, out, depth + 1);
   else if (result && typeof result === "object") {
-    for (const [key, value] of Object.entries(result)) {
-      // A bare parent id names a place, not a note's words; a breadcrumb or ancestor list (with titles) is read.
-      if ((key === "parent" || key === "parentId") && typeof value === "string") continue;
-      noteIds(value, out, depth + 1);
-    }
+    for (const value of Object.values(result)) noteIds(value, out, depth + 1);
   }
   return out;
+}
+
+/** Parent references name notes too, even when the answer includes none of their text. */
+function visibleParents(result: unknown, visibleId: HostApiOptions["visibleId"]): unknown {
+  if (!visibleId) return result;
+  if (Array.isArray(result)) return result.map(value => visibleParents(value, visibleId));
+  if (result && typeof result === "object") return Object.fromEntries(Object.entries(result).map(([key, value]) => [key,
+    (key === "parent" || key === "parentId") && typeof value === "string" ? visibleId(value) : visibleParents(value, visibleId),
+  ]));
+  return result;
 }
 
 /** A find that says more notes matched than it listed (a total, an incomplete answer): its count tells of notes it did not list. */
@@ -157,6 +165,7 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
         // A query in a script's note reads `this` (`parent:this`): the tool's arguments don't name it, the run's Site does.
         result = await findBlocks(client, { ...command.input, this: options.thisId } as FindInput);
       } else result = await runAgentOperation(client, command.operation, command.input, actor);
+      result = visibleParents(result, options.visibleId);
       said("done", { result });
       if (options.onRead) {
         const reads = noteIds(result);
@@ -214,7 +223,7 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     // outline_read's answer is the record's properties and fields already; the rest of the record (header, tasks, links…) joins it.
     if (typeof read?.id !== "string") return read;
     const { records } = await client.request<{ records: object[] }>({ action: "blocks.records", ids: [read.id] });
-    const whole = { ...(records[0] ?? {}), ...read };
+    const whole = visibleParents({ ...(records[0] ?? {}), ...read }, options.visibleId);
     if (options.onRead) { const reads = noteIds(whole); options.onRead([...reads.ids]); if (reads.untracked) options.onUntracked?.(); }
     return whole;
   };

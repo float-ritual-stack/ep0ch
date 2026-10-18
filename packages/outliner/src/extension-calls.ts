@@ -218,13 +218,11 @@ const MAX_CHILDREN = 50;
 const MAX_MARKDOWN = 64 * 1024;
 /** The notes a render script read to draw its output: what it read by id and the rows of its queries (stored with the output). */
 function scriptReads(request: unknown): { ids: string[]; untracked?: true } | undefined {
-  const stored = request as { reads?: { id?: unknown }[]; queries?: { ids?: unknown }[]; untracked?: unknown; own?: unknown } | null;
+  const stored = request as { reads?: { id?: unknown }[]; queries?: { ids?: unknown }[]; untracked?: unknown } | null;
   if (!stored || !Array.isArray(stored.reads)) return undefined;
   const ids = new Set<string>();
   for (const read of stored.reads) if (typeof read?.id === "string") ids.add(read.id);
   for (const query of stored.queries ?? []) for (const id of Array.isArray(query?.ids) ? query.ids : []) if (typeof id === "string") ids.add(id);
-  // The script's own note redraws the line but is not content (its code isn't what the page shows).
-  if (typeof stored.own === "string") ids.delete(stored.own);
   return { ids: [...ids], ...(stored.untracked === true ? { untracked: true as const } : {}) };
 }
 
@@ -795,7 +793,6 @@ export class ExtensionCalls {
     let reads: { id: string; revision: number | null }[] | undefined;
     let queries: { query: string; limit: number; ids: string[] }[] | undefined;
     let untracked = false;
-    let own: string | undefined;
     try {
       let answer: { value: unknown };
       if (extension.script) {
@@ -806,7 +803,6 @@ export class ExtensionCalls {
         reads = rendered.reads;
         queries = rendered.queries;
         untracked = rendered.untracked === true;
-        own = rendered.own;
         answer = { value: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}) } };
       } else answer = await this.runtime.invokeLoaded(extension, "run",
         { handler: call.handlerKey, ...request, context }, this.deadline(extension, call.handlerKey),
@@ -820,7 +816,7 @@ export class ExtensionCalls {
         throw new Error(`${extension.name} returned something the service can't show: ${error instanceof ComponentError || error instanceof Error ? error.message : String(error)}`);
       }
       // A script's output is what its code read: the notes (and their revisions), the queries (and their rows), the code itself.
-      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp, ...(own ? { own } : {}), ...(untracked ? { untracked: true } : {}) } : base.request;
+      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp, ...(untracked ? { untracked: true } : {}) } : base.request;
       if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result });
       // A note it read changes the line's output: its change comes back here (`inputChanged`).
       for (const read of reads ?? []) this.watching(read.id, block.id);
