@@ -172,6 +172,16 @@ export class ExtensionWrites {
     for (const receipt of completed.slice(0, Math.max(0, completed.length - MAX_UNDO))) this.receipts.delete(receipt.id);
   }
 
+  /** Reopen an offline maintenance group's saved text edits in the same undo engine as live writes. */
+  rememberTextGroup(action: string, edits: readonly { blockId: string; before: string; revision: number }[]): string {
+    const id = crypto.randomUUID();
+    this.receipts.set(id, { id, extension: SERVICE_GROUP, action,
+      steps: edits.map(edit => ({ kind: "update", ...edit })),
+      revisions: new Map(edits.map(edit => [edit.blockId, edit.revision])), children: new Map() });
+    this.prune();
+    return id;
+  }
+
   beginRun(action: string): string {
     const id = crypto.randomUUID();
     this.receipts.set(id, { id, extension: SERVICE_GROUP, action, steps: [], revisions: new Map(), children: new Map(), deleted: new Map(), running: true });

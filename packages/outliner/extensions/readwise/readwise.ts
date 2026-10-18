@@ -62,7 +62,7 @@ const HERE = process.env.EP0CH_WS ?? "";
 // This machine's name in ep0ch:// links, as the service says it (`notes.address`, asked in main); config `machine` overrides it.
 let MACHINE = config.machine ?? "";
 /** A note's URL in Reader when it isn't published (or config `link`, always). */
-const FALLBACK_LINK = "https://ep0ch.invalid/{outline}@{machine}/b/{id}";
+const FALLBACK_LINK = "https://ep0ch.invalid/{{props.outline}}@{{props.machine}}/b/{{props.id}}";
 const LINK = config.link ?? FALLBACK_LINK;
 const BOARD = config.board ?? "readwise";
 const PAGE = config.page ?? "readwise";
@@ -111,7 +111,10 @@ async function readwise<T>(path: string, init: { method?: string; body?: unknown
 // ── Links: a note's URL in Reader, and back ──────────────────────────────
 
 const uriOf = (name: string, id: string) => `ep0ch://${name}@${MACHINE}/b/${id}`;
-const fromTemplate = (template: string, name: string, id: string) => template.replaceAll("{outline}", name).replaceAll("{machine}", MACHINE).replaceAll("{id}", id);
+async function fromTemplate(template: string, name: string, id: string, machine = MACHINE): Promise<string> {
+  const answer = await outline<{ interpolated: { text: string } }>({ action: "site.answer", props: { outline: [name], machine: [machine], id: [id] }, interpolate: { text: template, fences: "template" } });
+  return answer.interpolated.text;
+}
 
 /** A note's URL in Reader, and what to tell the person about it when it isn't a web page. */
 interface Link { url: string; note?: string }
@@ -133,8 +136,8 @@ async function publicPermalink(name: string, id: string): Promise<string | undef
  * needs a unique web URL per document, and the pull reads the note back out of it.
  */
 async function linkOf(name: string, id: string): Promise<Link> {
-  if (config.link) return { url: fromTemplate(config.link, name, id) };
-  const fallback = fromTemplate(FALLBACK_LINK, name, id);
+  if (config.link) return { url: await fromTemplate(config.link, name, id) };
+  const fallback = await fromTemplate(FALLBACK_LINK, name, id);
   if (config.publish === false) {
     const address = await outline<Address>({ action: "notes.address", blockId: id }, name);
     const permalink = address.published?.permalink;
@@ -156,7 +159,7 @@ async function linkOf(name: string, id: string): Promise<Link> {
 }
 
 /** The note a document's URL names: an ep0ch:// URI, a published permalink with `?ep0ch=<outline>@<machine>`, or the `link` template's shape. */
-function noteOf(url: string | null | undefined): { outline: string; machine: string; id: string } | null {
+async function noteOf(url: string | null | undefined): Promise<{ outline: string; machine: string; id: string } | null> {
   if (!url) return null;
   const canonical = /^ep0ch:\/\/([^/@]+)@([^/]+)\/b\/([0-9a-f-]{36})$/i.exec(url);
   if (canonical) return { outline: canonical[1]!, machine: canonical[2]!, id: canonical[3]!.toLowerCase() };
@@ -166,7 +169,10 @@ function noteOf(url: string | null | undefined): { outline: string; machine: str
     try { return { outline: decodeURIComponent(permalink[2]!), machine: decodeURIComponent(permalink[3]!), id: permalink[1]!.toLowerCase() }; } catch { return null; }
   }
   const order: string[] = [];
-  const pattern = LINK.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{(outline|machine|id)\}/g, (_, name: string) => {
+  // Let the shared grammar locate the slots; the inverse only matches the resulting URL shape.
+  const shaped = await fromTemplate(LINK, "EP0CH_OUTLINE_SLOT", "EP0CH_ID_SLOT", "EP0CH_MACHINE_SLOT");
+  const pattern = shaped.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/EP0CH_(OUTLINE|MACHINE|ID)_SLOT/g, (_, slot: string) => {
+    const name = slot.toLowerCase();
     order.push(name);
     return name === "id" ? "([0-9a-fA-F-]{36})" : "([^/@?#]+)";
   });
@@ -564,7 +570,7 @@ async function pull(): Promise<void> {
         if (Date.now() > UNTIL - 30_000) { finished = false; break; }
         const highlights = (book.highlights ?? []).filter((highlight) => !highlight.is_deleted && highlight.text?.trim());
         if (!highlights.length) continue;
-        const target = noteOf(book.source_url) ?? noteOf(book.unique_url);
+        const target = await noteOf(book.source_url) ?? await noteOf(book.unique_url);
         const mine = target && target.machine === MACHINE;
         if (mine && await ontoNote(target, book, highlights, tally)) continue;
         await ontoBoard(page, book, highlights, tally, mine ? `Sent from ${uriOf(target.outline, target.id)}, a note that isn't there now.` : undefined);

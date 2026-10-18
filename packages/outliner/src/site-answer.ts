@@ -133,8 +133,8 @@ export interface Bound {
 const NEW_SITE_ACTOR = { id: "site.answer", author: "system" as const };
 
 export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number): Bound {
-  // A figure may be asked outside any note (a library preview, a draft of a note that isn't saved): no `this`.
-  const noteless = !!request && typeof request === "object" && request.blockId === undefined && request.produce?.kind === "figure";
+  // Figures and extension argument templates can be asked outside a note: props are available, but no `this`.
+  const noteless = !!request && typeof request === "object" && request.blockId === undefined && (request.produce?.kind === "figure" || request.interpolate !== undefined);
   if (!noteless && (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId!.trim())) {
     throw new Error("site.answer needs blockId: the note to read (an id, ((id)), a Work ID or a [[page]]); for example { blockId: \"PIE-12\", paths: [\"this.owner\"] }");
   }
@@ -168,7 +168,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
 
   if (noteless) {
     const world = new StoreWorld(store, clock, hidden, request.hidden !== undefined);
-    return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope: { ancestors: [], world }, world, route: ["no note: the figure is asked outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
+    return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope: { ancestors: [], world }, world, route: ["no note: this request is outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
   }
   const route: string[] = [];
   const target = store.resolveBlockRef(request.blockId!);

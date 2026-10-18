@@ -183,11 +183,12 @@ test("send saves a note and the notes under it to Reader as one document that li
 });
 
 test("pull: a highlight on a sent note becomes an annotation at its passage; others land on the readwise board; twice writes nothing new", async () => {
-  const { fake, call, act, create, children, threads } = await setup();
+  const { fake, call, act, create, children, threads } = await setup({ link: "https://notes.example/{{props.outline}}@{{props.machine}}/b/{{props.id}}" });
   const note = await create("garden", NOTE);
   const later = await create("garden", "Later: the heron left at dusk.", note.id);
   await act("garden", "send", note.id);
   const sentUrl = String(fake.saved[0]!.url);
+  expect(sentUrl).toBe(`https://notes.example/garden@${MACHINE}/b/${note.id}`);
   const fromNote: FakeBook = {
     user_book_id: 7, title: "Pond notes", category: "articles", source: "reader", source_url: sentUrl, unique_url: "https://read.example.invalid/read/doc-1",
     highlights: [

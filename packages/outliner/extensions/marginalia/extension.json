@@ -13,7 +13,7 @@
       "answer": { "type": "array", "items": { "type": "string" }, "description": "a command that answers @margin: the prompt on its stdin, the answer on its stdout (for example [\"claude\", \"-p\"]). Left out, @margin answers from the note itself, and says so" },
       "session": {
         "type": "object",
-        "description": "how the answer command starts and resumes a thread's session, {id} for its id (claude needs none: --session-id {id}, --resume {id})",
+        "description": "how the answer command starts and resumes a thread's session, {{props.id}} for its id (claude needs none: --session-id {{props.id}}, --resume {{props.id}})",
         "properties": { "start": { "type": "array", "items": { "type": "string" } }, "resume": { "type": "array", "items": { "type": "string" } } },
         "required": ["start", "resume"],
         "additionalProperties": false

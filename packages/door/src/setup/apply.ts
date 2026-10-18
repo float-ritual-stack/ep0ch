@@ -377,12 +377,12 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       const look = async (path: string, apply: boolean) => {
         const r = await run([process.execPath, cli, "sweep", path, "--json", ...(apply ? ["--apply"] : [])], { cwd: f.repo.outliner, env, timeoutMs: 600_000 });
         if (r.code !== 0) throw new Error(withoutProgress(r.err) || r.out || `exit ${r.code}`);
-        return JSON.parse(r.out) as { notes: { id: string; changes: { form: string; before: string; after: string }[] }[] };
+        return JSON.parse(r.out) as { configs: { path: string }[]; undo?: string; notes: { id: string; changes: { form: string; before: string; after: string }[] }[] };
       };
       const todo: typeof found = [];
       for (const o of found) {
         // An outline the sweep can't read is left alone and said (nothing was written); it never holds the install back.
-        try { if ((await look(o.path, false)).notes.length) todo.push(o); }
+        try { const plan = await look(o.path, false); if (plan.notes.length || plan.configs.length) todo.push(o); }
         catch (e) { show(`    ! ${o.name}: not swept (${(e as Error).message.split("\n")[0]}); bun ${sh(cli)} sweep ${sh(o.path)} says why`); }
       }
       if (!todo.length) { say("nothing to rewrite"); return; }
@@ -403,6 +403,8 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
           const forms = new Map<string, number>();
           for (const n of done.notes) for (const c of n.changes) forms.set(c.form, (forms.get(c.form) ?? 0) + 1);
           say(`${o.name}: rewrote ${done.notes.length} note${done.notes.length === 1 ? "" : "s"} (${[...forms].map(([k, n]) => `${n} ${k}`).join(", ")}); every previous text is in its revisions`);
+          for (const config of done.configs) say(`rewrote settings in ${config.path}`);
+          if (done.undo) say(`undo (host stopped): bun ${sh(cli)} sweep ${sh(o.path)} --undo ${done.undo}`);
           for (const n of done.notes) for (const c of n.changes) child(`    ${n.id.slice(0, 8)}: ${c.before} → ${c.after}`);
         } catch (e) { throw new StepFailed(`the sweep of ${o.name} failed: ${(e as Error).message}`, `${o.name} is as it was (one transaction); the outline host is left stopped. Fix it, then ep0ch install --apply rewrites what's left and starts the host`); }
       }

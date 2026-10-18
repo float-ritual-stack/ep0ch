@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const extensions = join(import.meta.dir, "..", "extensions");
-const COPIES = ["almanac", "echonet", "intake", "notify", "readwise", "runbook", "structure"];
+const COPIES = ["almanac", "echonet", "intake", "marginalia", "notify", "readwise", "runbook", "structure"];
 
 /** Every extension file that opens a socket (imports node:net) is one of the clients tested here: a new one fails this until it is. */
 test("the extension files that import node:net are exactly the clients tested here", () => {

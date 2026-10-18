@@ -18,6 +18,8 @@
 //
 // Self-contained on purpose: an extension folder is copied anywhere, so it imports nothing from the outline's code.
 
+import { outline } from "./outline";
+
 interface Passage { subject: string; revision: number | string; quote: string; start: number; end: number; prefix: string; suffix: string }
 interface Request {
   operation: string;
@@ -67,10 +69,10 @@ function fromTheText(text: string, p: Passage | undefined, question: string): st
     : "The note says nothing more about this, and no model is set up to ask (config.answer names one).";
 }
 
-/** How the answer command starts and resumes a session (`{id}` is the session's id): `claude`'s own flags by default. */
+/** How the answer command starts and resumes a session (`{{props.id}}` is the session's id): `claude`'s own flags by default. */
 function sessionArgs(command: string[]): { start: string[]; resume: string[] } | null {
   if (request.config?.session) return request.config.session;
-  return /(?:^|\/)claude$/.test(command[0] ?? "") ? { start: ["--session-id", "{id}"], resume: ["--resume", "{id}"] } : null;
+  return /(?:^|\/)claude$/.test(command[0] ?? "") ? { start: ["--session-id", "{{props.id}}"], resume: ["--resume", "{{props.id}}"] } : null;
 }
 
 const said = (t: Said) => `${t.author === "user" ? "reader" : t.author}: ${t.body}`;
@@ -130,19 +132,22 @@ async function answer(input: Record<string, any>): Promise<{ reply?: string; mes
     return { reply: fromTheText(String(input.note?.text ?? ""), input.passage as Passage | undefined, question) };
   }
   const args = sessionArgs(command);
-  const fill = (template: string[], id: string) => template.map((part) => part.replaceAll("{id}", id));
+  const fill = (template: string[], id: string) => Promise.all(template.map(async (text) => {
+    const answer = await outline<{ interpolated: { text: string } }>({ action: "site.answer", props: { id: [id] }, interpolate: { text, fences: "template" } });
+    return answer.interpolated.text;
+  }));
   const kept = typeof input.session === "string" ? input.session : "";
   // Said nothing: an answer says so; a TL;DR is none (a placeholder would become the thread's face).
   const said = (out: string, session?: string) =>
     out ? { reply: out, ...(session ? { session } : {}) } : input.tldr ? { message: "no TL;DR: the answer command said nothing" } : { reply: "(the answer command said nothing)", ...(session ? { session } : {}) };
   if (args && kept) {
-    const resumed = await run([...command, ...fill(args.resume, kept)], prompt(input, true));
+    const resumed = await run([...command, ...await fill(args.resume, kept)], prompt(input, true));
     if (resumed.code === 0) return said(resumed.out, kept);
     // Not resumable here (another machine's, or cleared): a new session, told the whole thread.
   }
   const id = args ? crypto.randomUUID() : "";
   const inline = input.thread === undefined && typeof input.mark === "string";
-  const started = await run(args ? [...command, ...fill(args.start, id)] : command, prompt(input, false),
+  const started = await run(args ? [...command, ...await fill(args.start, id)] : command, prompt(input, false),
     inline ? chunk => console.log(JSON.stringify({ reply: chunk })) : undefined);
   if (started.code !== 0) throw new Error(`the answer command exited ${started.code}`);
   if (inline && started.out) return { message: "answer in the note" };

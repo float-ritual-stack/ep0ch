@@ -150,6 +150,9 @@ store.create("Bay badges [rule-name::bay-badges] [rule-match::type=bay-job] [rul
 store.close();
 `);
   sh([bun, join(root, "seed-rule.ts")], repo);
+  // Compost needs only a settings rewrite: install must not decide from note changes alone.
+  mkdirSync(join(outlines, "compost/extensions/readwise"), { recursive: true });
+  writeFileSync(join(outlines, "compost/extensions/readwise/config.json"), JSON.stringify({ config: { link: "https://notes.example/{outline}/b/{id}" } }));
   fakeSystemctl("start", "outliner-host.service");
   for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't come back"); await Bun.sleep(100); }
 
@@ -254,6 +257,8 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     // The sweep: the host was already down for the migration, so it stops nothing more; the old form is in the new grammar.
     expect(r2.steps.find(s => s.id === "sweep")!.done![0]).toMatch(/^allotment: rewrote 1 note \(1 rule-place\)/);
     expect(ruleNote()).toContain("[rule-place::append]");
+    expect(JSON.parse(readFileSync(join(outlines, "compost/extensions/readwise/config.json"), "utf8")).config.link).toBe("https://notes.example/{{props.outline}}/b/{{props.id}}");
+    expect(r2.steps.find(s => s.id === "sweep")!.done!.some(line => line.includes("--undo"))).toBe(true);
     expect(r2.steps.find(s => s.id === "host")!.done!.join(" ")).toContain("started the outline host (systemd outliner-host.service");
     expect(r2.steps.find(s => s.id === "session")!.status).toBe("do");
     expect([version("allotment"), version("compost")]).toEqual([M, M]);

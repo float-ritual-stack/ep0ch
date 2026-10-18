@@ -69,6 +69,22 @@ A script reads where it runs without an id written in it (`this`, `self`, `calle
 `q`, `wait`, and a render mode (`[mode::render]`, `name::` lines and `::=` lines) that draws what it returns under the
 line. Those, the deadlines, `scripts.stop`, and the traps are in [Scripts in a note: the surface](../scripts.md).
 
+## Extension template settings
+
+Marginalia's `config.session.start` and `resume` arguments use `{{props.id}}`.
+Readwise's `config.link` uses `{{props.outline}}`, `{{props.machine}}` and `{{props.id}}`.
+Both ask `site.answer` to interpolate through outline-core's shared grammar. An
+interpolation request without `blockId` can read `props`; it has no `this` note.
+
+`outliner sweep <database.sqlite>` previews old slots in these settings alongside
+note rewrites. It finds the named outline's extension folder and the user extension
+folder through the registry's normal roots. `--apply` requires the host stopped,
+rewrites the group and prints its undo command. `--undo <id>` restores the group,
+including settings, after a restart; an intervening edit refuses the whole undo.
+Install also runs this sweep for settings-only changes and prints the undo command.
+The sweep is demonstrated by its scratch CLI journey, rather than a showcase tile:
+it runs with the host stopped.
+
 ## Keys and secrets
 
 A fixed key goes in the manifest's `secrets` (`group` + `key`); use `secretGroups` only when the note picks the group at run time.
