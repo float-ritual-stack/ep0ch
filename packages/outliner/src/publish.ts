@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { pageSources, SOURCES_STYLE } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
@@ -412,7 +413,12 @@ export function renderMarkdownHtml(markdown: string, callouts: CalloutRegistry =
   try { return markdownRenderer.parse(closeOpenFences(markdown), { async: false }) as string; } finally { activeCallouts = before; }
 }
 
+function drawSubtitle(html: string, subtitle: string | undefined): string {
+  return subtitle ? html.replace(/<\/h1>/, end => `${end}\n<p class="subtitle">${escapeHtml(subtitle)}</p>`) : html;
+}
+
 const PAGE_STYLE = `
+p.subtitle{color:var(--dim);margin-top:-.5em}
 h1 .wid{color:var(--link);white-space:nowrap}
 :root{color-scheme:dark;--bg:#111110;--fg:#e8e6df;--dim:#9a988f;--rule:#34332f;--link:#8fb8ff}
 body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 ui-serif,Georgia,serif}
@@ -986,9 +992,9 @@ export class Publisher {
     const entry = full.entries.find((candidate) => candidate.blockId === blockId) ?? {
       blockId, title: publishedTitle(block.title ?? "", new Map()) || blockId, path: `/p/${blockId}`, slug: blockId, type: "block" as const, updatedAt: block.updatedAt ?? "",
     };
-    const { markdown, marks, components, steps } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, { base: base ?? "", format });
+    const { markdown, subtitle, marks, components, steps } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, { base: base ?? "", format });
     const text = format === "markdown" ? markdown
-      : htmlViewLinks(drawSteps(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(markdown, await this.callouts())), components), marks), steps, false), index, base ?? "");
+      : htmlViewLinks(drawSteps(drawMarginalia(drawComponents(drawSubtitle(accentWorkId(renderMarkdownHtml(markdown, await this.callouts())), subtitle), components), marks), steps, false), index, base ?? "");
     return { blockId, title: entry.title, format, text, published: full.entries.some((candidate) => candidate.blockId === blockId) };
   }
 
@@ -1571,7 +1577,7 @@ export class Publisher {
       const rendered = await this.blockMarkdown(entry, index, audience, !share || share.comments, { browse, owner, anchors: [], ...(share ? { share } : {}) });
       const base = share?.base ?? this.basePathFor(audience);
       // A step's box changes from the owner's own page (PIE-811); a share's and a public page's are drawn, read-only.
-      const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
+      const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(drawSubtitle(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.subtitle), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
       const sourceText = (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text;
       const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map());
       if (!browse) return renderedHtml(this.page(entry, sources + article, audience, skin), 200, sources ? READER_CSP : RENDERED_CSP);
@@ -1597,7 +1603,7 @@ export class Publisher {
       if (!whole) return notFound();
       const rendered = await this.blockMarkdown(entry, index, "tailnet", !share || share.comments, { whole, browse: true, owner: !share, anchors: [], ...(share ? { share } : {}) });
       sourceRegions = rendered.drawn.get(entry.blockId) ?? new Map();
-      article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, true), rendered.anchors), rendered.steps, !share), rendered.index, base);
+      article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(drawSubtitle(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.subtitle), rendered.components), rendered.marks, true), rendered.anchors), rendered.steps, !share), rendered.index, base);
     }
     const listedHere = (await this.client.request<Block[]>({ action: "children", parentId: entry?.blockId ?? null })).filter((block) => !isAnnotationBlock(block));
     // The outline's own views (Trash, Bookmarks) aren't notes to browse: Bookmarks is a quiet link at the top level's
@@ -2219,7 +2225,7 @@ export class Publisher {
   private async blockMarkdown(
     entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience, withMarks: boolean,
     options: { base?: string; whole?: ProjectedBlockCollection; browse?: boolean; owner?: boolean; format?: "markdown" | "html"; share?: PageShare; anchors?: string[] } = {},
-  ): Promise<{ markdown: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[]; anchors: string[]; steps: PublishedStep[]; drawn: Map<string, Map<number, DrawnComponent>> }> {
+  ): Promise<{ markdown: string; subtitle?: string; marks: PublishedAnnotation[]; index: PublishedIndex; components: string[]; anchors: string[]; steps: PublishedStep[]; drawn: Map<string, Map<number, DrawnComponent>> }> {
     const { share } = options;
     // The owner's own pages (the tailnet, signed in): `[publish::false]` and extensions' data aren't held back there.
     const owner = !!options.owner && !share;
@@ -2300,7 +2306,7 @@ export class Publisher {
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
     const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse, values);
-    return { markdown, marks: order, index: linked, components, anchors: anchors ?? [], steps, drawn };
+    return { markdown, subtitle: subtitleOf({ text: subtree.blocks.find(b => b.id === entry.blockId)?.text ?? "" }), marks: order, index: linked, components, anchors: anchors ?? [], steps, drawn };
   }
 
   /**

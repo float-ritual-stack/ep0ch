@@ -1,3 +1,5 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
+import { subtitleSuffix } from "./text";
 // One links model: a block's Outlinks, Resources and Backlinks, as the outliner's Tree shows them under a block
 // (PIE-259, PIE-324, PIE-329) and Detail groups its backlinks (PIE-442), and its Children (PIE-693: the notes under
 // it; a thread's replies), which the links tile lists where the thread tile once did. Three places draw it, from
@@ -423,9 +425,12 @@ export function linkRowLine(r: LinkRow, o: { cols: number; selected?: boolean; f
   const head = `${o.indent ?? "  ".repeat(r.depth)}${words.mark} `;
   let text = words.text, context = words.context;
   const room = Math.max(4, o.cols - width(head));
-  if (r.kind === "backlink") { const f = fitBacklinkRow(text, context, room); text = f.title; context = f.suffix; }
+  if (r.kind === "backlink" && !r.source.subtitle) { const f = fitBacklinkRow(text, context, room); text = f.title; context = f.suffix; }
   else if (width(text) > room) { text = ellipsize(text, room); context = ""; }
-  const tail = context ? (r.kind === "backlink" ? " — " : r.kind === "kind" ? " " : " · ") + context : "";
+  const subtitle = r.kind === "backlink" ? r.source.subtitle : r.kind === "outlink" && r.link.resolution.kind === "ready" ? r.link.resolution.subtitle : r.kind === "child" || r.kind === "match" ? subtitleOf(r.child.block) : undefined;
+  const sub = subtitleSuffix(head + text, subtitle, o.cols);
+  const contextTail = context ? (r.kind === "backlink" ? " — " : r.kind === "kind" ? " " : " · ") + context : "";
+  const tail = sub ? sub + fg(C.dark) + (width(head + text + sub + contextTail) <= o.cols ? contextTail : "") : contextTail;
   const shown = o.tag ? o.tag(text) : text;
   if (o.selected) return selectedRow(head + shown + tail, o.cols, o.focused ?? true, "idleRow");
   const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "fold" ? C.dark : r.kind === "child" && r.thread?.here ? C.lcyan : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;

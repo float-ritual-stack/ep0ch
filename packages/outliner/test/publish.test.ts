@@ -59,6 +59,19 @@ async function setup(options: { maxBytes?: number; roots?: string[]; basePath?: 
   return { root, workspace, store, client, publisher, get, write };
 }
 
+test("a published subtitle sits below the heading and leaves the browser title short", async () => {
+  const { store, get, publisher } = await setup();
+  const page = store.create('Orchard [subtitle::Apples, pears & <plums>] [publish::public:orchard]\nA short field report.');
+  for (const path of ["/p/orchard?view=html", `/p/${page.id}`]) {
+    const response = await get(path, { accept: "text/html" });
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toMatch(/<h1[^>]*>(?:<a[^>]*><\/a>)?Orchard(?:\s|<span[^>]*><\/span>)*<\/h1>\s*<p class="subtitle">Apples, pears &amp; &lt;plums&gt;<\/p>/);
+    expect(html.match(/<title>(.*?)<\/title>/)?.[1]).toBe("Orchard");
+  }
+  expect((await publisher.renderNote(page.id, "html")).text).toContain('<p class="subtitle">Apples, pears &amp; &lt;plums&gt;</p>');
+});
+
 test("outline skins take precedence over machine skins and fall back when absent", async () => {
   const { root, store, get } = await setup();
   const page = store.create("Garden report [publish::report] [publish-skin::night]\nThe seedlings are ready.");

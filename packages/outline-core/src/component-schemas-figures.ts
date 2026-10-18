@@ -95,16 +95,16 @@ const FIGURES: Kind[] = [
     example: { title: "The garden year" }, sweep: [],
   },
   {
-    kind: "table", title: "Table", intro: "Rows and columns: `headers:`, `rows:` (a list of rows), an optional `footer:`, and `align:` per column. Live, the results are rows and `columns:` name the properties (title and updated when left out); a row opens its note. Narrow, only the title column and one more are drawn and the rest are counted." + LIVE_WORDS,
+    kind: "table", title: "Table", intro: "Rows and columns: `headers:`, `rows:` (a list of rows), an optional `footer:`, and `align:` per column. Live, the results are rows and `columns:` name the properties (title, subtitle when present, and updated when left out); a row opens its note. Narrow, only the title column and one more are drawn and the rest are counted." + LIVE_WORDS,
     props: [TITLE, yaml("headers", "list", "the column names", { samples: ["[Agent, Tokens, Time]", "[Name, Count]"] }), yaml("rows", "list", "the rows, each a list of cells", { samples: ["[[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]", "[[a, 1], [b, 2]]"] }),
       yaml("footer", "list", "a closing row, ruled off", { samples: ["[Total, \"301,923\", 34m]"] }), yaml("align", "list", "left or right for each column", { samples: ["[left, right, right]", "[left, left, right]"] }),
-      yaml("columns", "list", "a live table's properties, one a column (title and updated: the defaults)", { samples: ["[title, status, updated]", "[ticket, title, owner]"] }), yaml("titleColumn", "int", "which column is the title, the one density wraps", { min: 0, max: 8, default: "0" }), DENSITY, ...LIVE, LIMIT, SORT, DIRECTION],
+      yaml("columns", "list", "a live table's properties, one a column (title, subtitle when present, and updated: the defaults)", { samples: ["[title, status, updated]", "[ticket, title, owner]"] }), yaml("titleColumn", "int", "which column is the title, the one density wraps", { min: 0, max: 8, default: "0" }), DENSITY, ...LIVE, LIMIT, SORT, DIRECTION],
     example: { title: "what the research cost", headers: "[Agent, Tokens, Time]", rows: "[[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]", footer: "[Total, \"301,923\", 34m]", align: "[left, right, right]" }, sweep: ["align", "footer", "density"], grids: [["align", "footer"]],
   },
   {
     kind: "tabs", title: "Tabs", intro: "A live query's results grouped by a property, a tab each with its count, the chosen tab's rows drawn as a table. Tabs switch by a click, `tab` and `shift+tab`, or `figure.tab`. It is always live: the library shows its frame and says so." + LIVE_WORDS,
     props: [TITLE, ...LIVE, yaml("group", "text", "the property whose values make the tabs", { default: "status", samples: ["status", "work-stage"] }), yaml("order", "list", "tabs listed first, even when empty; the rest follow alphabetically", { samples: ["[doing, review, queued]"] }),
-      yaml("columns", "list", "each tab's table columns (title and updated: the defaults)", { samples: ["[title, updated]"] }), yaml("limit", "int", "rows a tab shows before saying how many more", { min: 1, max: 1000, default: "50" }), DENSITY],
+      yaml("columns", "list", "each tab's table columns (title, subtitle when present, and updated: the defaults)", { samples: ["[title, updated]"] }), yaml("limit", "int", "rows a tab shows before saying how many more", { min: 1, max: 1000, default: "50" }), DENSITY],
     example: { title: "Jobs by stage", query: "type=task", group: "status" }, sweep: ["group", "order"],
   },
   {

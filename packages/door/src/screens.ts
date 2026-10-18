@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { moveNote, intentOf, moveQuestion, undoMove, type MoveArgs } from "./note-move";
 import { askInBar } from "./bar/ask";
 import { MOTION_MODES, motionMode, motionOf, useMotion } from "./motion";
@@ -31,7 +32,7 @@ import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } 
 import { screenNoteProblems } from "./desk/screen-notes";
 import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import { bbsDate, rule, wrap } from "./text";
+import { bbsDate, printable, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
@@ -1368,6 +1369,7 @@ export class MessageReader implements Screen {
       this.ctx?.armed?.()?.of === this.surface
         ? paint(`|09Subj: |14✎ edit? ${subject(m).slice(0, Math.max(1, w - 14))} |06⏎ opens it`)
         : paint(`|09Subj: |15${subject(m).slice(0, Math.max(1, w - 6))}`),
+      ...(subtitleOf(m) ? [fg(C.dark) + "      " + printable(subtitleOf(m), " ") + RESET] : []),
       paint(`|09Conf: |11${pad(info.crumbs, Math.max(1, w - 6))}`),
       paint(`|09Stat: |13${status.toUpperCase()}${props}${comments}`),
     ].map(l => pad(l, w));
