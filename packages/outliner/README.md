@@ -752,11 +752,14 @@ bun run cli publish list --ws pie [--public-url URL] [--json]
 HTML pages keep `^anchor` destinations and heading slugs. Backlinks in `::links` open at their linking line; arriving scrolls to the passage and marks it without animation. The source-line addresses are carried through decorations, while Markdown exports stay plain. Explicit anchors keep their name; repeated headings receive numbered slugs.
 
 **Page skins:** `[publish-skin::dispatch]` selects `skins/dispatch.css` inside the
-outline's folder (beside its SQLite file). If that file is absent, a note with
+outline's own folder: `<outlines>/<name>/skins/dispatch.css`, beside
+`<outlines>/<name>.sqlite`. If absent there, `<outlines>/skins/dispatch.css`
+is the machine-wide fallback. If neither file exists, a note with
 `[page::skins/dispatch]` can hold the CSS in fenced `css` blocks. Names use letters,
 numbers, hyphens and underscores. The closest visible ancestor's selection is
 inherited; a note's own selection overrides it. The same HTML, components and
-reader scripts remain in use; CSS is appended after the base styles. File and
+reader scripts remain in use, including the tailnet's default folder view;
+CSS is appended after the base styles. File and
 note edits take effect on the next page load. A missing or refused skin leaves
 the content visible with an inline warning.
 

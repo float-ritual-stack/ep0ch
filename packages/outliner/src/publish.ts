@@ -19,7 +19,8 @@ import { artifactKind, artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDI
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
-import { dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { Marked } from "marked";
 import { blockdownMarked } from "./blockdown-marked";
@@ -862,7 +863,14 @@ export class Publisher {
       maxBytes: this.maxBytes,
       ...(local ? {} : { remoteService: true }),
     };
-    if (local) this.skinPolicy = { roots: [join(dirname(location.database), "skins")], workspaceRoot: dirname(location.database), maxBytes: this.maxBytes };
+    if (local) {
+      const layout = outlineLayout(dirname(location.database));
+      this.skinPolicy = {
+        roots: [join(layout.folder(basename(location.database, ".sqlite")), "skins"), join(layout.root, "skins")],
+        workspaceRoot: layout.root,
+        maxBytes: this.maxBytes,
+      };
+    }
     if (this.options.tunnels) {
       this.tunnels = new ShareTunnels({
         request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
@@ -1910,8 +1918,8 @@ export class Publisher {
     // This authored value is a name, never a path outside the outline's skins folder.
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) return unavailable;
     const roots = this.skinPolicy ? canonicalPublishRoots(this.skinPolicy.roots).roots : [];
-    if (this.skinPolicy && roots.length) {
-      const check = checkAttachment(join("skins", `${name}.css`), { ...this.skinPolicy, roots });
+    for (const root of roots) {
+      const check = checkAttachment(join(root, `${name}.css`), { ...this.skinPolicy!, roots: [root] });
       if (check.ok) {
         const file = await this.client.request<FileContents>({ action: "files.read", path: check.path }).catch(() => null);
         if (!file || file.absolutePath !== check.path || file.revision.size !== String(check.size) || file.revision.mtimeNs !== check.mtimeNs) return unavailable;

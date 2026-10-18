@@ -59,6 +59,40 @@ async function setup(options: { maxBytes?: number; roots?: string[]; basePath?: 
   return { root, workspace, store, client, publisher, get, write };
 }
 
+test("outline skins take precedence over machine skins and fall back when absent", async () => {
+  const { root, store, get } = await setup();
+  const page = store.create("Garden report [publish::report] [publish-skin::night]\nThe seedlings are ready.");
+  const machine = join(root, "outlines", "skins");
+  const local = join(root, "outlines", "scratch", "skins");
+  mkdirSync(machine, { recursive: true });
+  mkdirSync(local, { recursive: true });
+  const sharedCss = "body { --skin-marker: machine; }";
+  const localCss = "body { --skin-marker: outline; }";
+  writeFileSync(join(machine, "night.css"), sharedCss);
+  writeFileSync(join(local, "night.css"), localCss);
+  const render = async () => (await get(`/p/${page.id}?view=full`)).text();
+  const preferred = await render();
+  expect(preferred).toContain(localCss);
+  expect(preferred).not.toContain(sharedCss);
+  rmSync(join(local, "night.css"));
+  expect(await render()).toContain(sharedCss);
+});
+
+test("a tailnet default page uses its skin and keeps children as links", async () => {
+  const { store, get } = await setup();
+  const css = "body { --skin-marker: owner; }";
+  store.create(`Owner style [page::skins/owner]\n\`\`\`css\n${css}\n\`\`\``);
+  const page = store.create("Garden report [publish-skin::owner]\nThe seedlings are ready.");
+  const child = store.create("Seed inventory\nChild body stays on its own page.", page.id);
+  const response = await get(`/p/${page.id}`, { accept: "text/html" });
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).toContain(css);
+  expect(html).toContain("The seedlings are ready.");
+  expect(html).toContain(`/p/${child.id}`);
+  expect(html.match(/<article>[\s\S]*?<\/article>/)?.[0]).not.toContain("Child body stays on its own page.");
+});
+
 test("a page inherits its skin, overrides it, and never publishes a hidden skin note", async () => {
   const { store, get, publisher } = await setup();
   const css = "body { background: #101018; --skin-marker: inherited; }";
@@ -129,10 +163,11 @@ test("skins respect private ancestors, share scope, file confinement, and the HT
   expect(html).toContain("data-publish-skin");
 });
 
-test("a skin symlink only embeds a regular file inside the real skins folder", async () => {
-  const { store, publisher } = await setup();
+test.each(["machine", "outline"])("a %s skin symlink only embeds a regular file inside the real skins folder", async (scope) => {
+  const { root, store, publisher } = await setup();
   store.create("Garden report [publish::public:report] [publish-skin::night]\nThe seedlings are ready.");
-  const outline = join(store.database.filename, "..");
+  const outline = scope === "outline" ? join(root, "outlines", "scratch") : join(root, "outlines");
+  mkdirSync(outline, { recursive: true });
   const secret = join(outline, "skins-extra", "private.css");
   mkdirSync(join(outline, "skins-extra"));
   writeFileSync(secret, "body { --private-marker: secret; }");
