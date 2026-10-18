@@ -19,6 +19,7 @@ export function figuresText(gardenViewId: string, choresId: string): string {
     "Live figures ask the outline on every render; the others are drawn from their own values.",
     "",
     ...fig("check", ["title: Garden chores (live query)", 'query: "type=chore area=garden"', 'done: "stage=done"', "note: due"]),
+    ...fig("stat", ["title: Garden chores by address (live)", "items:", `  - { label: by block, view: ((${gardenViewId})) }`, "  - { label: by page, view: [[garden-chores|Garden chores]] }"]),
     ...fig("stat", ["title: House jobs now (live)", "items:", '  - { label: queued, query: "type=roadmap-item project=house work-stage=queued" }', '  - { label: doing, query: "type=roadmap-item project=house work-stage=doing" }', '  - { label: done, query: "type=roadmap-item project=house work-stage=done" }']),
     ...fig("kpi", ["title: Plot 14b", "items:", "  - { label: beds, value: 3 }", "  - { label: courgettes, value: 11 }", "  - { label: kg of onions, value: 4 }"]),
     ...fig("rank", ["title: House jobs by arc (live)", 'query: "type=roadmap-item project=house"', "group: arc"]),

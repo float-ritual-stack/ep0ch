@@ -30,4 +30,24 @@ describe.skipIf(!outliner)("a live figure sorted by a property", () => {
     const backwards = (await drawNote(board, (await figure(["sort: due-rank", "direction: up"])).id, 160))!.join("\n");
     expect(backwards).toContain("direction: up · Sort direction is asc or desc, not up");
   }, 20_000);
+  test("stat items read block refs and pages and name the item when a page is missing", async () => {
+    const view = await board.createBlock(null, "Queue [page::garden-jobs] [type::virtual-branch] [query::type=queue-job]", { kind: "user" });
+    for (const source of [`((${view.id}))`, "[[garden-jobs]]", "[[garden-jobs|Jobs]]", "garden-jobs"]) {
+      for (const item of [`  - { label: queued, view: ${source} }`, `  - label: queued\n    view: ${source}`]) {
+        const note = await board.createBlock(null, `Counts\n\n::graph-stat\n---\nitems:\n${item}\n---\n::`, { kind: "user" });
+        const text = (await drawNote(board, note.id, 160))!.join("\n").replace(/\x1b\[[\d;]*m/g, "");
+        expect(text).not.toContain("?");
+        expect(text).toMatch(/\b4\b/);
+        expect(text).toContain("queued");
+      }
+    }
+    const note = await board.createBlock(null, "Counts\n\n::graph-stat\n---\nitems:\n  - { label: queued, view: [[garden-job]] }\n---\n::", { kind: "user" });
+    const text = (await drawNote(board, note.id, 160))!.join("\n").replace(/\x1b\[[\d;]*m/g, "");
+    expect(text).toContain("queued: view");
+    expect(text).toContain("no page");
+    expect(text).toContain("garden-job");
+    expect(text).toContain("garden-jobs");
+    expect(text).toContain("did you mean");
+  }, 30_000);
+
 });
