@@ -3300,6 +3300,10 @@ export class OutlinerStore {
     try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(text)); } catch { /* not an address: said below */ }
     if (page?.status === "resolved" && page.block) return { kind: "found", block: page.block, how: parseWorkId(text) ? "Work ID" : "page address" };
     if (page?.status === "deleted") return trashed();
+    if (ref.trim().startsWith("[[")) {
+      const near = this.completePageAddresses(text, 3).addresses.map(page => `[[${page.address}]]`);
+      return { kind: "missing", message: `no page ${text}`, ...(near.length ? { didYouMean: near.join(" or ") } : {}) };
+    }
     const mean = this.workIdDidYouMeanFromCurrentRead(text);
     return { kind: "missing", message: `No ${noun} ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`, ...(mean ? { didYouMean: mean } : {}) };
   }

@@ -88,7 +88,7 @@ describe("stamp as=new", () => {
   test("an unreadable template and as= other than new are refused with where to go", () => {
     const store = scratch();
     daily(store);
-    expect(() => stamp(store, { of: "[[daily-templat]]" })).toThrow(/No block \[\[daily-templat\]\]/);
+    expect(() => stamp(store, { of: "[[daily-templat]]" })).toThrow(/no page daily-templat; did you mean \[\[daily-template\]\]/);
     expect(() => stamp(store, { of: "[[daily-template]]", as: "old" })).toThrow(/as=new/);
     expect(() => stamp(store, { of: "[[daily-template]]", freeze: "some" })).toThrow(/freeze=all/);
   });

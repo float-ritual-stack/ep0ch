@@ -3108,7 +3108,7 @@ Second paragraph`;
     expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: [gone.id.slice(0, 12)] })).toThrow(`${gone.id.slice(0, 12)} is in Trash`);
     expect(store.moveVirtualOccurrences({ view: view.id, blocks: [`((${oil!.id}|the oil job))`], to: 0 }).blockIds[0]).toBe(oil!.id);
     expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: [kit!.id, `((${kit!.id}))`] })).toThrow("are the same block; give each once");
-    expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: ["[[no such: page]]"] })).toThrow("No block [[no such: page]]");
+    expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: ["[[no such: page]]"] })).toThrow("no page no such: page");
     expect(store.moveVirtualOccurrences({ view: `((${view.id}))`, blocks: [kit!.id.slice(0, 10)], to: 0 }).blockIds).toEqual([kit!.id, oil!.id]);
   });
 });

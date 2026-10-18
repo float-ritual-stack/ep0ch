@@ -29,7 +29,7 @@
 
 import { MACHINERY_MODES, type MachineryMode } from "./machinery";
 import type { QuestionGroup } from "./protocol";
-import { referencedBlock } from "./link-syntax";
+import { referencedBlock, pageAddressReferences, tryNormalizePageAddress } from "./link-syntax";
 import { isChecklistStatus, type ChecklistStatus } from "./checklist-marks";
 import { valueOf, type BlockRecord } from "./block-record";
 import { addCell, dayOf, dayState, decisionState, isoOf, localDay, monthOf, today, uptimeDays, type Cells, type Props } from "./figure-props";
@@ -51,6 +51,7 @@ export interface FigureAnswer {
 /** A figure's question, as the service takes it: a saved view read (`views.read`), or a query (`blocks.query`). */
 export type FigureQuestion =
   | { kind: "view"; viewId: string }
+  | { kind: "page"; address: string }
   | { kind: "query"; where: string; limit: number; sort: string; direction: string; group?: string; machinery?: MachineryMode };
 
 /** A result with no value for a figure's `group:` property. */
@@ -65,7 +66,11 @@ export const TABS_FETCH = 1000, TABS_PER = 50;
 export function figureQuestion(p: Props, group?: string): FigureQuestion | { error: string } | null {
   if (p.view) {
     const ref = referencedBlock(String(p.view));
-    return ref ? { kind: "view", viewId: ref.blockId } : { error: "view: needs a ((block-ref)) or block id" };
+    if (ref) return { kind: "view", viewId: ref.blockId };
+    const text = String(p.view).trim();
+    const link = pageAddressReferences(text).find(p => p.start === 0 && p.end === text.length);
+    const page = link ?? (!text.startsWith("((") && !text.startsWith("[[") ? tryNormalizePageAddress(text) : null);
+    return page ? { kind: "page", address: page.displayAddress } : { error: "view: needs a ((block-ref)), block id or page address" };
   }
   if (!p.query) return null;
   // `machinery: show` or `only` (PIE-867): a figure of what tools wrote for their own bookkeeping, such as backup runs.

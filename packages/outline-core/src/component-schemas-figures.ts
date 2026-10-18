@@ -12,7 +12,7 @@ const yaml = (key: string, type: PropSchema["type"], meaning: string, extra: Par
 const TITLE = yaml("title", "text", "the title in the figure's frame", { samples: ["Plot jobs", "Moth counts"] });
 const CAPTION = yaml("caption", "text", "a quiet line under the figure", { samples: ["the last seven days"] });
 const QUERY = yaml("query", "query", "makes the figure live: the blocks this query holds for are its rows, asked of the outline", { samples: ["type=task", "type=roadmap-item project=house"] });
-const VIEW = yaml("view", "ref", "a saved view ((id)) whose query makes the figure live, in place of `query:`");
+const VIEW = yaml("view", "ref", "a saved view named by ((id)), [[page]], [[page|label]] or a bare page address, in place of `query:`");
 const LIMIT = yaml("limit", "int", "the most results a live figure asks for", { min: 1, max: 1000, default: "200" });
 const SORT = yaml("sort", "text", "a live figure's sort field (updated when left out)", { default: "updated", samples: ["updated", "created", "title"] });
 const DIRECTION = yaml("direction", "enum", "a live figure's sort direction", { default: "desc", values: enumOf({ asc: "oldest or smallest first", desc: "newest or largest first" }) });
@@ -41,7 +41,7 @@ function figure(k: Kind): ComponentSchema {
 
 const FIGURES: Kind[] = [
   {
-    kind: "stat", title: "Stat", intro: "Big numbers with labels under them, tiles that wrap into rows when they don't fit: the counts a note wants at a glance. The bold row (or `accent: true`) is the accent; with none, the last. A live item counts the blocks its own `query:` holds." + LIVE_WORDS,
+    kind: "stat", title: "Stat", intro: "Big numbers with labels under them, tiles that wrap into rows when they don't fit: the counts a note wants at a glance. The bold row (or `accent: true`) is the accent; with none, the last. A live item counts the blocks its own `query:` or `view:` holds." + LIVE_WORDS,
     props: [TITLE, yaml("items", "list", "the tiles, each { value, label } and optionally { query } to count live", { samples: ["[{ value: \"18\", label: outbox }, { value: \"8\", label: waiting }]", "[{ value: \"3\", label: drafts }]"] })],
     example: { title: "this week", items: "[{ value: \"18\", label: outbox }, { value: \"8\", label: waiting }, { value: \"2\", label: drafts }]" }, sweep: ["items"],
   },

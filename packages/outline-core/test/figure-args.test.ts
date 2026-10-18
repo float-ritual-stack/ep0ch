@@ -21,3 +21,26 @@ test("a plain YAML value that starts with {{ is text, not a flow map", () => {
   expect(quoteBraces("of: {{parent.x}}\n- {{this.a}} and more\nplain: 1")).toBe('of: "{{parent.x}}"\n- "{{this.a}} and more"\nplain: 1');
   expect(Bun.YAML.parse(quoteBraces('where: "a"\ntitle: {{this.title}}'))).toEqual({ where: "a", title: "{{this.title}}" });
 });
+
+test("figure view values keep block refs and page links in flow and block YAML", () => {
+  for (const view of ["((12345678-1234-1234-1234-123456789abc))", "[[garden-jobs]]", "[[garden-jobs|Jobs]]", "garden-jobs"]) {
+    for (const yaml of [`view: ${view}`, `items:\n  - { label: queued, view: ${view} }`, `items:\n  - label: queued\n    view: ${view}`]) {
+      const read = figureProps("stat", { yaml });
+      if ("error" in read) throw new Error(read.error);
+      expect(read.props.view ?? read.props.items[0].view).toBe(view);
+    }
+  }
+});
+
+test("quoting a page view leaves quoted YAML text and labels intact", () => {
+  const read = figureProps("stat", { yaml: `title: 'view: [[leave-me]]'
+items:
+  - { label: "view: [[words]]", view: "[[garden-jobs|Jobs]]" }
+  - { label: other, view: [[garden-jobs|Bob's jobs]] }` });
+  if ("error" in read) throw new Error(read.error);
+  expect(read.props.title).toBe("view: [[leave-me]]");
+  expect(read.props.items).toEqual([
+    { label: "view: [[words]]", view: "[[garden-jobs|Jobs]]" },
+    { label: "other", view: "[[garden-jobs|Bob's jobs]]" },
+  ]);
+});

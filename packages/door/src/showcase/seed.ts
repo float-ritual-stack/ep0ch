@@ -111,7 +111,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.chores = await make(notes.root.id, `${SEED.chores}\nPlain blocks with properties, for the live figures and the saved view.`);
   const chores: Msg[] = [];
   for (const c of CHORES) chores.push(await make(notes.chores.id, `${c.title} [type::chore] [area::${c.area}] [stage::${c.stage}] [due::${c.due}]${c.rank === undefined ? "" : ` [rank::${c.rank}]`}`, c.area === "garden" ? SEED_AGENT : { kind: "user" }));
-  notes.gardenView = await make(notes.root.id, `${SEED.gardenView} [type::virtual-branch] [query::type=chore area=garden]`);
+  notes.gardenView = await make(notes.root.id, `${SEED.gardenView} [page::garden-chores] [type::virtual-branch] [query::type=chore area=garden]`);
 
   // The Welcome screen's notes (C): marked by [welcome::true], in the Welcome view's hand-set order, the first read on opening.
   // Under a note of their own, the view with them: beside the garden view it would make the root a second board hub.

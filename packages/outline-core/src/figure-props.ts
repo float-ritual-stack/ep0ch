@@ -13,6 +13,7 @@ import { componentAttrs, componentBlocks, type ComponentBlock } from "./componen
 import { expandRuns, figureRow, numbersOf, parseFigureMarkdown, type FigureMarkdown, type FigureRow } from "./figure-markdown";
 import { readDate } from "./dates";
 import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
+import { pageLinkRanges } from "./link-syntax";
 import type { SiteLink } from "./site";
 
 /** A figure's props, from its YAML (or its Markdown, or the outline). */
@@ -115,6 +116,25 @@ export function quoteBraces(yaml: string): string {
   }).join("\n");
 }
 
+/** Page links are scalar view addresses, not YAML's nested flow sequences. */
+function quoteViewPages(yaml: string): string {
+  return yaml.split("\n").map(line => {
+    const pages = pageLinkRanges(line);
+    const tokens = /"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|#.*$|\bview:\s*(?=\[\[)/g;
+    let out = "", at = 0;
+    for (let token; (token = tokens.exec(line));) {
+      if (!token[0].startsWith("view:")) continue;
+      const start = token.index! + token[0].length;
+      const page = pages.find(p => p.start === start);
+      if (!page || start < at) continue;
+      out += line.slice(at, start) + JSON.stringify(line.slice(start, page.end));
+      at = page.end;
+      tokens.lastIndex = at;
+    }
+    return out + line.slice(at);
+  }).join("\n");
+}
+
 /**
  * A figure's props: its YAML over what its Markdown rows and (for a figure block, or `rows: children`) its note's child
  * bullets give. The YAML wins: a field it sets is never taken from the Markdown. `children`: the rows came from child
@@ -122,7 +142,7 @@ export function quoteBraces(yaml: string): string {
  */
 export function figureProps(kind: string, src: FigureSource, childRows?: ChildRows): { props: Props; children: boolean; waiting: boolean; warning?: string; args?: Record<string, string> } | { error: string } {
   let yaml: Props = {};
-  try { yaml = (Bun.YAML.parse(quoteBraces(src.yaml)) as Props) ?? {}; }
+  try { yaml = (Bun.YAML.parse(quoteViewPages(quoteBraces(src.yaml))) as Props) ?? {}; }
   catch (e) { return { error: `bad YAML: ${(e as Error).message}` }; }
   if (typeof yaml !== "object" || Array.isArray(yaml)) return { error: "the YAML between --- lines is a map of props (title: …)" };
   const md: Markdown = parseFigureMarkdown(src.markdown ?? []);

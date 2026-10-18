@@ -113,9 +113,15 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
   const question = figureQuestion(p, group);
   if (!question) return null;
   if ("error" in question) return { blocks: [], truncated: false, error: question.error };
-  if (question.kind === "view") {
+  if (question.kind === "view" || question.kind === "page") {
+    let viewId: string;
+    if (question.kind === "page") {
+      const page = tools.read(`[[${question.address}]].id`);
+      if (page.problem) return { blocks: [], truncated: false, error: `view: ${page.problem.message}${page.problem.didYouMean.length ? `; did you mean ${page.problem.didYouMean.join(" or ")}?` : ""}` };
+      viewId = page.values![0]!;
+    } else viewId = question.viewId;
     let read: SavedViewReadResult<TreeIndexBlock>;
-    try { read = store.readSavedView(question.viewId, {}, "tree"); } catch (error) { return { blocks: [], truncated: false, error: message(error) }; }
+    try { read = store.readSavedView(viewId, {}, "tree"); } catch (error) { return { blocks: [], truncated: false, error: message(error) }; }
     if (read.status !== "ready") return { blocks: [], truncated: false, error: `view ${read.status}: ${read.errors.join("; ")}` };
     const hidden = read.machineryHidden;
     return {
@@ -142,10 +148,10 @@ function subset(store: ProducerStore, tools: SiteTools, thisId: string | undefin
 
 function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefined, kind: string, p: Props): SiteProduced {
   if (asksPerItem(kind, p)) {
-    const counts = (p.items as Props[]).map(item => {
+    const counts = (p.items as Props[]).map((item, index) => {
       const a = ask(store, tools, thisId, item);
       if (!a) return { ids: [], truncated: false };
-      return a.error ? { ids: [], truncated: false, error: a.error } : { ids: a.blocks.map(b => b.id), truncated: a.truncated };
+      return a.error ? { ids: [], truncated: false, error: `${item.label ?? `item ${index + 1}`}: ${a.error}` } : { ids: a.blocks.map(b => b.id), truncated: a.truncated };
     });
     const error = counts.find(c => c.error)?.error;
     return { kind: "figure", blocks: [], truncated: false, counts, ...(error ? { error } : {}) };

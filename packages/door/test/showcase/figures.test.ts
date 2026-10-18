@@ -33,6 +33,17 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("the live showcase counts its garden view by block and by page", async () => {
+    await app.act({ action: "section", args: { name: "live" }, as: "test-agent" });
+    await until(() => screen().includes("by page") && !screen().includes("asking the outline"), "view counts");
+    const drawn = screen();
+    expect(drawn).toContain("by block");
+    expect(drawn).toContain("by page");
+    const counts = drawn.slice(drawn.indexOf("GARDEN CHORES BY ADDRESS"), drawn.indexOf("HOUSE JOBS NOW"));
+    expect(counts).toMatch(/3\s+3/);
+    expect(drawn).not.toContain("view:");
+  }, 20_000);
+
   test("activity days open their notes below the reader through act (PIE-972)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "figures" }, as: "test-agent" });

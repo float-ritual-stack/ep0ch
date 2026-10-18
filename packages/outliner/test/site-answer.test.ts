@@ -272,7 +272,7 @@ describe("what Evan's real notes taught (made-up notes of the same shapes)", () 
     expect(read(store, note.id, "((feedface)).colour").problem?.message).toMatch(/^No block \(\(feedface\)\)/);
     // A [[page]] that isn't written yet is a link-to-be: said, and the answer asks to be re-read after any change.
     const missing = answerSite(store, { blockId: note.id, paths: ["[[not yet]].colour"] });
-    expect(missing.paths![0]!.problem?.message).toMatch(/^No block \[\[not yet\]\]/);
+    expect(missing.paths![0]!.problem?.message).toBe("no page not yet");
     expect(missing.anyChange).toBe(true);
   });
 
