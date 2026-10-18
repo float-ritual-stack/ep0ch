@@ -94,6 +94,7 @@ export class BriefReader extends ReaderPane {
     const shown = this.shown;
     return {
       ...super.host(desk),
+      opensOnClick: link => !!this.briefs?.some(brief => brief.id === link.block),
       navigate: (m: Msg, how?: OpenHow) => {
         if (!how?.fresh && this.dayOf(m) >= 0) { void desk.perform?.("brief.show", { id: m.id }, how?.by ?? USER, this); return; }
         desk.setCurrent(m, { reveal: true, from: this, ...how });

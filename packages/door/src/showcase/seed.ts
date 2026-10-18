@@ -296,6 +296,10 @@ if (request.input.request === "describe the beds") {
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id, notes.chores.id));
+  const parcels = await make(notes.root.id, "Parcels [type::virtual-branch] [query::type=showcase-parcel] [sort::title] [direction::asc]");
+  notes.inlineLists = await make(notes.root.id, `${SEED.inlineLists}\nBefore the list: use down to enter its first row.\n\n!((${parcels.id}))\n\nAfter the list: up returns to its last row.\n\nWheel over the rows scrolls the box; at either end it scrolls the note. Enter opens a row, alt+Enter opens beside.`);
+  for (let i = 1; i <= 60; i++) await make(notes.root.id, `Parcel ${String(i).padStart(2, "0")} [type::showcase-parcel]\nA fictional parcel for the inline list.`);
+
   notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
   for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
   notes.dates = await make(notes.root.id, PLOT_DATES_NOTE);

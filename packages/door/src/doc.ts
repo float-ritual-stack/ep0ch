@@ -100,6 +100,7 @@ export interface DocEnv {
    * it (an embed, a draft's preview) a component draws its list as text.
    */
   linkBlocks?: LinkBlocksEnv;
+  inlineList?: import("./surface/inline-list").InlineListDraw;
   /**
    * The block whose body this is: an inline `::links` component lists its links unless it names another, and a figure
    * that is the note's figure block (its first line) takes the note's child bullets as rows.
@@ -578,7 +579,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
     const lb = linkBlockAt(src, i, componentAt);
     if (lb) {
-      out.push(...renderLinkBlock(lb.spec, env.note, W, frame, env.tag, env.linkBlocks));
+      const rows = renderLinkBlock(lb.spec, env.note, W, frame, env.tag, env.linkBlocks);
+      out.push(...(env.inlineList ? env.inlineList(rows, W) : rows));
       i = lb.end;
       continue;
     }
@@ -630,7 +632,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         box: (it, box) => typeof it.line === "number" ? env.task?.(at + it.line, box) ?? null
           : typeof it.block === "string" && it.mark && env.liveStep ? env.liveStep({ block: it.block, status: it.status ?? (it.done ? "done" : "todo"), label: String(it.label ?? ""), mark: it.mark }, box) : null,
       };
-      out.push(...renderGraph(gk, source, W, env.link, env.figures, rows));
+      const graph = renderGraph(gk, source, W, env.link, env.figures, rows);
+      out.push(...(env.inlineList && (gk === "table" || gk === "tabs") ? env.inlineList(graph, W) : graph));
       i = figure.end;
       continue;
     }

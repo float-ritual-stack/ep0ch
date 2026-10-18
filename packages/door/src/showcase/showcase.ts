@@ -572,6 +572,11 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "inline-lists", need: "scroll a list inside a note and walk its rows with the arrow keys", part: "NoteSurface elements with RowView: inline views, links, backlinks, tables and tabs share a viewport", files: "src/surface/inline-list.ts, src/surface/note.ts, src/doc.ts",
+    aside: "60 fictional parcels: wheel over the list, then move into it with down; Enter opens, alt+Enter opens beside, a click previews. At either end the wheel and arrows return to the note.",
+    stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · inline lists", panes: [r], names: ["parcels"] }, show, [[r, n.inlineLists]]); },
+  },
+  {
     key: "live", need: "put live data in a note", part: "live figures: ::graph-* blocks that read views with views.read and blocks.query; the comparison kinds (quadrant, matrix, compare, flow, a meter's limit) and one width rule for every kind (tier: narrow, cozy, wide)", files: "src/live.ts, src/graphs.ts, src/figures/, src/views.ts",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
   },

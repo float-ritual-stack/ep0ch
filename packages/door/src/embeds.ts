@@ -1,3 +1,4 @@
+import type { InlineListDraw } from "./surface/inline-list";
 // Transclusions in read mode, as Detail projects them: `!((id))` shows the target note rendered, in a
 // shaded region; `!((id^fragment))` shows just the fragment's slice (a step with its nested content, a
 // heading's section, a paragraph); a virtual-branch target shows its results (views.read). Embeds nest to
@@ -202,11 +203,11 @@ export type EmbedBody = (target: Msg, part: { text: string; startLine: number } 
  * body the way the reader does. With a sink, the title, a view's results, the links in the embedded text
  * and its step boxes are tagged, so `[ ]` stops on them and a click acts on them (PIE-415, PIE-441, PIE-472).
  */
-export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = ""): string[] {
+export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = "", list?: InlineListDraw): string[] {
   const S = (line: string) => shade(line, w);
   if (n >= MAX_EMBEDS) return [S(fg(C.lred) + `${shortRef(id, fragment)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET)];
   const st = embedState(id, fragment, src, host);
-  if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink);
+  if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink, list);
   if (st.kind === "loading") return [S(fg(C.dark) + `${shortRef(id, fragment)} · reading…` + RESET)];
   return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error).slice(0, 200)}` + RESET)];
 }
@@ -260,12 +261,12 @@ function heading(id: string, fragment: string | undefined, text: string, w: numb
  * the service's projection of the note (`transclusions.read`, then `views.read`), so the service says whether it is
  * a view. Only a note typed a virtual branch is asked; null for any other, or one the service says isn't a view.
  */
-export function viewResults(m: Msg, w: number, src: Source | null | undefined, sink?: LinkTarget[]): string[] | null {
+export function viewResults(m: Msg, w: number, src: Source | null | undefined, sink?: LinkTarget[], list?: InlineListDraw): string[] | null {
   if ((prop(m, "type") ?? "").toLowerCase() !== "virtual-branch") return null;
   const st = embedState(m.id, undefined, src);
   if (st.kind === "loading") return [shade(fg(C.dark) + "≡ reading the view's results…" + RESET, w)];
   if (st.kind !== "node" || st.node.kind !== "view") return null;
-  return nodeRegion(st.node, st.views, w, () => [], sink);
+  return nodeRegion(st.node, st.views, w, () => [], sink, list);
 }
 
 /** A virtual branch's results, as Detail lists them. */
@@ -288,7 +289,7 @@ function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | un
  * body renderer, a nested embed inside it by this again (so it sits one gutter further in), and each step
  * the service found in what's shown gets its status control.
  */
-function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRead>, w: number, body: EmbedBody, sink: LinkTarget[] | undefined): string[] {
+function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRead>, w: number, body: EmbedBody, sink: LinkTarget[] | undefined, list?: InlineListDraw): string[] {
   const S = (line: string) => shade(line, w);
   const ref = shortRef(node.blockId, node.fragmentId);
   if (node.status !== "ready" || !node.block) {
@@ -309,7 +310,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   const target = node.block;
   if (node.kind === "view") {
     const v = views.get(node);
-    return v ? viewRegion(target, v, w, sink) : [S(fg(C.dark) + `${ref} · reading…` + RESET)];
+    return v ? (list ? list(viewRegion(target, v, w, sink), w) : viewRegion(target, v, w, sink)) : [S(fg(C.dark) + `${ref} · reading…` + RESET)];
   }
   const title = printable(node.title ?? subject(target));
   const out = [heading(node.blockId, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink, C.dark, !node.fragmentId && isOpenProposal(target) ? target : null)];
@@ -320,7 +321,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     // The service stops listing a document's embeds at the one past the limit; the rest are the limit too.
     if (n >= MAX_EMBEDS) return [shade(fg(C.yellow) + `${shortRef(cid, cfrag)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET, width)];
     const child = children.get(refOf(cid, cfrag))?.shift();
-    return child ? nodeRegion(child, views, width, body, sink) : [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not projected here` + RESET, width)];
+    return child ? nodeRegion(child, views, width, body, sink, list) : [shade(fg(C.dark) + `${shortRef(cid, cfrag)} · not projected here` + RESET, width)];
   };
   const task = (noteLine: number, box: string) => {
     const step = node.checklist?.find(s => s.span.startLine === noteLine);

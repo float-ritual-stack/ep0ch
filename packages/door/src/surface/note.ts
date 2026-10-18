@@ -1,3 +1,4 @@
+import { InlineList, inlineRowKey } from "./inline-list";
 import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -148,6 +149,8 @@ export interface SurfaceHost {
    * click opens a new detail): a list's row opens at once rather than being selected (an inline `::links`, PIE-693).
    */
   freshClick?: boolean;
+  /** A host's navigation rows (such as earlier briefs) open on the first click. */
+  opensOnClick?(link: Link): boolean;
   /** Show this reader's note in the outline (`reader.reveal`, a click on the crumbs, PIE-794); absent where there's no outline to show it in. */
   revealInOutline?(): void;
   /**
@@ -763,6 +766,7 @@ export class NoteSurface {
    * into the note, cleared when the reader shows another note.
    */
   figureUI = new Map<string, FigureChoice>();
+  private inlineLists = new Map<number, InlineList>();
   /** The figures the last layout drew (their tabs, counts, what's chosen): what `figure.tab` and `figures` name. */
   figuresDrawn: FigureInfo[] = [];
   /**
@@ -1020,7 +1024,7 @@ export class NoteSurface {
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
     const proposal = this.msg && isOpenProposal(this.msg) ? (proposalApplies(this.msg) ? "A apply anyway · X dismiss · " : "X dismiss · ") : "";
-    return `${extra}${proposal}${back}↑↓ j k blocks · ( ) sections · [ ] elements · f fold · M comments mode · R reply · t thread · i properties · z callouts · u up · C comment · m comments`;
+    return `${extra}${proposal}${back}↑↓ j k blocks/rows · ( ) sections · [ ] elements · f fold · M comments mode · R reply · t thread · i properties · z callouts · u up · C comment · m comments`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -1081,7 +1085,7 @@ export class NoteSurface {
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.modes.drop("sources"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.modes.drop("sources"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
@@ -1872,7 +1876,14 @@ export class NoteSurface {
     // A list's own look (PIE-675): its lead-in or heading line's fields, with this connection's tuning over them, by the note's line.
     const noteLine = this.foldsIn(m).lines;
     const lists = (n: number, f: Readonly<Record<string, string>>) => (noteLine[n] === undefined ? { ...f } : listFieldsTuned(this.src, m.id, noteLine[n]!, f));
-    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, regions: book, fields: this.fieldsDrawing, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
+    let listIndex = 0;
+    const inlineList = (rows: string[], width: number) => {
+      const key = listIndex++;
+      let list = this.inlineLists.get(key);
+      if (!list) this.inlineLists.set(key, list = new InlineList());
+      return list.draw(key, rows, width, drawn, this.cur);
+    };
+    const env = { ...(!this.printed ? { inlineList } : {}), ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, regions: book, fields: this.fieldsDrawing, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -1902,7 +1913,7 @@ export class NoteSurface {
     const { doc: rendered, points, lines: noteLines } = this.body(m, env, src, drawn, tokens, (source, noteLines) => {
       const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines), bodyText = source.split("\n");
       // A view note's results under its body, drawn as an embedded view (the service's answer).
-      const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn) : null;
+      const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn, env.inlineList) : null;
       const view = !!results && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
       const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
@@ -2209,7 +2220,7 @@ export class NoteSurface {
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
       return [fg(C.lcyan) + BOLD + tagged(drawn, { role: "control", label, press: { act: call.act, block, line } }, `[${label}]`) + RESET];
     };
-    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id);
+    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id, env.inlineList);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
     const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
     // A live ::graph-check row's box: a step of its own note, whose mark writes the property its `done:` names.
@@ -3301,20 +3312,38 @@ export class NoteSurface {
   }
 
   /** The element drawn for row `row` of component `key`, and its number among the elements (from 1), or null. */
-  linkRowElement(key: string, row: string): { e: Element; n: number } | null {
+  linkRowElement(key: string, row: string): { e: Element; n: number; row?: number } | null {
     const i = this.elems.findIndex(e => e.link?.linksBlock?.key === key && e.link.linksBlock.row === row);
-    return i < 0 ? null : { e: this.elems[i]!, n: i + 1 };
+    if (i >= 0) return { e: this.elems[i]!, n: i + 1 };
+    for (const [listKey, list] of this.inlineLists) {
+      const index = list.rows.findIndex(r => r.target.linksBlock?.key === key && r.target.linksBlock.row === row);
+      const n = this.elems.findIndex(e => e.link?.inlineList?.key === listKey);
+      if (index >= 0 && n >= 0) return { e: this.inlineRowElement(this.elems[n]!, index), n: n + 1, row: index + 1 };
+    }
+    return null;
   }
 
   /**
-   * The current element is a row of an inline ::links: the host shows its note where this reader's selection goes (a
+   * The current element is an inline list row: the host shows its note where this reader's selection goes (a
    * preview following the reader, its preview link: PIE-794), as a links tile's selection does. Read only.
    */
+  private selectedElement(): Element | undefined {
+    const drawn = this.elems.find(e => e.key === this.cur);
+    if (drawn) return drawn;
+    // Several key reports may arrive before a repaint exposes the newly selected row.
+    for (const [key, list] of this.inlineLists) {
+      const row = list.rows.find(r => inlineRowKey(key, r.target) === this.cur);
+      const place = row && this.elems.find(e => e.link?.inlineList?.key === key);
+      if (row && place) return { ...place, key: this.cur!, label: row.label, link: row.target };
+    }
+    return undefined;
+  }
+
   previewRow(host: SurfaceHost) {
-    const lb = this.elems.find(e => e.key === this.cur)?.link?.linksBlock;
-    const id = lb?.row ? this.linkBlocksDrawn.find(b => b.key === lb.key)?.rows.find(r => r.key === lb.row)?.id : null;
-    if (!lb || !id || !host.preview) return;
-    void host.ctx.board.get(id).then(m => { if (m && this.linkBlockUI.get(lb.key)?.sel === lb.row) host.preview!(m); }, () => {});
+    const selected = this.cur;
+    const target = this.selectedElement()?.link;
+    if (!target?.block || target.role !== "row" || !host.preview) return;
+    void host.ctx.board.get(target.block).then(m => { if (m && this.cur === selected) host.preview!(m); }, () => {});
   }
 
   /** The person's selection in component `b` moves to row `row`: the [ ] position goes with it, so the ruler and the preview agree. */
@@ -3377,8 +3406,12 @@ export class NoteSurface {
     }
     const n = b.rows.length, at = b.rows.findIndex(r => r.key === b.sel), c = ch(k);
     const to = (i: number) => { if (n && i >= 0 && i < n) void this.runKey("links.pick", { block: String(b.n), n: i + 1 }, host); return true; };
-    if (isDown(k)) return to(at + 1);
-    if (isUp(k)) return to(Math.max(0, at - 1));
+    if (isDown(k) || isUp(k)) {
+      const next = at + (isDown(k) ? 1 : -1);
+      if (next < 0 || next >= n) this.leaveLinks();
+      void this.runKey("reading.step", { by: isDown(k) ? 1 : -1 }, host);
+      return true;
+    }
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
     if (k.kind === "enter" || k.kind === "alt-enter") { if (n) void this.runKey("links.open", { block: String(b.n), ...(k.kind === "alt-enter" ? { where: "new" } : {}) }, host); return true; }
@@ -3991,6 +4024,22 @@ export class NoteSurface {
   wheel(dir: 1 | -1, host: SurfaceHost, at?: { x: number; y: number }) {
     // A mode first (a draft's view or its preview, a comment's box or thread list, the full panel's rows), else the note scrolls.
     if (this.modes.wheel(dir, host, at)) { host.redraw(); return; }
+    const d = this.drawn;
+    if (at && d) {
+      const row = at.y - d.heroRows + d.scroll;
+      for (const [key, list] of this.inlineLists) {
+        const elements = this.elems.filter(e => e.link?.inlineList?.key === key);
+        const e = elements[0];
+        if (!e) continue;
+        const left = e.from - list.rows[e.link!.inlineList!.row]!.from;
+        const first = Math.min(...elements.map(e => e.ruler[0])) - list.before;
+        const last = Math.max(...elements.map(e => e.ruler[1])) + list.after;
+        if (row < first || row >= last || at.x < left || at.x >= left + list.width) continue;
+        if (dir > 0 ? list.view.top < list.view.maxTop : list.view.top > 0) {
+          void this.runKey("element.scroll", { n: this.elems.indexOf(e) + 1, by: wheelRows(dir) }, host); return;
+        }
+      }
+    }
     void this.runKey("scroll", { by: wheelRows(dir) }, host);
   }
 
@@ -4192,6 +4241,13 @@ export class NoteSurface {
   }
 
   stepReading(by: 1 | -1) {
+    const current = this.selectedElement();
+    const inline = current?.link?.inlineList;
+    if (inline) {
+      const list = this.inlineLists.get(inline.key)!;
+      const row = inline.row + by;
+      if (row >= 0 && row < list.rows.length) { this.selectInlineRow(current!, row); return; }
+    }
     this.letGo();
     const d = this.drawn;
     if (!d) return;
@@ -4208,6 +4264,12 @@ export class NoteSurface {
       if (line !== undefined && sourceLines[line]?.trim()) {
         this.letGo(); this.foldSel = null;
         this.readingLine(line);
+        const candidates = this.elems.filter(e => e.link?.inlineList && d.lines[d.doc.source[e.row - d.top]!] === line);
+        const entry = by > 0 ? candidates[0] : candidates.at(-1);
+        if (entry) {
+          const list = this.inlineLists.get(entry.link!.inlineList!.key)!;
+          this.selectInlineRow(entry, by > 0 ? 0 : list.rows.length - 1);
+        }
         this.revealReading();
         const block = this.readingRows();
         if (by < 0 && visible && block && block[1] - block[0] > d.room) this.scroll = Math.max(block[0], block[1] - d.room);
@@ -4586,6 +4648,7 @@ export class NoteSurface {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
+      if (l.inlineList) return inlineRowKey(l.inlineList.key, l);
       const id = kind === "task" && l.task ? taskBase(l.task) : kind === "callout" && l.callout ? calloutBase(l.callout) : kind === "figure" && l.figure ? figureElemBase(l.figure) : l.proposal?.op ? `control:proposal:${l.proposal.op}:${l.proposal.id}` : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
       const n = seen.get(id) ?? 0;
       seen.set(id, n + 1);
@@ -4933,6 +4996,7 @@ export class NoteSurface {
       ...(e.link?.proposal?.op ? { control: e.link.proposal.op, proposal: e.link.proposal.id } : {}),
       ...(e.link?.unsent ? { control: e.link.unsent.op, unsent: e.link.unsent.kind } : {}),
       // An inline ::links component's (PIE-693): a row of it, or its ⏎ in control, and which component (links.blocks numbers them).
+      ...(e.link?.inlineList ? { list: { row: e.link.inlineList.row + 1, total: this.inlineLists.get(e.link.inlineList.key)!.rows.length, top: this.inlineLists.get(e.link.inlineList.key)!.view.top } } : {}),
       ...(e.link?.linksBlock ? { links: { block: (this.linkBlocksDrawn.find(b => b.key === e.link!.linksBlock!.key)?.n ?? null), [e.link.linksBlock.row ? "row" : "control"]: true } } : {}),
     }));
   }
@@ -5050,6 +5114,30 @@ export class NoteSurface {
 
   /** `element.select`: the person's `[ ]` position, brought into view. */
   selectElement(e: Element) { this.setElem(e); this.reveal = true; }
+
+  inlineRowElement(e: Element, row: number): Element {
+    const key = e.link?.inlineList?.key;
+    if (key === undefined) throw new ActionRefused("this element is not in an inline list");
+    const list = this.inlineLists.get(key)!, item = list.rows[row];
+    if (!item) throw new ActionRefused(`row must be from 1 to ${list.rows.length}`);
+    return { ...e, key: inlineRowKey(key, item.target), link: item.target, label: item.label };
+  }
+
+  selectInlineRow(e: Element, row: number) {
+    const item = this.inlineRowElement(e, row);
+    const list = this.inlineLists.get(item.link!.inlineList!.key)!;
+    this.selectElement(item);
+    list.view.reveal();
+    this.laid = null;
+    return { row: row + 1, total: list.rows.length, label: item.label };
+  }
+
+  scrollInline(n: number, by: number) {
+    const key = this.element(n).link?.inlineList?.key;
+    if (key === undefined) throw new ActionRefused("this element is not in an inline list");
+    this.inlineLists.get(key)!.view.scroll(by);
+    this.laid = null;
+  }
   /** `element.open`: ⏎ on element `e` (see enterElement). */
   openElement(e: Element, host: SurfaceHost, fresh: boolean, select: boolean) { return this.enterElement(e, host, { fresh, select }); }
 
@@ -5135,9 +5223,11 @@ export class NoteSurface {
     // position; its preview and a preview linked to this reader follow), a second click on it soon after opens it (⏎),
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     const lbk = h.link.linksBlock;
-    if (e && lbk?.row) {
-      const i = this.elems.indexOf(e), g = this.linkPresses.press(i, { focusing: !!host.focusing, selected: e.key === this.cur });
-      void this.runKey(g === "open" || (g === "select" && host.freshClick) ? "element.open" : "element.select", { n: i + 1 }, host);
+    if (e && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(h.link)) {
+      const i = this.elems.indexOf(e), inline = e.link?.inlineList;
+      const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
+      const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });
+      void this.runKey(g === "open" || (g === "select" && host.freshClick) ? "element.open" : "element.select", { n: i + 1, ...(host.freshClick ? { fresh: true } : {}) }, host);
       host.redraw();
       return true;
     }
@@ -8501,18 +8591,27 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return { elements: surface.describeElements() };
     },
   }),
+  "element.scroll": def({
+    summary: "scroll the inline list containing element n, passing the wheel to the note at its ends",
+    touches: "tile", replay: "safe", person: "the list's scroll belongs to the person", keys: "wheel over an inline list",
+    args: { n: { type: "number", about: "an element in the list" }, by: { type: "number", about: "rows to scroll" } },
+    examples: [{ act: "element.scroll n=2 by=3", does: "scrolls the inline list containing the second element down three rows" }],
+    run({ n, by }, { surface, host }) { surface.scrollInline(n, by); host.redraw(); return {}; },
+  }),
   "element.select": def({
-    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ], click, esc lets go",
+    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. row= picks a row inside that element's inline list. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ], click, esc lets go",
     touches: "tile", replay: "safe", person: "the [ ] position is the person's; block.tint marks a block for them without moving it",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1, as elements lists them; 0 lets go" },
+      row: { type: "number", optional: true, about: "row within this inline list, from 1" },
       by: { type: "number", optional: true, about: "1 the next element, -1 the previous one" },
     },
     examples: [
       { act: "element.select n=3", does: "puts the [ ] position on the note's third element" },
       { act: "element.select by=1", does: "steps the [ ] position to the next element" },
+      { act: "element.select n=2 row=5", does: "selects the fifth row of the note's second element, an inline list, and previews it" },
     ],
-    async run({ n, by }, { surface, host }, actor) {
+    async run({ n, by, row }, { surface, host }, actor) {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (an element, 0 lets go) or by=1 / by=-1");
       if (n === 0) { surface.letGo(); host.redraw(); return { current: null }; }
       if (by !== undefined) {
@@ -8522,10 +8621,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return surface.describeElements().find(e => e.current) ?? null;
       }
       await surface.whole();
-      surface.selectElement(surface.element(n!));
+      if (row !== undefined && (!Number.isInteger(row) || row < 1)) throw new ActionRefused("row must be a whole number from 1");
+      const selected = row !== undefined ? surface.selectInlineRow(surface.element(n!), row - 1) : null;
+      if (!selected) surface.selectElement(surface.element(n!));
       surface.previewRow(host);
       host.redraw();
-      return surface.describeElements()[n! - 1];
+      return selected ?? surface.describeElements()[n! - 1];
     },
   }),
   "button.press": def({
@@ -8579,13 +8680,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "tile", replay: "ask", way: "opening an element there would move what they're reading · an agent opens one in another reader (tile=), opens the note with open id=, or folds a section with fold or unfold",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them); default the current one (the person's own only)" },
+      row: { type: "number", optional: true, about: "row within this element's inline list, from 1" },
       fresh: { type: "boolean", optional: true, about: "open it in a new reader (a new detail on the board), as alt+enter does" },
     },
     examples: [
       { act: "element.open n=2", does: "opens the note's second element, as enter does on it" },
       { act: "element.open n=2 fresh=true", does: "opens the second element, a link, row or embed, in a new reader" },
     ],
-    async run({ n, fresh }, on, actor) {
+    async run({ n, fresh, row }, on, actor) {
       const { surface, host } = on;
       // The person's key or click is on what's drawn now: no wait for the whole note.
       if (actor.kind === "agent") await surface.whole();
@@ -8593,13 +8695,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const cur = actor.kind === "user" ? surface.inView() : null;
       const i = n ?? (cur ? surface.describeElements().findIndex(e => e.current) + 1 : 0);
       if (!i) throw new ActionRefused("no element is current in view; pass n");
-      const e = surface.element(i);
+      if (row !== undefined && (!Number.isInteger(row) || row < 1)) throw new ActionRefused("row must be a whole number from 1");
+      const e = row === undefined ? surface.element(i) : surface.inlineRowElement(surface.element(i), row - 1);
       // A code block or a quote has nothing to open: ⏎ copies it (the person's to their clipboard, an agent's returned).
       if (e.kind === "block") { const r: unknown = await NOTE_ACTIONS.run("block.copy", { n: e.block! + 1 }, on, actor); return r; }
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // Going elsewhere while the person's comment is unsent here asks them first (PIE-785).
       if (e.kind === "link" || e.kind === "row" || e.kind === "embed" || e.kind === "comment") {
-        const asked = surface.askLeave("element.open", { n: i, ...(fresh ? { fresh } : {}) }, actor, host, e.key);
+        const asked = surface.askLeave("element.open", { n: i, ...(row !== undefined ? { row } : {}), ...(fresh ? { fresh } : {}) }, actor, host, e.key);
         if (asked) return asked;
       }
       // A step's box opens the person's status choice; an agent sets the status itself.
@@ -9659,7 +9762,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ by }, { surface, host }) {
       surface.requireNote();
       if (by !== 1 && by !== -1) throw new ActionRefused("by is 1 or -1");
-      surface.stepReading(by); host.redraw();
+      surface.stepReading(by); surface.previewRow(host); host.redraw();
       return { position: surface.position.reading };
     },
   }),
@@ -9914,7 +10017,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!r) throw new ActionRefused(n === undefined && id === undefined ? `no row is selected in ${b.title}; say n=` : `${b.title} has no such row (rows 1 to ${b.rows.length})`);
       const at = surface.linkRowElement(b.key, r.key);
       if (!at) throw new ActionRefused(`${r.text} isn't drawn in ${b.title} now`);
-      const opened: unknown = await NOTE_ACTIONS.run("element.open", { n: at.n, ...(where === "new" ? { fresh: true } : {}) }, on, actor);
+      const opened: unknown = await NOTE_ACTIONS.run("element.open", { n: at.n, ...(at.row !== undefined ? { row: at.row } : {}), ...(where === "new" ? { fresh: true } : {}) }, on, actor);
       return opened;
     },
   }),

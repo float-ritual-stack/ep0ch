@@ -64,6 +64,7 @@ export const marks: Record<string, string[]> = {
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
   "agent-focus": ["Plan for Saturday", "@fern:3", "@moss:5", "who's online"],
   presence: ["who's online", "last callers · live"],
+  "inline-lists": ["Parcels on the desk", "Parcel 01", "After the list:"],
   live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
   // The society page: one question as a list, tabs by crop and a rank by season.
   questions: ["Allotment society", "NOT LINKED BACK", "20 matches", "BY CROP", "beans 3 · brassicas 3"],

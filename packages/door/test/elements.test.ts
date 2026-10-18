@@ -125,6 +125,72 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     delete process.env.OUTLINER_PROPERTY_SUMMARY_KEYS;
   }, 20_000);
 
+  test("an inline view scrolls inside its box and arrows visit every result", async () => {
+    const depot = await create(null, "Parcel depot");
+    for (let i = 60; i >= 1; i--) await create(null, `Parcel ${String(i).padStart(2, "0")} [type::inline-parcel]\nDelivery to ((${depot.id})).`);
+    const view = await create(null, "Parcels [type::virtual-branch] [query::type=inline-parcel] [sort::title]");
+    const note = await create(null, `Parcel desk\nBefore the list.\n\n!((${view.id}))\n\nAfter the list.\n\n${Array.from({ length: 70 }, (_, i) => `Delivery instruction ${i + 1}.`).join("\n\n")}`);
+    b = openScreen("detail", { note: note.id, persist: false }) as Desk;
+    app.push(b);
+    try {
+      const d = b.pane("detail") as ReaderPane;
+      await whole(d, note.id);
+      await until(() => plain(frame().join("\n")).includes("Parcel 60"), "inline results");
+      const at = where(frame(), "Parcel 60", { col: 0, row: 0, cols: 200, rows: 60 });
+      const scroll = d.surface.scroll;
+      key({ kind: "mouse", action: "wheel-down", button: 0, x: at.x, y: at.y - 1 }); frame();
+      expect(d.surface.scroll).toBe(scroll);
+      expect(plain(frame().join("\n"))).not.toContain("Parcel 60");
+      expect(plain(frame().join("\n"))).toContain("After the list.");
+      await b.dispatch.act({ action: "reading.place", args: { line: 2 }, tile: "detail" }, { kind: "user" });
+      key({ kind: "down" }); frame();
+      expect(current(d)?.label).toContain("Parcel 60");
+      for (let i = 0; i < 15; i++) key(char("j"));
+      frame(); expect(current(d)?.label).toContain("Parcel 45");
+      await b.dispatch.act({ action: "element.select", args: { n: current(d)!.n, row: 1 }, tile: "detail" }, { kind: "user" }); frame();
+      for (let i = 59; i >= 1; i--) { key(char("j")); frame(); expect(current(d)?.label).toContain(`Parcel ${String(i).padStart(2, "0")}`); }
+      key({ kind: "down" }); frame();
+      expect(current(d)).toBeNull();
+      key({ kind: "up" }); frame();
+      expect(current(d)?.label).toContain("Parcel 01");
+      const bottom = where(frame(), "Parcel 01", { col: 0, row: 0, cols: 200, rows: 60 });
+      const before = d.surface.scroll;
+      key({ kind: "mouse", action: "wheel-down", button: 0, ...bottom }); frame();
+      expect(d.surface.scroll).toBeGreaterThan(before);
+      const first = d.surface.describeElements().find(e => e.list)!;
+      await b.dispatch.act({ action: "element.select", args: { n: first.n, row: 1 }, tile: "detail" }, { kind: "user" }); frame();
+      click(where(frame(), "Parcel 59", { col: 0, row: 0, cols: 200, rows: 60 })); frame();
+      expect(d.msg?.id).toBe(note.id);
+      await until(() => { frame(); return current(d)?.label.includes("Parcel 59") ?? false; }, "click selects without opening");
+      key({ kind: "enter" });
+      await until(() => d.msg?.text.startsWith("Parcel 59") ?? false, "Enter opens the selected parcel");
+    } finally { app.pop(); }
+    for (const component of [
+      '::links{query="type=inline-parcel" preview=none}',
+      `::backlinks{of="${depot.id}" preview=none}`,
+      '::graph-table\n---\ntitle: Parcels\nquery: "type=inline-parcel"\ncolumns: [title]\n---\n::',
+      '::graph-tabs\n---\ntitle: Parcels\nquery: "type=inline-parcel"\ngroup: type\nlimit: 100\ncolumns: [title]\n---\n::',
+    ]) {
+      const note = await create(null, `Parcel component\nBefore the list.\n\n${component}\n\nAfter the list.`);
+      b = openScreen("detail", { note: note.id, persist: false }) as Desk; app.push(b);
+      try {
+        const d = b.pane("detail") as ReaderPane;
+        await whole(d, note.id);
+        await until(() => { frame(); return d.surface.describeElements().some(e => e.list?.total === 60); }, component);
+        const first = d.surface.describeElements().find(e => e.list)!;
+        await b.dispatch.act({ action: "element.select", args: { n: first.n, row: 55 }, tile: "detail" }, { kind: "user" }); frame();
+        expect(current(d)?.list?.row).toBe(55);
+        key(char("k")); frame(); expect(current(d)?.list?.row).toBe(54);
+        expect(plain(frame().join("\n"))).toContain("After the list.");
+        if (component.startsWith("::links")) {
+          const rows = d.surface.linkBlocksDrawn[0]!.rows;
+          await b.dispatch.act({ action: "links.open", args: { block: "1", n: 60 }, tile: "detail" }, { kind: "user" });
+          await whole(d, rows[59]!.id!);
+        }
+      } finally { app.pop(); }
+    }
+  }, 30_000);
+
   test("the detail screen opens an addressed note and keeps NoteSurface key and mouse controls", async () => {
     b = openScreen("detail", { note: n.jobs.id, persist: false }) as Desk;
     app.push(b);

@@ -22,6 +22,7 @@ export const SEED = {
   heap: "Compost heap",
   attention: "Pump rota",
   figures: "Allotment figures",
+  inlineLists: "Parcels on the desk",
   plotJobs: "Plot jobs by stage",
   recipe: "Lentil soup",
   finding: "Finding things in the house notes",
