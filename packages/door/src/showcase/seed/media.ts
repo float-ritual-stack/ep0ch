@@ -110,7 +110,7 @@ export async function placeArtifacts(board: SocketBoard): Promise<string> {
 export const artifactsText = (pinned = "showcase-orbit@1") => [
   SEED.artifacts,
   "",
-  "A live folder and a frozen snapshot, stored outside the outline. Save in the synced folder and reload the live frame; the snapshot stays as it was. Enter or click [open ↗] to open the same static URL the web note frames.",
+  "A live folder and a frozen snapshot, stored outside the outline. Drop a file or built folder in the synced inbox. Once settled, it becomes the next version and disappears from the inbox; receipts.log records its URL and .failed keeps rejected drops with a reason. Reload the live frame; the snapshot stays as it was. Enter or click [open ↗] to open the same static URL the web note frames.",
   "",
   "[artifact::showcase-orbit] [height::22] [alt::Orbit lamp]",
   "",

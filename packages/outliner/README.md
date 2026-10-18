@@ -1258,22 +1258,39 @@ out, every page is the sign-in page (dark, no script) and an API call is `401`; 
 
 #### Artifacts
 
-An artifact is a plain folder, stored outside the outline. The main way in is a
-synced folder: each subfolder of `~/outlines/.artifacts/live/` is named for its
-artifact. Evan sets up the sync from his laptop:
+An artifact is a plain folder in one machine-wide store, outside every outline.
+The main way in is a synced inbox. Set up the sync on the laptop:
 
 ```sh
-mutagen sync create ~/artifacts float-2:/home/evan/outlines/.artifacts/live
+mutagen sync create --name artifacts ~/artifacts-inbox float-2:~/outlines/.artifacts/inbox
 ```
 
-Save on the laptop, reload the frame. Built sites retain their files and relative
-assets. A lone `.jsx` or `.tsx` compiles to `index.html` beside its source, using
-`publish-artifacts.ts`'s existing Bun.build compiler, pinned packages and cache
-(`~/outlines/.artifact-cache/`). The watcher compiles on saves; neither the static
-server nor a note request builds anything. Syntax errors keep the source and
-produce an HTML page explaining the error. An authored `index.html` is preserved.
-HTML, SVG, Mermaid and Markdown files are kept as given; Mermaid and Markdown
-sources are served as files, so upload a built HTML page to run a rendered version.
+Drop a file or built folder in `~/artifacts-inbox`. After 10 seconds without a
+change, the watcher takes it through the same install path as put and freezes
+its next numbered version. A file's name loses its extension and becomes lowercase
+with dashes (`Moth Counter.jsx` → `moth-counter`); a folder keeps its name.
+The newest version is served from `.artifacts/live/<name>/`, outside the sync tree.
+The drop is then removed from the inbox; two-way Mutagen sync removes it from the
+laptop too. `EP0CH_ARTIFACT_INBOX` overrides the inbox path and
+`EP0CH_ARTIFACT_SETTLE_MS` overrides the 10000 ms settling period on the watcher.
+Dotfiles, including Mutagen's `.mutagen-temporary-*` files, are ignored.
+
+Each successful pickup appends a tab-separated line to `inbox/receipts.log`:
+ISO time, artifact name, version number and the framing URL (using the configured
+`EP0CH_ARTIFACT_ORIGIN`). A failed drop (too big, unknown file kind, compile error)
+moves intact under `inbox/.failed/<original-name>/source/`, with `reason.txt`
+beside `source/`. Repeated
+failures of that name are kept in unique subfolders there. Fix the source and drop
+it into the inbox again. Receipts and `.failed/` sync back to the laptop and are
+never picked up.
+
+A lone `.jsx` or `.tsx` compiles to `index.html` beside its source using the existing
+Bun.build compiler, pinned packages and cache (`~/outlines/.artifact-cache/`).
+Built folders keep their files and relative assets as given. Neither the static
+server nor a note request builds anything. HTML, SVG, Mermaid and Markdown files
+are kept as given; upload built HTML to run a rendered Mermaid or Markdown page.
+Direct puts retain their existing error-page behavior for invalid React source;
+inbox compile failures keep the previous live artifact and preserve the drop in `.failed/`.
 
 For a phone, chat, or another machine without sync:
 
@@ -1295,8 +1312,8 @@ and `artifact_versions {name}` require read access. These calls share one artifa
 root per machine; `--ws` chooses the service connection, not a separate namespace.
 Binary files go through CLI tar uploads. Puts replace the live folder; snapshot
 explicitly freezes it. Uploads and snapshots default to 64 MiB, configurable with
-`EP0CH_ARTIFACT_MAX_BYTES` on the host. Direct sync writes are ordinary filesystem
-writes; the cap is enforced when taking their snapshot.
+`EP0CH_ARTIFACT_MAX_BYTES` on the host and watcher. Inbox pickups enforce the cap
+before installation, including the compiled output.
 
 Write `[artifact::moth-site]` on its own note line for the live folder, or
 `[artifact::moth-site@1]` to pin snapshot 1. `artifact:: moth-site` also works.

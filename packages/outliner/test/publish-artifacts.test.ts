@@ -388,16 +388,72 @@ test("a named folder goes through the service and snapshots keep its earlier byt
   expect((await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" })).version).toBe(2);
 });
 
-test("put compiles a lone React source, the watcher recompiles synced saves, and built folders stay exact", async () => {
+test("settled inbox drops become versions and receipts, while bad drops keep their source and reason", async () => {
   const { root, client } = await setup();
+  const inbox = join(root, "dropbox");
+  const oldEnv = { ...process.env };
+  process.env.EP0CH_ARTIFACT_INBOX = inbox;
+  process.env.EP0CH_ARTIFACT_SETTLE_MS = "200";
+  const staticServer = Bun.serve({ port: 0, fetch: request => artifactResponse(join(root, ".artifacts"), request, "https://notes.example.test") });
+  process.env.EP0CH_ARTIFACT_ORIGIN = staticServer.url.origin;
+  cleanups.push(() => {
+    staticServer.stop(true);
+    for (const key of ["EP0CH_ARTIFACT_INBOX", "EP0CH_ARTIFACT_SETTLE_MS", "EP0CH_ARTIFACT_ORIGIN", "EP0CH_ARTIFACT_MAX_BYTES"]) {
+      if (oldEnv[key] === undefined) delete process.env[key]; else process.env[key] = oldEnv[key];
+    }
+  });
+  mkdirSync(inbox);
+  writeFileSync(join(inbox, "Moth Counter.jsx"), 'export default () => <p>First moth</p>');
   const watcher = new ArtifactStore(root);
   watcher.startWatcher(); cleanups.push(() => watcher.close());
-  await client.request({ action: "artifacts.put", name: "counter", files: { "counter.jsx": 'export default () => <p>First moth</p>' } }, 240_000);
-  const index = join(root, ".artifacts/live/counter/index.html");
-  expect(readFileSync(index, "utf8")).toContain("First moth");
-  writeFileSync(join(root, ".artifacts/live/counter/counter.jsx"), 'export default () => <p>Second moth</p>');
-  const end = Date.now() + 30_000;
-  while (!readFileSync(index, "utf8").includes("Second moth")) { if (Date.now() > end) throw new Error("Watcher did not compile the save"); await Bun.sleep(50); }
-  await client.request({ action: "artifacts.put", name: "built", files: { "index.html": "Authored HTML", "app.jsx": "a source file shipped beside the built page" } });
-  expect(readFileSync(join(root, ".artifacts/live/built/index.html"), "utf8")).toBe("Authored HTML");
+  mkdirSync(join(inbox, "garden"));
+  writeFileSync(join(inbox, "garden/index.html"), "Authored HTML");
+  writeFileSync(join(inbox, "garden/app.jsx"), "source shipped beside the built page");
+  mkdirSync(join(inbox, "source-bundle"));
+  writeFileSync(join(inbox, "source-bundle/app.jsx"), "source only, kept as given");
+  writeFileSync(join(inbox, "garden/.mutagen-temporary-asset"), "still syncing");
+  writeFileSync(join(inbox, "broken.jsx"), "export default () => <");
+  writeFileSync(join(inbox, ".mutagen-temporary-drop"), "still syncing");
+  await Bun.sleep(120);
+  writeFileSync(join(inbox, "garden/index.html"), "Settled HTML");
+  await Bun.sleep(120);
+  expect(existsSync(join(inbox, "garden/index.html"))).toBe(true);
+  const waitFor = async (ready: () => boolean) => {
+    const end = Date.now() + 30_000;
+    while (!ready()) { if (Date.now() > end) throw new Error("Inbox pickup did not finish"); await Bun.sleep(50); }
+  };
+  const receipts = join(inbox, "receipts.log");
+  await waitFor(() => existsSync(receipts) && readFileSync(receipts, "utf8").trim().split("\n").length === 3 && existsSync(join(inbox, ".failed/broken.jsx/reason.txt")));
+  for (const [name, content] of [["moth-counter", "First moth"], ["garden", "Settled HTML"]]) {
+    const info = await client.request<ArtifactInfo>({ action: "artifacts.show", name: `${name}@1` });
+    expect(await (await fetch(info.url!)).text()).toContain(content!);
+    expect(readFileSync(receipts, "utf8")).toContain(`\t${name}\t1\t${info.url}`);
+  }
+  expect(readFileSync(join(root, ".artifacts/live/source-bundle/app.jsx"), "utf8")).toBe("source only, kept as given");
+  expect(existsSync(join(root, ".artifacts/live/source-bundle/index.html"))).toBe(false);
+  expect(existsSync(join(root, ".artifacts/live/garden/.mutagen-temporary-asset"))).toBe(false);
+  expect(existsSync(join(inbox, "Moth Counter.jsx"))).toBe(false);
+  expect(existsSync(join(inbox, "garden"))).toBe(false);
+  expect(readFileSync(join(inbox, ".failed/broken.jsx/source/broken.jsx"), "utf8")).toBe("export default () => <");
+  expect(readFileSync(join(inbox, ".failed/broken.jsx/reason.txt"), "utf8")).toMatch(/compile|Unexpected|Expected/i);
+  expect(existsSync(join(inbox, ".mutagen-temporary-drop"))).toBe(true);
+  writeFileSync(join(inbox, "Moth Counter.jsx"), 'export default () => <p>Second moth</p>');
+  await waitFor(() => readFileSync(receipts, "utf8").trim().split("\n").length === 4);
+  const latest = await client.request<ArtifactInfo>({ action: "artifacts.show", name: "moth-counter" });
+  expect(await (await fetch(latest.url!)).text()).toContain("Second moth");
+  const pinned = await client.request<ArtifactInfo>({ action: "artifacts.show", name: "moth-counter@1" });
+  expect(await (await fetch(pinned.url!)).text()).toContain("First moth");
+  expect(readFileSync(receipts, "utf8")).toMatch(/\d{4}-\d{2}-\d{2}T[^\t]+\tmoth-counter\t2\t/);
+  process.env.EP0CH_ARTIFACT_MAX_BYTES = "32";
+  writeFileSync(join(inbox, "oversized.html"), "x".repeat(33));
+  writeFileSync(join(inbox, "reason.txt"), "unknown kind");
+  for (const [entry, reason] of [["oversized.html", "exceeds"], ["reason.txt", "Unknown artifact kind"]]) {
+    const failed = join(inbox, ".failed", entry!);
+    await waitFor(() => existsSync(join(failed, "reason.txt")));
+    expect(readFileSync(join(failed, "reason.txt"), "utf8")).toContain(reason!);
+    expect(readFileSync(join(failed, "source", entry!), "utf8")).toBe(entry === "reason.txt" ? "unknown kind" : "x".repeat(33));
+    expect(existsSync(join(inbox, entry!))).toBe(false);
+  }
+  expect(readFileSync(receipts, "utf8").trim().split("\n")).toHaveLength(4);
+
 }, COMPILE_TIMEOUT);

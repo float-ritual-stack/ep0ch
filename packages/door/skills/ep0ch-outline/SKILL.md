@@ -612,9 +612,22 @@ with `{name, kind, content}` / `{name, files: {"index.html": "…"}}`. Put requi
 MCP write access; `artifact_list` and `artifact_versions` read. Keep the source
 out of the note: write the reference and optional `[alt::]` / `[height::]` instead.
 
-The primary input is Evan's synced `~/outlines/.artifacts/live/<name>/` on float-2.
-It serves live; lone JSX/TSX compiles on save. `ep0ch artifact snapshot <name>`
-freezes a version outside the sync tree. Names share one machine-wide store.
+The primary input is a synced inbox. Set up on the laptop:
+
+```sh
+mutagen sync create --name artifacts ~/artifacts-inbox float-2:~/outlines/.artifacts/inbox
+```
+
+Drop a file or built folder there. After 10 seconds without changes, the watcher
+compiles a lone JSX/TSX (folders stay as given), stores the next version, and removes
+the drop; two-way sync removes it from the laptop too. File names lose their extension
+and become lowercase with dashes; folders keep their names. `inbox/receipts.log`
+records ISO time, name, version and URL. Failed drops remain in `inbox/.failed/<name>/`
+with `reason.txt`; fix the source and drop it again. Dotfiles, Mutagen staging files,
+receipts and `.failed/` are never picked up. `EP0CH_ARTIFACT_INBOX` and
+`EP0CH_ARTIFACT_SETTLE_MS` configure the watcher's inbox and settling period.
+The store's `live/` serves the newest version outside the sync tree; names share one
+machine-wide store. `ep0ch artifact snapshot <name>` also freezes direct puts.
 Artifact URLs are unlisted bearer links on their own origin; the note's publishing
 rules decide where a frame appears. `artifact.open` gives agents the same URL.
 See the outliner README's **Artifacts** section for import, limits and deployment.

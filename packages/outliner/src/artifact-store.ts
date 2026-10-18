@@ -12,11 +12,11 @@ function artifactPath(path: string): string {
   if (!path || path.includes("\\") || path.includes("\0") || path.split("/").some(p => !p || p === "." || p === "..")) throw new Error(`Unsafe artifact path: ${path}`);
   return path;
 }
-function artifactFiles(folder: string): string[] {
-  return readdirSync(folder).sort().flatMap(name => {
+function artifactFiles(folder: string, ignoreHidden = false): string[] {
+  return readdirSync(folder).filter(name => !ignoreHidden || !name.startsWith(".")).sort().flatMap(name => {
     const path = join(folder, name), stat = lstatSync(path);
     if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) throw new Error(`Artifacts cannot contain links or special files: ${name}`);
-    return stat.isDirectory() ? artifactFiles(path).map(p => `${name}/${p}`) : [name];
+    return stat.isDirectory() ? artifactFiles(path, ignoreHidden).map(p => `${name}/${p}`) : [name];
   });
 }
 
@@ -26,7 +26,9 @@ export class ArtifactStore {
   readonly compiler: ArtifactCompiler;
   private uploads = new Map<string, { name: string; path: string; bytes: number }>();
   private watcher?: FSWatcher;
-  private pending = new Map<string, Promise<void>>();
+  private pending: Promise<void> = Promise.resolve();
+  private timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private changes = new Map<string, number>();
   constructor(outlines: string) {
     this.root = join(outlines, ".artifacts");
     this.live = join(this.root, "live");
@@ -50,17 +52,17 @@ export class ArtifactStore {
     const origin = process.env.EP0CH_ARTIFACT_ORIGIN?.replace(/\/$/, "");
     return { name, ...(pin ? { version: Number(pin) } : {}), files, bytes, url: origin ? `${origin}/${this.id(name)}/${encodeURIComponent(ref)}/` : null };
   }
-  async compile(name: string) {
-    const folder = join(this.live, name);
+  async compile(name: string, folder = join(this.live, name), rejectErrors = false) {
     if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
     const generated = join(this.root, "generated", name);
     const index = join(folder, "index.html");
     if (existsSync(index) && (!existsSync(generated) || readFileSync(generated, "utf8") !== new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex"))) return;
     const files = artifactFiles(folder).filter(p => p !== "index.html");
-    if (files.length !== 1 || !/\.(jsx|tsx)$/.test(files[0]!)) return;
+    if (files.length !== 1 || !/\.(jsx|tsx)$/i.test(files[0]!)) return;
     const source = readFileSync(join(folder, files[0]!), "utf8");
-    const build = await this.compiler.compile(source, extname(files[0]!) as ".jsx" | ".tsx");
-    // Saving source always wins, including source that cannot compile.
+    const build = await this.compiler.compile(source, extname(files[0]!).toLowerCase() as ".jsx" | ".tsx");
+    if (!build.ok && rejectErrors) throw new Error(`Artifact could not compile: ${build.problems.join("\n")}`);
+    // Direct puts preserve source even when it cannot compile.
     const html = build.ok ? reactArtifactPage(name, build.script) : `<!doctype html><title>Artifact needs fixing</title><pre>${build.problems.join("\n").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`;
     if (readFileSync(join(folder, files[0]!), "utf8") !== source) return;
     if (!existsSync(join(folder, "index.html")) || readFileSync(join(folder, "index.html"), "utf8") !== html) {
@@ -71,18 +73,63 @@ export class ArtifactStore {
   }
   startWatcher() {
     this.prepare();
+    const inbox = process.env.EP0CH_ARTIFACT_INBOX ?? join(this.root, "inbox");
+    const settle = Number(process.env.EP0CH_ARTIFACT_SETTLE_MS ?? 10_000);
+    mkdirSync(inbox, { recursive: true });
     const enqueue = (name: string) => {
-      if (!name || name.startsWith(".")) return;
-      const prior = this.pending.get(name) ?? Promise.resolve();
-      const job = prior.then(async () => { if (existsSync(join(this.live, name))) { this.id(name); await this.compile(name); } }).catch(e => console.error(`artifact ${name}: ${e.message}`));
-      this.pending.set(name, job);
-      void job.finally(() => { if (this.pending.get(name) === job) this.pending.delete(name); });
+      if (!name || name.startsWith(".") || name === "receipts.log") return;
+      clearTimeout(this.timers.get(name));
+      const change = (this.changes.get(name) ?? 0) + 1;
+      this.changes.set(name, change);
+      const current = () => this.changes.get(name) === change;
+      this.timers.set(name, setTimeout(() => {
+        this.timers.delete(name);
+        this.pending = this.pending.then(async () => {
+          if (current() && existsSync(join(inbox, name))) await this.pickup(inbox, name, current);
+        }).catch(error => console.error(`artifact ${name}: ${error.message}`));
+      }, settle));
     };
-    this.watcher = watch(this.live, { recursive: true }, (_, file) => { if (file) enqueue(String(file).split("/")[0]!); });
-    for (const name of readdirSync(this.live)) enqueue(name);
+    this.watcher = watch(inbox, { recursive: true }, (_, file) => {
+      if (file && !String(file).split("/").some(part => part.startsWith("."))) enqueue(String(file).split("/")[0]!);
+    });
+    for (const name of readdirSync(inbox)) enqueue(name);
   }
-  close() { this.watcher?.close(); for (const upload of this.uploads.values()) rmSync(upload.path, { force: true }); this.uploads.clear(); }
-  async put(name: string, files: Record<string, string | Uint8Array>) {
+  private async pickup(inbox: string, entry: string, current: () => boolean) {
+    const source = join(inbox, entry);
+    try {
+      const stat = lstatSync(source), folder = stat.isDirectory();
+      if (stat.isSymbolicLink() || (!folder && !stat.isFile())) throw new Error("Drop a regular file or folder, without links.");
+      if (!folder && !/\.(html|jsx|tsx|svg|mermaid|md)$/i.test(entry)) throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, or a built folder.");
+      const name = folder ? entry : basename(entry, extname(entry)).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const paths = folder ? artifactFiles(source, true) : [entry];
+      const pathOf = (path: string) => folder ? join(source, path) : source;
+      if (paths.reduce((bytes, path) => bytes + lstatSync(pathOf(path)).size, 0) > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes.`);
+      const files = Object.fromEntries(paths.map(path => [path, readFileSync(pathOf(path))]));
+      await this.put(name, files, { compile: !folder, rejectErrors: true });
+      const version = await this.snapshot(name);
+      appendFileSync(join(inbox, "receipts.log"), `${new Date().toISOString()}\t${name}\t${version.version}\t${version.url ?? ""}\n`);
+      // A save arriving during compilation belongs to the next pickup.
+      if (current()) rmSync(source, { recursive: true, force: true });
+    } catch (error) {
+      if (!current()) return;
+      const failed = join(inbox, ".failed", entry);
+      mkdirSync(failed, { recursive: true });
+      // Keep earlier failures when the same filename is dropped again.
+      const destination = existsSync(join(failed, "source")) ? join(failed, crypto.randomUUID()) : failed;
+      mkdirSync(join(destination, "source"), { recursive: true });
+      renameSync(source, join(destination, "source", entry));
+      writeFileSync(join(destination, "reason.txt"), `${(error as Error).message}\n`);
+    }
+  }
+  async close() {
+    this.watcher?.close();
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
+    await this.pending;
+    for (const upload of this.uploads.values()) rmSync(upload.path, { force: true });
+    this.uploads.clear();
+  }
+  async put(name: string, files: Record<string, string | Uint8Array>, options = { compile: true, rejectErrors: false }) {
     artifactName(name); this.prepare();
     let size = 0;
     for (const [path, content] of Object.entries(files)) { artifactPath(path); size += Buffer.byteLength(content); }
@@ -91,10 +138,12 @@ export class ArtifactStore {
     mkdirSync(stage);
     try {
       for (const [path, content] of Object.entries(files)) { const to = join(stage, path); mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, content); }
-      return await this.install(name, stage);
+      return await this.install(name, stage, options);
     } finally { rmSync(stage, { recursive: true, force: true }); }
   }
-  private async install(name: string, stage: string) {
+  private async install(name: string, stage: string, options = { compile: true, rejectErrors: false }) {
+    if (options.compile) await this.compile(name, stage, options.rejectErrors);
+    if (options.rejectErrors && artifactFiles(stage).reduce((bytes, path) => bytes + lstatSync(join(stage, path)).size, 0) > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes after compilation.`);
     const folder = join(this.live, name), previous = `${stage}.previous`;
     if (existsSync(folder)) {
       if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
@@ -103,8 +152,23 @@ export class ArtifactStore {
     try { renameSync(stage, folder); }
     catch (error) { if (existsSync(previous)) renameSync(previous, folder); throw error; }
     rmSync(previous, { recursive: true, force: true });
-    await this.compile(name);
     return this.info(name);
+  }
+  private async snapshot(name: string) {
+    const info = this.info(name), dir = join(this.root, "snapshots", name);
+    mkdirSync(dir, { recursive: true });
+    if (info.bytes > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes.`);
+    const sequence = join(this.root, "sequences", name);
+    mkdirSync(dirname(sequence), { recursive: true });
+    const version = (existsSync(sequence) ? Number(readFileSync(sequence, "utf8")) : 0) + 1;
+    writeFileSync(sequence, String(version));
+    const target = join(dir, String(version));
+    cpSync(join(this.live, name), join(target, "files"), { recursive: true });
+    const hash = new Bun.CryptoHasher("sha256");
+    for (const file of artifactFiles(join(target, "files"))) hash.update(file + "\0").update(readFileSync(join(target, "files", file)));
+    const result = { ...this.info(`${name}@${version}`), hash: hash.digest("hex"), at: new Date().toISOString() };
+    writeFileSync(join(target, "meta.json"), JSON.stringify(result));
+    return result;
   }
   async request(request: ArtifactRequest, workspace?: string): Promise<unknown> {
     this.prepare();
@@ -140,24 +204,7 @@ export class ArtifactStore {
         const dir = join(this.root, "snapshots", artifactName(request.name));
         return { versions: existsSync(dir) ? readdirSync(dir).map(n => JSON.parse(readFileSync(join(dir, n, "meta.json"), "utf8"))).sort((a,b) => a.version - b.version) : [] };
       }
-      case "artifacts.snapshot": {
-        const name = artifactName(request.name);
-        await this.compile(name);
-        const info = this.info(name), dir = join(this.root, "snapshots", name);
-        mkdirSync(dir, { recursive: true });
-        if (info.bytes > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes.`);
-        const sequence = join(this.root, "sequences", name);
-        mkdirSync(dirname(sequence), { recursive: true });
-        const version = (existsSync(sequence) ? Number(readFileSync(sequence, "utf8")) : 0) + 1;
-        writeFileSync(sequence, String(version));
-        const target = join(dir, String(version));
-        cpSync(join(this.live, name), join(target, "files"), { recursive: true });
-        const hash = new Bun.CryptoHasher("sha256");
-        for (const file of artifactFiles(join(target, "files"))) hash.update(file + "\0").update(readFileSync(join(target, "files", file)));
-        const result = { ...this.info(`${name}@${version}`), hash: hash.digest("hex"), at: new Date().toISOString() };
-        writeFileSync(join(target, "meta.json"), JSON.stringify(result));
-        return result;
-      }
+      case "artifacts.snapshot": return this.snapshot(artifactName(request.name));
       case "artifacts.rm": {
         const info = this.info(request.name);
         rmSync(info.version ? join(this.root, "snapshots", info.name, String(info.version)) : join(this.live, info.name), { recursive: true });
