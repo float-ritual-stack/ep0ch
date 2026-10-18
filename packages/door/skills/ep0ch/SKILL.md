@@ -285,7 +285,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
   answers what it lists (every tile on every screen and in the drawer with its depth in the tree, notes from the one
   search, actions with their keys, what changed, screens, an extension's rows) and opens nothing; `bar.pick n=… query=…`
   picks as you, through the row's own path and its rules (a tile on a screen not shown is refused). While the person's
-  bar is open (`peek`'s `bar`), they're busy: don't wait on them, and never close it (`bar.close` is theirs).
+  bar is open (`peek`'s `bar`), they're busy: don't wait on them, and never close it (`bar.close` is theirs). An action
+  that takes arguments opens a form there for the person (PIE-1031); you read the same fields with
+  `bar.form op=open action=<name>` (each one's `kind`, `choices`, `default`), or `ep0ch actions`, and run the action yourself.
 - **Who can reach what** (PIE-1034): `mcp.access.matrix` reads which MCP caller (a named path such as `gpty`, a client
   such as `claude-code@float-2`) can reach which outline of this door's machine: the effective level (the lower of the
   outline's grant and the caller's cap) with why, and each caller's calls in the last 7 days. `access.open` shows the

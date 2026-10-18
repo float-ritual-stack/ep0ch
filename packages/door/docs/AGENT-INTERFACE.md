@@ -56,7 +56,7 @@ itself).
 | `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) and `person`: where the person is (`focus`, `typingIn`, `busy`, `why`, `keys`, `idle` ms, `away`), the answer every agent rule reads | `ep0ch peek` |
 | `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent, written under the door's state (`path` relative to it, or inside it; default `screen.png`); anywhere else is refused | `ep0ch snap` |
 | `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
-| `{"cmd":"actions"}` | every action the current screen takes, with its arguments, keys and examples (`examples`: act lines and what each does) | `ep0ch actions`; one action's page: `ep0ch actions --doc <name>` |
+| `{"cmd":"actions"}` | every action the current screen takes, with its arguments, keys and examples (`examples`: act lines and what each does); an argument says the kind of thing it names (`kind`: `tile`, `note`, `page`, `screen`, `view`, `key`, `value` of the argument `of` names, `tile-kind`) and its `choices` when they're a fixed list (PIE-1031) | `ep0ch actions`; one action's page: `ep0ch actions --doc <name>` |
 | `{"cmd":"act","action":"…","args":{…},"tile":"<tile>","as":"<actor id>"}` | the action's result | `ep0ch act <action> k=v … tile=<tile> [--as id]` (`--tile` works too) |
 | `{"cmd":"act","action":"open","args":{"id":"<block>","from":"<tile>"},"as":"<actor id>"}` | puts a block in front of the person (the `open` action: there is one way) | `ep0ch open <id> [from=<tile>] [--as id]` (`act open id=<id>`) |
 | `{"cmd":"act","action":"open","args":{"file":"<absolute path>","diff":true},"as":"<actor id>"}` | a file on this machine where an agent's open lands (PIE-602): Markdown drawn as the preview draws a file, any other file through the file Resource reader, `diff=true` its changes (git's diff against its last commit, else against `against=<copy>`) | `ep0ch open file:<path> [diff=true] [against=<copy>] [--as id]` |
@@ -334,9 +334,10 @@ own; it never touches the person's.
 |---|---|---|---|
 | `bar.open` | `query`, `scope` (`tiles` `notes` `actions` `recent` `screens`, an extension's `ext.<id>.<source>`, or a prefix) | `ctrl+k`, `cmd+k`, a click on the status bar's `^K`; `/` and a river column's `g` (the notes scope) | an agent's answers the rows (`n`, `source`, `key`, `label`, `detail`, `depth`, `group`, `keycap`, `refused`) and the scopes, and opens nothing |
 | `bar.pick` | `n`, `alt`; an agent's `query`, `scope` | `⏎`, a double click; `alt+⏎`, an alt- or ctrl-click | an agent's lists for itself and picks as itself, through the row's own path (`tile.focus`, `open`, the action, `extensions.act`, a copy returned): a tile on a screen not shown is refused, a note lands where an agent's opens land |
+| `bar.form` | `op` (`open` `focus` `set` `clear` `back` `copy` `run`), `action` or `line` (op=open), `field`, `value` | `⏎` on an action that takes arguments; in the form `⏎`, `alt+⏎`, `shift+tab`, backspace on an empty line, a click on a field or the act line | an agent's `op=open` answers the fields (name, about, `kind`, `choices`, `default`, `required`, `selector` for `tile=`, the value its `line=` gave) and the examples, and opens nothing; the other ops are the person's form (refused): run the action itself |
 | `bar.close` | | `esc`, a click outside | the person's only |
 
-`peek` has `bar` (scope, query, selected, rows) while the person's is open; the person is busy then, so an agent's move
+`peek` has `bar` (scope, query, selected, rows, and `form`: its action, fields, focus and act line, PIE-1031) while the person's is open; the person is busy then, so an agent's move
 of their screen waits.
 
 ### Program status: what waits on the person (PIE-614)

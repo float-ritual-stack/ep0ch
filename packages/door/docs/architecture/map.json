@@ -758,7 +758,7 @@
       "refs": [
         { "r": "door", "p": "src/socket.ts", "l": 840, "m": "searchBlocks(text: string" },
         { "r": "door", "p": "src/surface/completer.ts", "l": 129, "m": "export async function lookupCompletion" },
-        { "r": "door", "p": "src/bar/sources.ts", "l": 131, "m": "const NOTES" },
+        { "r": "door", "p": "src/bar/sources.ts", "l": 147, "m": "const NOTES" },
         { "r": "door", "p": "src/river/column.ts", "l": 74, "m": "export function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
@@ -941,12 +941,14 @@
     {
       "id": "door.bar", "name": "The power bar", "group": "door", "chapter": "actions", "ladder": "provisional", "dependsOn": ["door.dispatch", "door.search", "door.desk"],
       "does": "One palette over every screen (PIE-656): ctrl+k, the status bar's ^K, the desk's / and the river's g open it. A list on the left, what the lit row is on the right, scopes along the top: tiles (%), notes (/), actions (>), recent (+), screens (@). An extension adds scopes.",
-      "built": "PowerBar is a list picker the App holds over whatever screen is shown, taking every key while open. It owns no list: each scope is a BarSource (sources.ts), asking the layout tree, the service's one search, the dispatcher's actions, the what-changed store and the screen list, and a pick goes through the shared paths. bar.open, bar.pick and bar.close are actions; an agent's pick runs as the agent and never touches the person's bar.",
+      "built": "PowerBar is a list picker the App holds over whatever screen is shown, taking every key while open. It owns no list: each scope is a BarSource (sources.ts), asking the layout tree, the service's one search, the dispatcher's actions, the what-changed store and the screen list, and a pick goes through the shared paths. bar.open, bar.pick and bar.close are actions; an agent's pick runs as the agent and never touches the person's bar. An action that takes arguments opens its form (PIE-1031): its ArgSpecs as fields in the one action-argument prompt (askInBar, the ask scope), each field's values from its kind (arg-kinds.ts, a registry like the sources) or its choices, the act line under them, moved and run by bar.form.",
       "refs": [
-        { "r": "door", "p": "src/bar/bar.ts", "l": 47, "m": "export class PowerBar" },
-        { "r": "door", "p": "src/bar/source.ts", "l": 54, "m": "export interface BarSource" },
-        { "r": "door", "p": "src/bar/sources.ts", "l": 361, "m": "export const BUILT_IN_SOURCES" },
-        { "r": "door", "p": "src/bar/actions.ts", "l": 29, "m": "export const BAR_ACTIONS" }
+        { "r": "door", "p": "src/bar/bar.ts", "l": 48, "m": "export class PowerBar" },
+        { "r": "door", "p": "src/bar/source.ts", "l": 56, "m": "export interface BarSource" },
+        { "r": "door", "p": "src/bar/sources.ts", "l": 393, "m": "export const BUILT_IN_SOURCES" },
+        { "r": "door", "p": "src/bar/actions.ts", "l": 46, "m": "export const BAR_ACTIONS" },
+        { "r": "door", "p": "src/bar/form.ts", "l": 69, "m": "export async function openActionForm" },
+        { "r": "door", "p": "src/bar/arg-kinds.ts", "l": 22, "m": "export function registerArgKind" }
       ]
     },
     {
