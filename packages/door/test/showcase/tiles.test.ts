@@ -53,6 +53,29 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     await until(() => d.layoutGet().tiles.length === count + 1, "alt-open's new reader");
     expect(d.pane("detail").msg.id).toBe(seeded.notes.root.id);
     expect(d.layoutGet().tiles.some((t: any) => t.name !== "detail" && t.kind === "reader" && t.showing?.id === seeded.notes.shed.id)).toBe(true);
+    const firstAlt = d.layoutGet().tiles.find((t: any) => t.kind === "reader" && t.name !== "detail" && t.name !== "tree-preview").name;
+    d.build(d.saved(), true);
+    for (const note of [seeded.notes.root, seeded.notes.notebook, seeded.notes.shed, seeded.notes.root]) {
+      await act("tree.pick", { id: note.id, fresh: true });
+    }
+    const pile = d.layoutGet().tiles.filter((t: any) => t.kind === "reader" && t.name !== "detail" && t.name !== "tree-preview");
+    expect(pile.length).toBe(5);
+    expect(pile.find((t: any) => t.name === firstAlt).collapsed).toBe(true);
+    const back = pile.find((t: any) => t.collapsed);
+    expect(back.showing.id).toBe(seeded.notes.shed.id);
+    await act("tile.collapse", { on: false }, back.name);
+    expect(d.pane(back.name).msg.id).toBe(seeded.notes.shed.id);
+    screen();
+    expect(d.layoutGet().tiles.find((t: any) => t.name === back.name).rect.cols).toBeGreaterThanOrEqual(48);
+    await act("reader.mode", { mode: "held" }, back.name);
+    await act("tree.pick", { id: seeded.notes.notebook.id, fresh: true });
+    expect(d.layoutGet().tiles.find((t: any) => t.name === back.name).collapsed).not.toBe(true);
+    await act("tile.link", { verb: "alt", rule: "tab", to: "detail" });
+    d.build(d.saved(), true);
+    const tabsBefore = d.layoutGet().tiles.length;
+    await act("tree.pick", { id: seeded.notes.notebook.id, fresh: true });
+    expect(d.layoutGet().tiles.length).toBe(tabsBefore + 1);
+    expect(d.tileOutline().find((t: any) => t.name === "detail")).toMatchObject({ tab: true, shown: false });
     await act("tile.link", { verb: "select" });
     await act("tree.pick", { id: seeded.notes.shed.id });
     await until(() => d.pane("detail").msg?.id === seeded.notes.shed.id, "without select targets the current note follows the tree");

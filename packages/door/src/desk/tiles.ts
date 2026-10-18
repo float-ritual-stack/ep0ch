@@ -61,7 +61,8 @@ export interface TileSpec {
   /** A mount's own layout, as its desk saves it (a group's whole tree): the mount comes back as it was, never as its full screen was. */
   inner?: unknown;
   /** Where this tile's opens land: another tile's name (PIE-473). */
-  wires?: { verb: "select" | "open" | "alt"; to: string }[];
+  altReader?: boolean;
+  wires?: { verb: "select" | "open" | "alt"; to: string; rule?: import("./layout").AltRule }[];
   selectFrom?: string;
   link?: string;
   /** What that link does when it isn't the kind's default (PIE-646): `preview` follows the source's selection too, `target` is only opened into. */

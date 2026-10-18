@@ -349,20 +349,21 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(row()).toEqual(["preview", "detail1", "detail2", "detail3"]);
     expect(folded()).toEqual([]);
     expect(focus()).toBe("detail1");
-    // With the edit gone, the next one folds the earlier detail the person doesn't have.
+    // Slice 3 keeps what fits: detail1 has the person's keys, detail2 still fits open,
+    // and detail4 is newest, followed by detail3 as the back-one spine (not the old oldest-first fold).
     await act("edit.close", { discard: true }, "detail2");
     b.setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
-    expect(row()).toEqual(["preview", "detail1", "detail3", "detail4", "detail2"]);
-    expect(folded()).toContain("detail2");
-    expect(folded()).not.toContain("detail1");
-    expect(message()).toMatch(/folded .*detail2.* to (a spine|spines)/);
+    expect(row()).toEqual(["preview", "detail1", "detail2", "detail4", "detail3"]);
+    expect(folded()).toEqual(["detail3"]);
+    expect(focus()).toBe("detail1");
+    expect(message()).toMatch(/folded .*detail3.* to (a spine|spines)/);
     // The spine's × closes it without opening it (tile.close, as ^W x).
-    const x = () => { b.render(B().ctx); return (b as any).closeButtons.find((c: any) => c.id === (b as any).idNamed("detail2")); };
+    const x = () => { b.render(B().ctx); return (b as any).closeButtons.find((c: any) => c.id === (b as any).idNamed("detail3")); };
     const at = x();
     expect(at).toBeDefined();
     mouse("down", at.from, at.row); mouse("up", at.from, at.row);
-    await until(() => !row().includes("detail2"), "the spine closed by its ×");
-    expect(folded()).not.toContain("detail2");
+    await until(() => !row().includes("detail3"), "the spine closed by its ×");
+    expect(folded()).not.toContain("detail3");
   });
 
   test("interchangeable, subject to policy: a lane leaves the columns only once they let it; a desk tile goes beside them, not in", async () => {

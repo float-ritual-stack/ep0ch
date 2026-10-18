@@ -1,3 +1,4 @@
+import { ALT_RULES, type AltRule } from "./layout";
 // Tiles and layouts as actions (PIE-413, PIE-473, PIE-474): every change to the layout is one of these
 // commands. The desk's keys, its mouse drags and clicks, and the control socket (`ep0ch act`) are only
 // callers: a header dropped on a tile's centre runs `layout.move where=tabs`, `^W m l` runs
@@ -27,7 +28,7 @@ const PLACE: Record<string, string> = { left: "left of", right: "right of", up: 
 
 /** A tile as its menu reads it (`Desk.tileNow`): where it is now, and why a tile operation would be refused there. */
 export interface TileNow {
-  float: boolean; zoomed: boolean; collapsed: boolean; dock: boolean; inDrawer: boolean; flow: boolean; held: boolean;
+  altReader: boolean; float: boolean; zoomed: boolean; collapsed: boolean; dock: boolean; inDrawer: boolean; flow: boolean; held: boolean;
   /** A list held off its home (PIE-855): true or false where its kind can hold it, else null. */
   listHeld: boolean | null;
   /** A close in its container shuts its dock instead (the board's outline). */
@@ -70,13 +71,14 @@ const loadLayout = {
 } as const;
 
 /** What `layout.policy`'s arguments set and clear (the run applies it; `says` puts it in words). */
-function policyChange({ clear, accepts, opensInto, opens, host, agents, min, max, fixed, readable, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
+function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents, min, max, fixed, readable, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
   const set: Policy = {}, gone = (clear ?? "").split(",").map(x => x.trim()).filter(Boolean);
   for (const [k, v] of Object.entries(flags)) if (typeof v === "boolean") (set as Record<string, unknown>)[k] = v;
   for (const [k, v] of Object.entries({ min, max, fixed, readable })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
   if (accepts !== undefined) { const kinds = accepts.split(",").map(x => x.trim()).filter(Boolean); if (!kinds.length || (kinds.length === 1 && kinds[0] === "any")) gone.push("accepts"); else set.accepts = kinds; }
   if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
   if (opens !== undefined) { if (opens !== "current" && opens !== "next" && opens !== "beside") throw new ActionRefused(`layout.policy: opens is current, next or beside, not ${opens}`); set.opens = opens; }
+  if (altOpens !== undefined) { if (!ALT_RULES.includes(altOpens as AltRule)) throw new ActionRefused("layout.policy: altOpens is beside, tab, tile or first-unheld"); set.altOpens = altOpens as AltRule; }
   if (host !== undefined) { if (host !== "over" && host !== "beside" && host !== "none") throw new ActionRefused(`layout.policy: host is over, beside or none, not ${host}`); set.host = host; }
   if (agents !== undefined) { if (!isAgentLevel(agents)) throw new ActionRefused(`layout.policy: agents is free, edit or off, not ${agents}`); if (agents === "free") gone.push("agents"); else set.agents = agents; }
   return { set, gone };
@@ -97,6 +99,7 @@ const POLICY_ARGS = {
   overlay: { type: "boolean", optional: true, about: "a dock slides over (true) or takes its room while open (false)" },
   stays: { type: "boolean", optional: true, about: "an open dock stays open when the keys leave it" },
   locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
+  altOpens: { type: "string", optional: true, choices: ALT_RULES, about: "alt-open rule (default beside); alt readers keep what fits and older ones fold" },
   opensInto: { type: "string", optional: true, kind: "tile", about: "the tile its tiles' opens land in (empty clears)" },
   opens: { type: "string", optional: true, choices: ["current", "next"], about: "the open rule: current (the current note) or next (a new column after the tile's own, in a flow)" },
   agents: { type: "string", optional: true, choices: ["free", "edit", "off"], about: "what an agent may do to the tiles under it (free, edit, off; PIE-639): node=screen is the screen's default, a tile's own wins (tile.agent); free clears" },
@@ -251,6 +254,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {
       to: { type: "string", optional: true, kind: "tile", about: "target tile; absent removes this verb's wires" },
       verb: { type: "string", optional: true, choices: ["select", "open", "alt"], about: "select, open (default), alt" },
+      rule: { type: "string", optional: true, choices: ALT_RULES, about: "verb=alt: beside, tab, tile, first-unheld; to= names the target" },
       role: { type: "string", optional: true, choices: ["preview", "target"], about: "script shorthand: preview selects, target opens; verb takes precedence" },
       remove: { type: "boolean", optional: true, about: "remove only this target" },
     },
@@ -259,9 +263,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "tile.link tile=tree to=preview verb=select", does: "makes the preview show the tree's selection as it moves" },
       { act: "tile.link tile=tree verb=open", does: "takes the tree's open wires away, so its opens land where they did before" },
     ],
-    run({ to, verb, role, remove }, { d, reader }, actor) {
+    run({ to, verb, role, remove, rule }, { d, reader }, actor) {
       if (verb !== undefined && !(WIRE_VERBS as readonly string[]).includes(verb)) throw new ActionRefused(`tile.link: verb is select, open or alt, not ${verb}`);
-      return d.linkTile(reader, to, actor, (verb ?? (role === "preview" ? "select" : "open")) as WireVerb, remove);
+      if (rule !== undefined && (verb !== "alt" || !ALT_RULES.includes(rule as AltRule))) throw new ActionRefused("tile.link: rule needs verb=alt and beside, tab, tile or first-unheld");
+      if (rule && rule !== "first-unheld" && !to) throw new ActionRefused("tile.link: this alt rule needs to=<tile>");
+      return d.linkTile(reader, to, actor, (verb ?? (role === "preview" ? "select" : "open")) as WireVerb, remove, rule as AltRule | undefined);
     },
   }),
   "tile.focus": def({
@@ -337,13 +343,14 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.hold": def({
-    summary: "hold tile=<tile> (on=false lets it go; default toggles). A river column: its column stays full in its flow so it resists compression, the river's p; refused outside a flow and where its flow is locked. A #tag's list (PIE-855): it keeps its tag and stops being its reader's list, so the next tag opens a list of its own; its opens still land in that reader. Let go, it is the reader's list again, refused while another list is",
+    summary: "hold tile=<tile>: an alt reader leaves the pile and stays open. For a flow or list (on=false lets it go; default toggles). A river column: its column stays full in its flow so it resists compression, the river's p; refused outside a flow and where its flow is locked. A #tag's list (PIE-855): it keeps its tag and stops being its reader's list, so the next tag opens a list of its own; its opens still land in that reader. Let go, it is the reader's list again, refused while another list is",
     keys: "river column: p · a #tag's list: p, or a click on the ○ on its frame (● while held)",
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.held ? "held" : "let go of"} ${r.tile}`),
     menu: {
       label: "hold it full", group: TILE, key: "p",
       now: ({ d, reader }, _t, actor) => {
         const n = d.tileNow(reader, actor);
+        if (n.altReader) return { label: "keep this reader out of the pile" };
         if (n.listHeld !== null) return { label: n.listHeld ? "let it follow its reader's tags again" : "hold this list (a new tag opens its own)" };
         return !n.flow ? { hide: true } : n.held ? { label: "let it go" } : { refused: n.refused("hold") };
       },

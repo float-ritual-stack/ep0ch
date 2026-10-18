@@ -72,6 +72,7 @@ export interface Policy {
    * a pinned page, the brief).
    */
   opens?: OpenRule;
+  altOpens?: AltRule;
   /**
    * A screen's own (its outermost policy, PIE-513): where the host layer (the agent, the admin outline, terminals,
    * above every screen) may appear over it: `beside` it (the screen narrower), `over` it (a dock, the default),
@@ -87,8 +88,10 @@ export interface Policy {
 /** Where the host layer may appear over a screen. */
 export type HostMode = "beside" | "over" | "none";
 /** Where an open with no link lands: the current note, the next column of the flow it's in, or a reader beside it. */
+export type AltRule = "beside" | "tab" | "tile" | "first-unheld";
+export const ALT_RULES: readonly AltRule[] = ["beside", "tab", "tile", "first-unheld"];
 export type OpenRule = "current" | "next" | "beside";
-export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host", "readable", "shuts", "agents"] as const;
+export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents"] as const;
 /** The width a reader opened beside others still gets before earlier ones fold to spines, when no policy says (PIE-794). */
 export const READABLE = 48;
 
@@ -841,6 +844,7 @@ export interface Effective {
   agents: AgentLevel;
   /** The open rule: an open with no link lands as the current note, or in a new column after its own (a flow's). */
   opens: OpenRule;
+  altOpens: AltRule;
   /** Growth by room (PIE-794): the width a reader opened beside others still gets before earlier ones fold. */
   readable: number;
   /** Which layer said each: "screen", a container's id, or "kind". */
@@ -851,11 +855,12 @@ export interface Effective {
  * wins, and `locked` anywhere locks everything under it.
  */
 export function effective(layers: { by: string; policy?: Policy; flow?: boolean }[]): Effective {
-  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "current", readable: READABLE, by: {} };
+  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "current", altOpens: "beside", readable: READABLE, by: {} };
   for (const { by, policy: p, flow } of layers) {
     // A flow's own rule, when it says none: its tiles open into the next column.
     if (flow && !p?.opens) { out.opens = "next"; out.by.opens = by; }
     if (!p) continue;
+    if (p.altOpens) { out.altOpens = p.altOpens; out.by.altOpens = by; }
     if (p.opens) { out.opens = p.opens; out.by.opens = by; }
     if (p.locked) { out.locked = true; out.by.locked ??= by; }
     for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible"] as const) if (p[k] !== undefined) { out[k] = p[k]!; out.by[k] = by; }
@@ -983,6 +988,7 @@ export function policyOf(x: unknown): Policy {
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
   if (o.opens === "current" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
+  if (ALT_RULES.includes(o.altOpens as AltRule)) out.altOpens = o.altOpens as AltRule;
   if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;
   if (isAgentLevel(o.agents)) out.agents = o.agents;
   return out;
