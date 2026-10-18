@@ -3216,7 +3216,9 @@ export class OutlinerStore {
       linkSources: (blockId) => {
         let found = sources.get(blockId);
         if (!found) {
-          found = new Set(backlinkSourceIds(this.backlinkContextFromCurrentRead(), new Set([blockId])).get(blockId) ?? []);
+          // The candidate index (as `backlinkSources` reads it), never the whole outline's links: one `links:` atom
+          // over pie took a second that way, and a figure that asked it per row held the host for 57 s (PIE-1047).
+          found = new Set(backlinkSourceIds(this.backlinkContextFromCurrentRead([blockId]), new Set([blockId])).get(blockId) ?? []);
           sources.set(blockId, found);
         }
         return found;
@@ -3463,6 +3465,29 @@ export class OutlinerStore {
   /** The active sources for these targets, read through the reference candidate index in outline order. */
   backlinkSources(ids: readonly string[]): Map<string, string[]> {
     return this.database.transaction(() => backlinkSourceIds(this.backlinkContextFromCurrentRead(ids), new Set(ids))).deferred();
+  }
+
+  /**
+   * For each of `ids`, the notes the `links:` atom (the active notes linking to it, by the candidate index) and the
+   * `linkedfrom:` atom (the active notes it links to) would hold for, read once for all of them: what a question about
+   * other notes consults per row (site-producers' `unknowable`), never a whole-outline query per row (PIE-1047).
+   */
+  linkNeighbours(ids: readonly string[], which: { sources: boolean; targets: boolean }): Map<string, Set<string>> {
+    return this.database.transaction(() => {
+      const out = new Map<string, Set<string>>(ids.map(id => [id, new Set<string>()]));
+      if (!ids.length) return out;
+      if (which.sources) {
+        for (const [id, sources] of backlinkSourceIds(this.backlinkContextFromCurrentRead(ids), new Set(ids))) for (const source of sources) out.get(id)!.add(source);
+      }
+      if (which.targets) {
+        const context = this.backlinkContextFromCurrentRead();
+        for (const id of ids) {
+          const source = context.blocksById.get(id);
+          if (source) for (const target of linkTargetIds(context, source)) out.get(id)!.add(target);
+        }
+      }
+      return out;
+    }).deferred();
   }
 
   /** A target reads indexed candidates and their ancestors; whole-outline relation queries share the graph. */

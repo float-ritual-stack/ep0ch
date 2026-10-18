@@ -352,9 +352,17 @@ A client gives up on a request after 3 s. When requests time out while the host
 runs, its log says what held its one event loop (PIE-625): `loop_stalled` (the
 loop didn't get back to a timer for `ms`, with the requests that ran then,
 summed by action) and `slow_request` (one request's `queuedMs`, `handleMs` and
-`publishMs`). Under systemd: `journalctl --user -u outliner-host | grep -E
+`publishMs`, and what it was computing, PIE-1047: the `blockId` or `viewId` it named,
+a query's `where`, and for `site.answer` its `produce` kind, `figure`, `query` or
+`view`, `scriptLine`, `paths`, `hidden` count; a request that held the loop is named
+in the stall's `during` the same way, `site.answer ((eb90ffd7)) unknowable 53142`).
+Under systemd: `journalctl --user -u outliner-host | grep -E
 'loop_stalled|slow_request'`. A stall that names no request is something else on
-the loop: a SQLite lock wait, a start-up step.
+the loop: a SQLite lock wait, a start-up step. One `site.answer` has a time budget
+of 2 s (`src/site-budget.ts`): past it, it answers `problem.code: "still-counting"`
+and the reader draws "still counting" (the publisher's figures) or the error (the
+door's); the publisher answers a page the host didn't answer in time with 503 "The
+outline host is busy", and a publisher started while the host is busy waits for it.
 
 Bookmarks query, limit and summary columns are editable view preferences.
 They do not change bookmark ownership and must not prevent service startup.

@@ -139,3 +139,50 @@ export class Turns {
 export function actionOf(line: string): string | undefined {
   return /"action"\s*:\s*"([^"]{1,80})"/.exec(line)?.[1];
 }
+
+/** The most of a query or path a slow request's log line carries. */
+const SUBJECT_TEXT = 160;
+const clip = (text: string) => text.length > SUBJECT_TEXT ? `${text.slice(0, SUBJECT_TEXT)}…` : text;
+
+/**
+ * What a request was computing, for its `slow_request` line and its stall's `during` (PIE-1047): the note, view or
+ * block it names, and for `site.answer` the producer, figure kind, query or view, script line and paths it asked. A
+ * draft's or a write's text is never logged.
+ */
+export function requestSubject(request: unknown): Record<string, string | number | boolean> {
+  if (!request || typeof request !== "object") return {};
+  const r = request as Record<string, any>;
+  const out: Record<string, string | number | boolean> = {};
+  for (const key of ["blockId", "viewId", "parentId", "block"] as const) if (typeof r[key] === "string") out[key] = clip(r[key]);
+  if (typeof r.query?.where === "string") out.where = clip(r.query.where);
+  if (typeof r.query?.subtreeRootId === "string") out.subtreeRootId = r.query.subtreeRootId;
+  if (r.action !== "site.answer") return out;
+  const produce = r.produce;
+  if (produce && typeof produce === "object") {
+    out.produce = String(produce.kind);
+    if (typeof produce.figure === "string") out.figure = produce.figure;
+    const props = produce.props && typeof produce.props === "object" ? produce.props : {};
+    if (props.query !== undefined) out.query = clip(String(props.query));
+    if (props.view !== undefined) out.view = clip(String(props.view));
+    if (props.group !== undefined) out.group = clip(String(props.group));
+    if (Array.isArray(props.items)) out.items = props.items.length;
+    if (typeof produce.where === "string") out.where = clip(produce.where);
+    if (typeof produce.key === "string") out.key = clip(produce.key);
+    if (Array.isArray(produce.ids)) out.ids = produce.ids.length;
+  }
+  if (Number.isInteger(r.scriptLine)) out.scriptLine = r.scriptLine;
+  if (r.sources) out.sources = true;
+  if (Array.isArray(r.paths)) out.paths = clip(r.paths.map(String).join(" ; "));
+  if (r.interpolate) out.interpolate = true;
+  if (r.draft) out.draft = true;
+  if (Array.isArray(r.hidden)) out.hidden = r.hidden.length;
+  if (Array.isArray(r.chain) && r.chain.length) out.chain = r.chain.length;
+  return out;
+}
+
+/** A slow request's label in a stall's `during`: its action and the note and figure it was computing. */
+export function subjectLabel(action: string, subject: Record<string, string | number | boolean>): string {
+  const note = typeof subject.blockId === "string" ? ` ((${subject.blockId.slice(0, 8)}))` : typeof subject.viewId === "string" ? ` view ((${subject.viewId.slice(0, 8)}))` : "";
+  const what = subject.figure ? ` graph-${subject.figure}` : subject.produce ? ` ${subject.produce}` : subject.scriptLine !== undefined ? ` script line ${subject.scriptLine}` : subject.sources ? " sources" : "";
+  return `${action}${note}${what}`;
+}

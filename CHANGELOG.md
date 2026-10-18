@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A page's figure or view can no longer freeze the outline host; the publisher says "busy" instead of failing (PIE-1047, PIE-1009)
+
+On Oct 18 one published page held float-2's outline host for 57 s twice: the page's `thread:me` replies view asked
+which of its 50 rows the page may show, and the host read every note's links once per row (a `links:` atom over pie
+took a second on its own). Both are fixed: a `links:` atom reads the link index (about 20 ms instead of 950 ms on pie,
+so every figure, view and `::links` query with `links:` is faster), and the row check reads the links of every row
+at once (53 s to 22 ms on a copy of pie). One `site.answer` now has a 2 s budget: past it the answer stops and says
+"still counting", so no one note's computation can hold every outline. The host's `slow_request` log names the note,
+figure and query a request was computing. The publisher draws "still counting" in a figure the host couldn't answer
+in time, answers a page it couldn't read with 503 "The outline host is busy; try again in a moment" (the sign-in
+listener too, where my.ep0ch.sh said "could not be reached"), and a publisher started while the host is busy waits
+for it instead of exiting. Needs a protocol bump (the new `still-counting` problem code) and `ep0ch install --apply`.
+
 ### Claude replies: a bare `((id))` shows its note's title, and links out look different (PIE-1043)
 
 An unaliased `((id))` or `((id^anchor))` in a reply is drawn as the note's title (with `› anchor` for a fragment),

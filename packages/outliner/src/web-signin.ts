@@ -18,6 +18,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { WEB_SESSION_TTL_MS, type WebSession } from "@ep0ch/outline-core/protocol";
 import { allowedSubjects, ALLOWED_SUBJECTS_ENV, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
 import { escapeHtml, plainPage, redactSharePath, type SignedIn } from "./publish";
+import { hostBusy } from "./client";
 
 export const SESSION_COOKIE = "__Host-ep0ch_session";
 const PENDING_COOKIE = "__Host-ep0ch_signin";
@@ -206,6 +207,8 @@ export class SignInGate {
       return withGateHeaders(await this.options.serve(request, { sessionId, origin, stillSignedIn: () => this.stillSignedIn(sessionId) }), renewed);
     } catch (error) {
       this.log(redactSharePath(`web sign-in: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`));
+      // A busy host (a request it didn't answer in time, PIE-1047) is said as busy: it is running, and the page comes back.
+      if (hostBusy(error)) return withGateHeaders(plainPage("Busy", `<h1>The outline host is busy</h1>\n<p class="dim">Try again in a moment: this page will load once it has answered. If it stays busy, on the server: <code>journalctl --user -u outliner-host | grep slow_request | tail</code> names what it was computing.</p>\n`, 503));
       return withGateHeaders(plainPage("Not reachable", `<h1>The outline host could not be reached</h1>\n<p class="dim">Try again in a moment. On the server: <code>systemctl --user status outliner-host outliner-publish</code></p>\n`, 502));
     }
   }

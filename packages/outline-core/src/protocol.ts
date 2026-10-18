@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the checklist box grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms, the date reader), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 223;
+export const PROTOCOL = 224;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -201,7 +201,11 @@ export type { FieldRow, SiteAnswer, SiteAnswerRequest, SiteLink, SiteProblem, Si
 
 /** A query the service refused, with where. */
 export interface OutlinerRequestProblem {
-  code: "query-syntax" | "query-invalid";
+  /**
+   * `still-counting` (PIE-1047): the answer ran past the service's time budget for one request, so it stopped and went on
+   * to other requests; a reader draws "still counting" where the answer goes and asks again in a moment.
+   */
+  code: "query-syntax" | "query-invalid" | "still-counting";
   message: string;
   /** Query field that failed, such as where. */
   field?: string;

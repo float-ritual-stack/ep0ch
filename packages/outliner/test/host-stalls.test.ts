@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
 import { OutlinerClient } from "../src/client";
-import { actionOf, noteWork, Turns, watchEventLoop, type LoopStall } from "../src/loop-watch";
+import { actionOf, noteWork, requestSubject, subjectLabel, Turns, watchEventLoop, type LoopStall } from "../src/loop-watch";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, TreeIndexSnapshot } from "../src/types";
@@ -189,6 +189,19 @@ test("a loop stall is reported with the work that held it", async () => {
   expect(stalls[0]!.during).toEqual(["tree.index 70", "views.read 60 (2×)"]);
 });
 
+test("a slow site.answer is logged with the note, figure and query it computed, never a draft's text (PIE-1047)", () => {
+  const asked = requestSubject({
+    action: "site.answer", blockId: "eb90ffd7-0000-4000-8000-000000000001", hidden: ["a", "b"], draft: { text: "Private seed list" },
+    produce: { kind: "unknowable", ids: Array.from({ length: 50 }, (_, i) => `row-${i}`), where: "type=reply AND thread:me" },
+  });
+  expect(asked).toEqual({ blockId: "eb90ffd7-0000-4000-8000-000000000001", produce: "unknowable", where: "type=reply AND thread:me", ids: 50, hidden: 2, draft: true });
+  expect(JSON.stringify(asked)).not.toContain("Private seed list");
+  expect(subjectLabel("site.answer", asked)).toBe("site.answer ((eb90ffd7)) unknowable");
+  const figure = requestSubject({ action: "site.answer", blockId: "c0ffee00-0000-4000-8000-000000000002", produce: { kind: "figure", figure: "table", props: { query: "type=ticket" } } });
+  expect(subjectLabel("site.answer", figure)).toBe("site.answer ((c0ffee00)) graph-table");
+  expect(figure.query).toBe("type=ticket");
+});
+
 test.each(["backlinks", "records-1", "records-20", "draft.patch", "draft.patch-anchor"] as const)("%s in a 50,000-block outline leaves another outline responsive (PIE-1001)", async (action) => {
   const { root, store: seed, done } = scratch("backlink-latency");
   let store = seed;
@@ -267,3 +280,48 @@ test("tree index reuses unchanged labels in an outline with long notes (PIE-1001
     } finally { await server.close(); }
   } finally { done(); }
 }, 120_000);
+
+test("a page's question about 50 rows of a 5,000-note outline leaves another outline responsive (PIE-1047)", async () => {
+  // Oct 18: a published page asked which rows of a `thread:me` list it may show (`site.answer`'s `unknowable`); the
+  // service read every note's links once per row, and held the host for 57 s. It reads the link index once for all rows.
+  const { root, store, done } = scratch("unknowable-latency");
+  const smallStore = new OutlinerStore(join(root, "small.sqlite"));
+  const server = new OutlinerServer(store, join(root, "large.sock"));
+  const smallServer = new OutlinerServer(smallStore, join(root, "small.sock"));
+  try {
+    const page = store.create("Seed swap replies");
+    const hub = store.create("Seed library");
+    const rows = Array.from({ length: 50 }, (_, i) => store.create(`Reply ${i} about ((${hub.id})) [kind::row]`));
+    const locked = store.create(`Locked note about ((${rows[7]!.id}))`);
+    store.database.transaction(() => {
+      const insert = store.database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', ?, ?)");
+      for (let i = 0; i < 5_000; i++) {
+        const id = crypto.randomUUID();
+        const text = `Note ${i}\nSee ((${hub.id})) and [[Unclaimed page ${i % 100}]].`;
+        insert.run(id, i + 100, text, page.createdAt, page.createdAt);
+        replaceReferenceIndex(store.database, id, text);
+      }
+    })();
+    const small = smallStore.create("Small note");
+    const started = performance.now();
+    const asked = Promise.resolve().then(() => server.handleAsync({
+      id: "rows", action: "site.answer", blockId: page.id, hidden: [locked.id],
+      produce: { kind: "unknowable", ids: rows.map(row => row.id), where: "kind=row AND thread:me" },
+    } as never)).then(result => ({ result, ms: performance.now() - started }));
+    const read = new Promise<Awaited<ReturnType<typeof smallServer.handleAsync>>>(resolve => setImmediate(() => {
+      resolve(smallServer.handleAsync({ id: "read", action: "get", blockId: small.id }));
+    })).then(result => ({ result, ms: performance.now() - started }));
+    const [answer, note] = await Promise.all([asked, read]);
+    console.log(`PIE-1047: unknowable over 50 rows ${answer.ms.toFixed(1)} ms; second outline ${note.ms.toFixed(1)} ms`);
+    // Only the row the locked note links to can't be answered for.
+    expect(answer.result).toMatchObject({ ok: true, result: { produced: { kind: "unknowable", ids: [rows[7]!.id] } } });
+    expect(note.result).toMatchObject({ ok: true, result: { text: "Small note" } });
+    expect(answer.ms).toBeLessThan(100);
+    expect(note.ms).toBeLessThan(100);
+  } finally {
+    await server.close();
+    await smallServer.close();
+    smallStore.close();
+    done();
+  }
+}, 180_000);
