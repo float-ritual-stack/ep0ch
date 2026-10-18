@@ -1,5 +1,8 @@
+import { artifactResponse } from "../src/artifact-server";
+import { ArtifactStore } from "../src/artifact-store";
+import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -49,7 +52,7 @@ async function setup(options: { artifactCacheDirectory?: string | null } = {}) {
     writeFileSync(file, text);
     return file;
   };
-  return { root, workspace, store, get, write };
+  return { root, workspace, store, client, get, write, socket: paths.socket };
 }
 
 const HTML_WITH_CDN = `<!doctype html>
@@ -337,3 +340,175 @@ test("a bundle inlined in the page cannot close its script element", () => {
   expect(inlineScript('const tag = "</script><script>alert(1)</script>"; /<!--x/;'))
     .toBe('const tag = "<\\/script><script>alert(1)<\\/script>"; /<\\x21--x/;');
 });
+
+
+test("a named folder goes through the service and snapshots keep its earlier bytes", async () => {
+  const { root, store, client, get } = await setup();
+  const staticServer = Bun.serve({ port: 0, fetch: request => artifactResponse(join(root, ".artifacts"), request, "https://notes.example.test") });
+  const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
+  process.env.EP0CH_ARTIFACT_ORIGIN = staticServer.url.origin;
+  cleanups.push(() => { staticServer.stop(true); if (oldOrigin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = oldOrigin; });
+  const live = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "moth-site", files: { "index.html": '<h1>First night</h1><link rel="stylesheet" href="assets/theme.css">', "assets/theme.css": "body{color:purple}" } });
+  expect(await (await fetch(live.url!)).text()).toContain("First night");
+  const css = await fetch(new URL("assets/theme.css", live.url!));
+  expect(css.headers.get("content-type")).toContain("text/css");
+  expect(await css.text()).toBe("body{color:purple}");
+  const frozen = await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" });
+  expect(frozen.version).toBe(1);
+  await client.request({ action: "artifacts.put", name: "moth-site", files: { "index.html": "<h1>Second night</h1>" } });
+  expect(await (await fetch(live.url!)).text()).toContain("Second night");
+  expect(await (await fetch(frozen.url!)).text()).toContain("First night");
+  writeFileSync(join(root, ".artifacts/live/moth-site/index.html"), "Saved by sync");
+  expect(await (await fetch(live.url!)).text()).toBe("Saved by sync");
+  const response = await fetch(live.url!);
+  expect(response.headers.get("content-security-policy")).toContain("frame-ancestors https://notes.example.test");
+  expect(response.headers.get("set-cookie")).toBeNull();
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect((await fetch(new URL("assets/", live.url!))).status).toBe(404);
+  symlinkSync(join(root, "garden"), join(root, ".artifacts/live/moth-site/leak"));
+  expect((await fetch(new URL("leak/", live.url!))).status).toBe(404);
+  rmSync(join(root, ".artifacts/live/moth-site/leak"));
+  expect((await fetch(live.url!.replace(/\/[a-f0-9-]{36}\//, "/unknown/"))).status).toBe(404);
+  await expect(client.request({ action: "artifacts.put", name: "escape", files: { "../stolen.html": "bad" } })).rejects.toThrow("Unsafe artifact path");
+  const oldLimit = process.env.EP0CH_ARTIFACT_MAX_BYTES;
+  process.env.EP0CH_ARTIFACT_MAX_BYTES = "4";
+  try {
+    await expect(client.request({ action: "artifacts.put", name: "moth-site", files: { "index.html": "Too large" } })).rejects.toThrow("exceeds");
+    expect(await (await fetch(live.url!)).text()).toBe("Saved by sync");
+    await expect(client.request({ action: "artifacts.snapshot", name: "moth-site" })).rejects.toThrow("exceeds");
+  } finally { if (oldLimit === undefined) delete process.env.EP0CH_ARTIFACT_MAX_BYTES; else process.env.EP0CH_ARTIFACT_MAX_BYTES = oldLimit; }
+  const versions = await client.request<{ versions: { version: number; hash: string }[] }>({ action: "artifacts.versions", name: "moth-site" });
+  expect(versions.versions[0]?.hash).toMatch(/^[a-f0-9]{64}$/);
+  store.create("Moth exhibit [publish::moth-exhibit]\n[artifact::moth-site]");
+  const html = await (await get("/p/moth-exhibit?view=html")).text();
+  expect(html).toContain(`src="${live.url}"`);
+  expect(html.match(/<iframe[^>]*>/)?.[0]).not.toContain("sandbox");
+  await client.request({ action: "artifacts.rm", name: "moth-site@1" });
+  expect((await fetch(frozen.url!)).status).toBe(404);
+  expect((await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" })).version).toBe(2);
+});
+
+test("import refuses a symlink at the artifacts root and names its path", async () => {
+  const { root, workspace, client } = await setup();
+  const outside = join(root, "outside");
+  mkdirSync(outside);
+  writeFileSync(join(outside, "lantern.html"), "Outside the workspace");
+  const source = join(workspace, "artifacts");
+  symlinkSync(outside, source);
+  await expect(client.request({ action: "artifacts.import" })).rejects.toThrow(`Import refuses link ${source}`);
+  expect(existsSync(join(root, ".artifacts/live/lantern"))).toBe(false);
+});
+
+test("tar uploads count directory and empty file entries against the cap", async () => {
+  const { root, client } = await setup();
+  const source = join(root, "upload-source");
+  mkdirSync(join(source, "empty"), { recursive: true });
+  writeFileSync(join(source, "index.html"), "");
+  const tar = Bun.spawn(["tar", "--format=ustar", "-cf", "-", "-C", source, "empty", "index.html"], { stdout: "pipe", stderr: "pipe" });
+  const archive = await new Response(tar.stdout).arrayBuffer();
+  expect(await tar.exited).toBe(0);
+  const oldLimit = process.env.EP0CH_ARTIFACT_MAX_ENTRIES;
+  cleanups.push(() => {
+    if (oldLimit === undefined) delete process.env.EP0CH_ARTIFACT_MAX_ENTRIES;
+    else process.env.EP0CH_ARTIFACT_MAX_ENTRIES = oldLimit;
+  });
+  await client.request({ action: "artifacts.put", name: "lantern", files: { "index.html": "Earlier page" } });
+  const upload = async () => {
+    const { upload } = await client.request<{ upload: string }>({ action: "artifacts.upload.begin", name: "lantern" });
+    await client.request({ action: "artifacts.upload.chunk", upload, data: Buffer.from(archive).toString("base64") });
+    return client.request({ action: "artifacts.upload.finish", upload });
+  };
+  process.env.EP0CH_ARTIFACT_MAX_ENTRIES = "1";
+  await expect(upload()).rejects.toThrow(/2 entries.*1/);
+  expect(readFileSync(join(root, ".artifacts/live/lantern/index.html"), "utf8")).toBe("Earlier page");
+  expect(readdirSync(join(root, ".artifacts")).some(name => name.endsWith(".tar") || name.endsWith(".incoming"))).toBe(false);
+  process.env.EP0CH_ARTIFACT_MAX_ENTRIES = "2";
+  await upload();
+  expect(readFileSync(join(root, ".artifacts/live/lantern/index.html"), "utf8")).toBe("");
+});
+
+test("a direct put refuses compiled bytes over the cap and keeps the live page", async () => {
+  const { root, client } = await setup();
+  await client.request({ action: "artifacts.put", name: "lantern", files: { "index.html": "Earlier page" } });
+  const oldLimit = process.env.EP0CH_ARTIFACT_MAX_BYTES;
+  process.env.EP0CH_ARTIFACT_MAX_BYTES = "128";
+  cleanups.push(() => {
+    if (oldLimit === undefined) delete process.env.EP0CH_ARTIFACT_MAX_BYTES;
+    else process.env.EP0CH_ARTIFACT_MAX_BYTES = oldLimit;
+  });
+  await expect(client.request({ action: "artifacts.put", name: "lantern", files: {
+    "lantern.jsx": "export default () => <p>Lantern</p>",
+  } })).rejects.toThrow("exceeds 128 bytes after compilation");
+  expect(readFileSync(join(root, ".artifacts/live/lantern/index.html"), "utf8")).toBe("Earlier page");
+}, COMPILE_TIMEOUT);
+
+test("settled inbox drops become versions and receipts, while bad drops keep their source and reason", async () => {
+  const { root, client } = await setup();
+  const inbox = join(root, "dropbox");
+  const oldEnv = { ...process.env };
+  process.env.EP0CH_ARTIFACT_INBOX = inbox;
+  process.env.EP0CH_ARTIFACT_SETTLE_MS = "200";
+  const staticServer = Bun.serve({ port: 0, fetch: request => artifactResponse(join(root, ".artifacts"), request, "https://notes.example.test") });
+  process.env.EP0CH_ARTIFACT_ORIGIN = staticServer.url.origin;
+  cleanups.push(() => {
+    staticServer.stop(true);
+    for (const key of ["EP0CH_ARTIFACT_INBOX", "EP0CH_ARTIFACT_SETTLE_MS", "EP0CH_ARTIFACT_ORIGIN", "EP0CH_ARTIFACT_MAX_BYTES"]) {
+      if (oldEnv[key] === undefined) delete process.env[key]; else process.env[key] = oldEnv[key];
+    }
+  });
+  mkdirSync(inbox);
+  writeFileSync(join(inbox, "Moth Counter.jsx"), 'export default () => <p>First moth</p>');
+  const watcher = new ArtifactStore(root);
+  watcher.startWatcher(); cleanups.push(() => watcher.close());
+  mkdirSync(join(inbox, "garden"));
+  writeFileSync(join(inbox, "garden/index.html"), "Authored HTML");
+  writeFileSync(join(inbox, "garden/app.jsx"), "source shipped beside the built page");
+  mkdirSync(join(inbox, "source-bundle"));
+  writeFileSync(join(inbox, "source-bundle/app.jsx"), "source only, kept as given");
+  writeFileSync(join(inbox, "garden/.mutagen-temporary-asset"), "still syncing");
+  writeFileSync(join(inbox, "broken.jsx"), "export default () => <");
+  writeFileSync(join(inbox, ".mutagen-temporary-drop"), "still syncing");
+  await Bun.sleep(120);
+  writeFileSync(join(inbox, "garden/index.html"), "Settled HTML");
+  await Bun.sleep(120);
+  expect(existsSync(join(inbox, "garden/index.html"))).toBe(true);
+  const waitFor = async (ready: () => boolean) => {
+    const end = Date.now() + 30_000;
+    while (!ready()) { if (Date.now() > end) throw new Error("Inbox pickup did not finish"); await Bun.sleep(50); }
+  };
+  const receipts = join(inbox, "receipts.log");
+  await waitFor(() => existsSync(receipts) && readFileSync(receipts, "utf8").trim().split("\n").length === 3 && existsSync(join(inbox, ".failed/broken.jsx/reason.txt")));
+  for (const [name, content] of [["moth-counter", "First moth"], ["garden", "Settled HTML"]]) {
+    const info = await client.request<ArtifactInfo>({ action: "artifacts.show", name: `${name}@1` });
+    expect(await (await fetch(info.url!)).text()).toContain(content!);
+    expect(readFileSync(receipts, "utf8")).toContain(`\t${name}\t1\t${info.url}`);
+  }
+  expect(readFileSync(join(root, ".artifacts/live/source-bundle/app.jsx"), "utf8")).toBe("source only, kept as given");
+  expect(existsSync(join(root, ".artifacts/live/source-bundle/index.html"))).toBe(false);
+  expect(existsSync(join(root, ".artifacts/live/garden/.mutagen-temporary-asset"))).toBe(false);
+  expect(existsSync(join(inbox, "Moth Counter.jsx"))).toBe(false);
+  expect(existsSync(join(inbox, "garden"))).toBe(false);
+  expect(readFileSync(join(inbox, ".failed/broken.jsx/source/broken.jsx"), "utf8")).toBe("export default () => <");
+  expect(readFileSync(join(inbox, ".failed/broken.jsx/reason.txt"), "utf8")).toMatch(/compile|Unexpected|Expected/i);
+  expect(existsSync(join(inbox, ".mutagen-temporary-drop"))).toBe(true);
+  writeFileSync(join(inbox, "Moth Counter.jsx"), 'export default () => <p>Second moth</p>');
+  await waitFor(() => readFileSync(receipts, "utf8").trim().split("\n").length === 4);
+  const latest = await client.request<ArtifactInfo>({ action: "artifacts.show", name: "moth-counter" });
+  expect(await (await fetch(latest.url!)).text()).toContain("Second moth");
+  const pinned = await client.request<ArtifactInfo>({ action: "artifacts.show", name: "moth-counter@1" });
+  expect(await (await fetch(pinned.url!)).text()).toContain("First moth");
+  expect(readFileSync(receipts, "utf8")).toMatch(/\d{4}-\d{2}-\d{2}T[^\t]+\tmoth-counter\t2\t/);
+  process.env.EP0CH_ARTIFACT_MAX_BYTES = "32";
+  writeFileSync(join(inbox, "oversized.html"), "x".repeat(33));
+  writeFileSync(join(inbox, "reason.txt"), "unknown kind");
+  writeFileSync(join(inbox, "compiled.jsx"), "export default () => <p />");
+  for (const [entry, reason] of [["oversized.html", "exceeds"], ["reason.txt", "Unknown artifact kind"], ["compiled.jsx", "exceeds 32 bytes after compilation"]]) {
+    const failed = join(inbox, ".failed", entry!);
+    await waitFor(() => existsSync(join(failed, "reason.txt")));
+    expect(readFileSync(join(failed, "reason.txt"), "utf8")).toContain(reason!);
+    expect(readFileSync(join(failed, "source", entry!), "utf8")).toBe(entry === "reason.txt" ? "unknown kind" : entry === "compiled.jsx" ? "export default () => <p />" : "x".repeat(33));
+    expect(existsSync(join(inbox, entry!))).toBe(false);
+  }
+  expect(readFileSync(receipts, "utf8").trim().split("\n")).toHaveLength(4);
+
+}, COMPILE_TIMEOUT);

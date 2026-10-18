@@ -306,10 +306,10 @@ examples lean on:
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:196` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:714` |
-| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1953` |
+| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1965` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4226` |
-| `viaYolo` | `packages/outliner/src/server.ts:4249` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4250` |
+| `viaYolo` | `packages/outliner/src/server.ts:4273` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:327` |
 
 ## Lifecycle
@@ -332,7 +332,7 @@ examples lean on:
 | `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:205` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:186` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:255` |
-| `scripts.stop` | `packages/outliner/src/server.ts:1943` |
+| `scripts.stop` | `packages/outliner/src/server.ts:1955` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2464` |
 
 ## Traps

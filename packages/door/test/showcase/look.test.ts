@@ -6,7 +6,7 @@
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { osc52 } from "../../src/surface/selection";
 import { surfaceBg } from "../../src/style";
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +31,9 @@ import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
 
 describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, styles, images, callouts, titles", () => {
+  const origin = process.env.EP0CH_ARTIFACT_ORIGIN;
+  beforeAll(() => { process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test"; });
+  afterAll(() => { if (origin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = origin; });
   const h = useShowcaseScreen();
   const { scratch, written, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
@@ -637,47 +640,28 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   }, 30_000);
 
 
-  test("artifacts (PIE-793): each line a card; ⏎, a click on it or its [open ↗] opens it running on the note's web page, an agent given the address", async () => {
+  test("artifacts: live and pinned cards open the static URLs by key, mouse and agent action", async () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
-    const id = seeded.notes.artifacts.id;
     (app as any).lastInput = 0;
-    expect(await app.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" })).toMatchObject({ key: "artifacts" });
-    await until(() => screen().includes("Orbit lamp"), "the cards, the HTML one titled from its file (read through the service)", 8000);
-    // The files were copied into the outline's own folder, and the lines name them there.
-    const text = (await board.get(id))!.text;
-    expect(text).toContain("[artifact::artifacts/pulse-pad.jsx] [height::22] [alt::Pulse pad]");
-    expect(text).toContain("artifact:: artifacts/orbit-lamp.html");
+    await app.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" });
+    await until(() => screen().includes("Orbit lamp pinned"), "the live and snapshot cards", 8000);
     const list = (await app.act({ action: "images", as: "test-agent" }) as any).images;
-    expect(list.map((x: any) => [x.n, x.kind, x.path])).toEqual([[1, "artifact", "artifacts/pulse-pad.jsx"], [2, "artifact", "artifacts/orbit-lamp.html"]]);
-    // No publisher said where it is opened: refused, saying what to do.
-    await expect(app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/no web page yet.*\/artifact\/4 below the web client; set EP0CH_WEB_URL/);
-    // A publisher tells the service where it is opened (as `publish serve --url` does): its page is the note's, below it.
-    const sock = await Bun.connect({ unix: scratch.sock, socket: { data() {} } });
-    sock.write(JSON.stringify({ id: "pub", action: "events.subscribe", ...((board as any).outline ? { outline: (board as any).outline } : {}),
-      client: { clientId: "publish-showcase-test", role: "observer", contextId: "publish", publish: { url: "https://pub.example.invalid/pub" } } }) + "\n");
+    const live = await board.request<{ url: string }>("artifacts.show", { name: list[0].path });
+    const pinned = await board.request<{ url: string }>("artifacts.show", { name: list[1].path });
+    expect(pinned.url).toContain("showcase-orbit%401/");
+    expect(await app.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: pinned.url, launched: false });
+    const opened: string[][] = [], run = external.run;
+    external.run = cmd => { opened.push(cmd); };
     try {
-      const url = `https://pub.example.invalid/pub/p/${id}/artifact/8`;
-      for (let end = Date.now() + 5000; !(await board.noteAddress(id)).page; await Bun.sleep(30)) if (Date.now() > end) throw new Error("timed out waiting for the publisher's address");
-      // An agent is given the address; nothing opens on the person's screen.
-      expect(await app.act({ action: "artifact.open", args: { line: 9 }, as: "test-agent" })).toMatchObject({ outside: "browser", url, launched: false });
-      await expect(app.act({ action: "image.hero", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/an artifact, not an image/);
-      // The person: [ ] to the HTML card and ⏎, then a click on the React card's [open ↗]; each opens the browser.
-      const opened: string[][] = [], run = external.run;
-      external.run = cmd => { opened.push(cmd); };
-      try {
-        press({ kind: "enter" });
-        expect(S().focus).toBe("stage");
-        ch("]"); ch("]");
-        press({ kind: "enter" });
-        await until(() => opened.length === 1, "⏎ opened the lamp", 5000);
-        expect(opened[0]!.at(-1)).toBe(url);
-        const rows = sc.render(app).lines.map(plain);
-        const y = rows.findIndex(l => l.includes("Pulse pad") && l.includes("[open ↗]")), x = rows[y]!.indexOf("[open ↗]") + 2;
-        press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
-        await until(() => opened.length === 2, "a click on [open ↗] opened the pad", 5000);
-        expect(opened[1]!.at(-1)).toBe(`https://pub.example.invalid/pub/p/${id}/artifact/4`);
-      } finally { external.run = run; }
-    } finally { sock.end(); }
-    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+      press({ kind: "enter" }); ch("]"); ch("]"); press({ kind: "enter" });
+      await until(() => opened.length === 1, "Enter opened the snapshot", 5000);
+      expect(opened[0]!.at(-1)).toBe(pinned.url);
+      const rows = sc.render(app).lines.map(plain);
+      const y = rows.findIndex(l => l.includes("Orbit lamp") && !l.includes("pinned") && l.includes("[open ↗]")), x = rows[y]!.indexOf("[open ↗]") + 2;
+      press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => opened.length === 2, "Click opened the live folder", 5000);
+      expect(opened[1]!.at(-1)).toBe(live.url);
+    } finally { external.run = run; }
   }, 30_000);
+
 });

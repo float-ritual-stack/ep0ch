@@ -1,6 +1,5 @@
 // The showcase seed's media (split out of seed.ts): its notes' text and fixtures. Exported through ../seed.ts as before.
-import { copyFileSync, mkdirSync } from "node:fs";
-import { hostname } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type SocketBoard } from "../../socket";
 import { SEED } from "./names";
@@ -102,33 +101,22 @@ export const galleryCards = (dir = SHOWCASE_ASSETS) => [
 /** The artifacts section's files (PIE-793): fictional, made for it, a React one (Tone and Tailwind) and an HTML one (three r128). */
 export const SHOWCASE_ARTIFACTS = ["pulse-pad.jsx", "orbit-lamp.html"] as const;
 
-/**
- * Where the artifacts section's note names its files: `artifacts/` in the outline's own folder, where they're copied
- * when its host runs on this machine (as a downloaded claude.ai artifact is dropped there), else the showcase's assets.
- */
 export async function placeArtifacts(board: SocketBoard): Promise<string> {
-  const info = await board.info().catch(() => null);
-  if (!info?.workspace || info.host !== hostname()) return join(SHOWCASE_ASSETS, "artifacts");
-  const dir = join(info.workspace, "artifacts");
-  mkdirSync(dir, { recursive: true });
-  for (const f of SHOWCASE_ARTIFACTS) copyFileSync(join(SHOWCASE_ASSETS, "artifacts", f), join(dir, f));
-  return "artifacts";
+  await board.request("artifacts.put", { name: "showcase-orbit", files: { "index.html": readFileSync(join(SHOWCASE_ASSETS, "artifacts", "orbit-lamp.html"), "utf8") } });
+  const frozen = await board.request<{ version: number }>("artifacts.snapshot", { name: "showcase-orbit" });
+  return `showcase-orbit@${frozen.version}`;
 }
 
-/**
- * The artifacts section's note (PIE-793): two artifact lines, one in each form (`[artifact::path]` and floatty's
- * `artifact:: path`). Its web page runs them inline; the reader draws each as a card that opens it there.
- */
-export const artifactsText = (dir = "artifacts") => [
+export const artifactsText = (pinned = "showcase-orbit@1") => [
   SEED.artifacts,
   "",
-  "Two artifacts as claude.ai makes them, dropped in this outline's own folder (artifacts/) and pointed at. On the note's web page each runs inline, in a sandbox; here each is a card. ⏎ on one, or a click on its [open ↗], opens it running in the browser.",
+  "A live folder and a frozen snapshot, stored outside the outline. Drop a file or built folder in the synced inbox. Once settled, it becomes the next version and disappears from the inbox; receipts.log records its URL and .failed keeps rejected drops with a reason. Reload the live frame; the snapshot stays as it was. Enter or click [open ↗] to open the same static URL the web note frames.",
   "",
-  `[artifact::${dir}/pulse-pad.jsx] [height::22] [alt::Pulse pad]`,
+  "[artifact::showcase-orbit] [height::22] [alt::Orbit lamp]",
   "",
-  "The lamp below names its file the way floatty did; its title is the file's own <title>:",
+  "The snapshot is pinned by number:",
   "",
-  `artifact:: ${dir}/orbit-lamp.html`,
+  `artifact:: ${pinned} [alt::Orbit lamp pinned]`,
 ].join("\n");
 
 /**

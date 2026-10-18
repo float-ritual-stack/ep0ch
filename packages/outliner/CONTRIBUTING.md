@@ -192,6 +192,7 @@ source evidence or distinguish authored glyphs from controls.
 - `src/publish-reader-lease.ts` owns the bookmarklet's expiring, write-only leases and installation/demo page.
   `publish-reader.js` supplies its existing selection toolbar and composer; `publish-reader-style.ts` shares their
   CSS. Writes use `createBlockComment`, `pages.follow` and `notes.create`; the lease answers no outline reads.
+- `src/artifact-store.ts` owns live artifact folders, streamed puts, snapshots and the watcher; it reuses `publish-artifacts.ts` for compilation. `artifact-server.ts` serves static files on a separate origin without reading outlines or building. The CLI and MCP use the same `artifacts.*` service requests.
 - `src/publish.ts` is the read-only publisher (`outliner publish serve`): a
   client that finds `[publish::…]` blocks with `blocks.query`, resolves `[[page]]`
   links with `pages.resolve`, reads attached `[file::…]` content with

@@ -17,7 +17,8 @@ test("an artifact line (PIE-793): [artifact::path] or floatty's artifact:: path,
   expect(parseMediaLine("artifact:: ~/Downloads/orbit lamp.html [size::80%]")).toEqual({ kind: "artifact", path: "~/Downloads/orbit lamp.html", size: { percent: 80 }, problems: [] });
   expect(isMediaLine("[artifact::a.jsx] [type::note]")).toBe(false);
   expect(parseMediaLine("[artifact::a.jsx] [layout::hero]")!.problems).toEqual(["layout:: is an image's: an artifact takes size, height, align and alt"]);
-  expect(parseMediaLine("[artifact::notes.md]")!.problems).toEqual(["notes.md isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid)"]);
+  expect(parseMediaLine("[artifact::notes.md]")!.problems).toEqual([]);
+  expect(parseMediaLine("[artifact::moth-site@2]")!.problems).toEqual([]);
 });
 
 test("an artifact's kind and title: [alt::] first, then an HTML or SVG file's <title>, then its file's name", () => {

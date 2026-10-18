@@ -1,3 +1,4 @@
+import { isArtifactName } from "@ep0ch/outline-core/artifacts";
 import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-core/table-shape";
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
@@ -989,7 +990,7 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
 function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: DocEnv, line: number, ref: DocMedia, out: string[], edge: (row: number) => void) {
   const kind = facts.kind ? `${ARTIFACT_KIND_LABELS[facts.kind]} artifact` : "artifact";
   const name = env.printed ? spec.path : fileName(spec.path);
-  const open = env.image && facts.kind ? fg(C.cyan) + env.image(line, { open: true }, "[open ↗]") + RESET : "";
+  const open = env.image && (facts.kind || isArtifactName(spec.path)) ? fg(C.cyan) + env.image(line, { open: true }, "[open ↗]") + RESET : "";
   const said = [
     facts.state === "missing" ? `✗ can't read it: ${facts.reason ?? "missing"}` : facts.state === "reading" ? "◌ reading…" : "",
     ...spec.problems.map(p => `⚠ ${p}`),

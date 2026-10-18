@@ -1,3 +1,4 @@
+import { isArtifactName } from "./artifacts";
 // The media line (PIE-532): a note line that is only an image, video or artifact reference and its layout properties.
 // Shared so the service and every client agree on it: the reader draws it, the image actions rewrite it, and the
 // property parser never takes it for block metadata (an image right under a note's subject is content, PIE-598).
@@ -91,7 +92,7 @@ export function parseMediaLine(line: string): MediaSpec | null {
   if (media.length !== 1 || !media[0]!.value || t.toks.some(x => !MEDIA_KEY.test(x.key) && !ATTRS.has(x.key.toLowerCase()))) return null;
   const key = media[0]!.key.toLowerCase();
   const spec: MediaSpec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: media[0]!.value, problems: [] };
-  if (spec.kind === "artifact" && !artifactKind(spec.path)) spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
+  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path)) spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
   const seen = new Set<string>();
   for (const { key, value } of t.toks) {
     const k = key.toLowerCase(), v = value.trim().toLowerCase();

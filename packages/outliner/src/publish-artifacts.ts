@@ -50,6 +50,14 @@ const PACKAGE_ALIASES: Readonly<Record<string, string>> = {
 export const TAILWIND_PLAY_CDN = "https://cdn.tailwindcss.com/3.4.17";
 export const MERMAID_MODULE = "https://cdn.jsdelivr.net/npm/mermaid@11.12.0/dist/mermaid.esm.min.mjs";
 
+export const ARTIFACT_SCRIPT_SOURCES = [
+  TAILWIND_PLAY_CDN,
+  new URL(".", MERMAID_MODULE).href,
+  ...Object.entries(ARTIFACT_PACKAGES).map(([name, version]) => `https://cdn.jsdelivr.net/npm/${name}@${version}/`),
+  `https://cdnjs.cloudflare.com/ajax/libs/lodash.js/${ARTIFACT_PACKAGES.lodash}/`,
+  "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/",
+].join(" ");
+
 /** Changes to the build (options, entry) change this, so old cached bundles are not reused. */
 const COMPILER_REVISION = "2";
 /** A bundle larger than this is refused rather than served. */

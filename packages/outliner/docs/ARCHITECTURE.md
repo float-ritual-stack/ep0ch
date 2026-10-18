@@ -24,6 +24,17 @@ second client over the same outline: the everyday board, where Tree and Detail
 are the sysop console. It holds live drafts (see "Agent edits while someone
 types") and draws extension tiles; the service owns what both show.
 
+### Artifact files
+
+`artifacts.*` requests reach `ArtifactStore` through the existing outline service.
+One machine-wide `.artifacts/live/<name>/` tree accepts sync writes or streamed
+CLI tar uploads; snapshots and their hashes live outside that tree. Put and the
+watcher reuse `ArtifactCompiler` in `publish-artifacts.ts`. A separate read-only
+listener (`artifact-main.ts serve`) serves those static files on its own origin,
+without opening SQLite or compiling. Publisher frames and NoteSurface cards
+resolve names through `artifacts.show`; note visibility still belongs to the
+publisher. Setup and import are in the README's Artifacts section.
+
 ### Service
 
 The service is the outline host, [`src/host-main.ts`](../src/host-main.ts) over

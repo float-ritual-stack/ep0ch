@@ -5,9 +5,7 @@
 // path: the publisher reads the line again when it's asked (publish.ts `serveMedia`), so a URL can only reach an image a
 // shown note names.
 //
-// An artifact line (PIE-793, `[artifact::path]`) runs inline: a sandboxed frame of the artifact's own page
-// (`/p/<id>/artifact/<line>`, publish.ts `serveArtifact`, through the [file::] pipeline of publish-artifacts.ts), kept
-// dark until it draws, with a link that opens it on a page of its own.
+
 import { noteStructure } from "@ep0ch/outline-core/component-block";
 import { ARTIFACT_KIND_LABELS, artifactKind, fileName, parseMediaLine, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
@@ -74,20 +72,13 @@ export function mediaHtml(spec: MediaSpec, src: string | null, title?: string, c
     `${alt && caption ? `<figcaption>${escapeHtml(alt)}</figcaption>` : ""}</figure>`;
 }
 
-/** The permissions an artifact's frame runs with: claude.ai's, never this page's origin (no allow-same-origin). */
-export const ARTIFACT_SANDBOX = "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads";
 /** An artifact's frame height when its line gives none: a phone's screen, less the page around it. */
 const ARTIFACT_HEIGHT = "min(36rem,75vh)";
 
-/**
- * An artifact in its note (PIE-793): its own page in a sandboxed frame, as wide and tall as its line says (`height` in
- * rows, as an image's), dark behind until its page draws, its kind and title under it with a link to it on a page of its
- * own. One the page may not run (outside the publish roots, missing, not an artifact's kind) is a card with its words.
- */
 function artifactHtml(spec: MediaSpec, src: string | null, title: string): string {
   const kind = artifactKind(spec.path), label = kind ? ARTIFACT_KIND_LABELS[kind] : "artifact";
   const align = spec.align ?? "left";
-  if (!src || !kind) {
+  if (!src) {
     return `<figure class="media media-missing media-${align}"><span class="media-what">${escapeHtml(label)} artifact</span> ` +
       `${escapeHtml(title)}${title !== fileName(spec.path) ? ` <code>${escapeHtml(fileName(spec.path))}</code>` : ""}</figure>`;
   }
@@ -95,7 +86,7 @@ function artifactHtml(spec: MediaSpec, src: string | null, title: string): strin
   const w = width(spec);
   if (w) styles.push(`width:${w}`);
   return `<figure class="media artifact media-${align}"><div class="artifact-frame" style="${styles.join(";")}">` +
-    `<iframe src="${escapeHtml(src)}" title="${escapeHtml(title)}" sandbox="${ARTIFACT_SANDBOX}" allow="autoplay; fullscreen; clipboard-write" ` +
+    `<iframe src="${escapeHtml(src)}" title="${escapeHtml(title)}"  allow="autoplay; fullscreen; clipboard-write" ` +
     `loading="lazy" referrerpolicy="no-referrer"></iframe></div>` +
     `<figcaption><span class="media-what">${escapeHtml(label)}</span> ${escapeHtml(title)} · ` +
     `<a href="${escapeHtml(src)}" target="_blank" rel="noopener">open full page</a></figcaption></figure>`;
@@ -105,7 +96,7 @@ function artifactHtml(spec: MediaSpec, src: string | null, title: string): strin
 export function mediaMarkdown(spec: MediaSpec, src: string | null, title?: string): string {
   if (spec.kind === "artifact") {
     const kind = artifactKind(spec.path), what = `${kind ? ARTIFACT_KIND_LABELS[kind] : "an"} artifact: ${(title ?? fileName(spec.path)).replace(/[[\]\\*]/g, "")}`;
-    return src && kind ? `*${what}* ([open](${src}))` : `*${what}* \`${fileName(spec.path).replace(/`/g, "'")}\``;
+    return src ? `*${what}* ([open](${src}))` : `*${what}* \`${fileName(spec.path).replace(/`/g, "'")}\``;
   }
   const alt = (spec.alt ?? "").replace(/[[\]\\]/g, "");
   if (src && spec.kind === "img") return `![${alt}](${src})`;

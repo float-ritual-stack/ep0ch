@@ -112,7 +112,7 @@ export const marks: Record<string, string[]> = {
   // A note whose first block is a picture: scrolled, the header takes it as its background (PIE-598).
   hero: ["An evening on the plot", "▣ evening-beds.jpg", "hero-focus"],
   // Two artifacts as cards (PIE-793): the React one titled by its line, the HTML one by its own <title>.
-  artifacts: ["Toys on the desk", "◇ React artifact", "Pulse pad", "[open ↗]", "◇ HTML artifact", "Orbit lamp", "runs on its web page"],
+  artifacts: ["Toys on the desk", "◇ artifact", "[open ↗]", "Orbit lamp", "Orbit lamp pinned"],
   // The reader's header (PIE-657): the title in it, the dim line, the old header written out to compare.
   title: ["A title you can find", "Before:", "3 note detail · A title you can find"],
   // The Markdown figures on the left (a decision first), the keys read from the registry on the right.

@@ -1,0 +1,8 @@
+[Unit]
+Description=Compile synced ep0ch React artifacts
+
+[Service]
+ExecStart=%h/.bun/bin/bun %h/projects/ep0ch/packages/outliner/src/artifact-main.ts watch
+
+[Install]
+WantedBy=default.target

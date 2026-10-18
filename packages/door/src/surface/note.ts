@@ -1,3 +1,4 @@
+import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { outlineState } from "../state";
@@ -55,7 +56,7 @@ import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, u
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
 import { theme, type Rgb } from "../theme";
-import { ALIGNS, artifactPagePath, fileName, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, fileName, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { surfaceMix } from "../theme";
@@ -2054,7 +2055,7 @@ export class NoteSurface {
       callout: this.calloutHook(m, lines, points, drawn),
       image: this.imageHook(m, lines, drawn),
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
-      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: path => src.board.readFile(path), changed: () => src.redraw() }) } : {}),
+      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.folded, selected: this.foldSel },
       link: (block, x, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
@@ -5203,20 +5204,10 @@ export class NoteSurface {
     return { outside: where, url, launched: true };
   }
 
-  /**
-   * Open artifact `ref` running on its web page (PIE-793): the note's tailnet page (notes.address) and the line's
-   * artifact below it, in the person's browser; an agent is given the address (openOutside).
-   */
   async openArtifact(ref: ImageRef, host: SurfaceHost): Promise<Outside> {
-    const address = await host.ctx.board.noteAddress(ref.block).catch((e: Error) => { throw new ActionRefused(`couldn't ask where its page is: ${e.message}`); });
-    const page = address.page;
-    if (!page) {
-      const why = `it has no web page yet: the outline's publisher isn't running, or wasn't told where it is opened. Its path is ${artifactPagePath(ref.block, ref.line)} below the web client; set EP0CH_WEB_URL (the signed-in origin, e.g. https://my.ep0ch.sh) or OUTLINER_PUBLISH_URL (the tailnet listener's URL) for its \`publish serve\``;
-      host.ctx.flash(why);
-      throw new ActionRefused(why);
-    }
-    const base = page.slice(0, page.length - `/p/${ref.block}`.length);
-    return this.openOutside("browser", `${base}${artifactPagePath(ref.block, ref.line)}`, host);
+    const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    if (!artifact.url) throw new ActionRefused("Set EP0CH_ARTIFACT_ORIGIN on the outline host to the static artifact server's URL.");
+    return this.openOutside("browser", artifact.url, host);
   }
 
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
