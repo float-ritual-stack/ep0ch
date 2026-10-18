@@ -27,6 +27,7 @@ import {
   outlinerUriFor,
   outlinerUriOf,
 } from './references'
+import { replyBlocks, type ReplyBlock } from './reply-lines'
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
@@ -531,23 +532,56 @@ export function register(on: On, options: PluginOptions): void {
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const workspace = references?.workspace
     if (!workspace) return next(e)
-    const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes)
+    const titles = new Map<string, string>()
+    for (const id of new Set(e.props.text.match(WEB_BLOCK_IDS) ?? [])) {
+      const title = await titleFor($, id.toLowerCase())
+      if (title) titles.set(id.toLowerCase(), title)
+    }
+    const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id))
     if (hrefs.length === 0 || text.length > 10_000) return next(e)
-    const { Box, Text, Markdown } = await $.ui.resolve(e)
+    const { Box, Text, Markdown, Button } = await $.ui.resolve(e)
+    const open = (href: string, surface: RenderSurface) => void openReference($, workspace, href, surface)
+    // A terminal prints the address beside a link it cannot make a hyperlink of, so there the references are drawn
+    // here, as their labels (PIE-1042); the desktop draws the Markdown, whose links are real.
+    const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
+    const seen = new Map<string, number>()
+    const body = blocks.map((block, n) => {
+      if (block.kind === 'markdown') {
+        return Markdown(block.text === text
+          ? { key: 'outliner-references', text, pressableLinks: hrefs.slice(0, 256), onLinkPress: (link, press) => open(link.href, press.surface) }
+          : { text: block.text })
+      }
+      return Box({
+        key: `outliner-line-${n}`,
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        children: block.parts.flatMap((part, i) => {
+          if ('ref' in part) {
+            const count = (seen.get(part.ref) ?? 0) + 1
+            seen.set(part.ref, count)
+            return [Button({
+              key: count === 1 ? part.ref : `${part.ref}#${count}`,
+              plain: true,
+              onPress: press => open(part.ref, press.surface),
+              children: Text({ underline: true, color: 'suggestion', children: part.label }),
+            })]
+          }
+          return (part.text.match(/\S+\s*|\s+/g) ?? []).map((word, w) =>
+            Text({
+              key: `t${i}.${w}`,
+              bold: part.style === 'bold' || undefined,
+              italic: part.style === 'italic' || undefined,
+              color: part.style === 'code' ? 'permission' : undefined,
+              children: word,
+            }))
+        }),
+      })
+    })
     return Box({
       flexDirection: 'row',
       children: [
         Box({ width: 2, flexShrink: 0, children: Text({ children: e.props.isFirstOfReply ? '⏺' : '' }) }),
-        Box({
-          flexGrow: 1,
-          flexShrink: 1,
-          children: Markdown({
-            key: 'outliner-references',
-            text,
-            pressableLinks: hrefs.slice(0, 256),
-            onLinkPress: (link, press) => void openReference($, workspace, link.href, press.surface),
-          }),
-        }),
+        Box({ flexGrow: 1, flexShrink: 1, flexDirection: 'column', children: body }),
       ],
     })
   })
@@ -1754,6 +1788,29 @@ const askedTitles = new Set<string>()
 const drawnToolRows = new Set<string>()
 
 /**
+ * A block's title, from state; one not looked up yet is resolved through the CLI off the draw, once a session
+ * (the draw that asked draws again when it lands). Only in a folder bound to an outline.
+ */
+async function titleFor($: EngineInterface, id: string): Promise<string | undefined> {
+  const { value } = await $.state.get({ ...TOOL_TITLES, id })
+  const workspace = references?.workspace
+  if (value) return value
+  if (workspace && !askedTitles.has(id)) {
+    askedTitles.add(id)
+    $.clock.after(0, () => void runOutlinerCli($, workspace, ['agent', 'resolve', '--stdin'], JSON.stringify({ ref: id }))
+      .then(out => {
+        const title: unknown = JSON.parse(out)?.title
+        return typeof title === 'string' && title.trim() ? $.state.set({ ...TOOL_TITLES, id }, title.trim()) : undefined
+      })
+      .catch(() => {}))
+  }
+  return undefined
+}
+
+/** The block ids in `my.ep0ch.sh/pub/p/` addresses a reply writes: their titles are looked up before it is drawn. */
+const WEB_BLOCK_IDS = /(?<=my\.ep0ch\.sh\/pub\/p\/)[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g
+
+/**
  * The titles of the blocks a tool row names by id. Each is read from state (so
  * the row draws again when it lands); one not looked up yet is resolved through
  * the CLI off the draw, once a session. Only in a folder bound to an outline.
@@ -1762,17 +1819,8 @@ async function toolTitlesOf($: EngineInterface, view: { tool: string; input: unk
   const titles = new Map<string, string>()
   const workspace = references?.workspace
   for (const id of idsToTitle({ ...view, isRunning: false, isErrored: false, isInterrupted: false })) {
-    const { value } = await $.state.get({ ...TOOL_TITLES, id })
-    if (value) titles.set(id, value)
-    else if (workspace && !askedTitles.has(id)) {
-      askedTitles.add(id)
-      $.clock.after(0, () => void runOutlinerCli($, workspace, ['agent', 'resolve', '--stdin'], JSON.stringify({ ref: id }))
-        .then(out => {
-          const title: unknown = JSON.parse(out)?.title
-          return typeof title === 'string' && title.trim() ? $.state.set({ ...TOOL_TITLES, id }, title.trim()) : undefined
-        })
-        .catch(() => {}))
-    }
+    const title = await titleFor($, id)
+    if (title) titles.set(id, title)
   }
   return titles
 }

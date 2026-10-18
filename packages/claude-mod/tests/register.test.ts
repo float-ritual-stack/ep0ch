@@ -352,25 +352,35 @@ describe('register', () => {
     ])
   })
 
-  test('Outliner references in a reply are drawn as links; other replies are left to the engine', async ($, on) => {
+  test('Outliner references in a reply are drawn as their labels, never an address; other replies are left to the engine', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
     await session.begin(() => $.session.start(START))
 
-    const drawn = await $.ui.mount({
-      plugin: 'ep0ch',
-      surface: 'terminal',
-      component: 'AssistantMessage',
-      props: { text: 'Filed PIE-356 and OLD-2 beside `PIE-1`.', isFirstOfReply: true },
-    })
-    const markdown = await drawn.find({ key: 'outliner-references' })
-    expect(markdown?.props.text).toBe(
-      'Filed [PIE-356](https://pi-outliner.invalid/work/PIE-356) and ' +
-        '[OLD-2](https://pi-outliner.invalid/work/OLD-2) beside `PIE-1`.',
-    )
-    expect(markdown?.props.pressableLinks).toEqual([
-      'https://pi-outliner.invalid/work/PIE-356',
-      'https://pi-outliner.invalid/work/OLD-2',
-    ])
+    const drawn = await mountReply($, [
+      'Filed PIE-356 and OLD-2 beside `PIE-1`, then PIE-7.',
+      `Read https://my.ep0ch.sh/pub/p/PIE-8, https://my.ep0ch.sh/pub/p/Daily%20notes. and https://example.com/x.`,
+      'And [the ticket](https://my.ep0ch.sh/pub/p/PIE-9?x=1) or [more](https://example.com/more).',
+    ].join('\n'))
+    const shown = (await drawn.find({ type: 'Box' }))?.text ?? ''
+    expect(shown).not.toMatch(/pi-outliner\.invalid|my\.ep0ch\.sh/)
+    expect(shown).toContain('Filed PIE-356 and OLD-2 beside PIE-1, then PIE-7.')
+    expect(shown).toContain('Read PIE-8, Daily notes. and https://example.com/x.')
+    // A markdown link to another site is left as written; one to my.ep0ch.sh is its label.
+    expect(shown).toContain('And the ticket or [more](https://example.com/more).')
+    // Every reference is a pressable label; no line is left to Markdown, whose links would print their address.
+    for (const label of ['PIE-356', 'OLD-2', 'PIE-7', 'PIE-8', 'Daily notes', 'the ticket']) {
+      expect(await drawn.find({ type: 'Text', text: label })).toBeDefined()
+    }
+    expect(await drawn.find({ type: 'Markdown' })).toBeUndefined()
+
+    // A line with no reference stays the engine's Markdown.
+    const mixed = await mountReply($, 'Plain **line** first.\nThen PIE-3 here.')
+    expect((await mixed.find({ type: 'Markdown' }))?.props.text).toBe('Plain **line** first.')
+    expect(((await mixed.find({ type: 'Box' }))?.text ?? '')).not.toContain('pi-outliner.invalid')
+
+    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-8' })
+    await session.clock.settle()
+    expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-8'])
 
     const plain = await $.ui.mount({
       plugin: 'ep0ch',
@@ -387,7 +397,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See [[Daily notes]].')
 
-    await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/page/Daily%20notes' } })
+    await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
     await session.clock.settle()
 
     // The Outliner's own ensure-detail, from Claude's pane, in the session's workspace, never focusing.
@@ -411,7 +421,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } })
+    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
     await session.clock.settle()
 
     expect(herdrOpens(session.runs, 'ensure-detail')).toHaveLength(1)
@@ -429,7 +439,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } })
+    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
     await session.clock.settle()
 
     expect(herdrOpens(session.runs, 'ensure-detail')).toHaveLength(1)
@@ -443,7 +453,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } })
+    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
     await session.clock.settle()
 
     expect(session.runs.some(run => run.argv.includes('link'))).toBe(false)
@@ -468,7 +478,7 @@ describe('register', () => {
     const drawn = await mountReply($, 'See PIE-7.')
 
     await Promise.all([
-      drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } }),
+      drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' }),
       $.tool.call({ tool: 'mcp__ep0ch__show', reference: 'PIE-8' }),
     ])
     await session.clock.settle()
@@ -671,7 +681,7 @@ describe('register', () => {
       const opened = panesIn(on)
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
-      await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/page/Daily%20notes' } })
+      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
       await session.clock.settle()
       expect(opened[0]).toBe(DETAIL)
 
@@ -824,7 +834,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } })
+      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
       await session.clock.settle()
 
       const opened = doorOpenOf(session.runs)!
@@ -844,7 +854,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } })
+      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
       await session.clock.settle()
 
       expect(session.toasts).toEqual(['Could not open PIE-7 in the Outliner: right holds an edit; an agent never takes it'])
@@ -860,7 +870,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } })
+      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
       await session.clock.settle()
 
       // Not seated by the press (a door was named), but opened once the door didn't answer.

@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### References in Claude's replies show their label, never the address (PIE-1042)
+
+The Claude mod no longer prints `(https://pi-outliner.invalid/work/PIE-n)` after every reference in a terminal: the
+reference is its underlined label, and a press still opens it in the door. `https://my.ep0ch.sh/pub/p/...` links Claude
+writes are read as the same references. Reload the mod (`/reload-plugins`) in a running Claude.
+
 ### A tile's menu taller than the screen scrolls (PIE-1036)
 
 The wheel over a tile's ⋯ menu scrolls its rows (the cursor goes to a row in view, so ⏎ never runs one off the screen),
