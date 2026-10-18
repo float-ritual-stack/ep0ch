@@ -1,3 +1,4 @@
+import { subtitleOf } from "./block-record";
 /**
  * The one text matcher every search uses: Tree's Goto (`tree.search`),
  * `[[` completion (`pages.complete`), the backlink
@@ -58,7 +59,7 @@ export const SEARCH_MATCH_KINDS = [
 ] as const;
 export type SearchMatchKind = (typeof SEARCH_MATCH_KINDS)[number];
 
-export interface SearchDocument { id: string; title: string; text: string }
+export interface SearchDocument { id: string; title: string; text: string; subtitle?: string }
 export interface TextSearchMatch<T> {
   document: T;
   kind: SearchMatchKind;
@@ -217,18 +218,22 @@ function closest(q: SearchQuery, index: number, f: Field): number {
 
 // ── ranking ─────────────────────────────────────────────────────────────────────────────────────
 
+const searchSubtitle = searchMemo(text => subtitleOf({ text }));
+
 export function scoreSearchDocument<T extends SearchDocument>(document: T, q: SearchQuery): TextSearchMatch<T> | null {
   const title = document.title;
   const id = document.id.toLowerCase();
   if (id === q.raw) return { document, kind: "exact-id", score: 100_000, title, inTitle: 1 };
   if (q.raw.length >= 4 && id.startsWith(q.raw)) return { document, kind: "id-prefix", score: 90_000 + q.raw.length, title, inTitle: 1 };
 
-  const titleField = field(title), textField = field(document.text);
+  const subtitle = document.subtitle ?? searchSubtitle(document.text);
+  const titleField = field(subtitle ? `${title} ${subtitle}` : title), textField = field(document.text);
   const titleText = q.folded ? titleField.folded : searchNormalize(title);
   const bodyText = q.folded ? textField.folded : searchNormalize(document.text);
-  if (titleText === q.phrase) return { document, kind: "exact-title", score: 80_000, title, inTitle: 1 };
-  if (titleText.startsWith(q.phrase)) return { document, kind: "title-prefix", score: 70_000, title, inTitle: 1 };
-  if (titleText.includes(q.phrase)) return { document, kind: "title-contains", score: 60_000, title, inTitle: 1 };
+  const headings = [title, ...(subtitle ? [subtitle] : [])].map(t => q.folded ? field(t).folded : searchNormalize(t));
+  if (headings.some(t => t === q.phrase)) return { document, kind: "exact-title", score: 80_000, title, inTitle: 1 };
+  if (headings.some(t => t.startsWith(q.phrase))) return { document, kind: "title-prefix", score: 70_000, title, inTitle: 1 };
+  if (headings.some(t => t.includes(q.phrase))) return { document, kind: "title-contains", score: 60_000, title, inTitle: 1 };
   if (bodyText.includes(q.phrase)) return { document, kind: "text-contains", score: 50_000, title, inTitle: 0 };
 
   const n = q.terms.length;

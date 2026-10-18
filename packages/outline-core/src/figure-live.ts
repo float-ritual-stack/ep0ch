@@ -31,7 +31,7 @@ import { MACHINERY_MODES, type MachineryMode } from "./machinery";
 import type { QuestionGroup } from "./protocol";
 import { referencedBlock, pageAddressReferences, tryNormalizePageAddress } from "./link-syntax";
 import { isChecklistStatus, type ChecklistStatus } from "./checklist-marks";
-import { valueOf, type BlockRecord } from "./block-record";
+import { subtitleOf, valueOf, type BlockRecord } from "./block-record";
 import { addCell, dayOf, dayState, decisionState, isoOf, localDay, monthOf, today, uptimeDays, type Cells, type Props } from "./figure-props";
 
 /** One result as a live figure reads it: its note, its title and properties, and when it was made and changed. */
@@ -110,17 +110,17 @@ const date = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "
 
 /** A column of a live table, or a row's field (`title`, `updated`, `created`, `author`, or any property). */
 export function itemField(m: FigureItem, key: string): string {
-  return key === "title" ? m.title : key === "updated" ? date(m.updatedAt) : key === "created" ? date(m.createdAt)
+  return key === "subtitle" ? subtitleOf(m) ?? "" : key === "title" ? m.title : key === "updated" ? date(m.updatedAt) : key === "created" ? date(m.createdAt)
     : key === "author" ? m.author ?? "" : valueOf(m, key) ?? "";
 }
 
 /**
- * A table's props from results (a `::graph-table`, or one tab of a `::graph-tabs`): `columns:` (title and updated
+ * A table's props from results (a `::graph-table`, or one tab of a `::graph-tabs`): `columns:` (title, subtitle when present, and updated
  * when left out) as headers unless `headers:` names them, a row per result and its note's id, and which column is
  * the title (the one density wraps).
  */
 export function tableOf(p: Props, items: readonly FigureItem[]) {
-  const cols: string[] = p.columns ?? ["title", "updated"];
+  const cols: string[] = p.columns ?? ["title", ...(items.some(m => valueOf(m, "subtitle")) ? ["subtitle"] : []), "updated"];
   return { headers: p.headers ?? cols, rows: items.map(m => cols.map(c => itemField(m, c))), blocks: items.map(m => m.id), titleColumn: Math.max(0, cols.indexOf("title")) };
 }
 

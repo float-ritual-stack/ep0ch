@@ -1,3 +1,4 @@
+import { subtitleSuffix } from "../text";
 // The power bar (PIE-656): one palette over every screen, opened by ctrl+k (cmd+k where the terminal sends it), the
 // status bar's `^K`, the desk's `/` and the river's `g` (those two in its notes scope), and `act bar.open`. A list on
 // the left, what the lit row is on the right, scopes along the top.
@@ -322,6 +323,12 @@ export class PowerBar {
   private rowText(it: BarItem, on: boolean, w: number): string {
     const r = it.row, indent = "  ".repeat(Math.min(6, r.depth ?? 0)), cap = r.keycap ? ` ${keyCaption(r.keycap)} ` : "";
     const left = ` ${indent}${r.mark ? `${r.mark} ` : ""}${r.label}`, detail = r.refused ? `✕ ${r.refused}` : r.detail ?? "";
+    const subtitle = subtitleSuffix(left, r.subtitle, w - width(cap));
+    if (r.subtitle) {
+      const context = detail && width(left + subtitle) + width(detail) + 2 <= w - width(cap) ? fg(C.dark) + `  ${detail}` : "";
+      const text = left + subtitle + context;
+      return (on ? pickRow(text, true, w - width(cap)) : pad(fg(C.grey) + text, w - width(cap)) + RESET) + cap;
+    }
     const room = Math.max(1, w - width(cap)), lw = Math.min(width(left), Math.max(Math.floor(room * 0.6), room - width(detail) - 2));
     const rest = room - lw > 3 && detail ? `  ${detail}` : "";
     const capChip = cap ? chip(C.dark) + cap + RESET : "";

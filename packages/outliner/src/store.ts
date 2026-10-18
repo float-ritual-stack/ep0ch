@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
@@ -3693,7 +3694,7 @@ export class OutlinerStore {
       if (query?.trim()) {
         // No id: an address is found by what it says, never by the uuid of the note it names.
         // A title's letters scattered in order (`text-fuzzy`) are too loose for an address: the address's own are kept.
-        const matches = rankTextSearchMatches(rows.map(row => ({ id: "", title: row.display_address, text: `${row.display_address}\n${titleOf(row)}`, row })), query.trim())
+        const matches = rankTextSearchMatches(rows.map(row => ({ id: "", title: row.display_address, subtitle: subtitleOf(row), text: `${row.display_address}\n${titleOf(row)}`, row })), query.trim())
           .filter(match => match.kind !== "text-fuzzy");
         if (context) {
           const sorted = sortByContext(matches.map(match => ({ match, block: byId.get(match.document.row.block_id)!, kind: match.kind, inTitle: match.inTitle, edits: match.edits })).filter(entry => entry.block), context,
@@ -3716,7 +3717,7 @@ export class OutlinerStore {
         ranked = rows.map(row => ({ row, exact: false }));
       }
       return {
-        addresses: ranked.slice(0, limit).map(({ row, exact }) => ({ ...this.pageAddressRecord(row), title: titleOf(row), exact })),
+        addresses: ranked.slice(0, limit).map(({ row, exact }) => ({ ...this.pageAddressRecord(row), title: titleOf(row), subtitle: subtitleOf(row), exact })),
         completeness: ranked.length <= limit ? { kind: "complete" as const } : { kind: "truncated" as const, limit },
         ...(context ? { context: { blockId: context.block.id, ...context.note } } : {}),
       };

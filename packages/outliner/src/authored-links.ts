@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { createHash } from "node:crypto";
 import { isFragmentId, resolveFragment } from "./fragments";
 import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
@@ -73,6 +74,7 @@ export type AuthoredOutlinkResolution =
       readonly kind: "ready";
       readonly target: BlockTarget;
       readonly title: string;
+      readonly subtitle?: string;
       /** What the target is (its kind, stage and dates), for the links tile's filters and sort. */
       readonly facets?: LinkTargetFacets;
     }
@@ -354,7 +356,7 @@ function resolveOutlink(
       label: presentation(candidate.label ?? title),
       firstSpan: { start: candidate.start, end: candidate.end },
       occurrenceCount: 1,
-      resolution: { kind: "ready", target, title, facets: linkTargetFacets(block, (id) => source.get(id), source.facetRules?.()) },
+      resolution: { kind: "ready", target, title, subtitle: subtitleOf(block), facets: linkTargetFacets(block, (id) => source.get(id), source.facetRules?.()) },
     };
   }
 
@@ -387,7 +389,7 @@ function resolveOutlink(
       label: presentation(authoredLabel ?? candidate.address),
       firstSpan: { start: candidate.start, end: candidate.end },
       occurrenceCount: 1,
-      resolution: { kind: "ready", target, title, facets: linkTargetFacets(resolution.block, (id) => source.get(id), source.facetRules?.()) },
+      resolution: { kind: "ready", target, title, subtitle: subtitleOf(resolution.block), facets: linkTargetFacets(resolution.block, (id) => source.get(id), source.facetRules?.()) },
     };
   }
 
@@ -745,6 +747,7 @@ function decodeOutlink(value: unknown, index: number): AuthoredOutlink {
       kind: "ready",
       target: decodeBlockTarget(resolutionInput.target, `${label} target`),
       title: string(resolutionInput.title, `${label} title`, AUTHORED_LINKS_MAX_PRESENTATION_UNITS),
+      subtitle: resolutionInput.subtitle as string | undefined,
       ...(facets ? { facets } : {}),
     };
   } else if (resolutionInput.kind === "deleted") {

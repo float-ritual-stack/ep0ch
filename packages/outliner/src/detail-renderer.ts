@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { getProperty } from "./properties";
 import {renderHintRow, renderPaneBar, type ChromeLevel, type PaneBarButton} from "./reader-chrome";
@@ -173,7 +174,7 @@ function renderDetailMetadata(
   }
   const keys = options.propertyKeys ?? DEFAULT_PROPERTY_SUMMARY_KEYS;
   // The Work ID heads the title (PIE-809), not this line.
-  const segments = propertySummarySegments(state.context.selected?.properties ?? [], keys.filter((key) => key !== "work-id"));
+  const segments = propertySummarySegments(state.context.selected?.properties ?? [], keys.filter((key) => key !== "work-id" && key.toLowerCase() !== "subtitle"));
   while (
     segments.length > 1 &&
     visibleWidth(segments.map((segment) => segment.plain).join(" · ")) > width
@@ -223,12 +224,15 @@ export function renderDetailHeader(
   width: number,
   options: DetailHeaderOptions = {},
 ): string[] {
+  const subtitle = state.context?.selected ? subtitleOf(state.context.selected) : undefined;
+  const subRows = subtitle ? [`\x1b[2m${fitDynamicText(subtitle, width)}\x1b[0m`] : [];
   if (options.chrome === "compact") {
     const identity = sanitizeDynamicText(options.titleInFrame ? options.surface ?? "Current" : `${options.surface ?? "Current"} · ${detailTitle(state)}`);
     const rows = [renderPaneBar(width, identity, options.bar ?? [], "detail.menu.open").line];
     if (state.recoveryNotice) rows.push(fitToWidth(outlinerActionLink("detail.edit.recover", `Recovery needs attention · ${sanitizeDynamicText(state.recoveryNotice)}`), width));
     const attention = attentionBanner(state.attention, detailBlockTarget(state)?.blockId ?? null, width);
     if (attention) rows.push(attention);
+    rows.splice(1, 0, ...subRows);
     return rows;
   }
   const title = renderDetailTitle(
@@ -245,6 +249,7 @@ export function renderDetailHeader(
   const attention = attentionBanner(state.attention, detailBlockTarget(state)?.blockId ?? null, width);
   return [
     renderPaneBar(width, left, options.bar ?? [], "detail.menu.open").line,
+    ...subRows,
     state.recoveryNotice ? fitToWidth(outlinerActionLink("detail.edit.recover",`Recovery needs attention · ${sanitizeDynamicText(state.recoveryNotice)}`),width) : (state.recoveryCount ?? 0) > 0 ? fitToWidth(outlinerActionLink("detail.edit.recover",`Writing history · ${state.recoveryCount} draft${state.recoveryCount===1?"":"s"} · Alt+R`),width) : attention ?? renderDetailMetadata(state, width, options),
     options.destinationLabel === undefined ? `\x1b[2m${"─".repeat(width)}\x1b[0m`
       : outlinerActionLink("detail.navigation.link", alignHeaderControls(`Opens in: ${fitDynamicText(options.destinationLabel, width)}`, "/ Change", width)),

@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import {
   backlinkSourceFacets,
   DEFAULT_BACKLINK_FACET_RULES,
@@ -171,6 +172,7 @@ function backlinkSource(
   return {
     blockId: source.id,
     title: blockDisplayTitle(source),
+    subtitle: subtitleOf(source),
     parentContext: parentContext(source, blocksById),
     createdAt: source.createdAt,
     updatedAt: source.updatedAt,

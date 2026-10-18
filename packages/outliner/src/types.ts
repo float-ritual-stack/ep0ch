@@ -1283,6 +1283,7 @@ export interface PageAddressFollowResult extends PageAddressResolution {
 }
 
 export interface PageAddressMatch extends PageAddressRecord {
+  subtitle?: string;
   title: string;
 }
 
@@ -1703,6 +1704,7 @@ export interface TreeFocusCollection {
 }
 
 export interface GotoSearchMatch {
+  subtitle?: string;
   block: Pick<Block, "id" | "revision">;
   title: string;
   path: string;
@@ -1790,6 +1792,7 @@ export interface BacklinkSourceFacets {
 }
 
 export interface BacklinkSource {
+  subtitle?: string;
   blockId: string;
   title: string;
   parentContext: string;

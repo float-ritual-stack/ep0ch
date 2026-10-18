@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { rankBlockFocusMatches } from "./block-focus";
 import { type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
@@ -44,7 +45,7 @@ export function gotoCandidates(blocks: readonly Block[], query: string, options:
       const hit = terms.map(term => lower.indexOf(term)).filter(index => index >= 0).sort((a, b) => a - b)[0] ?? 0;
       const start = Math.max(0, hit - 160);
       return {
-        block: { id: block.id, revision: block.revision }, title: title.slice(0, 250),
+        block: { id: block.id, revision: block.revision }, title: title.slice(0, 250), subtitle: subtitleOf(block),
         path: ancestorPath(block, byId),
         snippet: block.text.slice(start, start + 1000),
         exact: kind === "exact-id" || kind === "exact-address" || kind === "id-prefix" || kind === "exact-title",

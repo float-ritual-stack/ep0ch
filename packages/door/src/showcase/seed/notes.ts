@@ -4,7 +4,7 @@ import { SHOWCASE_ASSETS } from "./media";
 
 export function notebookText(whiteboardId: string, kettleId: string, tapId: string): string {
   return [
-    `${SEED.notebook} [page::${SEED.notebook}]`,
+    `${SEED.notebook} [page::${SEED.notebook}] [subtitle::Growing together through the seasons]`,
     "[season::autumn] [plot::14b] [to::the plot committee] #allotment #beds",
     "",
     `Our plot at the Elm Row allotments. Links: [[${SEED.shed}]], ((${kettleId}|the kettle job)), and a soft link: ${WORK_PREFIX}-001 is the gate latch.`,

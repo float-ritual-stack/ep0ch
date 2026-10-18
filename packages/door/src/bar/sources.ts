@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The power bar's built-in sources (PIE-656), each a scope with its prefix: tiles (%), notes (/), actions (>),
 // recent (+) and screens (@). None keeps a list of its own: tiles are the layout tree's (`Desk.tileOutline`) on every
 // screen and in the drawer; notes are the service's one search (`board.search`, Goto's ranker, Jev re-ordering after
@@ -123,7 +124,7 @@ const TILES: BarSource = {
 };
 
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
-const noteRow = (m: Msg): BarRow => ({ key: m.id, label: noteLabel(m), fill: subject(m) });
+const noteRow = (m: Msg): BarRow => ({ key: m.id, label: noteLabel(m), subtitle: subtitleOf(m), fill: subject(m) });
 
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;

@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -1381,10 +1382,12 @@ export class NoteSurface {
         titled[titled.length - 1] = pad(styled + fg(C.yellow) + " [+]".repeat(wholeMarks.length) + RESET, w);
       }
     }
-    const first = (this.printed ? 1 : 2) + lines.length - 1;
+    const subtitle = subtitleOf(m);
+    const subRows = subtitle ? [fg(C.dark) + pad(printable(subtitle, " "), w) + RESET] : [];
+    const first = (this.printed ? 1 : 2) + lines.length - 1 + subRows.length;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
-    const rows = this.printed ? [...titled, ...metas, crumbs] : [crumbs, ...titled, ...metas];
+    const rows = this.printed ? [...titled, ...subRows, ...metas, crumbs] : [crumbs, ...titled, ...subRows, ...metas];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
     const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
     const sourcesChip = chipped && sourcesOn ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
@@ -2315,7 +2318,7 @@ export class NoteSurface {
    * linked value sits (columns from the line's start).
    */
   private summaryView(m: Msg, src: Source | null, rest: number = C.dark) {
-    const segs = summarySegments(m.properties ?? [], this.summary(m).keys);
+    const segs = summarySegments((m.properties ?? []).filter(p => p.key.toLowerCase() !== "subtitle"), this.summary(m).keys);
     const prefix = workIdPrefix(src) ?? null;
     const links: { from: number; to: number; link: Link; key: string }[] = [];
     let col = 0, line = "";

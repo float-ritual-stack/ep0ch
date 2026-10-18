@@ -4,7 +4,7 @@
 // what it read (the block, its parsed properties, children, tasks, links, backlinks, resources) and nothing here reads
 // anything. `recordJson` writes it deterministically: sorted keys, one timestamp format (ISO 8601, UTC, milliseconds).
 import { splitPropertyValue } from "./property-grammar";
-import type { PropertyScope } from "./property-parse";
+import { parsePropertyRecords, type PropertyScope } from "./property-parse";
 import { bodyOffset, headerLine, type LiteralRange } from "./header-line";
 
 export type TaskStatus = import("./checklist-marks").ChecklistStatus;
@@ -17,6 +17,7 @@ export interface BlockRecord {
   parent: string | null;
   /** The service's title (the first line without its properties). */
   title: string;
+  subtitle?: string;
   /** The header line's chips (header-line.ts), in order, keys as written: what a Markdown export puts in front matter. */
   header: { key: string; value: string }[];
   /** The text without its header chips: the header line's prose, then the rest verbatim. */
@@ -108,6 +109,12 @@ export function valuesOf(source: { properties?: readonly ({ key: string; values:
 /** The first value of `key` at block scope, or undefined. */
 export const valueOf = (source: Parameters<typeof valuesOf>[0], key: string): string | undefined => valuesOf(source, key)[0];
 
+/** A note's subtitle is its first block-scope subtitle property. */
+export function subtitleOf(source: { text?: string; properties?: Parameters<typeof valuesOf>[0]["properties"] }): string | undefined {
+  const property = (source.properties ?? parsePropertyRecords(source.text ?? "").filter(p => p.scope === "block")).find(p => p.key.toLowerCase() === "subtitle");
+  return property ? "values" in property ? property.values.join(", ") : property.value : undefined;
+}
+
 /** A timestamp in the record's one format: ISO 8601, UTC, milliseconds. */
 export const recordTime = (t: string | number) => new Date(t).toISOString();
 
@@ -120,6 +127,7 @@ export function blockRecord(input: BlockRecordInput): BlockRecord {
     id: block.id,
     parent: block.parentId,
     title: input.title,
+    subtitle: subtitleOf({ properties: input.properties.filter(p => p.scope === "block") }),
     header: h.chips.map(({ key, value }) => ({ key, value })),
     body: h.body,
     text: block.text,

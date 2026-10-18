@@ -32,6 +32,48 @@ describe.skipIf(!outliner)("the showcase screen: search", () => {
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("a subtitle finds the short title and prints beneath it", async () => {
+    const hits = await board.searchBlocks("Growing together through the seasons");
+    expect(hits.matches[0]).toMatchObject({ title: "Allotment notebook", exact: true });
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../../src/main.ts"), "show", seeded.notes.notebook.id, "--width", "90"], {
+      stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_SOCKET: scratch.sock, EP0CH_WS: scratch.name },
+    });
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    expect({ code, err }).toEqual({ code: 0, err: "" });
+    expect(out.split("\n").slice(0, 2).map(l => l.trim())).toEqual(["Allotment notebook", "Growing together through the seasons"]);
+    const record = (await board.records([seeded.notes.notebook.id])).records[0]!;
+    expect(record.subtitle).toBe("Growing together through the seasons");
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "search" }, as: "test-agent" });
+    screen();
+    const completion = await app.act({ action: "complete", args: { text: "((Growing together through the seasons" }, as: "test-agent" }) as any;
+    expect(completion.items[0].label).toBe("Allotment notebook");
+
+  }, 30_000);
+
+  test("subtitle rows, default figure columns and tile titles read the same note", async () => {
+    const note = await board.createBlock(null, "Orchard [subtitle::Apples, pears and plums] [patch::subtitle-demo]\nFruit trees.\n\n::backlinks");
+    const page = await board.createBlock(null, `Fruit guide [subtitle::Choosing trees for a small garden]\n((${note.id}))\n\n::outlinks\n\n::graph-table\n---\nquery: patch=subtitle-demo\n---\n::\n\n::graph-tabs\n---\nquery: patch=subtitle-demo\ngroup: patch\n---\n::`);
+    const show = async (width: number, id = page.id) => {
+      const p = Bun.spawn(["bun", join(import.meta.dir, "../../src/main.ts"), "show", id, "--width", String(width)], {
+        stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_SOCKET: scratch.sock, EP0CH_WS: scratch.name },
+      });
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect({ code, err }).toEqual({ code: 0, err: "" });
+      return out;
+    };
+    const wide = await show(110);
+    expect(wide).toContain("Orchard · Apples, pears and plums");
+    expect(wide.match(/subtitle/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(await show(25)).toContain("Orchard");
+    expect(await show(110, note.id)).toContain("Fruit guide · Choosing trees for a small garden");
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "detail" }, as: "test-agent" });
+    screen();
+    await until(() => screen().includes("Growing together through the seasons"), "the detail note to load");
+    expect(await app.act({ action: "tile.title", tile: "detail", args: { text: "{{this.subtitle}}" }, as: "test-agent" })).toMatchObject({ title: "Growing together through the seasons" });
+  }, 30_000);
+
   test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 6, key: "search" });

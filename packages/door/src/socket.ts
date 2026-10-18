@@ -443,7 +443,7 @@ const annotationAuthor = (actor: Actor = USER) =>
 
 /** What `tree.search` answers (the outliner's `GotoSearchCollection`). */
 export interface SearchHits {
-  matches: { block: { id: string; revision: number }; title: string; path: string; snippet: string; exact: boolean; reason?: "linked" | "near" | "yours" }[];
+  matches: { block: { id: string; revision: number }; title: string; subtitle?: string; path: string; snippet: string; exact: boolean; reason?: "linked" | "near" | "yours" }[];
   completeness: { kind: string; limit?: number };
   semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string };
 }
@@ -1564,7 +1564,7 @@ export class SocketBoard implements Board {
    * `searchBlocks` is; `semantic` and `near` as there.
    */
   completePages(query: string | undefined, limit: number, opts: SearchOptions = {}) {
-    return this.request<{ addresses: { address: string; blockId: string; kind: string; title: string }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
+    return this.request<{ addresses: { address: string; blockId: string; kind: string; title: string; subtitle?: string }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
       ...(query ? { query } : {}), limit, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}),
     });
   }

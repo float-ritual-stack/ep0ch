@@ -241,6 +241,7 @@ function recordField(record: BlockRecord, key: string, cx: Cx): Cursor | { tooMa
     case "id": case "title": case "body": case "text": case "created": case "updated": case "author": case "revision":
       return { kind: "values", values: [String(record[key])], from: record.id };
     case "parent": return { kind: "values", values: record.parent ? [record.parent] : [], from: record.id };
+    case "subtitle": return { kind: "values", values: record.subtitle ? [record.subtitle] : [], from: record.id };
     case "actor": return { kind: "values", values: record.actor ? [record.actor] : [], from: record.id };
     case "tasks": return { kind: "tasks", tasks: record.tasks, list: true, of: record };
     case "children": {

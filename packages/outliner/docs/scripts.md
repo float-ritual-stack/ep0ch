@@ -333,7 +333,7 @@ examples lean on:
 | `stopRun` | `packages/outliner/src/script-runs.ts:186` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:255` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1969` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2477` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2480` |
 
 ## Traps
 

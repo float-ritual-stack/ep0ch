@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import type {OutlinerRequester} from "./client-target";
 import {completionTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, type CompletionTarget} from './completion';
 import {rankBlockFocusMatches} from './block-focus';
@@ -11,6 +12,7 @@ import type {TextBuffer} from './text-buffer';
 
 export interface ReferenceCompletionItem {
   label:string;
+  subtitle?:string;
   insertion:string;
   blockId?:string;
   address?:string;
@@ -56,7 +58,7 @@ export async function lookupReferenceCompletion(provider:ReferenceCompletionProv
     message='No matching files';
   } else if(target.kind==='page') {
     const result=await provider.queryPageAddresses(pageCompletionLookupQuery(target.query,prefix)||undefined,LIMIT);
-    items=result.addresses.map(address=>({...pageAddressCompletion(address,target.query,prefix),blockId:address.blockId,address:address.address,kind:address.kind}));
+    items=result.addresses.map(address=>({...pageAddressCompletion(address,target.query,prefix),subtitle:address.subtitle,blockId:address.blockId,address:address.address,kind:address.kind}));
     if(result.completeness.kind==='truncated')truncatedLimit=result.completeness.limit;
     message='No matching named addresses; [[target|label]] labels a target, ((...)) searches blocks';
   } else {
@@ -78,13 +80,13 @@ export async function lookupReferenceCompletion(provider:ReferenceCompletionProv
     if(!fragment&&provider.searchBlocks){
       // Goto's ranker: punctuation, word order and typos forgiven, nearer the draft's note first; `((` alone lists what's linked around it.
       const found=await provider.searchBlocks(target.query,draft?.blockId);
-      items=found.matches.slice(0,LIMIT).map(match=>({label:match.title,blockId:match.block.id,kind:'block',context:[match.path,snippet(match.snippet)].filter(Boolean).join(' › '),insertion:`((${match.block.id}))`}));
+      items=found.matches.slice(0,LIMIT).map(match=>({label:match.title,subtitle:match.subtitle,blockId:match.block.id,kind:'block',context:[match.path,snippet(match.snippet)].filter(Boolean).join(' › '),insertion:`((${match.block.id}))`}));
       if(found.matches.length>LIMIT)truncatedLimit=LIMIT;
       return {start:target.start,end:target.end,index:0,items,truncatedLimit,incompleteness,message:items.length?(truncatedLimit?`Showing first ${truncatedLimit} matches`:''):'No matching blocks'};
     }
     const result=await provider.queryBlocks(fragment?{limit:500}:{text:target.query||undefined,limit:LIMIT});
     if(result.completeness.kind==='truncated'){truncatedLimit=result.completeness.limit;incompleteness=fragment?`Searched only ${result.blocks.length} blocks; more blocks were not checked`:'';}
-    if(!fragment)items=result.blocks.map(block=>({label:blockDisplayTitle(block),blockId:block.id,kind:'block',context:snippet(block.text),insertion:`((${block.id}))`}));
+    if(!fragment)items=result.blocks.map(block=>({label:blockDisplayTitle(block),subtitle:subtitleOf(block),blockId:block.id,kind:'block',context:snippet(block.text),insertion:`((${block.id}))`}));
     else {
       const blocks=fragment.blockQuery?rankBlockFocusMatches(result.blocks,fragment.blockQuery,50).map(match=>match.block):result.blocks;
       if(fragment.blockQuery&&result.blocks.length>blocks.length)incompleteness=[incompleteness,`Checked fragments in ${blocks.length} ranked blocks; other blocks were not checked`].filter(Boolean).join(' · ');

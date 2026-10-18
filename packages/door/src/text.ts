@@ -1,6 +1,6 @@
 // Text helpers shared by the BBS screens and the desk panes.
 import { pageLinkRanges, referencedBlock } from "@ep0ch/outline-core/link-syntax";
-import { balanceStyles, balanceTags, C, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
+import { balanceStyles, balanceTags, C, ellipsize, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
 import { theme } from "./theme";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
@@ -175,3 +175,9 @@ export const isWholeBlockId = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{
 
 /** A command line as words, split on whitespace (the daily agent's EP0CH_DAILY_AGENT, $EDITOR for ctrl+e). */
 export const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
+
+/** A subtitle uses only the cells the title leaves free. */
+export function subtitleSuffix(title: string, subtitle: string | undefined, cols: number): string {
+  const room = cols - width(title);
+  return subtitle && room > 3 ? fg(C.dark) + " · " + ellipsize(printable(subtitle, " "), room - 3) + RESET : "";
+}

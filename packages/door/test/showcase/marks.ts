@@ -9,7 +9,7 @@ export const marks: Record<string, string[]> = {
   scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
   // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
   actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
-  edit: ["Kitchen whiteboard", "properties · 8"],
+  edit: ["Kitchen whiteboard", "properties · 9"],
   // The finding note: what / (the power bar's notes scope) finds, typos and all.
   search: ["Finding things in the house notes", "Press / (on the river, g) and type"],
   // The meeting on the left, a comment being written on the guide on the right (PIE-762).

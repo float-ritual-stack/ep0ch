@@ -1,4 +1,4 @@
-import {hyperlink,truncateToWidth} from '@earendil-works/pi-tui';
+import {hyperlink,truncateToWidth,visibleWidth} from '@earendil-works/pi-tui';
 import {completionWindow} from './completion';
 import {sanitizeDynamicText} from './terminal';
 import type {ReferenceCompletionState} from './reference-completion';
@@ -15,7 +15,9 @@ export function renderReferenceCompletion(state:ReferenceCompletionState,width:n
   const rows=showHeader?[fit(`References ${state.index+1}/${state.items.length}${state.incompleteness?` · Partial search`:state.truncatedLimit?` · Showing first ${state.truncatedLimit} matches`:''}`)]:[];
   for(let index=window.start;index<window.end;index++){
     const item=state.items[index]!;
-    const label=fit(`${index===state.index?'›':' '} ${item.label}`);
+    const title=fit(`${index===state.index?'›':' '} ${item.label}`);
+    const room=width-visibleWidth(title);
+    const label=title+(item.subtitle && room>3 ? `\x1b[2m · ${truncateToWidth(sanitizeDynamicText(item.subtitle),room-3,'…')}\x1b[22m` : '');
     rows.push(`${index===state.index?'\x1b[7m':''}${hyperlink(label,`pi-outliner-action:${action}:${index}:${state.generation??0}`)}\x1b[0m`);
     if(showContext)rows.push(`\x1b[2m${fit(`  ${item.kind??'reference'} · ${item.context||'Select to inspect context'}`)}\x1b[0m`);
   }

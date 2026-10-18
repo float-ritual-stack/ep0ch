@@ -1,3 +1,4 @@
+import { subtitleSuffix } from "../text";
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
 // pages and Work IDs, blocks and fragments, or workspace paths, from the service's lookups (`pages.complete`,
 // `tree.search`: the one search, Goto's ranker, forgiving punctuation, order and typos; `fragments.candidates`,
@@ -74,6 +75,7 @@ export interface CompletionField {
 
 export interface CompletionItem {
   label: string;
+  subtitle?: string;
   group?: string;
   preview?: (w: number, h: number) => string[];
   selection?: { start: number; end: number };
@@ -186,7 +188,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     empty = "no matching files";
   } else if (target.kind === "page") {
     const r = await board.completePages(pageCompletionLookupQuery(target.query, prefix) || undefined, COMPLETION_LIMIT, opts);
-    items = r.addresses.map(a => ({ ...pageAddressCompletion(a, target.query, prefix), blockId: a.blockId, address: a.address, kind: a.kind }));
+    items = r.addresses.map(a => ({ ...pageAddressCompletion(a, target.query, prefix), subtitle: a.subtitle, blockId: a.blockId, address: a.address, kind: a.kind }));
     const made = newPageItem(target.query, r.addresses, prefix);
     if (made) items.push(made);
     if (made && items.length === 1) partial = `no page is named ${made.newPage} yet · ↓ then ⏎ makes it`;
@@ -243,7 +245,7 @@ async function blockCandidates(board: CompletionBoard, query: string, own: OwnNo
     anchored && /^[A-Za-z0-9_-]+$/.test(q) ? anchors({ fragmentQuery: q, mode: "id", limit: COMPLETION_LIMIT, ...draft }) : null,
   ]);
   const notes: CompletionItem[] = r.matches.slice(0, COMPLETION_LIMIT).map(m => ({
-    label: m.title, blockId: m.block.id, kind: m.reason ? `block · ${REASON[m.reason]}` : "block", insertion: `((${m.block.id}))`,
+    label: m.title, subtitle: m.subtitle, blockId: m.block.id, kind: m.reason ? `block · ${REASON[m.reason]}` : "block", insertion: `((${m.block.id}))`,
     context: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
   }));
   const top = notes.slice(0, ANCHORED_NOTES).map(n => n.blockId!);
@@ -803,7 +805,7 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
   let picker = pickers.get(s);
   if (!picker) {
     picker = new ListPicker({ name: "completion", items: () => s.items,
-      row: (it, _i, on, w) => [pickRow(` ${on ? "»" : " "} ${printable(it.label, " ")}`, on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
+      row: (it, _i, on, w) => [pickRow(` ${on ? "»" : " "} ${printable(it.label, " ")}` + subtitleSuffix(`   ${printable(it.label, " ")}`, it.subtitle, w), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
       heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group}`, w) + RESET : null,
       choose: () => {},
     });

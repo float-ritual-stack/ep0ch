@@ -1,3 +1,4 @@
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
 // tree, a reader, a detail, a preview, a program in a terminal, a whole screen) in the layout tree: split,
 // tabbed, dragged by its header and dropped on another tile's header or centre (tabs), a side (a split)
@@ -3531,6 +3532,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!note || path?.head !== "this" || path.steps.length !== 1 || !("key" in path.steps[0]!)) return missing();
       const key = path.steps[0].key;
       if (key === "title") return [subject(note)];
+      if (key === "subtitle") { const subtitle = subtitleOf(note); return subtitle ? [subtitle] : missing(); }
       const values = valuesOf(note, key);
       return values.length ? values : missing();
     });
