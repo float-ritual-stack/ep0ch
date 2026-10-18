@@ -2512,6 +2512,18 @@ The report groups Client, Connection and Service information. Drag to copy visib
 
 For this machine's host the report gives the outline's database path (`<outlines>/<name>.sqlite`) and whether it is there. For another machine's host (`machine` in the `.ep0ch`, `EP0CH_MACHINE` or `EP0CH_SOCKET`) it distinguishes the forwarded client socket from the host and the storage that host reports; it never starts the forward. A folder that names no outline is reported with the name init would offer. Diagnosis never creates an outline, writes a `.ep0ch`, restores backups, migrates data, or starts a host. A failed remote connection names the socket and says how to start the machine's forward and check its host.
 
+### Routing: notes that file themselves (PIE-1010)
+
+A note with `[type::route] [query::…] [route-to::((id))]` is a routing rule; the first rule whose query holds for a note
+moves it there, as `ext:route`, in one change, with a history under the rule (`[route-when::create|edit|command]`,
+`[route-order::N]`, `[route-at::top|end]` are optional). `notes.create` asks routing first, so a note made with
+`[type::recipe]` in its words lands in Recipes; a quick capture, a bare note and a new note's first words route once
+quiet; a note a door holds a draft of routes when the draft closes. The Routing view (`[[routing]]`, a saved view over `type=route`) lists every
+rule. `ep0ch route <note> [--dry-run]` and `ep0ch route --all [--dry-run]` route by hand or say what would move where and
+why; the wire action is `notes.route` (`ref` or `all`, `dryRun`). The whole of it is
+[`src/note-routing.ts`](src/note-routing.ts); the details are in
+[the extensions README](docs/extensions/README.md#routing-notes-that-file-themselves-pie-1010).
+
 ### Quick capture Inbox
 
 Tree `c` opens Quick Capture without navigating away from the selected row. Enter adds a line. **Save to Inbox** / Ctrl+S submits; **Retain** / Esc closes while keeping the draft; **Discard** / Ctrl+D requires confirmation. Text, cursor, selection, request identity and the original captured-from context are retained in one workspace-owned draft. Reopening Capture in that workspace resumes it. If a Capture surface is already active in the same Herdr session, Tree and global entry return to that surface, including an editor with unsaved writing. A different host/session is reported explicitly rather than opening a competing writer.

@@ -89,12 +89,13 @@ source evidence or distinguish authored glyphs from controls.
   Detail say `working` while they wait for the host (`reportWhile`); `scripts/program-status.ts` is the shell scripts'
   way in. A new long command reports through it, never by printing the sequence itself.
 - `src/note-placement.ts` owns where a new note or page goes (PIE-544): one list of
-  placement rules, the first that answers wins (today: under the note the client
-  says the person was in, else the top of the Inbox). `notes.create`, the page
-  stub `pages.follow` makes and quick capture (`capture.create`, always the Inbox)
-  all ask it; a client never computes where the Inbox is. A `near` the caller
-  named itself (`nearOnly`: agents, `outliner new --near`) that doesn't resolve is
-  refused, never quietly the Inbox. Rules an outline defines later slot in before these. A first line of only
+  placement rules, the first that answers wins (first the outline's routing rules,
+  PIE-1010, asked with the note's text through `reads.route`, `src/note-routing.ts`;
+  then under the note the client says the person was in; else the top of the Inbox).
+  `notes.create`, the page stub `pages.follow` makes and quick capture
+  (`capture.create`, always the Inbox) all ask it; a client never computes where the
+  Inbox is. A `near` the caller named itself (`nearOnly`: agents, `outliner new --near`)
+  that doesn't resolve is refused, never quietly the Inbox. A first line of only
   `[page::x]` is titled by outline-core's `page-title.ts`, applied by the server to
   the texts clients write (`create`, `update`, `notes.create`, `capture.create`,
   `edit-recovery.commit`).

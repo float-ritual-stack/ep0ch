@@ -2194,6 +2194,18 @@ export type OutlinerRequestAction =
       author?: BlockAuthor;
       provenance?: BlockProvenance;
     }
+  /**
+   * Route one note (`ref`) or every note (`all`) by the outline's routing rules (PIE-1010, src/note-routing.ts); `dryRun`
+   * says what would move where and why, moving nothing. The moves are `ext:route`'s, with the caller as `requestedBy`.
+   */
+  | {
+      id: string;
+      action: "notes.route";
+      ref?: string;
+      all?: boolean;
+      dryRun?: boolean;
+      mutation?: MutationProvenance;
+    }
   /** A template written out as a new note, props filled (PIE-533 S4, src/template-stamp.ts); `for` stamps once per match. */
   | ({ id: string; action: "template.stamp" } & import("./template-stamp").TemplateStampRequest)
   | { id:string; action:"mentions.ingest"; message:MentionMessage }

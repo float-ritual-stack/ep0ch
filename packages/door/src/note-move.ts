@@ -1,5 +1,6 @@
 // Actions share the service's atomic move; the door keeps its receipt for local undo.
-import { recordedActorId, type Actor } from "./socket";
+import type { NoteRouteResult, NoteRouteRun } from "@ep0ch/outline-core/protocol";
+import { mutationFor, recordedActorId, type Actor, type SocketBoard } from "./socket";
 import { ActionRefused } from "./surface/actions";
 import { UndoHistory, partyOf } from "./steps";
 import { moveWithRules, type WriteBoard } from "./mcp-writes";
@@ -72,6 +73,22 @@ export async function undoMove(board: WriteBoard, by: Actor, context: string): P
     MOVE_UNDO.advance(e.block, e.previousRevision, done.revision);
   }
   return { ...done, said: `put the note back${done.unchanged ? " (it was already there)" : ""}` };
+}
+
+/**
+ * Route note `id` by the outline's routing rules (PIE-1010): the service's `notes.route` finds the first rule note whose
+ * query holds for it and moves it there as `ext:route`, with `actor` recorded as who asked; `dryRun` says what would
+ * move and moves nothing. A move made is remembered for ctrl+z (`note.move.undo`), as a move of the person's own is.
+ */
+export async function routeNote(board: Pick<SocketBoard, "request" | "get">, id: string, actor: Actor, opts: { dryRun?: boolean } = {}): Promise<NoteRouteResult> {
+  const before = (await board.get(id))?.revision;
+  const run = await board.request<NoteRouteRun>("notes.route", { ref: id, ...(opts.dryRun ? { dryRun: true } : {}), mutation: mutationFor(actor) });
+  const done = run.results[0];
+  if (!done) throw new ActionRefused(`nothing was routed${run.problems.length ? `: ${run.problems[0]}` : ""}`);
+  if (done.outcome === "moved" && done.previousPosition !== undefined && done.revision !== undefined && before !== undefined) {
+    MOVE_UNDO.push({ by: partyOf(actor), context: id, block: id, previousRevision: before, at: { revision: done.revision }, parent: done.from.id, position: done.previousPosition });
+  }
+  return { ...done, said: run.problems.length && done.outcome === "no-rule" ? `${done.said} · a rule can't be used: ${run.problems[0]}` : done.said };
 }
 
 /**

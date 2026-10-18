@@ -166,6 +166,11 @@ ${LIBRARY_USAGE}
                                    stamp [machine::<producer>] on what tools wrote before they stamped (file
                                    touches, EchoNet's logs and receipts, deliveries, prior art, backup runs): a dry
                                    run says how many; --apply stamps them (PIE-867)
+  ep0ch route <note> | --all [--dry-run] [--ws <name>] [--json]
+                                   route a note (an id, ((id)), [[page]] or Work ID), or every note, by the
+                                   outline's routing rules: notes with [type::route] [query::…] [route-to::((id))],
+                                   listed in the Routing view; the first whose query holds for a note moves it
+                                   there, as ext:route. --dry-run says what would move where and why (PIE-1010)
   ep0ch resource rebind <folder> [--ws <name>] [--json]
                                    read a file link's folder where it leads now, after a link in its path
                                    changed or another folder took its place: the command a refused file link
@@ -294,6 +299,12 @@ if (args[0] === "echo") {
 if (args[0] === "machinery") {
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
   const run = Bun.spawn([process.execPath, cli, "machinery", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
+}
+// Routing (PIE-1010): `ep0ch route [<note>|--all] [--dry-run]`, the outliner's own command (one implementation).
+if (args[0] === "route") {
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "route", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));

@@ -269,6 +269,10 @@ if (process.argv[2] === "machinery") {
   const { runMachineryCommand } = await import("./machinery-backfill");
   process.exit(await runMachineryCommand(process.argv.slice(3)));
 }
+if (process.argv[2] === "route") {
+  const { runRouteCommand } = await import("./route-cli");
+  process.exit(await runRouteCommand(process.argv.slice(3)));
+}
 if (process.argv[2] === "resource") {
   const { runResourceCommand } = await import("./resource-cli");
   process.exit(await runResourceCommand(process.argv.slice(3)));

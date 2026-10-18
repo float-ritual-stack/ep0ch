@@ -120,6 +120,8 @@ export const marks: Record<string, string[]> = {
   focus: ["Figures, written in Markdown", "SQUASH BEDS", "The reader's keys"],
   // A guide note with a [[page]] nobody wrote yet, for ctrl+n, the offer and the page title fill.
   "move-note": ["Moving notes", "Cold frame"],
+  // The guide and the recipe it routes (PIE-1010), the key named on the guide.
+  routing: ["Notes that file themselves", "Pickled walnuts", "alt+z"],
   newnotes: ["New notes from anywhere", "Seed swap ledger", "ctrl+n"],
   // A reader and a terminal whose program asked for the mouse, each with its ⋯.
   menu: ["Allotment notebook", "this program asked for the mouse", "⋯"],

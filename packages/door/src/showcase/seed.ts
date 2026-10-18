@@ -23,7 +23,7 @@ import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, figuresText, markdownFiguresText } from "./seed/figures";
-import { DEEP_LINKS, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
+import { DEEP_LINKS, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { CALLOUTS, CALLOUT_TYPE, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
@@ -343,6 +343,13 @@ if (request.input.request === "describe the beds") {
   notes.newNotes = await make(notes.root.id, NEW_NOTES);
   notes.moving = await make(notes.root.id, MOVING_NOTES);
   for (const t of ["Cold frame\nThe lid wants new hinges.", "Seed trays\nWashed and stacked by the door.", "Potting bench\nA coat of oil before spring."]) await make(notes.moving.id, t);
+  // Routing (PIE-1010): the recipe is written before its rule, so only alt+z (or ep0ch route) moves it; the seed rule routes new notes by itself.
+  notes.routing = await make(notes.root.id, ROUTING_NOTES);
+  notes.recipeShelf = await make(notes.routing.id, `${SEED.recipeShelf}\nJars and the recipes that filled them.`);
+  notes.seedTin = await make(notes.routing.id, `${SEED.seedTin}\nPackets by the month they go in.`);
+  notes.pickled = await make(notes.routing.id, `${SEED.pickled} [type::recipe]\nPick them green in July, before the shells set. Brine for a week, then the spiced vinegar.`);
+  await make(notes.routing.id, `Recipes go to the shelf [type::route] [query::type=recipe] [route-to::((${notes.recipeShelf.id}))] [route-when::command]`);
+  await make(notes.routing.id, `Seeds go to the tin [type::route] [query::type=seed] [route-to::((${notes.seedTin.id}))]`);
   notes.greenhouse = await make(notes.root.id, `${SEED.greenhouse}\nWhere the seedlings go once they have two leaves.`);
   notes.recentFiles = await make(notes.root.id, recentFilesText());
   {
@@ -564,6 +571,14 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
     level = (await Promise.all(level.map(m => board.children(m.id)))).flat();
     const hit = level.find(k => titleOf(k) === SEED.threadHere);
     if (hit) notes.threadHere = (await board.get(hit.id)) ?? hit;
+  }
+  // The routing section's shelf, tin and recipe sit under its note (PIE-1010).
+  if (notes.routing) {
+    const under = await board.children(notes.routing.id);
+    for (const name of ["recipeShelf", "seedTin", "pickled"] as const) {
+      const hit = under.find(k => titleOf(k) === SEED[name]);
+      if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
+    }
   }
   // The script examples' two notes the section opens on sit beneath the examples' note.
   if (notes.scriptExamples) {

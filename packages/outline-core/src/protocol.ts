@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the checklist box grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms, the date reader), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 219;
+export const PROTOCOL = 220;
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -316,7 +316,43 @@ export interface HostedOutlineDeletion {
  * Where the service's placement rule put a new note or page (PIE-544, `notes.create`, `pages.follow`): its parent, the
  * first child (`top`) or the last (`end`), which rule placed it, and the words a client says it with.
  */
-export interface NotePlacement { parentId: string; at: "top" | "end"; rule: "near" | "inbox"; said: string }
+export interface NotePlacement {
+  parentId: string; at: "top" | "end";
+  /** `route`: a routing rule note placed it (PIE-1010); `routeRule` names which. */
+  rule: "near" | "inbox" | "route"; said: string;
+  routeRule?: { id: string; title: string };
+}
+
+/**
+ * What routing did, or would do, with one note (PIE-1010, `notes.route`): the first rule note (`[type::route]`) whose
+ * query holds for it, and where that rule sends it. `held`: a door holds a draft of the note, so it routes when the
+ * draft closes; `refused`: the move itself was refused (the words say why).
+ */
+export interface NoteRouteResult {
+  blockId: string;
+  title: string;
+  outcome: "moved" | "would-move" | "unchanged" | "no-rule" | "held" | "refused";
+  rule?: { id: string; title: string; query: string };
+  from: { id: string | null; title: string };
+  to?: { id: string; title: string };
+  /** After a move: where it was and where it is, for a client's undo. */
+  previousPosition?: number;
+  position?: number;
+  revision?: number;
+  said: string;
+}
+
+/**
+ * A `notes.route` run: each note a rule holds for (with `all`, notes no rule holds for are only counted, `unmatched`),
+ * the rule notes that can't be used (and why), and how many rules there are.
+ */
+export interface NoteRouteRun {
+  dryRun: boolean;
+  results: NoteRouteResult[];
+  problems: string[];
+  rules: number;
+  unmatched: number;
+}
 
 /**
  * An outline's own MCP access setting (ADR 0002 §4, PIE-562): kept by the service in the outline's metadata, `none` by

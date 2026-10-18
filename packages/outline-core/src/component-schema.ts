@@ -273,7 +273,28 @@ const SPARK: ComponentSchema = {
 };
 
 /** The components every outline has. */
-export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, VIEW, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS, USE, BUTTON].map(s => ({ ...s, origin: "built-in" }));
+/** A routing rule (PIE-1010): notes file themselves by rules written as notes. */
+const ROUTE: ComponentSchema = {
+  id: "route",
+  title: "Routing rules",
+  intro: "Notes route themselves by rules written as notes: a rule says which notes (a query in the saved views' grammar) and where they go (a note). The first rule whose query holds for a note moves it there, by the service's one move, as `ext:route`, in one revision, with a history under the rule; the Routing view lists every rule, and its order is the rules' order. New notes are placed by routing first (a captured recipe lands in Recipes); a bare note and a new note's first words route once quiet; `ep0ch route <note> --dry-run` and the door's `note.route` (alt+z) say what would move where and why.",
+  where: "a note with `[type::route]`, `[query::…]` and `[route-to::((id))]`",
+  props: [
+    { key: "type", where: "note", type: "enum", meaning: "declares a routing rule", values: enumOf({ route: "a routing rule" }) },
+    { key: "query", where: "note", type: "query", meaning: "which notes it routes: the saved views' grammar; the first rule whose query holds for a note wins", samples: ["type=recipe", "type=recipe AND #sweet"] },
+    { key: "route-to", where: "note", type: "ref", meaning: "where they go: a note's ((id)), a [[page]], a Work ID, inbox or root" },
+    { key: "route-when", where: "note", type: "enum", meaning: "when it fires on its own", default: "create", values: enumOf({ create: "new notes: a note made with its words, a new note's first words", edit: "every save, too", command: "only when asked: ep0ch route, the door's note.route" }) },
+    { key: "route-order", where: "note", type: "int", meaning: "its place among the rules: lower first; without one, the Routing view's order, then the order written", samples: ["1", "10"] },
+    { key: "route-at", where: "note", type: "enum", meaning: "where a routed note lands among the target's children", default: "top", values: enumOf({ top: "first", end: "last" }) },
+  ],
+  source: { use: "Pickled walnuts [type::recipe]\n\nBrine for a week.", note: { title: "Recipes go to the shelf", name: "route-to", value: "((recipes))", requires: ["query"] } },
+  example: {},
+  sweep: [],
+  grids: [],
+  space: [],
+};
+
+export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, ROUTE, VIEW, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS, USE, BUTTON].map(s => ({ ...s, origin: "built-in" }));
 
 // ── merging: the outline's values, the extensions' schemas ────────────────────
 
