@@ -31,6 +31,9 @@ async function registryActions(): Promise<ActionInfo[]> {
   return allActionSets().flatMap(s => s.list()).filter(a => (seen.has(a.name) ? false : (seen.add(a.name), true)));
 }
 
+/** `ep0ch actions` asks for a page (`--doc`), rather than the screen's list. */
+export const wantsDoc = (args: readonly string[]): boolean => args.includes("--doc");
+
 export async function actionsDoc(args: readonly string[]): Promise<number> {
   const at = args.indexOf("--doc"), name = args[at + 1];
   if (at < 0 || !name || name.startsWith("--")) { console.error(`which action? ${USAGE}`); return 2; }
