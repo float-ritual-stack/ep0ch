@@ -1295,13 +1295,13 @@ inbox compile failures keep the previous live artifact and preserve the drop in 
 For a phone, chat, or another machine without sync:
 
 ```sh
-ep0ch artifact put ./dist --name moth-site --ws pie --machine float-2
-ep0ch artifact put ./counter.jsx --name counter --ws pie --machine float-2
-ep0ch artifact snapshot moth-site --ws pie --machine float-2
-ep0ch artifact ls --ws pie --machine float-2
-ep0ch artifact show moth-site --ws pie --machine float-2
-ep0ch artifact versions moth-site --ws pie --machine float-2
-ep0ch artifact rm moth-site@1 --ws pie --machine float-2
+ep0ch artifact put ./dist --name moth-site --machine float-2
+ep0ch artifact put ./counter.jsx --name counter --machine float-2
+ep0ch artifact snapshot moth-site --machine float-2
+ep0ch artifact ls --machine float-2
+ep0ch artifact show moth-site --machine float-2
+ep0ch artifact versions moth-site --machine float-2
+ep0ch artifact rm moth-site@1 --machine float-2
 ```
 
 The CLI streams a ustar archive through the outline service over its existing
@@ -1309,7 +1309,9 @@ socket/SSH forward. MCP `artifact_put` accepts `{name, kind, content}` for one f
 (html, jsx, tsx, svg, mermaid, md), or `{name, files: {"index.html": "…", "assets/style.css": "…"}}`
 for a small UTF-8 site. It requires the MCP write access level. `artifact_list`
 and `artifact_versions {name}` require read access. These calls share one artifact
-root per machine; `--ws` chooses the service connection, not a separate namespace.
+root per machine. Artifact CLI commands need no outline: `--machine`, otherwise the
+nearest `.ep0ch`'s machine, otherwise this machine selects the store. Only `import`
+uses an outline to locate its source folder.
 Binary files go through CLI tar uploads. Puts replace the live folder; snapshot
 explicitly freezes it. Uploads and snapshots default to 64 MiB, configurable with
 `EP0CH_ARTIFACT_MAX_BYTES` on the host and watcher. Inbox pickups enforce the cap
@@ -1337,7 +1339,9 @@ For existing `[artifact::artifacts/file.jsx]` notes, run
 `ep0ch artifact import --ws <outline> --machine float-2` once per outline. It copies
 the old `artifacts/` entries into the shared store, compiles lone React files and
 records relative/absolute old paths as aliases. Original files and note text stay
-intact. Name collisions are reported rather than overwriting another artifact.
+intact. Import skips and reports each name collision, recognises unchanged entries
+already aliased to the same content, and finishes with imported, already-there and
+collision counts. It can be rerun after a partial import.
 Unimported paths no longer compile on note requests. Standalone `[file::…]`
 attachments retain their existing publisher behavior.
 

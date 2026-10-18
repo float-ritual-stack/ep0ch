@@ -388,6 +388,27 @@ test("a named folder goes through the service and snapshots keep its earlier byt
   expect((await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" })).version).toBe(2);
 });
 
+test("import finishes past collisions and recognises unchanged aliases on a rerun", async () => {
+  const { root, client, write } = await setup();
+  write("artifacts/amber.html", "Imported amber");
+  await client.request({ action: "artifacts.import" });
+  await client.request({ action: "artifacts.put", name: "birch", files: { "index.html": "Existing birch" } });
+  write("artifacts/birch.html", "Incoming birch");
+  write("artifacts/cedar.html", "Incoming cedar");
+  const result = await client.request<{ imported: ArtifactInfo[]; alreadyThere: string[]; collided: { entry: string; name: string }[]; counts: object }>({ action: "artifacts.import" });
+  expect(result.imported.map(a => a.name)).toEqual(["cedar"]);
+  expect(result.alreadyThere).toEqual(["amber.html"]);
+  expect(result.collided).toEqual([{ entry: "birch.html", name: "birch" }]);
+  expect(result.counts).toEqual({ imported: 1, alreadyThere: 1, collided: 1 });
+  expect(readFileSync(join(root, ".artifacts/live/birch/index.html"), "utf8")).toBe("Existing birch");
+  expect(readFileSync(join(root, ".artifacts/live/cedar/cedar.html"), "utf8")).toBe("Incoming cedar");
+  write("artifacts/amber.html", "Changed amber");
+  const again = await client.request<typeof result>({ action: "artifacts.import" });
+  expect(again.collided).toContainEqual({ entry: "amber.html", name: "amber" });
+  expect(again.alreadyThere).toEqual(["cedar.html"]);
+  expect(readFileSync(join(root, ".artifacts/live/amber/amber.html"), "utf8")).toBe("Imported amber");
+});
+
 test("import refuses a symlink at the artifacts root and names its path", async () => {
   const { root, workspace, client } = await setup();
   const outside = join(root, "outside");

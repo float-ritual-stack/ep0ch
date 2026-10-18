@@ -1,4 +1,6 @@
 import { LokiLeases } from "./loki-leases";
+import { ArtifactStore } from "./artifact-store";
+import type { ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
 import { PROTOCOL, type OutlineAbout } from "@ep0ch/outline-core/protocol";
@@ -192,6 +194,7 @@ export class OutlineHost {
   private readonly layout: ReturnType<typeof outlineLayout>;
   private readonly lokiLeases = new LokiLeases(message => this.log(message));
   private webSessions: WebSessions | undefined;
+  private artifactStore: ArtifactStore | undefined;
   private listener: Server | null = null;
   /** Each other machine's protocol, as its host last said (`relayProtocol`). */
   private readonly relayProtocols = new Map<string, { protocol: number; at: number }>();
@@ -263,6 +266,7 @@ export class OutlineHost {
     else listenerClosed.resolve();
     await Promise.allSettled(this.opening.values());
     const failures: unknown[] = [];
+    try { await this.artifactStore?.close(); } catch (error) { failures.push(error); }
     for (const outline of this.opened.values()) {
       try { await outline.server.close(); } catch (error) { failures.push(error); }
     }
@@ -801,7 +805,9 @@ export class OutlineHost {
         return;
       }
     }
-    if (request && HOST_ACTIONS.has(String(request.action)) && (request.relayed !== undefined || request.machine !== undefined)) {
+    const artifact = request?.outline === undefined && String(request?.action).startsWith("artifacts.") && request?.action !== "artifacts.import";
+    const hostAction = request && (HOST_ACTIONS.has(String(request.action)) || artifact);
+    if (request && hostAction && (request.relayed !== undefined || request.machine !== undefined)) {
       // Which outlines here another machine's extensions may ask: the list, through the relay, and nothing else of the host's.
       const listing = request.action === "outlines.list" || request.action === "echonet.list";
       if (listing && request.machine !== undefined && request.grant !== undefined) await this.relay(socket, request).catch(fail);
@@ -810,13 +816,16 @@ export class OutlineHost {
       else fail(new Error(`${String(request.action)} is the host's, not an outline's: another machine's extension doesn't ask it`));
       return;
     }
-    if (request && HOST_ACTIONS.has(String(request.action))) {
-      if (this.options.readOnly && request.action !== "outlines.list") {
+    if (request && hostAction) {
+      if (this.options.readOnly && request.action !== "outlines.list" && !(artifact && ["artifacts.show", "artifacts.list", "artifacts.versions"].includes(String(request.action)))) {
         fail(new Error(`This outline host serves read-only copies: ${String(request.action)} isn't served`));
         return;
       }
       try {
-        this.reply(socket, { id, ok: true, result: await this.handleHostAction(request), sequence: 0 });
+        const result = artifact
+          ? await (this.artifactStore ??= new ArtifactStore(this.outlinesFolder)).request(request as unknown as ArtifactRequest)
+          : await this.handleHostAction(request);
+        this.reply(socket, { id, ok: true, result, sequence: 0 });
       } catch (error) {
         fail(error);
       }

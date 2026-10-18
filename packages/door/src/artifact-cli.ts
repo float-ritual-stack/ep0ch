@@ -1,6 +1,10 @@
 import { basename, dirname, extname, resolve } from "node:path";
 import { statSync } from "node:fs";
 import { boardFor, type Out } from "./notes-cli";
+import { resolveTarget } from "./discover";
+import { forwardTo } from "./machine";
+import { hostRequest } from "./socket";
+import { protocolMismatch } from "@ep0ch/outline-core/protocol";
 
 export async function artifactCommand(input: string[], io: Out = { out: console.log, err: console.error }): Promise<number> {
   const args = input.slice(1), verb = args.shift();
@@ -14,7 +18,8 @@ export async function artifactCommand(input: string[], io: Out = { out: console.
   if (!verb || !["put", "ls", "show", "versions", "snapshot", "rm", "import"].includes(verb) || words.length > 1 || (verb !== "ls" && verb !== "import" && !words[0])) {
     io.err("ep0ch artifact put <file-or-folder> [--name <name>] | ls | show|versions|snapshot|rm <name> | import [--ws <name>] [--machine <machine>]"); return 2;
   }
-  const board = await boardFor(args); if ("error" in board) { io.err(board.error); return 1; }
+  const board = verb === "import" ? await boardFor(args) : await artifactHost(value("--machine"));
+  if ("error" in board) { io.err(board.error); return 1; }
   try {
     let result: unknown;
     if (verb === "put") {
@@ -34,4 +39,19 @@ export async function artifactCommand(input: string[], io: Out = { out: console.
     io.out(JSON.stringify(result, null, 2)); return 0;
   } catch (error) { io.err(`ep0ch: ${(error as Error).message}`); return 1; }
   finally { board.close(); }
+}
+
+async function artifactHost(machine: string | undefined) {
+  const target = resolveTarget(machine ? ["--machine", machine] : [], { ...process.env, EP0CH_WS: undefined, EP0CH_MACHINE: undefined });
+  if ("error" in target) return target;
+  try {
+    const path = target.machine ? (await forwardTo(target.machine)).socket : target.path;
+    const ping = await hostRequest<{ protocolVersion: number }>(path, "ping");
+    const mismatch = protocolMismatch(ping.protocolVersion, "this door");
+    if (mismatch) return { error: mismatch };
+    return {
+      request: <T = unknown>(action: string, params: Record<string, unknown> = {}, timeout?: number) => hostRequest<T>(path, action, params, timeout),
+      close() {},
+    };
+  } catch (error) { return { error: `ep0ch: ${(error as Error).message}` }; }
 }
