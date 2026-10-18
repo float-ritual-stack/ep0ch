@@ -382,4 +382,50 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     render();
     expect(names().slice().sort()).toEqual(before);
   });
+  test("alt rules survive gathering and moving either end across a group edge (wave 3)", async () => {
+    for (const rule of ["tab", "beside", "first-unheld"]) {
+      await fresh();
+      await me("tile.link", { verb: "alt", to: "reader", rule }, "tree");
+      const g = (await me("tile.group", { with: "activity" }, "reader")).tile;
+      expect(tile("tree").wires).toContainEqual({ verb: "alt", to: `${g}/reader`, rule });
+      await spill(g);
+      const h = (await me("tile.group", { with: "activity" }, "tree")).tile;
+      expect(inner(h, "tree").wires).toContainEqual({ verb: "alt", to: "../reader", rule });
+      await spill(h);
+      const k = (await me("tile.group", { with: "activity" }, "replies")).tile;
+      await me("layout.move", { into: k, beside: "activity" }, "tree");
+      expect(inner(k, "tree").wires).toContainEqual({ verb: "alt", to: "../reader", rule });
+      await me("layout.move", { out: true }, `${k}/tree`);
+      await me("layout.move", { into: k, beside: "activity" }, "reader");
+      expect(tile("tree").wires).toContainEqual({ verb: "alt", to: `${k}/reader`, rule });
+      await spill(k);
+    }
+  });
+
+  test("opening and replacing a preview accepts container and cross-group sources (wave 7)", async () => {
+    await fresh();
+    const g = (await me("tile.group", { with: "activity" }, "reader")).tile;
+    render();
+    await me("tile.open", { kind: "preview", source: "tile:../tree", name: "far" }, `${g}/reader`);
+    D().showFrom(D().pane("tree"), await board.get(seeded.notes.hub.id));
+    render();
+    expect(inner(g, "far").showing?.id).toBe(seeded.notes.hub.id);
+    await D().pane(g).inner.replaceTile("far", { kind: "preview", source: "tile:../tree", name: "replaced" }, { kind: "user" });
+    D().showFrom(D().pane("tree"), await board.get(seeded.notes.root.id));
+    render();
+    expect(inner(g, "replaced").showing?.id).toBe(seeded.notes.root.id);
+    await spill(g);
+    const saved = D().layoutSpec();
+    saved.root.key = "sources";
+    D().build(saved, false); render();
+    await me("tile.open", { kind: "preview", source: "tile:sources", name: "all" }, "reader");
+    D().showFrom(D().pane("tree"), await board.get(seeded.notes.hub.id));
+    render();
+    expect(showing("all")).toBe(seeded.notes.hub.id);
+    await D().replaceTile("all", { kind: "preview", source: "tile:sources", name: "all-new" }, { kind: "user" });
+    D().showFrom(D().pane("tree"), await board.get(seeded.notes.root.id));
+    render();
+    expect(showing("all-new")).toBe(seeded.notes.root.id);
+  });
+
 });

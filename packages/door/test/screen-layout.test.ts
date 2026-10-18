@@ -790,3 +790,24 @@ describe("growth by room: readers opened beside fold the earlier ones, never the
     for (const id of [5, 6]) NAMES.delete(id);
   });
 });
+
+
+test("ordinary opens fold earlier held details when room runs out (wave 6)", () => {
+  extra = { 2: { held: true }, 5: { held: true }, 6: { held: true } };
+  try {
+    let s = fresh(splitOf("row", [leaf(2), leaf(5)], [80, 80]), new Map([[2, "first"], [5, "earlier"]]));
+    s = ok(s, { op: "open", tile: 6, kind: "reader", name: "newest", at: { kind: "split", target: 5, dir: "right" } }).state;
+    s = ok(s, { op: "room", tile: 6 }).state;
+    expect(s.collapsed.has(5)).toBe(true);
+    expect(s.collapsed.has(2)).toBe(false);
+    expect(place(s, AREA).rects.get(6)!.cols).toBeGreaterThan(48);
+  } finally { extra = {}; }
+});
+
+test("alt opens use the nearest container policy before the screen default (wave 9)", () => {
+  extra = {};
+  const group = splitOf("row", [leaf(1), leaf(2)]);
+  group.policy = { altOpens: "tab" };
+  const s = init({ tree: group, names: NAMES, policy: { altOpens: "beside" }, wires: [{ from: 1, verb: "open", to: 2 }] });
+  expect(landing(s, 1, "alt", facts(1), facts)).toEqual({ tab: 2 });
+});
