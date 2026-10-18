@@ -78,6 +78,7 @@ export interface DeskApi {
   leave?(): void;
   /** A `#tag` opened in reader `r` (PIE-800): the notes carrying it, in a query tile whose home is `r`. */
   openTag?(r: Pane, tag: string, actor: Actor): Promise<TagList>;
+  openQuery?(r: Pane, query: string, actor: Actor): Promise<TagList>;
   /** Reader `p`'s note in the outline: its cursor moves there (its dock opening); nothing else moves (PIE-794). */
   revealInOutline?(p: Pane): Promise<{ revealed: string; outline: string }>;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): the tree's ⏎ doesn't take the keys to a reader then. */
@@ -435,6 +436,7 @@ export class ReaderPane implements Pane {
       navigate: (m, how) => desk.setCurrent(m, { reveal: true, from: this, ...how }),
       summaryKeys: m => desk.summaryKeys?.(m),
       // A #tag opened in it: the notes carrying it, in a list beside it (PIE-800).
+      ...(desk.openQuery ? { query: (q: string, how?: OpenHow) => desk.openQuery!(this, q, how?.by ?? USER) } : {}),
       ...(desk.openTag ? { tag: (t: string, how?: OpenHow) => desk.openTag!(this, t, how?.by ?? USER) } : {}),
       // A click on the crumbs shows the note in the outline (reader.reveal, PIE-794): readers of a screen with one.
       ...(desk.revealInOutline ? { revealInOutline: () => runOwn(READER_ACTIONS, "reader.reveal", {}, { pane: this, desk }) } : {}),

@@ -126,8 +126,8 @@ export interface OpenHow { link?: boolean; fresh?: boolean; by?: Actor }
  * follow opens it there; an agent's never does (`launched: false`): it is given the address instead.
  */
 export interface Outside { outside: "browser" | "viewer"; url: string; launched: boolean }
-/** A `#tag` opened (PIE-800): the list the host made or asked, and the notes carrying the tag (an agent's answer). */
-export interface TagList { tag: string; query: string; tile?: string; notes: { id: string; title: string }[] }
+/** A reader opened a query (a #tag or an activity day): its list and matching notes. */
+export interface TagList { tag?: string; query: string; tile?: string; notes: { id: string; title: string }[] }
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -154,6 +154,7 @@ export interface SurfaceHost {
    * list whose home is this reader. `how.by` is who opened it.
    */
   tag?(tag: string, how?: OpenHow): Promise<TagList>;
+  query?(query: string, how?: OpenHow): Promise<TagList>;
   /** The click being handled gave this reader the keys: a list's row is only selected by it (PIE-794), as in a links tile. */
   focusing?: boolean;
   /**
@@ -2055,7 +2056,7 @@ export class NoteSurface {
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
       ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: path => src.board.readFile(path), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.folded, selected: this.foldSel },
-      link: (block, x, figure) => tagged(drawn, { block, role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
+      link: (block, x, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
         ui: key => this.figureUI.get(key),
         tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim() }, x),
@@ -2173,7 +2174,7 @@ export class NoteSurface {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
-        link: (block, t) => tagged(drawn, { block, role: "row" }, t),
+        link: (block, t, _figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row" }, t),
         // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
@@ -2189,7 +2190,7 @@ export class NoteSurface {
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
         ...env, width, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
-        link: (block, t) => tagged(drawn, { block, role: "row" }, t),
+        link: (block, t, _figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row" }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
         use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
@@ -4615,7 +4616,7 @@ export class NoteSurface {
       const label = kind === "task" && l.task ? `${STEP_BOXES[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}`
         // A view's picture (PIE-827) is named by its file, as a note's image is.
-        : l.media && !l.role ? fileName(l.media) : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
+        : l.query ?? (l.media && !l.role ? fileName(l.media) : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" "));
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + this.bx, to: r.to + this.bx, ruler, label, link: l, ...(ITEM_KINDS.has(kind) ? { item: [top + r.line, top + rs.at(-1)!.line + 1] as [number, number] } : {}), ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
     // A generated region's mark (src/output-region.ts): one `[ ]` stop in the gutter beside its first row, over its rows.
@@ -5220,6 +5221,10 @@ export class NoteSurface {
 
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
   private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | TagList | null> {
+    if (l.query !== undefined) {
+      if (!host.query) { host.ctx.flash(`${l.query}: this screen has nowhere to list notes · / searches the outline`); return null; }
+      return host.query(l.query, { ...how, ...(host.actor ? { by: host.actor } : {}) });
+    }
     // A `#tag` (PIE-800): the notes carrying it, listed where the host lists them (the desk: a query tile beside this reader).
     if (l.tag !== undefined) {
       if (!host.tag) { host.ctx.flash(`#${l.tag}: this screen has nowhere to list the notes carrying it · / searches #${l.tag}`); return null; }

@@ -33,6 +33,49 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("activity days open their notes below the reader through act (PIE-972)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "figures" }, as: "test-agent" });
+    await until(() => screen().includes("CHORES WRITTEN"), "activity figures");
+    const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const now = new Date(), today = localDate(now);
+    const tomorrow = localDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+    const elements = async () => ((await app.act({ action: "elements", tile: "reader", as: "test-agent" })) as any).elements;
+    for (const [query, title] of [[`created >= ${today} created < ${tomorrow}`, ""], [`updated >= ${today} updated < ${tomorrow}`, ""], ["date = 2026-03-04", "Raised beds for the squash"], ["date = 2026-03-05", ""]] as const) {
+      await untilAsync(async () => (await elements()).some((e: any) => e.label === query), `activity cell ${query}`);
+      const e = (await elements()).find((e: any) => e.label === query);
+      expect(e, `selectable activity cell: ${query}`).toBeDefined();
+      const result = await app.act({ action: "element.open", tile: "reader", args: { n: e.n }, as: "test-agent" }) as any;
+      expect(result.query).toBe(query);
+      if (title) expect(result.notes.map((n: any) => n.title)).toEqual([title]);
+      else if (query.startsWith("date")) expect(result.notes).toEqual([]);
+      else {
+        expect(result.notes.length).toBeGreaterThan(0);
+        const note = (await board.get(result.notes[0].id))!;
+        expect(localDate(new Date(query.startsWith("created") ? note.createdAt : note.updatedAt))).toBe(today);
+      }
+    }
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "figures")).top;
+    const tiles = desk.layoutGet().tiles;
+    expect(tiles.find((t: any) => t.kind === "query")).toMatchObject({ home: "reader", query: `created >= ${today} created < ${tomorrow}` });
+    expect(desk.focus).toBe(desk.idNamed("reader"));
+    const drawn = (await drawNote(board, seeded.notes.markdownFigures.id, 100))!.map(plain).join("\n");
+    expect(drawn).toContain("3 in 3 weeks");
+    const reader = tiles.find((t: any) => t.name === "reader"), lane = tiles.find((t: any) => t.kind === "query");
+    expect(lane.rect.row).toBeGreaterThanOrEqual(reader.rect.row + reader.rect.rows);
+    press({ kind: "enter" });
+    for (let i = 0; i < (await elements()).length && !(await elements()).some((e: any) => e.current && e.label === "date = 2026-03-04"); i++) ch("]");
+    expect((await elements()).find((e: any) => e.current)?.label).toBe("date = 2026-03-04");
+    press({ kind: "enter" });
+    await until(() => {
+      screen();
+      const list = desk.layoutGet().tiles.find((t: any) => t.kind === "query");
+      return list?.query === "date = 2026-03-04" && list.cards?.some((c: any) => c.title === "Raised beds for the squash");
+    }, "the selected day's notes opened with Enter");
+    await desk.dispatch.act({ action: "tile.focus", tile: "reader", args: {} }, { kind: "user" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
   test("steps (PIE-811): the person approves a step by keys; an agent reads the answer and rejects another (the mouse path is tasks.test's)", async () => {
     const id = seeded.notes.buildLog.id;
     (app as any).lastInput = 0;
@@ -240,7 +283,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     // The person, by keys: into the stage, [ ] to the row, ⏎ opens its note in the reader.
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
-    for (let i = 0; i < 80 && !(await els()).find(e => e.current && e.label === "sow under glass"); i++) ch("]");
+    for (let i = 0; i < (await els()).length && !(await els()).find(e => e.current && e.label === "sow under glass"); i++) ch("]");
     expect((await els()).find(e => e.current)?.label).toBe("sow under glass");
     press({ kind: "enter" });
     await until(() => screen().includes("Apr: sow under glass") && !screen().includes("SQUASH BEDS"), "the child bullet's note open in the reader", 5000);

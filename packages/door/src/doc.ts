@@ -81,7 +81,7 @@ export interface DocEnv {
    * Tag `text` as a link to a row's note (a live figure's check item, event or table row), so the reader
    * can step to it and a click opens it (PIE-441). Without it (an embed, a draft's preview) rows are text.
    */
-  link?: (block: string, text: string, figure?: string) => string;
+  link?: import("./figures/palette").RowLink;
   /**
    * The reader's hold on the body's live figures (src/graphs.ts FiguresEnv): each one's chosen tab and density, its
    * tabs and density as controls, and what each drew. Without it (an embed, a draft's preview) a figure draws its first
