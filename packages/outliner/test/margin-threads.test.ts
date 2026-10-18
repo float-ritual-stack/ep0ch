@@ -66,7 +66,7 @@ async function setup(model = true) {
   if (model) {
     writeFileSync(join(kit, "config.json"), JSON.stringify({ config: {
       answer: [process.execPath, join(root, "model.ts"), memory],
-      session: { start: ["--session-id", "{id}"], resume: ["--resume", "{id}"] },
+      session: { start: ["--session-id", "{{props.id}}"], resume: ["--resume", "{{props.id}}"] },
     } }));
   }
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });

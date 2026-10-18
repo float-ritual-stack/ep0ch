@@ -39,7 +39,7 @@ const PLAN = [
 ].join("\n");
 
 /** `answer`: the command marginalia runs for a model (its config.answer); left out, it has none. */
-async function setup(answer?: string[]) {
+async function setup(answer?: string[], session?: { start: string[]; resume: string[] }) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-passage-")));
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
@@ -47,7 +47,7 @@ async function setup(answer?: string[]) {
   const outline = join(root, "outline");
   mkdirSync(join(outline, "extensions"), { recursive: true });
   cpSync(join(import.meta.dir, "..", "extensions", "marginalia"), join(outline, "extensions", "marginalia"), { recursive: true });
-  if (answer) writeFileSync(join(outline, "extensions", "marginalia", "config.json"), JSON.stringify({ config: { answer } }));
+  if (answer) writeFileSync(join(outline, "extensions", "marginalia", "config.json"), JSON.stringify({ config: { answer, session } }));
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
   const socket = join(root, "outliner.sock");
   const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80 });
@@ -216,4 +216,18 @@ test("annotation properties are checked: a raw colour or the store's own key is 
   });
   await expect(op({ color: "#ffee00" })).rejects.toThrow(/theme tone/);
   await expect(op({ type: "x" })).rejects.toThrow(/store's own/);
+});
+
+
+test("margin session arguments use the shared brace grammar and keep each argument whole", async () => {
+  const { client, note, threads } = await setup(
+    ["bun", "-e", "console.log(JSON.stringify(process.argv.slice(1)))"],
+    { start: ["{{props.id}}", "{{props.absent || two words}}", "{id}"], resume: ["{{props.id}}"] },
+  );
+  const receipt = await client.request<AnnotationBatchReceipt>({
+    action: "annotations.batch", requestId: "session-braces", author: "user",
+    operations: [{ operationId: "ask", type: "block-comment", input: { blockId: note.id, expectedRevision: note.revision, body: "@margin explain", source: "user" } }],
+  });
+  const thread = await until("session answer", async () => (await threads()).find(t => t.block.id === receipt.annotations[0]!.block.id && t.replies.length));
+  expect(JSON.parse(thread.replies[0]!.body)).toEqual([thread.properties!["margin-session"]![0], "two words", "{id}"]);
 });

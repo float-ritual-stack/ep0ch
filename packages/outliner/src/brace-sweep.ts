@@ -14,8 +14,12 @@
 // holds a `{word}` (code, prose) is left alone, and a second run changes nothing. `ep0ch install --apply` runs it on
 // each outline in the step that hands it the new code, as it runs migrations; with the host stopped it opens the
 // database itself (a served file is refused), in one transaction and one attributed change (`brace-sweep`), so every
-// note's previous text is in its revisions and the install's backup is the rollback.
+// note's previous text is in its revisions. A persisted group lets `sweep --undo <id>` undo the whole pass.
 // It also stamps old peer-message copies with their plain query keys. Maintenance retains updated timestamps.
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { extensionRoots } from "./extension-registry";
+import { ExtensionWrites } from "./extension-writes";
 import { Database } from "bun:sqlite";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
@@ -112,7 +116,60 @@ export function sweepText(text: string): { text: string; changes: SweepChange[] 
 }
 
 export interface SweepNote { id: string; revision: number; before: string; after: string; changes: SweepChange[] }
-export interface SweepReport { database: string; applied: boolean; notes: SweepNote[] }
+export interface SweepConfig { path: string; before: string; after: string; changes: { before: string; after: string }[] }
+export interface SweepReport { database: string; applied: boolean; notes: SweepNote[]; configs: SweepConfig[]; undo?: string }
+
+function planConfigs(database: string): SweepConfig[] {
+  const changes: SweepConfig[] = [];
+  const folder = join(dirname(database), basename(database, ".sqlite"));
+  for (const root of extensionRoots(folder)) for (const name of ["marginalia", "readwise"]) {
+    const path = join(root.path, name, "config.json");
+    if (!existsSync(path)) continue;
+    const before = readFileSync(path, "utf8");
+    const settings = JSON.parse(before);
+    const edits: SweepConfig["changes"] = [];
+    const rewrite = (text: string, names: readonly string[]) => {
+      const after = text.replace(SINGLE, (whole, key: string) => names.includes(key) ? `{{props.${key}}}` : whole);
+      if (after !== text) edits.push({ before: text, after });
+      return after;
+    };
+    if (name === "readwise" && typeof settings.config?.link === "string") settings.config.link = rewrite(settings.config.link, ["outline", "machine", "id"]);
+    if (name === "marginalia") for (const key of ["start", "resume"]) {
+      const args = settings.config?.session?.[key];
+      if (Array.isArray(args)) settings.config.session[key] = args.map(part => typeof part === "string" ? rewrite(part, ["id"]) : part);
+    }
+    if (edits.length) changes.push({ path, before, after: JSON.stringify(settings, null, 2) + "\n", changes: edits });
+  }
+  return changes;
+}
+
+function checkConfigs(configs: SweepConfig[], undo: boolean): void {
+  for (const config of configs) {
+    const current = readFileSync(config.path, "utf8");
+    // An interrupted apply or undo leaves a mix of old and new files; both belong to this group.
+    if (current !== (undo ? config.after : config.before) && !(undo && current === config.before)) {
+      throw new Error(`${config.path} changed since the sweep was planned; nothing was written`);
+    }
+  }
+}
+
+function writeConfigs(configs: SweepConfig[], undo: boolean): void {
+  for (const config of configs) {
+    const temporary = join(dirname(config.path), `.brace-sweep-${crypto.randomUUID()}.tmp`);
+    const fd = openSync(temporary, "wx", statSync(config.path).mode);
+    try {
+      try {
+        writeFileSync(fd, undo ? config.before : config.after);
+        fsyncSync(fd);
+      } finally { closeSync(fd); }
+      renameSync(temporary, config.path);
+      const directory = openSync(dirname(config.path), "r");
+      try { fsyncSync(directory); } finally { closeSync(directory); }
+    } finally {
+      if (existsSync(temporary)) unlinkSync(temporary);
+    }
+  }
+}
 
 /** A unified-style diff of the lines that changed in one note, for the dry run. */
 export function sweepDiff(note: SweepNote): string {
@@ -154,7 +211,7 @@ export function planSweep(database: string): SweepReport {
       }
       if (swept.changes.length) notes.push({ id: row.id, revision: row.revision, before: row.text, after: swept.text, changes: swept.changes });
     }
-    return { database, applied: false, notes };
+    return { database, applied: false, notes, configs: planConfigs(database) };
   } finally {
     db.close();
   }
@@ -164,15 +221,49 @@ export function planSweep(database: string): SweepReport {
 export async function applySweep(database: string): Promise<SweepReport> {
   const { OutlinerStore } = await import("./store");
   const plan = planSweep(database);
-  if (!plan.notes.length) return plan;
+  if (!plan.notes.length && !plan.configs.length) return plan;
   const store = new OutlinerStore(database);
+  const undo = crypto.randomUUID();
   try {
     const actor = { author: "system" as const, actorId: "brace-sweep" };
+    checkConfigs(plan.configs, false);
+    // The undo must reach disk before any file can be replaced, including on a power loss.
+    store.database.exec("PRAGMA synchronous = FULL");
     store.changes.run(store.changes.attribution({ action: "brace-sweep", actor }), () => store.database.transaction(() => {
-      for (const note of plan.notes) store.update(note.id, note.after, note.revision, actor, "text", [], store.require(note.id).updatedAt);
+      const edits = plan.notes.map(note => {
+        const updated = store.update(note.id, note.after, note.revision, actor, "text", [], store.require(note.id).updatedAt);
+        return { blockId: note.id, before: note.before, revision: updated.revision };
+      });
+      store.database.query("INSERT INTO metadata (key, value) VALUES (?, ?)").run(`brace-sweep:${undo}`, JSON.stringify({ edits, configs: plan.configs }));
     })());
+    try { writeConfigs(plan.configs, false); }
+    catch (error) {
+      throw new Error(`Brace sweep interrupted: ${error instanceof Error ? error.message : String(error)}. Restore with: outliner sweep ${JSON.stringify(database)} --undo ${undo}`, { cause: error });
+    }
   } finally {
     store.close();
   }
-  return { ...plan, applied: true };
+  return { ...plan, applied: true, undo };
+}
+
+/** A stopped-host undo, including settings, that survives the install's host restart. */
+export async function undoSweep(database: string, undo: string): Promise<{ database: string; undone: string }> {
+  const { OutlinerStore } = await import("./store");
+  const store = new OutlinerStore(database);
+  try {
+    const row = store.database.query("SELECT value FROM metadata WHERE key = ?").get(`brace-sweep:${undo}`) as { value: string } | null;
+    if (!row) throw new Error(`No brace sweep ${undo} to undo in ${database}`);
+    const group = JSON.parse(row.value) as { edits: { blockId: string; before: string; revision: number }[]; configs: SweepConfig[] };
+    const writes = new ExtensionWrites(store, {});
+    const id = writes.rememberTextGroup("brace-sweep", group.edits);
+    checkConfigs(group.configs, true);
+    store.database.exec("PRAGMA synchronous = FULL");
+    store.database.transaction(() => {
+      writes.undo(id, { author: "user" });
+      // Keep the durable group until every original file is back; a crash rolls back the note undo.
+      writeConfigs(group.configs, true);
+      store.database.query("DELETE FROM metadata WHERE key = ?").run(`brace-sweep:${undo}`);
+    })();
+    return { database, undone: undo };
+  } finally { store.close(); }
 }

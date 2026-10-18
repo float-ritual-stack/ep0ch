@@ -24,7 +24,7 @@ or click the chips on the selection's line. `M` in a reader changes how the marg
 - **A thread is one conversation.** The first `@margin` starts a session and its id is kept on the thread
   (`[margin-session::<id>]`); a later `@margin` there resumes it, so the agent remembers the earlier turns. `claude`
   works as it is (`--session-id`, `--resume`); another command says how in `config.session`
-  (`{"start": ["--new", "{id}"], "resume": ["--continue", "{id}"]}`). A session that can't be resumed starts again
+  (`{"start": ["--new", "{{props.id}}"], "resume": ["--continue", "{{props.id}}"]}`). A session that can't be resumed starts again
   with the whole thread.
 - **Suggested queries are checked.** An answer that writes `[query::…]`, `[sort::…]` or `[group::…]` has it asked of the
   outline before it lands; one that wouldn't work is marked under the answer with why.

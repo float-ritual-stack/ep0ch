@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applySweep, planSweep, sweepDiff, sweepText } from "../src/brace-sweep";
@@ -16,6 +17,65 @@ const UNTOUCHED = [
   "Other script [script::other]\n```js\nconst o = {note};\n```",
   "A rule already new [rule-name::fresh] [rule-match::type=x] [rule-decorate::badge] [rule-place::append] [rule-label::{{this.title}}]",
 ];
+
+for (const stopAfter of [0, 1, 2]) test(`a sweep interrupted ${stopAfter ? `after writing ${stopAfter} settings files` : "during a partial write"} can restore the original bytes`, async () => {
+  const database = join(work, `interrupted-${stopAfter}.sqlite`);
+  const folder = join(work, `interrupted-${stopAfter}`, "extensions");
+  const originals = [
+    ["marginalia", '{ "config": { "session": { "start": ["{id}"] } } }\n'],
+    ["readwise", '{ "config": { "link": "https://example.test/{id}" } }\n'],
+  ] as const;
+  const paths = originals.map(([name, bytes]) => {
+    const path = join(folder, name, "config.json");
+    mkdirSync(join(folder, name), { recursive: true });
+    writeFileSync(path, bytes);
+    return path;
+  });
+  const store = new OutlinerStore(database);
+  const note = store.create(RULE);
+  store.close();
+  const planned = planSweep(database);
+  // Exit at the filesystem boundary, bypassing catch/finally as a lost process would.
+  const preload = join(work, `interrupt-${stopAfter}.ts`);
+  writeFileSync(preload, `
+    import fs from "node:fs";
+    import { mock } from "bun:test";
+    const paths = new Set(${JSON.stringify(paths)});
+    let published = 0;
+    const stop = path => { if (paths.has(path) && ++published === ${stopAfter}) process.exit(77); };
+    const write = fs.writeFileSync;
+    const rename = fs.renameSync;
+    mock.module("node:fs", () => ({ ...fs,
+      writeFileSync: (path, ...args) => {
+        if (${stopAfter} === 0 && (typeof path === "number" || paths.has(path)) && typeof args[0] === "string" && args[0].includes("props.id")) {
+          write(path, args[0].slice(0, 8));
+          process.exit(77);
+        }
+        write(path, ...args); stop(path);
+      },
+      renameSync: (from, to) => { rename(from, to); stop(to); },
+    }));
+  `);
+  const cli = join(import.meta.dir, "../src/cli.ts");
+  const child = Bun.spawn(["bun", "--preload", preload, cli, "sweep", database, "--apply"], { stdout: "pipe", stderr: "pipe", env: { ...process.env } });
+  const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect({ code, err }).toEqual({ code: 77, err: "" });
+  for (const config of planned.configs) {
+    const bytes = readFileSync(config.path, "utf8");
+    expect([config.before, config.after]).toContain(bytes);
+    expect(() => JSON.parse(bytes)).not.toThrow();
+  }
+  const db = new Database(database, { readonly: true });
+  const group = db.query("SELECT key FROM metadata WHERE key LIKE 'brace-sweep:%'").get() as { key: string } | null;
+  db.close();
+  expect(group).not.toBeNull();
+  const undo = Bun.spawn(["bun", cli, "sweep", database, "--undo", group!.key.slice("brace-sweep:".length)], { stdout: "pipe", stderr: "pipe", env: { ...process.env } });
+  const [undoCode, undoError] = await Promise.all([undo.exited, new Response(undo.stderr).text()]);
+  expect({ code: undoCode, err: undoError }).toEqual({ code: 0, err: "" });
+  for (const [i, [, bytes]] of originals.entries()) expect(readFileSync(paths[i]!, "utf8")).toBe(bytes);
+  const restored = new OutlinerStore(database);
+  try { expect(restored.require(note.id).text).toBe(RULE); } finally { restored.close(); }
+});
 
 test("the sweep turns each old form into the new grammar and leaves the rest", () => {
   const rule = sweepText(RULE);
@@ -118,4 +178,70 @@ test("install stamps old peer mail once, preserving its date and body", async ()
     expect(after.require(spaced.id).properties.filter(p => p.key === "peer")).toHaveLength(1);
   } finally { after.close(); }
   expect(planSweep(database).notes).toEqual([]);
+});
+
+
+test("the CLI sweeps extension settings with notes and undoes the whole group after reopening", async () => {
+  const database = join(work, "garden.sqlite");
+  const folder = join(work, "garden", "extensions");
+  const configs = [
+    ["marginalia", { config: { session: { start: ["--new", "{id}"], resume: ["--old", "{id}"] }, answer: ["echo", "{id}"] } }],
+    ["readwise", { config: { link: "https://notes.example/{outline}@{machine}/b/{id}" } }],
+  ] as const;
+  for (const [name, config] of configs) {
+    mkdirSync(join(folder, name), { recursive: true });
+    writeFileSync(join(folder, name, "config.json"), JSON.stringify(config));
+  }
+  const store = new OutlinerStore(database);
+  const note = store.create(RULE);
+  store.close();
+  const cli = async (...args: string[]) => {
+    const proc = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "sweep", database, ...args], { stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    expect({ code, err }).toEqual({ code: 0, err: "" });
+    return JSON.parse(out);
+  };
+  const dry = await cli("--json");
+  expect(dry.configs).toHaveLength(2);
+  const done = await cli("--apply", "--json");
+  expect(done.undo).toBeString();
+  const margin = JSON.parse(readFileSync(join(folder, "marginalia/config.json"), "utf8"));
+  expect(margin.config.session.start).toEqual(["--new", "{{props.id}}"]);
+  expect(margin.config.answer).toEqual(["echo", "{id}"]);
+  expect((await cli("--json")).configs).toEqual([]);
+  const configPath = join(folder, "readwise/config.json");
+  const sweptConfig = readFileSync(configPath, "utf8");
+  writeFileSync(configPath, sweptConfig + " ");
+  const refused = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "sweep", database, "--undo", done.undo], { stdout: "pipe", stderr: "pipe" });
+  expect(await refused.exited).toBe(1);
+  expect(await new Response(refused.stderr).text()).toContain("changed since");
+  expect(readFileSync(configPath, "utf8")).toBe(sweptConfig + " ");
+  const unchanged = new OutlinerStore(database);
+  expect(unchanged.require(note.id).text).toContain("[rule-place::append]");
+  unchanged.close();
+  writeFileSync(configPath, sweptConfig);
+  await cli("--undo", done.undo, "--json");
+  const reopened = new OutlinerStore(database);
+  expect(reopened.require(note.id).text).toBe(RULE);
+  reopened.close();
+  for (const [name, config] of configs) expect(JSON.parse(readFileSync(join(folder, name, "config.json"), "utf8"))).toEqual(config);
+});
+
+
+test("undo refuses the whole sweep when a note has been edited since", async () => {
+  const database = join(work, "changed.sqlite");
+  const store = new OutlinerStore(database);
+  const first = store.create(RULE), second = store.create(SCRIPT);
+  store.close();
+  const done = await applySweep(database);
+  const edited = new OutlinerStore(database);
+  edited.update(first.id, "The person's new words", edited.require(first.id).revision, { author: "user" });
+  const stillSwept = edited.require(second.id).text;
+  edited.close();
+  const { undoSweep } = await import("../src/brace-sweep");
+  await expect(undoSweep(database, done.undo!)).rejects.toThrow("changed since");
+  const after = new OutlinerStore(database);
+  expect(after.require(first.id).text).toBe("The person's new words");
+  expect(after.require(second.id).text).toBe(stillSwept);
+  after.close();
 });

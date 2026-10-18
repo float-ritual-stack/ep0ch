@@ -475,6 +475,22 @@ describe("the wire: site.answer is watched by the notes it was computed from", (
     return { store, client: new OutlinerClient(socket), socket };
   }
 
+  test("a note-free extension template reads supplied props but cannot read another note", async () => {
+    const { store, client } = await service();
+    const other = store.create("Other note [x::private-value]");
+    const reference = `{{((${other.id})).x}}`;
+    const answer = await client.request<SiteAnswer>({
+      action: "site.answer", props: { id: ["given-id"], other: [`((${other.id}))`] },
+      interpolate: { text: `{{props.id}} ${reference} {{props.other.x}}`, fences: "template" },
+    });
+    expect(answer.interpolated!.text).toBe(`given-id ${reference} {{props.other.x}}`);
+    for (const value of answer.interpolated!.values.slice(1)) {
+      expect(value.values).toBeUndefined();
+      expect(value.problem?.message).toContain("note");
+    }
+    expect(answer.deps).toEqual([]);
+  });
+
   test("site.answer over the socket carries values, problems, route and deps", async () => {
     const { store, client } = await service();
     const note = store.create("Wire [owner::evan]\n\nBy {{this.owner}} and {{this.nope}}");
