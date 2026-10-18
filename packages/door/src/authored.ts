@@ -35,7 +35,7 @@ export interface AuthoredTargetFacets {
 interface EntryBase { key: string; label: string; firstSpan: { start: number; end: number }; occurrenceCount: number }
 
 export type AuthoredOutlinkResolution =
-  | { kind: "ready"; target: { kind: "block"; blockId: string; fragmentId?: string }; title: string; subtitle?: string; facets?: AuthoredTargetFacets }
+  | { kind: "ready"; target: { kind: "block"; blockId: string; outline?: string; machine?: string; fragmentId?: string }; title: string; subtitle?: string; facets?: AuthoredTargetFacets }
   | { kind: "deleted"; blockId: string; fragmentId?: string; title: string; reason: string }
   | { kind: "unregistered-page"; address: string; reason: string }
   | { kind: "missing"; reason: string };

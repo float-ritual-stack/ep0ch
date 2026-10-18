@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -502,4 +502,56 @@ test("a restore that can't be whole moves nothing: a folder already in the way i
   expect(existsSync(join(layout.archived("gurgle"), "gurgle.sqlite"))).toBe(true);
   expect(existsSync(layout.database("gurgle"))).toBe(false);
   expect(readFileSync(join(layout.folder("gurgle"), "notes.txt"), "utf8")).toBe("mine");
+});
+
+
+test("references cross outline boundaries and backlinks name their source outline", async () => {
+  const host = await startHost(scratch(), "garden");
+  await host.create("garden");
+  await host.create("orchard");
+  const target = await ok<Block>(host.socketPath, { action: "create", outline: "orchard", text: "Pear care [page::pear-care]\nWater deeply. ^water" });
+  const text = `Reading [[orchard:pear-care|care instructions]] ((orchard:${target.id}|the pear)) ((${target.id}^water)) !((orchard:${target.id}))`;
+  const source = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text });
+  expect(source.text).toBe(text);
+  const resolved = await ok<import("../src/types").ResolvedBlockReferences>(host.socketPath, { action: "references.resolve", outline: "garden", text });
+  expect(resolved.references).toHaveLength(3);
+  for (const ref of resolved.references) expect(ref).toMatchObject({ blockId: target.id, outline: "orchard", status: "resolved" });
+  const page = await ok<import("../src/types").PageAddressResolution>(host.socketPath, { action: "pages.resolve", outline: "garden", address: "orchard:pear-care" });
+  expect(page).toMatchObject({ outline: "orchard", status: "resolved", block: { id: target.id } });
+  const links = await ok<import("../src/types").BacklinkCollection>(host.socketPath, { action: "references.backlinks", outline: "orchard", query: { targetBlockId: target.id, limit: 50 } });
+  expect(links.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "garden", occurrenceCount: 4 }));
+  const completed = await ok<import("../src/types").PageAddressCollection>(host.socketPath, { action: "pages.complete", outline: "garden", query: "orchard:pear", limit: 20 });
+  expect(completed.addresses).toContainEqual(expect.objectContaining({ address: "orchard:pear-care", blockId: target.id }));
+  const embeds = await ok<import("../src/transclusions").TransclusionRead>(host.socketPath, { action: "transclusions.read", outline: "garden", targets: [{ blockId: `orchard:${target.id}` }, { blockId: target.id, fragmentId: "water" }] });
+  expect(embeds.results.map(n => n.status)).toEqual(["ready", "ready"]);
+  expect(embeds.blocks[target.id]?.text).toContain("Water deeply.");
+  const outlinks = await ok<import("../src/authored-links").AuthoredLinksSnapshot>(host.socketPath, { action: "blocks.authored-links", outline: "garden", ownerBlockId: source.id });
+  expect(outlinks.kind).toBe("ready");
+  if (outlinks.kind === "ready") {
+    expect(outlinks.outlinks.entries.some(l => l.resolution.kind === "ready" && l.resolution.target.outline === "orchard")).toBe(true);
+    expect(outlinks.outlinks.entries.find(l => l.referenceKind === "page")?.label).toBe("orchard · care instructions");
+  }
+
+});
+
+
+test("UUID links and backlinks cross forwarded host sockets without switching outlines", async () => {
+  const nearRoot = scratch(), farRoot = scratch();
+  const near = await startHost(nearRoot, "garden"), far = await startHost(farRoot, "orchard");
+  await near.create("garden");
+  await far.create("orchard");
+  mkdirSync(layoutOf(nearRoot).remoteDir);
+  mkdirSync(layoutOf(farRoot).remoteDir);
+  symlinkSync(far.socketPath, layoutOf(nearRoot).remote("far").socket);
+  symlinkSync(near.socketPath, layoutOf(farRoot).remote("near").socket);
+  const target = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: "Apple care [page::apple-care]\nPrune in winter. ^prune" });
+  const source = await ok<Block>(near.socketPath, { action: "create", outline: "garden", text: `See ((${target.id}^prune)) and [[orchard:apple-care]].` });
+  const resolved = await ok<import("../src/types").ResolvedBlockReferences>(near.socketPath, { action: "references.resolve", outline: "garden", text: source.text });
+  expect(resolved.references[0]).toMatchObject({ status: "resolved", outline: "orchard", machine: "far", blockId: target.id });
+  const page = await ok<import("../src/types").PageAddressResolution>(near.socketPath, { action: "pages.resolve", outline: "garden", address: "orchard:apple-care" });
+  expect(page).toMatchObject({ status: "resolved", outline: "orchard", machine: "far", block: { id: target.id } });
+  const links = await ok<import("../src/types").BacklinkCollection>(far.socketPath, { action: "references.backlinks", outline: "orchard", query: { targetBlockId: target.id, limit: 20 } });
+  expect(links.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "garden", machine: "near", occurrenceCount: 2 }));
+  const embeds = await ok<import("../src/transclusions").TransclusionRead>(near.socketPath, { action: "transclusions.read", outline: "garden", targets: [{ blockId: target.id }] });
+  expect(embeds.results[0]).toMatchObject({ status: "ready", outline: "orchard", machine: "far" });
 });

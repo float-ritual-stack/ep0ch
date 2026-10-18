@@ -34,7 +34,8 @@ export interface PropertyRecord extends BlockProperty {
 const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*(?:[-*+][ \t]+)?)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
 const DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
 
-export const PROPERTY_PARSER_VERSION = 14;
+// Qualified links change the reference candidate index rebuilt with the property index.
+export const PROPERTY_PARSER_VERSION = 15;
 
 interface PropertyMatch {
   match: RawPropertyToken;

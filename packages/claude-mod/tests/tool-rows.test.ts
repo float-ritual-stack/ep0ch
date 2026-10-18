@@ -298,7 +298,7 @@ function sessionIn(on: On, stored: Record<string, unknown> = {}) {
     if (argv.includes('bound-folder')) return { value: result(0, `{"bound":true,"folder":"${WORKSPACE}","outline":"garden"}\n`) }
     if (argv.includes('work-id-status')) return { value: result(0, '{"prefix":"PIE","observedPrefixes":["PIE"]}') }
     if (argv.includes('mentions')) return { value: result(0, '{"entries":[]}') }
-    if (argv.includes('agent') && argv.includes('resolve')) return { value: result(0, `{"id":"${NOTE}","title":"Seed swap plan","revision":3}\n`) }
+    if (argv.includes('resolve')) return { value: result(0, `{"id":"${NOTE}","title":"Seed swap plan","revision":3}\n`) }
     if (argv[2]?.endsWith('/src/herdr-open.ts')) return { value: result(0, `${ENSURED}\n`) }
     if (argv.includes('link')) return { value: result(0, '{"kind":"work","title":"Seed swap plan"}') }
     return { value: result(1, '', 'unexpected') }
@@ -349,16 +349,16 @@ describe('the rows in the transcript', () => {
     expect(link?.argv).toContain('--no-focus')
   })
 
-  test("a block id's title is looked up once, off the draw, and the row draws it", async ($, on) => {
+  test("a block id's title arrives off the draw and is shown on subsequent rows", async ($, on) => {
     const s = sessionIn(on)
     await $.session.start(START)
     await s.clock.settle()
     const drawn = await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_comment', input: { ref: NOTE, whole: true, body: 'Which variety?' } })
     await s.clock.settle()
     expect((await drawn.find({ key: 'tool-row-open-toolu_1' }))?.text).toBe('Seed swap plan')
-    await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_read', input: { ref: NOTE } }, 'toolu_2')
+    const next = await mountRow($, 'terminal', { tool: 'mcp__ep0ch__outline_read', input: { ref: NOTE } }, 'toolu_2')
     await s.clock.settle()
-    expect(s.runs.filter(run => run.argv.includes('agent') && run.argv.includes('resolve'))).toHaveLength(1)
+    expect((await next.find({ key: 'tool-row-open-toolu_2' }))?.text).toBe('Seed swap plan')
   })
 
   test('an errored call: the reason in red on the row, and the engine draws the full error', async ($, on) => {

@@ -1,3 +1,4 @@
+import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import type { AuthoredResourceLink } from "./authored";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 // Opening what a Markdown link names, as Detail does (pi-herdr-outliner src/detail-controller.ts
@@ -58,7 +59,7 @@ export function destinationOf(url: string): { web: string } | { target: LinkTarg
   try { value = decodeURIComponent(p.pathname.replace(/^\//, "")); } catch { return { refused: `a pi-outliner link that doesn't decode: ${u}` }; }
   if (!value || /[\u0000-\u001f\u007f]/.test(value)) return { refused: `a pi-outliner link without a target: ${u}` };
   const fragment = p.searchParams.get("fragment") ?? undefined;
-  if (p.hostname === "block" && BLOCK_ID.test(value) && (!fragment || FRAGMENT_ID.test(fragment))) return { target: { block: value, ...(fragment ? { fragment } : {}) } };
+  if (p.hostname === "block" && BLOCK_ID.test(qualifiedReference(value).target) && (!fragment || FRAGMENT_ID.test(fragment))) return { target: { block: value, ...(fragment ? { fragment } : {}) } };
   if (p.hostname === "page" || p.hostname === "work") return { target: { page: value } };
   return { refused: `the door can't open pi-outliner://${p.hostname} links yet` };
 }

@@ -404,7 +404,7 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
       // The line that links here and the anchor it names come first (PIE-884): the row says where, not only which note.
       const line = backlinkLine(r.source);
       const where = line ? `“${line.snippet}”${line.anchor && !line.snippet.includes(`^${line.anchor}`) ? ` ^${line.anchor}` : ""}` : "";
-      return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source, where) };
+      return { mark: nest === null ? "←" : nest ? "▾" : "▸", text: (r.source.outline ? `${r.source.outline} · ` : "") + r.source.title, context: backlinkRowSuffix(r.source, where) };
     }
     case "fold": return { mark: "┄", text: `${r.count} more ${r.what}`, context: "⏎ shows them" };
     case "child": case "match": {
@@ -544,11 +544,11 @@ export function backlinkLine(source: BacklinkSource): { snippet: string; at: num
 
 /** A row's place as a link a reader's elements open (the inline component's rows), or null for a header. */
 export function linkTargetOf(r: LinkRow): LinkTarget | null {
-  if (r.kind === "backlink") { const line = backlinkLine(r.source); return { block: r.source.blockId, ...(line ? { at: line.at, atLabel: line.label } : {}), role: "row" }; }
+  if (r.kind === "backlink") { const line = backlinkLine(r.source); return { block: r.source.blockId, outline: r.source.outline, machine: r.source.machine, ...(line ? { at: line.at, atLabel: line.label } : {}), role: "row" }; }
   if (r.kind === "child" || r.kind === "match") return { block: r.child.block.id, role: "row" };
   if (r.kind === "outlink") {
     const res = r.link.resolution;
-    if (res.kind === "ready") return { block: res.target.blockId, ...(res.target.fragmentId ? { fragment: res.target.fragmentId } : {}), role: "row" };
+    if (res.kind === "ready") return { block: res.target.blockId, outline: res.target.outline, machine: res.target.machine, ...(res.target.fragmentId ? { fragment: res.target.fragmentId } : {}), role: "row" };
     if (res.kind === "unregistered-page") return { page: res.address };
     return { role: "resource", reason: `${r.link.label} · ${outlinkWords(r.link).context}` };
   }

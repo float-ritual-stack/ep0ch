@@ -710,6 +710,12 @@ export class OutlinerServer {
     try { return boundFolderOf(folder)?.outline === name; } catch { return false; }
   }
 
+  private linkReader?: (request: OutlinerRequest) => Promise<{ result: unknown } | undefined>;
+
+  setLinkReader(read: (request: OutlinerRequest) => Promise<{ result: unknown } | undefined>): void {
+    this.linkReader = read;
+  }
+
   setHost(status: () => OutlinerHostStatus): void {
     this.host = status;
   }
@@ -1933,6 +1939,14 @@ export class OutlinerServer {
     }
     request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (this.linkReader) {
+      try {
+        const answer = await this.linkReader(request);
+        if (answer) return { id: request.id, ok: true, result: answer.result, sequence: this.store.sequence };
+      } catch (error) {
+        return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence };
+      }
+    }
     if (request.action === "site.answer" && request.sources) {
       try {
         const budget = siteBudget();

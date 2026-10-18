@@ -10,7 +10,7 @@ import {
 import { requireUniqueClientId, sendClientCommand } from "./client-target";
 import { isFragmentId, resolveFragment } from "./fragments";
 import { blockDisplayTitle, blockReferenceDisplayText } from "./references";
-import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceEnvelopeRanges, blockReferenceOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import {
   outlinerReferenceOccurrences,
   protectedMarkdownRanges,
@@ -185,7 +185,7 @@ export function parseOutlinerLinkUri(uri: string): OutlinerLinkTarget {
   if (
     !value ||
     TERMINAL_CONTROL_PATTERN.test(value) ||
-    ((kind === "block" || kind === "reference") && !BLOCK_ID_PATTERN.test(value)) ||
+    ((kind === "block" || kind === "reference") && !BLOCK_ID_PATTERN.test(qualifiedReference(value).target)) ||
     (kind === "work" && !isWorkIdAddress(value))
   ) {
     throw new Error(`Invalid outliner ${kind} target`);
@@ -272,6 +272,7 @@ export async function followResourceOccurrence(
 }
 
 export interface ResolvedOutlinerLinkTarget {
+  outline?: string; machine?: string;
   block: Block;
   fragmentId?: string;
   created?: boolean;
@@ -289,8 +290,22 @@ export async function resolveOutlinerLinkTarget(
     throw new Error("Resource links resolve through Resource navigation");
   }
   if (target.kind === "block") {
-    const block = await requester.request<Block>({ action: "get", blockId: target.value });
-    if (!target.fragmentId) return { block };
+    let block: Block | undefined;
+    let address: { outline?: string; machine?: string } = {};
+    if (!qualifiedReference(target.value).outline) {
+      try { block = await requester.request<Block>({ action: "get", blockId: target.value }); }
+      catch (error) {
+        if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(target.value) || !(error instanceof Error) || !error.message.startsWith("Block not found")) throw error;
+      }
+    }
+    if (!block) {
+      const resolved = await requester.request<{ references: BlockReferenceResolution[] }>({ action: "references.resolve", text: `((${target.value}))` });
+      const ref = resolved.references[0];
+      block = ref?.block;
+      if (!block) throw new Error(`Block not found: ${target.value}`);
+      address = { outline: ref!.outline, machine: ref!.machine };
+    }
+    if (!target.fragmentId) return { block, ...address };
     const fragment = resolveFragment(block.text, target.fragmentId);
     if (fragment.status === "missing") {
       throw new Error(`Fragment not found: ${target.value}^${target.fragmentId}`);
@@ -298,13 +313,13 @@ export async function resolveOutlinerLinkTarget(
     if (fragment.status === "duplicate") {
       throw new Error(`Fragment is duplicated: ${target.value}^${target.fragmentId}`);
     }
-    return { block, fragmentId: target.fragmentId };
+    return { block, ...address, fragmentId: target.fragmentId };
   }
   const resolution = await requester.request<PageAddressResolution>({
     action: "pages.resolve",
     address: target.value,
   });
-  if (resolution.block) return { block: resolution.block };
+  if (resolution.block) return { block: resolution.block, outline: resolution.outline, machine: resolution.machine };
   if (target.kind === "work") {
     throw new Error(`Work ID address is unresolved: ${target.value}`);
   }

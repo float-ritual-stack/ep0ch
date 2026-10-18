@@ -18,7 +18,7 @@ export interface TextRange {
  * A reference in a note's text, or (with `propertyKey`) inside one of its property values (PIE-874: `[via::[[X-2]]]`,
  * `[ticket::PC-1]`), an edge labelled by that property.
  */
-export type OutlinerReferenceOccurrence = { propertyKey?: string } & (
+export type OutlinerReferenceOccurrence = { propertyKey?: string; outline?: string } & (
   | {
       kind: "block";
       blockId: string;
@@ -125,6 +125,7 @@ export function outlinerReferenceOccurrences(
     candidates.push({
       kind: "page",
       address: reference.displayAddress,
+      ...(reference.outline ? { outline: reference.outline } : {}),
       normalizedAddress: reference.normalizedAddress,
       ...(reference.label ? { label: reference.label } : {}),
       start: reference.start,

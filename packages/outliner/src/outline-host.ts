@@ -1,3 +1,4 @@
+import { OutlineLinks } from "./outline-links";
 import { LokiLeases } from "./loki-leases";
 import { ArtifactStore } from "./artifact-store";
 import type { ArtifactRequest } from "@ep0ch/outline-core/artifacts";
@@ -189,6 +190,7 @@ function isOutlinerDatabase(path: string): boolean {
 }
 
 export class OutlineHost {
+  private links?: OutlineLinks;
   readonly socketPath: string;
   readonly outlinesFolder: string;
   readonly defaultOutline: string | undefined;
@@ -689,6 +691,7 @@ export class OutlineHost {
       server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder });
       server.setOutline({ name });
       server.setHost(() => this.status());
+      server.setLinkReader(request => (this.links ??= new OutlineLinks(() => this.names(), async name => (await this.open(name)).store, this.outlinesFolder)).read(name, request));
       server.startHosted();
       if (this.closing) throw new Error("The outline host is stopping");
       const outline: HostedOutline = { name, database, stateDirectory, workspaceRoot, promptDirectory, store, server };

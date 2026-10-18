@@ -6,6 +6,7 @@
  * `pi-outliner://` URI the Outliner's own link navigation takes.
  */
 import { codeBlocks } from './code-fence'
+import { linkOccurrences, qualifiedReference } from './link-grammar.js'
 
 const STAND_IN = 'https://pi-outliner.invalid/'
 
@@ -83,6 +84,11 @@ export function unlabelledBlockIds(text: string): string[] {
   return [...ids]
 }
 
+/** Every block address a reply needs to resolve, including labelled references whose outline is not written. */
+export function replyBlockTargets(text: string): string[] {
+  return [...new Set(linkOccurrences(text).flatMap(r => r.kind === 'block' ? [`${r.outline ? r.outline + ':' : ''}${r.blockId.toLowerCase()}`] : []))];
+}
+
 export type Linkified = {
   /** The markdown to draw, references as stand-in links. */
   text: string
@@ -94,28 +100,34 @@ export type Linkified = {
  * `[[page]]`, `[[target|label]]`, `((uuid))`, `((uuid|label))` and bare Work
  * IDs with one of `prefixes`, rewritten as links outside protected ranges.
  */
-export function linkifyReferences(text: string, prefixes: readonly string[], titleOf: (id: string) => string | undefined = () => undefined): Linkified {
+export function linkifyReferences(text: string, prefixes: readonly string[], titleOf: (id: string) => string | undefined = () => undefined, outlineOf: (id: string) => string | undefined = () => undefined): Linkified {
   const hrefs = new Set<string>()
   const workIds = prefixes
     .filter(prefix => /^[A-Z][A-Z0-9]*$/.test(prefix))
     .map(prefix => `${prefix}-\\d+`)
-  const reference = new RegExp(
-    `\\[\\[([^\\[\\]|\\n]+)(?:\\|([^\\[\\]\\n]+))?\\]\\]` +
-      `|\\(\\((${UUID})(?:\\^(${FRAGMENT}))?(?:\\|([^()\\n]+))?\\)\\)` +
-      (workIds.length ? `|(?<![\\w/#-])(${workIds.join('|')})(?![\\w-])` : ''),
-    'g',
-  )
-  const rewrite = (plain: string) =>
-    plain.replace(reference, (_whole, page?: string, pageLabel?: string, block?: string, fragment?: string, aliasLabel?: string, workId?: string) => {
-      const [kind, value, label] = page
-        ? ['page', page.trim(), pageLabel?.trim() || page.trim()]
-        : block
-          ? ['block', block.toLowerCase(), aliasLabel?.trim() || blockLabel(block.toLowerCase(), fragment, titleOf)]
-          : ['work', workId!.toUpperCase(), workId!]
-      const href = `${STAND_IN}${kind}/${encodeURIComponent(value)}`
-      hrefs.add(href)
-      return `[${label.replace(/[[\]\\]/g, '\\$&')}](${href})`
-    })
+  const rewrite = (plain: string) => {
+    const links = linkOccurrences(plain);
+    const work = workIds.length ? [...plain.matchAll(new RegExp(`(?<![\\w/#-])(${workIds.join('|')})(?![\\w-])`, 'g'))]
+      .filter(m => !links.some(l => l.start <= m.index! && m.index! < l.end))
+      .map(m => ({ kind: 'work' as const, start: m.index!, end: m.index! + m[0].length, value: m[0] })) : [];
+    let out = '', at = 0;
+    for (const ref of [...links, ...work].sort((a, b) => a.start - b.start)) {
+      if (ref.kind === 'markdown') continue;
+      const kind = ref.kind === 'block' ? 'block' : ref.kind === 'page' ? 'page' : 'work';
+      const authoredOutline = ref.kind === 'work' ? undefined : ref.outline;
+      const address = ref.kind === 'block' ? `${authoredOutline ? authoredOutline + ':' : ''}${ref.blockId.toLowerCase()}` : '';
+      const outline = authoredOutline ?? (ref.kind === 'block' ? outlineOf(address) : undefined);
+      const value = ref.kind === 'block' ? `${authoredOutline ? authoredOutline + ':' : ''}${ref.blockId.toLowerCase()}${ref.fragmentId ? '^' + ref.fragmentId : ''}`
+        : ref.kind === 'page' ? ref.displayAddress : ref.value;
+      const label = (outline ? `${outline} · ` : '') + (ref.kind === 'block' ? ref.label ?? blockLabel(ref.blockId, ref.fragmentId, () => titleOf(address))
+        : ref.kind === 'page' ? ref.label ?? qualifiedReference(ref.displayAddress).target : ref.value);
+      const href = `${STAND_IN}${kind}/${encodeURIComponent(value)}`;
+      hrefs.add(href);
+      out += plain.slice(at, ref.start) + `[${label.replace(/[[\]\\]/g, '\\$&')}](${href})`;
+      at = ref.end;
+    }
+    return out + plain.slice(at);
+  };
 
   let out = ''
   for (const run of codeRuns(text)) {
@@ -137,6 +149,10 @@ export function outlinerUriOf(href: string): string | null {
   if (!href.startsWith(STAND_IN)) return null
   const [kind, value, ...rest] = href.slice(STAND_IN.length).split('/')
   if (rest.length || !value || !['block', 'page', 'work'].includes(kind!)) return null
+  if (kind === 'block') {
+    const [id, fragment] = decodeURIComponent(value).split('^');
+    return `pi-outliner://block/${encodeURIComponent(id!)}${fragment ? '?fragment=' + encodeURIComponent(fragment) : ''}`;
+  }
   return `pi-outliner://${kind}/${value}`
 }
 

@@ -1,3 +1,4 @@
+import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { subtitleSuffix } from "../text";
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
 // pages and Work IDs, blocks and fragments, or workspace paths, from the service's lookups (`pages.complete`,
@@ -189,7 +190,8 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   } else if (target.kind === "page") {
     const r = await board.completePages(pageCompletionLookupQuery(target.query, prefix) || undefined, COMPLETION_LIMIT, opts);
     items = r.addresses.map(a => ({ ...pageAddressCompletion(a, target.query, prefix), subtitle: a.subtitle, blockId: a.blockId, address: a.address, kind: a.kind }));
-    const made = newPageItem(target.query, r.addresses, prefix);
+    items.unshift(...(r.outlines ?? []).map(name => ({ label: `${name}:`, insertion: `[[${name}:`, kind: "outline" })));
+    const made = qualifiedReference(target.query).outline ? null : newPageItem(target.query, r.addresses, prefix);
     if (made) items.push(made);
     if (made && items.length === 1) partial = `no page is named ${made.newPage} yet · ↓ then ⏎ makes it`;
     if (r.completeness.kind === "truncated") truncated = r.completeness.limit ?? COMPLETION_LIMIT;
@@ -418,9 +420,9 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
       if (!still()) return false;
       if (!r.addresses.some(a => a.address === item.address && a.blockId === item.blockId)) throw new Error("that address changed; search again");
     }
-    const ctx = await board.blockContext(item.blockId);
+    const ctx = item.address && qualifiedReference(item.address).outline ? null : await board.blockContext(item.blockId);
     if (!still()) return false;
-    if ((!ctx.selected || ctx.selected.id !== item.blockId || ctx.selected.deleted)) throw new Error("that note is no longer there; search again");
+    if (ctx && (!ctx.selected || ctx.selected.id !== item.blockId || ctx.selected.deleted)) throw new Error("that note is no longer there; search again");
     const mine = own?.blockId === item.blockId;
     // Another note's fragment: the service says it's still there, once (the draft's own was read as typed).
     if (item.fragmentId && !item.anchor && !mine) {

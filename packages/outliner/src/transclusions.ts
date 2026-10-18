@@ -4,7 +4,7 @@
 // re-deriving; Detail's own embed projection (detail-embeds.ts) takes its limits and wording from here.
 import { checklistItems } from "./checklist-items";
 import { codeLineSet, fragmentPresentationText, isFragmentId, resolveFragmentSlice, type FragmentKind } from "./fragments";
-import { embedPattern } from "@ep0ch/outline-core/link-syntax";
+import { embedPattern, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { codeHides, codeSpanRanges, type SourceRange } from "@ep0ch/outline-core/code-ranges";
 import { blockDisplayTitle } from "./references";
 import type { Block, ChecklistItem } from "./types";
@@ -141,6 +141,9 @@ export interface TransclusionTarget { blockId: string; fragmentId?: string }
  * reads its results (`views.read`), and nothing in its definition is expanded.
  */
 export interface TransclusionNode {
+  resolvedBlockId?: string;
+  outline?: string;
+  machine?: string;
   blockId: string;
   fragmentId?: string;
   status: TransclusionStatus;
@@ -204,7 +207,7 @@ export interface TransclusionOptions {
   maxDepth?: number;
 }
 
-const refKey = (t: TransclusionTarget) => `${t.blockId}${t.fragmentId ? `^${t.fragmentId}` : ""}`;
+const refKey = (t: TransclusionTarget) => `${qualifiedReference(t.blockId).target}${t.fragmentId ? `^${t.fragmentId}` : ""}`;
 
 /**
  * Project `targets` as a reader shows them, nested. `load` answers a block (trashed ones too) or null
@@ -212,11 +215,28 @@ const refKey = (t: TransclusionTarget) => `${t.blockId}${t.fragmentId ? `^${t.fr
  * sibling places is fine. Depth, a document's embed count and the read's budget each fail at the embed
  * that crosses them, never blanking the rest.
  */
-export function readTransclusions(
-  load: (blockId: string) => Block | null,
-  targets: readonly TransclusionTarget[],
-  options: TransclusionOptions = {},
-): TransclusionRead {
+export function readTransclusions(load: (blockId: string) => Block | null, targets: readonly TransclusionTarget[], options: TransclusionOptions = {}): TransclusionRead {
+  const reads = projectTransclusions(targets, options);
+  let step = reads.next();
+  while (!step.done) {
+    try { step = reads.next(load(step.value)); }
+    catch (error) { step = reads.throw(error); }
+  }
+  return step.value;
+}
+
+/** The host can read another machine without changing projection, cycle or budget rules. */
+export async function readTransclusionsAsync(load: (blockId: string) => Promise<Block | null>, targets: readonly TransclusionTarget[], options: TransclusionOptions = {}): Promise<TransclusionRead> {
+  const reads = projectTransclusions(targets, options);
+  let step = reads.next();
+  while (!step.done) {
+    try { step = reads.next(await load(step.value)); }
+    catch (error) { step = reads.throw(error); }
+  }
+  return step.value;
+}
+
+function* projectTransclusions(targets: readonly TransclusionTarget[], options: TransclusionOptions): Generator<string, TransclusionRead, Block | null> {
   if (!Array.isArray(targets)) throw new Error("transclusions.read needs targets: [{blockId, fragmentId?}]");
   if (targets.length > 64) throw new Error("transclusions.read takes at most 64 targets");
   for (const t of targets) {
@@ -232,12 +252,7 @@ export function readTransclusions(
   let bytes = 0;
   let nodes = 0;
   const cached = new Map<string, Block | null>();
-  const get = (id: string) => {
-    if (!cached.has(id)) cached.set(id, load(id));
-    return cached.get(id)!;
-  };
-
-  const project = (t: TransclusionTarget, depth: number, path: readonly string[]): TransclusionNode => {
+  function* project(t: TransclusionTarget, depth: number, path: readonly string[]): Generator<string, TransclusionNode, Block | null> {
     const base = { blockId: t.blockId, ...(t.fragmentId ? { fragmentId: t.fragmentId } : {}), depth };
     dependencies.add(t.blockId);
     if (path.includes(refKey(t))) {
@@ -245,7 +260,10 @@ export function readTransclusions(
     }
     if (++nodes > TRANSCLUSION_MAX_NODES) return { ...base, status: "budget", message: TRANSCLUSION_WORDING.budget };
     let block: Block | null;
-    try { block = get(t.blockId); } catch (error) {
+    try {
+      if (!cached.has(t.blockId)) cached.set(t.blockId, yield t.blockId);
+      block = cached.get(t.blockId)!;
+    } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").slice(0, 240);
       return { ...base, status: "failed", message: TRANSCLUSION_WORDING.failed(message) };
     }
@@ -264,7 +282,8 @@ export function readTransclusions(
     }
     const facts = factsOf(block);
     const title = facts.title;
-    const found = { ...base, title, revision: block.revision };
+    dependencies.add(block.id);
+    const found = { ...base, ...(block.id !== t.blockId ? { resolvedBlockId: block.id } : {}), title, revision: block.revision };
     let shown: { startLine: number; endLine: number; text: string } = { startLine: 0, endLine: facts.lines - 1, text: block.text };
     let fragment: FragmentSliceRead | undefined;
     if (t.fragmentId) {
@@ -280,12 +299,13 @@ export function readTransclusions(
     checklists[block.id] ??= facts.steps;
     const inner = embedMatches(shown.text, block.text, shown.startLine, MAX_EMBEDS_PER_DOCUMENT + 1).map(m => ({ blockId: m[1]!, ...(m[2] ? { fragmentId: m[2] } : {}) }));
     const here = [...path, refKey(t)];
-    const embeds = inner.map((child, index): TransclusionNode => {
+    const embeds: TransclusionNode[] = [];
+    for (const [index, child] of inner.entries()) {
       const at = { blockId: child.blockId, ...(child.fragmentId ? { fragmentId: child.fragmentId } : {}), depth: depth + 1 };
-      if (index >= MAX_EMBEDS_PER_DOCUMENT) return { ...at, status: "limit", message: TRANSCLUSION_WORDING.limit };
-      if (depth >= maxDepth) { dependencies.add(child.blockId); return { ...at, status: "depth-limit", message: TRANSCLUSION_WORDING.depthLimit(maxDepth) }; }
-      return project(child, depth + 1, here);
-    });
+      if (index >= MAX_EMBEDS_PER_DOCUMENT) { embeds.push({ ...at, status: "limit", message: TRANSCLUSION_WORDING.limit }); continue; }
+      if (depth >= maxDepth) { dependencies.add(child.blockId); embeds.push({ ...at, status: "depth-limit", message: TRANSCLUSION_WORDING.depthLimit(maxDepth) }); continue; }
+      embeds.push(yield* project(child, depth + 1, here));
+    }
     return {
       ...found, status: "ready", kind: fragment ? "fragment" : "note",
       ...(fragment ? { fragment } : {}), shownLines: { start: shown.startLine, end: shown.endLine }, embeds,
@@ -293,9 +313,10 @@ export function readTransclusions(
   };
 
   const root = options.hostBlockId ? [options.hostBlockId] : [];
-  const results = targets.map((t, index) => index >= MAX_EMBEDS_PER_DOCUMENT
-    ? { blockId: t.blockId, ...(t.fragmentId ? { fragmentId: t.fragmentId } : {}), depth: 1, status: "limit" as const, message: TRANSCLUSION_WORDING.limit }
-    : project(t, 1, root));
+  const results: TransclusionNode[] = [];
+  for (const [index, t] of targets.entries()) results.push(index >= MAX_EMBEDS_PER_DOCUMENT
+    ? { blockId: t.blockId, ...(t.fragmentId ? { fragmentId: t.fragmentId } : {}), depth: 1, status: "limit", message: TRANSCLUSION_WORDING.limit }
+    : yield* project(t, 1, root));
   return {
     limits: { maxDepth, maxPerDocument: MAX_EMBEDS_PER_DOCUMENT, maxNodes: TRANSCLUSION_MAX_NODES },
     results,

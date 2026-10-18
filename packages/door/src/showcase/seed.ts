@@ -95,7 +95,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await orchard.info();
     const neighbour = await orchard.createBlock(null, "Pear tree [page::pear-tree]\nWater deeply on dry days.");
     const journal = await orchard.createBlock(null, `Orchard journal\nWater the pear tree. See [[pear-tree]] or ((${neighbour.id}|the tree)).`);
-    notes.crossOutline = await make(notes.root.id, `${SEED.crossOutline} [foreign-note::${journal.id}]\nThe reader beside this one holds a note in showcase-orchard. Edit or comment there: the save belongs to that outline. Its tinted frame names the outline.\n[Open the orchard journal](https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id})\n[web::https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id}]\nPress / and type outline:showcase-orchard pear to search that outline without leaving this screen.`);
+    notes.crossOutline = await make(notes.root.id, `${SEED.crossOutline} [foreign-note::${journal.id}]\nThe reader beside this one holds a note in showcase-orchard. Edit or comment there: the save belongs to that outline. Its tinted frame names the outline.\n[Open the orchard journal](https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id})\n[web::https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id}]\nQualified page: [[showcase-orchard:pear-tree]]. Qualified note: ((showcase-orchard:${journal.id}|the journal)). Bare UUID: ((${neighbour.id})).\n!((showcase-orchard:${neighbour.id}))\nPress / and type outline:showcase-orchard pear to search that outline without leaving this screen.`);
   } finally { orchard.close(); }
 
   // The workboard's allocator needs a Work-ID prefix and the project's one active work queue.

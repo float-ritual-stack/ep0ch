@@ -55,7 +55,7 @@ describe("references a save warns about (PIE-761)", () => {
       expect(await referenceWarnings(text, lookups)).toEqual([]);
     }
     // One whose id leads nowhere names that id, never a note found by its words.
-    expect(await referenceWarnings(`(((${GONE}|the old plan)) said so)`, lookups)).toEqual([{ written: `((${GONE}|the old plan))`, problem: "names no note in this outline" }]);
+    expect(await referenceWarnings(`(((${GONE}|the old plan)) said so)`, lookups)).toEqual([{ written: `((${GONE}|the old plan))`, problem: "names no note in any reachable outline" }]);
   });
 
   test("words in double parentheses read as text: no suggestion; an unclosed one never suggests the note being saved", async () => {

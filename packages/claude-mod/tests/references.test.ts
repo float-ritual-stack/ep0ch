@@ -54,11 +54,11 @@ describe('references', () => {
     expect(linkifyReferences('Text\n\n    PIE-3 in code\n\nPIE-4', ['PIE']).hrefs).toEqual([`${STAND_IN}work/PIE-4`])
   })
 
-  test('a block reference to a fragment links to its block, never to a page', async () => {
+  test('a block reference preserves its fragment when pressed', async () => {
     const { text, hrefs } = linkifyReferences(`See ((${UUID}^beds|the beds)).`, [])
-    expect(text).toBe(`See [the beds](${STAND_IN}block/${UUID}).`)
-    expect(hrefs).toEqual([`${STAND_IN}block/${UUID}`])
-    expect(outlinerUriFor(`((${UUID}^beds))`)).toBe(`pi-outliner://block/${UUID}`)
+    expect(text).toBe(`See [the beds](${STAND_IN}block/${UUID}%5Ebeds).`)
+    expect(hrefs).toEqual([`${STAND_IN}block/${UUID}%5Ebeds`])
+    expect(outlinerUriFor(`((${UUID}^beds))`)).toBe(`pi-outliner://block/${UUID}?fragment=beds`)
   })
 
   test('bare Work IDs follow the configured prefixes only', async () => {
@@ -98,9 +98,9 @@ describe('references', () => {
 
   test('an unaliased ((id)) shows the note title, or the short id until it is known; an alias always wins (PIE-1043)', () => {
     const none = linkifyReferences(`See ((${UUID})) and ((${UUID}^beds)).`, [])
-    expect(none.text).toBe(`See [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}) and [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}).`)
+    expect(none.text).toBe(`See [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}) and [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}%5Ebeds).`)
     const titled = linkifyReferences(`See ((${UUID})) and ((${UUID}^beds)) and ((${UUID}|mine)).`, [], () => 'Bike shed')
-    expect(titled.text).toBe(`See [Bike shed](${STAND_IN}block/${UUID}) and [Bike shed › beds](${STAND_IN}block/${UUID}) and [mine](${STAND_IN}block/${UUID}).`)
+    expect(titled.text).toBe(`See [Bike shed](${STAND_IN}block/${UUID}) and [Bike shed › beds](${STAND_IN}block/${UUID}%5Ebeds) and [mine](${STAND_IN}block/${UUID}).`)
     expect(linkifyReferences(`((${UUID}))`, [], () => 'x'.repeat(80)).text).toContain(`[${'x'.repeat(47)}…]`)
     expect(unlabelledBlockIds(`((${UUID.toUpperCase()})) ((${UUID}^a)) ((${UUID}|alias)) https://my.ep0ch.sh/pub/p/${UUID}`)).toEqual([UUID])
   })

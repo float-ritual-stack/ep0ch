@@ -231,6 +231,7 @@ source evidence or distinguish authored glyphs from controls.
   connects and whenever its connection is gone.
   `resolveInvocationPaths` in `src/outline-host-client.ts` owns which outline a
   Herdr action invoked from a pane uses (the pane's registered outline first).
+- `src/outline-links.ts` resolves outline-qualified links and missing local UUIDs through the host's stores and forwarded sockets. It supplies the existing reference, authored-link, backlink and transclusion readers; the per-outline server calls it without opening another store. `[[outline:page]]` and `((outline:id^anchor|label))` use outline-core's `link-syntax.ts`; a single colon qualifies a valid outline name, while `::` remains property text. Backlinks carry their source outline and machine.
 - `src/outline-host.ts` owns the outline host: one listener
   (`<outlines>/.host/host.sock`, its lock beside it) for every `<name>.sqlite`
   in the outlines folder, routing each connection by its first line's `outline`
