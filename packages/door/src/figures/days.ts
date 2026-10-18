@@ -57,7 +57,7 @@ export function drawUptime(p: Props, w: number, link?: RowLink): string[] {
 /** A count as one of five shades, by its share of the most in a day. */
 const shade = (n: number, max: number) => (n <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((n / Math.max(1, max)) * 4))));
 
-export function drawActivity(p: Props, w: number): string[] {
+export function drawActivity(p: Props, w: number, link?: RowLink): string[] {
   const counts = new Map<number, number>();
   for (const [k, v] of Object.entries(p.counts ?? {})) { const d = dayOf(k); if (d !== null) counts.set(d, (counts.get(d) ?? 0) + (Number(v) || 0)); }
   const start = weekStart(p.weekStartsOn, 0);
@@ -88,7 +88,12 @@ export function drawActivity(p: Props, w: number): string[] {
       const day = first + c * 7 + r;
       if (day > last) { line += "  "; continue; }
       const s = shade(counts.get(day) ?? 0, max);
-      line += (s ? fg(s >= 3 ? ACCENT : INK) : fg(DIM)) + SHADES[s] + " ";
+      const field = String(p.date ?? p.count ?? "created");
+      const query = !p.date && (field === "created" || field === "updated")
+        ? `${field} >= ${isoOf(day)} ${field} < ${isoOf(day + 1)}`
+        : `${field} = ${isoOf(day)}`;
+      const cell = (s ? fg(s >= 3 ? ACCENT : INK) : fg(DIM)) + SHADES[s];
+      line += (link ? link(query, cell, undefined, query) : cell) + " ";
     }
     out.push(line + RESET);
   }

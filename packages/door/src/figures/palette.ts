@@ -14,8 +14,9 @@ export { ordered, records } from "@ep0ch/outline-core/figure-props";
 /**
  * Tags a row as a link to its note (PIE-441): the reader's `DocEnv.link`, or nothing (text stays text). `figure`: the
  * key of the figure the row is in, so the figure's keys (tabs, density) work while the row is the current element.
+ * `query` opens a list instead of a block, for a day representing more than one note.
  */
-export type RowLink = (block: string, text: string, figure?: string) => string;
+export type RowLink = (block: string, text: string, figure?: string, query?: string) => string;
 export const rowLink = (link: RowLink | undefined, block: unknown, text: string, figure?: string) => (link && typeof block === "string" ? link(block, text, figure) : text);
 
 /** A kind's drawing: its rows at `w` columns inside the frame; `ui.rows`, what the reader lends its rows (RowInline). */

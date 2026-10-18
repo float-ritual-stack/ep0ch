@@ -210,7 +210,7 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
       return { props: { ...p, ...uptimeDays(results, from, to) } };
     }
     case "activity": {
-      const how = String(p.count ?? "created"), counts: Record<string, number> = {};
+      const how = String(p.date ?? p.count ?? "created"), counts: Record<string, number> = {};
       for (const m of items) {
         const day = how === "created" ? localDay(m.createdAt) : how === "updated" ? localDay(m.updatedAt) : dayOf(valueOf(m, how));
         if (day !== null) counts[isoOf(day)] = (counts[isoOf(day)] ?? 0) + 1;

@@ -1978,15 +1978,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * (it is answered the notes instead).
    */
   async openTag(r: Pane, tag: string, actor: Actor): Promise<TagList> {
+    return { ...await this.openQuery(r, `#${tag}`, actor), tag };
+  }
+
+  async openQuery(r: Pane, query: string, actor: Actor): Promise<TagList> {
     const rid = this.idOf(r);
     if (rid === undefined) throw new ActionRefused("that reader isn't on this screen");
-    const home = this.nameOf(rid), query = `#${tag}`;
+    const home = this.nameOf(rid);
     let id = this.all().find(i => { const p = this.panes.get(i); return p instanceof QueryPane && p.query !== null && p.home === home && !p.held; });
     const opened = id === undefined;
     // The person's list stays as it is (its tag, its selection): an agent reads the notes carrying the tag instead.
     if (!opened && actor.kind === "agent") {
       const r = await this.ctx.board.queryNotes(query, 200);
-      return { tag, tile: this.nameOf(id!), query, notes: r.notes.map(m => ({ id: m.id, title: subject(m) })) };
+      return { tile: this.nameOf(id!), query, notes: r.notes.map(m => ({ id: m.id, title: subject(m) })) };
     }
     if (id === undefined) {
       const list = await this.openTile({ kind: "query", query, source: `tile:${home}` }, home, "down", actor);
@@ -1994,13 +1998,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       id = this.idNamed(list.tile)!;
     }
     const q = this.panes.get(id);
-    if (!(q instanceof QueryPane)) throw new ActionRefused(`no list opened for #${tag}: the screen made ${this.nameOf(id)} instead`);
+    if (!(q instanceof QueryPane)) throw new ActionRefused(`no list opened for ${query}: the screen made ${this.nameOf(id)} instead`);
     await q.retarget(query, this);
     // A query the service refused is said, never answered as no notes (the tile shows it too).
-    if (q.read?.status === "failed") throw new ActionRefused(`#${tag}: ${q.read.errors.join("; ") || "the service couldn't answer"}`);
+    if (q.read?.status === "failed") throw new ActionRefused(`${query}: ${q.read.errors.join("; ") || "the service couldn't answer"}`);
     if (actor.kind !== "agent") { this.keysTo(id); q.focused(this); }
     this.save(); this.redraw();
-    return { tag, tile: this.nameOf(id), query, notes: (q.items ?? []).map((m: Msg) => ({ id: m.id, title: subject(m) })) };
+    return { tile: this.nameOf(id), query, notes: (q.items ?? []).map((m: Msg) => ({ id: m.id, title: subject(m) })) };
   }
 
   /** DeskApi.hasFocus: tile `p` has the person's focus (a whole screen in it sees them through it). */

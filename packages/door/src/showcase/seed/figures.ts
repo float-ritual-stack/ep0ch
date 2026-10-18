@@ -77,6 +77,10 @@ export function markdownFiguresText(figureBlockId: string): string {
     "",
     "A figure's rows can be Markdown after its YAML: **bold** is now or chosen, *italic* next or rejected, `- label: value` a row, `x — note` a side note, `a → b` a path, `ok*40` a run of forty. Where the YAML says the same thing, the YAML wins.",
     "",
+    "Click an activity day, or select it with [ ] and press Enter, to list that day's notes below this reader.",
+    ...fig("activity", ["title: Chores written (live)", 'query: "type=chore"', "count: created", "weeks: 1"]),
+    ...fig("activity", ["title: Chores updated (live)", 'query: "type=chore"', "count: updated", "weeks: 1"]),
+    ...fig("activity", ["title: Decisions by date (live)", 'query: "type=decision"', "date: date", "to: 2026-03-18", "weeks: 3"]),
     ...mdFig("decision", ["title: Squash beds", "status: decided", "date: 2026-03-04"], [
       "- **Raised beds** — the clay stays wet", "- *Straight into the clay* — they rotted last year", "- Grow bags — if the beds run late", "",
       "Two beds of scaffold boards, filled from the compost bays.",
@@ -90,7 +94,6 @@ export function markdownFiguresText(figureBlockId: string): string {
     ...mdFig("activity", ["title: Seeds sown", "weekStartsOn: mon"], [
       "- 2026-01-05: 0 1 0 2 0*3", "- 2026-01-19: 3 0 1 4 2 0 6", "- 2026-02-02: 1*5 0 0", "- 2026-02-16: 0 5 8 2 0 3 9",
     ]),
-    ...fig("activity", ["title: Chores written (live)", 'query: "type=chore"', "count: created", "weeks: 8"]),
     ...mdFig("calendar", ["title: March on the plot", "today: 2026-03-11", "weekStartsOn: mon"], [
       "- 2026-03-12: **seed potatoes in**", "- 2026-03-20: the plot committee", "- 2026-03-28: *the spring fair, maybe*",
     ]),

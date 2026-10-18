@@ -232,6 +232,7 @@ export type LinkTarget = {
   value?: { expression: string; words: string; problem?: string; route: string };
   /** A `#tag` (PIE-800), its value as the service's parser read it (`garden/beds`): it opens the notes carrying the tag. */
   tag?: string;
+  query?: string;
   /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
   resource?: AuthoredResourceLink;
   /** A Resource an extension's view links to (PIE-754): `file:/path`, `web:https://…` or `resource:<id>`. */
