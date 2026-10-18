@@ -388,6 +388,60 @@ test("a named folder goes through the service and snapshots keep its earlier byt
   expect((await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" })).version).toBe(2);
 });
 
+test("import refuses a symlink at the artifacts root and names its path", async () => {
+  const { root, workspace, client } = await setup();
+  const outside = join(root, "outside");
+  mkdirSync(outside);
+  writeFileSync(join(outside, "lantern.html"), "Outside the workspace");
+  const source = join(workspace, "artifacts");
+  symlinkSync(outside, source);
+  await expect(client.request({ action: "artifacts.import" })).rejects.toThrow(`Import refuses link ${source}`);
+  expect(existsSync(join(root, ".artifacts/live/lantern"))).toBe(false);
+});
+
+test("tar uploads count directory and empty file entries against the cap", async () => {
+  const { root, client } = await setup();
+  const source = join(root, "upload-source");
+  mkdirSync(join(source, "empty"), { recursive: true });
+  writeFileSync(join(source, "index.html"), "");
+  const tar = Bun.spawn(["tar", "--format=ustar", "-cf", "-", "-C", source, "empty", "index.html"], { stdout: "pipe", stderr: "pipe" });
+  const archive = await new Response(tar.stdout).arrayBuffer();
+  expect(await tar.exited).toBe(0);
+  const oldLimit = process.env.EP0CH_ARTIFACT_MAX_ENTRIES;
+  cleanups.push(() => {
+    if (oldLimit === undefined) delete process.env.EP0CH_ARTIFACT_MAX_ENTRIES;
+    else process.env.EP0CH_ARTIFACT_MAX_ENTRIES = oldLimit;
+  });
+  await client.request({ action: "artifacts.put", name: "lantern", files: { "index.html": "Earlier page" } });
+  const upload = async () => {
+    const { upload } = await client.request<{ upload: string }>({ action: "artifacts.upload.begin", name: "lantern" });
+    await client.request({ action: "artifacts.upload.chunk", upload, data: Buffer.from(archive).toString("base64") });
+    return client.request({ action: "artifacts.upload.finish", upload });
+  };
+  process.env.EP0CH_ARTIFACT_MAX_ENTRIES = "1";
+  await expect(upload()).rejects.toThrow(/2 entries.*1/);
+  expect(readFileSync(join(root, ".artifacts/live/lantern/index.html"), "utf8")).toBe("Earlier page");
+  expect(readdirSync(join(root, ".artifacts")).some(name => name.endsWith(".tar") || name.endsWith(".incoming"))).toBe(false);
+  process.env.EP0CH_ARTIFACT_MAX_ENTRIES = "2";
+  await upload();
+  expect(readFileSync(join(root, ".artifacts/live/lantern/index.html"), "utf8")).toBe("");
+});
+
+test("a direct put refuses compiled bytes over the cap and keeps the live page", async () => {
+  const { root, client } = await setup();
+  await client.request({ action: "artifacts.put", name: "lantern", files: { "index.html": "Earlier page" } });
+  const oldLimit = process.env.EP0CH_ARTIFACT_MAX_BYTES;
+  process.env.EP0CH_ARTIFACT_MAX_BYTES = "128";
+  cleanups.push(() => {
+    if (oldLimit === undefined) delete process.env.EP0CH_ARTIFACT_MAX_BYTES;
+    else process.env.EP0CH_ARTIFACT_MAX_BYTES = oldLimit;
+  });
+  await expect(client.request({ action: "artifacts.put", name: "lantern", files: {
+    "lantern.jsx": "export default () => <p>Lantern</p>",
+  } })).rejects.toThrow("exceeds 128 bytes after compilation");
+  expect(readFileSync(join(root, ".artifacts/live/lantern/index.html"), "utf8")).toBe("Earlier page");
+}, COMPILE_TIMEOUT);
+
 test("settled inbox drops become versions and receipts, while bad drops keep their source and reason", async () => {
   const { root, client } = await setup();
   const inbox = join(root, "dropbox");
@@ -447,11 +501,12 @@ test("settled inbox drops become versions and receipts, while bad drops keep the
   process.env.EP0CH_ARTIFACT_MAX_BYTES = "32";
   writeFileSync(join(inbox, "oversized.html"), "x".repeat(33));
   writeFileSync(join(inbox, "reason.txt"), "unknown kind");
-  for (const [entry, reason] of [["oversized.html", "exceeds"], ["reason.txt", "Unknown artifact kind"]]) {
+  writeFileSync(join(inbox, "compiled.jsx"), "export default () => <p />");
+  for (const [entry, reason] of [["oversized.html", "exceeds"], ["reason.txt", "Unknown artifact kind"], ["compiled.jsx", "exceeds 32 bytes after compilation"]]) {
     const failed = join(inbox, ".failed", entry!);
     await waitFor(() => existsSync(join(failed, "reason.txt")));
     expect(readFileSync(join(failed, "reason.txt"), "utf8")).toContain(reason!);
-    expect(readFileSync(join(failed, "source", entry!), "utf8")).toBe(entry === "reason.txt" ? "unknown kind" : "x".repeat(33));
+    expect(readFileSync(join(failed, "source", entry!), "utf8")).toBe(entry === "reason.txt" ? "unknown kind" : entry === "compiled.jsx" ? "export default () => <p />" : "x".repeat(33));
     expect(existsSync(join(inbox, entry!))).toBe(false);
   }
   expect(readFileSync(receipts, "utf8").trim().split("\n")).toHaveLength(4);

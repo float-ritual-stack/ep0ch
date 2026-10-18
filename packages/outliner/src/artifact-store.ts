@@ -4,6 +4,7 @@ import { ArtifactCompiler, reactArtifactPage } from "./publish-artifacts";
 import { artifactReference, type ArtifactInfo, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 
 const artifactLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_BYTES ?? 64 * 1024 * 1024);
+const artifactEntryLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_ENTRIES ?? 5000);
 function artifactName(name: string): string {
   if (artifactReference(name)?.name !== name) throw new Error("Use an artifact name containing letters, numbers, dots, underscores or hyphens.");
   return name;
@@ -143,7 +144,7 @@ export class ArtifactStore {
   }
   private async install(name: string, stage: string, options = { compile: true, rejectErrors: false }) {
     if (options.compile) await this.compile(name, stage, options.rejectErrors);
-    if (options.rejectErrors && artifactFiles(stage).reduce((bytes, path) => bytes + lstatSync(join(stage, path)).size, 0) > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes after compilation.`);
+    if (artifactFiles(stage).reduce((bytes, path) => bytes + lstatSync(join(stage, path)).size, 0) > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes after compilation.`);
     const folder = join(this.live, name), previous = `${stage}.previous`;
     if (existsSync(folder)) {
       if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
@@ -178,7 +179,9 @@ export class ArtifactStore {
         const source = join(workspace, "artifacts"), imported: ArtifactInfo[] = [];
         const aliasFile = join(this.root, "aliases", basename(workspace));
         const aliases: Record<string, string> = existsSync(aliasFile) ? JSON.parse(readFileSync(aliasFile, "utf8")) : {};
-        if (!existsSync(source)) return { imported };
+        const sourceStat = lstatSync(source, { throwIfNoEntry: false });
+        if (!sourceStat) return { imported };
+        if (sourceStat.isSymbolicLink()) throw new Error(`Import refuses link ${source}.`);
         for (const entry of readdirSync(source)) {
           const path = join(source, entry), stat = lstatSync(path);
           if (stat.isSymbolicLink()) throw new Error(`Import refuses link ${entry}.`);
@@ -236,13 +239,15 @@ export class ArtifactStore {
 // CLI emits POSIX ustar: reject links and extensions before any file reaches the live folder.
 function untar(path: string, folder: string): void {
   const fd = openSync(path, "r"), length = lstatSync(path).size;
-  let at = 0, bytes = 0;
+  let at = 0, bytes = 0, entries = 0;
   try {
     for (;;) {
       const header = Buffer.alloc(512);
       if (readSync(fd, header, 0, 512, at) !== 512) throw new Error("Incomplete tar upload.");
       at += 512;
       if (header.every(b => b === 0)) break;
+      entries++;
+      if (entries > artifactEntryLimit()) throw new Error(`Artifact upload has ${entries} entries; cap is ${artifactEntryLimit()}.`);
       const field = (start: number, end: number) => header.subarray(start, end).toString().split("\0")[0]!;
       const sum = header.reduce((n,b,i) => n + (i >= 148 && i < 156 ? 32 : b), 0);
       if (sum !== parseInt(field(148,156).trim(), 8)) throw new Error("Invalid tar header.");
