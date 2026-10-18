@@ -16,9 +16,9 @@ import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
-import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts } from "../whereabouts";
+import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
-import { ActionRefused, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
+import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
 /** `tile=<mount>/<tile>`: a tile of a screen mounted in a tile (PIE-651); names never hold a `/`. */
@@ -137,10 +137,12 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
+export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
+  /** Dispatchers for a screen's kinds share that screen's pointer identity. */
+  pointerScope?: object;
   bindings?(): readonly KeyBinding[];
   /** The screen's title, for refusals. */
   readonly title: string;
@@ -231,11 +233,69 @@ const NUMBER = /^#?([1-9][0-9]{0,2})$/;
 
 export class Dispatcher {
   private regs: (Registration | Delegation)[] = [];
-  constructor(private readonly host: DispatchHost, regs: (Registration | Delegation)[] = []) { this.regs = [...regs]; }
+  constructor(private readonly host: DispatchHost, regs: (Registration | Delegation)[] = []) {
+    this.regs = [...regs];
+    if (host.tiles) this.regs.push({ set: POINTER_ACTIONS, takes: "screen", on: at => ({ dispatcher: this, at }) });
+  }
 
   /** A dispatcher for one set with nothing to resolve (a reader outside any screen, a test's): the same path. */
   static of<On>(set: ActionSet<any, On>, on: On, ctx: () => DispatchCtx | null | undefined, title = set.scope): Dispatcher {
     return new Dispatcher({ title, ctx }, [{ set, takes: "none", on: () => on }]);
+  }
+
+  private pointer(actor: Actor) {
+    return actor.kind === "agent" ? this.host.ctx()?.agentPointers?.get(actor.id, this.host.pointerScope ?? this) : undefined;
+  }
+
+  private pointerTarget(actor: Actor): ReturnType<Dispatcher["pointer"]> {
+    const own = this.pointer(actor);
+    if (own) return own;
+    if (actor.kind !== "agent" || !this.host.ctx()?.agentPointers?.get(actor.id)) return;
+    for (const tile of this.tilesNow()) {
+      const inner = tile.mount?.pointerTarget(actor);
+      if (inner) return { ...inner, tile: `${tile.id ?? tile.name}/${inner.tile}` };
+    }
+    if (!this.host.tiles) for (const reg of this.regs) {
+      if ("set" in reg) continue;
+      const inner = reg.delegate()?.pointerTarget(actor);
+      if (inner) return inner;
+    }
+  }
+
+  private declared(req: ActRequest): Registration | undefined {
+    const owner = this.owner(req);
+    return !owner ? undefined : "set" in owner ? owner : owner.delegate(req)?.declared(owner.request ? owner.request(req) : req);
+  }
+
+  /** Resolve before ownership: a mounted pointer must reach that screen's action set. */
+  private pointed(req: ActRequest, actor?: Actor): ActRequest {
+    if (!actor || req.tile !== undefined) return req;
+    const pointer = this.pointerTarget(actor);
+    if (!pointer) return req;
+    const targeted = { ...req, tile: pointer.tile }, reg = this.declared(targeted);
+    const def = reg?.set.def(req.action);
+    if (!reg || !def || def.landing || !(reg.takes === "tile" || ["tile", "draft", "shape"].includes(def.touches))) return req;
+    return { ...targeted, args: { ...req.args,
+      ...(reg.takes === "tile" && reg.set.argsOf(req.action)?.note && req.args?.note === undefined && pointer.note ? { note: pointer.note } : {}),
+    } };
+  }
+
+  focusAgent(at: Target, args: { note?: string; line?: number; clear?: boolean }, actor: Actor) {
+    if (actor.kind !== "agent") throw new ActionRefused("agent.focus is for agents; tile.focus moves your keys");
+    const pointers = this.host.ctx()!.agentPointers!;
+    if (args.clear || (at.name === undefined && args.note === undefined && args.line === undefined)) {
+      pointers.clear(actor.id);
+      return { pointer: null };
+    }
+    const tile = at.tile;
+    if (!tile) throw new ActionRefused("agent.focus needs a tile; actions lists the tiles here");
+    if (args.line !== undefined && (!Number.isInteger(args.line) || args.line < 1)) throw new ActionRefused("line is a source line from 1");
+    const id = tile.id ?? tile.name, note = args.note ?? tile.shows ?? undefined;
+    pointers.set(actor.id, this.host.pointerScope ?? this, () => {
+      const now = this.tilesNow().find(t => (t.id ?? t.name) === id);
+      return now ? { agent: actor.id, screen: this.host.title, tile: id, name: now.name, ...(note ? { note } : {}), ...(args.line !== undefined ? { line: args.line } : {}) } : null;
+    });
+    return { pointer: pointers.get(actor.id) };
   }
 
   /** Add sets after those already here (a screen built on another adds its own first: `first`). */
@@ -301,14 +361,14 @@ export class Dispatcher {
   /** Whether some set here (or a dispatcher it hands to) takes the action. */
   has(name: string): boolean { return !!this.owner({ action: name }); }
   /** Whether some set here takes this request (a set that takes only requests naming a tile, the host layer's tile.herdr). */
-  takes(req: ActRequest): boolean { return !!this.owner(req); }
+  takes(req: ActRequest, actor?: Actor): boolean { return !!this.owner(this.pointed(req, actor), actor); }
 
   /** The set that owns a request's action: the first registered that claims it. */
-  private owner(req: ActRequest): Registration | Delegation | null {
+  private owner(req: ActRequest, actor?: Actor): Registration | Delegation | null {
     req = this.mountedRequest(req);
     for (const r of this.regs) {
       // A delegate is asked about the whole request: a screen in a tile is found by the tile it names.
-      if (r.claims ? r.claims(req) : "set" in r ? r.set.has(req.action) : !!r.delegate(req)?.takes(r.request ? r.request(req) : req)) return r;
+      if (r.claims ? r.claims(req) : "set" in r ? r.set.has(req.action) : !!r.delegate(req)?.takes(r.request ? r.request(req) : req, actor)) return r;
     }
     return null;
   }
@@ -396,7 +456,7 @@ export class Dispatcher {
 
   /** One request, for one actor: who owns it, the revision, then that set's run. */
   private runPlain(req: ActRequest, actor: Actor, typed = false): unknown {
-    req = this.mountedRequest(req);
+    req = this.mountedRequest(this.pointed(req, actor));
     const args = { ...(req.args ?? {}) };
     // A path (`tile=<mount>/<tile>`, PIE-651) names a tile of a screen mounted in a tile: expected= is that screen's revision.
     if (this.host.revision && "expected" in args && !isTilePath(req.tile)) {
@@ -404,7 +464,7 @@ export class Dispatcher {
       if (why) throw new ActionRefused(why);
       delete args.expected;
     }
-    const r = this.owner(req);
+    const r = this.owner(req, actor);
     if (!r && GONE_ACTIONS[req.action]) throw new ActionRefused(GONE_ACTIONS[req.action]!);
     if (!r) throw new ActionRefused(`no action ${req.action} on the ${this.host.title}; \`actions\` lists what it takes`);
     if (!("set" in r)) {
@@ -622,6 +682,7 @@ export class Dispatcher {
    */
   private byBlock(sel: string, tiles: TileRef[], actor: Actor): { t: TileRef; by: NamedBy } | null {
     if (!BLOCK.test(sel)) return null;
+    const pointer = this.pointer(actor);
     const f = this.where().focus;
     const rank = (t: TileRef) => {
       const shows = !!t.shows?.startsWith(sel), shown = t.shown !== false;
@@ -632,7 +693,7 @@ export class Dispatcher {
       if (t.lists?.startsWith(sel) && shown) return 4;
       return 5;
     };
-    const hits = tiles.filter(t => t.shows?.startsWith(sel) || t.lists?.startsWith(sel)).sort((a, b) => rank(a) - rank(b) || Number(b.name === f) - Number(a.name === f));
+    const hits = tiles.filter(t => t.shows?.startsWith(sel) || t.lists?.startsWith(sel)).sort((a, b) => Number((b.id ?? b.name) === pointer?.tile) - Number((a.id ?? a.name) === pointer?.tile) || rank(a) - rank(b) || Number(b.name === f) - Number(a.name === f));
     return hits[0] ? { t: hits[0], by: "block" } : null;
   }
 
@@ -647,3 +708,16 @@ let nounOf: (kind: string) => string = k => `a ${k} tile`;
 /** The tile-kind registry says how its kinds are named (src/desk/tile-kinds.ts sets it; this module can't import it). */
 export function nameKinds(f: (kind: string) => string) { nounOf = f; }
 const kindNoun = (t: TileRef) => nounOf(t.kind);
+
+export const POINTER_ACTIONS = actionSet<{ dispatcher: Dispatcher; at: Target }>()("agent focus", {
+  "agent.focus": def({
+    summary: "set your own pointer with tile=, note= and line=, without moving the person's keys; no arguments or clear=true drops it (agents only)",
+    touches: "nothing", replay: "safe",
+    args: {
+      note: { type: "string", optional: true, about: "the note at your pointer; default the tile's note" },
+      line: { type: "number", optional: true, about: "source line, from 1" },
+      clear: { type: "boolean", optional: true, about: "drop your explicit pointer" },
+    },
+    run(args, { dispatcher, at }, actor) { return dispatcher.focusAgent(at, args, actor); },
+  }),
+});

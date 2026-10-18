@@ -53,6 +53,8 @@ export interface ActionDef<A, H> {
   keys?: string;
   /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */
   touches: Touches;
+  /** tile= names where something lands, rather than what this action works on. */
+  landing?: true;
   /**
    * What it touches with these arguments, when they decide it (board.hub with id= shows a board; without, it answers),
    * and `tile`: the tile the request named (tile=), when it named one (the desk's open: a reader named is moved).

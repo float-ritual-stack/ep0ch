@@ -62,6 +62,28 @@ itself).
 | `{"cmd":"act","action":"open","args":{"file":"<absolute path>","diff":true},"as":"<actor id>"}` | a file on this machine where an agent's open lands (PIE-602): Markdown drawn as the preview draws a file, any other file through the file Resource reader, `diff=true` its changes (git's diff against its last commit, else against `against=<copy>`) | `ep0ch open file:<path> [diff=true] [against=<copy>] [--as id]` |
 | `{"cmd":"subscribe","types":["focus.changed",…]}` | the live feed on this connection (below) | `ep0ch subscribe [types]` |
 
+## An agent's explicit pointer
+
+`ep0ch act agent.focus tile=<tile> [note=<id>] [line=<source line>] --as fern` sets fern's
+pointer without moving the person's keys. `tile=` uses the dispatcher's usual names, ids, numbers,
+aliases and block ids; `note` defaults to what that tile shows and `line` counts from 1. Only agents
+set pointers. `agent.focus` with no arguments, or `clear=true`, drops that agent's pointer.
+
+With a pointer, untargeted actions that work on a tile use its tile: actions declaring `touches`
+as tile, draft or shape, and action sets that take a tile. Reader actions accepting `note=` use
+the pointer's note when none was supplied. An explicit action target wins. Opens and placement
+keep their own landing rules. When two readers show the same note, a block-id target prefers
+that agent's pointer reader. Closing its tile or leaving its screen drops the pointer.
+
+Without a pointer, untargeted actions still use the person's focus as they do today. `tile.focus`
+also keeps its existing behavior: an agent can move the person's keys when idle, and is refused
+while they type. Setting a pointer does not relax any action's existing typing or draft rules.
+
+Each pointer has a dim name in the tile frame's footer and at its source line when visible. A
+click follows it and moves the person's keys (`agent.visit agent=fern`). The existing presence
+tile lists pointers; `peek` reports them in `screen.pointers`, and `where --json` in `door.pointers`.
+The showcase's **agent-focus** section has fern and moss pointing at two readers of one note.
+
 ## Where am I: `EP0CH_NEST` and `ep0ch where`
 
 A program can't tell from its own variables which stack it runs in: each layer only sets its own, and the

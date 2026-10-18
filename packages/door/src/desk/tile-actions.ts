@@ -147,7 +147,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "tile.open": def({
     summary: "open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader (follows the current note; mode=held note=<id> keeps one; mode=pinned page=<name> pins [[name]]; kind=detail is a held reader), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane; or query=<a query, #tag> source=tile:<its home reader>), board, river, brief, thread, activity, who, art. The person's focus stays where it is",
     keys: "^W o <kind>; ^W O <kind> as a tab; ⏎ or a double click on a view in ^W o q's picker",
-    touches: "shape", replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.tile)}`,
+    touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.tile)}`,
     args: {
       kind: { type: "string", about: "what the tile shows" },
       name: { type: "string", optional: true, about: "its name (default: its kind, numbered)" },

@@ -713,11 +713,11 @@ export class WhoPane implements Pane {
   render(w: number, _h: number, _f: boolean, desk: DeskApi): PaneView {
     if (!this.callers) return { lines: [dim("polling nodes…")] };
     return {
-      lines: this.callers.map((c, i) => {
+      lines: [...this.callers.map((c, i) => {
         const you = c.id === desk.ctx.board.clientId;
         const act = c.target ? this.names.get(c.target) ?? (this.asking.has(c.target) ? "…" : c.activity || c.target.slice(0, 8)) : c.activity;
         return `${fg(C.lcyan)}${String(i + 1).padStart(2)} ${fg(you ? C.yellow : C.white)}${pad(you ? "you" : c.name, 9)}${fg(C.grey)}${pad(act, w - 12)}${RESET}`;
-      }),
+      }), ...(desk.ctx.agentPointers?.list() ?? []).map(p => dim(`@${p.agent} · ${p.screen} / ${p.name}${p.line ? ` · line ${p.line}` : ""}`))],
     };
   }
   key(k: Key, desk: DeskApi): boolean { if (ch(k) === "r") { runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }); return true; } return false; }
@@ -729,7 +729,7 @@ export const WHO_ACTIONS = actionSet<{ pane: WhoPane; desk: DeskApi }>()("who", 
     summary: "ask the outline again who is attached (every Tree, Detail, door and agent); answers the callers as they were before the new answer lands", keys: "r, a click on r refresh",
     touches: "nothing", replay: "safe",
     args: {},
-    run(_, { pane, desk }) { pane.load(desk); return { callers: pane.rows() }; },
+    run(_, { pane, desk }) { pane.load(desk); return { callers: pane.rows(), pointers: desk.ctx.agentPointers?.list() ?? [] }; },
   }),
 });
 

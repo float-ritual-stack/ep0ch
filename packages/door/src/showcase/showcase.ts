@@ -541,6 +541,19 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "agent-focus", need: "give each agent its own pointer without taking your keys", part: "the dispatcher targets explicit pointers kept by whereabouts; the tile footer and WhoPane show them", files: "src/surface/dispatch.ts, src/whereabouts.ts, src/desk/desk.ts, src/desk/panes.ts",
+    aside: "@fern points to the game, @moss to its second reader. Click a dim name to take your keys there. Agents set agent.focus tile=game line=3; no arguments clears it. An agent without a pointer works where your focus is, as before.",
+    stage(n, show) {
+      const person = detailPane(), game = detailPane(), copy = detailPane(), who = new WhoPane();
+      return deskOf({ title: "showcase · agent focus", panes: [person, game, copy, who], names: ["person", "game", "copy", "who"],
+        layout: ([a, b, c, d]) => pair("row", 0.7, pair("col", 0.34, leaf(a!), row(0.5, b!, c!)), leaf(d!)) }, show,
+        [[person, n.dayPlan], [game, n.press], [copy, n.press]], d => {
+          void d.dispatch.act({ action: "agent.focus", tile: "game", args: { line: 3 } }, { kind: "agent", id: "fern" });
+          void d.dispatch.act({ action: "agent.focus", tile: "copy", args: { line: 5 } }, { kind: "agent", id: "moss" });
+        });
+    },
+  },
+  {
     key: "presence", need: "show who's here or recent activity", part: "presence: WhoPane and ActivityPane over clients.list, activity.recent", files: "src/desk/panes.ts",
     stage(_n, show) {
       const who = new WhoPane(), act = new ActivityPane();
