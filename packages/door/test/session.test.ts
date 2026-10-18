@@ -958,7 +958,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const turnOn = async () => {
       await until(() => client.screen().includes("outline"), "the desk", 10_000);
       client.type("\x0b");
-      client.type("> agents.yolo");
+      client.type("> agents.yolo on=true");
       client.type("\r");
       for (let i = 0; i < 100 && !(await board.mcpAccessStatus()).yolo; i++) await Bun.sleep(50);
       expect((await board.mcpAccessStatus()).yolo).toBe(true);

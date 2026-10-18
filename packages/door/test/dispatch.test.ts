@@ -207,7 +207,7 @@ function fakeScreen(person: Partial<Whereabouts> = {}) {
   ];
   type On = { tile?: string; place?: string };
   const def = (touches: Touches, extra: Partial<ActionDef<any, On>> = {}): ActionDef<{ to?: string }, On> => (<ActionDef<{ to?: string }, On>>{
-    summary: touches, touches, replay: "safe", args: { to: { type: "string", optional: true, tile: true, about: "a tile" } },
+    summary: touches, touches, replay: "safe", args: { to: { type: "string", optional: true, kind: "tile", about: "a tile" } },
     run(args, on, actor) { ran.push({ name: `${touches}${args.to ? `→${args.to}` : ""}`, ...(on.tile ? { tile: on.tile } : {}), ...(on.place ? { place: on.place } : {}), actor: actor.kind }); return { ok: true }; },
     ...extra,
   });
