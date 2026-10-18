@@ -15,7 +15,7 @@ touches, and trust them over this page.
 
 For working *in* an outline for someone, rather than on the code, use `ep0ch-outline`. For driving a door,
 use `ep0ch`.
-For script blocks, host API calls and invocation paths, read [ep0ch-outline: Scripts](../ep0ch-outline/SKILL.md#scripts). The source map of the script surface (globals, `tools.*`, `view.*`, modes, lifecycle, each with a `path:line`) is `packages/outliner/docs/scripts.md`: change the surface, change that page, and run `bun packages/outliner/scripts/scripts-doc.ts` (it rewrites the generated tables; `test/scripts-docs.test.ts` fails when a table, a pointer or an example drifts).
+For script blocks, host API calls and invocation paths, read [ep0ch-outline: Scripts](../ep0ch-outline/SKILL.md#scripts). The source map of the script surface (globals, `tools.*`, `view.*`, modes, lifecycle, each with a `path:line`) is `packages/outliner/docs/scripts.md`: change the surface, change that page, and run `bun packages/outliner/scripts/scripts-doc.ts` (it rewrites the generated tables and each pointer's line; `test/scripts-docs.test.ts` fails when a table or an example drifts or a pointer's symbol is gone).
 
 ## Read first
 

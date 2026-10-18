@@ -1,9 +1,10 @@
 // The scripts reference's generated parts (PIE-982), written from the code: the `tools.*` list from outline-core's one list
-// of agent tools, the `view.*` fields from the primitive validator, and a check that every `path:line` pointer in the
-// page still lands on the thing it names. test/scripts-docs.test.ts fails when any of them drift.
+// of agent tools, the `view.*` fields from the primitive validator, every `path:line` pointer's line, found again from the symbol
+// it sits beside, and a check that each of those symbols still exists. test/scripts-docs.test.ts fails when a table drifts or a
+// symbol is gone; a line that only moved is regenerated, never a red build.
 //
-//   bun scripts/scripts-doc.ts           write the page's generated tables again
-//   bun scripts/scripts-doc.ts --check   exit 1 when the page isn't what the code says (also lists stale pointers)
+//   bun scripts/scripts-doc.ts           write the page's generated tables and every pointer's line again
+//   bun scripts/scripts-doc.ts --check   exit 1 when the tables drift or a pointer's symbol is gone (a moved line is not drift)
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_TOOL_DEFINITIONS, describeTool } from "@ep0ch/outline-core/agent-tool-definitions";
@@ -72,41 +73,70 @@ const LINES_AROUND_A_POINTER = 2;
 const POINTER = /`((?:packages|scripts|docs)\/[\w./-]+):(\d+)`/g;
 const IS_PATH = /^(?:packages|scripts|docs)\//;
 
+/** What a pointer needs: the line it should say, or why it can't name one. */
+type Resolved = { line: number } | { problem: string };
+
 /**
- * Every `path:line` pointer in the page that no longer lands on the entry it sits beside: the file is gone, the line is
- * past its end, the line of the page names no entry (its first code span that isn't a path), or the entry's last word
- * isn't within two lines of the one pointed at. Each problem says which pointer and how to find the new line.
+ * Where the entry a pointer sits beside is now. The pointer is a hint, the symbol is the truth (PIE-1040): a pointer whose
+ * entry is still within two lines of the number stays as written; one that moved is found again by its symbol, the
+ * occurrence nearest the old number. Only a file or a symbol that is gone is a problem, and it names the symbol.
  */
+function resolvePointer(line: string, file: string, at: number): Resolved {
+  let source: string[];
+  try { source = lines(file); } catch { return { problem: `${file}:${at}: the file isn't there` }; }
+  const entry = [...line.matchAll(/`([^`]+)`/g)].map(m => m[1]!).find(span => !IS_PATH.test(span));
+  if (!entry) return { problem: `${file}:${at}: no entry named on its line: put the name in a code span before the pointer` };
+  const word = entry.replace(/\(.*$/, "").split(/[^\w$]+/).filter(Boolean).at(-1);
+  if (!word) return { problem: `${file}:${at}: \`${entry}\` has no word to look for` };
+  // `outline_proposal_${op}` is one template for two tools: its stem on the line is enough.
+  const templatedStem = word.includes("_") ? word.slice(0, word.lastIndexOf("_") + 1) : "";
+  const named = new RegExp(`(?<![\\w$])${word.replace(/[$]/g, "\\$&")}(?![\\w$])`);
+  const hit = (text: string) => named.test(text) || (templatedStem.length > 6 && text.includes(templatedStem));
+  if (at >= 1 && at <= source.length && hit(source.slice(Math.max(0, at - 1 - LINES_AROUND_A_POINTER), at + LINES_AROUND_A_POINTER).join("\n"))) return { line: at };
+  const found = source.flatMap((text, index) => hit(text) ? [index + 1] : []);
+  if (!found.length) return { problem: `${file}:${at}: \`${entry}\` isn't in the file any more; search ${file} for "${word}", and rename the entry or drop the row` };
+  // Prefer where the word is declared (`const read =`, `function read(`, `case "read"`, `name: "read"`) over a line that uses it.
+  const w = word.replace(/[$]/g, "\\$&");
+  const declares = new RegExp(`^\\s*(?:export\\s+)?(?:declare\\s+)?(?:async\\s+)?(?:(?:const|let|var|function\\*?|class|type|interface|enum)\\s+${w}(?![\\w$])|(?:case\\s+)?["'\`]?${w}["'\`]?\\s*[:(=])|name:\\s*["'\`]${w}["'\`]`);
+  const declared = found.filter(n => declares.test(source[n - 1]!));
+  const nearest = (from: number[]) => from.reduce((best, n) => Math.abs(n - at) < Math.abs(best - at) ? n : best);
+  return { line: nearest(declared.length ? declared : found) };
+}
+
+/** Every pointer in the page whose file or symbol is gone, each naming the symbol. A line that merely moved is not one. */
 export function stalePointers(page: string): string[] {
   const problems: string[] = [];
   for (const line of page.split("\n")) {
     for (const [, file, number] of line.matchAll(POINTER) as Iterable<[string, string, string]>) {
-      const at = Number(number);
-      let source: string[];
-      try { source = lines(file); } catch { problems.push(`${file}:${at}: the file isn't there`); continue; }
-      if (at < 1 || at > source.length) { problems.push(`${file}:${at}: the file has ${source.length} lines`); continue; }
-      const entry = [...line.matchAll(/`([^`]+)`/g)].map(m => m[1]!).find(span => !IS_PATH.test(span));
-      if (!entry) { problems.push(`${file}:${at}: no entry named on its line: put the name in a code span before the pointer`); continue; }
-      const word = entry.replace(/\(.*$/, "").split(/[^\w$]+/).filter(Boolean).at(-1);
-      if (!word) { problems.push(`${file}:${at}: \`${entry}\` has no word to look for`); continue; }
-      const near = source.slice(Math.max(0, at - 1 - LINES_AROUND_A_POINTER), at + LINES_AROUND_A_POINTER).join("\n");
-      // `outline_proposal_${op}` is one template for two tools: its stem on the line is enough.
-      const templatedStem = word.includes("_") ? word.slice(0, word.lastIndexOf("_") + 1) : "";
-      const named = new RegExp(`(?<![\\w$])${word.replace(/[$]/g, "\\$&")}(?![\\w$])`).test(near);
-      if (!named && !(templatedStem.length > 6 && near.includes(templatedStem))) problems.push(`${file}:${at}: \`${entry}\` isn't there any more; search the file for "${word}" and write the line it is on`);
+      const found = resolvePointer(line, file, Number(number));
+      if ("problem" in found) problems.push(found.problem);
     }
   }
   return problems;
 }
 
+/** The page with each pointer's line written from where its symbol is now (a pointer that can't be found is left as it is). */
+export function withPointers(page: string): string {
+  return page.split("\n").map(line => line.replace(POINTER, (whole, file: string, number: string) => {
+    const found = resolvePointer(line, file, Number(number));
+    return "line" in found ? `\`${file}:${found.line}\`` : whole;
+  })).join("\n");
+}
+
+/** The page with every pointer's line number blanked: what the test compares, since a moved line is regenerated, never a failure. */
+export const withoutLines = (page: string): string => page.replace(POINTER, "`$1:#`");
+
+/** The page as the generator writes it: the tables from the code, then every pointer's line from its symbol. */
+export function regenerated(page: string): string { return withPointers(withGenerated(page)); }
+
 if (import.meta.main) {
   const page = readFileSync(SCRIPTS_DOC, "utf8");
-  const fresh = withGenerated(page);
+  const fresh = regenerated(page);
   if (process.argv.includes("--check")) {
     const stale = stalePointers(fresh);
-    if (fresh !== page) console.error("The page's generated tables are out of date: run `bun packages/outliner/scripts/scripts-doc.ts` and commit the result.");
+    if (withoutLines(fresh) !== withoutLines(page)) console.error("The page's generated tables are out of date: run `bun packages/outliner/scripts/scripts-doc.ts` and commit the result.");
     for (const problem of stale) console.error(problem);
-    process.exit(fresh !== page || stale.length ? 1 : 0);
+    process.exit(withoutLines(fresh) !== withoutLines(page) || stale.length ? 1 : 0);
   }
   writeFileSync(SCRIPTS_DOC, fresh);
   for (const problem of stalePointers(fresh)) console.error(problem);

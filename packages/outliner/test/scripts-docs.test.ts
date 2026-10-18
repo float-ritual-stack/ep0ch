@@ -8,21 +8,32 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PRIMITIVE_TYPES } from "../src/component-primitives";
 import { scriptExamples, SCRIPTS_DOC_FILE, type ScriptExample } from "../src/script-examples";
-import { stalePointers, withGenerated } from "../scripts/scripts-doc";
+import { regenerated, stalePointers, withoutLines, withPointers } from "../scripts/scripts-doc";
 import { setup, until } from "./script-harness";
 
 const page = readFileSync(SCRIPTS_DOC_FILE, "utf8");
 
-test("the page's generated tables are what the code says, and its pointers still land", () => {
-  expect(withGenerated(page) === page ? "fresh" : "stale: run `bun packages/outliner/scripts/scripts-doc.ts` and commit the page").toBe("fresh");
+test("the page's generated tables are what the code says, and each pointer's symbol is still there", () => {
+  // A line that moved is not drift: the generator writes it again. A table that differs, or a symbol that is gone, is.
+  expect(withoutLines(regenerated(page)) === withoutLines(page) ? "fresh" : "stale: run `bun packages/outliner/scripts/scripts-doc.ts` and commit the page").toBe("fresh");
   expect(stalePointers(page)).toEqual([]);
 });
 
-test("the pointer check notices a pointer that moved, or a file that is gone", () => {
-  expect(stalePointers("| `read` | `packages/outliner/src/host-api.ts:1` |")).toHaveLength(1);
+test("a pointer whose line moved is regenerated from its symbol; one whose symbol or file is gone is named", () => {
+  const at = readFileSync(join(import.meta.dir, "../src/host-api.ts"), "utf8").split("\n").findIndex(line => line.includes("export function noteIds(")) + 1;
+  const row = (target: string) => `| \`noteIds(result)\` | \`packages/outliner/src/host-api.ts:${target}\` |`;
+  // Red before PIE-1040: a pointer a few lines off failed the build. Now it is not stale, and the generator moves it
+  // (to the declaration nearest the old number, not a call of the same word).
+  for (const old of [at - 12, at - 5, 99999]) {
+    expect(stalePointers(row(String(old)))).toEqual([]);
+    expect(withPointers(row(String(old)))).toBe(row(String(at)));
+  }
+  expect(withPointers(row(String(at)))).toBe(row(String(at)));
+  const gone = "| `noSuchSymbolInHostApi` | `packages/outliner/src/host-api.ts:1` |";
+  expect(stalePointers(gone)).toHaveLength(1);
+  expect(stalePointers(gone)[0]).toContain("noSuchSymbolInHostApi");
+  expect(withPointers(gone)).toBe(gone);
   expect(stalePointers("| `read` | `packages/outliner/src/no-such-file.ts:1` |")).toHaveLength(1);
-  const at = readFileSync(join(import.meta.dir, "../src/host-api.ts"), "utf8").split("\n").findIndex(line => line.includes("const read = async")) + 1;
-  expect(stalePointers(`| \`read\` | \`packages/outliner/src/host-api.ts:${at}\` |`)).toEqual([]);
 });
 
 /** A script that reports what its sandbox holds, run on a note that has one child. */
