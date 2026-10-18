@@ -24,7 +24,7 @@ test("a page is laid out from the schema alone: the table, each value with its s
   const desk: any = { ctx: { board: {} }, redraw() {} };
   const p = new LibraryPane();
   const text = () => p.render(COLS, 200, true, desk).lines.map(visible).join("\n");
-  expect(text()).toContain("heading-pattern  on the declaring note   stack, waffle, uptime, dots, rule");
+  expect(text()).toContain("heading-pattern  on the declaring note  stack, waffle, uptime, dots, rule");
   expect(text()).toContain("┊ ## Your calls [heading::band]");
   p.part = "property"; p.axis = 2;
   expect(p.render(COLS, 200, true, desk).lines.map(visible).filter(l => /^. heading-pattern: /.test(l))).toHaveLength(5);
