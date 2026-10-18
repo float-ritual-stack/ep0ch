@@ -392,6 +392,22 @@ describe('register', () => {
     expect((await plain.find({ key: 'engine' }))?.text).toBe('Nothing to link here.')
   })
 
+  test('a bold line and a table with references are drawn as bold and a whole table, their references pressable (PIE-1043)', async ($, on) => {
+    const session = sessionIn(on, WORKSPACE, succeeding)
+    await session.begin(() => $.session.start(START))
+    const drawn = await mountReply($, '**A bold line with PIE-1030 inside it**\n\n| Ticket | What |\n| --- | --- |\n| PIE-1031 | argument forms |\n| PIE-1032 | more |')
+    const shown = (await drawn.find({ type: 'Box' }))?.text ?? ''
+    expect(shown).not.toContain('**')
+    expect(shown).not.toMatch(/\| PIE-1031|\| PIE-1032/)
+    expect(shown).toContain('Ticket')
+    expect(shown).toContain('argument forms')
+    expect(await drawn.find({ key: 'https://pi-outliner.invalid/work/PIE-1031' })).toBeDefined()
+    expect(await drawn.find({ type: 'Text', text: 'bold ', bold: true })).toBeDefined()
+    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-1032' })
+    await session.clock.settle()
+    expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-1032'])
+  })
+
   test('clicking a reference shows it in the Outliner Detail beside Claude, found by ensure-detail, without focus', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
     await session.begin(() => $.session.start(START))
@@ -537,6 +553,46 @@ describe('register', () => {
       expect(registered.some(name => name.startsWith('door_'))).toBe(false)
       const called = await $.tool.call({ tool: 'mcp__ep0ch__door_peek' })
       expect(called.deny).toContain('`ep0ch --ws garden` starts one')
+    })
+  })
+
+  describe('a press on a reference in a reply follows the door that answers (PIE-1043)', () => {
+    const LIVE = '/state/sessions/local/garden/door.sock'
+    const STALE_SOCK = '/state/old/agent-door-claude.sock'
+    const where = (reach: object, door: object | null) => JSON.stringify({ inDoor: false, reach, here: { machine: 'garden-host', folder: WORKSPACE, persona: null }, herdr: { pane: 'w1:p2P', label: null, agent: false }, door })
+    const FOUND = where({ rule: 'folder', text: "reached garden's door session by folder" }, { answers: true, control: LIVE, outline: 'garden', machine: null, host: null, tile: null, stale: null })
+    const MISSING = where({ rule: 'none', text: 'no door runs on garden · `ep0ch --ws garden` starts one' }, null)
+    // A door that answers only on its live socket; any other socket is gone (exit 3).
+    const answers = (whereOut: string) => (run: Run) => {
+      if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, whereOut, '')
+      if (run.argv.includes('door-open')) {
+        return run.argv[run.argv.indexOf('--control') + 1] === LIVE ? result(0, '{"reader":"centre","id":"x"}\n', '') : result(3, '', 'error: no door at it (ECONNREFUSED)\n')
+      }
+      return succeeding(run)
+    }
+    for (const [name, control] of [['a Claude with no EP0CH_CONTROL at all', ''], ['a stale EP0CH_CONTROL', STALE_SOCK]] as const) {
+      test(`${name}: the press opens in the door \`ep0ch where\` found, not the mentions pane`, async ($, on) => {
+        const session = sessionIn(on, WORKSPACE, answers(FOUND), '', { ...NOT_IN_HERDR, EP0CH_CONTROL: control })
+        on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
+        await session.begin(() => $.session.start(START))
+        const drawn = await mountReply($, 'See [[Daily notes]].')
+        await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+        await session.clock.settle()
+        const opened = session.runs.find(run => run.argv.includes('door-open'))!
+        expect(opened.argv[opened.argv.indexOf('--control') + 1]).toBe(LIVE)
+        expect(session.toasts).toEqual([])
+      })
+    }
+
+    test('with no door answering the toast says so, with the command that starts one', async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answers(MISSING), '', { ...NOT_IN_HERDR, EP0CH_CONTROL: STALE_SOCK })
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
+      on('ui.open', () => ({ value: { isPlaced: false, reason: 'opened unasked under 144 columns (120 now)' } }))
+      await session.begin(() => $.session.start(START))
+      const drawn = await mountReply($, 'See [[Daily notes]].')
+      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+      await session.clock.settle()
+      expect(session.toasts.join('\n')).toContain('no door runs on garden')
     })
   })
 

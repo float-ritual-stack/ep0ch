@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A press on a reference in a Claude reply opens in the live door; bold and tables survive (PIE-1043)
+
+A press (and the `show` tool) resolves the door the way the door tools do, by `ep0ch where`, so a Claude resumed after
+its door restarted, or started outside a tile, opens the note in the folder's door instead of the mentions pane; when
+no door answers the toast says why. `**bold**` and `*italic*` around a reference and other text draw as bold and
+italic, and a table with a reference in a row stays one table with pressable cells. Reload the mod (`/reload-plugins`).
+
 ### References in Claude's replies show their label, never the address (PIE-1042)
 
 The Claude mod no longer prints `(https://pi-outliner.invalid/work/PIE-n)` after every reference in a terminal: the
