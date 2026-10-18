@@ -11,13 +11,16 @@ import { outliner, Scratch, until } from "./scratch";
 import { prop } from "../src/props";
 
 /**
- * Processes whose environment serves `base`'s state: a scan of `proc`, and none where the host has no
+ * Hosts serving `base`'s state: a scan of `proc`, and none where the host has no
  * /proc (macOS), where only the pidfile is checked.
  */
 function servingState(base: string, proc = "/proc"): string[] {
   if (!existsSync(proc)) return [];
   return readdirSync(proc).filter(p => /^\d+$/.test(p)).filter(p => {
-    try { return readFileSync(`${proc}/${p}/environ`, "utf8").split("\0").includes(`EP0CH_OUTLINES=${base}/outlines`); } catch { return false; }
+    try {
+      return readFileSync(`${proc}/${p}/environ`, "utf8").split("\0").includes(`EP0CH_OUTLINES=${base}/outlines`)
+        && readFileSync(`${proc}/${p}/cmdline`, "utf8").split("\0").some(arg => /(?:^|\/)host-main\.ts$/.test(arg));
+    } catch { return false; }
   });
 }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -80,7 +83,12 @@ describe.skipIf(!outliner || !existsSync("/proc"))("scripts/try-it.sh --showcase
   // An unrelated process of our own, which the script must never signal. Only we stop it.
   let bystander: ReturnType<typeof Bun.spawn> | null = null;
   const stale = () => { mkdirSync(base, { recursive: true }); writeFileSync(pidfile, `${bystander!.pid}\n`); };
-  beforeAll(() => { bystander = Bun.spawn(["sleep", "300"], { stdout: "ignore", stderr: "ignore" }); });
+  beforeAll(() => {
+    // Extension workers inherit the host's outlines folder without being another host.
+    bystander = Bun.spawn(["sleep", "300"], {
+      env: { ...process.env, EP0CH_OUTLINES: `${base}/outlines` }, stdout: "ignore", stderr: "ignore",
+    });
+  });
   afterAll(() => { bystander?.kill(); rmSync(home, { recursive: true, force: true }); });
 
   test("a pidfile naming another process is stale: the script serves and seeds, and leaves that process alone", () => {
