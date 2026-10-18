@@ -1,6 +1,7 @@
 // PIE-956: the showcase's "Regions in prose" section. A render script's table, a ::= sentence and a written output region read
 // like the page around them, each behind one dim mark in the margin that shows its name, when it ran and its controls
 // while the cursor is on it. One of the showcase's test files; the harness (harness.ts) seeds a scratch outline and opens the screen.
+import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -27,6 +28,17 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     // An agent reads the note's sources without opening the person's panel: the three regions are listed.
     expect(opened.opened).toBe(false);
     expect(opened.sources?.length).toBeGreaterThanOrEqual(3);
+    const csv = await app.act({ action: "sources.download", args: { source: "1", format: "csv" }, tile: "notes", as: "test-agent" }) as { path: string };
+    expect(readFileSync(csv.path, "utf8")).toContain('"Owner","Week"');
+    expect(readFileSync(csv.path, "utf8")).toContain('"Sam","42"');
+    const json = await app.act({ action: "sources.download", args: { source: "1", format: "json" }, tile: "notes", as: "test-agent" }) as { path: string };
+    expect(JSON.parse(readFileSync(json.path, "utf8"))).toEqual([{ Owner: "Sam", Week: "42", Crop: "Regions in prose" }]);
+    h.press({ kind: "tab" });
+    h.ch("S");
+    await until(() => screen().includes("Sources · 3 generated regions"), "Sources opened by key");
+    h.press({ kind: "enter" });
+    h.press({ kind: "enter" });
+    await until(() => screen().includes("download CSV"), "Enter opens the source's download controls", 1000);
     // Drawing wrote nothing.
     const after = (await board.get(id))!;
     expect([after.text, after.revision]).toEqual([first.text, first.revision]);

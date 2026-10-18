@@ -43,7 +43,8 @@ import { readBlockRecords } from "./block-records";
 import { answerSite } from "./site-answer";
 import { templatePropsOf, templateUse } from "./template-use";
 import { readSources } from "./site-sources";
-import { stampTemplate, type TemplateStampResult } from "./template-stamp";
+import { placeOutput } from "./place";
+import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
@@ -288,7 +289,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  * for creating, editing, commenting and annotating. Everything else (moves, deletes, settings, asking an extension
  * to act) is refused, so an extension can't set another one off.
  */
-const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
+const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "outputs.place", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
@@ -1905,6 +1906,28 @@ export class OutlinerServer {
   ): Promise<OutlinerResponse> {
     request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (request.action === "site.answer" && request.sources) {
+      try {
+        const answer = answerSite(this.store, request);
+        const deps = new Set(answer.deps);
+        const projections = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalizeResourceProjectionRequest({ blockId: answer.blockId })), false)).projections.map(p => ({ ...p }));
+        if (request.hidden) for (const projection of projections) {
+          if (!projection.extension || !projection.output) continue;
+          if (projection.output.reads) {
+            try {
+              const rendered = await this.extensionCalls.renderForSite(answer.blockId, projection.anchor.line, request.hidden, ids => ids.forEach(id => deps.add(id)), request);
+              rendered.reads.forEach(r => deps.add(r.id));
+              projection.output = { ...projection.output, markdown: rendered.untracked ? "hidden here" : rendered.markdown };
+            } catch { projection.output = { ...projection.output, markdown: "hidden here" }; }
+          }
+        }
+        const sources = readSources({ store: this.store, projections, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => {
+          const ext = this.extensionRegistry.extension(id);
+          return ext?.script ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code } : { kind: "extension", label: ext?.name ?? id };
+        } }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
+        return { id: request.id, ok: true, result: { ...answer, deps: [...deps], sources }, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+    }
     if (request.action === "site.answer" && request.scriptLine !== undefined) {
       try {
         if (!Number.isInteger(request.scriptLine) || request.scriptLine < 0 || request.hidden === undefined) throw new Error("A published script needs scriptLine (from zero) and hidden (the reader's cut)");
@@ -2024,9 +2047,20 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
-    if (request.action === "draft.patch" || request.action === "draft.proposal.apply" || request.action === "draft.proposal.dismiss" || request.action === "drafts.read") {
+    if (request.action === "template.stamp" && request.into !== undefined) {
       try {
-        const result = request.action === "draft.patch"
+        const result = await stampTemplateInto(this.store, request, this.draftPatches);
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) {
+        if (isSqliteBusy(error)) throw error;
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
+    if (request.action === "outputs.place" || request.action === "draft.patch" || request.action === "draft.proposal.apply" || request.action === "draft.proposal.dismiss" || request.action === "drafts.read") {
+      try {
+        const result = request.action === "outputs.place"
+          ? await placeOutput(this.draftPatches, request)
+          : request.action === "draft.patch"
           ? await this.draftPatches.patch(request)
           : request.action === "draft.proposal.apply"
             ? await this.draftPatches.applyProposal(request.proposalId, request.mutation)
@@ -3112,6 +3146,7 @@ export class OutlinerServer {
           if (typeof request.blockId !== "string" || !request.blockId) throw Error("draft.proposals.list needs blockId");
           result = this.draftPatches.proposalsBeside(request.blockId);
           break;
+        case "outputs.place":
         case "draft.patch":
         case "draft.proposal.apply":
         case "draft.proposal.dismiss":
@@ -4116,6 +4151,7 @@ export class OutlinerServer {
         // A triggered call's new block carries the trigger's mark, as its returned writes' do.
         return { ...as, ...(grant.trigger && typeof as.text === "string" ? { text: markTriggered(as.text, grant.trigger) } : {}),
           author: "agent", provenance: { actorId: actor.actorId, ...(actor.taskId ? { taskId: actor.taskId } : {}) } } as OutlinerRequest;
+      case "outputs.place":
       case "draft.patch":
         return { ...as, mutation: actor } as OutlinerRequest;
       case "move":

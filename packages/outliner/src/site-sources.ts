@@ -1,7 +1,7 @@
 // `site.sources` (PIE-956, S6b): every generated region of a note with what it read, when, what shaped it and what it
 // answered, from the one set of readers the page itself is drawn from: the extension registry's handler lines
 // (`extensions.outputs`), `template.use`, the figure/fields/if producers (`site.answer`'s `produce`) and the output
-// regions' text grammar. The door's Sources inspector draws this answer (a published page's panel is a follow-up, PIE-996), so a second client agrees with it.
+// regions' text grammar. The door's Sources inspector draws this answer and the published page's panel, so a second client agrees with it.
 // A page shows none of it by default; "where this comes from" asks. Reads only.
 import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
@@ -21,9 +21,9 @@ export interface SourcesDeps {
   projections: readonly ResourceProjection[];
   transformOf(extension: string, handler: string): TransformOf;
   clock?: () => number;
+  depend?: (ids: string[]) => void;
 }
 
-const MAX_ROWS = 2000;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** A Markdown table's header and rows, when `text` is (or holds) one. */
@@ -39,18 +39,23 @@ export function markdownTable(text: string): { columns: string[]; table: string[
 
 const resultOf = (text: string): SourceEntry["result"] => {
   const t = markdownTable(text);
-  return t ? { rows: t.table.length, columns: t.columns, table: t.table.slice(0, MAX_ROWS), text } : { rows: text.trim() ? text.trim().split("\n").length : 0, text };
+  return t ? { rows: t.table.length, columns: t.columns, table: t.table, text } : { rows: text.trim() ? text.trim().split("\n").length : 0, text };
 };
 
 /** A produced list of notes as a table: id and title. */
 function blocksResult(blocks: readonly unknown[]): SourceEntry["result"] {
-  const table = (blocks as { id?: string; title?: string; text?: string }[]).slice(0, MAX_ROWS).map(b => [String(b.id ?? ""), String(b.title ?? (b.text ?? "").split("\n")[0] ?? "")]);
+  const table = (blocks as { id?: string; title?: string; text?: string }[]).map(b => [String(b.id ?? ""), String(b.title ?? (b.text ?? "").split("\n")[0] ?? "")]);
   return { rows: blocks.length, columns: ["id", "title"], table, text: table.map(r => r.join("\t")).join("\n") };
 }
 
 export function readSources(deps: SourcesDeps, request: SourcesRequest): SourcesAnswer {
   const { store } = deps;
   const clock = deps.clock ?? Date.now;
+  const read = (input: import("@ep0ch/outline-core/site").SiteAnswerRequest) => {
+    const answer = answerSite(store, { ...input, ...(request.hidden ? { hidden: request.hidden } : {}) }, clock);
+    deps.depend?.(answer.deps);
+    return answer;
+  };
   if (!request || typeof request.blockId !== "string" || !request.blockId.trim()) throw new Error("site.sources needs blockId: the note whose generated regions are asked, for example { blockId: \"PIE-12\" }");
   const host = store.resolveBlockRef(request.blockId);
   const text = host.text;
@@ -84,30 +89,32 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
     try {
       if (c.kind === "use") {
         const a = templateUse(store, { block: host.id, line: c.line }, clock);
+        deps.depend?.(a.deps);
+        if (a.deps.some(id => request.hidden?.includes(id))) throw new Error("hidden here");
         out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: true },
           transform: a.template ? { kind: "template", label: a.template.title, block: a.template.id, text: a.template.text } : { kind: "none", label: "no template" },
-          result: a.template ? resultOf(answerSite(store, { blockId: a.template.id, chain: a.chain, props: a.props, interpolate: { text: a.template.text, fences: "template" } }, clock).interpolated?.text ?? a.template.text) : { rows: 0, text: "" }, ...(a.problems[0] ? { problem: a.problems[0].message } : {}) });
+          result: a.template ? resultOf(read({ blockId: a.template.id, chain: a.chain, props: a.props, interpolate: { text: a.template.text, fences: "template" } }).interpolated?.text ?? a.template.text) : { rows: 0, text: "" }, ...(a.problems[0] ? { problem: a.problems[0].message } : {}) });
       } else if (c.kind === "figure" && c.figure) {
         const block = componentBlocks(lines).find(b => b.start === c.line);
         const src = figureSource(lines.slice(c.line + 1, block?.end ?? c.endLine), host.id, false, block?.attrs);
-        const read = figureProps(c.figure.kind, src);
-        if ("error" in read) throw new Error(read.error);
-        const props = read.props;
-        const answer = answerSite(store, { blockId: host.id, produce: { kind: "figure", figure: c.figure.kind, props } }, clock);
+        const parsed = figureProps(c.figure.kind, src);
+        if ("error" in parsed) throw new Error(parsed.error);
+        const props = parsed.props;
+        const answer = read({ blockId: host.id, produce: { kind: "figure", figure: c.figure.kind, props } });
         const produced = answer.produced as Extract<SiteProduced, { kind: "figure" }> | undefined;
         const question = typeof props.query === "string" ? props.query : typeof props.view === "string" ? `view ${props.view}` : "";
         out.push({ ...base, readAt, live: true, query: { params: [...yamlParams(c.figure.yaml), ...c.params], text: question || c.text, editable: false },
           transform: { kind: "figure", label: `${c.name} figure`, text: c.figure.yaml || lines.slice(c.line, c.endLine + 1).join("\n") },
           result: produced ? blocksResult(produced.blocks) : { rows: 0, text: "" }, ...(produced?.error ? { problem: produced.error } : {}) });
       } else if (c.kind === "fields") {
-        const answer = answerSite(store, { blockId: host.id, produce: { kind: "fields", key: c.of ?? "", ...(c.params.find(p => p.key === "of") ? { of: c.params.find(p => p.key === "of")!.value } : {}) } }, clock);
+        const answer = read({ blockId: host.id, produce: { kind: "fields", key: c.of ?? "", ...(c.params.find(p => p.key === "of") ? { of: c.params.find(p => p.key === "of")!.value } : {}) } });
         const produced = answer.produced as Extract<SiteProduced, { kind: "fields" }> | undefined;
-        const table = (produced?.rows ?? []).slice(0, MAX_ROWS).map(r => [r.value, String(r.line + 1)]);
+        const table = (produced?.rows ?? []).map(r => [r.value, String(r.line + 1)]);
         out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: false },
           transform: { kind: "none", label: "reads the key as written" }, result: { rows: produced?.rows.length ?? 0, columns: ["value", "line"], table, text: table.map(r => r.join("\t")).join("\n") },
           ...(produced?.problem ? { problem: produced.problem.message } : {}) });
       } else if (c.kind === "if") {
-        const answer = answerSite(store, { blockId: host.id, produce: { kind: "if", where: c.of ?? "" } }, clock);
+        const answer = read({ blockId: host.id, produce: { kind: "if", where: c.of ?? "" } });
         const produced = answer.produced as Extract<SiteProduced, { kind: "if" }> | undefined;
         out.push({ ...base, readAt, live: true, query: { params: c.params, text: c.text, editable: false },
           transform: { kind: "none", label: "a query over this note" }, result: { rows: 1, text: produced ? (produced.holds ? "holds: its body is drawn" : "does not hold: its body is not drawn") : "" },
@@ -120,6 +127,12 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
       }
     } catch (error) {
       out.push({ ...base, live: false, query: { params: c.params, text: c.text, editable: false }, transform: { kind: "none", label: "" }, result: { rows: 0, text: "" }, problem: message(error) });
+    }
+  }
+  for (const source of out) {
+    if (source.transform.block) {
+      deps.depend?.([source.transform.block]);
+      if (request.hidden?.includes(source.transform.block)) source.transform = { kind: "none", label: "not shared" };
     }
   }
   out.sort((a, b) => a.line - b.line);

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (PIE-956)
+
+- Step results now sit in output regions after the command, with attributed patches and draft conflict proposals. The running region is replaced when the command finishes; no result child is made. Whole-run summaries remain machinery notes.
+
 ## 4 (2026-10-17)
 
 - **Breaking.** A step's `{{name}}` is no longer the runbook note's property of that name. It is the outline's one

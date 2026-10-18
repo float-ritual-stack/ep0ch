@@ -15,6 +15,9 @@
 // what is new. A template that is a subtree is stamped whole. A step's generated id (`^t-3fa9c1`) is not carried over (the new
 // note's steps are its own to address), so an agent can fill a placeholder step in without declaring an identity change. Writes only through the store's normal paths, attributed
 // as whoever asked; refuses before writing anything when the template, a prop or `for` is wrong.
+import { parseBlockRef } from "@ep0ch/outline-core/addressable-resource";
+import { placeOutput } from "./place";
+import type { DraftPatchRouter } from "./draft-patch-router";
 import { interpolationSpans, type InterpolationSpan } from "@ep0ch/outline-core/interpolation";
 import { ADDRESS_KEYS } from "@ep0ch/outline-core/property-grammar";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -42,7 +45,7 @@ export interface TemplateStampRequest {
   of: string;
   /** Where the stamp goes: `new` (a new note, the only one so far). */
   as?: string;
-  /** `into=((id^anchor))` is placement (PIE-533 S6): refused here with where it is coming. */
+  /** Write into an anchored output region through the draft router. */
   into?: string;
   /** The note it is made under (a reference); left out, the top of the Inbox, as any new note. */
   parent?: string;
@@ -204,12 +207,11 @@ function alreadyStamped(store: StampStore, template: Block, match: Block): Block
   return store.queryBlocks({ where: `${STAMPED_FOR_KEY}=((${match.id})) from-template=((${template.id}))`, limit: 1 }).blocks[0] ?? null;
 }
 
-export function stampTemplate(store: StampStore, request: TemplateStampRequest, clock: () => number = Date.now): TemplateStampResult {
+function prepareStamp(store: StampStore, request: TemplateStampRequest, clock: () => number) {
   if (!request || typeof request !== "object" || typeof request.of !== "string" || !request.of.trim()) {
     throw new Error("template.stamp needs of: the template ([[page]], ((id)), a Work ID, or type:meeting); for example { of: \"[[daily-template]]\", as: \"new\", title: \"{{now.date}}\" }");
   }
-  if (request.into !== undefined) throw new Error(`template.stamp into=${request.into} writes into a note's anchor (output regions); that arrives with place(). Until then stamp a new note: as=new parent=${request.into.replace(/\^.*$/, "")}`);
-  if ((request.as ?? "new") !== "new") throw new Error(`template.stamp as=${request.as}: the only placement so far is as=new (a new note); for example as=new parent=[[Daily notes]]`);
+  if ((request.as ?? "new") !== "new") throw new Error(`template.stamp as=${request.as}: use as=new for a new note, or into=((id^anchor)) for an output region`);
   if (request.freeze !== undefined && request.freeze !== "all") throw new Error(`freeze=${request.freeze}: the only value is freeze=all (write every {{ }} as its value)`);
   const found = findTemplate(store, request.of);
   if (!found.ok) throw new Error(`${found.message}${found.didYouMean.length ? `; did you mean ${found.didYouMean.join(" or ")}?` : ""}${found.example ? ` (for example ${found.example})` : ""}`);
@@ -241,6 +243,55 @@ export function stampTemplate(store: StampStore, request: TemplateStampRequest, 
   const addresses = new Set(parsePropertyRecords(template.text).filter(r => ADDRESS_KEYS.has(r.key)).map(r => r.value.trim().toLowerCase()));
   const forWord = (template.properties.find(p => p.key === TEMPLATE_FOR_KEY)?.value ?? "").trim().split(/[\s,]+/)[0] || undefined;
 
+  return { template, title, warnings, author, mutation, matches, parent, checked, root, addresses, forWord };
+}
+
+function stampText(store: StampStore, request: TemplateStampRequest, prepared: ReturnType<typeof prepareStamp>, match: Block | null, clock: () => number, warnings: string[]) {
+  const { template, checked, addresses, forWord } = prepared;
+  const props: Record<string, string[]> = { ...checked.values, ...(match ? { for: [match.id] } : {}) };
+  const read = siteReader(store, { self: template, props }, clock);
+  return (node: Node, first: boolean): string => {
+    let text = fill(withoutStepIds(withoutTemplateChips(node.text, addresses)), read, warnings);
+    if (first) {
+      if (request.title !== undefined) text = withTitle(text, fill(request.title, read, warnings));
+      if (forWord && !parsePropertyRecords(text).some(r => r.key === "type")) text = withChip(text, "type", forWord);
+      text = withChip(text, "from-template", `((${template.id}))`);
+      if (match) text = withChip(text, STAMPED_FOR_KEY, `((${match.id}))`);
+    }
+    return withPageTitle(text);
+  };
+}
+
+export async function stampTemplateInto(store: StampStore, request: TemplateStampRequest, drafts: Pick<DraftPatchRouter, "read" | "patch">, clock: () => number = Date.now): Promise<TemplateStampResult> {
+  const prepared = prepareStamp(store, request, clock);
+  const { blockId, fragment } = parseBlockRef(request.into!);
+  if (!fragment) throw new Error("template.stamp into needs an anchor: into=((id^log))");
+  const target = store.resolveBlockRef(blockId);
+  const { template, title, warnings, mutation, matches, root } = prepared;
+  const stamped: Stamped[] = [];
+  const messages: string[] = [];
+  for (const match of matches) {
+    const make = stampText(store, request, prepared, match, clock, warnings);
+    const parts: string[] = [];
+    const collect = (node: Node, first: boolean) => { parts.push(make(node, first)); for (const child of node.children) collect(child, false); };
+    collect(root, true);
+    let content = parts.join("\n\n"), frozen = 0;
+    if (request.freeze === "all") {
+      const answer = answerSite(store, { blockId, interpolate: { text: content } }, clock);
+      const done = freeze(content, answer.interpolated!.values);
+      content = done.text; frozen = done.frozen;
+      for (const v of answer.interpolated!.values) if (v.problem && !v.usedDefault) warnings.push(`{{${v.expression}}}: ${v.problem.message}; left as written`);
+    }
+    const result = await placeOutput(drafts, { blockId, mutation, producer: { id: template.id, name: title }, at: fragment, content, interpolate: true });
+    messages.push(result.message);
+    if (result.outcome === "applied") stamped.push({ id: blockId, title: said(target.text), parentId: target.parentId, blocks: 0, frozen, ...(match ? { for: match.id } : {}) });
+  }
+  return { template: { id: template.id, title }, stamped, skipped: [], warnings, said: messages.join("; ") || "nothing matched; nothing stamped" };
+}
+
+export function stampTemplate(store: StampStore, request: TemplateStampRequest, clock: () => number = Date.now): TemplateStampResult {
+  const prepared = prepareStamp(store, request, clock);
+  const { template, title, warnings, author, mutation, matches, parent, root } = prepared;
   const stamped: Stamped[] = [];
   const skipped: TemplateStampResult["skipped"] = [];
   store.inTransaction(() => {
@@ -249,19 +300,8 @@ export function stampTemplate(store: StampStore, request: TemplateStampRequest, 
         const prior = alreadyStamped(store, template, match);
         if (prior) { skipped.push({ for: match.id, stamped: prior.id }); continue; }
       }
-      const props: Record<string, string[]> = { ...checked.values, ...(match ? { for: [match.id] } : {}) };
-      const read = siteReader(store, { self: template, props }, clock);
       const own: string[] = [];
-      const make = (node: Node, first: boolean): string => {
-        let text = fill(withoutStepIds(withoutTemplateChips(node.text, addresses)), read, own);
-        if (first) {
-          if (request.title !== undefined) text = withTitle(text, fill(request.title, read, own));
-          if (forWord && !parsePropertyRecords(text).some(r => r.key === "type")) text = withChip(text, "type", forWord);
-          text = withChip(text, "from-template", `((${template.id}))`);
-          if (match) text = withChip(text, STAMPED_FOR_KEY, `((${match.id}))`);
-        }
-        return withPageTitle(text);
-      };
+      const make = stampText(store, request, prepared, match, clock, own);
       const ids: string[] = [];
       const write = (node: Node, under: string | null, first: boolean): void => {
         const text = make(node, first);

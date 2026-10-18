@@ -1,3 +1,4 @@
+import { pageSources, SOURCES_STYLE } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { blockTags, metadataLines } from "@ep0ch/outline-core/block-tags";
@@ -567,11 +568,11 @@ interface SearchTag { base: string; near?: string; form?: boolean }
  * the marginalia reader on it; `search` puts the search box above the breadcrumbs, with its script. Any other page is
  * as it always was: a bar, the body, no script.
  */
-function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean; search?: SearchTag } = {}): string {
+function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean; search?: SearchTag; sourcesScript?: string } = {}): string {
   const { reader, search } = options;
   const browse = options.browse || !!reader || !!search;
   // The reader first: it sets the polyfill's options, and registers its helpers once both have run.
-  const script = (reader ? `<script src="${escapeHtml(reader.src)}" defer></script>${reader.webmcp ? `<script src="${escapeHtml(reader.webmcp)}" defer></script>` : ""}` : "") +
+  const script = (body.includes('class="sources-panel"') ? `<script src="${escapeHtml(options.sourcesScript ?? (reader?.api ?? `${search?.base ?? ""}${PAGE_ROUTE}`) + "/sources.js")}" defer></script>` : "") + (reader ? `<script src="${escapeHtml(reader.src)}" defer></script>${reader.webmcp ? `<script src="${escapeHtml(reader.webmcp)}" defer></script>` : ""}` : "") +
     (search ? `<script src="${escapeHtml(searchScriptPath(search.base))}" defer></script>` : "");
   const box = search && search.form !== false ? searchForm(search.base, search.near ? { near: search.near } : {}) : "";
   const main = reader
@@ -579,7 +580,7 @@ function htmlPage(title: string, body: string, nav: string, options: { reader?: 
     : browse ? `<main class="browse">` : "<main>";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title><style>${PAGE_STYLE}${browse ? BROWSE_STYLE + SEARCH_STYLE : ""}</style>${script}</head>
+<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title><style>${PAGE_STYLE}${body.includes('class="sources-panel"') ? SOURCES_STYLE : ""}${browse ? BROWSE_STYLE + SEARCH_STYLE : ""}</style>${script}</head>
 <body>${main}${box}${browse ? nav : `<header class="bar">${nav}</header>`}
 ${body}
 </main></body></html>
@@ -1148,6 +1149,7 @@ export class Publisher {
     }
     // A tailnet page's marginalia: its script, its threads and the one write route (publish-page.ts). Being on the
     // tailnet (or signed in at the sign-in listener) is the sign-in; the public listener has none of these.
+    if (path === `${PAGE_ROUTE}/sources.js`) return new Response(Bun.file(new URL("./publish-sources.js", import.meta.url)), { headers: { "content-type": "text/javascript; charset=utf-8" } });
     if (audience === "tailnet" && path.startsWith(`${PAGE_ROUTE}/`)) {
       try {
         return await this.marginalia.handle(request, path.slice(PAGE_ROUTE.length));
@@ -1277,6 +1279,7 @@ export class Publisher {
       id: found.share.id, base: `${mount}/s/${token}`, scope: found.share.scope, comments: found.share.comments,
       active: async () => (await this.client.request<ShareResolution>({ action: "shares.resolve", token })).status === "active",
     };
+    if (rest === `${PAGE_ROUTE}/sources.js`) return new Response(Bun.file(new URL("./publish-sources.js", import.meta.url)), { headers: { "content-type": "text/javascript; charset=utf-8" } });
     if (rest.startsWith(`${PAGE_ROUTE}/`)) return this.marginalia.handle(request, rest.slice(PAGE_ROUTE.length), share);
     if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     const media = MEDIA_PATH.exec(rest);
@@ -1549,9 +1552,11 @@ export class Publisher {
       const base = share?.base ?? this.basePathFor(audience);
       // A step's box changes from the owner's own page (PIE-811); a share's and a public page's are drawn, read-only.
       const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
-      if (!browse) return renderedHtml(this.page(entry, article, audience));
+      const sourceText = (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text;
+      const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText);
+      if (!browse) return renderedHtml(this.page(entry, sources + article, audience), 200, READER_CSP);
       const crumbs = await this.crumbs(entry, index, true, share);
-      return renderedHtml(htmlPage(entry.title, `<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId } }), 200, READER_CSP);
+      return renderedHtml(htmlPage(entry.title, `${sources}<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId } }), 200, READER_CSP);
     }
     const { markdown } = await this.blockMarkdown(entry, index, audience, false, { format: "markdown", owner, ...(share ? { share } : {}) });
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
@@ -1611,7 +1616,8 @@ export class Publisher {
       : "";
     const bookmarks = system.find((block) => getProperty(block.properties, "system-view")?.toLowerCase() === "bookmarks");
     const top = share ? "" : `<footer>${bookmarks ? `<a href="${escapeHtml(`${base}/p/${bookmarks.id}`)}">bookmarks</a> · ` : ""}<a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
-    const body = `<article>\n${article}</article>\n${lanes}${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
+    const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text) : "";
+    const body = `${sources}<article>\n${article}</article>\n${lanes}${inside}${entry ? this.pageFooter(entry, false, share) : top}`;
     const crumbs = entry ? await this.crumbs(entry, index, false, share) : `<nav class="crumbs">${escapeHtml(this.rootLabel())}</nav>`;
     const title = entry?.title ?? this.outlineName ?? "outline";
     const search = { base, ...(entry ? { near: entry.blockId } : {}) };
@@ -1890,7 +1896,7 @@ export class Publisher {
     const href = (path: string) => escapeHtml(`${this.basePathFor(audience)}${path}`);
     // The public listener has no index to link to.
     const nav = audience === "public" ? escapeHtml(entry.slug) : `<a href="${href("/index")}">index</a> / ${escapeHtml(entry.slug)}`;
-    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav);
+    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav, { sourcesScript: `${this.basePathFor(audience)}${PAGE_ROUTE}/sources.js` });
   }
 
   /**

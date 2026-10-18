@@ -40,7 +40,7 @@ export interface SourceEntry {
 }
 
 /** `site.sources`' question. */
-export interface SourcesRequest { blockId: string }
+export interface SourcesRequest { blockId: string; hidden?: string[] }
 
 /** `site.sources`' answer. */
 export interface SourcesAnswer {
@@ -144,4 +144,14 @@ export function withSlotProps(line: string, props: Record<string, string>): stri
   const added = Object.entries(props).filter(([k]) => !done.has(k)).map(([k, v]) => say(k, v));
   const tail = [rewritten.trimEnd(), ...added].filter(Boolean).join(" ");
   return `${read.head.trimEnd()}${tail ? " " : ""}${tail}`.trimEnd();
+}
+
+
+/** The inspector's raw rows, shared by file downloads in the door and on a page. */
+export function sourceDownload(result: SourceEntry["result"], format: "csv" | "json"): string {
+  const columns = result.columns ?? ["text"];
+  const rows = result.table ?? [[result.text]];
+  if (format === "json") return JSON.stringify(rows.map(row => Object.fromEntries(columns.map((key, i) => [key, row[i] ?? ""]))), null, 2) + "\n";
+  const cell = (value: string) => '"' + value.replaceAll('"', '""') + '"';
+  return [columns, ...rows].map(row => row.map(cell).join(",")).join("\r\n") + "\r\n";
 }

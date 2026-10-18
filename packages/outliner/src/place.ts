@@ -29,8 +29,8 @@ export interface PlaceRequest {
   content: string;
   /** The region's label; default the producer's name. */
   label?: string;
-  /** The note line (from 0) the producer was invoked from: the target when `at` is absent, and where a proposal is drawn. */
-  here?: number;
+  /** The caller line (from 0), or the end of the current draft: target when `at` is absent, and where a proposal is drawn. */
+  here?: number | "end";
   /** `{{` in the output stays literal unless this is true. */
   interpolate?: boolean;
   /** More anchors the whole outline has (`ensureFragmentAnchor`'s index): more did-you-mean candidates. */
@@ -97,7 +97,7 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
   const label = req.label ?? req.producer.name;
   const regions = findOutputRegions(text);
   const anchors = fragmentAnchors(text);
-  const here = req.here !== undefined && req.here >= 0 && req.here < lines.length ? req.here : undefined;
+  const here = req.here === "end" ? lines.length : req.here !== undefined && req.here >= 0 && req.here < lines.length ? req.here : undefined;
   
   const region = (target: string, anchor?: string) => {
     const a = anchor ?? outputAnchor(req.producer.id, target, label);
@@ -107,7 +107,8 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
   const proposeAtCaller = (reason: string, target: string): PlacePlan => {
     if (here === undefined) return { ok: false, kind: "refused", reason: `${reason}; and there is no caller line to draw a proposal at, so nothing was written` };
     const r = region(target);
-    return { ok: false, kind: "proposal", reason, spans: [insertion(lines, here, r.text, "after")], anchor: r.anchor, mark: markBelow(lines, here) };
+    const caller = Math.min(here, lines.length - 1);
+    return { ok: false, kind: "proposal", reason, spans: [insertion(lines, caller, r.text, "after")], anchor: r.anchor, mark: markBelow(lines, caller) };
   };
 
   // The address.
@@ -115,6 +116,7 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
   if (!wanted) {
     if (here === undefined) return { ok: false, kind: "refused", reason: "place needs at: ^anchor, or to run from a line of a note (here)" };
     if (mode === "replace") return { ok: false, kind: "refused", reason: "replace needs an output region: give at: its ^anchor (use upsert to create or replace this producer's region)" };
+    if (here === lines.length) return placeAt("end", lines.length - 1, lines.length - 1, "after", undefined);
     if (inFrontMatter(text, here)) return { ok: false, kind: "refused", reason: "the caller line is in the note's front matter; place writes below it" };
     // The caller's own words name the address, so a second run finds the region the first made though the line moved.
     const target = `here:${lines[here]!.trim()}`;
@@ -193,4 +195,21 @@ export function planPlace(text: string, req: PlaceRequest): PlacePlan {
     return { ok: true, spans: [insertion(lines, line, text2, where)], anchor: anchorId, created: true, mark: markBelow(lines, line),
       summary: `created ${label}'s region ^${anchorId} ${where === "before" ? "before" : "after"} ${target.startsWith("here") ? "the line that ran it" : target}` };
   }
+}
+
+export interface PlaceInput extends PlaceRequest {
+  blockId: string;
+  mutation: import("./types").MutationProvenance;
+  propose?: "always";
+}
+
+/** Every producer compares against the held draft, then uses the same attributed patch route. */
+export async function placeOutput(drafts: Pick<import("./draft-patch-router").DraftPatchRouter, "read" | "patch">, input: PlaceInput) {
+  const draft = await drafts.read(input.blockId);
+  const plan = planPlace(draft.text, input);
+  if (!plan.ok && plan.kind === "refused") throw new Error(plan.reason);
+  const result = await drafts.patch({ blockId: input.blockId, revision: draft.revision, patches: plan.spans, mutation: input.mutation, current: true,
+    ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(!plan.ok || input.propose ? { propose: "always" as const } : {}) });
+  const message = plan.ok ? plan.summary : plan.reason;
+  return { ...result, anchor: plan.anchor, ...(plan.ok ? { created: plan.created } : {}), message: result.outcome === "applied" ? message : `proposed: ${result.reason ?? message}` };
 }

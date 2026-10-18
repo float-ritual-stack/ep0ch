@@ -27,7 +27,7 @@ export const DAILY_TEMPLATE = [
 ].join("\n");
 
 /** Where a stamped daily note lands: it reads `{{owner}}` from here. */
-export const DAILY_NOTES = "Daily notes [page::daily notes] [owner::Ada]";
+export const DAILY_NOTES = "Daily notes [page::daily notes] [owner::Ada]\n\n## Stamped log ^log\n\nTemplates can also land here: use template.stamp with into= pointing to this note's log anchor.";
 
 /** Three pages: each its own project, the same template. The third has two mistakes to see the warnings. */
 export const MEETING_PAGES = [

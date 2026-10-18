@@ -1,6 +1,7 @@
 // PIE-533 S4: the showcase screen's "Templates": one template used live on three pages (`this` is each page), the mistakes
 // a call can make said where they are, a missing prop asked for and written onto the line, and the daily note stamped as a
 // new note beside it. Driven through `act`, as an agent drives a door; the harness (harness.ts) seeds a scratch outline.
+import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { App } from "../../src/app";
 import type { Seeded } from "../../src/showcase/seed";
@@ -86,5 +87,11 @@ describe.skipIf(!outliner)("the showcase screen: templates (PIE-533 S4)", () => 
     // Read where it landed, the braces answer for that note.
     const read = await board.siteAnswer(made.id);
     expect(read.values.map(v => v.values?.[0])).toEqual(["Daily notes", "Ada"]);
+    const target = seeded.notes.dailyNotes.id;
+    await app.act({ action: "template.stamp", args: { of: "[[daily-template]]", into: `((${target}^log))`, freeze: "all" }, ...agent });
+    const region = findOutputRegions((await board.get(target))!.text)[0]!;
+    expect(region.body).toContain("its owner is Ada");
+    expect(region.body).not.toContain("{{");
+    expect(region.edited).toBe(false);
   }, 30_000);
 });
