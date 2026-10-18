@@ -35,6 +35,7 @@ import {
 } from "./types";
 import { probeSocket } from "./socket-probe";
 import { answerWebSessions, WEB_SESSION_ACTIONS, WebSessions } from "./web-sessions";
+import { readMcpAccessFiles } from "./mcp-access-files";
 import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
 import { metaDir, withLitestreamPaused } from "./litestream-guard";
 
@@ -83,7 +84,7 @@ export interface OutlineHostOptions {
 }
 
 // `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
-const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use"]);
+const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use", "mcp.access.files"]);
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
 const RELAY_WAIT_MS = 60_000;
 const RELAY_MAX_ANSWER = 64 * 2 ** 20;
@@ -874,6 +875,8 @@ export class OutlineHost {
     switch (request.action) {
       case "outlines.list": return this.list();
       case "echonet.list": return this.echonetList();
+      // This machine's MCP caps and usage (PIE-1037): the gateway writes them here, so the door on any machine asks this host.
+      case "mcp.access.files": return readMcpAccessFiles();
       case "outlines.create": return this.create(request.name, request.about);
       case "outlines.import": return this.importDatabase(request.path, request.name);
       case "outlines.attach": return this.attach(request.name, request.create === true);

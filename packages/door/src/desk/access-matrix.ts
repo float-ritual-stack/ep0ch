@@ -43,7 +43,7 @@ const factsOf = (m: AccessMatrix) => ({
   callers: m.callers, outlines: m.outlines, cells: m.cells.flat().map(cellFacts), caps: m.caps, usage: m.usage,
 });
 
-const usageWords = (c: MatrixCell) => !c.usage ? "no usage records for this machine's outlines here"
+const usageWords = (c: MatrixCell) => !c.usage ? `no usage records: they are the gateway machine's, and ${c.outline} lives on ${c.machine}`
   : c.usage.calls ? `${c.usage.calls} call${c.usage.calls === 1 ? "" : "s"} in ${7} days, the last ${ago(Date.parse(c.usage.lastCall!))} ago`
   : c.level === "none" ? "no calls in 7 days" : "unused in 7 days";
 
@@ -98,7 +98,7 @@ export class AccessMatrixPane implements Pane {
     this.width = w; this.hits = [];
     const m = this.matrix;
     if (!m) return { lines: [fg(C.grey) + (this.said || "reading who can reach what…") + RESET] };
-    const lines: string[] = [dim(pad(` calls: last ${m.usage.days} days · the lower of the outline's grant and the caller's cap`, w))];
+    const lines: string[] = [dim(pad(` caps and calls from ${m.readFrom} · calls: last ${m.usage.days} days · the lower of the outline's grant and the caller's cap`, w))];
     if (!m.callers.length) {
       return { lines: [...lines, "", fg(C.white) + " No caller has been seen yet." + RESET, fg(C.grey) + pad(" A caller shows here once it has a row in the usage records (ep0ch mcp usage --by actor) or a name in EP0CH_MCP_PATH_ACCESS (~/.config/ep0ch/mcp.env).", w) + RESET] };
     }

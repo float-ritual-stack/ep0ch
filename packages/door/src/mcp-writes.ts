@@ -25,7 +25,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parseEnvFile } from "./backup/config";
+import { mcpEnvFile, mcpSetting } from "@ep0ch/outliner/mcp-access-files";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { actorLabel, composeActor, composeSessionId, CALL_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { sessionPersona, type LocationReader } from "@ep0ch/outline-core/outline-location";
@@ -110,19 +110,7 @@ export function principalOf(caller: McpCaller, machine: string = canonicalLocalM
   return clientName(caller.clientId ?? caller.sub, env);
 }
 
-/** The file the MCP settings are read from: `~/.config/ep0ch/mcp.env` (under `XDG_CONFIG_HOME` when that is set). */
-export const mcpEnvFile = (env: Record<string, string | undefined>): string =>
-  join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config"), "ep0ch", "mcp.env");
-
-/** An MCP setting: the environment's, else `~/.config/ep0ch/mcp.env`'s (EP0CH_MCP_PERSONAS, EP0CH_MCP_SCRATCH_CAP). */
-export function mcpSetting(env: Record<string, string | undefined>, key: string): string | undefined {
-  const value = env[key];
-  if (value !== undefined) return value;
-  try {
-    const file = mcpEnvFile(env);
-    return existsSync(file) ? parseEnvFile(readFileSync(file, "utf8"))[key] : undefined;
-  } catch { return undefined; }
-}
+export { mcpEnvFile, mcpSetting };
 
 /**
  * The persona a caller writes as (ADR 0003 §3, as amended): a recorded name, never a permission, so nothing here refuses

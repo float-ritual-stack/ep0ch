@@ -19,19 +19,18 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { dirname } from "node:path";
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
-import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
+import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { parseEnvFile } from "./backup/config";
-import { LEVELS, levelFor, mcpEnvFile, mcpSetting, pathCapEntry, STDIO_SUBJECT, type McpCaller } from "./mcp-writes";
-import { readUsage, type Usage } from "./mcp-usage";
+import { CAP_KEY, capSettings, MATRIX_DAYS, readMcpAccessFiles, type McpAccessFiles } from "@ep0ch/outliner/mcp-access-files";
+import { LEVELS, levelFor, mcpEnvFile, pathCapEntry, STDIO_SUBJECT, type McpCaller } from "./mcp-writes";
+import { readUsage, usageDir, type Usage } from "./mcp-usage";
 import { ago } from "./text";
 import { hostRequest, SocketBoard } from "./socket";
 import { resolveTarget } from "./discover";
 import { forwardTo } from "./machine";
 
-export const CAP_KEY = "EP0CH_MCP_PATH_ACCESS";
+export { CAP_KEY, MATRIX_DAYS };
 const DAY = 86_400_000;
-/** The window the matrix counts calls in. */
-export const MATRIX_DAYS = 7;
 
 /** A level as the matrix says it: a glyph and a word, never a colour alone. */
 export const LEVEL_MARK: Record<McpAccessLevel, { glyph: string; word: string }> = {
@@ -71,7 +70,10 @@ export interface AccessMatrix {
   outlines: Grant[];
   /** `cells[caller][outline]`, in the order of `callers` and `outlines`. */
   cells: MatrixCell[][];
+  /** The person's machine: the commands a plan names are run here (`--machine` for any other). */
   localMachine: string;
+  /** The machine whose caps and usage records these are: the one that serves the gateway (PIE-1037). */
+  readFrom: string;
   caps: { file: string; from: "environment" | "file" | "none" };
   usage: { dir: string; days: number };
 }
@@ -81,9 +83,11 @@ export interface MatrixInput {
   capSpec: string;
   capFrom: AccessMatrix["caps"]["from"];
   capFile: string;
-  usage: Usage[];
+  usage: Pick<Usage, "time" | "actor" | "outline">[];
   usageDir: string;
   localMachine: string;
+  /** The machine the caps and usage were read on (default: this one). */
+  readFrom?: string;
   now?: number;
 }
 
@@ -145,14 +149,14 @@ export function buildMatrix(input: MatrixInput): AccessMatrix {
       return levelFor(status, c, machine, where);
     });
     const level = asked.reduce((a, b) => LEVELS.indexOf(b) > LEVELS.indexOf(a) ? b : a);
-    const usageHere = g.machine === input.localMachine;
+    const usageHere = g.machine === (input.readFrom ?? input.localMachine);
     const mine = usageHere ? recent.filter(r => r.outline === g.outline && sameName(callerOfActor(r.actor).name, caller.name)) : [];
     const last = mine.reduce<string | null>((a, r) => !a || r.time > a ? r.time : a, null);
     const limitedBy = LEVELS.indexOf(level) > LEVELS.indexOf(g.level) ? "owner" : cap && LEVELS.indexOf(cap.level) < LEVELS.indexOf(g.level) ? "cap" : "grant";
     return { caller: caller.name, outline: g.outline, machine: g.machine, level, grant: g.level, cap, limitedBy, usage: usageHere ? { calls: mine.length, lastCall: last } : null,
       why: whyOf(caller, g, level, cap) };
   }));
-  return { callers: list, outlines, cells, localMachine: input.localMachine, caps: { file: input.capFile, from: input.capFrom }, usage: { dir: input.usageDir, days: MATRIX_DAYS } };
+  return { callers: list, outlines, cells, localMachine: input.localMachine, readFrom: input.readFrom ?? input.localMachine, caps: { file: input.capFile, from: input.capFrom }, usage: { dir: input.usageDir, days: MATRIX_DAYS } };
 }
 
 function whyOf(caller: MatrixCaller, g: Grant, level: McpAccessLevel, cap: MatrixCell["cap"]): string {
@@ -172,21 +176,25 @@ export interface GrantSource {
   machine: string;
   grants(): Promise<Grant[]>;
   configure(outline: string, level: McpAccessLevel): Promise<void>;
+  /** This machine's caps and usage records as its host reads them (`mcp.access.files`, PIE-1037); a local source's are read in place. */
+  files(env?: Record<string, string | undefined>): Promise<McpAccessFiles>;
 }
 
 const grantOf = (outline: string, machine: string, s: McpAccessStatus): Grant =>
   ({ outline, machine, level: s.configured ?? s.level, ...(s.owner ? { owner: s.owner } : {}), ...(s.yolo ? { yolo: true } : {}) });
 
-/** The cap settings and where they came from. */
-export function capSettings(env: Record<string, string | undefined> = process.env): { spec: string; from: AccessMatrix["caps"]["from"]; file: string } {
-  const file = mcpEnvFile(env), spec = mcpSetting(env, CAP_KEY);
-  return { spec: spec ?? "", file, from: spec === undefined ? "none" : env[CAP_KEY] !== undefined ? "environment" : "file" };
-}
-
+/**
+ * The matrix of `sources`. The caps and the usage records are the gateway's, which writes them on the machine it runs on:
+ * the first source's machine (the one the door's outline is on), read from that machine's own host unless it is this one,
+ * so a door on another machine shows the gateway's truth rather than its own empty usage and default caps (PIE-1037).
+ */
 export async function gatherMatrix(sources: GrantSource[], env: Record<string, string | undefined> = process.env, now = Date.now()): Promise<AccessMatrix> {
   const grants = (await Promise.all(sources.map(s => s.grants()))).flat();
-  const caps = capSettings(env), { rows, dir } = readUsage(MATRIX_DAYS * DAY, now);
-  return buildMatrix({ grants, capSpec: caps.spec, capFrom: caps.from, capFile: caps.file, usage: rows, usageDir: dir, localMachine: canonicalLocalMachineName(), now });
+  const from = sources[0], local = canonicalLocalMachineName();
+  const here = !from || isLocalMachine(from.machine);
+  const files = here ? readMcpAccessFiles(env, now, usageDir()) : await from!.files(env);
+  const readFrom = here ? local : from!.machine;
+  return buildMatrix({ grants, capSpec: files.caps.spec, capFrom: files.caps.from, capFile: files.caps.file, usage: files.usage.rows, usageDir: files.usage.dir, localMachine: local, readFrom, now });
 }
 
 // ---- changing a cell (the person's)
@@ -213,6 +221,8 @@ export function planChange(m: AccessMatrix, who: { caller: string; outline: stri
   const grantStep = (): Step => ({ kind: "grant", outline: g.outline, machine: g.machine, level: want,
     command: `ep0ch mcp access ${want} --ws ${g.outline}${machineFlag(g.machine, m.localMachine)}`,
     affects: `${g.outline}'s grant is every caller's ceiling there (clients and every named path), not only ${caller.name}'s` });
+  // A cap is written into mcp.env on the machine this process runs on; the gateway's is another's (PIE-1037).
+  const capElsewhere = m.readFrom !== m.localMachine;
   const capStep = (): Step => ({ kind: "cap", key, level: want, command: `ep0ch mcp access --cap ${key}=${want}`,
     affects: `only ${caller.name} in ${g.outline}; written to ${m.caps.file} (${CAP_KEY}), read by the gateway on its next request` });
   if (want === cell.level) return { caller: caller.name, outline: g.outline, machine: g.machine, level: want, steps, said: `${caller.name} already has ${want} in ${g.outline}@${g.machine}; nothing to change` };
@@ -224,6 +234,8 @@ export function planChange(m: AccessMatrix, who: { caller: string; outline: stri
     if (cell.cap && LEVELS.indexOf(cell.cap.level) < LEVELS.indexOf(want)) steps.push(capStep());
     if (LEVELS.indexOf(cell.grant) < LEVELS.indexOf(want)) steps.push(grantStep());
   }
+  if (capElsewhere && steps.some(x => x.kind === "cap"))
+    return { error: `${caller.name}'s cap is written where the gateway reads it, on ${m.readFrom}: run \`ssh ${m.readFrom} ep0ch mcp access --cap ${key}=${want}\` there` };
   return { caller: caller.name, outline: g.outline, machine: g.machine, level: want, steps,
     said: `${caller.name} to ${want} in ${g.outline}@${g.machine}: ${steps.map(s => s.command).join(" and ")}. ${steps.map(s => s.affects).join("; ")}` };
 }
@@ -279,7 +291,9 @@ export async function applyPlan(plan: Plan, sources: GrantSource[], env: Record<
 export function matrixLines(m: AccessMatrix, now = Date.now()): string[] {
   const out: string[] = [];
   const names = m.outlines.map(o => m.outlines.some(x => x !== o && x.outline === o.outline) ? `${o.outline}@${o.machine}` : o.outline);
-  const w = Math.max(10, ...names.map(n => n.length + 1), 10);
+  const useText = (x: MatrixCell) => !x.usage ? "no records" : x.usage.calls ? `${x.usage.calls} calls ${ago(Date.parse(x.usage.lastCall!), now)}` : x.level === "none" ? "" : "unused";
+  // A column is as wide as its widest cell and a gap, so the usage under a level never runs into the next cell's.
+  const w = Math.max(10, ...names.map(n => n.length + 1), ...m.cells.flat().map(x => useText(x).length + 2));
   const side = Math.max(8, ...m.callers.map(c => c.name.length + 7));
   const row = (head: string, cells: string[]) => `${head.padEnd(side)}${cells.map(c => c.padEnd(w)).join("")}`.trimEnd();
   out.push(`Who can reach what: the lower of the outline's grant and the caller's cap (calls: last ${m.usage.days} days)`);
@@ -287,7 +301,7 @@ export function matrixLines(m: AccessMatrix, now = Date.now()): string[] {
   out.push(row("", names));
   m.callers.forEach((c, ci) => {
     out.push(row(`${c.name}${c.via === "path" ? " (path)" : ""}`, m.cells[ci]!.map(x => levelText(x.level))));
-    out.push(row("", m.cells[ci]!.map(x => !x.usage ? "no records" : x.usage.calls ? `${x.usage.calls} calls ${ago(Date.parse(x.usage.lastCall!), now)}` : x.level === "none" ? "" : "unused")));
+    out.push(row("", m.cells[ci]!.map(useText)));
   });
   const limited = m.cells.flat().filter(x => x.limitedBy === "cap");
   if (limited.length) { out.push("", "Why a caller has less than the outline allows:"); for (const x of limited) out.push(`  ${x.caller} in ${x.outline}: ${x.why}`); }
@@ -295,7 +309,7 @@ export function matrixLines(m: AccessMatrix, now = Date.now()): string[] {
   if (none.length) out.push("", `No MCP access is set on ${none.join(", ")}: nobody gets in (ep0ch mcp access <level> --ws <name>).`);
   for (const o of m.outlines) if (o.error) out.push(`${o.outline}@${o.machine}: ${o.error}`);
   out.push("", `(path) is a named gateway path, capped at propose unless ${CAP_KEY} says otherwise (${m.caps.from === "none" ? "not set" : m.caps.from === "environment" ? "from the environment" : m.caps.file}); other callers are not capped.`,
-    `Usage is this machine's (${m.localMachine}, ${m.usage.dir}).`);
+    `Caps and usage are ${m.readFrom}'s${m.readFrom === m.localMachine ? "" : " (the machine that serves the gateway, read through its outline host)"}: ${m.caps.file}, ${m.usage.dir}.`);
   return out;
 }
 
@@ -321,6 +335,7 @@ export function hostSource(path: string, machine: string): GrantSource {
       const b = board(outline);
       try { await b.configureMcpAccess(level); } finally { b.close(); }
     },
+    files: () => hostRequest<McpAccessFiles>(path, "mcp.access.files", {}, 8_000),
   };
 }
 

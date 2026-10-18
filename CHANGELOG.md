@@ -15,6 +15,15 @@ are its record. The outliner's entries from then are kept below, under
 The wheel over a tile's ⋯ menu scrolls its rows (the cursor goes to a row in view, so ⏎ never runs one off the screen),
 a thumb on the box's right edge shows how far down it is, and the foot (the hint) and the last rows stay reachable at
 any height; the arrows still move the cursor. A `ListPicker` takes `scrolls: true` for the same.
+### The access view reads the machine that serves the gateway (PIE-1037)
+
+"Who can reach what" (the tile, `ep0ch mcp access --matrix`, `mcp.access.matrix`) read the caps (`mcp.env`) and the usage
+records of the machine the door runs on, so a door on float-box beside a gateway on float-2 showed no usage and the default
+caps. It now asks the outline host of the machine the outline is on (a new host action, `mcp.access.files`: that machine's
+caps and the last week's usage) and says on the tile, and in the CLI's last line, which machine it read. A cap is written into
+`mcp.env` on the gateway's machine, so a plan for one from another machine says the `ssh <machine> ep0ch mcp access --cap ...`
+to run there. The CLI's usage line (`115 calls 43m   58 calls 43m   unused`) pads each cell to its column with a gap.
+The host action is new on the wire: the machines need the new code on both sides (`ep0ch install --apply` on each).
 
 ### The scripts page's code pointers follow their symbols (PIE-1040)
 

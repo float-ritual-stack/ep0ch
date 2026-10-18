@@ -20,6 +20,7 @@
     "./extension-update": "./src/extension-update.ts",
     "./litestream-guard": "./src/litestream-guard.ts",
     "./litestream-units": "./src/litestream-units.ts",
+    "./mcp-access-files": "./src/mcp-access-files.ts",
     "./machine-forward": "./src/machine-forward.ts",
     "./machine-name": "./src/machine-name.ts",
     "./outline-host": "./src/outline-host.ts",

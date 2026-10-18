@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { PROPERTY_KEY_SOURCE, propertyTokenMatches } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceEnvelopeRanges, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
 import type { BlockSizeCensus } from "@ep0ch/outline-core/protocol";
+import { readUsageRows } from "@ep0ch/outliner/mcp-access-files";
 import { boardFor } from "./notes-cli";
 import { stateDir } from "./state";
 
@@ -11,7 +12,7 @@ export interface Usage {
   shape: Record<string, unknown>;
   requestBytes: number; responseBytes: number; requestTokens: number; responseTokens: number; durationMs: number;
 }
-const usageDir = () => join(stateDir(), "mcp-usage");
+export const usageDir = () => join(stateDir(), "mcp-usage");
 const DAY = 86_400_000;
 
 // Mask literals before looking for keys: a quoted value can itself contain query-looking text.
@@ -65,19 +66,7 @@ function pruneUsage(dir: string, now: number): void {
 }
 
 /** The usage records of the last `since` milliseconds from this machine's state directory (`ep0ch mcp usage`, the access matrix). */
-export function readUsage(since: number, now = Date.now(), dir = usageDir()): { rows: Usage[]; cutoff: string; dir: string } {
-  const cutoff = new Date(now - since).toISOString();
-  let files: string[];
-  try { files = readdirSync(dir); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; files = []; }
-  const rows: Usage[] = [];
-  for (const file of files.sort()) if (/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file) && file.slice(0, 10) >= cutoff.slice(0, 10)) {
-    for (const line of readFileSync(join(dir, file), "utf8").split("\n")) if (line) {
-      const row: Usage = JSON.parse(line);
-      if (row.time >= cutoff) rows.push(row);
-    }
-  }
-  return { rows, cutoff, dir };
-}
+export const readUsage = (since: number, now = Date.now(), dir = usageDir()): { rows: Usage[]; cutoff: string; dir: string } => readUsageRows<Usage>(since, now, dir);
 
 function stats(values: number[]) {
   values.sort((a, b) => a - b);
