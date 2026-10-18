@@ -10,6 +10,7 @@ import { componentsOf } from "../component-schemas";
 import type { ListSource } from "../outline-lists";
 import { RowView, scrolled, wheelRows } from "../scroll";
 import { BOLD, C, chip, ellipsize, fg, pad, RESET, selectedRow, UNBOLD, width } from "../style";
+import { Gesture, Selection, isCopyKey, rowsOf, wordAt, lineAt, paintRange, SELECT_BG, selectText, type Pos } from "../surface/selection";
 import { draftPreview } from "../surface/note";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { ch, type Key } from "../term";
@@ -37,7 +38,7 @@ const PLACE: Record<PropPlace, string> = { line: "on the line", note: "on the de
 /** A part of a row a click runs an action on. */
 interface Hit { from: number; to: number; action: string; args?: Record<string, unknown> }
 /** One drawn row: its text, what a click on it runs, the variation it belongs to (`vs`: the variations of a grid's row of cells). */
-interface Row { text: string; hits?: Hit[]; v?: number; vs?: number[] }
+interface Row { text: string; hits?: Hit[]; v?: number; vs?: number[]; margin?: number; cuts?: [number, number][] }
 
 /** A component's short name, for its tab: its title without the `(::graph-meter)`. */
 const shortTitle = (s: ComponentSchema) => s.title.replace(/\s*\(.*\)\s*$/, "");
@@ -85,6 +86,20 @@ export class LibraryPane implements Pane {
   private headShown = 0;
   private body: Row[] = [];
   private revealNext = false;
+  private gesture = new Gesture();
+  private selection: Selection | null = null;
+  private selecting = false;
+  private drawnWidth = 0;
+  private room = 0;
+  private selectionPage = "";
+  private selectRows() { return rowsOf(this.body.map(r => r.text), r => this.body[r]?.margin ?? 0, r => ({ cuts: this.body[r]?.cuts ?? [] })); }
+  selectedText() { return this.selection?.text(this.selectRows()) ?? ""; }
+  selectText(text: string) { return selectText(this.selectRows(), text).text(this.selectRows()); }
+  private posAt(x: number, y: number): Pos | null {
+    if (y <= this.headShown || y > this.headShown + this.room) return null;
+    const row = this.view.top + y - this.headShown - 1;
+    return row < this.body.length ? { row, col: Math.max(0, Math.min(this.drawnWidth - 1, x)) } : null;
+  }
 
   constructor(spec: { component?: string; part?: string } = {}) {
     this.component = spec.component ?? "heading-style";
@@ -101,7 +116,7 @@ export class LibraryPane implements Pane {
   }
   hint() {
     const own = this.part === "property" ? "← → property · " : this.part === "grid" ? "← → grid · " : this.part === "space" ? "[ ] axis · ← → value · space picks · x clears · n p page · " : "";
-    return `, . component · 1-4 part · ${own}j k variation · y copies · w width · or click`;
+    return `, . component · 1-4 part · ${own}j k variation · y/copy whole source · drag copies text · w width`;
   }
   init(desk: DeskApi) { this.desk = desk; }
   spec(): { component: string; part: Part } { return { component: this.component, part: this.part }; }
@@ -123,8 +138,8 @@ export class LibraryPane implements Pane {
       if (wider) out.push({ text: fg(C.dark) + pad(`  ← drawn at ${cols} columns, cut at ${cut - 2} · w changes the width`, cut) + RESET, v: i });
     }
     if (drawingWaits(v, src)) out.push({ text: fg(C.dark) + "  asking the outline how the rule draws…" + RESET, v: i });
-    const source = (line: string, tag = "") => wrap(line || " ", Math.max(8, cut - 6 - width(tag))).map((l, j) => ({ text: fg(C.dark) + "  ┊ " + (j || !tag ? "" : fg(C.brown) + tag) + fg(C.grey) + l + RESET, v: i }));
-    if (v.note) { out.push(...source(v.note, "note · ")); out.push({ text: fg(C.dark) + "  ┊" + RESET, v: i }); }
+    const source = (line: string, tag = "") => wrap(line || " ", Math.max(8, cut - 6 - width(tag))).map((l, j) => ({ text: fg(C.dark) + "  ┊ " + (j || !tag ? "" : fg(C.brown) + tag) + fg(C.grey) + l + RESET, v: i, margin: 4 + (j || !tag ? 0 : width(tag)) }));
+    if (v.note) { out.push(...source(v.note, "note · ")); out.push({ text: fg(C.dark) + "  ┊" + RESET, v: i, margin: 3 }); }
     for (const l of v.use.split("\n")) out.push(...source(l));
     out.push({ text: "", v: i });
     return out;
@@ -198,16 +213,17 @@ export class LibraryPane implements Pane {
           const blocks = row.cells.map(c => { const r = this.block(c, shown.length, this.labelOf(s, c, [b]), cellW - 2, src, cellW - 2); shown.push(c); return r; });
           const tall = Math.max(...blocks.map(x => x.length));
           for (let j = 0; j < tall; j++) {
-            let t = "", hits: Hit[] = [];
+            let t = "", hits: Hit[] = [], cuts: [number, number][] = [];
             const vs: number[] = [];
             blocks.forEach((rows, k) => {
               const r = rows[j];
+              if (r?.margin) cuts.push([k * cellW, k * cellW + r.margin]);
               t += pad(r?.text ?? "", cellW - 2) + RESET + "  ";
               hits = hits.concat((r?.hits ?? []).map(h => ({ ...h, from: h.from + k * cellW, to: h.to + k * cellW })));
               // A click anywhere on a cell's drawing or source selects it, as on a variation one under another.
               if (r?.v !== undefined) { vs.push(r.v); hits.push({ from: k * cellW, to: k * cellW + cellW - 2, action: "library.select", args: { n: r.v + 1 } }); }
             });
-            body.push({ text: t, hits, vs });
+            body.push({ text: t, hits, vs, cuts });
           }
         }
       }
@@ -236,18 +252,24 @@ export class LibraryPane implements Pane {
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.desk = desk;
     const laid = this.layout(w, desk);
+    const page = JSON.stringify([w, this.component, this.part, this.axis, this.gridAt, this.filter, this.page, this.width, this.allWidths]);
+    if (page !== this.selectionPage) { this.selection = null; this.gesture.cancel(); this.selectionPage = page; }
+    this.drawnWidth = w;
     this.head = laid.head; this.body = laid.body;
     if (this.selectedV >= laid.shown.length) this.selectedV = Math.max(0, laid.shown.length - 1);
     // The controls never take the whole tile: at least three rows stay for the page (a short tile scrolls those).
     const headRows = this.head.slice(0, Math.max(0, Math.min(this.head.length, h - 4)));
     this.headShown = headRows.length;
-    const room = Math.max(0, h - headRows.length - 1);
+    const room = this.room = Math.max(0, h - headRows.length - 1);
     const rows = this.body.map((r, i) => (r.v === this.selectedV || r.vs?.includes(this.selectedV) ? i : -1)).filter(i => i >= 0);
     const sel = rows.length ? [rows[0]!, rows[rows.length - 1]!] as const : null;
     if (this.revealNext) { this.view.reveal(); this.revealNext = false; }
     const top = this.view.place(sel ? this.selectedV : null, this.body.length, room, sel);
     const rule = fg(C.dark) + "─".repeat(Math.max(0, w)) + RESET;
-    const lines = [...headRows.map(r => pad(r.text, w) + RESET), rule, ...this.body.slice(top, top + room).map(r => pad(r.text, w) + RESET)];
+    const lines = [...headRows.map(r => pad(r.text, w) + RESET), rule, ...this.body.slice(top, top + room).map((r, i) => {
+      const line = pad(r.text, w) + RESET, span = this.selection?.span(top + i);
+      return span ? paintRange(line, Math.max(r.margin ?? 0, span[0]), span[1], SELECT_BG) : line;
+    })];
     void focused;
     return { lines, scroll: { top, total: this.body.length, room } };
   }
@@ -260,13 +282,37 @@ export class LibraryPane implements Pane {
 
   /** A press (its kind has keys of its own, so the desk hands it the mouse): what the click lands on runs. */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
-    if (k.action === "down" && (k.button ?? 0) === 0) this.click(x, y, desk);
-    return false;
+    if ((k.button ?? 0) !== 0 || k.action.startsWith("wheel")) return false;
+    if (k.action === "down") {
+      const n = this.gesture.press(x, y), at = this.posAt(x, y);
+      this.selecting = false;
+      if (n === 1) this.selection = null;
+      if (at && n > 1) this.selection = n === 2 ? wordAt(this.selectRows(), at) : lineAt(this.selectRows(), at.row);
+    } else if (k.action === "drag") {
+      const g = this.gesture.pressed;
+      if (g && this.gesture.drag(x, y)) {
+        const from = g.n > 1 && this.selection ? this.selection.start : this.posAt(g.x, g.y);
+        const to = this.posAt(x, y);
+        if (from && to) {
+          if (!this.selecting) { this.selection = new Selection(from, from); this.selecting = true; }
+          this.selection!.head = to;
+        }
+      }
+    } else if (k.action === "up") {
+      const r = this.gesture.release(x, y);
+      if (r.click) { this.selection = null; this.click(x, y, desk); }
+      else if (r.copy && this.selectedText().trim()) void desk.press?.(this, LIBRARY_ACTIONS, "library.copy", { part: "selection" });
+    }
+    desk.redraw();
+    return true;
   }
 
   click(x: number, y: number, desk: DeskApi) {
     const hit = this.hitAt(x, y);
-    if (hit) void desk.press?.(this, LIBRARY_ACTIONS, hit.action, hit.args ?? {});
+    if (hit) {
+      if (hit.action !== "library.select") this.gesture.forget();
+      void desk.press?.(this, LIBRARY_ACTIONS, hit.action, hit.args ?? {});
+    }
   }
   wheel(dir: 1 | -1, desk: DeskApi) { void desk.press?.(this, LIBRARY_ACTIONS, "library.scroll", { by: wheelRows(dir) }); }
   key(): boolean { return false; }
@@ -440,12 +486,13 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     },
   }),
   "library.select": def({
-    summary: "select a variation drawn here: n=<from 1>, or by=1/-1 for the next or previous; it comes into view",
-    keys: "j k ↓ ↑, or a click on a variation", touches: "screen", replay: "safe",
-    args: { n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
-    run({ n, by }, { pane }) {
+    summary: "select a variation: n=<from 1> or by=1/-1; text= returns matching drawn words without changing the person's selection or clipboard",
+    keys: "j k ↓ ↑, or a click on a variation; drag, double/triple click selects text", touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
+    args: { text: { type: "string", optional: true, about: "words as drawn; returns them without changing the person's selection or clipboard" }, n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
+    run({ n, by, text }, { pane }) {
       whole("n", n); whole("by", by);
       const p = libraryOf(pane);
+      if (text !== undefined) return { text: p.selectText(text) };
       if (!p.shown.length) throw new ActionRefused("nothing is drawn here to select: pick a part with variations (2, 3 or 4)");
       const at = n !== undefined ? n - 1 : Math.max(0, Math.min(p.shown.length - 1, p.selectedV + (by ?? 1)));
       if (at < 0 || at >= p.shown.length) throw new ActionRefused(`variation is 1 to ${p.shown.length}`);
@@ -455,13 +502,21 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   }),
   "library.copy": def({
     summary: "copy a variation's source (n=<from 1>, else the selected one): the declaring note and the text that uses it (part=use or part=note for one); the person's goes to their clipboard, an agent's comes back as the answer",
-    keys: "y, or a click on copy", touches: "nothing", replay: "safe", says: r => `copied the source of variation ${r.n}`,
-    args: { n: { type: "number", optional: true, about: "the variation, from 1" }, part: { type: "string", optional: true, about: "all (default), use or note" } },
+    keys: "y or a click on copy for whole source; drag release or cmd+c for selected text", touches: "nothing", replay: "safe", says: r => "text" in r ? `copied ${r.text.length} chars` : `copied the source of variation ${r.n}`,
+    args: { n: { type: "number", optional: true, about: "the variation, from 1" }, part: { type: "string", optional: true, about: "all (default), use, note or selection" } },
     run({ n, part }, { pane, desk }, actor) {
       whole("n", n);
-      const p = libraryOf(pane), { v, i } = variationAt(p, n);
+      const p = libraryOf(pane);
+      if (part === "selection") {
+        if (actor.kind === "agent") throw new ActionRefused("name the words with library.select text=; the person's selection is theirs");
+        const text = p.selectedText();
+        if (!text.trim()) throw new ActionRefused("nothing selected: drag over the example first");
+        if (desk.ctx.copy?.(text, "the library") === false) throw new ActionRefused("the selection is more than the clipboard takes");
+        return { text };
+      }
+      const { v, i } = variationAt(p, n);
       const text = part === "use" ? v.use : part === "note" ? (v.note ?? "") : variationText(v);
-      if (part !== undefined && part !== "all" && part !== "use" && part !== "note") throw new ActionRefused("part is all, use or note");
+      if (part !== undefined && part !== "all" && part !== "use" && part !== "note") throw new ActionRefused("part is all, use, note or selection");
       if (!text) throw new ActionRefused("this variation has no declaring note");
       // The person's copy selects what they copied; an agent's changes nothing of theirs (not what their next y copies).
       if (actor.kind !== "agent") { p.selectedV = i; desk.ctx.copy?.(text, "the library"); }
@@ -505,6 +560,7 @@ function pressed(p: LibraryPane, k: Key): { action: string; args?: Record<string
   if (k.kind === "up" || c === "k") return { action: "library.select", args: { by: -1 } };
   if (k.kind === "pgdn" || k.kind === "pgup") return { action: "library.scroll", args: { by: (k.kind === "pgdn" ? 1 : -1) * 10 } };
   if (c === "y") return { action: "library.copy" };
+  if (isCopyKey(k)) return { action: "library.copy", args: { part: "selection" } };
   if (c === "w") return { action: "library.width" };
   if (space && (c === "[" || c === "]")) return { action: "library.cursor", args: { rows: c === "]" ? 1 : -1 } };
   if (space && (c === " " || k.kind === "enter")) return { action: "library.pick" };

@@ -109,7 +109,7 @@ import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { AGENT_BG, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, ZEBRA_BG, type Pos, type SelectRows } from "./selection";
+import { AGENT_BG, selectText, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, ZEBRA_BG, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -6897,24 +6897,7 @@ export class NoteSurface {
     if (!d || !rows || !this.msg) throw new ActionRefused("this reader doesn't show the note's text now (it's editing, commenting, reading the note, or the full property panel is open)");
     if ((text === undefined) === (line === undefined)) throw new ActionRefused("say what to select: text= (as the note reads) or line= (with to= for a range; 1 is the subject)");
     if (text !== undefined) {
-      if (!text.trim()) throw new ActionRefused("text is empty");
-      // The drawn rows as one text, remembering where each row starts.
-      const starts: number[] = [];
-      let flat = "";
-      for (let r = 0; r < rows.count; r++) {
-        starts.push(flat.length);
-        if (noteOnly && rows.edge?.(r)) continue;
-        flat += rows.cells(r).slice(rows.margin?.(r) ?? 0).join("").trimEnd() + "\n";
-      }
-      const re = new RegExp(text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "g");
-      const hits = [...flat.matchAll(re)];
-      const hit = hits[(n ?? 1) - 1];
-      if (!hit) throw new ActionRefused(hits.length ? `it's drawn ${hits.length} time${hits.length === 1 ? "" : "s"}; n is 1 to ${hits.length}` : `"${ellipsize(text, 40)}" isn't drawn in this reader (links read as their titles; folded sections aren't drawn)`);
-      const at = (off: number): Pos => {
-        const row = starts.findLastIndex(s => s <= off);
-        return { row, col: (rows.margin?.(row) ?? 0) + off - starts[row]! };
-      };
-      return new Selection(at(hit.index!), at(hit.index! + hit[0].length - 1));
+      return selectText(rows, text, n, noteOnly);
     }
     const lo = line! - 1, hi = (to ?? line!) - 1;
     if (lo < 0 || hi < lo) throw new ActionRefused("line is from 1 (the subject), and to isn't before it");

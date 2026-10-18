@@ -12,8 +12,9 @@
 // copies it. A plain click selects nothing and copies nothing; a selection made by keys (`v`) is copied by
 // `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
 // over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
+import { ActionRefused } from "./actions";
 import { ch, isUp, isDown, type Key } from "../term";
-import { bgRgb, glyphWidth, itemStyle, RESET, surfaceBg, tint } from "../style";
+import { ellipsize, bgRgb, glyphWidth, itemStyle, RESET, surfaceBg, tint } from "../style";
 import { theme, themed } from "../theme";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 
@@ -440,4 +441,26 @@ export function selectionHint(s: Selection, chars: number): string {
   return s.keys
     ? `selecting ${chars} chars · h j k l move · y cmd+c copy · Y source · esc done`
     : `selected ${chars} chars · y cmd+c copy · Y source · v keys · esc clear`;
+}
+
+/** Find words in rendered rows, using the same whitespace matching in every reader. */
+export function selectText(rows: SelectRows, text: string, n = 1, skipEdges = false): Selection {
+  if (!text.trim()) throw new ActionRefused("text is empty");
+  // The drawn rows as one text, remembering where each row starts.
+  const starts: number[] = [];
+  let flat = "";
+  for (let r = 0; r < rows.count; r++) {
+    starts.push(flat.length);
+    if (skipEdges && rows.edge?.(r)) continue;
+    flat += rows.cells(r).slice(rows.margin?.(r) ?? 0).join("").trimEnd() + "\n";
+  }
+  const re = new RegExp(text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "g");
+  const hits = [...flat.matchAll(re)];
+  const hit = hits[(n ?? 1) - 1];
+  if (!hit) throw new ActionRefused(hits.length ? `it's drawn ${hits.length} time${hits.length === 1 ? "" : "s"}; n is 1 to ${hits.length}` : `"${ellipsize(text, 40)}" isn't drawn in this reader (links read as their titles; folded sections aren't drawn)`);
+  const at = (off: number): Pos => {
+    const row = starts.findLastIndex(s => s <= off);
+    return { row, col: (rows.margin?.(row) ?? 0) + off - starts[row]! };
+  };
+  return new Selection(at(hit.index!), at(hit.index! + hit[0].length - 1));
 }

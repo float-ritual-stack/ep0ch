@@ -1189,3 +1189,15 @@ The default destination is the door's outline state `downloads/` directory; the 
 These keys were unbound in Sources; other reader and screen bindings do not move. Enter opens a source,
 then Enter on a download row runs the same action. The published Sources panel uses the same `site.answer`
 and row serialization, with native file downloads and read-only parameters.
+
+### Library selection (PIE-1025)
+
+The library tile uses the reader’s `Gesture`, `Selection`, `selectText` and `paintRange`
+(`src/surface/selection.ts`), and the same `Ctx.copy` / OSC 52 path. Source gutters are
+drawn decoration, excluded from copied text. Drag selects and copies; double click
+selects a word, triple click a line. The library showcase demonstrates all three.
+
+`y` and the `copy` control keep copying the whole variation source. `cmd+c` copies
+the selected text, as in readers and editors; no other screen’s keys move.
+`library.select text=` returns matching drawn words without moving the person’s
+selection or writing their clipboard.
