@@ -22,6 +22,8 @@ describe.skipIf(!outliner)("the showcase screen: who can reach what", () => {
     for (const word of ["● full", "♦ propose", "○ read", "✗ none"]) expect(h.screen()).toContain(word);
     expect(h.screen()).toContain("claude-code@float-2");
     expect(h.screen()).toContain("last 7 days");
+    // It says whose caps and calls these are (the gateway machine's; here the door's own).
+    expect(h.screen()).toMatch(/caps and calls from \S+/);
 
     // The effective level is the lower of the outline's grant and the caller's cap, with why.
     const m = await matrix();

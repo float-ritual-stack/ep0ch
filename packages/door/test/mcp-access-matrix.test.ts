@@ -147,7 +147,7 @@ describe("changing a cell", () => {
   test("applyPlan runs each step: the grant through the host, the cap into the file", async () => {
     const home = scratchDir("ep0ch-matrix-");
     const configured: string[] = [];
-    const source: GrantSource = { machine: "box", grants: async () => grants, configure: async (o, l) => { configured.push(`${o}=${l}`); } };
+    const source: GrantSource = { machine: "box", grants: async () => grants, configure: async (o, l) => { configured.push(`${o}=${l}`); }, files: async () => { throw new Error("read in place"); } };
     const plan = planChange(matrix("garden-bot=propose"), { caller: "garden-bot", outline: "gurgle", level: "full" });
     if ("error" in plan) throw new Error(plan.error);
     const ran = await applyPlan(plan, [source], { XDG_CONFIG_HOME: home });
