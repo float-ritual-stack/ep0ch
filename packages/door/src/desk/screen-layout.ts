@@ -25,7 +25,7 @@ import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfC
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
   node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
-  POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
+  MIN_COLS, POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
 import { SPINE } from "../spine";
 import { agentRefusal, type AgentLevel } from "../surface/agent-level";
@@ -1262,6 +1262,7 @@ class Step<I> {
    * cells in the screen's area, the leftmost other tile in its row that reads notes folds to a spine: never the row's
    * first, never a preview (it follows another tile), never one holding an edit, a comment or a draft, never `id`, never the tile the person types in, and for an agent never the person's or a limited one.
    * One policy for every screen: the desk's splits, the board's readers row; a flow squeezes its own columns by it.
+   * A fold gives its room to the new reader and sits just after it, so untouched tiles never grow.
    * The answer names what folded.
    */
   private room(id: I) {
@@ -1282,7 +1283,30 @@ class Step<I> {
     while (width() < want) {
       const t = readers.find(may);
       if (t === undefined) break;
+      const row: Line<I> = p.parent;
+      const before = rects({ ...this.d, zoom: null }, this.ctx.area);
+      const sizes = row.kids.map(k => {
+        const rs = leaves(k).flatMap(t => before.has(t) ? [before.get(t)!] : []);
+        return rs.length ? Math.max(...rs.map(r => r.col + r.cols)) - Math.min(...rs.map(r => r.col)) : 0;
+      });
+      const from = parentOf(this.d.tree, t)!.i, to = row.kids.findIndex(k => leaves(k).includes(id));
+      // A fold pays its freed cells to the new reader, not to unrelated tiles in the row.
+      sizes[to]! += sizes[from]! - SPINE;
+      // Spines spend the newest reader down to readable, then earlier readers, then other tiles last.
+      const donors = row.kids.map((k, i) => ({ k, i, tiles: leaves(k) })).reverse();
+      const reader = (d: typeof donors[number]) => d.tiles.some(t => this.facts(t).notes);
+      for (const { k, i, tiles } of [...donors.filter(reader), ...donors.filter(d => !reader(d))]) {
+        if (sizes[to]! >= want) break;
+        if (i === from || i === to || tiles.some(t => this.d.collapsed.has(t) || this.facts(t).holds || this.facts(t).editing || t === this.ctx.person.typingIn
+          || this.policyAt(t).locked || !this.policyAt(t).resizable || (this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free")))) continue;
+        const give = Math.min(want - sizes[to]!, Math.max(0, sizes[i]! - (k.t === "leaf" ? MIN_COLS : k.policy?.min ?? MIN_COLS)));
+        sizes[i]! -= give; sizes[to]! += give;
+      }
+      row.weights = sizes;
       for (const f of this.foldSet(t)) this.d.collapsed.set(f, { ...by });
+      const [kid] = row.kids.splice(from, 1), [weight] = row.weights.splice(from, 1);
+      const beside = row.kids.findIndex(k => leaves(k).includes(id)) + 1;
+      row.kids.splice(beside, 0, kid!); row.weights.splice(beside, 0, weight!);
       folded.push(this.name(t));
       this.d.changed = true;
     }
