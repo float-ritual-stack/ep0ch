@@ -3,7 +3,7 @@
 // asks, replies and resolves, which land through the service as the door's do. The public listener stays read-only
 // and shows marked notes only. One scratch service (with marginalia, whose @margin answers from the note) and one
 // publisher for the whole file; the outline is made up.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test, setSystemTime } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -746,4 +746,244 @@ test("a step's box on a page is its state, a button on the owner's page: Approve
   const open = await (await get(`/share/p/${log.id}?view=html`, browser, "public")).text();
   expect([...open.matchAll(/<span class="step s-(\w+)" role="img"/g)].map((m) => m[1])).toEqual(["approved", "rejected", "done", "rejected"]);
   expect(open).not.toContain("<button type=\"button\" class=\"step");
+});
+
+test("a reader lease comments without disclosing notes, captures under today, and stops when revoked", async () => {
+  const ownerPost = (path: string, body: unknown) => publisher.handle(new Request(`http://${HOST}/pub${path}`, {
+    method: "POST", headers: { origin: `http://${HOST}`, "content-type": "application/json" }, body: JSON.stringify(body),
+  }));
+  const lease = await mintReader();
+  expect(lease.bookmarklet).toStartWith("javascript:");
+  const send = (body: unknown, method = "POST") => publisher.handle(new Request(lease.writeUrl, {
+    method, headers: { origin: `http://${HOST}`, authorization: `Bearer ${lease.token}`, "content-type": "application/json" },
+    ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
+  }));
+  const source = "https://field.example/dispatch";
+  const comment = await send({ action: "comment", block: letter.id, quote: "allotment committee", body: "Count again #pie-request", source });
+  expect(comment.status).toBe(200);
+  expect(comment.headers.get("access-control-allow-origin")).toBeNull();
+  expect(await comment.json()).toEqual({ ok: true, said: "Saved to the outline" });
+  const threads = await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: letter.id } } });
+  const saved = threads.find(t => t.body === "Count again #pie-request")!;
+  expect(saved.block.author).toBe("user");
+  expect(saved.properties?.via).toEqual([`reader:${lease.id}`]);
+  expect(saved.properties?.source).toEqual([source]);
+  expect(saved.resolvedTarget?.anchor).toMatchObject({ exact: "allotment committee" });
+  const capture = await send({ action: "comment", quote: "A foreign passage", body: "Keep this #pie-request", source });
+  expect(capture.status).toBe(200);
+  const now = new Date();
+  const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const today = store.resolvePageAddress(day).block!;
+  const captured = store.children(today.id).find(b => b.text.includes("Keep this #pie-request"))!;
+  expect(captured.text).toContain("> A foreign passage");
+  expect(captured.text).toContain(`[source::${source}]`);
+  expect(captured.author).toBe("user");
+  expect(captured.text).toContain(`[via::reader:${lease.id}]`);
+  // A lease is no read capability, even when a caller knows a private block id.
+  const hidden = await send({ action: "comment", block: ledger.id, quote: "does not occur", body: "Keep my words", source });
+  expect(hidden.status).toBe(403);
+  expect(await hidden.json()).toEqual({ ok: false, error: "This lease cannot write to that target" });
+  try {
+    setSystemTime(new Date(Date.parse(lease.expiresAt) + 1));
+    expect((await send({ action: "highlight", quote: "Too late", source })).status).toBe(410);
+  } finally { setSystemTime(); }
+  expect((await send({}, "GET")).status).toBe(405);
+  expect((await send({ action: "update", block: letter.id, body: "replace it", source })).status).toBe(400);
+  expect((await ownerPost("/reader/revoke", { id: lease.id })).status).toBe(200);
+  expect((await send({ action: "highlight", quote: "No more", source })).status).toBe(410);
+});
+
+async function mintReader() {
+  const response = await publisher.handle(new Request(`http://${HOST}/pub/reader/bookmark`, {
+    method: "POST", headers: { origin: `http://${HOST}`, "content-type": "application/json" }, body: JSON.stringify({ block: letter.id }),
+  }));
+  expect(response.status).toBe(200);
+  const bookmark = await response.json();
+  await approveReader("https://field.example");
+  const minted = await publisher.handle(new Request(`http://${HOST}/pub/_reader/lease`, {
+    method: "POST", headers: { origin: `http://${HOST}`, cookie: response.headers.get("set-cookie")!.split(";")[0]!, "content-type": "application/json" },
+    body: JSON.stringify({ source: "https://field.example/dispatch", scope: bookmark.id }),
+  }));
+  expect(minted.status).toBe(200);
+  return { ...bookmark, token: (await minted.json()).token, writeUrl: `http://${HOST}/pub/_reader/write` };
+}
+const sendReader = (lease: { token: string; writeUrl: string }, body: unknown) => publisher.handle(new Request(lease.writeUrl, {
+  method: "POST", headers: { origin: `http://${HOST}`, authorization: `Bearer ${lease.token}`, "content-type": "application/json" }, body: JSON.stringify(body),
+}));
+const readerCapture = { action: "comment", source: "https://field.example/dispatch", quote: "A seed", body: "Keep it" };
+
+test("reader security: unrelated targets give one refusal without writing", async () => {
+  const lease = await mintReader();
+  for (const block of [ledger.id, survey.id, crypto.randomUUID()]) {
+    for (const quote of ["What the plots cost.", "absent words"]) {
+      const response = await sendReader(lease, { ...readerCapture, block, quote });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ ok: false, error: "This lease cannot write to that target" });
+    }
+  }
+});
+
+test("reader security: oversized bodies are rejected before parsing", async () => {
+  const lease = await mintReader();
+  const response = await sendReader(lease, { ...readerCapture, body: "é".repeat(33_000) });
+  expect(response.status).toBe(413);
+});
+
+test("reader security: lease write budgets have Retry-After", async () => {
+  const lease = await mintReader();
+  const start = Date.now();
+  try {
+    for (let minute = 0; minute < 6; minute++) {
+      setSystemTime(new Date(start + minute * 61_000));
+      for (let i = 0; i < 10; i++) expect((await sendReader(lease, readerCapture)).status).toBe(200);
+      const response = await sendReader(lease, readerCapture);
+      expect(response.status).toBe(429);
+      expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    }
+    setSystemTime(new Date(start + 6 * 61_000));
+    const response = await sendReader(lease, readerCapture);
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(60);
+  } finally { setSystemTime(); }
+});
+
+const readerPost = (path: string, body: unknown, cookie = "") => publisher.handle(new Request(`http://${HOST}/pub/${path}`, {
+  method: "POST", headers: { origin: `http://${HOST}`, "content-type": "application/json", cookie }, body: JSON.stringify(body),
+}));
+
+async function approveReader(source: string, decision = "allow") {
+  const popup = await get(`/pub/reader/approve?source=${encodeURIComponent(source)}`);
+  const token = (await popup.text()).match(/name="token" value="([^"]+)"/)?.[1];
+  if (!token) return popup; // Already approved origins close the popup without another form.
+  return readerPost("reader/approve", { source, decision, token }, popup.headers.get("set-cookie")!.split(";")[0]!);
+}
+
+test("reader approval refuses a same-host cross-scheme form POST", async () => {
+  const response = await publisher.handle(new Request(`https://${HOST}/pub/reader/approve`, {
+    method: "POST", headers: { origin: `http://${HOST}` },
+    body: new URLSearchParams({ source: "https://attacker.example", decision: "allow" }),
+  }));
+  expect(response.status).toBe(403);
+  expect((await get("/pub/_reader/frame?source=https://attacker.example")).status).toBe(403);
+});
+
+test("reader approval tokens belong to one popup origin and browser and can be used only once before expiry", async () => {
+  const source = "https://popup.example/article";
+  const open = async () => {
+    const popup = await get(`/pub/reader/approve?source=${encodeURIComponent(source)}`);
+    const token = (await popup.text()).match(/name="token" value="([^"]+)"/)![1];
+    return { token, cookie: popup.headers.get("set-cookie")!.split(";")[0]! };
+  };
+  const first = await open();
+  const second = await open();
+  const post = (token: string | undefined, cookie = first.cookie, target = source, origin = `http://${HOST}`) =>
+    publisher.handle(new Request(`http://${HOST}/pub/reader/approve`, {
+      method: "POST", headers: { origin, cookie },
+      body: new URLSearchParams({ source: target, decision: "allow", ...(token ? { token } : {}) }),
+    }));
+  expect((await post(undefined)).status).toBe(403);
+  expect((await post("invented")).status).toBe(403);
+  expect((await post(first.token, second.cookie)).status).toBe(403);
+  expect((await post(first.token, first.cookie, "https://other.example")).status).toBe(403);
+  for (const origin of [`https://${HOST}`, `http://${HOST}:8080`, "http://other.example", "null", ""]) {
+    expect((await post(first.token, first.cookie, source, origin)).status).toBe(403);
+  }
+  expect((await get(`/pub/_reader/frame?source=${encodeURIComponent(source)}`)).status).toBe(403);
+  const now = Date.now();
+  try {
+    setSystemTime(new Date(now + 300_001));
+    expect((await post(first.token)).status).toBe(403);
+  } finally { setSystemTime(); }
+  const fresh = await open();
+  expect((await post(fresh.token, fresh.cookie)).status).toBe(200);
+  expect((await post(fresh.token, fresh.cookie)).status).toBe(403);
+  expect((await get(`/pub/_reader/frame?source=${encodeURIComponent(source)}`)).status).toBe(200);
+  await readerPost("reader/origin-revoke", { source });
+});
+
+test("reader approval uses the configured HTTPS tailnet origin behind an HTTP proxy", async () => {
+  const proxied = new Publisher({ client, basePath: "/pub", url: `https://${HOST}/pub` });
+  await proxied.start();
+  try {
+    const source = "https://proxy-reader.example";
+    const url = `http://${HOST}/pub/reader/approve`;
+    const popup = await proxied.handle(new Request(`${url}?source=${encodeURIComponent(source)}`));
+    const token = (await popup.text()).match(/name="token" value="([^"]+)"/)![1];
+    expect(popup.headers.get("set-cookie")).toContain("; Secure");
+    const cookie = popup.headers.get("set-cookie")!.split(";")[0]!;
+    const post = (origin: string) => proxied.handle(new Request(url, {
+      method: "POST", headers: { origin, cookie },
+      body: new URLSearchParams({ source, token, decision: "allow" }),
+    }));
+    expect((await post(`http://${HOST}`)).status).toBe(403);
+    expect((await post(`https://${HOST}`)).status).toBe(200);
+  } finally { await proxied.stop(); }
+});
+
+test("reader approval blocks unapproved origins and revocation stops existing leases", async () => {
+  const response = await readerPost("reader/bookmark", {});
+  const bookmark = await response.json();
+  const cookie = response.headers.get("set-cookie")!.split(";")[0]!;
+  const source = "https://unapproved.example/article";
+  const mint = () => readerPost("_reader/lease", { source, scope: bookmark.id }, cookie);
+  expect((await mint()).status).toBe(403);
+  expect((await get(`/pub/_reader/frame?source=${encodeURIComponent(source)}&scope=${bookmark.id}`, { cookie })).status).toBe(403);
+  expect((await approveReader(source, "deny")).status).toBe(200);
+  expect((await mint()).status).toBe(403);
+  expect((await approveReader(source)).status).toBe(200);
+  const minted = await mint();
+  expect(minted.status).toBe(200);
+  const token = (await minted.json()).token;
+  expect(await page("/pub/reader")).toContain("https://unapproved.example");
+  const frame = await get(`/pub/_reader/frame?source=${encodeURIComponent(source)}&scope=${bookmark.id}`, { cookie });
+  expect(frame.headers.get("content-security-policy")).toContain("frame-ancestors https://unapproved.example");
+  let finish!: () => void;
+  const pending = publisher.handle(new Request(`http://${HOST}/pub/_reader/write`, {
+    method: "POST", headers: { origin: `http://${HOST}`, authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode(JSON.stringify({ ...readerCapture, source })));
+      finish = () => controller.close();
+    } }),
+  }));
+  expect((await readerPost("reader/origin-revoke", { source })).status).toBe(200);
+  finish();
+  expect((await pending).status).toBe(403);
+  expect((await mint()).status).toBe(403);
+  expect((await sendReader({ token, writeUrl: `http://${HOST}/pub/_reader/write` }, { ...readerCapture, source })).status).toBe(403);
+});
+
+test("reader installation and approval cannot be framed", async () => {
+  for (const path of ["/pub/reader", "/pub/reader/approve?source=https%3A%2F%2Ffield.example%2Farticle"]) {
+    const response = await get(path);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+  }
+});
+
+test("older reader bookmarks retain their day and block after another bookmark is installed", async () => {
+  const source = "https://field.example/dispatch";
+  const make = async (block: string) => {
+    const response = await readerPost("reader/bookmark", { block });
+    return { ...await response.json(), cookie: response.headers.get("set-cookie")!.split(";")[0]! };
+  };
+  try {
+    setSystemTime(new Date(2030, 4, 1, 23, 50));
+    const first = await make(letter.id);
+    setSystemTime(new Date(2030, 4, 2, 0, 5));
+    const secondBlock = store.create("Other public page [publish::public]\nAnother passage", null, "user");
+    const second = await make(secondBlock.id);
+    // Model a browser cookie jar: a newer cookie replaces only the same cookie name.
+    const jar = new Map<string, string>();
+    for (const cookie of [first.cookie, second.cookie]) jar.set(cookie.split("=")[0], cookie);
+    const cookie = [...jar.values()].join("; ");
+    await approveReader(source);
+    for (const [bookmark, block, day] of [[first, letter, "2030-05-01"], [second, secondBlock, "2030-05-02"]] as const) {
+      const minted = await readerPost("_reader/lease", { source, scope: bookmark.id }, cookie);
+      expect(minted.status).toBe(200);
+      const lease = { token: (await minted.json()).token, writeUrl: `http://${HOST}/pub/_reader/write` };
+      expect((await sendReader(lease, { ...readerCapture, block: block.id })).status).toBe(200);
+      expect((await sendReader(lease, { ...readerCapture, body: bookmark.id })).status).toBe(200);
+      expect(store.children(store.resolvePageAddress(day).block!.id).some(b => b.text.includes(bookmark.id))).toBe(true);
+    }
+  } finally { setSystemTime(); }
 });

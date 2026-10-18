@@ -188,6 +188,9 @@ source evidence or distinguish authored glyphs from controls.
   for an agent's `open` (`openInDoor`). The CLI's `door-open` wraps it, and the
   Claude mod's reference clicks, `show` and `door_open` all go through
   `door-open` when Claude runs in a door tile.
+- `src/publish-reader-lease.ts` owns the bookmarklet's expiring, write-only leases and installation/demo page.
+  `publish-reader.js` supplies its existing selection toolbar and composer; `publish-reader-style.ts` shares their
+  CSS. Writes use `createBlockComment`, `pages.follow` and `notes.create`; the lease answers no outline reads.
 - `src/publish.ts` is the read-only publisher (`outliner publish serve`): a
   client that finds `[publish::…]` blocks with `blocks.query`, resolves `[[page]]`
   links with `pages.resolve`, reads attached `[file::…]` content with

@@ -742,7 +742,7 @@ also a light web client for the whole outline ([The whole outline on the
 tailnet](#the-whole-outline-on-the-tailnet)). It is a client of the service
 (`blocks.query`, `children`, `pages.resolve`, `files.read` and the content event
 feed) and listens on `127.0.0.1` only; exposing it is Tailscale's job. Its only
-writes are a tailnet page's highlights, comments, asks, replies and resolves.
+writes are the page reader's actions and the bookmarklet's leased comments and captures.
 
 ```sh
 bun run cli publish serve --ws pie --port 8790 --base-path /pub [--root ~/writing]… [--max-bytes 1048576] [--allow-host NAME]… [--artifact-cache DIR] [--public-port 8791 --public-url https://HOST.ts.net:8443/share]
@@ -750,6 +750,40 @@ bun run cli publish list --ws pie [--public-url URL] [--json]
 ```
 
 HTML pages keep `^anchor` destinations and heading slugs. Backlinks in `::links` open at their linking line; arriving scrolls to the passage and marks it without animation. The source-line addresses are carried through decorations, while Markdown exports stay plain. Explicit anchors keep their name; repeated headings receive numbered slugs.
+
+**Reader bookmarklet (PIE-974):** open `/pub/reader` in the web client, or
+`/pub/o/<outline>/reader` for another outline. Optionally choose a public block
+id, make a bookmarklet, and drag its link to the bookmarks bar. On another
+origin, select words and click the bookmark. A publisher popup asks whether to
+allow that origin to send highlights and comments to the named outline. Allow
+or Deny there; the install page lists approved origins with a Revoke button.
+Approvals last until revoked or the publisher restarts. Highlight, Comment and Ask use
+the shared composer styling and ordinary comment/capture writers. A selection
+with the chosen block's anchor becomes a quote comment; unanchored selections
+become captures under the `YYYY-MM-DD` page bound when the bookmark was made.
+Both carry the source URL and `via::reader:<lease id>`, authored by the person.
+Typed requests, including `#pie-request`, go through the ordinary note/comment
+path. An unmatched quote is saved on the allowed block with a visible warning.
+
+The bookmark contains no credential. Its sandboxed publisher-origin iframe
+mints and holds a token only for an approved origin, using an HttpOnly cookie
+keyed by the bookmark’s scope id. Installing another bookmark leaves the older
+bookmark’s day and block unchanged. The host page sends
+selection and comment text through origin-checked messages and receives only
+receipts. The frame permits only its approved parent origin; installation and
+approval pages cannot be framed. Revoking an origin also stops its existing
+frames from writing. Writes use an Authorization header, never a token URL. The scope
+lasts one hour, permits only the bound day and chosen public block, and allows
+10 writes per minute and 60 total, including across reopened frames. Bodies
+are limited to 64 KiB before parsing; rate refusals include Retry-After.
+The installation page can revoke the scope; restarting its publisher ends it.
+
+A tailnet bookmarklet needs tailnet access. Cross-site use requires HTTPS and
+the browser allowing the publisher's popup, third-party cookie and frame. On the
+publisher's own origin use the page's built-in reader controls. A refused send
+keeps the draft, and invoking the bookmark again preserves an open draft.
+The scratch browser journey demonstrates this web-only flow; the terminal
+showcase cannot host a browser origin boundary. A Chrome extension is deferred.
 
 **Page skins:** `[publish-skin::dispatch]` selects `skins/dispatch.css` inside the
 outline's own folder: `<outlines>/<name>/skins/dispatch.css`, beside

@@ -162,6 +162,8 @@
   }
   /** The block a node of the page is in: the last anchor before it. */
   function blockOf(node) {
+    const enclosed = (node instanceof Element ? node : node.parentElement)?.closest("[data-block]");
+    if (enclosed) return enclosed.dataset.block;
     let found = null;
     for (const { id, node: at } of blocks()) {
       if (at === node || at.contains(node) || at.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) found = id;

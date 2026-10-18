@@ -427,6 +427,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       const host = createOutlinerClient(resolveClientPaths());
       const gate = new SignInGate({
         snapshot: request => web.snapshot(request),
+        readerWrite: request => web.readerWrite(request),
         settings, request: input => host.request(input as Parameters<typeof host.request>[0]),
         serve: (request, signedIn) => web.handle(request, "tailnet", signedIn), log: line => console.error(line),
       });

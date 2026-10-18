@@ -114,6 +114,7 @@ function gateFor(settings: Partial<SignInSettings> = {}) {
     settings: { origin: ORIGIN, issuer, clientId: CLIENT_ID, allowedSubjects: [PERSON], home: "/pub/", ...settings },
     request: (input) => homeClient.request(input as Parameters<typeof homeClient.request>[0]),
     serve: (request, signedIn) => web.handle(request, "tailnet", signedIn),
+    readerWrite: request => web.readerWrite(request),
     log: (line) => logged.push(line),
   });
 }
@@ -382,4 +383,44 @@ test("nothing logged holds a token, a code or a cookie", () => {
   const log = logged.join("\n");
   expect(secrets.length).toBeGreaterThan(5);
   for (const secret of secrets) expect(log).not.toContain(secret);
+});
+
+
+test("a signed-in bookmark creates a scoped iframe session on its named outline", async () => {
+  const gate = gateFor();
+  const { cookie } = await signIn(gate);
+  const mint = await at(gate, "/pub/o/orchard/reader/bookmark", { cookie, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" });
+  expect(mint.status).toBe(200);
+  const lease = await mint.json();
+  expect(lease.token).toBeUndefined();
+  expect(mint.headers.get("set-cookie")).toContain("HttpOnly");
+  const session = mint.headers.get("set-cookie")!.split(";")[0]!;
+  const popup = await at(gate, "/pub/o/orchard/reader/approve?source=https://journal.example", { cookie });
+  const approvalToken = (await popup.text()).match(/name="token" value="([^"]+)"/)![1];
+  const approval = { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ source: "https://journal.example", decision: "allow", token: approvalToken }) };
+  const other = await signIn(gate);
+  expect((await at(gate, "/pub/o/orchard/reader/approve", { ...approval, cookie: other.cookie })).status).toBe(403);
+  expect((await at(gate, "/pub/o/orchard/reader/approve", approval)).status).toBe(401);
+  expect((await at(gate, "/pub/o/orchard/reader/approve", { ...approval, cookie, headers: { ...approval.headers, origin: "https://journal.example" } })).status).toBe(403);
+  expect((await gate.handle(new Request("http://127.0.0.1/pub/o/orchard/reader/approve", {
+    ...approval, headers: { ...approval.headers, host: new URL(ORIGIN).host, cookie: cookie! },
+  }))).status).toBe(200);
+  const minted = await at(gate, "/pub/o/orchard/_reader/lease", { cookie: session, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ source: "https://journal.example/pears", scope: lease.id }) });
+  expect(minted.status).toBe(200);
+  const token = (await minted.json()).token;
+  const path = "/pub/o/orchard/_reader/write";
+  const headers = { origin: ORIGIN, authorization: `Bearer ${token}`, "content-type": "application/json" };
+  expect((await at(gate, path, { method: "POST", headers: { ...headers, origin: "https://journal.example" }, body: "{}" })).status).toBe(403);
+  expect((await at(gate, `/pub/o/orchard/_reader/${token}`, { method: "POST", headers, body: "{}" })).status).toBe(404);
+  const saved = await at(gate, path, { method: "POST", headers, body: JSON.stringify({ action: "comment", quote: "The pears are ready", body: "Harvest tomorrow #pie-request", source: "https://journal.example/pears" }) });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toEqual({ ok: true, said: "Saved to the outline" });
+  const orchard = new OutlinerClient(outlineLayout(join(root, "outlines")).socket, 15_000, "orchard");
+  const date = new Date();
+  const address = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const day = await orchard.request<{ block: Block }>({ action: "pages.resolve", address });
+  const captures = await orchard.request<Block[]>({ action: "children", parentId: day.block.id });
+  expect(captures.some(b => b.text.includes("Harvest tomorrow #pie-request"))).toBe(true);
+  expect((await at(gate, path, { headers })).status).toBe(405);
+  expect((await at(gate, "/pub/o/orchard/reader/bookmark", { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" })).status).toBe(401);
 });
