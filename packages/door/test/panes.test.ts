@@ -88,6 +88,57 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     delete process.env.EP0CH_STATE;
   });
 
+
+  test("a locked board finishes filling a newly supplied lane and previews its cards (wave 4)", async () => {
+    const originalHub = hub;
+    hub = await create(null, "Harvest board");
+    await create(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
+    await create(hub.id, "Doing [type::virtual-branch] [query::stage=doing]");
+    await fresh();
+    await (b as any).dispatch.act({ action: "layout.lock", args: { on: true } }, { kind: "user" });
+    await create(hub.id, "Harvest [type::virtual-branch] [query::stage=harvest]");
+    const card = await create(null, "Pick the pears [stage::harvest]");
+    try {
+      await B().fill();
+      await until(() => !!(b.pane("Harvest") as any)?.items?.length, "the new lane starts");
+      b.setCurrent(card, { from: b.pane("Harvest")! });
+      expect(B().preview.msg?.id).toBe(card.id);
+    } finally {
+      await (b as any).dispatch.act({ action: "layout.lock", args: { on: false } }, { kind: "user" });
+      hub = originalHub;
+    }
+  });
+
+  test("unlinking a container preview stays unlinked after refill and reload (wave 8)", async () => {
+    for (const route of ["tile.link", "reader.follow"]) {
+      await fresh();
+      const mine = (action: string, args: any, tile: string) => (b as any).dispatch.act({ action, args, tile }, { kind: "user" });
+      if (route === "reader.follow") {
+        const saved = (b as any).layoutSpec();
+        const asReader = (n: any) => {
+          if (n.name === "preview") { n.kind = "reader"; n.mode = "held"; }
+          for (const child of [...(n.kids ?? []), ...(n.tabs ?? []), ...(n.kid ? [n.kid] : [])]) asReader(child);
+        };
+        asReader(saved.root);
+        (b as any).build(saved, false);
+        await B().fill();
+        await until(() => B().lanes.every((l: any) => l.items?.length), "the rebuilt lanes");
+        b.setCurrent(B().lanes[0].items[0], { from: B().lanes[0] });
+        await whole(B().preview);
+        await mine(route, { source: "none" }, "preview");
+      }
+      else for (const lane of B().lanes) await mine(route, { verb: "select", to: "preview", remove: true }, b.nameOfPane(lane));
+      const kept = B().preview.msg?.id;
+      await B().fill();
+      const card = B().lanes[1].items[0];
+      b.setCurrent(card, { from: B().lanes[1] });
+      expect(B().preview.msg?.id).toBe(kept);
+      const saved = (b as any).layoutSpec();
+      (b as any).build(saved, false);
+      await B().fill();
+      expect(B().layoutGet().tiles.flatMap((t: any) => t.wires ?? []).some((w: any) => w.verb === "select" && w.to === "preview")).toBe(false);
+    }
+  });
   test("the board is one tree: the outline dock, then the lanes' columns over the readers row, the backlinks dock under them", async () => {
     await fresh();
     expect(shape(tree())).toMatchObject({

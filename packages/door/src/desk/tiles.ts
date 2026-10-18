@@ -148,7 +148,7 @@ export { isTileKind };
  */
 export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: "held" | "pinned"; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
   const { link, linkRole, ...rest } = s;
-  const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), { verb: "open" as const, to: link }] } : {}) };
+  const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), { verb: "open" as const, to: link }, ...((linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
   if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }
   if (out.kind === "preview" && out.source?.startsWith("tile:")) {
     out.selectFrom = out.source.slice(5);
@@ -192,7 +192,7 @@ export function builtin(name: string): LayoutSpec | null {
       name, rule: "current", focus: "tree", policy: { host: "beside" },
       root: serial(splitOf("row", [
         T("reader", "now", { link: "middle", mode: "pinned", page: nowPage().address }),
-        splitOf("col", [splitOf("col", [T("tree", "tree", { link: "middle" }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("reader", "middle", { mode: "held" })], [0.6, 0.4]),
+        splitOf("col", [splitOf("col", [T("tree", "tree", { wires: [{ verb: "open", to: "middle" }] }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("reader", "middle", { mode: "held" })], [0.6, 0.4]),
         splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("reader", "side", { link: "middle", mode: "held" })], [0.6, 0.4]),
       ], [0.34, 0.33, 0.33])),
     };

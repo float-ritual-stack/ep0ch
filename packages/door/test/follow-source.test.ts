@@ -133,4 +133,45 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
     expect(D().followSource(r("b"))).toBeNull();
     expect(r("b").msg?.id).toBe(kept);
   });
+  const regressionDesk = async (kids: any[]) => {
+    if (desk) { desk.dispose(); app.pop(); }
+    desk = new Desk({ name: "regressions", title: "regressions", layout: { root: { t: "split", dir: "row", weights: kids.map(() => 1), kids } } } as any);
+    app.push(desk); render();
+    await until(() => pane("tree")?.list().length > 0, "the source tree");
+  };
+
+  test("saved preview-role links still show selections after loading (wave 1)", async () => {
+    for (const kind of ["tree", "backlinks"]) for (const role of [undefined, "preview", "target"]) {
+      await regressionDesk([leaf("tree", "tree"), leaf(kind, "source", { link: "a", ...(role ? { linkRole: role } : {}) }), leaf("reader", "a", { mode: "held", note: notes[0].id })]);
+      await mine("open", { id: notes[0].id }, "a");
+      D().setCurrent(notes[1], { from: pane("source") });
+      expect(r("a").msg?.id).toBe((role ?? (kind === "backlinks" ? "target" : "preview")) === "target" ? notes[0].id : notes[1].id);
+    }
+  });
+
+  test("selecting while the target has a comment keeps the draft without opening a detail beside it (wave 2)", async () => {
+    await regressionDesk([leaf("tree", "tree", { wires: [{ verb: "select", to: "a" }] }), leaf("reader", "a", { mode: "held", note: notes[0].id })]);
+    await until(() => !!r("a").msg && !r("a").msg?.partial, "the whole note");
+    await mine("passage.select", {}, "a");
+    await mine("comment.write", { body: "Keep this thought" }, "a");
+    const before = D().layoutGet().tiles.map((t: any) => t.name), kept = r("a").msg?.id;
+    try {
+      D().setCurrent(notes[1], { from: pane("tree") });
+      expect(D().layoutGet().tiles.map((t: any) => t.name)).toEqual(before);
+      expect(r("a").msg?.id).toBe(kept);
+      expect((r("a") as any).surface.session.composer.text).toBe("Keep this thought");
+    } finally { await mine("comment.close", { discard: true }, "a"); }
+  });
+
+  test("changing the reader's follow source stops selections from the former source (wave 5)", async () => {
+    await regressionDesk([leaf("tree", "tree"), leaf("tree", "other"), leaf("reader", "a", { mode: "held", note: notes[0].id })]);
+    await until(() => pane("other")?.list().length > 0, "the other source");
+    await mine("reader.follow", { source: "tree" }, "a");
+    await mine("reader.follow", { source: "other" }, "a");
+    D().setCurrent(notes[1], { from: pane("other") });
+    expect(r("a").msg?.id).toBe(notes[1].id);
+    D().setCurrent(notes[2], { from: pane("tree") });
+    expect(r("a").msg?.id).toBe(notes[1].id);
+  });
+
 });

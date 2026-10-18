@@ -162,10 +162,10 @@ export type At<I = number> = Place<I>
 
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
-  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb }
+  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[] }
   | { op: "close"; tile: I; gone?: boolean }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
-  | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb }
+  | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb; selectFrom?: I[] }
   /** A tile leaves this layout whole, to go on elsewhere (your drawer, PIE-498): moved, not closed. */
   | { op: "take"; tile: I; heir?: { id: I; name?: string } }
   /**
@@ -199,7 +199,7 @@ export type Op<I = number> =
   | { op: "tab"; tile: I; by?: number }
   | { op: "zoom"; tile: I; on?: boolean }
   | { op: "load"; name: string }
-  | { op: "fill"; container: string; order: I[]; fresh?: { id: I; kind: string; name?: string }[]; drop?: I[]; weights?: [I, number][]; names?: [I, string][] }
+  | { op: "fill"; container: string; order: I[]; fresh?: { id: I; kind: string; name?: string }[]; drop?: I[]; weights?: [I, number][]; names?: [I, string][]; select?: I[] }
   | { op: "source"; container: string; source: string }
   | { op: "flow.widen"; tile: I }
   | { op: "flow.travel"; tile: I; dir: -1 | 1 }
@@ -388,7 +388,9 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
   const wire = s.wires.find(w => w.from === id && w.verb === verb && s.names.has(w.to));
   if (verb === "alt") {
     const open = landing(s, id, "open", facts);
-    const rule = wire?.rule ?? (wire ? "tile" : s.policy.altOpens ?? "beside");
+    const policy = policyAt(s, id, facts);
+    const altOpens = policy.altOpens;
+    const rule = wire?.rule ?? (wire ? "tile" : altOpens ?? "beside");
     const target = wire?.to ?? (open && "to" in open ? open.to : id);
     if (rule === "first-unheld") {
       const available = leaves(s.tree).find(t => { const f = tile?.(t); return f?.notes && !f.follower && !f.held && !f.editing && !f.holds; });
@@ -396,7 +398,7 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
     }
     if (rule === "tile") return { to: target };
     if (rule === "tab") return { tab: target };
-    if (!wire && !s.policy.altOpens && open && ("into" in open || "next" in open)) return open;
+    if (!wire && !policy.by.altOpens && open && ("into" in open || "next" in open)) return open;
     return { beside: target };
   }
   if (wire) return { to: wire.to };
@@ -816,6 +818,7 @@ class Step<I> {
     }
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
+    for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
     this.d.answer = { tile: this.d.names.get(op.tile), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
@@ -888,6 +891,7 @@ class Step<I> {
     this.d.names.set(op.with, newName ?? autoName(this.d, op.kind));
     if (had) this.d.focus = op.with;
     if (op.link !== undefined) this.linkTo(op.link, op.with, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
+    for (const from of op.selectFrom ?? []) if (from !== id) this.linkTo(from, op.with, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
     this.d.answer = { tile: this.d.names.get(op.with), replaced: name };
   }
   /**
@@ -1299,7 +1303,7 @@ class Step<I> {
     const readers = p.parent.kids.map(k => (k.t === "leaf" ? k.id : k.t === "tabs" ? k.ids[k.active] : undefined)).filter((t): t is I => t !== undefined && !!this.facts(t).notes);
     // Readers opened before it, wherever they are in the row (a new one opens right beside the one it came from), but a
     // preview, which follows another tile: it isn't one of the readers that grew.
-    const may = (t: I) => t !== id && (alt ? this.foldSet(t).every(x => this.d.altReaders.has(x)) : t !== readers[0]) && !this.facts(t).follower && !this.facts(t).held && !this.facts(t).editing && !this.facts(t).holds && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
+    const may = (t: I) => t !== id && (alt ? this.foldSet(t).every(x => this.d.altReaders.has(x)) : t !== readers[0]) && !this.facts(t).follower && (!alt || !this.facts(t).held) && !this.facts(t).editing && !this.facts(t).holds && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
       && !(this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free"));
     const giveRoom = (row: Line<I>, sizes: number[], to: number, from = -1) => {
       const donors = row.kids.map((k, i) => ({ k, i, tiles: leaves(k) })).reverse();
@@ -1597,6 +1601,9 @@ class Step<I> {
     }
     const all = new Set(this.all());
     col.kids.forEach((k, i) => { if (!kids.includes(k) && leaves(k).length && leaves(k).every(id => all.has(id) || fresh.has(id))) { kids.push(k); weights.push(col.weights[i]!); } });
+    for (const to of op.select ?? []) for (const from of op.order) {
+      if (from !== to && !this.d.wires.some(w => w.from === from && w.to === to && w.verb === "select")) this.d.wires.push({ from, to, verb: "select" });
+    }
     col.kids = kids; col.weights = weights;
     this.d.tree = normalise(this.d.tree);
   }
