@@ -119,7 +119,7 @@ A click, `show` and `door_open` share one open (`openNote` in
   reference, prose around it with bold, italic and code kept) and leaves every other line to the engine's Markdown.
   The desktop and VS Code keep the Markdown, whose links are real, on `https://pi-outliner.invalid/...` stand-ins.
   `https://my.ep0ch.sh/pub/p/<PIE-n|page|id>` that Claude writes, bare or as `[label](url)`, is the same reference
-  (a bare one drawn as its PIE-n, page name or the note's title); other URLs are left as written.
+  (a bare one drawn as its PIE-n, page name or the note's title). An unaliased `((id))` or `((id^anchor))` is drawn as its note's title (cut to 48 characters, then `› anchor`), looked up once through the same cache as a tool row's titles and redrawn when it lands; until then, and when the block is not found, as its first eight characters and `…`; a press still opens it. Any other http(s) link, bare or `[label](url)`, is drawn in the terminal as the engine's `Link` (an OSC 8 hyperlink the terminal opens) in the dim `inactive` colour with a trailing `↗`, apart from the underlined references that open in the door; a bare address keeps its text.
   Emphasis spanning a reference and other text stays bold or italic, and a table with a reference in a cell is drawn
   whole by the mod, its references pressable (PIE-1043). A press opens in the door `ep0ch where` finds (the one the
   door tools use), read at each press: a stale or missing `EP0CH_CONTROL` no longer sends it to the mentions pane. With no `EP0CH_TILE` (a Claude that came in over ssh) the press asks the

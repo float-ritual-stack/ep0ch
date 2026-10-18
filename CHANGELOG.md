@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Claude replies: a bare `((id))` shows its note's title, and links out look different (PIE-1043)
+
+An unaliased `((id))` or `((id^anchor))` in a reply is drawn as the note's title (with `› anchor` for a fragment),
+not the raw uuid; until the lookup lands, or when the block is not found, it is the first eight characters and `…`.
+Links to the web, bare or `[label](url)`, are drawn dim with a trailing `↗` and open in the browser; references to the
+outline keep the underline and open in the door.
+
 ### A press on a reference in a Claude reply opens in the live door; bold and tables survive (PIE-1043)
 
 A press (and the `show` tool) resolves the door the way the door tools do, by `ep0ch where`, so a Claude resumed after

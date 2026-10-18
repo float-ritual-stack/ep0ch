@@ -364,9 +364,10 @@ describe('register', () => {
     const shown = (await drawn.find({ type: 'Box' }))?.text ?? ''
     expect(shown).not.toMatch(/pi-outliner\.invalid|my\.ep0ch\.sh/)
     expect(shown).toContain('Filed PIE-356 and OLD-2 beside PIE-1, then PIE-7.')
-    expect(shown).toContain('Read PIE-8, Daily notes. and https://example.com/x.')
-    // A markdown link to another site is left as written; one to my.ep0ch.sh is its label.
-    expect(shown).toContain('And the ticket or [more](https://example.com/more).')
+    expect(shown).toContain('Read PIE-8, Daily notes. and ')
+    // A link to another site is a Link out (PIE-1043, below); one to my.ep0ch.sh is its label.
+    expect(shown).toContain('And the ticket or ')
+    expect((await drawn.findAll({ type: 'Link' })).find(l => l.props.href === 'https://example.com/more')).toBeDefined()
     // Every reference is a pressable label; no line is left to Markdown, whose links would print their address.
     for (const label of ['PIE-356', 'OLD-2', 'PIE-7', 'PIE-8', 'Daily notes', 'the ticket']) {
       expect(await drawn.find({ type: 'Text', text: label })).toBeDefined()
@@ -390,6 +391,41 @@ describe('register', () => {
     })
     expect(await plain.find({ key: 'outliner-references' })).toBeUndefined()
     expect((await plain.find({ key: 'engine' }))?.text).toBe('Nothing to link here.')
+  })
+
+  test('an unaliased ((id)) draws as its short id, then as the note title once looked up, and still opens (PIE-1043)', async ($, on) => {
+    const session = sessionIn(on, WORKSPACE, succeeding)
+    await session.begin(() => $.session.start(START))
+    const drawn = await mountReply($, `See ((${BLOCK})) here.`)
+    expect((await drawn.find({ type: 'Box' }))?.text ?? '').toContain(`See ${BLOCK.slice(0, 8)}… here.`)
+    await session.clock.settle()
+    expect((await drawn.find({ type: 'Box' }))?.text ?? '').toContain('See Daily notes here.')
+    expect((await drawn.find({ type: 'Box' }))?.text ?? '').not.toContain(BLOCK)
+    await drawn.press({ key: `https://pi-outliner.invalid/block/${BLOCK}` })
+    await session.clock.settle()
+    expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', `pi-outliner://block/${BLOCK}`])
+  })
+
+  test('an external link in a reply is a dim Link with a trailing arrow, apart from the underlined references that open in the door (PIE-1043)', async ($, on) => {
+    const session = sessionIn(on, WORKSPACE, succeeding)
+    await session.begin(() => $.session.start(START))
+    const drawn = await mountReply($, 'Read [the docs](https://example.com/a) and https://example.com/b. Also `https://example.com/c` and PIE-7.\n\nOnly [a link](https://example.com/d) here.')
+    const shown = (await drawn.find({ type: 'Box' }))?.text ?? ''
+    expect(shown).not.toMatch(/\]\(|pi-outliner\.invalid/)
+    expect(shown).toContain('. Also https://example.com/c and PIE-7.')
+    // Each link's own text is its label then a dim arrow (the harness also prints a Link's address before it).
+    const links = await drawn.findAll({ type: 'Link' })
+    const link = async (href: string) => links.find(l => l.props.href === href)
+    expect((await link('https://example.com/a'))?.text).toContain('the docs ↗')
+    expect((await link('https://example.com/b'))?.text).toContain('https://example.com/b ↗')
+    expect((await link('https://example.com/d'))?.text).toContain('a link ↗')
+    expect((await drawn.find({ type: 'Text', text: '↗' }))?.props.color ?? (await drawn.find({ type: 'Text', text: ' ↗' }))?.props.color).toBe('inactive')
+    expect(await link('https://example.com/a')).toBeDefined()
+    expect(await link('https://example.com/b')).toBeDefined()
+    expect(await link('https://example.com/c')).toBeUndefined()
+    expect(await link('https://example.com/d')).toBeDefined()
+    // The internal reference is still a pressable, underlined Button, never a Link.
+    expect(await drawn.find({ key: 'https://pi-outliner.invalid/work/PIE-7' })).toBeDefined()
   })
 
   test('a bold line and a table with references are drawn as bold and a whole table, their references pressable (PIE-1043)', async ($, on) => {

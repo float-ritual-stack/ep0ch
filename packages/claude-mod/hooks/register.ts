@@ -21,6 +21,7 @@ import {
 import {
   isProtectedDestination,
   linkifyReferences,
+  unlabelledBlockIds,
   outlinerBlockIdOf,
   outlinerLabelOf,
   outlinerReferenceOf,
@@ -533,22 +534,31 @@ export function register(on: On, options: PluginOptions): void {
     const workspace = references?.workspace
     if (!workspace) return next(e)
     const titles = new Map<string, string>()
-    for (const id of new Set(e.props.text.match(WEB_BLOCK_IDS) ?? [])) {
-      const title = await titleFor($, id.toLowerCase())
-      if (title) titles.set(id.toLowerCase(), title)
+    for (const id of unlabelledBlockIds(e.props.text)) {
+      const title = await titleFor($, id)
+      if (title) titles.set(id, title)
     }
     const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id))
-    if (hrefs.length === 0 || text.length > 10_000) return next(e)
-    const { Box, Text, Markdown, Button } = await $.ui.resolve(e)
+    // A terminal draws a link out of the outline itself too (a trailing arrow, dim), so a reply with one is not left to the engine.
+    const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
+    if ((hrefs.length === 0 && blocks.every(block => block.kind === 'markdown')) || text.length > 10_000) return next(e)
+    const { Box, Text, Markdown, Button, Link } = await $.ui.resolve(e)
     const open = (href: string, surface: RenderSurface) => void openReference($, workspace, href, surface)
     // A terminal prints the address beside a link it cannot make a hyperlink of, so there the references are drawn
     // here, as their labels (PIE-1042); the desktop draws the Markdown, whose links are real.
-    const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
     const seen = new Map<string, number>()
     const drawParts = (parts: LinePart[], at: string, allBold: boolean) => parts.flatMap((part, i) => {
       if ('ref' in part) {
         const count = (seen.get(part.ref) ?? 0) + 1
         seen.set(part.ref, count)
+        // A link out of the outline: dim, with a trailing arrow, and the terminal's own hyperlink opens it (OSC 8).
+        if (part.external) {
+          return [Link({
+            key: count === 1 ? part.ref : `${part.ref}#${count}`,
+            href: part.ref,
+            children: [Text({ key: 'label', color: 'inactive', bold: allBold || undefined, children: part.label }), Text({ key: 'arrow', color: 'inactive', children: ' ↗' })],
+          })]
+        }
         return [Button({
           key: count === 1 ? part.ref : `${part.ref}#${count}`,
           plain: true,
@@ -1847,9 +1857,6 @@ async function titleFor($: EngineInterface, id: string): Promise<string | undefi
   }
   return undefined
 }
-
-/** The block ids in `my.ep0ch.sh/pub/p/` addresses a reply writes: their titles are looked up before it is drawn. */
-const WEB_BLOCK_IDS = /(?<=my\.ep0ch\.sh\/pub\/p\/)[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g
 
 /**
  * The titles of the blocks a tool row names by id. Each is read from state (so
