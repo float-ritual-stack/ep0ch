@@ -3269,7 +3269,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lines = lv.border === "none" || joined ? NO_BOX : lv.border !== "auto" && lv.border !== "joined" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
     const glyphs = keys ? FOCUS_BOX : lines;
     const frameInk = (cover === "peek" && !focused ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
-    const pointers = this.ctx.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
+    const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
     const foot = armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint;
     canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
