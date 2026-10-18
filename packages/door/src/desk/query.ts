@@ -127,7 +127,7 @@ export class QueryPane implements Pane {
   title() { return `${this.name} ${this.items ? this.items.length : "…"}`; }
   subject() { return this.items?.[this.sel]?.id ?? null; }
   /** Its header names the view as written ("Reading now"), not the tile (`Reading-now`). */
-  headName() { return this.def ? subject(this.def) : undefined; }
+  headName() { return this.def ? subject(this.def) : this.name; }
   hint() {
     if (this.boardHint) return this.boardHint;
     if (!this.home) return "j k pick · ⏎ open · r reload";

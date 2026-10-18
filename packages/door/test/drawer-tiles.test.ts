@@ -220,7 +220,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const r = d.app.drawer.rect!;
       const tabRow = r.row + 1;
       const row = d.paint()[tabRow]!;
-      const at = row.indexOf("activity");
+      const at = row.indexOf("last callers");
       expect(at).toBeGreaterThan(0);
       d.key(mouse("down", at + 1, tabRow));
       d.key(mouse("drag", at + 4, tabRow));

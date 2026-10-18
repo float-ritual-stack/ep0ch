@@ -88,7 +88,8 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
       // Why the lit row can't run now, under the rows: it's what a click on it would say.
       const lit = rows[p.sel], why = lit?.refused ? wrap(`✕ ${lit.refused}`, w - 3).slice(0, 4).map(l => fg(C.dark) + " " + l + RESET) : [];
       const groups = rows.filter((r, i) => i === 0 || rows[i - 1]!.group !== r.group).length;
-      const h = Math.min(a.rows, rows.length + groups + 3 + why.length);
+      const below = a.rows - o.at.row;
+      const h = Math.min(below >= 6 ? below : a.rows, rows.length + groups + 3 + why.length);
       const col = Math.max(0, Math.min(o.at.right ? o.at.col - w + 1 : o.at.col, a.cols - w));
       // Below the anchor, else above it; on the screen either way (a terminal made smaller since).
       const row = Math.max(0, Math.min(o.at.row + h <= a.rows ? o.at.row : o.at.row - h + 1, a.rows - h));

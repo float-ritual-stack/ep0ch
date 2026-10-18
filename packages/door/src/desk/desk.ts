@@ -12,6 +12,7 @@ import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { valuesOf } from "@ep0ch/outline-core/block-record";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { headedTitle, subject, type Msg } from "../board";
 import { BORDER_BOXES, Canvas, DOTTED_BOX, NO_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
@@ -435,6 +436,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private marksStore: MarkStore;
   private headOut = "";
   private titlePresses = new RowPresses();
+  private titleClick: HeadPress | null = null;
   /** Tiles the host made itself (the showcase's exhibits), by the name the spec gives them: built as given, never saved. */
   private readonly given: ReadonlyMap<string, Pane>;
 
@@ -2937,7 +2939,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...this.dockView(id),
       ...this.policyView(id),
       ...(kindOf(p)?.describe?.(p, true) ?? {}),
-      title: this.displayTitle(id),
+      title: this.frameTitle(id, r?.rows),
+      label: this.displayTitle(id),
       showing: m ? { id: m.id, title: subject(m) } : undefined,
       agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined,
       editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined,
@@ -3052,7 +3055,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
     // Images would bleed through an overlay.
-    for (const o of [...this.overlays.all()].reverse()) { o.draw(canvas, { col: 0, row: 0, cols, rows }); placements = []; }
+    for (const o of [...this.overlays.all()].reverse()) { o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }); placements = []; }
     const hint = this.hints(cols);
     if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
     if (this.hintBox || (this.hintFull && (this.hintMoreOpen || this.prefix))) { this.drawHintMore(canvas, cols, rows); placements = []; }
@@ -3420,12 +3423,30 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (st) put(` ${st.glyph}`, on ? selected(focused, "idleRow") + st.sgr : st.sgr, t);
         put(pad(` ${this.numLabel(t)}${this.displayTitle(t)} `, Math.max(4, Math.floor((max - r.col - 18) / set.ids.length))).trimEnd() + " ", on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
-    } else {
+    } else if (this.panes.get(id)!.writtenTitle && !this.panes.get(id)!.systemTitle) {
       this.putStatus(id, put, true);
       const p = this.panes.get(id)!;
       const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
-      const room = Math.max(1, max - xNow() - chips - (p.writtenTitle ? 18 : 10));
+      const room = Math.max(1, max - xNow() - chips - 18);
       put(pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
+      this.putMarks(id, put, xNow, r.row);
+      return this.headerEnd(id, put, xNow, max, r.row);
+    } else if (this.noteOf(id)) {
+      // NoteSurface owns the full title; the frame identifies the tile and keeps its mode controls reachable.
+      const m = this.noteOf(id)!, named = workIdTitle(subject(m), prop(m, "work-id"));
+      if (this.numbered) put(`${this.numberOf(id)} `, fg(focused ? C.white : C.dark), id);
+      this.putMarks(id, put, xNow, r.row);
+      this.putStatus(id, put);
+      if (named.workId) put(`${named.workId} · `, fg(focused ? C.lcyan : C.cyan) + BOLD, id);
+      const p = this.panes.get(id)!, label = this.frameTitle(id, r.rows);
+      // The mode chip is a mouse control; a long tile label gives way before it does.
+      const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
+      const room = Math.max(0, max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 10 - chips);
+      put(width(label) <= room ? label : headOf(label, Math.max(0, room - 1)).trimEnd() + (room ? "…" : ""), fg(C.dark), id);
+      return this.headerEnd(id, put, xNow, max, r.row);
+    } else {
+      this.putStatus(id, put, true);
+      put(`${this.numLabel(id)}${this.displayTitle(id)}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
     }
     this.putMarks(id, put, xNow, r.row);
     const label = this.panes.get(id)!.headLabel?.();
@@ -3438,8 +3459,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * room is kept for the dock's own glyph and [×] and how far down it is. Then the header's tail.
    */
   private headerEnd(id: number, put: (text: string, sgr: string) => void, xNow: () => number, max: number, row: number): string {
-    const titled = this.panes.get(id)!;
-    if (this.noteOf(id) && max - xNow() > 16) put(` · ${kindOf(titled)?.word ?? titled.kind}`, fg(C.dark));
     const ctl = this.panes.get(id)!.headControls?.(max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 8, this) ?? null;
     if (ctl?.length) {
       // A chip (a reader's mode) is a label with a click, not the tile's keys: the frame still says those.
@@ -3460,7 +3479,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private drawSpineTile(canvas: Canvas, id: number, r: Rect, focused: boolean): Placement[] {
     const p = this.panes.get(id)!;
     canvas.clear(r);
-    const own = p.spine?.() ?? { title: this.nameOf(id) };
+    const own = { ...p.spine?.(), title: this.displayTitle(id) };
     // A spine always names what it holds: a tile with no title yet (an empty reader, a note whose first line is blank)
     // falls back to its number and name, as its header says them ("4 detail").
     const sp = visibleText(own.title).trim() ? own : { ...own, title: `${this.numLabel(id)}${this.nameOf(id)}` };
@@ -3481,10 +3500,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return out ? [out] : [];
   }
 
-  /** A name the desk gave by kind (reader, reader2): not worth saying before the title. */
   /** Tiles are numbered in their headers (what 1-9 focus), unless the view keeps the digits for itself. */
   private get numbered() { return this.spec.digits !== false; }
   private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
+  private frameTitle(id: number, rows?: number): string {
+    const p = this.panes.get(id)!, m = this.noteOf(id);
+    if ((p.writtenTitle && !p.systemTitle) || !m || (tabsOf(this.root, id)?.ids.length ?? 0) > 1) return this.displayTitle(id);
+    if (rows !== undefined && p instanceof ReaderPane && !p.surface.titleShown(rows - 2)) {
+      return [p.surface.state(), workIdTitle(subject(m), prop(m, "work-id")).title].filter(Boolean).join(" · ");
+    }
+    const name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
+    const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
+    const kindWord = kindOf(p)?.word ?? p.kind;
+    const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
+    return this.plainName(id) || word === name ? word : `${name} · ${word}`;
+  }
+
   /** Display only: addressing and links keep the tile name. */
   displayTitle(id: number): string {
     const p = this.panes.get(id)!;
@@ -3519,6 +3550,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     this.save(); this.redraw();
     return { tile: t.name, title: this.displayTitle(t.id), writtenTitle: p.writtenTitle ?? "", systemTitle: !!p.systemTitle };
+  }
+
+  private plainName(id: number) {
+    const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id);
+    // A held reader the desk named a detail (detail, detail2: the glossary's word, PIE-705) is named for what it is too.
+    return n === k || new RegExp(`^${k}\\d+$`).test(n) || (p instanceof ReaderPane && p.kind === "reader" && /^detail\d*$/.test(n));
   }
 
   private noteOf(id: number): Msg | null {
@@ -5144,7 +5181,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.panes.get(id);
       if (!p) return;
       const m = this.showing(p);
-      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, title: this.displayTitle(id), showing: m ? { id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}), ...(prop(m, "page") ? { page: prop(m, "page") } : {}) } : null,
+      out.push({ id: this.tileId(id), name: this.nameOf(id), kind: p.kind, depth, label: this.displayTitle(id), showing: m ? { id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}), ...(prop(m, "page") ? { page: prop(m, "page") } : {}) } : null,
         focused: id === this.focus, collapsed: this.collapsed.has(id), float: this.isFloat(id), docked: !!how.docked, tab: !!how.tab, shown: how.shown ?? true, ...(p instanceof ReaderPane && p.follows ? { mode: p.followMode } : {}) });
     };
     const walk = (n: LNode, depth: number, docked: boolean) => {
@@ -6127,6 +6164,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const p = this.pressed;
     if (k.action === "up") {
+      const click = this.titleClick;
+      this.titleClick = null;
+      if (click && k.x === click.x && k.y === click.y && this.titlePresses.press(click.id) === "open") {
+        this.floatDrag = null; this.dragging = null; this.headPress = null;
+        if (click.id !== this.focus) this.run("tile.focus", {}, this.nameOf(click.id));
+        return this.run("tile.title", {}, this.nameOf(click.id));
+      }
       // A resize let go (src/resize.ts): laid out and scaled for where it ended.
       if (this.drag) { this.drag = null; resizeEnded(); this.save(); }
       if (this.floatDrag) {
@@ -6168,6 +6212,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return;
     }
     if (k.action === "drag") {
+      this.titleClick = null;
+      this.titlePresses.forget();
       // A float's title moves it, its corner sizes it: float.place, as H J K L and an agent's.
       if (this.floatDrag) {
         const f = this.floats.find(x => x.id === this.floatDrag!.id), g = this.floatDrag;
@@ -6282,11 +6328,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const wc = this.wireChips.find(at);
       if (wc) return this.openWires(wc.id, wc.wire);
       const titleHit = this.heads.find(h => h.row === k.y && k.x >= h.from && k.x < h.to && !!hit && (h.id === hit[0] || !!tabsOf(this.root, hit[0])?.ids.includes(h.id)));
-      if (titleHit && this.titlePresses.press(titleHit.id) === "open") {
-        this.floatDrag = null; this.dragging = null; this.headPress = null;
-        if (titleHit.id !== this.focus) this.run("tile.focus", {}, this.nameOf(titleHit.id));
-        return this.run("tile.title", {}, this.nameOf(titleHit.id));
-      }
+      this.titleClick = titleHit && !(k.mods ?? 0) ? { id: titleHit.id, x: k.x, y: k.y } : null;
       // A float: a press gives it the keys and brings it to the top; its title moves it, its ◢ corner sizes it.
       if (hit && this.isFloat(hit[0])) {
         const [id, r] = hit;
@@ -6449,7 +6491,7 @@ const docked = ({ pinned, ...rest }: Record<string, unknown>) => ({ ...rest, ...
 /** A tile moving between screens (or into and out of the drawer) whole: its instance, its name, its spec, whether the person was typing in it. */
 /** One tile as the power bar lists it (Desk.tileOutline): its stable id, name, kind, depth in the tree, and what it shows. */
 export interface TileLine {
-  id: string; name: string; kind: string; depth: number; title: string; showing: { id: string; title: string; workId?: string; page?: string } | null;
+  id: string; name: string; kind: string; depth: number; label: string; showing: { id: string; title: string; workId?: string; page?: string } | null;
   focused: boolean; collapsed: boolean; float: boolean; docked: boolean; tab: boolean; shown: boolean;
   /** A reader's mode (PIE-705): follows, held or pinned. */
   mode?: "follows" | "held" | "pinned";

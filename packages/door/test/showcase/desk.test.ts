@@ -43,32 +43,33 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const tile = d.layoutGet().tiles.find(t => t.kind === "reader")!.name;
     const info = () => d.layoutGet().tiles.find(t => t.name === tile)!;
     await app.act({ action: "tile.title", tile, args: { text: "" }, as: "test-agent" });
-    expect(info().title).toBe(subject(seeded.notes.notebook));
+    expect(info().label).toBe(subject(seeded.notes.notebook));
     await app.act({ action: "tile.title", tile, args: { text: "Reading {{this.title}} · {{tile.kind}} {{tile.n}} · {{this.title-colour || unset}}" }, as: "test-agent" });
-    expect(info().title).toContain(`Reading ${subject(seeded.notes.notebook)} · reader`);
+    expect(info().label).toContain(`Reading ${subject(seeded.notes.notebook)} · reader`);
     expect(screen()).toContain("Reading");
-    expect(d.tileOutline().find(t => t.name === tile)!.title).toBe(info().title);
-    const writtenTitle = info().title;
+    expect(d.tileOutline().find(t => t.name === tile)!.label).toBe(info().label);
+    const writtenTitle = info().label;
+    expect(info().title).toBe(writtenTitle);
     await app.act({ action: "tile.title.mode", tile, as: "test-agent" });
-    expect(info().title).toBe(subject(seeded.notes.notebook));
+    expect(info().label).toBe(subject(seeded.notes.notebook));
     const saved = d.layoutSpec();
     await app.act({ action: "tile.title.mode", tile, as: "test-agent" });
-    expect(info().title).toBe(writtenTitle);
+    expect(info().label).toBe(writtenTitle);
     const restored = new Desk({ name: "titles", title: "titles", layout: saved });
     restored.enter(app);
     try {
       await until(() => restored.layoutGet().tiles.find(t => t.name === tile)?.showing?.id === seeded.notes.notebook.id, "the restored notebook");
-      expect(restored.layoutGet().tiles.find(t => t.name === tile)!.title).toBe(subject(seeded.notes.notebook));
+      expect(restored.layoutGet().tiles.find(t => t.name === tile)!.label).toBe(subject(seeded.notes.notebook));
       await restored.dispatch.press("tile.title.mode", {}, tile);
-      expect(restored.layoutGet().tiles.find(t => t.name === tile)!.title).toBe(writtenTitle);
+      expect(restored.layoutGet().tiles.find(t => t.name === tile)!.label).toBe(writtenTitle);
     } finally { restored.dispose(); }
 
     await app.act({ action: "open", tile, args: { id: seeded.notes.shed.id }, as: "test-agent" });
-    await until(() => info().title.includes(subject(seeded.notes.shed)), "the title following its note");
+    await until(() => info().label.includes(subject(seeded.notes.shed)), "the title following its note");
     expect(info().name).toBe(tile);
     const shed = (await board.get(seeded.notes.shed.id))!;
     const coloured = await board.update(shed.id, shed.text.replace("\n", " [title-colour::amber]\n"), shed.revision!);
-    await until(() => info().title.endsWith("amber"), "the title following an external property change");
+    await until(() => info().label.endsWith("amber"), "the title following an external property change");
     await board.update(shed.id, shed.text, coloured.revision!);
     await d.dispatch.press("tile.focus", {}, tile);
     press({ kind: "enter" });
@@ -77,7 +78,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "char", ch: "u", ctrl: true });
     press({ kind: "enter" });
     await until(() => !S().stages.get(S().sel).top.overlays.top(), "empty title saved");
-    expect(info().title).toBe(subject(seeded.notes.shed));
+    expect(info().label).toBe(subject(seeded.notes.shed));
     const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("4 Visitors"));
     expect(y).toBeGreaterThan(0);
     const x = lines[y]!.indexOf("Visitors") + 1;
@@ -94,7 +95,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const chipY = screen().split("\n").indexOf(frame!), chipX = frame!.indexOf("[name]") + 1;
     press({ kind: "mouse", action: "down", button: 0, x: chipX, y: chipY });
     press({ kind: "mouse", action: "up", button: 0, x: chipX, y: chipY });
-    expect(d.layoutGet().tiles.find(t => t.name === "activity")!.title).toBe("last callers · live");
+    expect(d.layoutGet().tiles.find(t => t.name === "activity")!.label).toBe("last callers · live");
     press({ kind: "esc" });
     press({ kind: "esc" });
 
