@@ -430,7 +430,9 @@ One host serves every client of every outline on one event loop, and a client gi
 
 The checks and the full suites are in the repository's
 [Verification](../../CONTRIBUTING.md#verification). The Herdr journeys
-(`bun run test:e2e:*`) run a private Herdr session of their own
+(`bun run test:e2e:*`) are manual checks, run by hand, not on a schedule.
+Tree, Detail and Preview remain maintained as the sysop console, covered by
+the outliner's in-process tests. Each remaining journey runs a private Herdr session of its own
 (`test/e2e/herdr-runner.ts`): its own outlines folder, the host in a tab of a
 private workspace, the project's outline named by its `.ep0ch`.
 
