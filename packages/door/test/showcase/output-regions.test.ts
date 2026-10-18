@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
+import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
@@ -44,4 +45,23 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     expect([after.text, after.revision]).toEqual([first.text, first.revision]);
     expect(await board.children(id)).toHaveLength(0);
   }, 40_000);
+
+  test("an image written inside an output region reaches the terminal with its caption", async () => {
+    h.press({ kind: "esc" });
+    (app as any).lastInput = 0;
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    const video = app.video;
+    app.video = "kitty";
+    try {
+      await until(() => screen().includes("seed-packet.webp") && !screen().includes("loading…"), "the output image decoded", 8000);
+      const frame = h.sc.render(app);
+      expect(frame.placements?.length ?? 0).toBeGreaterThan(0);
+      const caption = frame.lines.findIndex(line => line.includes("seed-packet.webp"));
+      expect(frame.placements!.some(p => p.row < caption && p.row + p.rows <= caption)).toBe(true);
+      expect(screen()).toContain("Sam waters the beans");
+    } finally {
+      app.video = video;
+    }
+  }, 20_000);
+
 });

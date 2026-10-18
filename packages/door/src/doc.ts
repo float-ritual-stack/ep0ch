@@ -400,6 +400,11 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     for (const r of sub.regions ?? []) regions.push({ ...r, row: base + r.row });
     for (const b of sub.blocks) if (b.kind !== "span") blocks.push({ ...b, row: base + b.row, line: b.line + off, end: b.end + off, inner: [b.inner[0] + off, b.inner[1] + off], strip: b.strip + quoted, col: b.col + dx });
   };
+  const adoptMedia = (sub: Doc, base: number, dx: number, off: number) => {
+    const imageBase = images.length;
+    for (const im of sub.images) images.push({ ...im, line: im.line + base, col: im.col + dx });
+    for (const x of sub.media) mediaRefs.push({ ...x, row: x.row + base, line: x.line + off, ...(x.image !== undefined ? { image: x.image + imageBase } : {}) });
+  };
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
   const componentAt = new Map(componentBlocks(src).map(c => [c.start, c]));
@@ -507,10 +512,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const outside = framed || bar ? mx : Math.max(0, left - px);
       if (surface) tints.push({ rows: [surfaceFrom, out.length], cols: [outside + (framed || bar ? 1 : 0), Math.max(outside + 1, W - outside - (framed ? 1 : 0))], bg: surface });
       for (const t of sub.tints ?? []) tints.push({ rows: [base + t.rows[0], base + t.rows[1]], cols: t.cols ? [t.cols[0] + left, t.cols[1] + left] : [left, left + inner], bg: t.bg });
-      // Its pictures and media lines, moved to where the box put its rows (an image's index kept to its record).
-      const imageBase = images.length;
-      for (const im of sub.images) images.push({ ...im, line: im.line + base, col: im.col + left });
-      for (const x of sub.media) mediaRefs.push({ ...x, row: x.row + base, line: x.line + off, ...(x.image !== undefined ? { image: x.image + imageBase } : {}) });
+      adoptMedia(sub, base, left, off);
       if (framed) drawn(frameEdge(g.bl, g.br), 1, end);
       drawn("", my, end);
       i = end;
@@ -696,6 +698,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       sub.lines.forEach((l, r) => { out.push(l); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
       for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
       adopt(sub, base, 0, off, undefined, cb.depth);
+      adoptMedia(sub, base, 0, off);
       const key = `${env.note ?? ""}:#${og.anchor ?? i}`;
       const source0 = og.producer && env.tag ? env.tag({ block: og.producer, role: "control", label: `source of ${og.label || "this output"}` }, "[source]") : "";
       const edited = !!known?.edited;
