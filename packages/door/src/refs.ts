@@ -225,6 +225,7 @@ export interface LinkView { text: string; missing: boolean }
  * none.
  */
 export type LinkTarget = {
+  inlineList?: { key: number; row: number };
   /**
    * A `{{ }}` the note reads (PIE-533 S2), as the service answered it: ⏎ or a click shows where its value is written (`block`,
    * `at` and `atLabel` light that line), or says it is computed. `problem` is why it has no value.

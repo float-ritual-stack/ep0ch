@@ -32,6 +32,20 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("inline lists: act selects a result beyond the first box of the 60-row demo", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "inline-lists" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "inline-lists")).top; };
+    await until(() => screen().includes("Parcel 01"), "the parcel list");
+    const desk = stage();
+    const elements = await desk.dispatch.act({ action: "elements", tile: "parcels" }, { kind: "user" }) as any;
+    const first = elements.elements.find((e: any) => e.list);
+    await desk.dispatch.act({ action: "element.select", tile: "parcels", args: { n: first.n, row: 45 } }, { kind: "user" });
+    await until(() => screen().includes("Parcel 45"), "row 45 revealed inside the box");
+    expect(screen()).not.toContain("Parcel 01");
+    expect(screen()).toContain("After the list:");
+  });
+
   test("focus rows (PIE-999): the outline marker follows the keys while the figures stay held", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "focus" }, as: "test-agent" });

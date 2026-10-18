@@ -2865,7 +2865,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `margin` | `mode=trim\|full\|off`; omitted cycles the comments mode | `M` or a click on the byline count |
 | `thread.toggle` | `thread`, `expand=true\|false` (default toggles). Agents may change this reading state | `Enter` on a mark, or click `[–]` / `[+]` in the gutter or card header |
 | `link.select`, `link.follow`, `up` | `n` (from 1); `fresh=true` (follow) opens it in a new reader. An agent's is refused in the reader that has your keys (and its `link.follow n=` never moves your `[ ]` position); a web link or a figure an agent follows is never opened in your browser or viewer: it gets the address back | `[ ]`, `Enter`, `alt+Enter` or a click, `u` (`U` in the message reader) |
-| `elements`, `element.select`, `element.open` | `n` (from `elements`), or `by=1\|-1` (select: the next or previous), `n=0` lets go; `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `esc` lets go, `Enter`, `alt+Enter`, a click |
+| `elements`, `element.select`, `element.open` | `n` (from `elements`), `row=` selects a 1-based row inside its inline list, or `by=1\|-1` (select: the next or previous), `n=0` lets go; `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `esc` lets go, `Enter`, `alt+Enter`, a click |
+| `element.scroll` | `n` (an element in an inline list), `by=` rows; the wheel passes to the note at either limit | wheel over the list box |
 | `scroll` | `by=` rows, or `to=top\|end`: the reader's own scroll. `to=end` puts the last line on the bottom edge; again, it goes on past the end (`reader.overscroll`, to the middle by default, PIE-622). It answers the viewport, with `atEnd` and `past` (the blank rows scrolled under the last line). An agent's is refused on the reader that has your keys: it uses `view.scrollTo` | `PgUp PgDn space Home End G`, the wheel |
 | `callouts` | `show=true\|false` (default toggles): every callout open, or back as written. The person's only | `z` |
 | `callout.list` | none: the note's callouts (`n`, `line`, type, title, whether it starts folded, whether it's folded here) and the outline's callout types, with any problem in their declarations | |
@@ -3088,3 +3089,11 @@ Sources (`S` in a reader) lists a note's generated regions. Open one with Enter 
 Within Sources, `c` saves CSV and `J` saves JSON; the download rows are clickable. Agents use
 `act sources.download tile=<reader> source=1 format=csv` and receive the saved file's path.
 `template.stamp of='[[daily-template]]' into='((id^log))' writes a template at an anchor through the same output-region placement as scripts.
+
+Inline lists in a reader share a RowView viewport (showcase `inline-lists`). The wheel over
+its rows scrolls the box; at either end it scrolls the note. Down/up and j/k enter the
+list, visit its rows, and leave past its last/first row. A click selects and previews;
+Enter opens, alt+Enter opens beside. `elements` reports each visible row's `list.row`,
+`list.total` and `list.top`; `element.select n=<element> row=<1-based row>` reveals
+any row in that list. These are the reader's existing keys on every screen; editor,
+picker, terminal and screen-level bindings keep their own precedence.
