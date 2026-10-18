@@ -1,4 +1,5 @@
 // Text helpers shared by the BBS screens and the desk panes.
+import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
 import { pageLinkRanges, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { balanceStyles, balanceTags, C, ellipsize, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
 import { theme } from "./theme";
@@ -29,16 +30,23 @@ export function printable(s: unknown, sub = "", { lines = false } = {}): string 
   return t.replace(ESCAPES, "").replace(lines ? LINE_CONTROLS : CONTROL_RUNS, sub);
 }
 
-/** The door's own styling: an SGR (colour, bold), the only sequence a drawn line keeps. */
-const SGR_PART = /(\x1b\[[\d;:]*m)/;
+/** Lines with just SGR can skip the control-sequence pass. */
 const UNSAFE = /[\x00-\x1a\x1c-\x1f\x7f-\x9f]|\x1b(?!\[[\d;:]*m)/;
 /**
- * A drawn line as it may go to the terminal: its SGR styling kept, every other escape and control taken out.
+ * A drawn line as it may go to the terminal: its SGR styling and OSC 8 links kept, every other escape and control taken out.
  * The sink under every screen (term.ts rowBytes) and the canvas (canvas.ts) use it.
  */
 export function paintable(line: string): string {
   if (!UNSAFE.test(line)) return line;
-  return line.split(SGR_PART).map((part, i) => (i % 2 ? part : printable(part.replaceAll("\t", " ")))).join("");
+  let link = false;
+  const drawn = line.split(DRAWN_PART).map((part, i) => {
+    if (i % 2) {
+      if (part.startsWith("\x1b]8;")) link = !closesHyperlink(part);
+      return part;
+    }
+    return printable(part.replaceAll("\t", " "));
+  }).join("");
+  return drawn + (link ? OSC8_CLOSE : "");
 }
 
 /** How long ago `ms` was, as of `now`: `42s`, `5m`, `3h`, `2d`. */

@@ -1,12 +1,13 @@
 // A cell grid the desk composes into: panes, borders and floating overlays all write here,
 // then it becomes one styled line per row. Blank cells keep the default background so the
 // CRT underlay shows through.
+import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
 import { fitHint, glyphWidth, graphemes, RESET } from "./style";
 import { theme } from "./theme";
 import { printable } from "./text";
 
 /** One terminal cell. A wide glyph's second cell is a spacer: `ch` "", drawn as nothing (the glyph covers it). */
-interface Cell { ch: string; sgr: string }
+interface Cell { ch: string; sgr: string; link?: string }
 export interface Rect { col: number; row: number; cols: number; rows: number }
 /** Where a view is in its content: the first line shown, how many fit, how many there are. */
 export interface Scroll { top: number; room: number; total: number }
@@ -80,9 +81,10 @@ export class Canvas {
     const line = this.cells[row];
     if (!line || max <= 0) return;
     const end = Math.min(col + max, this.cols);
-    let sgr = "", x = col;
-    for (const part of s.split(SGR)) {
+    let sgr = "", link: string | undefined, x = col;
+    for (const part of s.split(DRAWN_PART)) {
       if (!part) continue;
+      if (part.startsWith("\x1b]8;")) { link = closesHyperlink(part) ? undefined : part; continue; }
       if (part.startsWith("\x1b[")) { sgr = part === RESET || part === "\x1b[m" ? "" : withSgr(sgr, part); continue; }
       // Nothing a terminal acts on takes a cell: an escape or control in a title is dropped here (PIE-510).
       for (const g of graphemes(printable(part.includes("\t") ? part.replaceAll("\t", " ") : part))) {
@@ -90,7 +92,7 @@ export class Canvas {
         if (!w) { if (x > col && x - 1 >= 0 && x - 1 < this.cols && line[x - 1]!.ch) line[x - 1]!.ch += g; continue; }
         if (x >= end) return;
         if (x + w > end) { if (x >= 0) this.put(line, x, { ch: " ", sgr }); return; }
-        if (x >= 0) { this.put(line, x, { ch: g, sgr }); if (w === 2) this.put(line, x + 1, { ch: "", sgr }); }
+        if (x >= 0) { this.put(line, x, { ch: g, sgr, link }); if (w === 2) this.put(line, x + 1, { ch: "", sgr, link }); }
         else if (x + w > 0) this.put(line, 0, { ch: " ", sgr });   // a wide glyph cut by the left edge: its visible half blank
         x += w;
       }
@@ -179,12 +181,13 @@ export class Canvas {
 
   lines(): string[] {
     return this.cells.map(line => {
-      let out = "", last = "";
+      let out = "", last = "", link: string | undefined;
       for (const c of line) {
+        if (c.link !== link) { out += c.link || OSC8_CLOSE; link = c.link; }
         if (c.sgr !== last) { out += RESET + c.sgr; last = c.sgr; }
         out += c.ch;
       }
-      return out + RESET;
+      return out + (link ? OSC8_CLOSE : "") + RESET;
     });
   }
 }

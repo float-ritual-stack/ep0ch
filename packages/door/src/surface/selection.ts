@@ -12,6 +12,7 @@
 // copies it. A plain click selects nothing and copies nothing; a selection made by keys (`v`) is copied by
 // `y` or cmd+c; an agent's selection is never the person's clipboard. A copy shows "copied to clipboard"
 // over the screen (App.copy), as Herdr's `ui.toast.clipboard` does.
+import { DRAWN_PART } from "../hyperlink";
 import { ActionRefused } from "./actions";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ellipsize, bgRgb, glyphWidth, itemStyle, RESET, surfaceBg, tint } from "../style";
@@ -75,14 +76,13 @@ export let ZEBRA_BG = "";
 export const zebraBg = (v?: Pick<StyleValues, "list.zebra.bg" | "list.zebra.strength">) => surfaceBg(v?.["list.zebra.bg"] ?? "raised", v?.["list.zebra.strength"] ?? 2);
 themed(() => { SELECT_BG = bgRgb(theme().focus.selection); AGENT_BG = tint("agent"); RULER_BG = bgRgb(theme().focus.container); RULER_IDLE_BG = bgRgb(theme().focus.container.map(c => Math.round(c * 0.55)) as [number, number, number]); THREAD_BG = tint("thread"); ITEM_BG = itemStyle(); ITEM_IDLE_BG = tint("idleRow"); ZEBRA_BG = zebraBg(); });
 
-const SGR = /(\x1b\[[\d;]*m)/;
 const TAG = /[\u{100000}-\u{10FFFD}]/u;
 
 /** A drawn line's visible cells: one per code point, as `width` counts them. */
 export function cellsOf(line: string): string[] {
   const out: string[] = [];
-  for (const part of line.split(SGR)) {
-    if (!part || part.startsWith("\x1b[")) continue;
+  for (const part of line.split(DRAWN_PART)) {
+    if (!part || part.startsWith("\x1b")) continue;
     for (const ch of part) if (!TAG.test(ch)) out.push(ch);
   }
   return out;
@@ -177,7 +177,7 @@ export function lineAt(rows: SelectRows, row: number): Selection {
  */
 export function putCell(line: string, col: number, glyph: string, style: string): string | null {
   let out = "", at = 0, state = "";
-  for (const part of line.split(SGR)) {
+  for (const part of line.split(DRAWN_PART)) {
     if (!part) continue;
     if (part.startsWith("\x1b[")) { state = part === RESET || part === "\x1b[m" ? "" : state + part; out += part; continue; }
     for (const c of part) {
@@ -204,8 +204,9 @@ export function paintRange(line: string, from: number, to: number, style: string
   let out = "", col = 0, state = "", inside = false;
   const open = () => { if (!inside && col >= from && col < to) { out += style; inside = true; } };
   const close = () => { if (inside && col >= to) { out += RESET + state; inside = false; } };
-  for (const part of line.split(SGR)) {
+  for (const part of line.split(DRAWN_PART)) {
     if (!part) continue;
+    if (part.startsWith("\x1b]8;")) { out += part; continue; }
     if (part.startsWith("\x1b[")) {
       state = part === RESET || part === "\x1b[m" ? "" : state + part;
       out += part + (inside ? style : "");

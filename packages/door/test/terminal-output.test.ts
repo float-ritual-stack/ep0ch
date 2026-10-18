@@ -9,6 +9,8 @@ import { join, relative } from "node:path";
 import { CP437_NEAREST, cp437Code, inCp437, toCp437Glyphs } from "../src/ansi";
 import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
+import { Painter } from "../src/display";
+import { PtyPane } from "../src/desk/pty";
 import { Desk } from "../src/desk/desk";
 import { Draft, wrapRows } from "../src/edit";
 import { renderCompletion } from "../src/surface/completer";
@@ -48,6 +50,45 @@ describe("nothing a terminal acts on is drawn", () => {
     expect(visible(c.lines()[0]!)).toBe("abcdef".padEnd(20));
   });
 });
+
+test("a pty's OSC 8 links reach painted rows, clipped and closed across redraws and scrollback", async () => {
+  const open = "\x1b]8;id=guide;https://example.com/guide↗", close = "\x1b]8;;\x1b\\";
+  const p = new PtyPane({ cmd: [process.execPath, "-e", `
+    process.stdout.write(${JSON.stringify(open + "\x1b\\abcdefghij" + close + "\r\n\x1b]8;;https://example.com/other\x07Q\x1b]8;;\x07 plain\r\nready")});
+    process.stdin.on("data", () => process.stdout.write("\\r\\nnext\\r\\nlast\\r\\nend"));
+  `], label: "links" });
+  const desk = { redraw() {} } as any;
+  let bytes = "";
+  const painter = new Painter({
+    info: { cols: 16, rows: 4, cellW: 9, cellH: 16, kitty: false },
+    write(s) { bytes += s; }, invalidate() {},
+    paint(lines) { bytes += lines.map((l, r) => rowBytes(r, l, 16)).join(""); },
+  }, "kitty+crt");
+  const paint = () => {
+    const c = new Canvas(16, 4);
+    p.render(12, 3, false, desk).lines.forEach((line, y) => c.text(2, y, line, 6));
+    c.text(8, 0, "|next");
+    bytes = "";
+    painter.show(c.lines(), []);
+    return bytes.replace(/\x1b\[[\d;]*m/g, "");
+  };
+  try {
+    p.render(12, 3, false, desk);
+    await until(() => p.text().some(l => l.includes("ready")), "pty link output");
+    expect(paint()).toContain(open + "\x1b\\abcdef" + close + "|next");
+    expect(paint()).toContain("\x1b]8;;https://example.com/other\x1b\\Q" + close + " plai");
+    p.mouse({ kind: "mouse", action: "down", button: 0, x: 0, y: 0 }, 0, 0);
+    p.mouse({ kind: "mouse", action: "drag", button: 0, x: 3, y: 0 }, 3, 0);
+    p.mouse({ kind: "mouse", action: "up", button: 0, x: 3, y: 0 }, 3, 0);
+    expect(p.copySelection()).toBe("abcd");
+    expect(paint()).toContain(open + "\x1b\\abcdef" + close + "|next");
+    p.input("\r");
+    await until(() => p.text().some(l => l.includes("end")), "scrolling output");
+    expect(paint()).not.toContain(open);
+    for (let i = 0; i < 10; i++) p.mouse({ kind: "mouse", action: "wheel-up", button: 0, x: 0, y: 0 }, 0, 0);
+    expect(paint()).toContain(open + "\x1b\\abcdef" + close + "|next");
+  } finally { painter.dispose(); p.dispose(); }
+}, 15_000);
 
 describe("terminal cells, not code points", () => {
   const cjk = "会議メモ：来週の発表", emoji = "🌙 moon 👩‍💻 dev";

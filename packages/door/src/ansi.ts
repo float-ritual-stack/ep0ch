@@ -2,6 +2,7 @@
 // Deliberately not an xterm: 80-column wrap, bold = bright foreground,
 // blink = bright background when iCE colours are on, ^Z ends the file.
 
+import { OSC8_PART } from "./hyperlink";
 export const CP437_HIGH =
   "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ";
 const CP437_LOW = "\0☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼";
@@ -60,7 +61,7 @@ export const CP437_NEAREST: ReadonlyMap<string, string> = new Map([
 const NEAREST_RE = new RegExp(`[${[...CP437_NEAREST.keys()].join("")}]`, "gu");
 
 /** `s` with every glyph a VGA font lacks swapped for its lookalike (CP437_NEAREST); the rest as it is. */
-export const toCp437Glyphs = (s: string): string => s.replace(NEAREST_RE, ch => CP437_NEAREST.get(ch)!);
+export const toCp437Glyphs = (s: string): string => s.split(OSC8_PART).map((part, i) => i % 2 ? part : part.replace(NEAREST_RE, ch => CP437_NEAREST.get(ch)!)).join("");
 
 /** The VGA font's code for `ch`: ASCII as itself, a CP437 glyph's code, a lookalike's, or 63 (?) when it has none. */
 export function cp437Code(ch: string): number {

@@ -34,6 +34,19 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("the terminal showcase paints its program's browser link beside the notebook", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "terminal" }, as: "test-agent" });
+    await until(() => {
+      screen();
+      return sc.render(app).lines.some(line => line.includes("\x1b]8;id=example;"));
+    }, "the terminal's example link");
+    try {
+      (app as any).paint();
+      expect(h.painted.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("\x1b]8;id=example;https://example.com\x1b\\Example website »\x1b]8;;\x1b\\");
+    } finally { (S().stages.get(S().sel).top as Desk).dispose(); }
+  });
+
   test("tile titles follow their notes, keep written templates through toggles and restore from the layout", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "panes" }, as: "test-agent" });
