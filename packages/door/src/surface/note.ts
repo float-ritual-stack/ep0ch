@@ -9047,7 +9047,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.move": def({
     summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes changed lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
-    keys: "Z (move to…), K J or alt+up alt+down (up, down among its siblings) in a reader, the tile menu's rows, a click on the `→ …` row of a new note's edit",
+    keys: "Z (move to…), K J or alt+up alt+down (up, down among its siblings) in a reader, I O (in, out) on a thread row, the tile menu's rows, a click on the `→ …` row of a new note's edit",
     touches: "nothing", replay: "ask",
     menu: { label: "move to…", group: "note", key: "Z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
     says: r => String((r as { said?: string }).said ?? "moved a note"),

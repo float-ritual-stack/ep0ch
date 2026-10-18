@@ -137,7 +137,7 @@ test("outliner_move attributes the move to the agent, and an older service is re
     const bed = await fixture.request<Block>({action: "create", text: "Herb bed"});
     const basil = await fixture.request<Block>({action: "create", text: "Basil"});
     const tool = tools.get("outliner_move")!;
-    const moved = (await tool.execute("move-call", {blockId: basil.id, parentId: bed.id}, undefined, undefined, context)).details;
+    const moved = (await tool.execute("move-call", {blockId: basil.id, expectedRevision: basil.revision, parentId: bed.id}, undefined, undefined, context)).details;
     expect(moved.parentId).toBe(bed.id);
     const activity = await fixture.request<BlockEditActivityPage>({action: "activity.recent", author: "agent", kinds: ["move"]});
     expect(activity.entries.map(entry => [entry.block.id, entry.kind, entry.actorId, entry.sessionId, entry.taskId]))
@@ -145,7 +145,7 @@ test("outliner_move attributes the move to the agent, and an older service is re
 
     withholdProvenance = true;
     requests.length = 0;
-    await expect(tool.execute("old-service-move", {blockId: basil.id, parentId: null}, undefined, undefined, context))
+    await expect(tool.execute("old-service-move", {blockId: basil.id, expectedRevision: moved.revision, parentId: null}, undefined, undefined, context))
       .rejects.toThrow("restart the outline host on current code");
     expect(requests).not.toContain("move");
     expect(store.get(basil.id)!.parentId).toBe(bed.id);
