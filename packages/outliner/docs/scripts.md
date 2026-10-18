@@ -308,8 +308,8 @@ examples lean on:
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:714` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1953` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4223` |
-| `viaYolo` | `packages/outliner/src/server.ts:4246` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4226` |
+| `viaYolo` | `packages/outliner/src/server.ts:4249` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:327` |
 
 ## Lifecycle
@@ -333,7 +333,7 @@ examples lean on:
 | `stopRun` | `packages/outliner/src/script-runs.ts:186` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:255` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1943` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2459` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2464` |
 
 ## Traps
 

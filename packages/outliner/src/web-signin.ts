@@ -94,6 +94,7 @@ export interface SignInGateOptions {
   request: <T>(input: Record<string, unknown> & { action: string }) => Promise<T>;
   /** The web client, answering a request the gate let through. */
   serve: (request: Request, signedIn: SignedIn) => Promise<Response>;
+  loki?: (request: Request) => Promise<Response>;
   snapshot?: (request: Request) => Promise<Response>;
   readerWrite?: (request: Request) => Promise<Response>;
   /** The issuer's keys (a local set under test); else its JWKS, from discovery. */
@@ -168,11 +169,13 @@ export class SignInGate {
     const path = url.pathname;
     if (this.options.readerWrite && /\/_reader\/[A-Za-z0-9_-]+$/.test(path)) return this.options.readerWrite(request);
     const reading = request.method === "GET" || request.method === "HEAD";
-    // A write comes from a page of the origin it was sent to (CSRF), signed in or not.
-    if (!reading && request.headers.get("origin") !== origin) {
-      return withGateHeaders(new Response("A change comes from this site's own pages\n", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } }));
-    }
     try {
+      if (path.startsWith("/loki/") && this.options.loki) return withGateHeaders(await this.options.loki(request));
+      // A write comes from a page of the origin it was sent to (CSRF), signed in or not.
+      if (!reading && request.headers.get("origin") !== origin) {
+        return withGateHeaders(new Response("A change comes from this site's own pages\n", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } }));
+      }
+
       if (path === "/robots.txt") return withGateHeaders(new Response("User-agent: *\nDisallow: /\n", { headers: { "content-type": "text/plain; charset=utf-8" } }));
       if (path === "/signin" && reading) return this.signInPage(url.searchParams.get("next"));
       if (path === "/signin/start" && reading) return await this.start(origin, url.searchParams.get("next"));

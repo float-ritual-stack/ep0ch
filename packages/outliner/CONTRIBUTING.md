@@ -67,6 +67,7 @@ and the document-folding application journey. Plain-text copying cannot establis
 source evidence or distinguish authored glyphs from controls.
 
 - `src/publish-anchors.ts` carries source-line and fragment addresses through the existing publisher sentinels; fragment grammar and heading ids come from `src/fragments.ts`.
+- `src/loki-leases.ts` owns host-wide query leases, expiry, revocation and rate limits. `src/publish-loki.ts` proxies only admitted reads through the existing signed-in publisher; CLI and MCP mint through the host.
 - `src/store.ts` owns persistence and canonical graph invariants.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
 - `src/note-move.ts` owns the service’s `move`: check the read revision, resolve destination intent and place the note

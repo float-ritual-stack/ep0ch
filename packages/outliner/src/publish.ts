@@ -641,7 +641,7 @@ const SHARE_PATH = /^\/s\/([A-Za-z0-9_-]{16,128})(\/.*)?$/;
 
 /** A path as it may be logged: a share's token is never written anywhere. */
 export function redactSharePath(path: string): string {
-  return path.replace(/\/(s|_reader)\/[^/?#\s]+/g, "/$1/…");
+  return path.replace(/\/(s|_reader|loki)\/[^/?#\s]+/g, "/$1/…");
 }
 
 /** Every public response also asks search engines not to list it: the link is the invitation. */

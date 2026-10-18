@@ -2407,6 +2407,9 @@ export class OutlinerServer {
         case "outlines.archive":
         case "outlines.unarchive":
         case "outlines.pane":
+        case "loki.lease.start":
+        case "loki.lease.revoke":
+        case "loki.lease.use":
         case "web.sessions.start":
         case "web.sessions.resolve":
         case "web.sessions.list":

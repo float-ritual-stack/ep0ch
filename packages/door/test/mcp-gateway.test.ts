@@ -8,6 +8,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWTPayload
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { gatewayConfig, issuerFromPublishableKey, machineOutlines, mcpServeCommand, startGateway, verifyBearer, type Gateway } from "../src/mcp-gateway";
 import { canonicalLocalMachineName } from "../src/notes-cli";
+import { localAdmin } from "../src/mcp-outlines";
 import { hostRequest, SocketBoard } from "../src/socket";
 import { outliner, Scratch, scratchDir } from "./scratch";
 
@@ -57,6 +58,40 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     return { isError: !!result.isError, text: result.content[0]!.text };
   };
 
+  test("a signed-in caller can mint a read-only Loki URL", async () => {
+    expect((await rpc("tools/list")).body.result.tools).toContainEqual(expect.objectContaining({ name: "loki_lease" }));
+    const response = await rpc("tools/call", { name: "loki_lease", arguments: { ttl: "1h" } });
+    expect(response.body.error).toBeUndefined();
+    const lease = { isError: response.body.result.isError ?? false, text: response.body.result.content[0].text };
+    expect(lease.isError).toBe(false);
+    expect(JSON.parse(lease.text).url).toMatch(/^https:\/\/my\.ep0ch\.sh\/loki\/[A-Za-z0-9_-]+\/$/);
+  });
+
+  test.each(["grant", "named path"])("Loki listing and minting respect the %s denial", async denial => {
+    const previous = process.env.EP0CH_MCP_PATH_ACCESS;
+    try {
+      if (denial === "grant") await board.configureMcpAccess("none");
+      else process.env.EP0CH_MCP_PATH_ACCESS = "observer=none";
+      const url = new URL(denial === "grant" ? "/mcp" : "/observer/mcp", gateway.url);
+      const auth = await token({ aud: denial === "grant" ? RESOURCE : "https://mcp.example.test/observer/mcp" });
+      const request = async (method: string, params?: unknown) => {
+        const response = await fetch(url, { method: "POST", headers: { Host: HOST, Authorization: `Bearer ${auth}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }) });
+        expect(response.status).toBe(200);
+        return (await response.json()).result;
+      };
+      const refused = await request("tools/call", { name: "loki_lease", arguments: {} });
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0].text).toContain("read");
+      expect(refused.content[0].text).toContain("ep0ch mcp access read");
+      expect((await request("tools/list")).tools).not.toContainEqual(expect.objectContaining({ name: "loki_lease" }));
+    } finally {
+      await board.configureMcpAccess("read");
+      if (previous === undefined) delete process.env.EP0CH_MCP_PATH_ACCESS;
+      else process.env.EP0CH_MCP_PATH_ACCESS = previous;
+    }
+  });
+
   beforeAll(async () => {
     const pair = await generateKeyPair("RS256", { extractable: true });
     signing = pair.privateKey;
@@ -80,7 +115,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
 
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: ` ${PERSON} ` });
     if ("error" in config) throw new Error(config.error);
-    const outlines = machineOutlines(undefined, line => logs.push(line));
+    const outlines = machineOutlines(undefined, line => logs.push(line), undefined, [], undefined, undefined, undefined, localAdmin());
     closeOutlines = outlines.close;
     gateway = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: line => logs.push(line) });
     const captureConfig = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER });
