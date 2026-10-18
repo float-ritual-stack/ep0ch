@@ -66,6 +66,7 @@ export class AccessMatrixPane implements Pane {
   /** Where the clickable chips are, as drawn: tile row, columns, action. */
   private hits: { y: number; x0: number; x1: number; action: string; args: Record<string, unknown> }[] = [];
   private bodyTop = 2;
+  private bodyEnd = 2;
 
   title() { return this.matrix ? `who can reach what · ${this.matrix.callers.length} caller${this.matrix.callers.length === 1 ? "" : "s"}` : "who can reach what"; }
   hint() { return "h j k l pick · n r p f plan a level · ⏎ apply · esc cancel · R read again"; }
@@ -121,7 +122,7 @@ export class AccessMatrixPane implements Pane {
     });
     const top = this.view.place(this.row * 2, callerLines.length, body, [this.row * 2, this.row * 2 + 1]);
     lines.push(...callerLines.slice(top, top + body));
-    this.bodyTop = 2;
+    this.bodyTop = 2; this.bodyEnd = 2 + body;
     while (lines.length < 2 + body) lines.push("");
     const cell = this.cell();
     lines.push(fg(C.grey) + pad(` ${cell?.why ?? ""}`, w) + RESET);
@@ -179,7 +180,7 @@ export class AccessMatrixPane implements Pane {
     const hit = this.hits.find(h => h.y === y && x >= h.x0 && x < h.x1);
     if (hit) { this.run(desk, hit.action, hit.args); return; }
     const m = this.matrix;
-    if (!m || y < this.bodyTop) return;
+    if (!m || y < this.bodyTop || y >= this.bodyEnd) return;
     const name = Math.min(20, Math.max(8, ...m.callers.map(c => c.name.length + 7)));
     const row = Math.floor((this.view.top + y - this.bodyTop) / 2), col = this.colTop + Math.floor((x - name) / CELL);
     if (x >= name && row < m.callers.length && col < m.outlines.length) this.run(desk, "access.pick", { row: row + 1, col: col + 1 });
@@ -251,7 +252,9 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
     touches: "nothing", replay: "ask", says: (r: { ran: string[] }) => `ran ${r.ran.join(" and ")}`,
     person: "what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do, and the person applies it",
     args: { level: { type: "string", optional: true, about: "none, read, propose or full (left out: the change the tile has planned)" }, ...cellArgs },
-    async run(a, { pane, desk }) {
+    async run(a, { pane, desk }, actor) {
+      // `person` is checked by the dispatcher, but not while yolo lifts the agent gate: access is never lifted with it.
+      if (actor.kind === "agent") throw new ActionRefused("what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do");
       const p = pane as AccessMatrixPane;
       let plan = p.staged;
       if (a.level !== undefined || !plan) {

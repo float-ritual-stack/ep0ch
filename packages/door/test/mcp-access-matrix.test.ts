@@ -49,6 +49,15 @@ describe("who can reach what", () => {
     expect(cell(m, "kitty-batch", "pie")).toMatchObject({ level: "full", cap: null });
   });
 
+  test("one persona over the gateway (capped) and over stdio (a client) is told apart by its principal", () => {
+    const both = buildMatrix({ grants: [{ outline: "pie", machine: "box", level: "full" }], capSpec: "fern=read", capFrom: "file", capFile: "", usageDir: "", localMachine: "box", now: NOW,
+      usage: [use("mcp:fern/claude.ai", "pie", 1), use("mcp:fern/claude-code@box", "pie", 2)] });
+    // The highest of its principals: the stdio client has no cap, so the cell is the outline's level, and the cap is still reported.
+    expect(both.cells[0]![0]).toMatchObject({ level: "full", cap: { level: "read" } });
+    const gatewayOnly = buildMatrix({ grants: [{ outline: "pie", machine: "box", level: "full" }], capSpec: "fern=read", capFrom: "file", capFile: "", usageDir: "", localMachine: "box", now: NOW, usage: [use("mcp:fern/claude.ai", "pie", 1)] });
+    expect(gatewayOnly.cells[0]![0]).toMatchObject({ level: "read", limitedBy: "cap" });
+  });
+
   test("a path nobody wrote a cap for is capped at propose; a caller only the caps name still has a row", () => {
     const m = matrix("");
     expect(cell(m, "garden-bot", "pie")).toMatchObject({ level: "propose", cap: { level: "propose", entry: null } });
@@ -95,6 +104,13 @@ describe("changing a cell", () => {
     if ("error" in up) throw new Error(up.error);
     expect(up.steps.map(s => s.command)).toEqual(["ep0ch mcp access propose --ws gurgle"]);
     expect(up.steps[0]!.affects).toContain("every caller's ceiling");
+  });
+
+  test("the owner keeps full whatever the grant, so lowering it is refused with what does work; a duplicate cap is replaced where the gateway reads it", () => {
+    const owned = buildMatrix({ grants: [{ outline: "scratch-pad", machine: "box", level: "read", owner: "claude.ai" }, { outline: "pie", machine: "box", level: "full", owner: "claude.ai" }], capSpec: "", capFrom: "none", capFile: "", usage: [use("mcp:claude.ai", "scratch-pad", 1)], usageDir: "", localMachine: "box", now: NOW });
+    expect(planChange(owned, { caller: "claude.ai", outline: "pie", level: "read" })).toMatchObject({ error: expect.stringContaining("ep0ch mcp access none --ws pie") });
+    expect(withCap("bot=read,bot=full", "bot", "none")).toBe("bot=none");
+    expect(withCap("bot=read,other=full,bot=full", "bot", "none")).toBe("other=full,bot=none");
   });
 
   test("raising a named path past both its cap and the outline's grant needs both writes", () => {

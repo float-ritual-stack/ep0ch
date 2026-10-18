@@ -139,7 +139,9 @@ export function buildMatrix(input: MatrixInput): AccessMatrix {
     const status = { level: g.level, ...(g.owner ? { owner: g.owner } : {}) };
     // Every principal the caller came in as; the highest is what it can do (the outline's owner is `full` in its own).
     const asked = (caller.principals.length ? caller.principals : [undefined]).map(p => {
-      const { caller: c, machine } = callerFor(p, caller.via === "path" ? caller.name : undefined, cap ? () => cap.level : undefined);
+      // A cap is a named path's: the same persona over stdio (a principal with a machine) is a client and has none.
+      const capped = cap && !p?.includes("@");
+      const { caller: c, machine } = callerFor(p, caller.via === "path" ? caller.name : undefined, capped ? () => cap.level : undefined);
       return levelFor(status, c, machine, where);
     });
     const level = asked.reduce((a, b) => LEVELS.indexOf(b) > LEVELS.indexOf(a) ? b : a);
@@ -214,6 +216,8 @@ export function planChange(m: AccessMatrix, who: { caller: string; outline: stri
   const capStep = (): Step => ({ kind: "cap", key, level: want, command: `ep0ch mcp access --cap ${key}=${want}`,
     affects: `only ${caller.name} in ${g.outline}; written to ${m.caps.file} (${CAP_KEY}), read by the gateway on its next request` });
   if (want === cell.level) return { caller: caller.name, outline: g.outline, machine: g.machine, level: want, steps, said: `${caller.name} already has ${want} in ${g.outline}@${g.machine}; nothing to change` };
+  if (caller.via === "client" && g.owner && caller.principals.includes(g.owner) && want !== "none" && LEVELS.indexOf(want) < LEVELS.indexOf(cell.level))
+    return { error: `${caller.name} made ${g.outline}, so it keeps full there whatever the grant says (only none, which denies everyone, takes it away): ep0ch mcp access none --ws ${g.outline}${machineFlag(g.machine, m.localMachine)}` };
   if (caller.via === "client") steps.push(grantStep());
   else if (LEVELS.indexOf(want) < LEVELS.indexOf(cell.level)) steps.push(capStep());
   else {
@@ -226,11 +230,12 @@ export function planChange(m: AccessMatrix, who: { caller: string; outline: stri
 
 /** Add or replace `key=level` in a `EP0CH_MCP_PATH_ACCESS` list (keys compare without case). */
 export function withCap(spec: string, key: string, level: McpAccessLevel): string {
+  // The gateway takes the last entry for a key, so the last one is replaced and earlier duplicates go.
   const entries = spec.split(",").map(e => e.trim()).filter(Boolean);
-  const at = entries.findIndex(e => sameName(e.split("=")[0]!.trim(), key));
-  const entry = `${key}=${level}`;
-  if (at >= 0) entries[at] = entry; else entries.push(entry);
-  return entries.join(",");
+  const same = (e: string) => sameName(e.split("=")[0]!.trim(), key);
+  const last = entries.map(same).lastIndexOf(true), entry = `${key}=${level}`;
+  if (last < 0) return [...entries, entry].join(",");
+  return entries.flatMap((e, i) => i === last ? [entry] : same(e) ? [] : [e]).join(",");
 }
 
 /**
