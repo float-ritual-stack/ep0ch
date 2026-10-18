@@ -1673,6 +1673,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * current note instead.
    */
   private openReader(m: Msg, at: At<number>, actor: Actor, spec?: TileSpec, keepKeys = false): boolean {
+    const before = rectsOf({ ...this.layout, zoom: null }, this.area, this.holds);
     const as: TileSpec = { ...(spec ?? { t: "leaf", kind: "reader", mode: "held" }) };
     // Named for what it is (its kind's word: a river column is a column; a held reader is a detail), numbered after the first.
     if (!as.name) as.name = this.autoName(this.wordFor(as));
@@ -1686,7 +1687,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const from = "target" in at ? at.target : "from" in at ? at.from : undefined, was = from === undefined ? undefined : this.panes.get(from);
     if (was instanceof ReaderPane && as.margin === undefined) (this.panes.get(id) as ReaderPane).takeMargin(was.surface.marginMode);
     (this.panes.get(id) as ReaderPane).hold(m, this);
-    this.makeRoom(id, actor);
+    this.makeRoom(id, actor, before);
     this.save();
     return true;
   }
@@ -1694,8 +1695,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Growth by room (PIE-794): tile `id` just opened beside others; the layout folds the earliest readers in its row
    * (never the first) to spines while it would be narrower than its `readable` width, said once.
    */
-  private makeRoom(id: number, actor: Actor) {
-    const r = this.ask({ op: "room", tile: id }, actor);
+  private makeRoom(id: number, actor: Actor, before?: ReadonlyMap<number, Rect>) {
+    const r = this.ask({ op: "room", tile: id, before }, actor);
     if (!r.ok || !r.changed) return;
     this.commit(r);
     const folded = (r.answer.folded as string[] | undefined) ?? [];

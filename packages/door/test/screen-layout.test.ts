@@ -662,6 +662,32 @@ describe("growth by room: readers opened beside fold the earlier ones, never the
   };
   const folded = (s: LayoutState) => names(s, [...s.collapsed.keys()]);
 
+  test("successive desk opens spend the newest reader's room on newest-first spines, without growing the terminal (PIE-1021)", () => {
+    extra = { 1: { kind: "pty", notes: false } };
+    let s = fresh(splitOf("row", [leaf(1), leaf(2), leaf(5)], [53, 32, 75]), new Map([[1, "terminal"], [2, "detail a"], [5, "detail5"]]));
+    let previous = 5;
+    try {
+      for (let id = 6; id <= 25; id++) {
+        const before = place(s, AREA).rects;
+        s = grow(s, id, previous).state;
+        const after = place(s, AREA).rects;
+        const squeeze = Math.max(0, 48 - (before.get(previous)!.cols - 3));
+        const fromA = Math.min(squeeze, before.get(2)!.cols - 6);
+        expect(after.get(1)!.cols).toBe(before.get(1)!.cols - (squeeze - fromA));
+        expect(after.get(2)!.cols).toBe(before.get(2)!.cols - fromA);
+        expect(after.get(id)!.cols).toBe(Math.max(48, before.get(previous)!.cols - 3));
+        for (const reader of [2, ...Array.from({ length: id - 4 }, (_, i) => i + 5)]) {
+          expect(after.get(id)!.cols).toBeGreaterThanOrEqual(after.get(reader)!.cols);
+        }
+        expect(leaves(s.tree)).toEqual([1, 2, id, ...Array.from({ length: id - 5 }, (_, i) => id - i - 1)]);
+        previous = id;
+      }
+    } finally {
+      extra = {};
+      for (let id = 6; id <= 25; id++) NAMES.delete(id);
+    }
+  });
+
   test("while a new one gets its readable width nothing folds; past it the earliest reader after the first does, then the next", () => {
     extra = {};
     const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));
