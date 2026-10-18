@@ -30,6 +30,8 @@ export const GONE_ACTIONS: Record<string, string> = {
 export const isTilePath = (sel: string | undefined): sel is string => !!sel && sel.includes("/");
 
 export interface TileRef {
+  outline?: string;
+  machine?: string;
   /** Its name: what answers say, and what `tile=` matches first. */
   name: string;
   /** A mounted screen: its tiles keep their own dispatcher and rules. */

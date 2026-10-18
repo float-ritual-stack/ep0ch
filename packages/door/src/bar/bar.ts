@@ -1,3 +1,4 @@
+import { outlineBoards } from "../desk/outline-boards";
 import { subtitleSuffix } from "../text";
 // The power bar (PIE-656): one palette over every screen, opened by ctrl+k (cmd+k where the terminal sends it), the
 // status bar's `^K`, the desk's `/` and the river's `g` (those two in its notes scope), and `act bar.open`. A list on
@@ -416,7 +417,7 @@ export class PowerBar {
     if ("offline" in m) return [dim(`(${m.offline})`)];
     const app = this.host.ctx;
     // A reader's host with nothing to host but the drawing: no graphics (an image is named on its line), no keys.
-    const ctx = { board: app.board, t: { cols: w, rows: h, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => app.flash(s), redraw: () => app.redraw() } as unknown as Ctx;
+    const ctx = { board: (m.address ? outlineBoards(app).peek(m.address)?.board : undefined) ?? app.board, t: { cols: w, rows: h, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => app.flash(s), redraw: () => app.redraw() } as unknown as Ctx;
     const sh: SurfaceHost = { ctx, redraw: () => app.redraw(), navigate() {} };
     if (this.shownNote !== id) { this.surface.show(m, sh); this.shownNote = id; }
     return this.surface.render(w, h, sh).lines.slice(0, h).map(l => l.replace(TAGS, "").replace(MARKS, ""));

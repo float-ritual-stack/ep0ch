@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { outliner, ScratchHost, scratchDir, until } from "./scratch";
+import { outliner, Scratch, ScratchHost, scratchDir, until } from "./scratch";
 
 const DOOR = resolve(import.meta.dir, "..");
 const host = new ScratchHost();
@@ -60,6 +60,41 @@ describe("--machine: an outline on another machine, through the forward", () => 
     first.board.close(); second.board.close();
     const { usedMachines } = await import("../src/machine");
     expect(usedMachines().map(m => m.name)).toEqual(["box-a"]);
+  }, 30_000);
+
+  test("a reader keeps a forwarded outline across a door restart", async () => {
+    const { App } = await import("../src/app");
+    const { Desk } = await import("../src/desk/desk");
+    const { SocketBoard } = await import("../src/socket");
+    const local = new Scratch();
+    await local.start();
+    const remote = new SocketBoard(host.sock, undefined, "garden");
+    const board = new SocketBoard(local.sock);
+    const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    let app = new App(term as any, board, Date.now(), () => {});
+    try {
+      const note = await remote.createBlock(null, "Greenhouse journal\nOpen the vents.");
+      app.outline = local.name;
+      const desk = new Desk({ name: "desk", title: "Garden", layout: { root: { t: "leaf", kind: "reader", name: "local", mode: "held" } } });
+      app.push(desk);
+      await app.act({ action: "tile.open", args: { kind: "detail", name: "remote", outline: "garden", machine: "box-a", note: note.id }, as: "gardener" });
+      await until(() => (desk.pane("remote") as any)?.msg?.id === note.id, "the forwarded note");
+      const saved = JSON.parse(JSON.stringify((desk as any).saved()));
+      app.quit();
+      const nextBoard = new SocketBoard(local.sock);
+      app = new App(term as any, nextBoard, Date.now(), () => {});
+      app.outline = local.name;
+      const next = new Desk({ name: "desk", title: "Garden", layout: saved });
+      app.push(next);
+      try {
+        await until(() => (next.pane("remote") as any)?.msg?.id === note.id, "the restarted forwarded reader");
+        await app.act({ action: "edit", tile: "remote", as: "gardener" });
+        await app.act({ action: "draft.paste", tile: "remote", args: { text: "Vents checked. " }, as: "gardener" });
+        await app.act({ action: "edit.save", tile: "remote", as: "gardener" });
+        expect((await remote.get(note.id))?.text).toContain("Vents checked.");
+        expect(await nextBoard.get(note.id)).toBeNull();
+      } finally { app.quit(); nextBoard.close(); }
+    } finally { app.quit(); board.close(); remote.close(); await local.dispose(); }
   }, 30_000);
 
   test("the forward drops: the door's connection starts it again and says so on the status bar", async () => {

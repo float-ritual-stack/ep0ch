@@ -486,6 +486,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "cross-outline", need: "read and edit another outline on this screen", part: "one board per outline, the shared reader and DraftSession", files: "src/desk/outline-boards.ts, src/desk/panes.ts",
+    stage(n, show) {
+      const local = detailPane();
+      const foreign = detailPane();
+      foreign.noteAddress = { outline: "showcase-orchard" };
+      foreign.want = n.crossOutline?.properties.find(p => p.key === "foreign-note")?.value ?? null;
+      return deskOf({ title: "Two outlines", panes: [local, foreign], names: ["guide", "orchard-note"] }, show, [[local, n.crossOutline]]);
+    },
+  },
+  {
     key: "select-open", need: "tree, preview, detail from scratch", part: "select wires show the picked row; open wires take Enter or double-click; alt-open makes a reader beside the open target", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/desk/tree.ts, src/scroll.ts",
     aside: "Built with tile.preview (the tree's ^W V) and tile.link (alt+l, then click detail). Try alt+l, s, then click the preview; alt+l, a, then click detail's edge sets beside detail. Escape cancels. Click a frame's select →, ⏎ → or alt → chip to pick that wire on screen; narrow frames use ○ ⏎ ⤴, with targets in the link-mode hint. ^W P has the same three rows and × clears each wire. A reader shows the current note or stays put; ▣ locks it to a page. Click or j k selects into the preview; Enter or double-click opens in detail; alt+Enter or alt-click opens beside it. Try five alt-opens: older alt readers fold into spines, newest first; click the nearest spine to go back one. Past three spines the oldest share a tab stack. Hold an alt reader with tile.hold to keep it out of the pile. tile.link verb=alt rule=tab to=detail opens tabs; rule=tile replaces there; rule=first-unheld reuses a free reader; rule=beside opens beside the named tile. layout.policy node=screen altOpens=beside sets the default. A slow second click still selects. Unlink the select wire and selections move the current note again.",
     stage(n, show) {

@@ -4,7 +4,7 @@
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
 import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
 import { wrap } from "./text";
-import { childRows, resolveLive, setLiveSource, type LiveSite } from "./live";
+import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
 import { ACCENT, DIM, HI, INK, inlineRows, rowLink, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
@@ -12,7 +12,7 @@ export type { RowInline, RowLink } from "./figures/palette";
 import { colourInline } from "./text";
 import { STEP_BOXES } from "./steps";
 import { stepClosed, stepDone, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
-import { setLinksSource } from "./links";
+import { setLinksSource, linksSource } from "./links";
 import type { SocketBoard } from "./socket";
 
 /**
@@ -23,6 +23,15 @@ import type { SocketBoard } from "./socket";
 export function connectFigures(board: SocketBoard, redraw: () => void): void {
   setLiveSource(board, redraw);
   setLinksSource(board, redraw);
+}
+
+/** A tile's synchronous paint borrows its outline; watched answers stay owned by that board. */
+export function withFigureBoard<T>(board: SocketBoard, redraw: () => void, draw: () => T): T {
+  const live = liveSource(), links = linksSource();
+  if (live.board === board && links.board === board) return draw();
+  connectFigures(board, redraw);
+  try { return draw(); }
+  finally { setLiveSource(live.board, live.redraw); setLinksSource(links.board, links.redraw); }
 }
 
 /** A run of `s`, `n` times: none for a count below 0 or not a number, so a width that came out negative draws nothing (PIE-941). */

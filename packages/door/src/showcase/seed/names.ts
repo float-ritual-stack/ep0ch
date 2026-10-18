@@ -11,6 +11,7 @@ export const WORK_PREFIX = "HOME";
 /** Every seeded note the screen and the tests look up, by its title (the first line, without properties). */
 export const SEED = {
   root: "Kitchen sink",
+  crossOutline: "Two outlines on one screen",
   queue: "House jobs",
   hub: "House board",
   chores: "Chores",

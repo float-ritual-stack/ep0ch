@@ -10,7 +10,7 @@
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
 import { referenceConflict, type ToolArgsSpec } from "@ep0ch/outline-core/tool-args";
-import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
+import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { sessionPersona } from "@ep0ch/outline-core/outline-location";
@@ -23,7 +23,7 @@ import type { TermInfo } from "./term";
 import { isInside, onOutline, outlineState, privateDir, stateDir } from "./state";
 import { reachDoor, type DoorReach } from "@ep0ch/outline-core/door-reach";
 import { ask, jsonLine, JsonLines, listening } from "./jsonl";
-import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
+import { formatEp0chBlockUri, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { runningSessions, sessionInfo, sessionSocket } from "./session/place";
 
 /**
@@ -98,20 +98,6 @@ export function feedWriter(sock: { writableLength: number; write(s: string): unk
 
 export interface ControlDeps { app: App; mirror: Mirror; info: () => TermInfo }
 
-interface ExpectedAddress { outline: string; machine: string }
-
-function requireAddress(expected: unknown, d: ControlDeps): void {
-  if (!expected || typeof expected !== "object") return;
-  const e = expected as Partial<ExpectedAddress>;
-  if (typeof e.outline !== "string" || typeof e.machine !== "string") throw new Error("open URI address is malformed");
-  const actual = { outline: d.app.outline, machine: d.app.machine ?? canonicalLocalMachineName() };
-  // A door on this machine answers to a name the machine went by too (its host name's, before it was given one).
-  const here = d.app.machine === undefined && !!actual.outline && e.outline === actual.outline && isLocalMachine(e.machine);
-  if (!here && !namesOutline({ outline: e.outline, machine: e.machine }, actual)) {
-    throw new Error(`that URI names ${e.outline} on ${e.machine}, but this door is ${actual.outline ?? "not on an outline"} on ${actual.machine}`);
-  }
-}
-
 async function handle(req: any, d: ControlDeps): Promise<unknown> {
   // A session nobody watches renders no frames: the one skipped is drawn before anything reads the screen.
   d.app.catchUp();
@@ -128,8 +114,9 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
   if (req.cmd === "actions") return d.app.actions();
   if (req.cmd === "act") {
     if (typeof req.action !== "string") throw new Error("act needs an action name; `actions` lists them");
-    requireAddress(req.address, d);
+
     const args = req.args && typeof req.args === "object" && !Array.isArray(req.args) ? req.args : {};
+    if (req.address && req.action === "open") args.id = formatEp0chBlockUri({ ...req.address, blockId: args.id });
     return d.app.act({ action: req.action, tile: typeof req.tile === "string" ? req.tile : undefined, args, as: typeof req.as === "string" ? req.as : undefined });
   }
   throw new Error(`unknown command ${req.cmd}; try peek, snap, actions or act`);

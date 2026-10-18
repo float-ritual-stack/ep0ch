@@ -1,3 +1,4 @@
+import { outlineBoards } from "../desk/outline-boards";
 // EchoNet's message areas (PIE-779): a classic BBS message base over echomail. The areas of every outline this door
 // can reach on its host (each named view or tag that starts there, and each subscription's source boards), an area's messages, the message itself
 // with its FidoNet footer, and the nodelist, under a band in the ep0ch BBS's own letters.
@@ -62,24 +63,6 @@ const LOGO = { file: "SHY-EP0C.ANS", rows: [0, 10] as [number, number] };
 
 // ── reaching the other outlines ──────────────────────────────────────────────────────────────────────────────
 
-/** A ctx whose board (and outline) is another outline's: the reader reads, comments and re-reads there. Kept per board. */
-const ctxs = new WeakMap<SocketBoard, { of: Ctx; ctx: Ctx }>();
-function ctxOn(ctx: Ctx, board: SocketBoard, outline: string): Ctx {
-  if (ctx.board === board) return ctx;
-  const had = ctxs.get(board);
-  if (had?.of === ctx) return had.ctx;
-  const made = new Proxy(ctx, {
-    get(t, p) {
-      if (p === "board") return board;
-      if (p === "outline") return outline;
-      const v = Reflect.get(t, p, t);
-      return typeof v === "function" ? v.bind(t) : v;
-    },
-  });
-  ctxs.set(board, { of: ctx, ctx: made });
-  return made;
-}
-
 /** The door's own outline by name: the host's name for it, else its folder's. */
 const ownName = (ctx: Ctx) => ctx.outline ?? (basename(ctx.workspace ?? "") || "here");
 
@@ -109,6 +92,7 @@ export class EchoAreas implements Pane {
   private view = new RowView();
   /** The other outlines' boards, by name; the door's own is its ctx's. */
   private boards = new Map<string, SocketBoard>();
+  private unwatches = new Map<string, () => void>();
   private reload: Timer | null = null;
   private desk: DeskApi | null = null;
   private loading: Promise<void> | null = null;
@@ -132,7 +116,7 @@ export class EchoAreas implements Pane {
     if (!outline || machine !== this.machine || !this.desk) return null;
     return outline === this.own ? this.desk.ctx.board : this.boards.get(outline) ?? null;
   }
-  ctxOf(a: Area, desk: DeskApi): Ctx { return ctxOn(desk.ctx, this.boardOf(a), a.outline); }
+  ctxOf(a: Area, desk: DeskApi): Ctx { return outlineBoards(desk.ctx).peek({ outline: a.outline }) ?? desk.ctx; }
 
   /** The outlines on the door's host, its own first; a door on a single-outline service has only its own. */
   private async reach(desk: DeskApi): Promise<{ outline: string; board: SocketBoard }[]> {
@@ -144,16 +128,15 @@ export class EchoAreas implements Pane {
     try { names = (await hostRequest<{ outlines: { name: string; archived?: boolean }[] }>(ctx.board.path, "outlines.list", {}, 4000)).outlines.filter(o => !o.archived).map(o => o.name); } catch { return out; }
     const wanted = names.filter(n => n !== own).slice(0, MAX_OUTLINES - 1);
     // An outline the host no longer serves (archived, deleted) lets its board go.
-    for (const [name, b] of this.boards) if (!wanted.includes(name)) { b.close(); this.boards.delete(name); }
+    for (const [name, b] of this.boards) if (!wanted.includes(name)) { this.unwatches.get(name)?.(); this.unwatches.delete(name); this.boards.delete(name); }
     for (const name of wanted) {
       let b = this.boards.get(name);
       if (!b) {
-        b = new SocketBoard(ctx.board.path, 8000, name);
-        try { await b.info(); } catch { b.close(); continue; }
-        if (this.disposed) { b.close(); return out; }
+        try { b = (await outlineBoards(ctx).on({ outline: name })).board; } catch { continue; }
+        if (this.disposed) return out;
         this.boards.set(name, b);
         // Another outline's change counts its areas again, and reads its message again when it's the one shown.
-        b.subscribe(e => this.changed(e, name));
+        this.unwatches.set(name, outlineBoards(ctx).watch(b, e => this.changed(e, name)));
       }
       out.push({ outline: name, board: b });
     }
@@ -311,7 +294,8 @@ export class EchoAreas implements Pane {
   dispose() {
     this.disposed = true;
     if (this.reload) clearTimeout(this.reload);
-    for (const b of this.boards.values()) b.close();
+    for (const off of this.unwatches.values()) off();
+    this.unwatches.clear();
     this.boards.clear();
   }
 
@@ -511,6 +495,7 @@ export class EchoReader extends ReaderPane {
       ...base,
       conference: true,
       ctx: net.ctxOf(a, desk),
+      contextFor: () => net.ctxOf(a, desk),
       // A link followed in a message is read here, on the message's own outline (alt+← comes back); } { go on through the list.
       navigate: (m: Msg, how?: OpenHow) => { if (how?.by?.kind === "agent" && this.holdsKeys) { desk.ctx.flash(`not opened while you're in ${this.surface.sessionWord() ?? "a session"} here: ${subject(m).slice(0, 50)}`); return; } this.surface.show(m, h); desk.redraw(); },
       header: (m: Msg, _w: number, info: HeaderInfo) => {

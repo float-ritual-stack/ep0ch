@@ -1,3 +1,4 @@
+import { outlineBoards, readNote } from "./outline-boards";
 // The links tile (kind `backlinks`, PIE-432, PIE-442): the links of a note, its *subject*, in the shared links model
 // (src/links.ts): its Outlinks, its Resources, its Backlinks and its
 // Children (PIE-693: the notes under it, a thread's replies), the backlinks grouped, filtered and sorted as Detail
@@ -20,7 +21,7 @@
 import { BASE_STYLE } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow, type ListSlot } from "../list-look";
 import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
-import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkNote, linkRowLine, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
+import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkNote, linkTargetOf, linkRowLine, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -248,19 +249,21 @@ export class BacklinksPane implements Pane {
   private opts(): BacklinkViewOptions { return this.draft === null ? this.options : { ...this.options, filter: this.draft.text.trim() }; }
 
   /** Ask the service for `m`'s backlinks (the list keeps its view options, as Detail's panel does). */
-  load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
+  async load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
     // Another note: its groups start as a first read opens them. `openedFor` goes with `expanded`: a read cut short (the
     // person moved on before it came) never left them shut on the way back to a note opened before.
     if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); this.openedFor = null; this.headerPicked = false; }
     this.target = m;
     if (!keepSel) { this.data = null; this.authored = { kind: "loading" }; this.sel = 0; this.view.reset(); }
     this.problem = "";
-    if (!m) return Promise.resolve();
     const n = ++this.asked;
+    if (!m) return;
+    const board = m.address ? (await outlineBoards(desk.ctx).on(m.address)).board : desk.ctx.board;
+    if (n !== this.asked) return;
     if (!keepSel) this.children = { kind: "loading" };
     if (this.groups.includes("children")) void this.loadChildren(m, desk);
     // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
-    void desk.ctx.board.authoredLinks(m.id).then(v => {
+    void board.authoredLinks(m.id).then(v => {
       if (n !== this.asked) return;
       const before = rowKey(this.rows()[this.sel]);
       this.keepSel(() => { this.authored = { kind: "ready", value: v }; }, !keepSel && !this.data);
@@ -271,7 +274,7 @@ export class BacklinksPane implements Pane {
       (e: Error) => { if (n === this.asked) { this.authored = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
     // A tile that doesn't list Backlinks doesn't ask for them: an empty collection stands in, so a slow or failed
     // backlinks read never holds up (or hides) the groups it does list.
-    const backlinks = this.groups.includes("backlinks") ? desk.ctx.board.backlinks(m.id) : Promise.resolve<BacklinkCollection>({ targetBlockId: m.id, sources: [], completeness: { kind: "complete" } } as BacklinkCollection);
+    const backlinks = this.groups.includes("backlinks") ? board.backlinks(m.id) : Promise.resolve<BacklinkCollection>({ targetBlockId: m.id, sources: [], completeness: { kind: "complete" } } as BacklinkCollection);
     return backlinks.then(data => {
       if (n !== this.asked) return;
       // A re-read keeps the selected row: the one selected now, not when it was asked (the person may have moved since).
@@ -292,7 +295,8 @@ export class BacklinksPane implements Pane {
   private loadChildren(m: Msg, desk: DeskApi): Promise<void> {
     const n = ++this.kidsAsked;
     const current = () => n === this.kidsAsked && this.target?.id === m.id;
-    return readChildren(desk.ctx.board, m.id).then(value => {
+    const board = m.address ? outlineBoards(desk.ctx).peek(m.address)!.board : desk.ctx.board;
+    return readChildren(board, m.id).then(value => {
       if (!current()) return;
       this.keepSel(() => { this.children = { kind: "ready", value }; }, !this.data);
       desk.redraw();
@@ -397,7 +401,22 @@ export class BacklinksPane implements Pane {
       desk.redraw();
       return { row: i + 1, group: g };
     }
-    const { note: m, registered } = await linkNote(r, desk.ctx.board, how === "show" ? "show" : "open", actor, this.target?.id);
+    const address = this.target?.address;
+    const ctx = address ? await outlineBoards(desk.ctx).on(address) : desk.ctx;
+    const target = linkTargetOf(r);
+    let result: { note: Msg; registered?: boolean };
+    if (target?.outline) {
+      const at = { outline: target.outline, machine: target.machine ?? ctx.machine };
+      const on = await outlineBoards(ctx).on(at);
+      const note = target.block ? await readNote(on, target.block, at) : (await on.board.resolvePage(target.page!)).block;
+      if (!note) throw new ActionRefused(`nothing answers at ${target.block ?? target.page} in ${target.outline}`);
+      note.address = at;
+      result = { note };
+    } else {
+      result = await linkNote(r, ctx.board, how === "show" ? "show" : "open", actor, this.target?.id);
+      result.note.address = address;
+    }
+    const { note: m, registered } = result;
     // The selection may have moved on while the note was read: only the latest pick shows.
     if (!agent && rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
     // Shown: the previews following this tile (and its link) only; the current note stays, or a reader that
@@ -575,11 +594,12 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       if (!id && !open) throw new ActionRefused("no backlinks are listed here; id=<block id> reads a note's backlinks (b opens them on a reader's note)");
       const target = same ? L.target! : await desk.ctx.board.get(id!);
       if (!target) throw new ActionRefused(`no block ${id}`);
-      const data = same && L.data ? L.data : await desk.ctx.board.backlinks(target.id);
+      const board = target.address ? (await outlineBoards(desk.ctx).on(target.address)).board : desk.ctx.board;
+      const data = same && L.data ? L.data : await board.backlinks(target.id);
       // The person's options carry over only for the note they're looking at; another note starts as Detail's.
       const base = same ? { ...L.options } : { ...DEFAULT_BACKLINK_VIEW_OPTIONS, sortField: L.options.sortField, sortDirection: L.options.sortDirection };
       // Its authored links too: the counts and kinds are across all three groups, as the person's.
-      const links: Load<AuthoredLinksSnapshot> = same && L.authored.kind === "ready" ? L.authored : await desk.ctx.board.authoredLinks(target.id).then(value => ({ kind: "ready" as const, value }), () => ({ kind: "loading" as const }));
+      const links: Load<AuthoredLinksSnapshot> = same && L.authored.kind === "ready" ? L.authored : await board.authoredLinks(target.id).then(value => ({ kind: "ready" as const, value }), () => ({ kind: "loading" as const }));
       const o = parse(base, data, links);
       desk.ctx.flash(`${agentLabel(actor)} read the backlinks of ${subject(target).slice(0, 40)}`);
       const all: LinkData = { links, backlinks: { kind: "ready", value: data } };

@@ -1,4 +1,6 @@
 import { heroLook } from "./hero-look";
+import { withFigureBoard } from "../graphs";
+import { outlineBoards, readNote, type NoteAddress } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
@@ -52,7 +54,7 @@ import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, liveRowStep, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
-import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
+import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
@@ -135,6 +137,7 @@ export interface TagList { tag?: string; query: string; tile?: string; notes: { 
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
+  contextFor?(note: Msg | null): Ctx;
   ctx: Ctx;
   redraw(): void;
   /**
@@ -267,13 +270,13 @@ const HISTORY = 50;
  * version (an older daemon's, a newer one's) is read as having no history, never half-read.
  */
 export const NAV_VERSION = 2;
-export interface SavedPlace { id: string; title: string; position: ReaderPosition; cur: string | null; link: number; folded: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
+export interface SavedPlace { address?: NoteAddress; id: string; title: string; position: ReaderPosition; cur: string | null; link: number; folded: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
 export interface SavedNav { v: typeof NAV_VERSION; here?: SavedPlace; backs: SavedPlace[]; aheads: SavedPlace[] }
 
-const savedPlace = (p: Place): SavedPlace => ({ id: p.msg.id, title: subject(p.msg), position: structuredClone(p.position), cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
+const savedPlace = (p: Place): SavedPlace => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg), position: structuredClone(p.position), cur: p.cur, link: p.link, folded: p.folded, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
 /** A saved place as a stub the reader reads whole when it goes there (a list row's shape: `partial`). */
 const placeOf = (s: SavedPlace): Place => ({
-  msg: { id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [], partial: true },
+  msg: { ...(s.address ? { address: s.address } : {}), id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [], partial: true },
   position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
@@ -284,7 +287,7 @@ function readPlace(x: any): SavedPlace | null {
   const p = x.position;
   if (!p || !p.cursor || (p.view !== null && (!p.view || !Number.isFinite(p.view.line) || !Number.isFinite(p.view.row)))) return null;
   const position: ReaderPosition = { reading: int(p.reading, 0), cursor: { row: int(p.cursor.row, 0), col: int(p.cursor.col, 0) }, view: p.view === null ? null : { line: int(p.view.line, 0), row: Math.floor(p.view.row) } };
-  return { id: x.id, title: x.title, position, cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures };
+  return { ...(x.address && typeof x.address.outline === "string" && (x.address.machine === undefined || typeof x.address.machine === "string") ? { address: x.address } : {}), id: x.id, title: x.title, position, cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures };
 }
 /** The note a saved history was taken on, if it is one this version reads. */
 export const navNote = (raw: unknown): string | null => readNav(raw)?.here?.id ?? null;
@@ -632,6 +635,10 @@ const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tld
 
 export class NoteSurface {
   msg: Msg | null = null;
+  private rereadNote(m: Msg): Msg {
+    if (m.id === this.msg?.id) m.address ??= this.msg.address;
+    return m;
+  }
   readonly position = new ReaderPosition();
   private positionRows = new PositionRows(this.position);
   get scroll() { return this.positionRows.top; }
@@ -1078,15 +1085,17 @@ export class NoteSurface {
     if (m.revision !== undefined) this.modes.changed(m.revision, !!m.partial);
     if (m.partial && !this.msg.partial) return;           // a list row never replaces the whole note
     if (!m.partial) this.unread = "";
+    m.address ??= this.msg.address;
     this.msg = m;
     if (!this.draft || this.replyParent) this.links = linksOf(m);
   }
 
   /** Show a note (or nothing). Refused, returning false, while an edit or a comment holds the surface on its note. */
   show(m: Msg | null, host: SurfaceHost): boolean {
-    this.use(host);
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
+    if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
+    this.use(host);
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.linkBlockUI.clear(); this.linkBlocksDrawn = []; this.modes.drop("links"); this.modes.drop("sources"); this.linksTyping = null; this.foldsOf = m?.id ?? null; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
@@ -1120,7 +1129,7 @@ export class NoteSurface {
     this.unread = "";
     host.ctx.board.get(id).then(full => {
       if (this.msg?.id !== id || !this.msg.partial) return;
-      if (full) { this.msg = full; this.links = linksOf(full); this.settleUnsent(full, host); }
+      if (full) { this.msg = this.rereadNote(full); this.links = linksOf(full); this.settleUnsent(full, host); }
       else this.unread = "it isn't in the outline any more";
       host.redraw();
     }, (e: Error) => {
@@ -1142,6 +1151,10 @@ export class NoteSurface {
    * every click on it, is that many rows down.
    */
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
+    return host ? withFigureBoard(host.ctx.board, () => host.redraw(), () => this.renderOn(w, h, host)) : this.renderOn(w, h);
+  }
+
+  private renderOn(w: number, h: number, host?: SurfaceHost): SurfaceView {
     this.boxRect = null;
     this.besideRect = null;
     if (this.replyLinks) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
@@ -2656,7 +2669,7 @@ export class NoteSurface {
     const target = blockTarget(fresh, {
       board: host.ctx.board, isNew: this.newNotes.has(fresh.id),
       saved: (m, by, asked, change) => this.saved(m, by, asked, change, host),
-      reread: m => { if (this.msg?.id === m.id) this.msg = m; },
+      reread: m => { if (this.msg?.id === m.id) this.msg = this.rereadNote(m); },
       redraw,
     });
     this.anchorView();
@@ -2670,7 +2683,7 @@ export class NoteSurface {
       closed: how => this.draftClosed(s, how, host),
     });
     s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
-    this.msg = fresh;
+    this.msg = this.rereadNote(fresh);
     this.modes.push(this.draftMode(s));
     return s;
   }
@@ -2894,7 +2907,7 @@ export class NoteSurface {
 
   /** The block adapter saved the edit: show the saved note, and say so (and how it was recorded). */
   private saved(m: Msg, by: Actor, asked: Actor, change: string, host: SurfaceHost) {
-    this.msg = { ...m, childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
+    this.msg = { ...this.rereadNote(m), childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
     this.links = linksOf(this.msg);
     // The service decides which [key::value] tokens are properties (a token followed by more text on
     // its line is plain text), so say plainly when a save changed them: a card can leave its lane.
@@ -3012,7 +3025,7 @@ export class NoteSurface {
     return {
       board: host.ctx.board,
       fetch: id => host.ctx.board.get(id).then(n => n && this.msg ? rereadResource(n, this.msg) : n),
-      setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...m, childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
+      setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...this.rereadNote(m), childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
       reloadComments: async () => { await this.loadComments(host); return this.comments ?? []; },
       external: () => void this.runKey("edit.external", {}, host),
       pick: () => void this.runKey("draft.pick", {}, host),
@@ -3046,7 +3059,7 @@ export class NoteSurface {
     if (still && !still()) return;
     if (!fresh || fresh.revision === undefined) { const why = "can't comment: the outline didn't say which revision this note is at"; host.ctx.flash(why); return why; }
     if (this.msg?.id !== m.id || this.editing) return;
-    this.msg = fresh;
+    this.msg = this.rereadNote(fresh);
     if (this.commentsFor !== m.id) await this.loadComments(host);
     if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
     this.session = new CommentSession(fresh, this.comments ?? [], mode);
@@ -3099,7 +3112,7 @@ export class NoteSurface {
     const fresh = read ? rereadResource(read, m) : read;
     if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
     if (!fresh || fresh.revision === undefined) return "can't comment: the outline didn't say which revision this note is at";
-    this.msg = fresh;
+    this.msg = this.rereadNote(fresh);
     if (this.commentsFor !== m.id) await this.loadComments(host);
     if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
     // Another comment opened while this one was read (a second C, an act): the one being written stays.
@@ -5336,6 +5349,8 @@ export class NoteSurface {
     if (l.media) return this.openOutside("viewer", l.media, host);
     // A resource token: its Resource's stored content, registered and fetched first if it must be (src/authored.ts).
     if (l.resource) {
+      const addressed = addressedResource(l.resource);
+      if (addressed) return this.followTarget(addressed, host, how);
       const to = resourceTarget(l.resource);
       if ("refused" in to) { host.ctx.flash(to.refused); return null; }
       host.ctx.flash(`reading ${l.resource.label}…`);
@@ -5370,6 +5385,12 @@ export class NoteSurface {
     if (l.value && (!l.block || (l.at === undefined && l.block === this.msg?.id))) {
       host.ctx.flash(l.value.problem ? `${l.value.expression}: ${l.value.problem}` : `${l.value.expression} → ${printable(l.value.words)} · computed (${l.value.route.split(" → ").at(-1)})`, 8000);
       return null;
+    }
+    if (l.outline) {
+      const ctx = await outlineBoards(host.ctx).on({ outline: l.outline, machine: l.machine ?? host.ctx.machine });
+      const address = { outline: l.outline, ...(ctx.machine ? { machine: ctx.machine } : {}) };
+      const original = host;
+      host = { ...host, ctx, navigate: (m, how) => { m.address = address; original.navigate(m, how); } };
     }
     let target: Msg | null = null;
     if (l.block) target = await host.ctx.board.get(l.block);
@@ -6509,10 +6530,12 @@ export class NoteSurface {
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
     if (holding) return `finish ${holding} first · ctrl+s saves · esc closes`;
-    const fresh = await host.ctx.board.get(to.msg.id).catch(() => null);
+    const fresh = await readNote(outlineBoards(host.ctx).home(), to.msg.id, to.msg.address).catch(() => null);
     if (stack.at(-1) !== to) return "the reader moved meanwhile";
     const here = this.place();
-    if (!this.show(fresh ?? to.msg, host)) return "the reader is holding an edit or a comment";
+    const note = fresh ?? to.msg;
+    if (host.contextFor) host = { ...host, ctx: host.contextFor(note) };
+    if (!this.show(note, host)) return "the reader is holding an edit or a comment";
     stack.pop();
     if (here) (dir < 0 ? this.aheads : this.backs).push(here);
     Object.assign(this.position, structuredClone(to.position)); this.cur = to.cur; this.link = to.link;
@@ -6556,7 +6579,7 @@ export class NoteSurface {
   /** The history as `peek` shows it: the titles back and forward go to, nearest first. */
   describeHistory() {
     if (this.kept) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
-    const titles = (ps: Place[]) => ps.map(p => ({ id: p.msg.id, title: subject(p.msg) })).reverse();
+    const titles = (ps: Place[]) => ps.map(p => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg) })).reverse();
     return { back: titles(this.backs), forward: titles(this.aheads) };
   }
 

@@ -1,3 +1,6 @@
+import { startControl } from "../../src/control";
+import { Mirror } from "../../src/mirror";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 // PIE-439: the showcase screen, tiles: terminal, menu and made screens. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
@@ -31,6 +34,68 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+
+  test("a foreign outline note opens and saves on this screen", async () => {
+    (app as any).lastInput = 0;
+    const foreign = new SocketBoard(scratch.sock, undefined, "showcase-orchard");
+    try {
+      await foreign.info();
+      const id = prop(seeded.notes.crossOutline, "foreign-note")!;
+      const note = (await foreign.get(id))!;
+      await app.act({ action: "section", args: { name: "cross-outline" }, as: "test-agent" });
+      screen();
+      await until(() => !!S().stages.get(S().sel), "the desk");
+      const d = S().stages.get(S().sel).top;
+      await until(() => d.pane("orchard-note")?.msg?.id === note.id, "the foreign note", 2000);
+      expect(d.pane("orchard-note").msg.text).toContain("Water the pear tree.");
+      await app.act({ action: "edit", tile: "orchard-note", as: "test-agent" });
+      await app.act({ action: "draft.paste", tile: "orchard-note", args: { text: "Watered today. " }, as: "test-agent" });
+      await app.act({ action: "edit.save", tile: "orchard-note", as: "test-agent" });
+      expect((await foreign.get(note.id))?.text).toContain("Watered today.");
+      expect(await board.get(note.id)).toBeNull();
+      expect(d.pane("orchard-note").spec()).toMatchObject({ outline: "showcase-orchard" });
+      expect(screen()).toContain("showcase-orchard ·");
+      await app.act({ action: "edit.close", tile: "orchard-note", as: "test-agent" });
+      await app.act({ action: "passage.select", tile: "orchard-note", args: { quote: "Water the pear tree." }, as: "test-agent" });
+      await app.act({ action: "comment.write", tile: "orchard-note", args: { body: "Checked the soil." }, as: "test-agent" });
+      await app.act({ action: "comment.send", tile: "orchard-note", as: "test-agent" });
+      expect((await foreign.comments(note.id)).some(c => c.body === "Checked the soil.")).toBe(true);
+      await app.act({ action: "comment.close", tile: "orchard-note", as: "test-agent" });
+      const saved = JSON.parse(JSON.stringify(d.saved()));
+      d.build(saved, true);
+      await until(() => d.pane("orchard-note")?.msg?.id === note.id, "restored foreign note");
+      await app.act({ action: "link.follow", tile: "orchard-note", args: { n: 1 }, as: "test-agent" });
+      expect(d.pane("orchard-note").msg.text).toContain("Water deeply");
+      await app.act({ action: "back", tile: "orchard-note", as: "test-agent" });
+      expect(d.pane("orchard-note").msg.id).toBe(note.id);
+      await app.act({ action: "tile.open", args: { kind: "detail", name: "another-orchard", note: note.id, outline: "showcase-orchard" }, as: "test-agent" });
+      await until(() => d.pane("another-orchard")?.msg?.id === note.id, "act tile.open in orchard");
+      const rows = await app.act({ action: "bar.open", args: { scope: "notes", query: "outline:showcase-orchard pear" }, as: "test-agent" }) as any;
+      expect(rows.rows.some((r: any) => r.label.includes("Pear tree"))).toBe(true);
+      const ctl = await startControl({ app, mirror: new Mirror(200, 60), info: () => app.t }, join(scratch.root, "foreign.sock"));
+      try {
+        const uri = formatEp0chBlockUri({ outline: "showcase-orchard", machine: (await foreign.info()).machine!, blockId: note.id });
+        const cli = Bun.spawn(["bun", "src/main.ts", "open", uri, "--as", "test-agent"], { cwd: join(import.meta.dir, "../.."), env: { ...process.env, ...scratch.env, EP0CH_CONTROL: ctl.path }, stdout: "pipe", stderr: "pipe" });
+        const err = await new Response(cli.stderr).text();
+        expect({ exit: await cli.exited, err }).toEqual({ exit: 0, err: "" });
+      } finally { ctl.close(); }
+      await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
+      await app.act({ action: "link.follow", tile: "guide", args: { n: 1 }, as: "test-agent" });
+      expect(d.pane("guide").msg.id).toBe(note.id);
+      await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
+      await app.act({ action: "links", tile: "guide", as: "test-agent" });
+      const links = () => [...d.panes.values()].find((p: any) => p.kind === "backlinks") as any;
+      await until(() => links()?.authored.kind === "ready", "the guide's links loaded");
+      await until(() => links()?.rows().some((r: any) => r.kind === "resource"), "the guide's link row");
+      const row = links().rows().findIndex((r: any) => r.kind === "resource");
+      const linksName = d.nameOfPane(links());
+      await app.act({ action: "backlinks.open", tile: linksName, args: { n: row + 1 }, as: "test-agent" });
+      expect(d.pane("guide").msg.id).toBe(note.id);
+      const latest = (await foreign.get(note.id))!;
+      await foreign.update(note.id, latest.text + "\nMulched by another client.", latest.revision!);
+      await until(() => d.pane("orchard-note").msg.text.includes("Mulched by another client."), "the foreign change feed");
+    } finally { foreign.close(); }
+  }, 20_000);
 
   test("tree, preview, detail from scratch: select stays in the preview, Enter opens, alt opens a new reader", async () => {
     (app as any).lastInput = 0;
