@@ -314,7 +314,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
-    aside: "a click on a tile's × closes it (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
+    aside: "^W n or double click a title to rename; ^W N or [name]/[sys] toggles without losing it. Reading {{this.title}} follows the notebook; Visitors is a written tab title. A click on a tile's × closes it (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
       // The replies (a links tile with Children alone) and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
@@ -323,7 +323,7 @@ export const SECTIONS: Section[] = [
       return deskOf({
         title: "showcase · panes", panes: [tree, r, th, act],
         layout: ([t, rd, h, a]) => pair("row", 0.24, { t: "dock", kid: leaf(t!), edge: "left", open: true }, pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
-      }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
+      }, show, [], d => { Object.assign(r, { writtenTitle: "Reading {{this.title}}" }); Object.assign(act, { writtenTitle: "Visitors" }); if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
     },
   },
   {
@@ -866,7 +866,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "title", need: "make a note's title the first thing the eye finds when it is open", part: "the reader's header (PIE-657, NoteSurface.headerBlock, one builder for every reader): the crumbs as a dim eyebrow, the title bold in the theme's heading colour, a Work ID first in the accent (PIE-809: HOME-042 · <title>; the theme caps white near the body's grey, so a white title read as body) (a step down in the tile without the keys; normal cell width in every video mode), one dim line under it for the byline, the property count and the summary values (links), one blank row; the tile's top border carries only its short Work ID and tile facts (PIE-917, Desk.header)", files: "src/surface/note.ts, src/desk/desk.ts",
-    aside: "the left reader has the keys, the right one doesn't: compare the titles · a click on a value in the dim line still opens what it names · `peek` and `layout.get` keep the title as data (the tile's `title`, the reader's `showing`), and the reader's rows start with the breadcrumb, then the title · the header owns the full title; the border keeps only the Work ID and tile facts · titles stay normal-width bold in Kitty, CRT and cells · the narrow reader beside holds links that wrap: each keeps its colour and its click on every row · a copy over the title copies its text; a selection on it draws in cells",
+    aside: "the left reader has the keys, the right one doesn't: compare the titles · a click on a value in the dim line still opens what it names · `peek` and `layout.get` keep the content title as `label` and the frame text as `title` (the reader's note is `showing`), and the reader's rows start with the breadcrumb, then the title · the header owns the full title; the border keeps only the Work ID and tile facts · titles stay normal-width bold in Kitty, CRT and cells · the narrow reader beside holds links that wrap: each keeps its colour and its click on every row · a copy over the title copies its text; a selection on it draws in cells",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · a title you can find", panes: [a, b], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.title], [b, n.title]]);

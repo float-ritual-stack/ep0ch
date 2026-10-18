@@ -24,6 +24,8 @@ export interface TileSpec {
   kind: TileKindName;
   /** The tile's name: what links, previews, `act tile=` and `peek` call it. See `tileNameProblem`. */
   name?: string;
+  writtenTitle?: string;
+  systemTitle?: boolean;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
   id?: string;
   /** A held reader's note (block id): it starts on it and keeps it. */
@@ -130,7 +132,10 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   const s = canonSpec(given);
   const k = tileKind(s.kind);
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
-  return k.make(s);
+  const p = k.make(s);
+  p.writtenTitle = s.writtenTitle;
+  p.systemTitle = s.systemTitle;
+  return p;
 }
 export { isTileKind };
 

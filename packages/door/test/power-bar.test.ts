@@ -81,7 +81,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(sources.indexOf("recent")).toBeGreaterThan(sources.lastIndexOf("tiles"));
     // The tiles are this screen's, in the layout tree's order, with how deep each sits.
     const tiles = bar.rows.filter((r: any) => r.source === "tiles");
-    expect(tiles.map((r: any) => r.label.split(" · ")[0])).toEqual(desk.tileOutline().map(t => t.name).filter((_, i) => i < tiles.length));
+    expect(tiles.map((r: any) => r.detail.split(" · ")[0])).toEqual(desk.tileOutline().map(t => t.name).filter((_, i) => i < tiles.length));
+    expect(tiles.find((r: any) => r.detail.startsWith("reader ·"))?.label).toBe("Garden plan");
     expect(tiles.some((r: any) => (r.depth ?? 0) > 0)).toBe(true);
     await until(() => peek().bar.rows.find((r: any) => r.source === "recent")?.label === "Bike shed", "the change's title read");
     // Drawn: its frame, its scopes, and the person is busy (agents wait).
@@ -179,7 +180,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     await app.dispatch.press("tile.collapse", { on: true }, target.name);
     expect(desk.tileOutline().find(t => t.name === target.name)!.collapsed).toBe(true);
     key(ctrlK); type(`%${target.name}`);
-    const n = peek().bar.rows.findIndex((r: any) => r.label.startsWith(`${target.name} ·`)) + 1;
+    const n = peek().bar.rows.findIndex((r: any) => r.detail.startsWith(`${target.name} ·`)) + 1;
     expect(n).toBeGreaterThan(0);
     await app.dispatch.press("bar.pick", { n });
     const now = desk.tileOutline().find(t => t.name === target.name)!;
@@ -194,7 +195,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     await app.dispatch.press("screen.open", { name: "who" });
     expect(screen()).not.toBe(desk);
     key(ctrlK); type(`%${target.name}`);
-    const row = peek().bar.rows.find((r: any) => r.label.startsWith(`${target.name} ·`));
+    const row = peek().bar.rows.find((r: any) => r.detail.startsWith(`${target.name} ·`));
     expect(row.group).toContain("under this one");
     key({ kind: "enter" });
     await until(() => screen() === desk, "the desk brought up", 3000);
@@ -211,9 +212,9 @@ describe.skipIf(!outliner)("the power bar", () => {
     await app.dispatch.press("tile.collapse", { on: true }, "dayview");
     expect(mount().collapsed).toBe(true);
     key(ctrlK); type(`%dayview/${name}`);
-    const rows = peek().bar.rows, at = rows.findIndex((r: any) => r.label.startsWith(`dayview/${name} ·`));
+    const rows = peek().bar.rows, at = rows.findIndex((r: any) => r.detail.startsWith(`dayview/${name} ·`));
     expect(at).toBeGreaterThanOrEqual(0);
-    const parent = rows.find((r: any) => r.label.startsWith("dayview ·"));
+    const parent = rows.find((r: any) => r.detail.startsWith("dayview ·"));
     expect(rows[at].depth).toBeGreaterThan(parent?.depth ?? mount().depth);
     expect(rows[at].detail).toContain("in a mount");
     await app.dispatch.press("bar.pick", { n: at + 1 });
@@ -224,7 +225,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     (desk.pane("dayview") as any).goIn(false);
     // An agent names it by its path, as tile= takes it; it never goes into the mount for the person.
     const r = await app.act({ action: "bar.open", args: { scope: "tiles", query: "dayview" }, as: "wren-agent" }) as any;
-    expect(r.rows.some((x: any) => x.label.startsWith(`dayview/${name}`))).toBe(true);
+    expect(r.rows.some((x: any) => x.detail.startsWith(`dayview/${name} ·`))).toBe(true);
   });
 
   test("an action picked runs as its key would", async () => {
@@ -399,7 +400,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     await app.act({ action: "open", args: { id: note.id, fresh: true }, as: "test-agent" });
     await until(() => desk.tileOutline().some(t => t.showing?.id === note.id), "a tile showing it");
     const ask = async (query: string) => ((await app.act({ action: "bar.open", args: { scope: "tiles", query }, as: "test-agent" }) as any).rows.map((x: any) => x.label) as string[]);
-    for (const q of ["HUB-808", "fence plan", "allotment"]) expect(await ask(q)).toEqual([expect.stringMatching(/ · HUB-808 Fence the allotment$/)]);
+    for (const q of ["HUB-808", "fence plan", "allotment"]) expect(await ask(q)).toEqual(["HUB-808 Fence the allotment"]);
   });
 
   test("/ with nothing typed lists the notes changed most recently first, and ⏎ lands on the latest; typing still runs the search (PIE-664)", async () => {
