@@ -45,7 +45,7 @@ export function resolveBlockReferencesWithStatus(
       if (fragment.status !== "resolved") status = fragment.status === "missing" ? "stale" : "duplicate";
     }
     const resolution: BlockReferenceResolution = {
-      blockId,
+      blockId: block?.id ?? blockId,
       ...(fragmentId ? { fragmentId } : {}),
       ...(label !== undefined ? { label } : {}),
       status,

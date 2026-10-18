@@ -13,7 +13,15 @@ export class ActionRefused extends Error {
 
 /** An action and its `key=value` words (`--as` and `--tile` too), every value as written: the CLI's and the power bar's. */
 export function actRequestOf(words: readonly string[]): ActRequest {
-  const [action, ...rest] = words;
+  const rest = [...words];
+  const leading: string[] = [];
+  while (rest[0] === "--as" || rest[0] === "--tile") {
+    const flag = rest.shift()!, value = rest.shift();
+    if (value === undefined) throw new ActionRefused(`${flag} needs a value`);
+    leading.push(flag, value);
+  }
+  const action = rest.shift();
+  rest.unshift(...leading);
   if (!action) throw new ActionRefused("act needs an action name; `actions` lists them");
   const req: ActRequest = { action, args: {} };
   for (let i = 0; i < rest.length; i++) {

@@ -73,7 +73,7 @@ try {
   const sweep = setInterval(() => { try { if (anyPaused()) retryRecovery(); } catch (error) { console.error(`Litestream guard: ${(error as Error).message}`); } }, 60_000);
   sweep.unref();
   herdrRunner?.start();
-  console.log(JSON.stringify({ status: "ready", socket: host.socketPath, outlines: host.outlinesFolder, ...(defaultOutline ? { defaultOutline } : {}) }));
+  console.log(JSON.stringify({ status: "ready", pid: process.pid, socket: host.socketPath, outlines: host.outlinesFolder, ...(defaultOutline ? { defaultOutline } : {}) }));
 
   async function stop(failure = 0): Promise<void> {
     if (stopping) return;

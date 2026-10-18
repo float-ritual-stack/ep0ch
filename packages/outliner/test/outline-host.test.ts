@@ -402,7 +402,7 @@ test("the host process and the CLI: create, import refusals, init and list go th
     output += new TextDecoder().decode(chunk.value);
   }
   reader.releaseLock();
-  expect(JSON.parse(output.split("\n")[0]!)).toEqual({ status: "ready", socket: join(outlines, ".host", "host.sock"), outlines, defaultOutline: "bob" });
+  expect(JSON.parse(output.split("\n")[0]!)).toEqual({ status: "ready", pid: child.pid, socket: join(outlines, ".host", "host.sock"), outlines, defaultOutline: "bob" });
 
   expect(cli(root, "outline", "create", "bob").code).toBe(0);
   const duplicate = cli(root, "outline", "create", "bob");

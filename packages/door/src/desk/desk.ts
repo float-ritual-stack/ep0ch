@@ -5043,7 +5043,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!found) throw new ActionRefused(`no layout ${name}; layouts: ${layoutNames().map(l => l.name).join(", ")} (a screen you made is one: ^W w saves this one)`);
     // The lock, a container's lock the person set, their keys: the module says whether the screen may be laid out again.
     this.apply({ op: "load", name }, actor);
-    if (!this.spec.layouts) throw new ActionRefused(`the ${this.title} keeps its own layout; load one on the desk (D) or a blank screen (M on the menu)`);
+    if (!this.spec.layouts) throw new ActionRefused(`the ${this.title} keeps its own layout; run act screen.open name=desk, arrange its tiles, then act screen.save name=${name}; run the script there with layout=${name}`);
     this.entered.clear();
     this.ptyIn = null;
     const before = new Set(this.all());

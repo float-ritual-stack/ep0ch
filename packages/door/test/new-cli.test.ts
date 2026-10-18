@@ -44,6 +44,26 @@ describe.skipIf(!outliner)("ep0ch new on an empty outline", () => {
     expect(under).toMatchObject({ parentId: made.id, rule: "near" });
   }, 30_000);
 
+  test("an outline flag before the command still creates in that outline", async () => {
+    const r = await run(["--ws", scratch.name, "new", "Flag order garden", "--json"], { ...env, EP0CH_WS: "not-this-outline" });
+    expect(r.code).toBe(0);
+    expect(await board.get(JSON.parse(r.out).id)).toMatchObject({ text: "Flag order garden" });
+    const listed = await run(["--ws", scratch.name, "outline", "list"], env);
+    expect(listed.code).toBe(0);
+    expect(listed.out).toContain(scratch.name);
+  });
+
+  test("fields draws the parent's and a short-id note's values", async () => {
+    const parent = await board.request<{ id: string }>("create", { parentId: null, text: "Beds\nconnectTo:: trellis", author: "user" });
+    for (const of of ["parent", parent.id.slice(0, 8), `((${parent.id.slice(0, 8)}))`]) {
+      const child = await board.request<{ id: string }>("create", { parentId: parent.id, text: `Roll-up\n::fields{key=connectTo of=${of}}`, author: "user" });
+      const shown = await run(["show", child.id], env);
+      expect(shown.code).toBe(0);
+      expect(shown.out).toContain("trellis");
+      expect(shown.out).not.toContain("needs a ((block))");
+    }
+  });
+
   test("a --near that's gone is refused with the command to run instead; no text is refused, naming the form", async () => {
     const gone = await board.request<{ id: string }>("create", { parentId: null, text: "Old bed plan", author: "agent" });
     await board.trash(gone.id);

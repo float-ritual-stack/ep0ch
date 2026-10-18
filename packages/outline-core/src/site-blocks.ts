@@ -13,6 +13,8 @@
 import { COMPONENT_OPEN, componentAttrs, componentBlocks, noteCodeFences, type ComponentBlock } from "./component-block";
 import { referencedBlock } from "./link-syntax";
 
+const fieldsOf = (value: string) => value === "parent" ? value : (referencedBlock(value) ?? referencedBlock(`((${value}))`))?.blockId ?? null;
+
 /** The names this module reads. */
 export const SITE_BLOCK_NAMES = ["fields", "if"] as const;
 
@@ -44,7 +46,7 @@ export function siteBlockAt(lines: readonly string[], i: number, blocks: Readonl
     for (const p of pairs) {
       const k = p.key.toLowerCase();
       if (k === "key") spec.key = p.value.trim();
-      else if (k === "of") { spec.of = referencedBlock(p.value)?.blockId ?? null; if (!spec.of) spec.problem = `of: needs a ((block)) or a block id, not ${p.value}`; }
+      else if (k === "of") { spec.of = fieldsOf(p.value); if (!spec.of) spec.problem = `of: needs parent, a ((block)) or a block id, not ${p.value}`; }
       else if (k === "title") spec.title = p.value;
       else spec.problem = `${p.key} isn't one of ::fields' keys (${known.join(", ")})`;
     }
@@ -58,7 +60,7 @@ export function siteBlockAt(lines: readonly string[], i: number, blocks: Readonl
       const v = kv[2]!.replace(/^["']|["']$/g, "");
       if (kv[1] === "key") spec.key = v;
       else if (kv[1] === "title") spec.title = v;
-      else { spec.of = referencedBlock(v)?.blockId ?? null; if (!spec.of) spec.problem = `of: needs a ((block)) or a block id, not ${v}`; }
+      else { spec.of = fieldsOf(v); if (!spec.of) spec.problem = `of: needs parent, a ((block)) or a block id, not ${v}`; }
     }
     if (!spec.key && !spec.problem) spec.problem = "::fields needs a key: ::fields{key=connectTo}";
     // A one-line opener with arguments belongs to no block; without them it is its own line.

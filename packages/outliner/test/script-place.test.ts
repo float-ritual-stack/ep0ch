@@ -225,3 +225,16 @@ test("a reference inside an output region is machinery: it is no backlink (PIE-9
   ].join("\n");
   expect(outlinerReferenceOccurrences(text).map(r => (r.kind === "block" ? r.blockId : r.kind))).toEqual(["aaaaaaaa-1111-4222-8333-444444444444"]);
 });
+
+test("a script uses outline_edit append at an anchor through the tools surface", async () => {
+  const { store, create, run } = await setup();
+  const note = create("Garden\n\nThe log. ^log\n\nLeave this below.");
+  create(`Append log [script::append-log] [effects::write]\n\`\`\`js
+return await tools.outline_edit({ ref: this.id, expectedRevision: this.revision, append: "Sowed beans", at: "^log" });
+\`\`\``);
+  const result = await run("append-log", { blockId: note.id });
+  expect(result.text).toContain("· done");
+  const text = store.get(note.id)!.text;
+  expect(findOutputRegions(text)[0]?.body).toBe("Sowed beans");
+  expect(text.indexOf("Sowed beans")).toBeLessThan(text.indexOf("Leave this below."));
+});

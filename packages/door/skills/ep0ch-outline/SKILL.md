@@ -47,7 +47,7 @@ belong to the block; text after a chip makes it an inline aside.
   note (`--parent` takes the whole id, not the first 8 characters), `outliner list --subtree <id> --limit 1` reads the text and
   its `revision`, `outliner update --id <id> --text '<text>' --expected <revision> --author agent --actor <you>` rewrites it,
   and `outliner agent <operation> --json '{…}' --actor <you>` is every tool above (`set-property` among them). Read what a note
-  draws with `ep0ch show <id>`; it draws values, `::fields`, `::if` and `::use`, but not a script's or an extension's output
+  draws with `ep0ch show <id>`; it draws values, `::fields`, `::if` and `::use`, and script and extension handler output
   (see [references/scripts.md](references/scripts.md), "Looking at a script's output").
 
 - **The tools follow the folder Claude runs in.** They (and Recent Mentions and the links in replies) use the
@@ -105,7 +105,7 @@ revision, so concurrent edits rarely collide.
 ## outline_edit or outline_patch
 
 - **Your own pages** (a status page, the briefing you keep, a note you wrote): `outline_edit` with the
-  revision you read: the whole `text`, one `replaceSection {heading, body}`, or an `append`.
+  revision you read: the whole `text`, one `replaceSection {heading, body}`, or an `append`. **At an anchor:** `append: "One more entry", at: "^log"` uses output-region placement and the held-draft route; its receipt says `outcome: applied` or `proposed`.
 - **A small change in a note the person may be typing in:** `outline_patch` (`draft.patch`). If their door
   holds a draft of it, the patch lands in the draft as they type, lit and one undo step; with no draft it is
   an ordinary edit. Its default policy, `edit`, is `outline_edit`'s guard: only dropping a `[page::…]`, or an
@@ -113,8 +113,10 @@ revision, so concurrent edits rarely collide.
   because that removal is the point. `policy: "prose"` is opt-in, for tidy-style edits that must keep every
   link, anchor and property. A patch read at an older revision still applies when every `observed` span is present once at the
   newer one and nobody rewrote its line (a rebase; the answer says `rebasedFrom: <revision you read>`). It becomes one
-  proposal they can apply or dismiss when a span is gone, changed or ambiguous, when the note is open in a draft,
-  or when `prose` refuses.
+  proposal they can apply or dismiss when a span is gone, changed or ambiguous, when it touches the paragraph, list item or heading at the cursor or selection endpoint, when the draft is busy or unavailable,
+  or when `prose` refuses. The cursor matters because the patch must leave the passage the person is typing in alone;
+  an unmarked patch can land above or below that block. With `mark`, spans must also stay above the mark,
+  and above the cursor's block when the cursor is before the mark.
 - **Settle a proposal by id:** `outline_proposal_apply {ref: "<proposal id>"}` or
   `outline_proposal_dismiss {ref: "<proposal id>"}` needs no reader. Apply keeps the normal patch comparison;
   any agent may dismiss any proposal (recorded as the one who did; the Trash takes it back). MCP settlement requires full access.
@@ -163,12 +165,14 @@ revision, so concurrent edits rarely collide.
   - **Felt:** order two rolls ((a1b2c3d4-…|quote from the merchant))
   ```
 
+**Programmable notes end to end:** [PROGRAMMABLE-NOTES.md](../../../outliner/docs/PROGRAMMABLE-NOTES.md) covers the Site and the five scratch tasks.
+
 ## Values in prose: `{{ }}`
 
 A note can say what it knows about itself: `Play it at {{this.target}}. Owner: {{this.owner}}.` Every reader draws the
 value, not the braces; the editor, `ep0ch show --source` and the stored text keep what the author typed.
 
-- **Heads:** `this.key` (the note's own header only: it does not inherit), `parent.key`, a bare `key` (the nearest value up the outline: this note's header,
+- **Heads:** `this.key` (its block values, then its line and inline occurrences; it does not inherit), `this.block.key` (block scope only), `parent.key`, a bare `key` (the nearest value up the outline: this note's header,
   then each ancestor's), `((id)).key` or `[[page]].key` (another note), `person.firstName` (through a property whose
   value is a link), `now.date`, `props.key`. Every key is a list: several values read joined with commas. `{{ path ||
   fallback }}` fills in when there is nothing.
@@ -459,8 +463,8 @@ A `> [!quote]` callout's last line `— name, source` is drawn as its byline.
 **Fields and conditions** (a note that reads itself). `::fields{key=connectTo}` lists every place the note wrote that
 key wherever it is written (the header's chips, front-matter lines `- connectTo:: v` before the first blank line, a
 `[connectTo::…]` chip in the body, a `connectTo:: …` line, a list value one row each), one row per occurrence
-with its line number. A `#hashtag` is the key `tag` (`::fields{key=tag}`), and `tags::` is an ordinary key of its own. A front-matter row isn't drawn in the note: opening it says its line is in the property panel (`i`), and its `¶` is refused (an anchor would become part of the value). Otherwise a row opens its own line, lit, found again by the text it was written as, and a row appears as soon
-as a line is saved. `of=((id))` lists another note's (the whole id or its first 8 characters; a title in the brackets is not an id, `ep0ch find <words> --ids` prints them), `title=` titles it. Its `¶` anchors that line on request
+with its line number (from 1 in the drawn figure; the API's `line` is from 0). Bare `key:: value` is start-of-line only; mid-line use `[key::value]`. A `#hashtag` is the key `tag` (`::fields{key=tag}`), and `tags::` is an ordinary key of its own. A front-matter row isn't drawn in the note: opening it says its line is in the property panel (`i`), and its `¶` is refused (an anchor would become part of the value). Otherwise a row opens its own line, lit, found again by the text it was written as, and a row appears as soon
+as a line is saved. `of=parent` lists its parent's; `of=<id>` or `of=((id))` lists another note's (the whole id or its first 8 characters; a title in the brackets is not an id, `ep0ch find <words> --ids` prints them), `title=` titles it. Its `¶` anchors that line on request
 (`fields.anchor key=connectTo n=2`), giving a `((note^anchor))` that links to it for good; drawing it never writes. `::if{where="status=active"}`
 … `::` draws its lines only while the note matches the query (the saved views' grammar, `{{this.owner}}` operands bound,
 never pasted in); its body holds Blockdown (its `{{ }}` values are drawn like the rest of the note's) but no other component. A figure copied onto two pages lists each page's own
