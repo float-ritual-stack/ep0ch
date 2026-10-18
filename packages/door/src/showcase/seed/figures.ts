@@ -81,6 +81,9 @@ export function markdownFiguresText(figureBlockId: string): string {
     ...fig("activity", ["title: Chores written (live)", 'query: "type=chore"', "count: created", "weeks: 1"]),
     ...fig("activity", ["title: Chores updated (live)", 'query: "type=chore"', "count: updated", "weeks: 1"]),
     ...fig("activity", ["title: Decisions by date (live)", 'query: "type=decision"', "date: date", "to: 2026-03-18", "weeks: 3"]),
+    "A figure block: its own note, its rows its child bullets (each opens its note):",
+    `!((${figureBlockId}))`,
+    "",
     ...mdFig("decision", ["title: Squash beds", "status: decided", "date: 2026-03-04"], [
       "- **Raised beds** — the clay stays wet", "- *Straight into the clay* — they rotted last year", "- Grow bags — if the beds run late", "",
       "Two beds of scaffold boards, filled from the compost bays.",
@@ -111,8 +114,6 @@ export function markdownFiguresText(figureBlockId: string): string {
     ">",
     "> — Ada, the allotment newsletter",
     "",
-    "A figure block: its own note, its rows its child bullets (each opens its note):",
-    `!((${figureBlockId}))`,
   ].join("\n");
 }
 
