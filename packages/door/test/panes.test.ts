@@ -352,7 +352,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     // With the edit gone, the next one folds the earlier detail the person doesn't have.
     await act("edit.close", { discard: true }, "detail2");
     b.setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
-    expect(row()).toEqual(["preview", "detail1", "detail2", "detail3", "detail4"]);
+    expect(row()).toEqual(["preview", "detail1", "detail3", "detail4", "detail2"]);
     expect(folded()).toContain("detail2");
     expect(folded()).not.toContain("detail1");
     expect(message()).toMatch(/folded .*detail2.* to (a spine|spines)/);

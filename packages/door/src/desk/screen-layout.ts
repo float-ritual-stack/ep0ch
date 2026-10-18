@@ -190,7 +190,7 @@ export type Op<I = number> =
   | { op: "slide"; tile: I; open?: boolean; container?: string }
   | { op: "collapse"; tile: I; on?: boolean; dir?: "v" | "h" }
   /** Growth by room (PIE-794): tile `tile` was just opened beside others; earlier readers in its row fold until it's readable. */
-  | { op: "room"; tile: I }
+  | { op: "room"; tile: I; before?: ReadonlyMap<I, Rect> }
   | { op: "resize"; split?: string; path?: string; border: number; share: number }
   | { op: "shares"; split: string; shares: number[] }
   | { op: "grow"; tile: I; axis: Axis; by: number }
@@ -655,7 +655,7 @@ class Step<I> {
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
       case "slide": return this.slide(op.tile, op.open, op.container);
       case "collapse": return this.collapse(op.tile, op.on, op.dir);
-      case "room": return this.room(op.tile);
+      case "room": return this.room(op.tile, op.before);
       case "resize": return this.keepsSize(() => this.resizeBorder(op));
       case "shares": return this.keepsSize(() => this.shares(op.split, op.shares));
       case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
@@ -1265,7 +1265,7 @@ class Step<I> {
    * A fold gives its room to the new reader and sits just after it, so untouched tiles never grow.
    * The answer names what folded.
    */
-  private room(id: I) {
+  private room(id: I, prior?: ReadonlyMap<I, Rect>) {
     this.present(id);
     this.d.changed = false;
     const folded: string[] = [];
@@ -1292,6 +1292,15 @@ class Step<I> {
       const from = parentOf(this.d.tree, t)!.i, to = row.kids.findIndex(k => leaves(k).includes(id));
       // A fold pays its freed cells to the new reader, not to unrelated tiles in the row.
       sizes[to]! += sizes[from]! - SPINE;
+      // Splitting an edit already borrowed its width. Return spare room once the new reader is readable.
+      for (const [i, k] of row.kids.entries()) {
+        const held = leaves(k).find(t => this.facts(t).editing || this.facts(t).holds || t === this.ctx.person.typingIn || (this.agent && t === this.d.focus));
+        const was = held === undefined ? undefined : prior?.get(held);
+        if (was && i !== to && i !== from) {
+          const give = Math.min(Math.max(0, was.cols - sizes[i]!), Math.max(0, sizes[to]! - want));
+          sizes[i]! += give; sizes[to]! -= give;
+        }
+      }
       // Spines spend the newest reader down to readable, then earlier readers, then other tiles last.
       const donors = row.kids.map((k, i) => ({ k, i, tiles: leaves(k) })).reverse();
       const reader = (d: typeof donors[number]) => d.tiles.some(t => this.facts(t).notes);

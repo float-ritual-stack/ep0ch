@@ -398,7 +398,8 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(B().floats.length).toBe(0);
     expect(B().details).toContain(d0);
     expect(d0.draft).not.toBeNull();
-    expect(B().details.at(-1).msg.id).toBe(cards.gate.id);
+    // Folded readers now follow the newest reader (PIE-1021); the returned float stays the active detail.
+    expect(B().details[B().active].msg.id).toBe(cards.gate.id);
     // The row makes room by folding, never closing (PIE-794): every detail is still there.
     expect(B().details.length).toBe(3);
     for (const d of B().details) if (d.draft) await mine("edit.close", { discard: true }, nm(d));
