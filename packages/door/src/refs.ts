@@ -15,7 +15,7 @@ import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
-import { blockReferenceOccurrences, linkOccurrences, pageAddressText } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText } from "@ep0ch/outline-core/link-syntax";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, readerWords } from "@ep0ch/outline-core/site-values";
 import type { SiteAnswer, SiteLink, SiteValue } from "@ep0ch/outline-core/site";
@@ -28,7 +28,7 @@ export const isExternalUrl = (url: string) => /^https?:\/\//i.test(url);
 export { stripMarks };
 
 /** What a reference's answer is kept under: its target. Its label is how the note writes it, not what it resolves to. */
-export const refKey = (id: string, fragment?: string) => `${id}${fragment ? `^${fragment}` : ""}`;
+export const refKey = (id: string, fragment?: string, outline?: string) => `${outline ? outline + ":" : ""}${id}${fragment ? `^${fragment}` : ""}`;
 /** An id cut to its first eight characters and …, once it is longer than twelve (a link's, an embed's, a property's). */
 export const shortId = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
 
@@ -91,7 +91,7 @@ function refsOf(text: string): { text: string; ids: string[] } {
   const refs = new Set<string>(), ids = new Set<string>();
   let rest = "", at = 0;
   for (const r of blockReferenceOccurrences(text)) {
-    refs.add(`((${refKey(r.blockId, r.fragmentId)}))`); ids.add(r.blockId);
+    refs.add(`((${refKey(r.blockId, r.fragmentId, r.outline)}))`); ids.add(r.blockId);
     rest += text.slice(at, r.start) + " "; at = r.end;
   }
   for (const m of (rest + text.slice(at)).matchAll(BLOCK_ID)) { refs.add(`((${m[0]}))`); ids.add(m[0]); }
@@ -106,7 +106,7 @@ function refsOf(text: string): { text: string; ids: string[] } {
 export function referencesIn(text: string, src: Source | null | undefined): Map<string, ReferenceResolution> | null {
   const refs = refsOf(text);
   if (!refs.text) return new Map();
-  return ask(refsBy, src, refs.text, async b => new Map((await b.resolveReferences(refs.text)).map(r => [refKey(r.blockId, r.fragmentId), r])),
+  return ask(refsBy, src, refs.text, async b => new Map((await b.resolveReferences(refs.text)).map(r => [refKey(r.blockId, r.fragmentId, r.requestedOutline), r])),
     c => changedSince(c.at, refs.ids))?.value ?? null;
 }
 
@@ -326,12 +326,13 @@ export function refView(id: string, fragment: string | undefined, label: string 
   if (r.status === "missing") return { text: `${label ?? shortId(id)} ${MISSING_MARK}`, missing: true };
   const title = (label ?? r.title ?? shortId(id)) + (label === undefined && fragment ? `^${fragment}` : "");
   const suffix = r.status === "deleted" ? " · Trash" : r.status === "stale" ? " · Missing fragment" : r.status === "duplicate" ? " · Duplicate fragment" : "";
-  return { text: title + suffix, missing: false };
+  return { text: (r.outline ? `${r.outline} · ` : "") + title + suffix, missing: false };
 }
 
 /** How a `[[address]]` reads: its label or address, followed by MISSING_MARK when no page has it yet. */
 export function pageView(address: string, label: string | undefined, r: PageResolution | null): LinkView {
-  const text = (label ?? pageAddressText(address)).trim();
+  const q = qualifiedReference(address);
+  const text = (q.outline ? `${q.outline} · ` : "") + (label ?? pageAddressText(q.target)).trim();
   if (r?.status === "missing") return { text: `${text} ${MISSING_MARK}`, missing: true };
   return { text: text + (r?.status === "deleted" ? " · Trash" : ""), missing: false };
 }
@@ -445,8 +446,9 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       } else if (l.kind === "page") {
         spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) });
       } else if (!l.embed || !embeds) {
-        const v = refView(l.blockId, l.fragmentId, l.label, resolved.get(refKey(l.blockId, l.fragmentId)));
-        const to: LinkTarget = { block: l.blockId, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
+        const answer = resolved.get(refKey(l.blockId, l.fragmentId, l.outline));
+        const v = refView(l.blockId, l.fragmentId, l.label, answer);
+        const to: LinkTarget = { block: l.blockId, ...(answer?.outline || l.outline ? { outline: answer?.outline ?? l.outline, machine: answer?.machine } : {}), ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
         spans.push({ ...l, draw: () => (l.embed ? `!${mark(v, to)} · embed not expanded here` : mark(v, to)) });
       }
     }

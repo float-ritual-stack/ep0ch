@@ -7,7 +7,7 @@ import {
   rangesOverlap,
   type OutlinerReferenceOccurrence,
 } from "./reference-occurrences";
-import { PAGE_ADDRESS_MAX_LENGTH } from "@ep0ch/outline-core/link-syntax";
+import { PAGE_ADDRESS_MAX_LENGTH, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import {
   authoredResourceReferenceKey,
   authoredResourceReferenceOccurrences,
@@ -158,7 +158,8 @@ export type AuthoredLinksSnapshot =
 export interface AuthoredLinksDataSource {
   /** This outline's resource providers (a store's); default the process-wide table. */
   readonly resourceProviders?: readonly ResourceDirectiveProvider[];
-  get(blockId: string): Block | null;
+  get(blockId: string, outline?: string): Block | null;
+  addressOf?(blockId: string): { outline?: string; machine?: string } | undefined;
   resolvePageAddress(address: string): PageAddressResolution;
   workIdAllocatorStatus(): WorkIdAllocatorStatus;
   /** The links' Kind and Stage rules, with the outline's own status families (PIE-819); default the built-in ones. */
@@ -297,12 +298,14 @@ function resolveOutlink(
   candidate: Exclude<AuthoredCandidate, ResourceReferenceCandidate>,
 ): AuthoredOutlink {
   if (candidate.kind === "block") {
+    const block = source.get(candidate.blockId, candidate.outline);
+    const address = block ? source.addressOf?.(block.id) : undefined;
     const target: BlockTarget = {
       kind: "block",
+      ...address,
       blockId: candidate.blockId,
       ...(candidate.fragmentId ? { fragmentId: candidate.fragmentId } : {}),
     };
-    const block = source.get(candidate.blockId);
     if (!block) {
       return {
         kind: "outlink",
@@ -314,13 +317,13 @@ function resolveOutlink(
         resolution: { kind: "missing", reason: `Block not found: ${candidate.blockId}` },
       };
     }
-    const title = presentation(blockDisplayTitle(block));
+    const title = presentation((address?.outline ? `${address.outline} · ` : "") + blockDisplayTitle(block));
     if (block.effectiveDeletedRootId) {
       return {
         kind: "outlink",
         key: targetKey(target),
         referenceKind: "block",
-        label: presentation(candidate.label ?? title),
+        label: presentation(candidate.label ? (address?.outline ? `${address.outline} · ` : "") + candidate.label : title),
         firstSpan: { start: candidate.start, end: candidate.end },
         occurrenceCount: 1,
         resolution: {
@@ -342,7 +345,7 @@ function resolveOutlink(
           kind: "outlink",
           key: targetKey(target),
           referenceKind: "block",
-          label: presentation(candidate.label ?? title),
+          label: presentation(candidate.label ? (address?.outline ? `${address.outline} · ` : "") + candidate.label : title),
           firstSpan: { start: candidate.start, end: candidate.end },
           occurrenceCount: 1,
           resolution: { kind: "missing", reason: presentation(reason) },
@@ -353,7 +356,7 @@ function resolveOutlink(
       kind: "outlink",
       key: targetKey(target),
       referenceKind: "block",
-      label: presentation(candidate.label ?? title),
+      label: presentation(candidate.label ? (address?.outline ? `${address.outline} · ` : "") + candidate.label : title),
       firstSpan: { start: candidate.start, end: candidate.end },
       occurrenceCount: 1,
       resolution: { kind: "ready", target, title, subtitle: subtitleOf(block), facets: linkTargetFacets(block, (id) => source.get(id), source.facetRules?.()) },
@@ -364,14 +367,16 @@ function resolveOutlink(
   const referenceKind = candidate.kind;
   const authoredLabel = candidate.kind === "page" ? candidate.label : undefined;
   if (resolution.block) {
-    const target: BlockTarget = { kind: "block", blockId: resolution.block.id };
-    const title = presentation(blockDisplayTitle(resolution.block));
+    const target: BlockTarget = { kind: "block", blockId: resolution.block.id, outline: resolution.outline, machine: resolution.machine };
+    const prefix = resolution.outline ? `${resolution.outline} · ` : "";
+    const title = presentation(prefix + blockDisplayTitle(resolution.block));
+    const label = presentation(prefix + (authoredLabel ?? (resolution.outline ? qualifiedReference(candidate.address).target : candidate.address)));
     if (resolution.status === "deleted" || resolution.block.effectiveDeletedRootId) {
       return {
         kind: "outlink",
         key: targetKey(target),
         referenceKind,
-        label: presentation(authoredLabel ?? candidate.address),
+        label,
         firstSpan: { start: candidate.start, end: candidate.end },
         occurrenceCount: 1,
         resolution: {
@@ -386,7 +391,7 @@ function resolveOutlink(
       kind: "outlink",
       key: targetKey(target),
       referenceKind,
-      label: presentation(authoredLabel ?? candidate.address),
+      label,
       firstSpan: { start: candidate.start, end: candidate.end },
       occurrenceCount: 1,
       resolution: { kind: "ready", target, title, subtitle: subtitleOf(resolution.block), facets: linkTargetFacets(resolution.block, (id) => source.get(id), source.facetRules?.()) },
@@ -681,7 +686,7 @@ function decodeBlockTarget(value: unknown, label: string): BlockTarget {
   if (fragmentId !== undefined && !isFragmentId(fragmentId)) {
     throw new Error(`${label} fragment ID is invalid`);
   }
-  return { kind: "block", blockId, ...(fragmentId ? { fragmentId } : {}) };
+  return { kind: "block", blockId, ...(typeof input.outline === "string" ? { outline: input.outline } : {}), ...(typeof input.machine === "string" ? { machine: input.machine } : {}), ...(fragmentId ? { fragmentId } : {}) };
 }
 
 function decodeResourceTarget(value: unknown, label: string): ResourceTarget {

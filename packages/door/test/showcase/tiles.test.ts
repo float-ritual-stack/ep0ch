@@ -1,3 +1,5 @@
+import { linkifyReferences, outlinerUriOf } from "../../../claude-mod/hooks/references";
+import { replyBlocks } from "../../../claude-mod/hooks/reply-lines";
 import { startControl } from "../../src/control";
 import { Mirror } from "../../src/mirror";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -91,6 +93,26 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
       const linksName = d.nameOfPane(links());
       await app.act({ action: "backlinks.open", tile: linksName, args: { n: row + 1 }, as: "test-agent" });
       expect(d.pane("guide").msg.id).toBe(note.id);
+      for (const n of [2, 3, 4]) {
+        await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
+        screen();
+        await app.act({ action: "link.follow", tile: "guide", args: { n }, as: "test-agent" });
+        expect(d.pane("guide").msg.address?.outline).toBe("showcase-orchard");
+        expect(d.pane("guide").msg.text).toContain(n === 3 ? "Orchard journal" : "Water deeply");
+      }
+      await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
+      const outlines = await app.act({ action: "complete", tile: "guide", args: { text: "[[showcase-or" }, as: "test-agent" }) as any;
+      expect(outlines.items.some((i: any) => i.insertion === "[[showcase-orchard:")).toBe(true);
+      const pages = await app.act({ action: "complete", tile: "guide", args: { text: "[[showcase-orchard:pear" }, as: "test-agent" }) as any;
+      expect(pages.items.some((i: any) => i.insertion === "[[showcase-orchard:pear-tree]]")).toBe(true);
+      const authored = linkifyReferences(`((showcase-orchard:${note.id}|journal))`, []);
+      expect(replyBlocks(authored.text)).toContainEqual({ kind: "line", parts: [{ ref: authored.hrefs[0]!, label: "showcase-orchard · journal" }] });
+      const resolve = Bun.spawn(["bun", join(import.meta.dir, "../../../outliner/src/cli.ts"), "resolve", outlinerUriOf(authored.hrefs[0]!)!], {
+        env: { ...process.env, ...scratch.env, EP0CH_SOCKET: scratch.sock, EP0CH_WS: scratch.name }, stdout: "pipe", stderr: "pipe",
+      });
+      const [resolved, error, exit] = await Promise.all([new Response(resolve.stdout).text(), new Response(resolve.stderr).text(), resolve.exited]);
+      expect({ exit, error }).toEqual({ exit: 0, error: "" });
+      expect(JSON.parse(resolved)).toMatchObject({ id: note.id, outline: "showcase-orchard" });
       const latest = (await foreign.get(note.id))!;
       await foreign.update(note.id, latest.text + "\nMulched by another client.", latest.revision!);
       await until(() => d.pane("orchard-note").msg.text.includes("Mulched by another client."), "the foreign change feed");

@@ -4,6 +4,7 @@
 // link the reader shows, label and all. Code is opaque (PIE-764): a link written in a code span or fenced code is text,
 // so every scan here leaves code out (`CodeScope`). Pure: no I/O.
 
+import { OUTLINE_NAME_PATTERN } from "./protocol";
 import { BLOCK_ID_PATTERN, referenceEnvelopeEnd } from "./addressable-resource";
 import { codeHides, codeSpanRanges, protectedCodeRanges, type SourceRange } from "./code-ranges";
 
@@ -38,12 +39,22 @@ function outsideCode<T extends SourceRange>(text: string, found: T[], scope: Cod
 /** A fragment id: what `^id` names in a note and `((id^fragment))` points at. */
 export const FRAGMENT_ID_SOURCE = String.raw`[A-Za-z0-9][A-Za-z0-9_-]{0,63}`;
 
+/** A single colon after an outline name qualifies a link; double colons remain property text. */
+export function qualifiedReference(input: string): { outline?: string; target: string } {
+  const colon = input.indexOf(":");
+  if (colon > 0 && input[colon + 1] !== ":" && OUTLINE_NAME_PATTERN.test(input.slice(0, colon))) {
+    return { outline: input.slice(0, colon), target: input.slice(colon + 1) };
+  }
+  return { target: input };
+}
+
 // ── block references ─────────────────────────────────────────────────────────────────────────────────────────
 
-const BLOCK_REFERENCE_HEAD_SOURCE = String.raw`\(\(([A-Za-z0-9_-]{8,})(?:\^(${FRAGMENT_ID_SOURCE}))?(?=\)\)|\|)`;
+const BLOCK_REFERENCE_HEAD_SOURCE = String.raw`\(\(((?:[a-z0-9][a-z0-9-]{0,31}:)?[A-Za-z0-9_-]{8,})(?:\^(${FRAGMENT_ID_SOURCE}))?(?=\)\)|\|)`;
 
 /** A `((…))` as the service reads it: its target, its label as written (one line, parentheses balanced), its offsets. */
 export interface BlockReferenceOccurrence {
+  outline?: string;
   blockId: string;
   fragmentId?: string;
   label?: string;
@@ -67,8 +78,10 @@ function blockReferenceMatches(text: string): BlockReferenceOccurrence[] {
       }
       label = text.slice(head + 1, end - 2);
     }
+    const { target: blockId, outline } = qualifiedReference(match[1]!);
     matches.push({
-      blockId: match[1]!,
+      blockId,
+      ...(outline ? { outline } : {}),
       ...(match[2] ? { fragmentId: match[2] } : {}),
       ...(label !== undefined ? { label } : {}),
       start: match.index,
@@ -94,12 +107,12 @@ export function blockReferenceOccurrences(text: string, code?: CodeScope): Block
  * An exact address (a URI, an MCP argument, a stored reference) that must be a full UUID is addressable-resource.ts's
  * `parseBlockRef`, which refuses anything else.
  */
-export function referencedBlock(input: string): { blockId: string; fragment?: string } | null {
+export function referencedBlock(input: string): { blockId: string; fragment?: string; outline?: string } | null {
   const text = input.trim();
   if (BLOCK_ID_PATTERN.test(text)) return { blockId: text };
   const [ref] = blockReferenceOccurrences(text);
   if (!ref || ref.start !== 0 || ref.end !== text.length) return null;
-  return { blockId: ref.blockId, ...(ref.fragmentId ? { fragment: ref.fragmentId } : {}) };
+  return { blockId: ref.blockId, ...(ref.outline ? { outline: ref.outline } : {}), ...(ref.fragmentId ? { fragment: ref.fragmentId } : {}) };
 }
 
 export function blockReferenceIds(text: string, code?: CodeScope): string[] {
@@ -137,7 +150,7 @@ export function blockReferenceEnvelopeRanges(text: string): BlockReferenceEnvelo
 // ── embeds ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** `!((id))` and `!((id^fragment))`: a transclusion (no label). */
-export const EMBED_PATTERN_SOURCE = String.raw`!\(\(([A-Za-z0-9_-]{8,})(?:\^(${FRAGMENT_ID_SOURCE}))?\)\)`;
+export const EMBED_PATTERN_SOURCE = String.raw`!\(\(((?:[a-z0-9][a-z0-9-]{0,31}:)?[A-Za-z0-9_-]{8,})(?:\^(${FRAGMENT_ID_SOURCE}))?\)\)`;
 export const embedPattern = () => new RegExp(EMBED_PATTERN_SOURCE, "g");
 
 // ── page links ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -233,6 +246,7 @@ export interface NormalizedPageAddress {
 }
 
 export interface PageAddressReference extends NormalizedPageAddress {
+  outline?: string;
   label?: string;
   /** Held by another page link of the scan (`[[[[2026-10-06]] - thoughts]]`'s inner one): a link, never drawn alone. */
   nested?: true;
@@ -292,7 +306,8 @@ export function pageAddressReferences(text: string, code?: CodeScope): PageAddre
     while (holding.length && holding[holding.length - 1]! <= span.start) holding.pop();
     const nested = holding.length > 0;
     holding.push(span.end);
-    references.push({ ...address, ...(label ? { label } : {}), ...(nested ? { nested: true as const } : {}), start: span.start, end: span.end });
+    const { outline } = qualifiedReference(address.displayAddress);
+    references.push({ ...address, ...(outline ? { outline } : {}), ...(label ? { label } : {}), ...(nested ? { nested: true as const } : {}), start: span.start, end: span.end });
   }
   return outsideCode(text, references, codeRanges);
 }

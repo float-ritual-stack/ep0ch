@@ -358,24 +358,30 @@ describe("review fixes (PR #13)", () => {
   });
 
   test("4: a link in a heading opens; elsewhere on the heading the click folds it", async () => {
-    const target = note("Stake the beans\ncanes", { id: "22222222-2222-4333-8444-555555555555" });
-    const went: string[] = [];
-    const h = host();
-    (h.ctx.board as any).get = async (id: string) => (id === target.id ? target : null);
-    h.navigate = (m: Msg) => { went.push(m.id); };
-    const s = new NoteSurface();
-    s.show(note(`Links\n## See ((${target.id})) first\nunder it`), h);
-    const lines = s.render(60, 20, h).lines.map(plain);
-    const row = lines.findIndex(l => l.includes("## See"));
-    const link = (s as any).hits.find((x: any) => x.row === row && x.link);
-    expect(link).toBeTruthy();
-    expect(s.click(link.from, row, h)).toBe(true);
-    await Bun.sleep(0);
-    expect(went).toEqual([target.id]);
-    expect(s.describe().folds!.folded).toEqual([]);
-    expect(s.click(0, row, h)).toBe(true);                   // the disclosure
-    expect(s.describe().folds!.folded.length).toBe(1);
-    expect(went).toEqual([target.id]);
+    const scratch = new Scratch();
+    const board = new SocketBoard(await scratch.start());
+    try {
+      await board.info();
+      const created = await board.request("create", { text: "Stake the beans\ncanes", author: "agent" });
+      const target = (await board.get(created.id))!;
+      const went: string[] = [];
+      const h = host();
+      h.ctx.board = board;
+      h.navigate = (m: Msg) => { went.push(m.id); };
+      const s = new NoteSurface();
+      s.show(note(`Links\n## See ((${target.id})) first\nunder it`), h);
+      const lines = s.render(60, 20, h).lines.map(plain);
+      const row = lines.findIndex(l => l.includes("## See"));
+      const link = (s as any).hits.find((x: any) => x.row === row && x.link);
+      expect(link).toBeTruthy();
+      expect(s.click(link.from, row, h)).toBe(true);
+      await until(() => went.length === 1, "the heading link opens");
+      expect(went).toEqual([target.id]);
+      expect(s.describe().folds!.folded).toEqual([]);
+      expect(s.click(0, row, h)).toBe(true);                   // the disclosure
+      expect(s.describe().folds!.folded.length).toBe(1);
+      expect(went).toEqual([target.id]);
+    } finally { board.close(); await scratch.dispose(); }
   });
 
   test("5: a click past the surface's cells (a host's border, its scroll thumb) never folds", () => {

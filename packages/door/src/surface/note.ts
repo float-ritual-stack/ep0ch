@@ -905,6 +905,7 @@ export class NoteSurface {
   private viewKeys: readonly string[] | null = null;
   /** Where this reader's property, link and embed reads go (its host's connection), from the last host seen. */
   src: Source | null = null;
+  private context?: Ctx;
   /** Back and forward (PIE-453): the places this reader showed before, nearest last, and those back came from. */
   private backs: Place[] = [];
   private aheads: Place[] = [];
@@ -941,7 +942,7 @@ export class NoteSurface {
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
   private hostKeys = "";
   private use(host: SurfaceHost | undefined): Source | null {
-    if (host) { this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; this.keptChanged = host.keptChanged ?? null; this.hostKeys = host.ownKeys ?? ""; }
+    if (host) { this.context = host.ctx; this.src = { board: host.ctx.board, redraw: () => host.redraw() }; this.kept = host.history ?? null; this.keptChanged = host.keptChanged ?? null; this.hostKeys = host.ownKeys ?? ""; }
     return this.src;
   }
 
@@ -2203,14 +2204,22 @@ export class NoteSurface {
       try { return draw(); } finally { nest--; }
     };
     const inner: EmbedBody = (target, part, width, hooks) => nested(() => {
+      let source = src;
+      if (target.address && this.context) {
+        const pool = outlineBoards(this.context);
+        const ctx = pool.peek(target.address);
+        if (!ctx) { void pool.on(target.address).then(() => src?.redraw(), (error: Error) => this.context?.flash(error.message)); return ["reading the other outline..."]; }
+        source = { board: ctx.board, redraw: () => src?.redraw() };
+      }
+      const firstLink = drawn.length;
       let text: string, lines: number[], lit: Set<number>;
       if (part) {
         text = part.text;
         lines = text.split("\n").map((_, i) => part.startLine + i);
         const inside = target.text.includes("<!--") ? literalLines(target.text).inside : new Set<number>();
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
-      } else ({ text, lines, literal: lit } = readableSource(target, src));
-      return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
+      } else ({ text, lines, literal: lit } = readableSource(target, source));
+      const rendered = renderDoc(presentLinks(text, true, source, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
@@ -2222,6 +2231,10 @@ export class NoteSurface {
         use: isOutlineNote(target) ? useHook(target.id, lines, undefined, 0) : undefined,
         present: presenter(target.text), liveStep,
       }).lines;
+      if (target.address) for (const link of drawn.slice(firstLink)) {
+        if (!link.outline && (link.block || link.page)) Object.assign(link, target.address);
+      }
+      return rendered;
     }, tooDeep);
     // A template's body (PIE-533 S4), drawn where its `::use` is written: the reader's renderer over the template's text, in the
     // call's Site (`this` the host, `{{props.x}}` the call's), so values, figures, `::fields` and `::if` read the host.
@@ -5386,14 +5399,25 @@ export class NoteSurface {
       host.ctx.flash(l.value.problem ? `${l.value.expression}: ${l.value.problem}` : `${l.value.expression} → ${printable(l.value.words)} · computed (${l.value.route.split(" → ").at(-1)})`, 8000);
       return null;
     }
+    let target: Msg | null = null;
+    if (!l.outline && l.block) {
+      target = await host.ctx.board.get(l.block);
+      if (!target) {
+        const [resolved] = await host.ctx.board.resolveReferences(`((${l.block}))`);
+        if (resolved?.outline) l = { ...l, block: resolved.blockId, outline: resolved.outline, machine: resolved.machine };
+      }
+    }
+    if (!l.outline && l.page) {
+      const resolved = await host.ctx.board.resolvePage(l.page);
+      if (resolved.outline) l = { ...l, page: resolved.address, outline: resolved.outline, machine: resolved.machine };
+    }
     if (l.outline) {
       const ctx = await outlineBoards(host.ctx).on({ outline: l.outline, machine: l.machine ?? host.ctx.machine });
       const address = { outline: l.outline, ...(ctx.machine ? { machine: ctx.machine } : {}) };
       const original = host;
       host = { ...host, ctx, navigate: (m, how) => { m.address = address; original.navigate(m, how); } };
     }
-    let target: Msg | null = null;
-    if (l.block) target = await host.ctx.board.get(l.block);
+    if (l.block) target ??= await host.ctx.board.get(l.block);
     else if (l.page) {
       // The service's page and Work-ID registry first (read-only: a dangling address isn't created).
       const p = await host.ctx.board.resolvePage(l.page).catch(() => null);

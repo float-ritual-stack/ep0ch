@@ -170,7 +170,7 @@ export async function referenceWarnings(text: string, lookups: ReferenceLookups)
     const s = statuses?.[i];
     if (!s || s.status === "resolved") continue;
     const written = text.slice(r.start, r.end);
-    if (s.status === "missing") out.push({ written, problem: "names no note in this outline" });
+    if (s.status === "missing") out.push({ written, problem: "names no note in any reachable outline" });
     else if (s.status === "deleted") out.push({ written, problem: `is in the Trash${s.title ? ` (“${s.title}”)` : ""}` });
     else {
       const body = await quietly(lookups.text ? () => lookups.text!(s.blockId) : undefined);

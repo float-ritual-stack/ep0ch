@@ -1131,6 +1131,8 @@ export function clientSupportsRole(client: Pick<OutlinerClientRegistration, "rol
 }
 
 export interface BlockTarget {
+  outline?: string;
+  machine?: string;
   kind: "block";
   blockId: string;
   fragmentId?: string;
@@ -1266,6 +1268,8 @@ export interface PageAddressRemoval {
 }
 
 export interface PageAddressResolution {
+  outline?: string;
+  machine?: string;
   address: string;
   normalizedAddress: string;
   /** `resolved` (then `block`), `deleted` (its block is in Trash) or `missing` (no block has that address). */
@@ -1288,6 +1292,7 @@ export interface PageAddressMatch extends PageAddressRecord {
 }
 
 export interface PageAddressCollection {
+  outlines?: string[];
   addresses: PageAddressMatch[];
   completeness: BlockCollectionCompleteness;
 }
@@ -1792,6 +1797,8 @@ export interface BacklinkSourceFacets {
 }
 
 export interface BacklinkSource {
+  outline?: string;
+  machine?: string;
   subtitle?: string;
   blockId: string;
   title: string;
@@ -1894,6 +1901,10 @@ export interface VirtualOccurrenceRank {
 }
 
 export interface BlockReferenceResolution {
+  block?: Block;
+  requestedOutline?: string;
+  outline?: string;
+  machine?: string;
   blockId: string;
   fragmentId?: string;
   label?: string;
@@ -2575,7 +2586,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "components.schemas" }
   /** What a rule note (its text, not saved) draws on a sample note's text: a component page's rule variations (PIE-618). */
   | { id: string; action: "rules.preview"; note: string; text: string }
-  | ({ id: string; action: "references.backlinks"; query: BacklinkQuery } & WatchFields)
+  | ({ id: string; action: "references.backlinks"; query: BacklinkQuery; sourceTarget?: { block: Block; outline: string; addresses: string[] } } & WatchFields)
   | { id: string; action: "pages.resolve"; address: string }
   | {
       id: string;

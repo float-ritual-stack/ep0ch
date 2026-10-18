@@ -35,6 +35,7 @@ export type BacklinkOccurrence =
 
 /** One source as `references.backlinks` sends it (timestamps are ISO strings, compared as Detail compares them). */
 export interface BacklinkSource {
+  outline?: string; machine?: string;
   subtitle?: string;
   blockId: string;
   title: string;

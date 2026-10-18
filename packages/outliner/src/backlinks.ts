@@ -39,6 +39,7 @@ export interface BacklinkRelationInput {
   /** The prefixes a ticket key may have here (`work-ids.status`); the configured one alone when left out. */
   ticketPrefixes?: TicketPrefixes;
   facetRules?: BacklinkFacetRules;
+  targetOutline?: string;
 }
 
 export function normalizeBacklinkQuery(query: BacklinkQuery): BacklinkQuery {
@@ -253,7 +254,7 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
     if (source.effectiveDeletedRootId && !query.includeDeleted) continue;
     if (isMachinerySource(source)) continue;
     const occurrences = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes)
-      .filter((occurrence) => occurrence.target === input.target.id);
+      .filter((occurrence) => occurrence.target === input.target.id && (!("outline" in occurrence) || !occurrence.outline || occurrence.outline === input.targetOutline));
     if (occurrences.length === 0) continue;
     matches.push(backlinkSource(
       source,

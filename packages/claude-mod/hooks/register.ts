@@ -1,3 +1,4 @@
+import { formatEp0chBlockUri } from "./link-grammar.js";
 import type { EngineInterface, On, PluginOptions, RenderElement, RenderInput, RenderSurface, UiOpenResult } from 'claude-code'
 
 import {
@@ -22,6 +23,7 @@ import {
   isProtectedDestination,
   linkifyReferences,
   unlabelledBlockIds,
+  replyBlockTargets,
   outlinerBlockIdOf,
   outlinerLabelOf,
   outlinerReferenceOf,
@@ -217,11 +219,14 @@ async function drawReferences($: EngineInterface, e: RenderInput<'AssistantMessa
   const workspace = references?.workspace
   if (!workspace) return null
   const titles = new Map<string, string>()
-  for (const id of unlabelledBlockIds(e.props.text)) {
+  const outlines = new Map<string, string>();
+  for (const id of new Set([...replyBlockTargets(e.props.text), ...unlabelledBlockIds(e.props.text)])) {
     const title = await titleFor($, id)
     if (title) titles.set(id, title)
+    const location = await $.state.get({ ...TOOL_OUTLINES, id });
+    if (location.value) outlines.set(id, location.value);
   }
-  const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id))
+  const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id), id => outlines.get(id))
   if (prompt && hrefs.length === 0) return null
   // A terminal draws a link out of the outline itself too (a trailing arrow, dim), so a reply with one is not left to the engine.
   const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
@@ -1439,7 +1444,7 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
       { cwd: workspace?.root ?? await startFolderOf($), ...(workspace ? { env: envFor(workspace) } : {}), timeoutMs: 30_000 },
     )
   }
-  let target: { id: string; title?: string } | undefined
+  let target: { id: string; title?: string; outline?: string; machine?: string; fragmentId?: string } | undefined
   const resolve = async () => {
     if (target) return target
     if (!workspace) {
@@ -1449,19 +1454,19 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
     }
     const resolved = await outliner(['resolve', uri])
     if (resolved.exitCode !== 0) throw Error(failureReasonOf(resolved.stderr) || 'the target did not resolve')
-    return (target = JSON.parse(resolved.stdout) as { id: string; title?: string })
+    return (target = JSON.parse(resolved.stdout) as { id: string; title?: string; outline?: string; machine?: string; fragmentId?: string })
   }
 
   let why: string
   if (control) {
-    const { id, title } = await resolve()
+    const { id, title, outline, machine, fragmentId } = await resolve()
     // The tile this Claude is drawn in: its own variables, else (a Claude that came in over ssh has none) the door's
     // answer for the ssh connection it arrived on (`host.tileOf`, PIE-1043). None found: where the screen's opens land.
     const from = doorTileOf({ ...(tile ? { EP0CH_TILE: tile } : {}), ...(tileId ? { EP0CH_TILE_ID: tileId } : {}) }) ?? await tileOfConnection($, control, actor)
     // From this tile, its opens' link; a door that doesn't know the tile (or is older than `from=`) is asked again
     // naming none, and lands it where its opens land. Never a reader by name: an agent naming the reader the person
     // reads is refused (ep0ch-door round 3), and where opens land never takes their keys.
-    const opened = await outliner(['door-open', id, '--control', control, '--actor', actor, ...(from ? ['--from', from] : [])])
+    const opened = await outliner(['door-open', outline ? formatEp0chBlockUri({ outline, machine: machine!, blockId: id, fragment: fragmentId }) : id, '--control', control, '--actor', actor, ...(from ? ['--from', from] : [])])
     if (opened.exitCode === 0) {
       let reader: unknown
       try { reader = JSON.parse(opened.stdout)?.reader } catch { reader = undefined }
@@ -1845,6 +1850,7 @@ const TOOL_ROWS_PREFS = { plugin: 'ep0ch', key: 'toolRows' } as const
 const TOOL_ROW_OPEN = { plugin: 'ep0ch', key: 'toolRowOpen' } as const
 /** Block titles a tool row names, by block id: looked up once a session, off the draw. */
 const TOOL_TITLES = { plugin: 'ep0ch', key: 'toolTitles' } as const
+const TOOL_OUTLINES = { plugin: 'ep0ch', key: 'toolOutlines' } as const
 const askedTitles = new Set<string>()
 /** The tool calls whose row the mod drew (not the engine's): only their result rows are shortened. */
 const drawnToolRows = new Set<string>()
@@ -1859,9 +1865,11 @@ async function titleFor($: EngineInterface, id: string): Promise<string | undefi
   if (value) return value
   if (workspace && !askedTitles.has(id)) {
     askedTitles.add(id)
-    $.clock.after(0, () => void runOutlinerCli($, workspace, ['agent', 'resolve', '--stdin'], JSON.stringify({ ref: id }))
-      .then(out => {
-        const title: unknown = JSON.parse(out)?.title
+    $.clock.after(0, () => void runOutlinerCli($, workspace, ['resolve', `pi-outliner://block/${encodeURIComponent(id)}`])
+      .then(async out => {
+        const result = JSON.parse(out);
+        if (typeof result.outline === 'string') await $.state.set({ ...TOOL_OUTLINES, id }, result.outline);
+        const title: unknown = result.title;
         return typeof title === 'string' && title.trim() ? $.state.set({ ...TOOL_TITLES, id }, title.trim()) : undefined
       })
       .catch(() => {}))

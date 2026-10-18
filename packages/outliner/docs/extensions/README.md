@@ -1941,6 +1941,8 @@ Answers `RenderedNote`.
 
 | Field | Type | |
 |---|---|---|
+| `outline?` | `string` |  |
+| `machine?` | `string` |  |
 | `address` | `string` |  |
 | `normalizedAddress` | `string` |  |
 | `status` | `"resolved" \| "deleted" \| "missing"` | `resolved` (then `block`), `deleted` (its block is in Trash) or `missing` (no block has that address). |

@@ -3462,6 +3462,17 @@ export class OutlinerStore {
     }).deferred();
   }
 
+  pageAddressesOf(blockId: string): { normalizedAddress: string }[] {
+    return this.database.query("SELECT normalized_address AS normalizedAddress FROM page_addresses WHERE block_id = ?").all(blockId) as { normalizedAddress: string }[];
+  }
+
+  queryBacklinksAcross(query: BacklinkQuery, target: Block, addresses: Map<string, string>, targetOutline: string): BacklinkCollection {
+    return this.database.transaction(() => {
+      const context = this.backlinkContextFromCurrentRead([target.id], [...addresses.keys()]);
+      return resolveBacklinkRelation({ ...context, query, target, addressTargets: addresses, targetOutline });
+    }).deferred();
+  }
+
   /** The active sources for these targets, read through the reference candidate index in outline order. */
   backlinkSources(ids: readonly string[]): Map<string, string[]> {
     return this.database.transaction(() => backlinkSourceIds(this.backlinkContextFromCurrentRead(ids), new Set(ids))).deferred();
@@ -3491,7 +3502,7 @@ export class OutlinerStore {
   }
 
   /** A target reads indexed candidates and their ancestors; whole-outline relation queries share the graph. */
-  private backlinkContextFromCurrentRead(targetIds?: readonly string[]) {
+  private backlinkContextFromCurrentRead(targetIds?: readonly string[], extraAddresses: readonly string[] = []) {
     const addressRows = this.database.query(
       "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
     ).all() as Array<{ normalized_address: string; block_id: string }>;
@@ -3507,7 +3518,7 @@ export class OutlinerStore {
     let orderedBlocks: Block[];
     if (targetIds !== undefined) {
       const targets = new Set(targetIds);
-      const addresses = [...targets, ...[...addressTargets].filter(([, id]) => targets.has(id)).map(([address]) => address)];
+      const addresses = [...extraAddresses, ...targets, ...[...addressTargets].filter(([, id]) => targets.has(id)).map(([address]) => address)];
       const rows = this.database.query(`SELECT DISTINCT block_id FROM block_reference_candidates
         WHERE address IN (${addresses.map(() => "?").join(", ")})`).all(...addresses) as { block_id: string }[];
       const load = (id: string): Block | null => {

@@ -13,7 +13,7 @@ export function blockReferenceDisplayText(reference: BlockReferenceResolution): 
   if (reference.status === "missing") {
     return `((${reference.blockId}${fragment}${reference.label !== undefined ? `|${reference.label}` : ""}))`;
   }
-  const title = reference.label ?? reference.title ?? reference.blockId;
+  const title = (reference.outline ? `${reference.outline} · ` : "") + (reference.label ?? reference.title ?? reference.blockId);
   const label = `${title}${reference.label === undefined ? fragment : ""}`;
   const suffix = reference.status === "deleted" ? " · Trash"
     : reference.status === "stale" ? " · Missing fragment"
@@ -31,13 +31,13 @@ export function blockDisplayTitle(block: Block): string {
 
 export function resolveBlockReferencesWithStatus(
   text: string,
-  lookup: (blockId: string) => Block | null,
+  lookup: (blockId: string, outline?: string) => Block | null,
 ): ResolvedBlockReferences {
   const references: BlockReferenceResolution[] = [];
   let resolved = "";
   let cursor = 0;
-  for (const { blockId, fragmentId, label, start, end } of blockReferenceOccurrences(text)) {
-    const block = lookup(blockId);
+  for (const { blockId, outline, fragmentId, label, start, end } of blockReferenceOccurrences(text)) {
+    const block = lookup(blockId, outline);
     let status: BlockReferenceResolution["status"] = block ? "resolved" : "missing";
     if (block?.effectiveDeletedRootId) status = "deleted";
     else if (block && fragmentId) {
@@ -46,6 +46,7 @@ export function resolveBlockReferencesWithStatus(
     }
     const resolution: BlockReferenceResolution = {
       blockId: block?.id ?? blockId,
+      ...(outline ? { requestedOutline: outline, outline } : {}),
       ...(fragmentId ? { fragmentId } : {}),
       ...(label !== undefined ? { label } : {}),
       status,
@@ -61,7 +62,7 @@ export function resolveBlockReferencesWithStatus(
 
 export function resolveBlockReferences(
   text: string,
-  lookup: (blockId: string) => Block | null,
+  lookup: (blockId: string, outline?: string) => Block | null,
 ): string {
   return resolveBlockReferencesWithStatus(text, lookup).text;
 }

@@ -1197,6 +1197,7 @@ switch (command) {
     const resolved = await resolveOutlinerLinkTarget(client, parseOutlinerLinkUri(url), { followMissingPages: false });
     directResult = {
       id: resolved.block.id,
+      ...(resolved.outline ? { outline: resolved.outline, machine: resolved.machine ?? (await client.request<{ machine: string }>({ action: "notes.address" })).machine } : {}),
       title: blockDisplayTitle(resolved.block),
       ...(resolved.fragmentId ? { fragmentId: resolved.fragmentId } : {}),
       ...(resolved.block.effectiveDeletedRootId ? { deleted: true } : {}),

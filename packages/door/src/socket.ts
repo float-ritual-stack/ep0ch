@@ -241,12 +241,13 @@ export const isExtensionWriter = (author: string | null | undefined) => !!author
 
 /** How the service reads one `((id^fragment|label))` (`references.resolve`). */
 export interface ReferenceResolution {
+  outline?: string; machine?: string; requestedOutline?: string;
   blockId: string; fragmentId?: string; label?: string;
   status: "resolved" | "deleted" | "missing" | "stale" | "duplicate";
   title?: string;
 }
 /** How the service reads one `[[address]]` or Work ID (`pages.resolve`). Read-only: nothing is created. */
-export interface PageResolution { address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
+export interface PageResolution { outline?: string; machine?: string; address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
@@ -350,6 +351,8 @@ export interface FragmentCandidate {
  * slice), the steps inside what it shows and the embeds inside it, nested; or why not, in the service's words.
  */
 export interface TransclusionNode {
+  resolvedBlockId?: string;
+  outline?: string; machine?: string;
   blockId: string; fragmentId?: string; depth: number;
   status: "ready" | "missing" | "deleted" | "failed" | "fragment-missing" | "fragment-duplicate" | "limit" | "depth-limit" | "cycle" | "budget" | "too-large";
   message?: string; kind?: "note" | "fragment" | "view"; title?: string; revision?: number;
@@ -773,8 +776,8 @@ export class SocketBoard implements Board {
 
   /** What a `[[page]]` address or Work ID points at. Never follows (`pages.follow` would create a stub). */
   async resolvePage(address: string): Promise<PageResolution> {
-    const r = await this.request<{ address: string; status: PageResolution["status"]; block?: WireBlock }>("pages.resolve", { address });
-    return { address: r.address, status: r.status, ...(r.block ? { block: toMsg(r.block) } : {}) };
+    const r = await this.request<{ outline?: string; machine?: string; address: string; status: PageResolution["status"]; block?: WireBlock }>("pages.resolve", { address });
+    return { ...r, ...(r.block ? { block: { ...toMsg(r.block), ...(r.outline ? { address: { outline: r.outline, machine: r.machine } } : {}) } } : { block: undefined }) };
   }
 
   /**
@@ -1564,7 +1567,7 @@ export class SocketBoard implements Board {
    * `searchBlocks` is; `semantic` and `near` as there.
    */
   completePages(query: string | undefined, limit: number, opts: SearchOptions = {}) {
-    return this.request<{ addresses: { address: string; blockId: string; kind: string; title: string; subtitle?: string }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
+    return this.request<{ outlines?: string[]; addresses: { address: string; blockId: string; kind: string; title: string; subtitle?: string }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
       ...(query ? { query } : {}), limit, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}),
     });
   }
@@ -1651,8 +1654,9 @@ export class SocketBoard implements Board {
     const r = await this.request<Omit<TransclusionRead, "results"> & { results: Wire[]; blocks?: Record<string, WireBlock>; checklists?: Record<string, WireStep[]> }>("transclusions.read", { targets, ...(hostBlockId ? { hostBlockId } : {}) });
     const blocks = new Map(Object.entries(r.blocks ?? {}).map(([id, b]) => [id, toMsg(b)]));
     const node = (n: Wire): TransclusionNode => {
-      const block = blocks.get(n.blockId), lines = n.shownLines;
-      const checklist = block && lines ? (r.checklists?.[n.blockId] ?? [])
+      const stored = blocks.get(n.resolvedBlockId ?? n.blockId), lines = n.shownLines;
+      const block = stored && n.outline ? { ...stored, address: { outline: n.outline, machine: n.machine } } : stored;
+      const checklist = block && lines ? (r.checklists?.[n.resolvedBlockId ?? n.blockId] ?? [])
         .filter(s => s.span.startLine >= lines.start && s.span.startLine <= lines.end)
         .map(s => ({ ...s, text: block.text.slice(s.span.start, s.span.end).trimEnd() })) : undefined;
       // A missing fragment keeps its note too (the service sends it), for the anchors it does have (PIE-852).
